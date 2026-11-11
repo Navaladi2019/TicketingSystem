@@ -1,7 +1,7 @@
 meta {
   name: S9.9 AC2: update with the current ETag: 200
   type: http
-  seq: 9
+  seq: 13
 }
 
 patch {
@@ -11,7 +11,7 @@ patch {
 }
 
 headers {
-  Authorization: Bearer {{alice_token}}
+  Authorization: Bearer {{admin_a_token}}
   Idempotency-Key: tick359-s9-{{s9_run}}-update
   Content-Type: application/merge-patch+json
   If-Match: W/"1"

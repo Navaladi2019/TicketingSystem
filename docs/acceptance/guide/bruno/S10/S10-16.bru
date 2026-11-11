@@ -1,0 +1,56 @@
+meta {
+  name: S10.16 An unknown column: 422 with its pointer
+  type: http
+  seq: 16
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick620-s10-{{s10_run}}-bad
+  If-Match: {{s10_etag}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": [
+      {
+        "id": "bad",
+        "ops": [
+          "read"
+        ],
+        "who": {
+          "groups": [
+            "00000000-0000-4000-8000-00000000dead"
+          ]
+        },
+        "where": [
+          {
+            "column": "priority",
+            "op": "eq",
+            "values": [
+              "1"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_access_policy', 422);
+  const at = N.json().errors.map(e => e.pointer);
+  test('the column is named', () => expect(at).to.include('/rules/0/where/0/column'));
+}
+
+docs {
+  422 `invalid_access_policy`. `If-Match` is the current `ETag` (S10.15's): the PUT checks `If-Match` (428, 412) before the body (`docs/architecture/record-acl.md`), so a stale one would answer 412 and never reach the body. `priority` is not an ACL column (only `state`, `requester_id`, `assignee_id`, `assignment_group_id`), refused at `/rules/0/where/0/column`. A shape problem stops the check, so the group of no tenant is not reported here; a well-formed rule naming it would be refused at `/rules/0/who/groups/0`, the same whether the group does not exist or belongs to another tenant. Nothing is published.
+}

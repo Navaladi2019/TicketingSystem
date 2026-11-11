@@ -7,44 +7,107 @@
 // the transaction: through PgBouncer in transaction mode the next transaction
 // on the same server connection, which may belong to another client, starts
 // with no tenant.
+//
+// The transaction's BEGIN makes the setting itself (TICK-648): one round trip
+// opens the transaction and scopes it, so no statement fn sends, alone or in
+// a pgx.Batch, can run in the transaction before the tenant is set. See
+// docs/architecture/tenant-tx-batching.md.
 package tenancy
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrNoTenant is returned for uuid.Nil. No transaction is opened.
 var ErrNoTenant = errors.New("tenancy: no tenant")
 
-// setTenantSQL scopes the transaction to one tenant. The tenant id is a bind
-// parameter, which the pool's tracer never records (otelpgx records
-// parameters only with WithIncludeQueryParameters, which lint bans).
-const setTenantSQL = "SELECT set_config('app.tenant_id', $1, true)"
+// beginSQL opens the transaction and scopes it to tenant in one round trip.
+// pgx runs a BeginQuery with no arguments over the simple protocol, which
+// takes several statements, and fails the begin (closing the connection) if
+// either fails. A simple query has no bind parameters, so the tenant is a
+// literal: uuid.UUID.String(), 36 characters of hex and hyphens, never caller
+// text, so nothing can break out of the quotes. The tracer does not export
+// statement text (TestTracedTxExportsNoValues).
+func beginSQL(tenant uuid.UUID) string {
+	return beginPrefix + tenant.String() + beginSuffix
+}
+
+const (
+	beginPrefix = "BEGIN; SELECT set_config('app.tenant_id', '"
+	beginSuffix = "', true)"
+)
+
+// BeginTenant reports whether sql is the statement InTenantTx opens a
+// transaction with, and the tenant it sets. It is for tracers that check
+// the GUC ordering from the driver's side (tenancytest.Guard), so the
+// statement's text stays owned by this package.
+func BeginTenant(sql string) (uuid.UUID, bool) {
+	rest, ok := strings.CutPrefix(sql, beginPrefix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, ok := strings.CutSuffix(rest, beginSuffix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	tenant, err := uuid.Parse(id)
+	if err != nil || tenant == uuid.Nil || beginSQL(tenant) != sql {
+		return uuid.Nil, false
+	}
+	return tenant, true
+}
 
 // InTenantTx runs fn in a transaction whose app.tenant_id is tenantID, and
 // commits if fn returns nil. It rolls back if fn returns an error, which it
 // returns unwrapped, or panics, which it re-raises after the rollback. If the
-// rollback itself fails, its error is joined to fn's; pgx has then closed the
-// connection, so the tenant cannot leak to the next transaction.
+// rollback itself fails, its error is joined to fn's; the connection is then
+// destroyed, not returned to the pool, so the tenant cannot leak to the next
+// transaction.
+//
+// The tx fn gets knows its tenant (TenantOf answers without a round trip),
+// holds a per-transaction memo (Remember, Recall) and can queue statements
+// for the commit's round trip (ExecAtCommit).
+//
+// With BeginInFirstBatch, the BEGIN and the setting ride in the round trip of
+// the first batch fn sends instead of one of their own (TICK-692,
+// firstbatch.go).
 //
 // tenantID must come from the request's resolved principal, never from a
 // path, query or body.
-func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error) (err error) {
+func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn func(pgx.Tx) error, opts ...TxOption) (err error) {
 	if tenantID == uuid.Nil {
 		return ErrNoTenant
 	}
-	tx, err := pool.Begin(ctx)
+	var o txOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("tenancy: begin: %w", err)
 	}
-	// Rollback after Commit is a no-op, so one deferred call covers the error
-	// return, the panic and a failed commit.
+	// Release puts the connection back in the pool only when it is idle and
+	// out of any transaction (TxStatus 'I'); otherwise it destroys it.
+	// Deferred first, so it runs after the rollback below.
+	defer conn.Release()
+	var tx pgx.Tx
+	if o.beginInFirstBatch {
+		tx = &lazyTx{conn: conn.Conn(), tenant: tenantID}
+	} else if tx, err = conn.BeginTx(ctx, pgx.TxOptions{BeginQuery: beginSQL(tenantID)}); err != nil {
+		return fmt.Errorf("tenancy: begin: %w", err)
+	}
+	st := &scopedTx{Tx: tx, tenant: tenantID, memo: &memo{m: map[any]any{}}}
+	// Rollback after Commit is a no-op for pgx, and only a warning for
+	// PostgreSQL after a batched COMMIT, so one deferred call covers the
+	// error return, the panic and a failed commit.
 	defer func() {
 		if p := recover(); p != nil {
 			_ = tx.Rollback(ctx)
@@ -57,16 +120,231 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 			}
 		}
 	}()
-	if _, err := tx.Exec(ctx, setTenantSQL, tenantID.String()); err != nil {
-		return fmt.Errorf("tenancy: set tenant: %w", err)
-	}
-	if err := fn(tx); err != nil {
+	if err := fn(st); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if st.atCommit == nil || st.atCommit.Len() == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("tenancy: commit: %w", err)
+		}
+		return nil
+	}
+	return st.commitBatch(ctx, conn.Conn().PgConn())
+}
+
+// scopedTx is the transaction InTenantTx hands fn: pgx's own, plus the tenant
+// its BEGIN set, the memo and the statements queued for the commit. Only
+// InTenantTx builds one, so holding one proves the tenant was set at BEGIN.
+// Like pgx.Tx it is not safe for concurrent use.
+type scopedTx struct {
+	pgx.Tx
+	tenant uuid.UUID
+	memo   *memo
+	// atCommit is the batch the commit's round trip sends before COMMIT
+	// (ExecAtCommit, QueueAtCommit); nil until something is queued.
+	atCommit *pgx.Batch
+	// nested: a savepoint (Begin). It shares the parent's tenant and memo but
+	// cannot queue statements for the commit: rolling the savepoint back
+	// would not take them back.
+	nested bool
+	// mark: for a savepoint, the memo's undo length when it opened.
+	mark int
+	// ended: the savepoint was released or rolled back.
+	ended bool
+}
+
+// memo is a transaction's memo, shared by its savepoints. While a savepoint
+// is open every change is journaled in undo, so rolling the savepoint back
+// can restore the memo as it was when the savepoint opened (TICK-651): a
+// record created in a rolled-back savepoint is then no longer recalled.
+type memo struct {
+	m    map[any]any
+	undo []undoEntry
+	open int // savepoints open
+}
+
+// undoEntry is key's value before a change: v, or absent when !had.
+type undoEntry struct {
+	key any
+	v   any
+	had bool
+}
+
+func (m *memo) set(key, v any) {
+	m.journal(key)
+	m.m[key] = v
+}
+
+func (m *memo) del(key any) {
+	m.journal(key)
+	delete(m.m, key)
+}
+
+func (m *memo) journal(key any) {
+	if m.open == 0 {
+		return
+	}
+	v, had := m.m[key]
+	m.undo = append(m.undo, undoEntry{key: key, v: v, had: had})
+}
+
+// end closes a savepoint opened at mark. A rollback undoes, newest first,
+// every change since mark; a release keeps them, journaled still for an
+// enclosing savepoint's rollback. With no savepoint left open, the journal
+// is dropped.
+func (m *memo) end(mark int, rollback bool) {
+	if rollback {
+		for i := len(m.undo) - 1; i >= mark; i-- {
+			u := m.undo[i]
+			if u.had {
+				m.m[u.key] = u.v
+			} else {
+				delete(m.m, u.key)
+			}
+		}
+		m.undo = m.undo[:mark]
+	}
+	m.open--
+	if m.open == 0 {
+		m.undo = nil
+	}
+}
+
+// Begin opens a savepoint that keeps the tenant and the memo.
+func (s *scopedTx) Begin(ctx context.Context) (pgx.Tx, error) {
+	sp, err := s.Tx.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.memo.open++
+	return &scopedTx{Tx: sp, tenant: s.tenant, memo: s.memo, nested: true, mark: len(s.memo.undo)}, nil
+}
+
+// Commit commits the transaction or releases the savepoint. A savepoint
+// whose release fails keeps none of its memo changes: its work was not kept
+// either.
+func (s *scopedTx) Commit(ctx context.Context) error {
+	err := s.Tx.Commit(ctx)
+	s.endSavepoint(err != nil && !errors.Is(err, pgx.ErrTxClosed))
+	return err
+}
+
+// Rollback rolls the transaction or the savepoint back. A savepoint's
+// rollback undoes the memo changes made since it opened. On a savepoint
+// already released or rolled back it does nothing to the memo, so the usual
+// deferred Rollback after Commit is safe.
+func (s *scopedTx) Rollback(ctx context.Context) error {
+	err := s.Tx.Rollback(ctx)
+	s.endSavepoint(!errors.Is(err, pgx.ErrTxClosed))
+	return err
+}
+
+// endSavepoint ends s's memo scope once, rolling it back when rollback.
+func (s *scopedTx) endSavepoint(rollback bool) {
+	if !s.nested || s.ended {
+		return
+	}
+	s.ended = true
+	s.memo.end(s.mark, rollback)
+}
+
+// commitBatch sends the queued statements and COMMIT as one batch: one round
+// trip. A failing statement makes PostgreSQL skip the rest of the batch,
+// COMMIT included, and InTenantTx's deferred rollback ends the transaction.
+func (s *scopedTx) commitBatch(ctx context.Context, conn *pgconn.PgConn) error {
+	b := s.atCommit
+	b.Queue("COMMIT").Exec(func(ct pgconn.CommandTag) error {
+		// PostgreSQL answers the COMMIT of an aborted transaction with ROLLBACK.
+		if ct.String() == "ROLLBACK" {
+			return pgx.ErrTxCommitRollback
+		}
+		return nil
+	})
+	if err := s.Tx.SendBatch(ctx, b).Close(); err != nil {
 		return fmt.Errorf("tenancy: commit: %w", err)
 	}
+	// pgx's tx object never saw this COMMIT. The connection must be out of
+	// any transaction, or Release destroys it.
+	if st := conn.TxStatus(); st != 'I' {
+		return fmt.Errorf("tenancy: commit: connection left in transaction status %q", st)
+	}
 	return nil
+}
+
+// ExecAtCommit queues sql to run in the round trip that commits tx, after
+// everything fn sent and immediately before COMMIT, in the order queued. It
+// returns false, queuing nothing, when tx is not an InTenantTx transaction or
+// is a savepoint; the caller then runs the statement itself.
+//
+// The statement's result is not returned: by the time it is read the
+// transaction has committed. A statement that must stop the commit has to
+// fail in SQL, and one whose row count matters must be made certain by the
+// caller first, for example by locking the row earlier in tx.
+func ExecAtCommit(tx pgx.Tx, sql string, args ...any) bool {
+	b, ok := QueueAtCommit(tx)
+	if !ok {
+		return false
+	}
+	b.Queue(sql, args...)
+	return true
+}
+
+// QueueAtCommit returns the batch the round trip that commits tx sends, for
+// statements that need a result callback (pgx.QueuedQuery's Exec, Query,
+// QueryRow): it runs everything queued on it, in order, then COMMIT. As with
+// ExecAtCommit, a statement that must stop the commit has to fail in SQL; a
+// failing statement makes PostgreSQL skip the rest of the batch, COMMIT
+// included, its callback's error is what InTenantTx returns (wrapped), and
+// the transaction rolls back. The callbacks run while the batch's results
+// are read, so a callback of a statement before COMMIT sees its result
+// before the commit's. Queue nothing on it but statements for this round
+// trip, and only once the caller is sure it wants them sent.
+//
+// It returns false when tx is not an InTenantTx transaction or is a
+// savepoint.
+func QueueAtCommit(tx pgx.Tx) (*pgx.Batch, bool) {
+	s, ok := tx.(*scopedTx)
+	if !ok || s.nested {
+		return nil, false
+	}
+	if s.atCommit == nil {
+		s.atCommit = &pgx.Batch{}
+	}
+	return s.atCommit, true
+}
+
+// Remember stores v under key in tx's memo, for Recall later in the same
+// transaction: a read prefetched in a batch is then used by the code that
+// would otherwise read it again. key must be a comparable value of a type
+// the calling package owns, as with context keys. The memo dies with tx,
+// which is one tenant's, so nothing in it crosses a tenant or a transaction.
+// A tx InTenantTx did not open has no memo, and Remember does nothing.
+//
+// Memo only reads whose result this transaction does not change later, or
+// Forget the key in the code that changes it. A savepoint shares its
+// transaction's memo; rolling it back undoes the Remember and Forget calls
+// made since it opened, releasing it keeps them (TICK-651).
+func Remember(tx pgx.Tx, key, v any) {
+	if s, ok := tx.(*scopedTx); ok {
+		s.memo.set(key, v)
+	}
+}
+
+// Recall returns what Remember stored under key in tx, if anything.
+func Recall(tx pgx.Tx, key any) (any, bool) {
+	s, ok := tx.(*scopedTx)
+	if !ok {
+		return nil, false
+	}
+	v, found := s.memo.m[key]
+	return v, found
+}
+
+// Forget drops key from tx's memo.
+func Forget(tx pgx.Tx, key any) {
+	if s, ok := tx.(*scopedTx); ok {
+		s.memo.del(key)
+	}
 }
 
 // currentTenantSQL reads the transaction's tenant; empty when none is set.
@@ -76,7 +354,13 @@ const currentTenantSQL = "SELECT coalesce(current_setting('app.tenant_id', true)
 // has none. Code that must name the tenant in a statement, such as the record
 // write pipeline, takes it from here rather than from its caller, so a
 // command can never write as another tenant than its transaction's.
+//
+// For a tx InTenantTx opened it answers, with no round trip, with the tenant
+// that transaction's BEGIN set. Any other tx is asked for its setting.
 func TenantOf(ctx context.Context, tx pgx.Tx) (uuid.UUID, error) {
+	if s, ok := tx.(*scopedTx); ok {
+		return s.tenant, nil
+	}
 	var s string
 	if err := tx.QueryRow(ctx, currentTenantSQL).Scan(&s); err != nil {
 		return uuid.Nil, fmt.Errorf("tenancy: read tenant: %w", err)

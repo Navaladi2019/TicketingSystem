@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,9 +39,10 @@ var (
 	ErrDuplicateKey = errors.New("records/store: duplicate idempotency key")
 )
 
-// idempotencyIndex is the primary key of record_write_keys (D-5-3): one
-// write per tenant and key.
-const idempotencyIndex = "record_write_keys_pkey"
+// idempotencyIndex is the unique index of record_write_keys (D-5-3): one
+// write per tenant, key and principal, NULLS NOT DISTINCT (TICK-626,
+// AR-TICK-480-01).
+const idempotencyIndex = "record_write_keys_actor_key"
 
 // Record is one records row of a pipeline record. Data never holds a property
 // mapped to a fixed column (TICK-360); Payload merges them back.
@@ -191,27 +191,12 @@ RETURNING version`,
 // the literal jsonb prints and diff_sha256 does not depend on how the client
 // spelled it.
 func PayloadJSON(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID, version int64, fixed map[string]string) (json.RawMessage, error) {
-	props := slices.Sorted(maps.Keys(fixed))
-	args := []any{tenantID, id, version, props}
-	expr := "(data - $4::text[])"
-	for _, prop := range props {
-		col := fixed[prop]
-		switch col {
-		case metadata.ColumnState, metadata.ColumnRequesterID, metadata.ColumnAssigneeID, metadata.ColumnAssignmentGroupID:
-		default:
-			return nil, fmt.Errorf("records/store: unknown fixed column %q", col)
-		}
-		args = append(args, prop)
-		n := len(args)
-		// col is one of the four constants above, never input.
-		if col == metadata.ColumnState {
-			expr += fmt.Sprintf(" || jsonb_build_object($%d::text, %s)", n, col)
-			continue
-		}
-		expr += fmt.Sprintf(" || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
+	expr, args, err := payloadExpr(fixed, []any{tenantID, id, version})
+	if err != nil {
+		return nil, err
 	}
 	var s string
-	err := tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
+	err = tx.QueryRow(ctx, "SELECT ("+expr+")::text FROM records WHERE tenant_id = $1 AND id = $2 AND version = $3", args...).Scan(&s)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrStale
 	}
@@ -235,18 +220,21 @@ type WriteKey struct {
 	SchemaVersion int
 	// AuditEntryID is a soft pointer to the write's primary audit entry.
 	AuditEntryID uuid.UUID
+	// ActorPrincipalID is the writer's principal; nil for a system writer
+	// with no principal. Each principal has its own key space (TICK-626).
+	ActorPrincipalID *uuid.UUID
 }
 
-// InsertWriteKey claims k.IdempotencyKey for the write, in the write's
-// transaction. A key another write holds is ErrDuplicateKey, also when that
+// InsertWriteKey claims k.IdempotencyKey for k.ActorPrincipalID's write, in
+// the write's transaction. A key another write by the same principal holds is ErrDuplicateKey, also when that
 // write has not committed yet (the insert waits for it); tx is aborted then.
 func InsertWriteKey(ctx context.Context, tx pgx.Tx, k *WriteKey) error {
 	_, err := tx.Exec(ctx, `
 INSERT INTO record_write_keys (tenant_id, idempotency_key, definition_id, action, record_id, number,
-    version, schema_version, audit_entry_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    version, schema_version, audit_entry_id, actor_principal_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		k.TenantID, k.IdempotencyKey, k.DefinitionID, k.Action, k.RecordID, k.Number,
-		k.Version, k.SchemaVersion, k.AuditEntryID)
+		k.Version, k.SchemaVersion, k.AuditEntryID, k.ActorPrincipalID)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == idempotencyIndex {
 		return ErrDuplicateKey
@@ -257,14 +245,15 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 	return nil
 }
 
-// WriteKeyByKey returns the write that holds the idempotency key, or
-// ErrNotFound. It reads record_write_keys only, never the audit log.
-func WriteKeyByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*WriteKey, error) {
-	k := WriteKey{TenantID: tenantID, IdempotencyKey: key}
-	err := tx.QueryRow(ctx, `
-SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
-FROM record_write_keys
-WHERE tenant_id = $1 AND idempotency_key = $2`, tenantID, key).
+// WriteKeyByKey returns the write by actor that holds the idempotency key, or
+// ErrNotFound. actor is nil for a system writer with no principal. A key
+// another principal of the tenant holds is ErrNotFound: one caller never
+// replays another's write, and since the unique index is per principal too,
+// the caller's own write under that key succeeds and learns nothing
+// (TICK-480, TICK-626). It reads record_write_keys only, never the audit log.
+func WriteKeyByKey(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, actor *uuid.UUID, key string) (*WriteKey, error) {
+	k := WriteKey{TenantID: tenantID, IdempotencyKey: key, ActorPrincipalID: actor}
+	err := tx.QueryRow(ctx, writeKeySelect, tenantID, key, actor).
 		Scan(&k.DefinitionID, &k.Action, &k.RecordID, &k.Number, &k.Version, &k.SchemaVersion, &k.AuditEntryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -274,6 +263,11 @@ WHERE tenant_id = $1 AND idempotency_key = $2`, tenantID, key).
 	}
 	return &k, nil
 }
+
+const writeKeySelect = `
+SELECT definition_id, action, record_id, number, version, schema_version, audit_entry_id
+FROM record_write_keys
+WHERE tenant_id = $1 AND idempotency_key = $2 AND actor_principal_id IS NOT DISTINCT FROM $3`
 
 // jsonParam is a jsonb statement argument. Over QueryExecModeExec (nava-core's
 // PgBouncer pool) the parameter has no declared type, and pgx sends []byte as

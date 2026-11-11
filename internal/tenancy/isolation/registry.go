@@ -137,6 +137,12 @@ type Cluster interface {
 	// PgBouncer's one server connection for the role: a check that holds a
 	// server connection while another request needs one waits forever.
 	PooledSize(role string, conns int32) (*pgxpool.Pool, error)
+	// AllocatorPool is the record-number allocator pool, as nava-core opens
+	// it (ADR-005 A3, A5, TICK-657): nava_app, checked by
+	// tenancy.AllocPoolConfig, logged in directly so it never shares the
+	// suite's one PgBouncer server connection with the creates that wait on
+	// it.
+	AllocatorPool() (*pgxpool.Pool, error)
 	// AuditReader is the audit reader's own pool (read.OpenPool), logged in
 	// as nava_audit_reader through PgBouncer with a DSN, as nava-core opens
 	// it (ADR-004-A1 A1-5, A1-6).
@@ -224,7 +230,7 @@ func Coverage() map[string]string {
 	return map[string]string{
 		"CI-2":           "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
 		"CI-9":           "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
-		"CI-8":           "partial → P3-37 (S10): the masked-field filter 400 needs S10's masks; here the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22",
+		"CI-8":           "full: the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22; the masked-field filter 400 (d) and the S10 attack rows on the record ACL, masks, admin routes and explainer (P3-37)",
 		"CI-10":          "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
 		"T26":            "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 		"CI-A4":          "full (ADR-004, P5-19, P5-42): audit_log through the parent, its DEFAULT partition, audit_chain_head and record_write_keys as every runtime role, with no tenant and with onboarding's pinned policies; GET /api/v1/audit/entries and record history for tenant B's admin, auditor and agent. export, stubs, reseed and erasure (P5-42, TICK-447): TestCIA4* in internal/server (make test-integration), tenant B against tenant A through the real handler, sealer, verifier and nava_erasure",
@@ -233,6 +239,7 @@ func Coverage() map[string]string {
 		caseReaderScoped: "full (ADR-004-A1, TICK-558): nava_audit_reader through read.Reader and as raw SQL reads only the set tenant's rows, none with no tenant, and never txid",
 		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
 		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
+		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); data filters and the list route wait for P3-34",
 		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
@@ -494,5 +501,7 @@ func Paths() []Path {
 	paths = append(paths, cascadePaths()...)
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
+	paths = append(paths, aclPaths()...)
+	paths = append(paths, aclAttackPaths()...)
 	return append(paths, boundaryPaths()...)
 }

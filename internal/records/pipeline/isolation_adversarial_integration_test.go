@@ -19,7 +19,7 @@ import (
 // Adversarial (Security & Multi-Tenancy Reviewer, PR #356): tenant B's system
 // writer reuses an idempotency key that tenant A has already used. The replay
 // lookup must not return A's Result (record id, number, version), and
-// record_write_keys_pkey on (tenant_id, idempotency_key) must not turn A's
+// the unique key (record_write_keys_actor_key since TICK-626) must not turn A's
 // key into a 23505 that tells B the key exists. Ported to record_write_keys
 // by P5-13a (D-5-3).
 func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
@@ -84,7 +84,7 @@ func TestAdversarialIdempotencyKeyDoesNotCrossTenants(t *testing.T) {
 	// The store lookup itself, inside B's transaction, never returns A's row,
 	// even with A's tenant id passed explicitly: RLS hides it.
 	inTx(t, e, b.id, func(tx pgx.Tx) error {
-		if _, err := store.WriteKeyByKey(ctx, tx, a.id, key); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.WriteKeyByKey(ctx, tx, a.id, nil, key); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("WriteKeyByKey(tenant A) in tenant B's transaction: %v, want ErrNotFound", err)
 		}
 		return nil

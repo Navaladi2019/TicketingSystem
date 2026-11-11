@@ -24,6 +24,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 const pkeyConstraint = "cascade_start_pkey"
@@ -90,9 +92,11 @@ func (c Claim) EntityDefinitionID() uuid.UUID { return c.entityDefinitionID }
 
 const (
 	// The triggering write already holds this lock (A5-1); taking it again
-	// is free and keeps the order when ClaimStart is called on its own.
+	// is free and keeps the order when ClaimStart is called on its own. It
+	// names the transaction's tenant, so the scoping does not rest on RLS
+	// alone (TICK-480).
 	lockRecordSQL = `SELECT tenant_id, causation_origin_id, causation_depth, version, entity_definition_id
-FROM records WHERE id = $1 FOR UPDATE`
+FROM records WHERE id = $1 AND tenant_id = $2 FOR UPDATE`
 	claimSQL = `INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT ON CONSTRAINT ` + pkeyConstraint + ` DO NOTHING
@@ -119,8 +123,16 @@ func ClaimStart(ctx context.Context, tx pgx.Tx, k Key) (c Claim, claimed bool, e
 		depth  *int16
 		defID  *uuid.UUID
 	)
+	// The lock names the transaction's tenant; with none there is no record.
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if errors.Is(err, tenancy.ErrNoTenant) {
+		return Claim{}, false, ErrRecordNotFound
+	}
+	if err != nil {
+		return Claim{}, false, fmt.Errorf("cascade: lock record: %w", err)
+	}
 	c = Claim{recordID: k.RecordID, definitionID: k.DefinitionID}
-	switch err := tx.QueryRow(ctx, lockRecordSQL, k.RecordID).Scan(&c.tenantID, &origin, &depth, &c.version, &defID); {
+	switch err := tx.QueryRow(ctx, lockRecordSQL, k.RecordID, tenant).Scan(&c.tenantID, &origin, &depth, &c.version, &defID); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Claim{}, false, ErrRecordNotFound
 	case err != nil:

@@ -11,7 +11,34 @@
 // the middleware must sit inside the authentication middleware.
 //
 // State lives in idempotency_keys, reached as nava_app inside
-// tenancy.InTenantTx:
+// tenancy.InTenantTx. A key is claimed in one of two ways.
+//
+// A route registered with ClaimInTx (record create, TICK-688) claims its key
+// inside its own write transaction, as the first write:
+//
+//  1. The handler queues the claim (QueueHold) in the first batch of its
+//     transaction, ahead of its reads, and settles it (ResolveClaim) before it
+//     validates, authorises or writes. The claim inserts an in_flight row that
+//     only this transaction sees; the stored response is written in the
+//     COMMIT's round trip (CompleteInTx), so the claim, the write and the
+//     response commit together, in one synchronous commit, or not at all.
+//  2. A concurrent duplicate blocks on the uncommitted key. If the first
+//     request commits, the duplicate replays its stored response and runs
+//     nothing; if it rolls back, the duplicate's claim goes ahead and it runs
+//     as the first request. The wait is bounded by ClaimWait (lock_timeout on
+//     the claim alone, tenancy.QueueUnderLockTimeout); past it the duplicate
+//     gets 409 idempotency_in_flight, with Retry-After ClaimRetryAfter (not
+//     Lease: see ClaimRetryAfter), and its transaction rolls back.
+//  3. While it waits, a duplicate holds one pool connection, and through
+//     PgBouncer one server connection, for up to ClaimWait. That is accepted
+//     (TICK-688): concurrent duplicates of one key each hold one connection
+//     for at most ClaimWait, and give it back when they replay or get the 409.
+//  4. A request that fails (4xx, 5xx, rollback) leaves no row: its claim rolls
+//     back with it, so the retry runs at once and there is no lease to wait
+//     out. The lease and the takeover of a stale in_flight row (below) apply
+//     to such a route only for a row an older binary committed in_flight.
+//
+// Every other write claims its key in a transaction of its own:
 //
 //  1. The first request inserts an in_flight row and commits, so a concurrent
 //     duplicate sees it. It runs the handler, then marks the row completed.
@@ -51,6 +78,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,6 +107,21 @@ const (
 	// completeTimeout bounds storing the response after the handler ran, which
 	// must survive the client hanging up.
 	completeTimeout = 5 * time.Second
+	// ClaimWait bounds how long the claim of a ClaimInTx route waits for a
+	// concurrent request with the same key to commit or roll back
+	// (TICK-688). A healthy record create takes about 50 ms, so this covers
+	// a first request 40 times slower than target; past it the duplicate
+	// gets 409 idempotency_in_flight. It is also how long each waiting
+	// duplicate holds a connection, so it stays short. Not configuration.
+	ClaimWait = 2 * time.Second
+	// ClaimRetryAfter is the Retry-After of a ClaimInTx route (record create)
+	// on 409 idempotency_in_flight and 503 retry_later (TICK-690). Such a
+	// route leaves no key row behind when it fails, so its retry need not
+	// wait out a Lease: a duplicate past ClaimWait is waiting on a request
+	// that is still running, which a retry after about ClaimWait finds
+	// committed (and replays) or rolled back (and runs). Every other route
+	// advises Lease, for the in_flight row it leaves.
+	ClaimRetryAfter = ClaimWait
 )
 
 // Results recorded on nava.idempotency.requests. Never a tenant, principal or
@@ -90,7 +133,11 @@ const (
 	resultReuse    = "reuse"
 	resultInFlight = "in_flight"
 	resultRejected = "rejected"
-	resultError    = "error"
+	// resultStoredAfterCommit: a 2xx response was stored by the fallback, after
+	// the handler's transaction committed, because the handler did not call
+	// CompleteInTx. A tenant write route should never produce it.
+	resultStoredAfterCommit = "stored_after_commit"
+	resultError             = "error"
 )
 
 // ReplayHeaders are the response headers a replay restores besides
@@ -107,6 +154,24 @@ type Middleware struct {
 	reg      *problem.Registry
 	log      *slog.Logger
 	requests metric.Int64Counter
+	// inTx: the route patterns whose handler claims the key in its own
+	// transaction (ClaimInTx). Set before the middleware serves.
+	inTx map[string]bool
+}
+
+// ClaimInTx makes the routes with these patterns (http.Request.Pattern, as
+// "POST /api/v1/records/{entity}") claim their key inside the handler's own
+// write transaction instead of in a transaction of their own (TICK-688, see
+// the package doc). Such a handler must call QueueHold in the first batch of
+// its transaction, ResolveClaim right after that batch, and CompleteInTx
+// last. Call it before the middleware serves a request.
+func (m *Middleware) ClaimInTx(patterns ...string) {
+	if m.inTx == nil {
+		m.inTx = map[string]bool{}
+	}
+	for _, p := range patterns {
+		m.inTx[p] = true
+	}
 }
 
 // New returns a Middleware that stores keys through pool, which must log in
@@ -134,9 +199,12 @@ func New(pool *pgxpool.Pool, reg *problem.Registry, log *slog.Logger, mp metric.
 // from 400 (ContentTypeFor), and a response without a body has no Content-Type.
 //
 // The handler never runs inside the middleware's transaction, for a fresh key
-// or a retaken one. If storing the response fails after the handler has
-// committed its own work, the key stays in_flight and a retry after the lease
-// runs the handler again.
+// or a retaken one. A write handler that commits its own work completes the
+// key in that same transaction with CompleteInTx, so the write and the stored
+// response commit or roll back together and no window is left in which the
+// work is committed and the key is still in_flight (TICK-482). Only a handler
+// that does not call CompleteInTx falls back to storing the response after it
+// returns, and a failure there leaves the key in_flight.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -170,7 +238,15 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
 		req := request{p: p, key: key, hash: RequestHash(r.Method, r.URL.RequestURI(), body)}
-		out, err := m.acquire(ctx, req, func() *captured { return capture(next, r) })
+		run := func(sc *scope) *captured {
+			return capture(next, r.WithContext(context.WithValue(ctx, scopeKey{}, sc)))
+		}
+		var out *outcome
+		if m.inTx[r.Pattern] {
+			out = m.runInTx(ctx, req, run)
+		} else {
+			out, err = m.acquire(ctx, req, run)
+		}
 		if err != nil {
 			m.count(ctx, resultError)
 			m.reg.WriteError(w, r, m.log, problem.InternalError, err)
@@ -182,7 +258,11 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.IdempotencyKeyReuse)
 		case outcomeInFlight:
 			m.count(ctx, resultInFlight)
-			w.Header().Set("Retry-After", strconv.Itoa(int(Lease/time.Second)))
+			retry := Lease
+			if m.inTx[r.Pattern] {
+				retry = ClaimRetryAfter
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry/time.Second)))
 			m.reg.Write(w, r, problem.IdempotencyInFlight)
 		case outcomeReplay:
 			m.count(ctx, resultReplayed)
@@ -257,14 +337,10 @@ UPDATE idempotency_keys
 // acquire decides what the request is and, for a request that must run, runs
 // it through run after the transaction that won the key has committed: the
 // insert of a fresh key, or the takeover of an abandoned one.
-func (m *Middleware) acquire(ctx context.Context, req request, run func() *captured) (*outcome, error) {
+func (m *Middleware) acquire(ctx context.Context, req request, run func(*scope) *captured) (*outcome, error) {
 	var out *outcome
 	err := tenancy.InTenantTx(ctx, m.pool, req.p.TenantID, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-INSERT INTO idempotency_keys (tenant_id, principal_id, key, request_hash, lease_until, expires_at)
-VALUES ($1, $2, $3, $4, now() + $5::double precision * interval '1 second',
-        now() + $6::double precision * interval '1 second')
-ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
+		tag, err := tx.Exec(ctx, insertClaim,
 			req.p.TenantID, req.p.PrincipalID, req.key, req.hash, Lease.Seconds(), TTL.Seconds())
 		if err != nil {
 			return fmt.Errorf("idempotency: insert: %w", err)
@@ -313,16 +389,46 @@ ON CONFLICT (tenant_id, principal_id, key) DO NOTHING`,
 		return nil, err
 	}
 	if out.kind == outcomeRan {
-		out.resp = run()
-		m.complete(ctx, req, out.resp)
+		sc := &scope{req: req}
+		out.resp = run(sc)
+		if !sc.completed.Load() {
+			m.complete(ctx, req, out.resp)
+		}
 	}
 	return out, nil
 }
 
-// complete stores the response of the request that won the key. The handler's
-// side effects already happened, so a failure here is logged and the client
-// still gets its response; the key stays in_flight, and a retry after the
-// lease runs the handler again.
+// runInTx runs a ClaimInTx route. The handler claims and settles the key in
+// its own transaction (QueueHold, ResolveClaim), so the outcome is either
+// the handler's response or, when the key was already taken, the outcome
+// ResolveClaim settled, which replaces whatever the handler wrote. Nothing is
+// stored here: a response not stored in the handler's transaction rolled
+// back with its claim.
+func (m *Middleware) runInTx(ctx context.Context, req request, run func(*scope) *captured) *outcome {
+	sc := &scope{req: req, inTx: true}
+	resp := run(sc)
+	if o := sc.settled.Load(); o != nil {
+		return o
+	}
+	if !sc.completed.Load() && resp.status >= 200 && resp.status < 300 {
+		// A route registered with ClaimInTx answered 2xx without storing
+		// the key in its transaction: it did not claim.
+		m.log.ErrorContext(ctx, "idempotency: a ClaimInTx route answered 2xx without completing its key in the write",
+			slog.Int("status", resp.status))
+	}
+	result := resultExecuted
+	if sc.retaken {
+		result = resultRetaken
+	}
+	return &outcome{kind: outcomeRan, resp: resp, result: result}
+}
+
+// complete is the fallback for handlers that do not call CompleteInTx: it
+// stores the response of the request that won the key after the handler's
+// transaction has committed. Handlers that call CompleteInTx store it in their
+// own transaction and never reach this. The side effects already happened, so a
+// failure here is logged and the client still gets its response; the key stays
+// in_flight, and a retry after the lease runs the handler again.
 func (m *Middleware) complete(ctx context.Context, req request, resp *captured) {
 	if !resp.storable() {
 		return
@@ -335,26 +441,52 @@ func (m *Middleware) complete(ctx context.Context, req request, resp *captured) 
 	if err != nil {
 		m.log.ErrorContext(ctx, "idempotency: storing the response failed; the key stays in_flight",
 			slog.String("error", err.Error()))
+		return
+	}
+	if resp.status >= 200 && resp.status < 300 {
+		// A 2xx means the handler most likely committed a write. Storing after
+		// the commit reopens the TICK-482 window, so make it visible.
+		m.count(ctx, resultStoredAfterCommit)
+		m.log.WarnContext(ctx, "idempotency: a successful response was stored after commit; the handler should call idempotency.CompleteInTx",
+			slog.Int("status", resp.status))
 	}
 }
 
 func store(ctx context.Context, tx pgx.Tx, req request, resp *captured) error {
-	hdrs, err := encodeHeaders(resp.header)
+	sql, args, err := storeSQL(req, resp)
 	if err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `
-UPDATE idempotency_keys
-   SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
- WHERE tenant_id = $1 AND principal_id = $2 AND key = $3`,
-		req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)) //nolint:gosec // an HTTP status is 100-599
+	tag, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("idempotency: store: %w", err)
 	}
 	if tag.RowsAffected() != 1 {
-		return errors.New("idempotency: store: the row is gone")
+		return errors.New("idempotency: store: the row is gone or already completed")
 	}
 	return nil
+}
+
+// storeSQL is the UPDATE that marks the key completed with resp.
+func storeSQL(req request, resp *captured) (string, []any, error) {
+	hdrs, err := encodeHeaders(resp.header)
+	if err != nil {
+		return "", nil, err
+	}
+	return `
+UPDATE idempotency_keys
+   SET state = 'completed', response_status = $4, response_body = $5, response_headers = $6
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'`,
+		[]any{req.p.TenantID, req.p.PrincipalID, req.key, int16(resp.status), resp.body, headersParam(hdrs)}, nil //nolint:gosec // an HTTP status is 100-599
+}
+
+// mustMatchOne wraps an UPDATE so that, when it matches no row, it fails in
+// SQL (division by zero, 22012) and aborts the transaction: a statement
+// queued for the COMMIT's round trip cannot have its row count checked
+// before the COMMIT runs (tenancy.ExecAtCommit). The hold makes a miss
+// impossible; this keeps a miss from committing the write anyway.
+func mustMatchOne(update string) string {
+	return "WITH done AS (" + update + " RETURNING 1) SELECT 1 / count(*) FROM done"
 }
 
 // encodeHeaders is the response_headers value for h: a JSON object of the
@@ -475,4 +607,131 @@ func writeStored(w http.ResponseWriter, status int, body []byte, headers map[str
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
+}
+
+type scopeKey struct{}
+
+// scope is what the middleware hands a handler through the request context so
+// the handler can complete the key in its own transaction.
+type scope struct {
+	req       request
+	completed atomic.Bool
+	// inTx: the route claims the key in the handler's transaction
+	// (ClaimInTx). The fields below are for that mode: the handler's
+	// goroutine sets them, the middleware reads them after it returned.
+	inTx bool
+	// claimSent, claimed: the claim's INSERT ran, and inserted the row.
+	claimSent, claimed bool
+	// retaken: the claim took over a stale in_flight row.
+	retaken bool
+	// settled: the outcome ResolveClaim decided instead of the handler's
+	// write (a replay, a reuse, in flight).
+	settled atomic.Pointer[outcome]
+	// held is the transaction in which QueueHold locked the key's row, once
+	// that batch has run.
+	held atomic.Pointer[pgx.Tx]
+}
+
+// holdSQL locks the request's own key row while it is still in_flight. A
+// takeover (takeOver) or another completion of the row waits for this
+// transaction to end, and finds the row completed if it commits.
+const holdSQL = `
+SELECT 1 FROM idempotency_keys
+ WHERE tenant_id = $1 AND principal_id = $2 AND key = $3 AND state = 'in_flight'
+   FOR UPDATE`
+
+// ErrNotInFlight means the request's key is no longer in_flight when its
+// handler's transaction tries to hold it: another request took it over and
+// completed it. The handler's transaction must roll back, so the write does
+// not happen twice.
+var ErrNotInFlight = errors.New("idempotency: the key is no longer in flight")
+
+// QueueHold queues, on b, the lock of the request's key row, for a handler
+// that sends b in its own InTenantTx transaction tx before it writes
+// (TICK-648). Once the batch has run, CompleteInTx stores the response in the
+// round trip that commits tx (tenancy.ExecAtCommit), since the held row
+// cannot be completed by anyone else first. When the row is not in_flight,
+// the batch fails with ErrNotInFlight. Without a middleware scope in ctx it
+// queues nothing.
+//
+// For a ClaimInTx route it queues the claim of the key instead, as the
+// transaction's first write, waiting at most ClaimWait
+// (tenancy.QueueUnderLockTimeout). The handler must then pass the batch's
+// error to ResolveClaim before it does anything else.
+func QueueHold(ctx context.Context, tx pgx.Tx, b *pgx.Batch) error {
+	sc, ok := ctx.Value(scopeKey{}).(*scope)
+	if !ok {
+		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("idempotency: transaction tenant: %w", err)
+	}
+	if tenant != sc.req.p.TenantID {
+		return errors.New("idempotency: the transaction is scoped to another tenant than the request's")
+	}
+	if sc.inTx {
+		queueClaim(sc, tx, b)
+		return nil
+	}
+	b.Queue(holdSQL, sc.req.p.TenantID, sc.req.p.PrincipalID, sc.req.key).Query(func(rows pgx.Rows) error {
+		held := rows.Next()
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("idempotency: hold: %w", err)
+		}
+		if !held {
+			return ErrNotInFlight
+		}
+		sc.held.Store(&tx)
+		return nil
+	})
+	return nil
+}
+
+// CompleteInTx stores the response a handler is about to return, inside tx,
+// the handler's own InTenantTx transaction. Call it last in that transaction,
+// after the write succeeded: the stored response then commits with the write
+// and rolls back with it. visit is the response's Visit method for the
+// operation (for example resp.VisitCreateRecordResponse); it runs against a
+// recorder, so the stored bytes are the ones the client gets.
+//
+// Without a middleware scope in ctx (a test calling the handler directly) it
+// does nothing. If the key is no longer in_flight, because another request
+// took it over and completed it, it returns an error, so the transaction
+// rolls back and the write does not happen twice.
+func CompleteInTx(ctx context.Context, tx pgx.Tx, visit func(http.ResponseWriter) error) error {
+	sc, ok := ctx.Value(scopeKey{}).(*scope)
+	if !ok {
+		return nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("idempotency: transaction tenant: %w", err)
+	}
+	if tenant != sc.req.p.TenantID {
+		return errors.New("idempotency: the transaction is scoped to another tenant than the request's")
+	}
+	c := &captured{status: http.StatusOK, header: http.Header{}}
+	if err := visit(&recorder{c: c}); err != nil {
+		return fmt.Errorf("idempotency: render response: %w", err)
+	}
+	// A row this transaction holds (QueueHold) is still in_flight and
+	// nobody else can complete it, so its UPDATE matches exactly that row
+	// and can ride in the COMMIT's round trip.
+	if h := sc.held.Load(); h != nil && *h == tx {
+		sql, args, err := storeSQL(sc.req, c)
+		if err != nil {
+			return err
+		}
+		if tenancy.ExecAtCommit(tx, mustMatchOne(sql), args...) {
+			sc.completed.Store(true)
+			return nil
+		}
+	}
+	if err := store(ctx, tx, sc.req, c); err != nil {
+		return err
+	}
+	sc.completed.Store(true)
+	return nil
 }

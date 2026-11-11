@@ -37,6 +37,40 @@ migrates.
   `RESET lock_timeout` at the end of the file, and stay re-runnable
   (`DROP ... IF EXISTS` before `CREATE ... IF NOT EXISTS`).
 
+## JIT (off on the platform database)
+
+`20261109140700_platform_database_jit_off.sql` runs
+`ALTER DATABASE <platform> SET jit = off` (TICK-640). The platform database
+serves OLTP only.
+
+- **Why:**
+  - A custom plan (`nava_app` runs `force_custom_plan` with pgx
+    `QueryExecModeExec`) is JIT-compiled again on every execution once its
+    cost passes `jit_above_cost` (100k).
+  - On P3-01's 800k shape that added 200–990 ms to each list statement
+    (P3-36, TICK-640), against a statement budget of 50–150 ms. No platform
+    query runs long enough to pay compilation back.
+  - P3-01 had not assumed JIT was off: it ran with `jit = on`, and its walks
+    stayed under the threshold. The relay (TICK-250) already shapes its claim
+    to stay under it.
+- **Why the database and not the roles:** `ALTER ROLE ... SET` needs
+  `CREATEROLE`, which the migrator lacks. db-roles resets every role setting
+  `grants.yaml` does not list, and `grants.AllowedSettings` admits only
+  `plan_cache_mode`. The migrator owns the database, so the database-level
+  setting is its own to set, and db-roles never touches it.
+- **What it covers:**
+  - Every role on the platform database, including `nava_app` and
+    `nava_worker`, and new sessions only: pools pick it up as connections
+    are recycled.
+  - A session that needs JIT can `SET jit = on`.
+  - Keycloak's and Temporal's databases keep the server default.
+- **Tests:**
+  - `TestP334bPlatformDatabaseJITOff` pins it.
+  - `migratedCluster` re-applies database settings to its template copies,
+    because `CREATE DATABASE ... TEMPLATE` does not copy them.
+- **On a managed server:** the setting travels with the database, so no
+  server parameter is needed.
+
 ## Adding a role
 
 Add it under `roles:` in `grants.yaml`. A `LOGIN` role needs

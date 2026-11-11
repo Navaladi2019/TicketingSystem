@@ -22,7 +22,7 @@ INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id, idp_aliases) VAL
 -- record writes: their audit entries are the curated set below, not one per
 -- row. The same holds for its entity types and versions. The commit-check
 -- triggers on records (P5-13c, ADR-004 decision 2) and on the two
--- entity-definition tables (P5-32, migration B) are off
+-- entity-definition tables (P5-32, migration B) and acl_versions (P3-35) are off
 -- for this one explicit transaction, from here to the COMMIT at the end of
 -- the file, and back on before it commits, so every row the suite writes
 -- later is checked. The transaction does not depend on how the loader sends
@@ -31,6 +31,7 @@ BEGIN;
 ALTER TABLE records DISABLE TRIGGER records_audit_commit_check;
 ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
+ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_audit_commit_check;
 
 INSERT INTO records (tenant_id, id) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a1'),
@@ -204,8 +205,34 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);
 
+-- ACLs and shares (P3-30, TICK-615). Tenant B's ticket has two ACL versions,
+-- tenant A's one, under the same version numbers, so a lookup by version alone
+-- would find both tenants' rows. Each tenant shares its record with its own
+-- user and its own 'agents' group (TICK-625: user_id and group_id carry
+-- composite foreign keys, so a share can name only its own tenant's
+-- principals); the two groups share a Keycloak id, so a lookup that joins
+-- groups by keycloak_group_id alone would find both tenants' shares. Rules
+-- and masks have the shape acl_versions_rules_check and _masks_check accept
+-- (TICK-629).
+INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '[]', '[]', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, '[]', '[]', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2,
+        '[{"id": "b2", "ops": ["read"], "who": {"requester": true}}]', '[]', '0b000000-0000-4000-8000-0000000003b1');
+
+INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_kind, granted_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', '0a000000-0000-4000-8000-0000000003a1', NULL, 'user',
+        '0a000000-0000-4000-8000-0000000003a1'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000000a2', NULL, '0a000000-0000-4000-8000-0000000004a1', 'group',
+        '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', '0b000000-0000-4000-8000-0000000003b1', NULL, 'user',
+        '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', NULL, '0b000000-0000-4000-8000-0000000004b1', 'group',
+        '0b000000-0000-4000-8000-0000000003b1');
+
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
+ALTER TABLE acl_versions ENABLE TRIGGER acl_versions_audit_commit_check;
 ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
 COMMIT;

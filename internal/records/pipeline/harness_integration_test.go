@@ -25,6 +25,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -55,8 +56,12 @@ func superConfig(t *testing.T) *pgx.ConnConfig {
 }
 
 type env struct {
-	super    *pgx.Conn // the platform database as superuser, for seeding and reading back
-	app      *pgxpool.Pool
+	super *pgx.Conn // the platform database as superuser, for seeding and reading back
+	app   *pgxpool.Pool
+	// alloc is the allocator pool newPipeline's TxRunner uses, where a create
+	// takes its number (D-3-9 as amended 2026-11-10): nava_app, separate from
+	// app as nava-core's is (TICK-657). Nil: the runner uses app.
+	alloc    *pgxpool.Pool
 	platform string
 }
 
@@ -102,7 +107,8 @@ func migrated(t *testing.T) env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-	return env{super: conn, app: appPool(t, appDSN(t, m.PlatformDatabase)), platform: m.PlatformDatabase}
+	dsn := appDSN(t, m.PlatformDatabase)
+	return env{super: conn, app: appPool(t, dsn), alloc: allocPool(t, dsn), platform: m.PlatformDatabase}
 }
 
 // appDSN is the nava_app connection string on the platform database.
@@ -137,6 +143,34 @@ func serverPoolConfig(t *testing.T, dsn string) *pgxpool.Config {
 	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	return cfg
 }
+
+// allocPool is a nava_app allocator pool on dsn, as nava-core opens it
+// (cmd/nava-core/allocator.go): the server's protocol mode, allocatorMaxConns
+// wide, and every connection's role checked (tenancy.AllocPoolConfig).
+func allocPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	cfg := serverPoolConfig(t, dsn)
+	cfg.MaxConns = allocatorMaxConns
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	return newPool(t, cfg)
+}
+
+// newPool opens a pool on cfg, closed when the test ends.
+func newPool(t *testing.T, cfg *pgxpool.Config) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// allocatorMaxConns is nava-core's allocator pool width (allocatorMaxConns in
+// cmd/nava-core/allocator.go).
+const allocatorMaxConns = 4
 
 // appPool is a nava_app pool in the server's protocol mode (serverPoolConfig).
 func appPool(t *testing.T, dsn string) *pgxpool.Pool {
@@ -238,9 +272,14 @@ func seedTenantWith(t *testing.T, e env, defs ...metadata.Definition) tenantFixt
 		VALUES ($1, $2, $3, true, now())`, f.id, f.principal.PrincipalID, "kc-"+f.principal.PrincipalID.String())
 	for _, d := range defs {
 		inTx(t, e, f.id, func(tx pgx.Tx) error {
-			_, err := entitytypes.Store{}.Create(context.Background(), tx, f.id, entitytypes.NewInput{
+			if _, err := (entitytypes.Store{}).Create(context.Background(), tx, f.id, entitytypes.NewInput{
 				Name: d.Key, PublishedBy: f.principal.PrincipalID, Definition: d,
-			})
+			}); err != nil {
+				return err
+			}
+			// Authorization fails closed: the fixture's principal may read and
+			// write every record of the type (P3-31).
+			_, err := acltest.Publish(context.Background(), tx, d.Key, acltest.AllowUsers(f.principal.PrincipalID))
 			return err
 		})
 	}
@@ -296,7 +335,16 @@ func newPipeline(e env, sink pipeline.EventSink) *pipeline.Pipeline {
 	if sink == nil {
 		sink = pipeline.NoopSink{}
 	}
-	return pipeline.New(authz.TenantMemberAuthorizer{}, entitytypes.Store{}, sink, pipeline.PoolRunner{Pool: e.app}, pipeline.SystemClock{})
+	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, e.runner(), pipeline.SystemClock{})
+}
+
+// runner is the pipeline's TxRunner: a PoolRunner on the allocator pool, or
+// on app when e has none.
+func (e env) runner() pipeline.PoolRunner {
+	if e.alloc != nil {
+		return pipeline.PoolRunner{Pool: e.alloc}
+	}
+	return pipeline.PoolRunner{Pool: e.app}
 }
 
 // write runs one Write in its own committed tenant transaction.

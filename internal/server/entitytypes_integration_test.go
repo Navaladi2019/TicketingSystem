@@ -32,6 +32,8 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/catalog"
 	"github.com/Navaladi2019/TicketingSystem/internal/db/migrate"
@@ -148,6 +150,26 @@ func etCluster(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	return super, pool
 }
 
+// etAllocPool is nava-core's allocator pool (cmd/nava-core/allocator.go,
+// TICK-657) beside app: the same login, database and tracer, 4 connections.
+// A create takes its number on it while its own transaction holds an app
+// connection, so a handler on a small app pool must have one: on app itself,
+// as many concurrent creates as app has connections would wait forever.
+func etAllocPool(t *testing.T, app *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := app.Config().Copy()
+	cfg.MaxConns = 4
+	if err := tenancy.AllocPoolConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // etAuditReader opens the audit reader's own pool as nava-core does
 // (read.OpenPool with a DSN, ADR-004-A1 A1-5, A1-6): nava_audit_reader on the
 // platform database app's pool uses.
@@ -224,6 +246,10 @@ type etEnv struct {
 	super  *pgx.Conn
 	logs   *etLogBuf
 	lim    *spyLimiter // allows by default; reset(false) refuses every call
+	tel    *telemetry.Telemetry
+	// noTestACL stops do from publishing the allow-all test ACL for the
+	// entity types it creates (allowTenantUsers).
+	noTestACL bool
 }
 
 func newETEnv(t *testing.T) *etEnv { return newETEnvWith(t) }
@@ -251,11 +277,11 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	logs := &etLogBuf{}
 	reader := etAuditReader(t, pool)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
-		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
+		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim, tel: tel}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -278,7 +304,41 @@ func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *htt
 	}
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
+	if method == http.MethodPost && path == "/api/v1/entity-types" && rec.Code == http.StatusCreated && !e.noTestACL {
+		e.allowTenantUsers(t, token, body)
+	}
 	return rec
+}
+
+// allowTenantUsers publishes, for an entity type just created with token,
+// an ACL that lets every seeded principal of that tenant read and write
+// every record. Record authorization fails closed (P3-31), and the S9 tests
+// predate it. A test of the ACL itself publishes a newer version with
+// publishACL, which replaces this one.
+func (e *etEnv) allowTenantUsers(t *testing.T, token, body string) {
+	t.Helper()
+	var in struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal([]byte(body), &in); err != nil || in.Key == "" {
+		t.Fatalf("entity type body has no key: %v", err)
+	}
+	tn := e.a
+	if e.tokens[token].TenantID == e.b.id {
+		tn = e.b
+	}
+	e.publishACL(t, tn.id, in.Key, acltest.AllowUsers(tn.admin.PrincipalID, tn.user.PrincipalID, tn.lookalike.PrincipalID))
+}
+
+// publishACL publishes rules as the entity type's next ACL version.
+func (e *etEnv) publishACL(t *testing.T, tenant uuid.UUID, key string, rules ...authz.Rule) {
+	t.Helper()
+	if err := tenancy.InTenantTx(t.Context(), e.pool, tenant, func(tx pgx.Tx) error {
+		_, err := acltest.Publish(t.Context(), tx, key, rules...)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // etSchema is a valid schema, indented and with a duplicate-free but

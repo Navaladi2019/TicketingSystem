@@ -1,0 +1,23 @@
+meta {
+  name: S10.60 C4: the admin filters on description: 200, the one incident, description unchanged
+  type: http
+  seq: 60
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[description]=s10-internal-{{s10_run}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
+  test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));
+}

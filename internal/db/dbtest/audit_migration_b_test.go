@@ -47,9 +47,10 @@ func migrateBeforeB(t *testing.T, m *grants.Manifest) (migrate.Result, error) {
 	// needs only audit_chain_head, so the run applies it out of order, as
 	// migrateTo does.
 	fsys := withMigrationFrom(t, migrationsBefore(t, migrationB), deadLineageMigration)
+	gm, am := beforeACLTables(fsys, m, &a)
 	log, _ := newLog()
-	return migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
-		fsys, m, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),
+		fsys, gm, am, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // entriesPerVersion lists every S8 version that does not have exactly one
@@ -171,7 +172,7 @@ func TestP532MigrationB(t *testing.T) {
 
 	if got := queryString(t, super, `SELECT string_agg(t.tgrelid::regclass::text || ':' || t.tgname, ',' ORDER BY t.tgname COLLATE "C")
 		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got !=
-		"entity_definition_versions:entity_definition_versions_audit_commit_check,entity_definitions:entity_definitions_audit_commit_check,records:records_audit_commit_check" {
+		"acl_versions:acl_versions_audit_commit_check,entity_definition_versions:entity_definition_versions_audit_commit_check,entity_definitions:entity_definitions_audit_commit_check,records:records_audit_commit_check" {
 		t.Errorf("audit_commit_check triggers after B: %s", got)
 	}
 	// R26.3, and both functions are idempotent: a re-run adds nothing.

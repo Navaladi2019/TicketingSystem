@@ -23,3 +23,42 @@ A history page replays the record's whole audit history (`read.Reader.RecordEntr
 | Budget | Measured as | Limit | Baseline | Source | Owner |
 |---|---|---|---|---|---|
 | Record history length (`GET /api/v1/records/{entity}/{id}/history`) | Audit entries of one record (create, update, state_change), counted before any is read. `TestPatchHistoryIsCapped` proves one page reads at most the cap's rows, with the `Reader.OnRecordRows` hook | 500 entries (`read.DefaultMaxRecordEntries`). Over it the endpoint answers `422 history_too_long`, logs `record history longer than the cap` and counts `nava.records.history.too_long`. Nothing is read or replayed | Page cost is O(entries) per page, so a walk is O(N²/limit); the cap bounds it. Trigger to lift the cap: TICK-548 (stored inverse diffs or snapshots, a schema change) | P5-17-fu2 (TICK-542), Technical Lead decision on the issue | Principal Software Engineer |
+
+## Record numbering
+
+ADR-005 §10 (`docs/adr/ADR-005-record-numbering.md` on `main`). A `gaps` type (the default) takes its number with L2s on the allocator pool; a `gapless` type takes it last inside the create transaction (L1).
+
+| Budget | Measured as | Limit | Baseline | Source | Owner |
+|---|---|---|---|---|---|
+| Counter wait, `gaps` type (L2s) | p95 of the time an allocation waits on its `record_counters` row, inside PostgreSQL. 8 clients creating one type in one scope, spike S1 method (SQL level, no HTTP) | **≤ 2 ms** p95 | Spike S1: 0.84 / 0.99 ms (p50 / p95) on a quiet host, 0.97 / 1.20 ms on a contended host. For context only, not this measure: the TICK-621 HTTP harness reads "counter wait" as the whole `AllocTx` trip seen by the handler's tracer, round trips included. Its final re-run (`25aedcf0`) read 5.4 to 11.7 ms p95 on 8-client `gaps` attempts that the storage-window gate ruled host-invalid, with `nava_numbering_alloc` acquire p95 ≤ 1.66 ms and 0 timeouts | ADR-005 §1, §2.2, §10; spike S1 (`docs/adr/ADR-005/spikes/technical-architect/s1/`); `docs/quality/acl-perf-800k.md` (PR #544, `1ede2364`) | Postgres & Data Modeling Specialist |
+| Create, 1 client, over HTTP | Request p95 of `POST /api/v1/records/{entity}` on a quiet host, TICK-621 harness (`NAVA_PERF_ONLY='^create'`), frozen gates | **≤ 50 ms** p95 | **32.6 ms**, a valid attempt that meets: final quiesced re-run at `25aedcf0` (harness `469687ff`), 2026-11-10. This closes ADR-005 A3 for 1 client | `docs/quality/acl-perf-800k.md` "Final quiesced create re-run after TICK-692" (PR #544, `1ede2364`); ADR-005 A3 | Quality, Testing & CI Advisor |
+| Create, 8 clients, `gaps` type | Request p95, 8 clients creating one type in one tenant, same harness | **≤ 50 ms** p95. Applies to `gaps` types only. **Pending decision on TICK-621** (options A/B are with vknavaladi) | Final re-run: all 9 attempts host-invalid on the storage-window gate (commit p50 11.4 to 16.6 ms). With the gate set aside, 8 of 9 attempts read over 50 ms (agent 66.4 / 90.0 / 71.0, admin 81.1 / 66.0 / 52.6, small tenant 50.0 / 63.1 / 73.1 ms) | `docs/quality/acl-perf-800k.md` (PR #544, `1ede2364`); ADR-005 §2.1 | Quality, Testing & CI Advisor |
+| **Waiver: create, 8 clients, `gapless` type (L1)** | Request p95, 8 clients creating one `gapless` type in one tenant, same harness | **≤ 213.7 ms** p95. The 50 ms 8-client target is waived for `gapless` types only: their creates queue on the type's counter row by design (ADR-005 §2.1) | **213.7 ms**, final re-run at `25aedcf0`, one attempt, reported only; counter wait p50 / p95 42.0 / 188.6 ms. Earlier runs the same day: 189.0, 383.0 and 228.7 ms | `docs/quality/acl-perf-800k.md` (PR #544, `1ede2364`); ADR-005 §2.1 (L1 waiver) | Postgres & Data Modeling Specialist |
+
+## Connection sizing
+
+Every server connection the compose stack can open to its one PostgreSQL, counted at its configured ceiling, fits in `max_connections` minus `superuser_reserved_connections`. `TestConnectionBudgetFits` (`deploy/compose/connbudget_test.go`) recomputes the sum from `compose.yaml`, `deploy/compose/pgbouncer/pgbouncer.ini`, the Temporal config and `cmd/nava-core/allocator.go`, and fails when it no longer fits. `TestAllocatorPoolSizing` checks that the `nava_alloc` pool is `allocatorMaxConns × nava-core replicas`.
+
+Through PgBouncer, each (database entry, role) pair is one server pool, however many replicas share it. Its size is the role's `[users] pool_size`, else the entry's `pool_size`, else `default_pool_size`. No pool has a reserve.
+
+With R nava-core replicas behind one PgBouncer:
+
+```
+  (main 20 + allocator 4) × R            nava/nava_app (default_pool_size) + nava_alloc/nava_app (ADR-005 A5)
++ 5                                      nava/nava_audit_reader, per PgBouncer instance (ADR-004-A1 A1-8)
++ 53                                     workers: nava_worker 20, nava_relay 20, nava_onboard 8, nava_purge 3, nava_groupsync 2
++ 2                                      pgbouncer_auth, the auth_query lookup, 1 per database entry
++ 20                                     Keycloak (KC_DB_POOL_MAX_SIZE)
++ 120                                    Temporal: 4 services in one process × (20 default store + 10 visibility)
++ 2                                      migrator (goose) and temporal-schema, one-shot
+≤ max_connections 250 − superuser_reserved_connections 3 = 247
+```
+
+At R = 1 (compose) the total is **226**, 21 under the limit. Each further replica adds 24, so a second replica needs `max_connections` raised too: R replicas need `max_connections ≥ 226 + 24 × (R − 1) + 3`. Raise `default_pool_size` (or give the `nava` entry a `pool_size`) to `20 × R` and `nava_alloc`'s `pool_size` to `4 × R` with it.
+
+- The main pool's server side is shared: today one PgBouncer gives `nava_app` 20 server connections for every nava-core replica and nava-onboard's `nava_app` pools together.
+- The allocator has its own entry, `nava_alloc`, so open creates holding every `nava` server connection cannot starve it (TICK-657).
+- The worker and relay roles keep `default_pool_size` because their client pools use pgxpool's default width, `max(4, CPUs)`. The purge, onboard and groupsync caps match their clients' `MaxConns`, so the caps never make a client wait.
+- Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 226.
+- Trigger to revisit (AR-TICK-653-04): more than about 10 API replicas, or connection pressure on PostgreSQL. At that point the allocator alone is 40 server connections.
+- CI's integration pooler (`scripts/ci/pgbouncer/pooled.ini`) mirrors this with `nava_alloc` `pool_size=4` against a 5-connection `nava` pool. `isolation.ini` and `noprep.ini` have no allocator entry because neither suite allocates numbers.

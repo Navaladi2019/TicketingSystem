@@ -139,10 +139,15 @@ func TestP510bAuditLogShape(t *testing.T) {
 		t.Errorf("audit_log_default indexes = %s", got)
 	}
 
-	// D-5-3: the primary key name the store matches on.
-	if got := queryString(t, super, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
-		WHERE conrelid = 'record_write_keys'::regclass AND conname = 'record_write_keys_pkey'`); got != "PRIMARY KEY (tenant_id, idempotency_key)" {
-		t.Errorf("record_write_keys_pkey = %q", got)
+	// D-5-3, TICK-626: the unique index name the store matches on, per
+	// principal; the tenant-wide primary key is gone.
+	if got := queryString(t, super, `SELECT pg_get_indexdef(indexrelid) || ' valid=' || indisvalid FROM pg_index
+		WHERE indexrelid = 'record_write_keys_actor_key'::regclass`); got != "CREATE UNIQUE INDEX record_write_keys_actor_key ON public.record_write_keys USING btree (tenant_id, idempotency_key, actor_principal_id) NULLS NOT DISTINCT valid=true" {
+		t.Errorf("record_write_keys_actor_key = %q", got)
+	}
+	if got := queryString(t, super, `SELECT count(*)::text FROM pg_constraint
+		WHERE conrelid = 'record_write_keys'::regclass AND conname = 'record_write_keys_pkey'`); got != "0" {
+		t.Errorf("record_write_keys_pkey still exists")
 	}
 	if got := queryString(t, super, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
 		WHERE conrelid = 'audit_chain_head'::regclass AND contype = 'p'`); got != "PRIMARY KEY (tenant_id)" {
@@ -685,8 +690,9 @@ func TestP510bChainHeadGrants(t *testing.T) {
 	}
 }
 
-// D-5-3: one key per tenant, the duplicate named record_write_keys_pkey,
-// the same key free in another tenant, and no UPDATE or DELETE.
+// D-5-3: one key per tenant and principal (TICK-626), the duplicate named
+// record_write_keys_actor_key, the same key free in another tenant, and no
+// UPDATE or DELETE.
 func TestP510bRecordWriteKeys(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -703,8 +709,8 @@ func TestP510bRecordWriteKeys(t *testing.T) {
 			}
 		}
 		_, err := execIn(conn, tenantA, ins, tenantA, key, "update", pipelineRecord(tenantA))
-		if code, con := pgErrDetail(err); code != "23505" || con != "record_write_keys_pkey" {
-			t.Errorf("%s claims %s twice: %v, want 23505 on record_write_keys_pkey", role, key, err)
+		if code, con := pgErrDetail(err); code != "23505" || con != "record_write_keys_actor_key" {
+			t.Errorf("%s claims %s twice: %v, want 23505 on record_write_keys_actor_key", role, key, err)
 		}
 		for _, q := range []string{"UPDATE record_write_keys SET version = 2", "DELETE FROM record_write_keys"} {
 			_, err := execIn(conn, tenantA, q)

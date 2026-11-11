@@ -1,0 +1,20 @@
+meta {
+  name: S10.5 No token: 401
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Authentication comes first.
+}

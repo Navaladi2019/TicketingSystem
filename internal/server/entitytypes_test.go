@@ -231,10 +231,10 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 	noFields := map[problem.Code]bool{
 		problem.TenantUnresolved: true, problem.InvalidToken: true, problem.IdempotencyKeyReuse: true,
 		problem.IdempotencyInFlight: true, problem.Forbidden: true, problem.DomainClaimed: true,
-		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true,
+		problem.OnboardingConflict: true, problem.InvalidCursor: true, problem.RateLimited: true, problem.RetryLater: true,
 		problem.NotFound: true, problem.MethodNotAllowed: true, problem.NotImplemented: true,
 		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true, problem.IfMatchRequired: true, problem.VersionConflict: true,
-		problem.HistoryTooLong: true, problem.ExportInProgress: true, problem.ChainAlive: true,
+		problem.HistoryTooLong: true, problem.FilterTooExpensive: true, problem.ExportInProgress: true, problem.ChainAlive: true,
 	}
 	reg := loadTestRegistry(t)
 	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
@@ -302,15 +302,22 @@ func TestParseCreateReportsFieldAndDefinitionErrorsTogether(t *testing.T) {
 func TestParsePublish(t *testing.T) {
 	t.Parallel()
 	good := []byte(`{"definition":{"schema": ` + utSchema + `,"fixed_columns":{"state":"state"},"states":{"initial":"new"}}}`)
-	def, perr := parsePublish(good)
-	if perr != nil || string(def.Schema) != utSchema || def.FixedColumns["state"] != "state" {
-		t.Fatalf("parsePublish = %+v, %v", def, perr)
+	pr, perr := parsePublish(good)
+	if perr != nil || pr.def == nil || string(pr.def.Schema) != utSchema || pr.def.FixedColumns["state"] != "state" || pr.hasMode {
+		t.Fatalf("parsePublish = %+v, %v", pr, perr)
+	}
+	mo, perr := parsePublish([]byte(`{"numbering_mode":"gapless"}`))
+	if perr != nil || mo.def != nil || !mo.hasMode || mo.mode != metadata.NumberingGapless {
+		t.Fatalf("mode-only parsePublish = %+v, %v", mo, perr)
 	}
 	for name, body := range map[string]string{
 		"number_prefix": `{"number_prefix":"INC","definition":{}}`,
 		"missing":       `{}`,
 		"not object":    `[]`,
 		"bad type":      `{"definition":5}`,
+		"bad mode":      `{"numbering_mode":"sometimes"}`,
+		"empty mode":    `{"numbering_mode":""}`,
+		"mode type":     `{"numbering_mode":5}`,
 		"null":          `null`,
 	} {
 		if _, perr := parsePublish([]byte(body)); perr == nil || perr.code != problem.InvalidDefinition || len(perr.fields) == 0 {

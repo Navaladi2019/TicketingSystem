@@ -1,0 +1,1255 @@
+==== L (1M) | default/end-user | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true
+Aggregate  (cost=4547428.67..4547428.68 rows=1 width=8) (actual time=3152.336..3152.343 rows=1 loops=1)
+  Buffers: shared hit=1009845
+  ->  Result  (cost=0.44..4546305.19 rows=449392 width=0) (actual time=734.685..3149.967 rows=1114 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=1009845
+        ->  Nested Loop  (cost=0.44..4546305.19 rows=449392 width=0) (actual time=42.723..2456.604 rows=1114 loops=1)
+              Buffers: shared hit=1009845
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.066..0.074 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449392 width=48) (actual time=42.646..2454.672 rows=1114 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Filter: (((requester_id IS NOT NULL) AND (requester_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR (hashed SubPlan 2))
+                    Rows Removed by Filter: 998886
+                    Buffers: shared hit=1009844
+                    SubPlan 2
+                      ->  Bitmap Heap Scan on record_shares acl_share  (cost=14.34..1241.71 rows=432 width=32) (actual time=0.251..1.749 rows=575 loops=1)
+                            Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[]))))
+                            Filter: ((((principal_kind = 'user'::text) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                            Heap Blocks: exact=491
+                            Buffers: shared hit=497
+                            ->  BitmapOr  (cost=14.34..14.34 rows=526 width=0) (actual time=0.127..0.129 rows=0 loops=1)
+                                  Buffers: shared hit=6
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.037..0.037 rows=6 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid))
+                                        Buffers: shared hit=3
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..9.61 rows=518 width=0) (actual time=0.088..0.088 rows=569 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))
+                                        Buffers: shared hit=3
+Planning Time: 0.974 ms
+JIT:
+  Functions: 30
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 4.570 ms, Inlining 60.951 ms, Optimization 417.252 ms, Emission 248.581 ms, Total 731.354 ms
+Execution Time: 3157.126 ms
+
+==== L (1M) | default/end-user | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true LIMIT 1001) x
+Aggregate  (cost=10139.64..10139.65 rows=1 width=8) (actual time=2104.521..2104.528 rows=1 loops=1)
+  Buffers: shared hit=902206
+  ->  Limit  (cost=0.44..10127.12 rows=1001 width=4) (actual time=6.139..2101.975 rows=1001 loops=1)
+        Buffers: shared hit=902206
+        ->  Result  (cost=0.44..4546305.19 rows=449392 width=4) (actual time=6.136..2100.835 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+              Buffers: shared hit=902206
+              ->  Nested Loop  (cost=0.44..4546305.19 rows=449392 width=0) (actual time=6.133..2099.570 rows=1001 loops=1)
+                    Buffers: shared hit=902206
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.014..0.015 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449392 width=48) (actual time=6.116..2097.866 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR (hashed SubPlan 2))
+                          Rows Removed by Filter: 892356
+                          Buffers: shared hit=902205
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=14.34..1241.71 rows=432 width=32) (actual time=0.239..1.603 rows=575 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=491
+                                  Buffers: shared hit=497
+                                  ->  BitmapOr  (cost=14.34..14.34 rows=526 width=0) (actual time=0.091..0.093 rows=0 loops=1)
+                                        Buffers: shared hit=6
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.014..0.015 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..9.61 rows=518 width=0) (actual time=0.075..0.076 rows=569 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))
+                                              Buffers: shared hit=3
+Planning Time: 0.566 ms
+Execution Time: 2104.624 ms
+
+==== L (1M) | default/end-user | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $7
+Limit  (cost=0.71..532.59 rows=51 width=1161) (actual time=8.261..176.846 rows=51 loops=1)
+  Buffers: shared hit=43227
+  ->  Result  (cost=0.71..4686740.20 rows=449392 width=1161) (actual time=8.258..176.752 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=43227
+        ->  Nested Loop Left Join  (cost=0.71..4683369.76 rows=449392 width=1134) (actual time=8.235..176.235 rows=51 loops=1)
+              Buffers: shared hit=43227
+              ->  Nested Loop  (cost=0.43..4547428.66 rows=449392 width=1126) (actual time=8.157..173.840 rows=51 loops=1)
+                    Buffers: shared hit=43083
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449392 width=1118) (actual time=8.113..173.292 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR (hashed SubPlan 2))
+                          Rows Removed by Filter: 42137
+                          Buffers: shared hit=43082
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=14.34..1241.71 rows=432 width=32) (actual time=0.251..1.959 rows=575 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=491
+                                  Buffers: shared hit=497
+                                  ->  BitmapOr  (cost=14.34..14.34 rows=526 width=0) (actual time=0.123..0.125 rows=0 loops=1)
+                                        Buffers: shared hit=6
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.020..0.020 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..9.61 rows=518 width=0) (actual time=0.101..0.102 rows=569 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))
+                                              Buffers: shared hit=3
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.002..0.003 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.023..0.030 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.039..0.039 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=144
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.017..0.017 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=144
+Planning:
+  Buffers: shared hit=85
+Planning Time: 1.811 ms
+Execution Time: 177.117 ms
+
+==== L (1M) | default/end-user | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true AND (r.created_at < $7::timestamptz OR r.created_at IS NULL OR (r.created_at = $7::timestamptz AND r.id > $8::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $9
+Limit  (cost=0.71..3359.44 rows=51 width=1161) (actual time=1348.272..1440.594 rows=51 loops=1)
+  Buffers: shared hit=902359
+  ->  Result  (cost=0.71..4570964.45 rows=69407 width=1161) (actual time=1348.270..1440.546 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=902359
+        ->  Nested Loop Left Join  (cost=0.71..4570443.90 rows=69407 width=1134) (actual time=1348.252..1440.153 rows=51 loops=1)
+              Buffers: shared hit=902359
+              ->  Nested Loop  (cost=0.43..4549417.92 rows=69407 width=1126) (actual time=1348.217..1439.107 rows=51 loops=1)
+                    Buffers: shared hit=902206
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4548548.67 rows=69407 width=1118) (actual time=1348.185..1438.853 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((created_at < '2025-08-18 17:14:06.01278+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2025-08-18 17:14:06.01278+00'::timestamp with time zone) AND (id > 'a4ed0361-52cf-4a3c-9099-b2143074a165'::uuid))) AND (((requester_id IS NOT NULL) AND (requester_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR (hashed SubPlan 2)))
+                          Rows Removed by Filter: 893306
+                          Buffers: shared hit=902205
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=14.34..1241.71 rows=432 width=32) (actual time=0.205..1.865 rows=575 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=491
+                                  Buffers: shared hit=497
+                                  ->  BitmapOr  (cost=14.34..14.34 rows=526 width=0) (actual time=0.105..0.107 rows=0 loops=1)
+                                        Buffers: shared hit=6
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.024..0.025 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '5022e884-3fed-0a95-9ba9-29d405b2fe12'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..9.61 rows=518 width=0) (actual time=0.080..0.080 rows=569 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{0a65c1b6-2f8b-1527-8a6b-cc1f6e4e177e}'::uuid[])))
+                                              Buffers: shared hit=3
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.016..0.021 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.017..0.017 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=153
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.008..0.008 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=153
+Planning:
+  Buffers: shared hit=6
+Planning Time: 0.867 ms
+Execution Time: 1440.813 ms
+
+==== L (1M) | default/agent-3-teams | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true
+Aggregate  (cost=4555466.40..4555466.41 rows=1 width=8) (actual time=1833.687..1833.694 rows=1 loops=1)
+  Buffers: shared hit=1010648
+  ->  Result  (cost=0.44..4554307.82 rows=463430 width=0) (actual time=305.211..1829.389 rows=40248 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=1010648
+        ->  Nested Loop  (cost=0.44..4554307.82 rows=463430 width=0) (actual time=24.730..1542.969 rows=40248 loops=1)
+              Buffers: shared hit=1010648
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.040..0.045 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4549671.85 rows=463430 width=48) (actual time=24.683..1537.227 rows=40248 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Filter: (((requester_id IS NOT NULL) AND (requester_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                    Rows Removed by Filter: 959752
+                    Buffers: shared hit=1010647
+                    SubPlan 2
+                      ->  Bitmap Heap Scan on record_shares acl_share  (cost=42.82..2274.45 rows=1649 width=32) (actual time=0.440..3.668 rows=2204 loops=1)
+                            Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                            Filter: ((((principal_kind = 'user'::text) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                            Heap Blocks: exact=1285
+                            Buffers: shared hit=1300
+                            ->  BitmapOr  (cost=42.82..42.82 rows=1988 width=0) (actual time=0.229..0.231 rows=0 loops=1)
+                                  Buffers: shared hit=15
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.030..0.030 rows=6 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid))
+                                        Buffers: shared hit=3
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..37.49 rows=1981 width=0) (actual time=0.199..0.199 rows=2198 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))
+                                        Buffers: shared hit=12
+Planning Time: 0.468 ms
+JIT:
+  Functions: 30
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 2.388 ms, Inlining 25.938 ms, Optimization 154.915 ms, Emission 119.614 ms, Total 302.855 ms
+Execution Time: 1836.255 ms
+
+==== L (1M) | default/agent-3-teams | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true LIMIT 1001) x
+Aggregate  (cost=9850.17..9850.18 rows=1 width=8) (actual time=49.504..49.509 rows=1 loops=1)
+  Buffers: shared hit=26245
+  ->  Limit  (cost=0.44..9837.66 rows=1001 width=4) (actual time=4.776..49.306 rows=1001 loops=1)
+        Buffers: shared hit=26245
+        ->  Result  (cost=0.44..4554307.82 rows=463430 width=4) (actual time=4.775..49.146 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+              Buffers: shared hit=26245
+              ->  Nested Loop  (cost=0.44..4554307.82 rows=463430 width=0) (actual time=4.771..48.936 rows=1001 loops=1)
+                    Buffers: shared hit=26245
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.011..0.012 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4549671.85 rows=463430 width=48) (actual time=4.759..48.692 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                          Rows Removed by Filter: 23710
+                          Buffers: shared hit=26244
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=42.82..2274.45 rows=1649 width=32) (actual time=0.413..3.898 rows=2204 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1285
+                                  Buffers: shared hit=1300
+                                  ->  BitmapOr  (cost=42.82..42.82 rows=1988 width=0) (actual time=0.241..0.242 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.012..0.013 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..37.49 rows=1981 width=0) (actual time=0.228..0.228 rows=2198 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))
+                                              Buffers: shared hit=12
+Planning Time: 0.480 ms
+Execution Time: 49.580 ms
+
+==== L (1M) | default/agent-3-teams | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $8
+Limit  (cost=0.71..517.85 rows=51 width=1161) (actual time=4.184..6.252 rows=51 loops=1)
+  Buffers: shared hit=2636
+  ->  Result  (cost=0.71..4699128.58 rows=463430 width=1161) (actual time=4.183..6.243 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=2636
+        ->  Nested Loop Left Join  (cost=0.71..4695652.86 rows=463430 width=1134) (actual time=4.173..6.208 rows=51 loops=1)
+              Buffers: shared hit=2636
+              ->  Nested Loop  (cost=0.43..4555466.39 rows=463430 width=1126) (actual time=4.155..6.072 rows=51 loops=1)
+                    Buffers: shared hit=2486
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4549671.85 rows=463430 width=1118) (actual time=4.139..6.027 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                          Rows Removed by Filter: 1121
+                          Buffers: shared hit=2485
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=42.82..2274.45 rows=1649 width=32) (actual time=0.411..3.471 rows=2204 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1285
+                                  Buffers: shared hit=1300
+                                  ->  BitmapOr  (cost=42.82..42.82 rows=1988 width=0) (actual time=0.243..0.243 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.011..0.011 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..37.49 rows=1981 width=0) (actual time=0.230..0.231 rows=2198 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))
+                                              Buffers: shared hit=12
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.000 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.011..0.014 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=150
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=150
+Planning Time: 0.527 ms
+Execution Time: 6.336 ms
+
+==== L (1M) | default/agent-3-teams | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true AND (r.created_at < $8::timestamptz OR r.created_at IS NULL OR (r.created_at = $8::timestamptz AND r.id > $9::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $10
+Limit  (cost=0.71..530.41 rows=51 width=1161) (actual time=42.856..44.696 rows=51 loops=1)
+  Buffers: shared hit=26398
+  ->  Result  (cost=0.71..4702424.85 rows=452752 width=1161) (actual time=42.854..44.687 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=26398
+        ->  Nested Loop Left Join  (cost=0.71..4699029.21 rows=452752 width=1134) (actual time=42.839..44.649 rows=51 loops=1)
+              Buffers: shared hit=26398
+              ->  Nested Loop  (cost=0.43..4562071.99 rows=452752 width=1126) (actual time=42.821..44.521 rows=51 loops=1)
+                    Buffers: shared hit=26245
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4556410.92 rows=452752 width=1118) (actual time=42.805..44.477 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((created_at < '2026-10-31 23:46:03.117755+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-31 23:46:03.117755+00'::timestamp with time zone) AND (id > '8b720ff8-31ad-4b9a-b465-c0474bb2345f'::uuid))) AND (((requester_id IS NOT NULL) AND (requester_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))))
+                          Rows Removed by Filter: 24660
+                          Buffers: shared hit=26244
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=42.82..2274.45 rows=1649 width=32) (actual time=0.346..3.052 rows=2204 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1285
+                                  Buffers: shared hit=1300
+                                  ->  BitmapOr  (cost=42.82..42.82 rows=1988 width=0) (actual time=0.182..0.183 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.014..0.014 rows=6 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '31ec11c5-b134-d814-78fc-7d11b30ac15a'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..37.49 rows=1981 width=0) (actual time=0.167..0.167 rows=2198 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{f1799235-0a3c-bffa-6f45-1dbc3b3b527a,581407d2-927a-4022-180f-3c7adf4d9273,98b5839b-bdc6-3078-5e3a-85e7f4f024df,a4f56eea-cb99-7a45-aa54-ec6834081b85}'::uuid[])))
+                                              Buffers: shared hit=12
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.000 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.010..0.013 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=153
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=153
+Planning Time: 1.303 ms
+Execution Time: 44.875 ms
+
+==== L (1M) | default/service-desk | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true
+Aggregate  (cost=205398.54..205398.55 rows=1 width=8) (actual time=731.565..731.569 rows=1 loops=1)
+  Buffers: shared hit=175716
+  ->  Result  (cost=0.01..203152.18 rows=898543 width=0) (actual time=6.160..653.317 rows=1000000 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=175716
+        ->  Nested Loop  (cost=0.01..203152.18 rows=898543 width=0) (actual time=0.052..530.101 rows=1000000 loops=1)
+              Buffers: shared hit=175716
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.033..0.039 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Seq Scan on records r  (cost=0.00..194165.08 rows=898543 width=48) (actual time=0.014..411.173 rows=1000000 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Rows Removed by Filter: 230000
+                    Buffers: shared hit=175715
+Planning Time: 0.205 ms
+JIT:
+  Functions: 11
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.792 ms, Inlining 0.000 ms, Optimization 0.385 ms, Emission 5.769 ms, Total 6.946 ms
+Execution Time: 732.493 ms
+
+==== L (1M) | default/service-desk | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true LIMIT 1001) x
+Aggregate  (cost=238.84..238.85 rows=1 width=8) (actual time=0.789..0.790 rows=1 loops=1)
+  Buffers: shared hit=179
+  ->  Limit  (cost=0.01..226.33 rows=1001 width=4) (actual time=0.025..0.714 rows=1001 loops=1)
+        Buffers: shared hit=179
+        ->  Result  (cost=0.01..203152.18 rows=898543 width=4) (actual time=0.024..0.625 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+              Buffers: shared hit=179
+              ->  Nested Loop  (cost=0.01..203152.18 rows=898543 width=0) (actual time=0.017..0.494 rows=1001 loops=1)
+                    Buffers: shared hit=179
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.010..0.011 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Buffers: shared hit=1
+                    ->  Seq Scan on records r  (cost=0.00..194165.08 rows=898543 width=48) (actual time=0.006..0.377 rows=1001 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Rows Removed by Filter: 245
+                          Buffers: shared hit=178
+Planning Time: 0.304 ms
+Execution Time: 0.819 ms
+
+==== L (1M) | default/service-desk | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $7
+Limit  (cost=0.71..47.80 rows=51 width=1161) (actual time=0.095..0.550 rows=51 loops=1)
+  Buffers: shared hit=205
+  ->  Result  (cost=0.71..829669.63 rows=898543 width=1161) (actual time=0.094..0.539 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=205
+        ->  Nested Loop Left Join  (cost=0.71..822930.56 rows=898543 width=1134) (actual time=0.077..0.487 rows=51 loops=1)
+              Buffers: shared hit=205
+              ->  Nested Loop  (cost=0.43..551157.16 rows=898543 width=1126) (actual time=0.059..0.286 rows=51 loops=1)
+                    Buffers: shared hit=55
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..539923.71 rows=898543 width=1118) (actual time=0.040..0.228 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Buffers: shared hit=54
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.012..0.016 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=150
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=150
+Planning Time: 0.563 ms
+Execution Time: 0.627 ms
+
+==== L (1M) | default/service-desk | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true AND (r.created_at < $7::timestamptz OR r.created_at IS NULL OR (r.created_at = $7::timestamptz AND r.id > $8::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $9
+Limit  (cost=0.71..48.19 rows=51 width=1161) (actual time=2.329..2.666 rows=51 loops=1)
+  Buffers: shared hit=1161
+  ->  Result  (cost=0.71..836379.68 rows=898453 width=1161) (actual time=2.326..2.654 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=1161
+        ->  Nested Loop Left Join  (cost=0.71..829641.28 rows=898453 width=1134) (actual time=2.300..2.595 rows=51 loops=1)
+              Buffers: shared hit=1161
+              ->  Nested Loop  (cost=0.43..557895.11 rows=898453 width=1126) (actual time=2.273..2.418 rows=51 loops=1)
+                    Buffers: shared hit=1014
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..546662.79 rows=898453 width=1118) (actual time=2.247..2.356 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: ((created_at < '2026-10-31 23:59:59.95054+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-31 23:59:59.95054+00'::timestamp with time zone) AND (id > '07729bfa-f209-4502-b343-e39f4d5f7cdf'::uuid)))
+                          Rows Removed by Filter: 950
+                          Buffers: shared hit=1013
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.013..0.016 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=147
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=147
+Planning Time: 0.762 ms
+Execution Time: 3.041 ms
+
+==== L (1M) | share-heavy/partner | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true
+Aggregate  (cost=4547427.96..4547427.97 rows=1 width=8) (actual time=2038.645..2038.652 rows=1 loops=1)
+  Buffers: shared hit=1011168
+  ->  Result  (cost=0.44..4546304.62 rows=449335 width=0) (actual time=374.714..2033.016 rows=51377 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=1011168
+        ->  Nested Loop  (cost=0.44..4546304.62 rows=449335 width=0) (actual time=98.591..1749.167 rows=51377 loops=1)
+              Buffers: shared hit=1011168
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.063..0.070 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449335 width=48) (actual time=98.521..1741.485 rows=51377 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                    Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)))
+                    Rows Removed by Filter: 948623
+                    Buffers: shared hit=1011167
+                    SubPlan 2
+                      ->  Bitmap Heap Scan on record_shares acl_share  (cost=769.81..4553.15 rows=41213 width=32) (actual time=2.084..43.024 rows=56117 loops=1)
+                            Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[]))))
+                            Filter: ((((principal_kind = 'user'::text) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                            Heap Blocks: exact=1765
+                            Buffers: shared hit=1820
+                            ->  BitmapOr  (cost=769.81..769.81 rows=49551 width=0) (actual time=1.781..1.783 rows=0 loops=1)
+                                  Buffers: shared hit=55
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.030..0.030 rows=8 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid))
+                                        Buffers: shared hit=3
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..744.69 rows=49543 width=0) (actual time=1.750..1.751 rows=56109 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))
+                                        Buffers: shared hit=52
+Planning Time: 0.405 ms
+JIT:
+  Functions: 30
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 1.914 ms, Inlining 22.910 ms, Optimization 141.275 ms, Emission 144.796 ms, Total 310.896 ms
+Execution Time: 2041.946 ms
+
+==== L (1M) | share-heavy/partner | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true LIMIT 1001) x
+Aggregate  (cost=10140.92..10140.93 rows=1 width=8) (actual time=141.946..141.952 rows=1 loops=1)
+  Buffers: shared hit=22064
+  ->  Limit  (cost=0.44..10128.41 rows=1001 width=4) (actual time=99.053..141.684 rows=1001 loops=1)
+        Buffers: shared hit=22064
+        ->  Result  (cost=0.44..4546304.62 rows=449335 width=4) (actual time=99.050..141.508 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+              Buffers: shared hit=22064
+              ->  Nested Loop  (cost=0.44..4546304.62 rows=449335 width=0) (actual time=99.043..141.252 rows=1001 loops=1)
+                    Buffers: shared hit=22064
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.017..0.017 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449335 width=48) (actual time=99.023..141.021 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)))
+                          Rows Removed by Filter: 19052
+                          Buffers: shared hit=22063
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=769.81..4553.15 rows=41213 width=32) (actual time=8.390..67.120 rows=56117 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1765
+                                  Buffers: shared hit=1820
+                                  ->  BitmapOr  (cost=769.81..769.81 rows=49551 width=0) (actual time=7.925..7.927 rows=0 loops=1)
+                                        Buffers: shared hit=55
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.116..0.116 rows=8 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..744.69 rows=49543 width=0) (actual time=7.806..7.806 rows=56109 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))
+                                              Buffers: shared hit=52
+Planning Time: 0.854 ms
+Execution Time: 143.010 ms
+
+==== L (1M) | share-heavy/partner | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $6
+Limit  (cost=0.71..532.66 rows=51 width=1161) (actual time=71.666..73.914 rows=51 loops=1)
+  Buffers: shared hit=3172
+  ->  Result  (cost=0.71..4686721.81 rows=449335 width=1161) (actual time=71.663..73.902 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=3172
+        ->  Nested Loop Left Join  (cost=0.71..4683351.80 rows=449335 width=1134) (actual time=71.637..73.838 rows=51 loops=1)
+              Buffers: shared hit=3172
+              ->  Nested Loop  (cost=0.43..4547427.95 rows=449335 width=1126) (actual time=71.607..73.670 rows=51 loops=1)
+                    Buffers: shared hit=3028
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4541809.60 rows=449335 width=1118) (actual time=71.582..73.614 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)))
+                          Rows Removed by Filter: 1142
+                          Buffers: shared hit=3027
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=769.81..4553.15 rows=41213 width=32) (actual time=2.104..48.508 rows=56117 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1765
+                                  Buffers: shared hit=1820
+                                  ->  BitmapOr  (cost=769.81..769.81 rows=49551 width=0) (actual time=1.812..1.814 rows=0 loops=1)
+                                        Buffers: shared hit=55
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.023..0.023 rows=8 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..744.69 rows=49543 width=0) (actual time=1.788..1.788 rows=56109 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))
+                                              Buffers: shared hit=52
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.015..0.018 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=144
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=144
+Planning Time: 0.913 ms
+Execution Time: 74.805 ms
+
+==== L (1M) | share-heavy/partner | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true AND (r.created_at < $6::timestamptz OR r.created_at IS NULL OR (r.created_at = $6::timestamptz AND r.id > $7::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $8
+Limit  (cost=0.71..543.21 rows=51 width=1161) (actual time=103.791..106.593 rows=51 loops=1)
+  Buffers: shared hit=22214
+  ->  Result  (cost=0.71..4690767.40 rows=440981 width=1161) (actual time=103.789..106.580 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+        Buffers: shared hit=22214
+        ->  Nested Loop Left Join  (cost=0.71..4687460.04 rows=440981 width=1134) (actual time=103.775..106.526 rows=51 loops=1)
+              Buffers: shared hit=22214
+              ->  Nested Loop  (cost=0.43..4554062.60 rows=440981 width=1126) (actual time=103.746..106.298 rows=51 loops=1)
+                    Buffers: shared hit=22064
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..4548548.67 rows=440981 width=1118) (actual time=103.721..106.231 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (entity_definition_id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                          Filter: (((created_at < '2026-10-31 23:52:39.870812+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-31 23:52:39.870812+00'::timestamp with time zone) AND (id > 'a8061df1-4e7d-42e1-b638-f92da14214c6'::uuid))) AND ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid))))
+                          Rows Removed by Filter: 20002
+                          Buffers: shared hit=22063
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=769.81..4553.15 rows=41213 width=32) (actual time=2.169..50.606 rows=56117 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=1765
+                                  Buffers: shared hit=1820
+                                  ->  BitmapOr  (cost=769.81..769.81 rows=49551 width=0) (actual time=1.874..1.876 rows=0 loops=1)
+                                        Buffers: shared hit=55
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.51 rows=8 width=0) (actual time=0.022..0.023 rows=8 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = 'b1fb2d5a-3cc4-4c82-bace-c4e38c1b100d'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..744.69 rows=49543 width=0) (actual time=1.850..1.850 rows=56109 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{e965537a-fae1-05be-7d97-04a711f76683,1ce11ac9-bfaa-54de-c4af-0311d9a084b7,168db91d-47f1-5dce-e6ef-10705eb7fed9}'::uuid[])))
+                                              Buffers: shared hit=52
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.014..0.018 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = '95910030-8377-6777-7313-1b76e0f9756d'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.29 rows=1 width=40) (actual time=0.004..0.004 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000a'::uuid)
+                    Buffers: shared hit=150
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.29 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000a'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=150
+Planning Time: 0.782 ms
+Execution Time: 107.333 ms
+
+==== M (100k) | default/end-user | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true
+Aggregate  (cost=59413.50..59413.51 rows=1 width=8) (actual time=150.895..150.900 rows=1 loops=1)
+  Buffers: shared hit=101043
+  ->  Result  (cost=0.44..59402.91 rows=4235 width=0) (actual time=1.182..150.743 rows=304 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=101043
+        ->  Nested Loop  (cost=0.44..59402.91 rows=4235 width=0) (actual time=1.179..150.633 rows=304 loops=1)
+              Buffers: shared hit=101043
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.013..0.020 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4235 width=48) (actual time=1.163..150.507 rows=304 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Filter: (((requester_id IS NOT NULL) AND (requester_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR (hashed SubPlan 2))
+                    Rows Removed by Filter: 99696
+                    Buffers: shared hit=101042
+                    SubPlan 2
+                      ->  Bitmap Heap Scan on record_shares acl_share  (cost=8.88..16.76 rows=1 width=32) (actual time=0.046..0.298 rows=106 loops=1)
+                            Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[]))))
+                            Filter: ((((principal_kind = 'user'::text) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                            Heap Blocks: exact=100
+                            Buffers: shared hit=106
+                            ->  BitmapOr  (cost=8.88..8.88 rows=2 width=0) (actual time=0.026..0.028 rows=0 loops=1)
+                                  Buffers: shared hit=6
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.011..0.011 rows=1 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid))
+                                        Buffers: shared hit=3
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.014..0.014 rows=105 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))
+                                        Buffers: shared hit=3
+Planning Time: 0.458 ms
+Execution Time: 150.970 ms
+
+==== M (100k) | default/end-user | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true LIMIT 1001) x
+Aggregate  (cost=14053.54..14053.55 rows=1 width=8) (actual time=168.663..168.669 rows=1 loops=1)
+  Buffers: shared hit=101043
+  ->  Limit  (cost=0.44..14041.02 rows=1001 width=4) (actual time=0.855..168.457 rows=304 loops=1)
+        Buffers: shared hit=101043
+        ->  Result  (cost=0.44..59402.91 rows=4235 width=4) (actual time=0.853..168.337 rows=304 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+              Buffers: shared hit=101043
+              ->  Nested Loop  (cost=0.44..59402.91 rows=4235 width=0) (actual time=0.851..168.192 rows=304 loops=1)
+                    Buffers: shared hit=101043
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.010..0.018 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Rows Removed by Filter: 43
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4235 width=48) (actual time=0.838..168.029 rows=304 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR (hashed SubPlan 2))
+                          Rows Removed by Filter: 99696
+                          Buffers: shared hit=101042
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=8.88..16.76 rows=1 width=32) (actual time=0.041..0.261 rows=106 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=100
+                                  Buffers: shared hit=106
+                                  ->  BitmapOr  (cost=8.88..8.88 rows=2 width=0) (actual time=0.021..0.023 rows=0 loops=1)
+                                        Buffers: shared hit=6
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.009..0.009 rows=1 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.012..0.012 rows=105 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))
+                                              Buffers: shared hit=3
+Planning Time: 0.454 ms
+Execution Time: 168.741 ms
+
+==== M (100k) | default/end-user | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $7
+Limit  (cost=0.71..732.43 rows=51 width=1161) (actual time=2.933..63.219 rows=51 loops=1)
+  Buffers: shared hit=18539
+  ->  Result  (cost=0.71..60761.91 rows=4235 width=1161) (actual time=2.929..63.159 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=18539
+        ->  Nested Loop Left Join  (cost=0.71..60730.14 rows=4235 width=1134) (actual time=2.793..62.747 rows=51 loops=1)
+              Buffers: shared hit=18539
+              ->  Nested Loop  (cost=0.43..59413.49 rows=4235 width=1126) (actual time=2.734..61.302 rows=51 loops=1)
+                    Buffers: shared hit=18398
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4235 width=1118) (actual time=2.681..60.986 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR (hashed SubPlan 2))
+                          Rows Removed by Filter: 18068
+                          Buffers: shared hit=18397
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=8.88..16.76 rows=1 width=32) (actual time=0.181..1.196 rows=106 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=100
+                                  Buffers: shared hit=106
+                                  ->  BitmapOr  (cost=8.88..8.88 rows=2 width=0) (actual time=0.041..0.044 rows=0 loops=1)
+                                        Buffers: shared hit=6
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.016..0.017 rows=1 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '05803a24-d0b9-5a65-2e0e-2897c59e091c'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.024..0.024 rows=105 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{889b1225-73ac-fa31-bc7a-fda48152552b}'::uuid[])))
+                                              Buffers: shared hit=3
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.024..0.034 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.023..0.023 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=141
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.010..0.010 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=141
+Planning Time: 2.010 ms
+Execution Time: 63.580 ms
+
+==== M (100k) | default/agent-3-teams | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true
+Aggregate  (cost=59487.67..59487.68 rows=1 width=8) (actual time=224.724..224.730 rows=1 loops=1)
+  Buffers: shared hit=101350
+  ->  Result  (cost=0.44..59477.07 rows=4242 width=0) (actual time=1.473..223.419 rows=8220 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=101350
+        ->  Nested Loop  (cost=0.44..59477.07 rows=4242 width=0) (actual time=1.469..221.932 rows=8220 loops=1)
+              Buffers: shared hit=101350
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.012..0.020 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59432.97 rows=4242 width=48) (actual time=1.455..220.415 rows=8220 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Filter: (((requester_id IS NOT NULL) AND (requester_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                    Rows Removed by Filter: 91780
+                    Buffers: shared hit=101349
+                    SubPlan 2
+                      ->  Bitmap Heap Scan on record_shares acl_share  (cost=22.17..37.79 rows=3 width=32) (actual time=0.141..1.194 rows=437 loops=1)
+                            Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                            Filter: ((((principal_kind = 'user'::text) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                            Heap Blocks: exact=398
+                            Buffers: shared hit=413
+                            ->  BitmapOr  (cost=22.17..22.17 rows=4 width=0) (actual time=0.074..0.076 rows=0 loops=1)
+                                  Buffers: shared hit=15
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.018..0.018 rows=3 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid))
+                                        Buffers: shared hit=3
+                                  ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..17.73 rows=3 width=0) (actual time=0.056..0.056 rows=434 loops=1)
+                                        Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))
+                                        Buffers: shared hit=12
+Planning Time: 0.525 ms
+Execution Time: 224.814 ms
+
+==== M (100k) | default/agent-3-teams | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true LIMIT 1001) x
+Aggregate  (cost=14047.87..14047.88 rows=1 width=8) (actual time=32.061..32.068 rows=1 loops=1)
+  Buffers: shared hit=12485
+  ->  Limit  (cost=0.44..14035.35 rows=1001 width=4) (actual time=1.815..31.843 rows=1001 loops=1)
+        Buffers: shared hit=12485
+        ->  Result  (cost=0.44..59477.07 rows=4242 width=4) (actual time=1.813..31.666 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+              Buffers: shared hit=12485
+              ->  Nested Loop  (cost=0.44..59477.07 rows=4242 width=0) (actual time=1.807..31.428 rows=1001 loops=1)
+                    Buffers: shared hit=12485
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.012..0.013 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Rows Removed by Filter: 1
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59432.97 rows=4242 width=48) (actual time=1.793..31.205 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                          Rows Removed by Filter: 10955
+                          Buffers: shared hit=12484
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=22.17..37.79 rows=3 width=32) (actual time=0.181..1.450 rows=437 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=398
+                                  Buffers: shared hit=413
+                                  ->  BitmapOr  (cost=22.17..22.17 rows=4 width=0) (actual time=0.092..0.094 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.023..0.024 rows=3 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..17.73 rows=3 width=0) (actual time=0.068..0.068 rows=434 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))
+                                              Buffers: shared hit=12
+Planning Time: 0.687 ms
+Execution Time: 32.165 ms
+
+==== M (100k) | default/agent-3-teams | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $8
+Limit  (cost=0.71..732.14 rows=51 width=1161) (actual time=1.754..3.386 rows=51 loops=1)
+  Buffers: shared hit=1130
+  ->  Result  (cost=0.71..60838.25 rows=4242 width=1161) (actual time=1.751..3.373 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=1130
+        ->  Nested Loop Left Join  (cost=0.71..60806.44 rows=4242 width=1134) (actual time=1.733..3.312 rows=51 loops=1)
+              Buffers: shared hit=1130
+              ->  Nested Loop  (cost=0.43..59487.66 rows=4242 width=1126) (actual time=1.709..3.102 rows=51 loops=1)
+                    Buffers: shared hit=977
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59432.97 rows=4242 width=1118) (actual time=1.686..3.032 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((requester_id IS NOT NULL) AND (requester_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                          Rows Removed by Filter: 504
+                          Buffers: shared hit=976
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=22.17..37.79 rows=3 width=32) (actual time=0.196..1.356 rows=437 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=398
+                                  Buffers: shared hit=413
+                                  ->  BitmapOr  (cost=22.17..22.17 rows=4 width=0) (actual time=0.102..0.103 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.021..0.021 rows=3 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..17.73 rows=3 width=0) (actual time=0.079..0.080 rows=434 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))
+                                              Buffers: shared hit=12
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.015..0.020 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=153
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=153
+Planning Time: 1.174 ms
+Execution Time: 3.556 ms
+
+==== M (100k) | default/agent-3-teams | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true) AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($7::uuid[])))) AND true AND (r.created_at < $8::timestamptz OR r.created_at IS NULL OR (r.created_at = $8::timestamptz AND r.id > $9::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $10
+Limit  (cost=0.71..824.66 rows=51 width=1161) (actual time=26.413..28.353 rows=51 loops=1)
+  Buffers: shared hit=12638
+  ->  Result  (cost=0.71..60746.37 rows=3760 width=1161) (actual time=26.410..28.339 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=12638
+        ->  Nested Loop Left Join  (cost=0.71..60718.17 rows=3760 width=1134) (actual time=26.392..28.275 rows=51 loops=1)
+              Buffers: shared hit=12638
+              ->  Nested Loop  (cost=0.43..59545.14 rows=3760 width=1126) (actual time=26.365..28.053 rows=51 loops=1)
+                    Buffers: shared hit=12485
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59496.48 rows=3760 width=1118) (actual time=26.331..27.972 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((created_at < '2026-10-30 23:11:48.867543+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-30 23:11:48.867543+00'::timestamp with time zone) AND (id > '0f0a84c2-7092-4116-929f-ad5a689c9ccd'::uuid))) AND (((requester_id IS NOT NULL) AND (requester_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((assignee_id IS NOT NULL) AND (assignee_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR (hashed SubPlan 2) OR ((assignment_group_id IS NOT NULL) AND (assignment_group_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))))
+                          Rows Removed by Filter: 11905
+                          Buffers: shared hit=12484
+                          SubPlan 2
+                            ->  Bitmap Heap Scan on record_shares acl_share  (cost=22.17..37.79 rows=3 width=32) (actual time=0.160..1.628 rows=437 loops=1)
+                                  Recheck Cond: (((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[]))))
+                                  Filter: ((((principal_kind = 'user'::text) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                                  Heap Blocks: exact=398
+                                  Buffers: shared hit=413
+                                  ->  BitmapOr  (cost=22.17..22.17 rows=4 width=0) (actual time=0.086..0.088 rows=0 loops=1)
+                                        Buffers: shared hit=15
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..4.44 rows=1 width=0) (actual time=0.022..0.022 rows=3 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '7c593d16-6232-dcdf-b004-9e748e6a7b53'::uuid))
+                                              Buffers: shared hit=3
+                                        ->  Bitmap Index Scan on record_shares_principal  (cost=0.00..17.73 rows=3 width=0) (actual time=0.061..0.062 rows=434 loops=1)
+                                              Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = ANY ('{3d9f1c7a-183e-2c8e-510c-fb2bce9b684c,ef31c5a2-1dcb-2a30-815e-3ea2795d49d8,998eb22b-1d98-27d9-7eb7-8ab6145c8276,8028a7cb-f3ce-ec90-c705-0dc039683e6c}'::uuid[])))
+                                              Buffers: shared hit=12
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.019..0.024 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.004..0.004 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=153
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=153
+Planning Time: 1.196 ms
+Execution Time: 28.521 ms
+
+==== M (100k) | default/service-desk | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true
+Aggregate  (cost=21756.50..21756.51 rows=1 width=8) (actual time=317.458..317.461 rows=1 loops=1)
+  Buffers: shared hit=100937
+  ->  Result  (cost=0.44..21735.33 rows=8467 width=0) (actual time=0.173..302.928 rows=100000 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=100937
+        ->  Nested Loop  (cost=0.44..21735.33 rows=8467 width=0) (actual time=0.156..281.814 rows=100000 loops=1)
+              Buffers: shared hit=100937
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.104..0.114 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..21648.99 rows=8467 width=48) (actual time=0.046..260.894 rows=100000 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Buffers: shared hit=100936
+Planning Time: 0.467 ms
+Execution Time: 317.604 ms
+
+==== M (100k) | default/service-desk | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true LIMIT 1001) x
+Aggregate  (cost=2582.53..2582.54 rows=1 width=8) (actual time=3.021..3.025 rows=1 loops=1)
+  Buffers: shared hit=1014
+  ->  Limit  (cost=0.44..2570.02 rows=1001 width=4) (actual time=0.065..2.879 rows=1001 loops=1)
+        Buffers: shared hit=1014
+        ->  Result  (cost=0.44..21735.33 rows=8467 width=4) (actual time=0.063..2.747 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+              Buffers: shared hit=1014
+              ->  Nested Loop  (cost=0.44..21735.33 rows=8467 width=0) (actual time=0.052..2.557 rows=1001 loops=1)
+                    Buffers: shared hit=1014
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.019..0.020 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Rows Removed by Filter: 1
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..21648.99 rows=8467 width=48) (actual time=0.031..2.377 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Buffers: shared hit=1013
+Planning Time: 0.389 ms
+Execution Time: 3.090 ms
+
+==== M (100k) | default/service-desk | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $7
+Limit  (cost=0.71..147.78 rows=51 width=1161) (actual time=0.094..0.492 rows=51 loops=1)
+  Buffers: shared hit=202
+  ->  Result  (cost=0.71..24416.51 rows=8467 width=1161) (actual time=0.093..0.481 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=202
+        ->  Nested Loop Left Join  (cost=0.71..24353.01 rows=8467 width=1134) (actual time=0.074..0.425 rows=51 loops=1)
+              Buffers: shared hit=202
+              ->  Nested Loop  (cost=0.43..21756.49 rows=8467 width=1126) (actual time=0.054..0.239 rows=51 loops=1)
+                    Buffers: shared hit=55
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..21648.99 rows=8467 width=1118) (actual time=0.039..0.184 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Buffers: shared hit=54
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.000..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.009..0.014 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=147
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=147
+Planning Time: 0.501 ms
+Execution Time: 0.566 ms
+
+==== M (100k) | default/service-desk | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ((((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) OR (r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) OR EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))))) OR ((true))) AND true AND (r.created_at < $7::timestamptz OR r.created_at IS NULL OR (r.created_at = $7::timestamptz AND r.id > $8::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $9
+Limit  (cost=0.71..149.35 rows=51 width=1161) (actual time=2.036..2.387 rows=51 loops=1)
+  Buffers: shared hit=1152
+  ->  Result  (cost=0.71..24455.50 rows=8391 width=1161) (actual time=2.034..2.375 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=1152
+        ->  Nested Loop Left Join  (cost=0.71..24392.57 rows=8391 width=1134) (actual time=2.002..2.307 rows=51 loops=1)
+              Buffers: shared hit=1152
+              ->  Nested Loop  (cost=0.43..21819.04 rows=8391 width=1126) (actual time=1.973..2.117 rows=51 loops=1)
+                    Buffers: shared hit=1014
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..21712.49 rows=8391 width=1118) (actual time=1.940..2.043 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: ((created_at < '2026-10-31 23:59:02.082656+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-31 23:59:02.082656+00'::timestamp with time zone) AND (id > 'e45d4fc2-ac32-44a1-ac8a-f11520e0b54d'::uuid)))
+                          Rows Removed by Filter: 950
+                          Buffers: shared hit=1013
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.019..0.024 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=138
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.002..0.002 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=138
+Planning Time: 0.521 ms
+Execution Time: 2.464 ms
+
+==== M (100k) | share-heavy/partner | count exact
+SELECT count(*) FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true
+Aggregate  (cost=59413.49..59413.50 rows=1 width=8) (actual time=306.959..306.965 rows=1 loops=1)
+  Buffers: shared hit=101097
+  ->  Result  (cost=0.44..59402.90 rows=4234 width=0) (actual time=6.684..305.135 rows=5270 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=101097
+        ->  Nested Loop  (cost=0.44..59402.90 rows=4234 width=0) (actual time=6.677..302.691 rows=5270 loops=1)
+              Buffers: shared hit=101097
+              ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.017..0.029 rows=1 loops=1)
+                    Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Rows Removed by Filter: 43
+                    Buffers: shared hit=1
+              ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4234 width=48) (actual time=6.658..298.575 rows=5270 loops=1)
+                    Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                    Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)))
+                    Rows Removed by Filter: 94730
+                    Buffers: shared hit=101096
+                    SubPlan 2
+                      ->  Index Only Scan using record_shares_pkey on record_shares acl_share  (cost=0.43..1063.00 rows=424 width=32) (actual time=0.025..4.188 rows=5720 loops=1)
+                            Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                            Filter: (((principal_kind = 'user'::text) AND (principal_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{628738d7-8ae4-2218-f9b3-bbada7ca5cd8,e6e60212-63d2-6fb7-3457-076d3a1c6050,71e4a1b7-6b10-8d62-ecec-a64962de22b2}'::uuid[]))))
+                            Rows Removed by Filter: 7492
+                            Heap Fetches: 0
+                            Buffers: shared hit=160
+Planning Time: 0.734 ms
+Execution Time: 307.057 ms
+
+==== M (100k) | share-heavy/partner | count capped 1001
+SELECT count(*) FROM (SELECT 1 FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true LIMIT 1001) x
+Aggregate  (cost=14056.85..14056.86 rows=1 width=8) (actual time=49.590..49.594 rows=1 loops=1)
+  Buffers: shared hit=19717
+  ->  Limit  (cost=0.44..14044.34 rows=1001 width=4) (actual time=6.563..49.380 rows=1001 loops=1)
+        Buffers: shared hit=19717
+        ->  Result  (cost=0.44..59402.90 rows=4234 width=4) (actual time=6.560..49.208 rows=1001 loops=1)
+              One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+              Buffers: shared hit=19717
+              ->  Nested Loop  (cost=0.44..59402.90 rows=4234 width=0) (actual time=6.551..48.958 rows=1001 loops=1)
+                    Buffers: shared hit=19717
+                    ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=32) (actual time=0.023..0.024 rows=1 loops=1)
+                          Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Rows Removed by Filter: 1
+                          Buffers: shared hit=1
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4234 width=48) (actual time=6.525..48.729 rows=1001 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)))
+                          Rows Removed by Filter: 18371
+                          Buffers: shared hit=19716
+                          SubPlan 2
+                            ->  Index Only Scan using record_shares_pkey on record_shares acl_share  (cost=0.43..1063.00 rows=424 width=32) (actual time=0.025..4.110 rows=5720 loops=1)
+                                  Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                                  Filter: (((principal_kind = 'user'::text) AND (principal_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{628738d7-8ae4-2218-f9b3-bbada7ca5cd8,e6e60212-63d2-6fb7-3457-076d3a1c6050,71e4a1b7-6b10-8d62-ecec-a64962de22b2}'::uuid[]))))
+                                  Rows Removed by Filter: 7492
+                                  Heap Fetches: 0
+                                  Buffers: shared hit=160
+Planning Time: 0.732 ms
+Execution Time: 49.685 ms
+
+==== M (100k) | share-heavy/partner | page 1
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $6
+Limit  (cost=0.71..732.60 rows=51 width=1161) (actual time=6.827..10.322 rows=51 loops=1)
+  Buffers: shared hit=1347
+  ->  Result  (cost=0.71..60761.58 rows=4234 width=1161) (actual time=6.825..10.303 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=1347
+        ->  Nested Loop Left Join  (cost=0.71..60729.83 rows=4234 width=1134) (actual time=6.806..10.219 rows=51 loops=1)
+              Buffers: shared hit=1347
+              ->  Nested Loop  (cost=0.43..59413.48 rows=4234 width=1126) (actual time=6.751..9.839 rows=51 loops=1)
+                    Buffers: shared hit=1206
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59358.89 rows=4234 width=1118) (actual time=6.711..9.727 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)))
+                          Rows Removed by Filter: 981
+                          Buffers: shared hit=1205
+                          SubPlan 2
+                            ->  Index Only Scan using record_shares_pkey on record_shares acl_share  (cost=0.43..1063.00 rows=424 width=32) (actual time=0.027..4.282 rows=5720 loops=1)
+                                  Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                                  Filter: (((principal_kind = 'user'::text) AND (principal_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{628738d7-8ae4-2218-f9b3-bbada7ca5cd8,e6e60212-63d2-6fb7-3457-076d3a1c6050,71e4a1b7-6b10-8d62-ecec-a64962de22b2}'::uuid[]))))
+                                  Rows Removed by Filter: 7492
+                                  Heap Fetches: 0
+                                  Buffers: shared hit=160
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.025..0.031 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.006..0.006 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=141
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.003..0.003 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=141
+Planning Time: 0.960 ms
+Execution Time: 10.455 ms
+
+==== M (100k) | share-heavy/partner | page 20
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.created_at::text FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND (((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[])))))) OR (((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid)))) AND true AND (r.created_at < $6::timestamptz OR r.created_at IS NULL OR (r.created_at = $6::timestamptz AND r.id > $7::uuid)) ORDER BY r.created_at DESC NULLS LAST, r.id ASC LIMIT $8
+Limit  (cost=0.71..891.81 rows=51 width=1161) (actual time=66.231..69.835 rows=51 loops=1)
+  Buffers: shared hit=19864
+  ->  Result  (cost=0.71..60577.82 rows=3467 width=1161) (actual time=66.228..69.816 rows=51 loops=1)
+        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+        Buffers: shared hit=19864
+        ->  Nested Loop Left Join  (cost=0.71..60551.82 rows=3467 width=1134) (actual time=66.208..69.731 rows=51 loops=1)
+              Buffers: shared hit=19864
+              ->  Nested Loop  (cost=0.43..59467.39 rows=3467 width=1126) (actual time=66.151..69.304 rows=51 loops=1)
+                    Buffers: shared hit=19717
+                    ->  Index Scan using records_tenant_def_created on records r  (cost=0.43..59422.39 rows=3467 width=1118) (actual time=66.109..69.103 rows=51 loops=1)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (entity_definition_id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                          Filter: (((created_at < '2026-10-27 11:08:05.299108+00'::timestamp with time zone) OR (created_at IS NULL) OR ((created_at = '2026-10-27 11:08:05.299108+00'::timestamp with time zone) AND (id > '2050c240-0301-4d0d-973c-74596438daf1'::uuid))) AND ((hashed SubPlan 2) OR ((requester_id IS NOT NULL) AND (requester_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid))))
+                          Rows Removed by Filter: 19321
+                          Buffers: shared hit=19716
+                          SubPlan 2
+                            ->  Index Only Scan using record_shares_pkey on record_shares acl_share  (cost=0.43..1063.00 rows=424 width=32) (actual time=0.048..8.751 rows=5720 loops=1)
+                                  Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                                  Filter: (((principal_kind = 'user'::text) AND (principal_id = '925386d6-4957-253d-56fa-8127024171e9'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{628738d7-8ae4-2218-f9b3-bbada7ca5cd8,e6e60212-63d2-6fb7-3457-076d3a1c6050,71e4a1b7-6b10-8d62-ecec-a64962de22b2}'::uuid[]))))
+                                  Rows Removed by Filter: 7492
+                                  Heap Fetches: 0
+                                  Buffers: shared hit=160
+                    ->  Materialize  (cost=0.00..1.66 rows=1 width=40) (actual time=0.001..0.001 rows=1 loops=51)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on entity_definitions d  (cost=0.00..1.66 rows=1 width=40) (actual time=0.024..0.030 rows=1 loops=1)
+                                Filter: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = '49a7145b-079a-5d28-1063-21259acae329'::uuid))
+                                Rows Removed by Filter: 43
+                                Buffers: shared hit=1
+              ->  Result  (cost=0.27..0.30 rows=1 width=40) (actual time=0.007..0.007 rows=1 loops=51)
+                    One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-00000000000b'::uuid)
+                    Buffers: shared hit=147
+                    ->  Index Scan using groups_pkey on groups g  (cost=0.27..0.30 rows=1 width=40) (actual time=0.004..0.004 rows=1 loops=51)
+                          Index Cond: ((tenant_id = '00000000-0000-4000-8000-00000000000b'::uuid) AND (id = r.assignment_group_id))
+                          Buffers: shared hit=147
+Planning Time: 0.899 ms
+Execution Time: 69.976 ms
+

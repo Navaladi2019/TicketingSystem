@@ -299,6 +299,7 @@ erDiagram
         text key UK "per tenant, set once"
         text name
         text number_prefix UK "per tenant, set once"
+        text numbering_mode "gaps (default) or gapless, D-3-9"
         int current_version "nava_app moves it"
         timestamptz created_at
         timestamptz updated_at
@@ -321,9 +322,24 @@ erDiagram
 - **Immutable versions (D-3-4).** No role has `UPDATE` or `DELETE` on
   `entity_definition_versions`, and there is no such policy: every attempt is
   `42501` before RLS is consulted. `entity_definitions` has no `DELETE`
-  either; `nava_app` may `UPDATE` only `current_version` and `updated_at`, so
-  `key` and `number_prefix` are fixed at create. `key` matches
-  `^[a-z][a-z0-9_]{1,40}$` and `number_prefix` `^[A-Z]{2,6}$` (CHECK).
+  either; `nava_app` may `UPDATE` only `current_version`, `updated_at` and
+  `numbering_mode`, so `key` and `number_prefix` are fixed at create. `key`
+  matches `^[a-z][a-z0-9_]{1,40}$` and `number_prefix` `^[A-Z]{2,6}$` (CHECK).
+- **`numbering_mode` (D-3-9, P3-36f, TICK-659).** `text NOT NULL DEFAULT
+  'gaps'`, `CHECK (numbering_mode IN ('gaps', 'gapless'))`. It lives on the
+  type, not the version: changing it is not a schema change and is not
+  versioned. The definition read (`entitytypes` `versionSelect`, the one the
+  create path's `Current`/`QueueCurrent` runs) selects it with the row it
+  already fetches, so it adds no round trip and no index. `SetNumberingMode`
+  changes it under a row lock and writes a config `update` audit entry; the
+  commit check's `UPDATE OF` list includes the column (`audited-tables.yaml`).
+  - **Migration.** `20261110040000` adds the column with a constant default
+    (catalogue only since PostgreSQL 11: the test pins an unchanged
+    `pg_relation_filenode`, so no rewrite and no backfill), adds the CHECK
+    `NOT VALID`, and replaces the commit-check trigger in the same
+    transaction. `20261110040100` validates the CHECK under `SHARE UPDATE
+    EXCLUSIVE`. Both run under `lock_timeout = 5s`. Down restores the
+    two-column trigger and drops the column.
 - **`schema` is `json`.** `jsonb` reorders keys, drops duplicates and
   rewrites whitespace. `schema_sha256` is checked against
   `sha256(convert_to(schema::text, 'UTF8'))` on every insert, so the hash and
@@ -481,6 +497,9 @@ erDiagram
 - **Numbering (D-3-9).** One upsert, `INSERT … VALUES (…, 2) ON CONFLICT
   (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next
   + 1 RETURNING next - 1`; `next` is the number the following create gets.
+  Since TICK-657 it runs in a short transaction of its own that commits
+  before the record is inserted, so a failed create leaves a gap (D-3-9 as
+  amended 2026-11-10).
   It needs INSERT, UPDATE (`next`) and SELECT, each under its own policy.
 - **Composite foreign keys (TICK-360).** All five carry `tenant_id`. A record
   naming another tenant's type, principal or group, an audit row naming
@@ -510,6 +529,13 @@ erDiagram
 | every other role | none | none | none |
 
 ### Evidence (P3-09)
+
+> **Superseded index set (TICK-640, P3-34b).** `records_tenant_updated`,
+> `records_tenant_requester` and `records_tenant_group_open` were dropped in
+> `20261109140600_drop_records_s9_list_indexes.sql` and replaced by the
+> `records_list_*` set, each led by `(tenant_id, entity_definition_id)`.
+> Evidence and the current set: [`records-list-indexes.md`](records-list-indexes.md).
+> The numbers below are P3-09's, kept as recorded.
 
 `scratch/records-pipeline-bench/run.sh` (output in `result.txt`):
 `postgres:16.10` in Docker Desktop on Windows 11 (16 vCPU, 19.4 GiB given to

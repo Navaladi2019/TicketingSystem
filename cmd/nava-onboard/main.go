@@ -39,9 +39,12 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	var err error
-	if len(os.Args) > 1 && os.Args[1] == "reconcile-auditors" {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "reconcile-auditors":
 		err = reconcileAuditors(ctx, os.LookupEnv, os.Stdout, os.Args[2:])
-	} else {
+	case len(os.Args) > 1 && os.Args[1] == "reconcile-default-acl":
+		err = reconcileDefaultACL(ctx, os.LookupEnv, os.Stdout, os.Args[2:])
+	default:
 		err = run(ctx, os.LookupEnv, os.Stdout)
 	}
 	stop()
@@ -196,7 +199,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		return nil, nil, nil, err
 	}
 	svc, err := onboard.New(onboard.Options{
-		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, Specs: b.specs,
+		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, ACL: onboard.ACLStore{Pool: b.appPool}, Specs: b.specs,
 		Resolver: onboard.NewNetResolver(), Issuer: cfg.Issuer, Log: log,
 	})
 	if err != nil {
@@ -214,7 +217,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 // parseTenantIDs reads the tenant ids named on the command line.
 func parseTenantIDs(args []string) ([]uuid.UUID, error) {
 	if len(args) == 0 {
-		return nil, errors.New("usage: nava-onboard reconcile-auditors TENANT_ID [TENANT_ID ...]")
+		return nil, errors.New("usage: nava-onboard reconcile-auditors|reconcile-default-acl TENANT_ID [TENANT_ID ...]")
 	}
 	tenants := make([]uuid.UUID, 0, len(args))
 	for _, a := range args {
@@ -259,6 +262,42 @@ func reconcileAuditors(ctx context.Context, lookup config.LookupFunc, stdout io.
 	sum, err := onboard.ReconcileAuditorGroups(ctx, b.store, b.dir, log, tenants)
 	log.InfoContext(ctx, "auditors group reconcile done",
 		slog.Int("created", sum.Created), slog.Int("unchanged", sum.Unchanged), slog.Int("failed", sum.Failed))
+	return err
+}
+
+// reconcileDefaultACL is the backfill job `nava-onboard reconcile-default-acl
+// <tenant-id>...` (P3-35): each named tenant whose incident type has no ACL
+// version gets the default incident ACL, as onboarding gives it to a new
+// tenant, with its audit entry. One tenant at a time, in its own tenant
+// transaction; a type that already has a version is left alone, so it is safe
+// to run again. It needs only the database: no Keycloak call.
+func reconcileDefaultACL(ctx context.Context, lookup config.LookupFunc, stdout io.Writer, args []string) error {
+	tenants, err := parseTenantIDs(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadOnboard(lookup)
+	if err != nil {
+		return err
+	}
+	log := logging.New(stdout, cfg.Log)
+	tel, err := telemetry.New(ctx, cfg.Telemetry)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Telemetry.ShutdownTimeout)
+		defer cancel()
+		_ = tel.Shutdown(flushCtx)
+	}()
+	pool, err := newPool(ctx, tel, cfg.DatabaseURL, "NAVA_DATABASE_URL", 2)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	sum, err := onboard.ReconcileDefaultACLs(ctx, onboard.ACLStore{Pool: pool}, log, tenants)
+	log.InfoContext(ctx, "default acl reconcile done",
+		slog.Int("published", sum.Published), slog.Int("unchanged", sum.Unchanged), slog.Int("failed", sum.Failed))
 	return err
 }
 

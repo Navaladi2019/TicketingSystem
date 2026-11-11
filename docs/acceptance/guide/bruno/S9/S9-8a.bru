@@ -1,0 +1,33 @@
+meta {
+  name: S9.8a A requester cannot triage: Alice moves her own incident to in_progress: 403
+  type: http
+  seq: 11
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s9_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick359-s9-{{s9_run}}-alice-triage
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "state": "in_progress"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Alice is the requester. The default incident ACL lets her write her own incident only while it is `new`, and the write is checked before and after the change, so moving it out of `new` is refused: 403 `forbidden`. S9.8b shows the record did not change.
+}

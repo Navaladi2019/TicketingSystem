@@ -1,0 +1,36 @@
+meta {
+  name: S10.39 C1: Alice lists incidents of /service-desk or admins: only the /service-desk ones, total matches
+  type: http
+  seq: 39
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[assignment_group][in]={{s10_sd}},{{s10_admins}}&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s10_sd_rec', () => expect(ids).to.include(bru.getVar('s10_sd_rec')));
+  test('leaves out s10_adm_rec', () => expect(ids).to.not.include(bru.getVar('s10_adm_rec')));
+  test('leaves out s10_req2_rec', () => expect(ids).to.not.include(bru.getVar('s10_req2_rec')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test('every item is assigned to /service-desk', () => N.json().items.forEach(i => expect(i.assignment_group.id, i.number).to.eql(bru.getVar('s10_sd'))));
+  test('no item shows description', () => N.json().items.forEach(i => expect(i.data, i.number).to.not.have.property('description')));
+  bru.setVar('s10_alice_sd_total', String(N.json().total));
+}
+
+docs {
+  The filter asks for both groups; the ACL returns only the incidents of Alice's `/service-desk`, and `total` counts the same set. The internal `description` is masked from her.
+}

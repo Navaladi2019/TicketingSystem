@@ -99,7 +99,7 @@ func TestStatementErrorsAreWrapped(t *testing.T) {
 	err = store.InsertWriteKey(ctx, &fakeTx{execErr: errBoom}, &store.WriteKey{TenantID: tenant, RecordID: id, Action: "create"})
 	checkErr(t, err, errBoom, "records/store: insert write key: boom")
 
-	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(errBoom)}, tenant, "k")
+	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(errBoom)}, tenant, nil, "k")
 	checkErr(t, err, errBoom, "records/store: read write key: boom")
 
 	_, err = store.PayloadJSON(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id, 1, nil)
@@ -146,18 +146,22 @@ func TestUnencodableValuesFailBeforeAnyStatement(t *testing.T) {
 	}
 }
 
-// A key another write holds is ErrDuplicateKey (D-5-3); a unique violation
-// on any other constraint stays a wrapped database error.
+// A key another write by the same principal holds is ErrDuplicateKey (D-5-3,
+// TICK-626: the per-principal index); a unique violation on any other
+// constraint, the dropped tenant-wide primary key included, stays a wrapped
+// database error.
 func TestInsertWriteKeyMapsTheDuplicateKey(t *testing.T) {
 	ctx := context.Background()
-	dup := &pgconn.PgError{Code: "23505", ConstraintName: "record_write_keys_pkey"}
+	dup := &pgconn.PgError{Code: "23505", ConstraintName: "record_write_keys_actor_key"}
 	if err := store.InsertWriteKey(ctx, &fakeTx{execErr: dup}, &store.WriteKey{}); !errors.Is(err, store.ErrDuplicateKey) {
 		t.Fatalf("err = %v, want ErrDuplicateKey", err)
 	}
-	other := &pgconn.PgError{Code: "23505", ConstraintName: "some_other_key"}
-	err := store.InsertWriteKey(ctx, &fakeTx{execErr: other}, &store.WriteKey{})
-	if errors.Is(err, store.ErrDuplicateKey) || !errors.Is(err, other) {
-		t.Fatalf("err = %v, want the wrapped database error", err)
+	for _, name := range []string{"some_other_key", "record_write_keys_pkey"} {
+		other := &pgconn.PgError{Code: "23505", ConstraintName: name}
+		err := store.InsertWriteKey(ctx, &fakeTx{execErr: other}, &store.WriteKey{})
+		if errors.Is(err, store.ErrDuplicateKey) || !errors.Is(err, other) {
+			t.Fatalf("%s: err = %v, want the wrapped database error", name, err)
+		}
 	}
 	if err := store.InsertWriteKey(ctx, &fakeTx{}, &store.WriteKey{}); err != nil {
 		t.Fatalf("insert = %v", err)
@@ -187,11 +191,12 @@ func TestWriteKeyByKey(t *testing.T) {
 		*dest[4].(*int64) = 3
 		return nil
 	}}
-	k, err := store.WriteKeyByKey(ctx, tx, tenant, "k")
-	if err != nil || k.TenantID != tenant || k.IdempotencyKey != "k" || k.Action != "update" || k.RecordID != rec || k.Number != "AST1" || k.Version != 3 {
+	actor := uuid.New()
+	k, err := store.WriteKeyByKey(ctx, tx, tenant, &actor, "k")
+	if err != nil || k.TenantID != tenant || k.IdempotencyKey != "k" || k.Action != "update" || k.RecordID != rec || k.Number != "AST1" || k.Version != 3 || k.ActorPrincipalID == nil || *k.ActorPrincipalID != actor {
 		t.Fatalf("WriteKeyByKey = %+v, %v", k, err)
 	}
-	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, tenant, "k")
+	_, err = store.WriteKeyByKey(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, tenant, nil, "k")
 	checkErr(t, err, store.ErrNotFound, "records/store: not found")
 }
 

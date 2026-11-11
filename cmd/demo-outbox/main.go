@@ -186,7 +186,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	defer pool.Close()
 
 	sink := &demoSink{}
-	p := pipeline.New(authz.TenantMemberAuthorizer{}, entitytypes.Store{}, sink, pipeline.PoolRunner{Pool: pool}, pipeline.SystemClock{})
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, pipeline.PoolRunner{Pool: pool}, pipeline.SystemClock{})
 	var (
 		record uuid.UUID
 		ids    []uuid.UUID

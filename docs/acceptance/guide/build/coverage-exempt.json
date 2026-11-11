@@ -38,7 +38,8 @@
     "403": "Not reachable in S9: the interim authorizer allows every tenant member. Unit tests cover the mapping (internal/server).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database.",
+    "503": "Needs a number allocation to pass its 200 ms timeout (or, on a patch, a deadlock), which a healthy stack does not show from outside. TestCreateRecordAllocationTimeoutIs503RetryLater (internal/server) asserts the 503 retry_later with Retry-After through the real handler."
   },
   "getRecord": {
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
@@ -49,9 +50,37 @@
     "403": "Not reachable in S9: the interim authorizer allows every tenant member. Unit tests cover the mapping (internal/server).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database."
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database.",
+    "503": "Needs a number allocation to pass its 200 ms timeout (or, on a patch, a deadlock), which a healthy stack does not show from outside. TestCreateRecordAllocationTimeoutIs503RetryLater (internal/server) asserts the 503 retry_later with Retry-After through the real handler."
   },
   "listAuditEntries": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "getRecordHistory": {
+    "422": "history_too_long needs a record with more than 500 audit entries (read.DefaultMaxRecordEntries); not worth 500 writes in the guide. TestPatchHistoryIsCapped (internal/server) drives it with a small cap.",
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "getEntityTypeAccess": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "putEntityTypeAccess": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "explainAccess": {
+    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
+    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
+    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
+  },
+  "listRecords": {
+    "422": "filter_too_expensive needs a data-filter list that outlasts the 2 s statement timeout on a large table; asserted by the integration test TestListDataFilterTimeoutAnswers422 (a table lock and a short timeout).",
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
@@ -61,12 +90,6 @@
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or the audit reader pool."
-  },
-  "getRecordHistory": {
-    "422": "history_too_long needs a record with more than 500 audit entries (read.DefaultMaxRecordEntries); not worth 500 writes in the guide. TestPatchHistoryIsCapped (internal/server) drives it with a small cap.",
-    "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
-    "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
-    "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys."
   },
   "reseedAuditChain": {
     "200": "A 200 needs a dead seal lineage (next_seal_at more than 10 minutes late), which a healthy stack never has. TestReseedAliveRefusedThenDeadRestarts (internal/server) covers it.",

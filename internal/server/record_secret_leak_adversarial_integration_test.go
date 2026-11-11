@@ -110,7 +110,7 @@ func newLeakEnv(t *testing.T) *leakEnv {
 	logs := &etLogBuf{}
 	log := logging.New(testLogWriter{t, logs}, config.Log{Level: slog.LevelDebug, Format: config.FormatJSON})
 	h, err := server.NewHandler(log, tel, base.tokens, stubPaths{},
-		server.WithLimiter(lim), server.WithPool(pool), server.WithCursors(kr))
+		server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithCursors(kr))
 	if err != nil {
 		t.Fatal(err)
 	}

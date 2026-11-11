@@ -22,13 +22,35 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // Record endpoints (TICK-357, P3-14). Check order on every records route:
-// authn, entity type (unknown is the one 404), record, authorizer, body.
+// authn, entity type (unknown is the one 404), record, read authorization
+// (an unreadable record is the same 404), body, then the write authorizer
+// inside the pipeline, after the schema check (P3-31), with the field-mask
+// write check beside it (P3-33). Every record body is shaped by the caller's
+// field masks (shapedBody).
+
+// recordACL is what the record and audit handlers need of the record ACL:
+// the read and write checks, and the policy of the shaping layer (P3-33).
+type recordACL interface {
+	authz.Authorizer
+	authz.MaskSource
+}
+
+// policyQueuer is a recordACL that can prefetch the entity type's policy in
+// a batch (authz.ACL); the checks in the rest of the transaction then read
+// it from the transaction's memo.
+type policyQueuer interface {
+	QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, p identity.Principal, entity string) error
+}
+
+// maskRule is the rule of the field error of a 422 field_not_writable.
+const maskRule = "mask"
 
 // pgForeignKeyViolation is SQLSTATE 23503.
 const pgForeignKeyViolation = "23503"
@@ -69,7 +91,7 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.pipe == nil {
+	if h.pool == nil || h.pipe == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	if impossibleKey(req.Entity) {
@@ -82,35 +104,79 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 	var (
 		rec   *pipeline.Record
 		fixed map[string]string // the mapping the row was written under
+		resp  api.CreateRecord201JSONResponse
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		// Causation stays empty on purpose: origin and depth never come from
+		// the request (TICK-88 security review).
+		//
+		// The write (record, audit entry) rides in the COMMIT's round trip
+		// with the key's completion (InsertAtCommit, TICK-692): nothing
+		// below Write sends a statement of its own but the reads of
+		// fixedColumnsOf and shapedBody, which never read the new record.
+		cmd := pipeline.Command{Op: pipeline.OpCreate, EntityKey: req.Entity, Actor: p, Source: pipeline.SourceUser, InsertAtCommit: true}
+		// One round trip for the BEGIN and the tenant (BeginInFirstBatch,
+		// TICK-692), the claim of the request's idempotency key, the
+		// transaction's first write (TICK-688), and every read the create
+		// starts with: the pipeline's prefetch (the definition and the
+		// policy, which Current below and the write and shaping checks then
+		// take from the transaction's memo) (TICK-648). The claim waits at
+		// most idempotency.ClaimWait on a concurrent request with the key.
+		b := &pgx.Batch{}
+		if err := idempotency.QueueHold(ctx, tx, b); err != nil {
+			return err
+		}
+		if err := h.pipe.QueuePrefetch(ctx, tx, b, cmd); err != nil {
+			return err
+		}
+		// The replay check comes first: a request whose key is taken
+		// (replayed, reused, in flight) rolls back here, before validation,
+		// the write check and the number (I4, ADR-005).
+		if err := idempotency.ResolveClaim(ctx, tx, tx.SendBatch(ctx, b).Close()); err != nil {
+			return err
+		}
 		def, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
-		// The authorizer runs inside the pipeline, after this envelope check
-		// and before the schema check. S9's authorizer reads neither.
+		// The write authorizer runs inside the pipeline, on the record as the
+		// write leaves it, after the schema check (P3-31).
 		data, perr := parseRecordBody(raw)
 		if perr != nil {
 			return perr
 		}
-		res, err := h.pipe.Write(ctx, tx, pipeline.Command{
-			// Causation stays empty on purpose: origin and depth never come from
-			// the request (TICK-88 security review).
-			Op: pipeline.OpCreate, EntityKey: req.Entity, Data: data, Actor: p, Source: pipeline.SourceUser,
-		})
+		cmd.Data = data
+		res, err := h.pipe.Write(ctx, tx, cmd)
 		if err != nil {
 			return err
 		}
+		// Get answers from the row the write stored, with no round trip.
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, res.RecordID); err != nil {
 			return err
 		}
 		// The response is built from the version the row was written under,
 		// which the pipeline read itself.
 		fixed, err = h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, def)
-		return err
-	})
+		if err != nil {
+			return err
+		}
+		body, err := h.shapedBody(ctx, tx, p, rec, rec.Payload(fixed), fixed)
+		if err != nil {
+			return err
+		}
+		resp = api.CreateRecord201JSONResponse{
+			Body:    body,
+			Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
+		}
+		// The key completes in this transaction, with the write (TICK-482),
+		// in the COMMIT's round trip since the key's row is held.
+		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
+	}, tenancy.BeginInFirstBatch())
 	if err != nil {
+		if errors.Is(err, idempotency.ErrSettled) {
+			// The middleware answers from the key; this response is dropped.
+			return settledCreate{}, nil
+		}
 		if errors.Is(err, entitytypes.ErrNotFound) || errors.Is(err, pipeline.ErrNotFound) {
 			return h.notFound(ctx), nil
 		}
@@ -118,11 +184,16 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// (*pipeline.ErrAtVersion); recordError maps under that one.
 		return nil, h.recordError(ctx, err, nil, "")
 	}
-	return api.CreateRecord201JSONResponse{
-		Body:    recordBody(rec, rec.Payload(fixed)),
-		Headers: api.CreateRecord201ResponseHeaders{ETag: etag(rec.Version), Location: "/api/v1/records/" + rec.EntityKey + "/" + rec.ID.String()},
-	}, nil
+	return resp, nil
 }
+
+// settledCreate is CreateRecord's response when the request's key was
+// already taken (idempotency.ErrSettled). The idempotency middleware
+// replaces it with the stored response or the key's 409, so it writes
+// nothing.
+type settledCreate struct{}
+
+func (settledCreate) VisitCreateRecordResponse(http.ResponseWriter) error { return nil }
 
 // GetRecord serves GET /api/v1/records/{entity}/{id}.
 func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject) (api.GetRecordResponseObject, error) {
@@ -130,7 +201,7 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil {
+	if h.pool == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -139,18 +210,38 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	}
 	var (
 		rec  *pipeline.Record
-		data map[string]any
+		body api.Record
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		// Every read in one round trip (TICK-648): the definition and the
+		// policy go to the transaction's memo, where Current, CanRead and the
+		// shaping layer find them; the record and the caller's shares of it
+		// come back here. The shares are read before the record is known to
+		// exist, under the tenant's RLS, and used only once CanRead runs.
+		b := &pgx.Batch{}
+		h.store.QueueCurrent(tx, b, req.Entity)
+		if pq, ok := h.acl.(policyQueuer); ok {
+			if err := pq.QueuePolicy(ctx, tx, b, p, req.Entity); err != nil {
+				return err
+			}
+		}
+		pipeline.QueueGet(b, p.TenantID, id, &rec)
+		var shares []uuid.UUID
+		if err := authz.QueueSharesFor(ctx, tx, b, p, id, &shares); err != nil {
+			return err
+		}
+		if err := tx.SendBatch(ctx, b).Close(); err != nil {
+			return err
+		}
 		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
-		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
-			return err
-		}
-		if rec.EntityKey != req.Entity {
+		if rec == nil || rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
+		}
+		if err := h.canReadRow(ctx, tx, p, rec, pipeline.RowWith(rec, shares)); err != nil {
+			return err
 		}
 		// The row was split under its own version's mapping; defaults come
 		// from the current version for what an older version never wrote.
@@ -158,8 +249,8 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 		if err != nil {
 			return err
 		}
-		data = cur.ApplyDefaults(rec.Payload(fixed))
-		return nil
+		body, err = h.shapedBody(ctx, tx, p, rec, cur.ApplyDefaults(rec.Payload(fixed)), fixed)
+		return err
 	})
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
@@ -167,16 +258,82 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 	if err != nil {
 		return nil, err
 	}
-	return api.GetRecord200JSONResponse{Body: recordBody(rec, data), Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
+	return api.GetRecord200JSONResponse{Body: body, Headers: api.GetRecord200ResponseHeaders{ETag: etag(rec.Version)}}, nil
+}
+
+// canRead returns pipeline.ErrNotFound when p may not read rec, so the
+// caller answers the byte-identical missing-record 404 (P3-31).
+func (h *handlers) canRead(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record) error {
+	row, err := pipeline.RowOf(ctx, tx, p, rec)
+	if err != nil {
+		return err
+	}
+	return h.canReadRow(ctx, tx, p, rec, row)
+}
+
+// canReadRow is canRead with the ACL's row already read.
+func (h *handlers) canReadRow(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record, row authz.Row) error {
+	err := h.acl.CanRead(ctx, tx, p, rec.EntityKey, row)
+	if errors.Is(err, authz.ErrNotVisible) {
+		return pipeline.ErrNotFound
+	}
+	return err
+}
+
+// policy is the entity type's current policy for p, for the shaping layer.
+// The caller has already checked that p may read the record, so a principal
+// of another tenant does not reach here; if one did, it is the missing record.
+func (h *handlers) policy(ctx context.Context, tx pgx.Tx, p identity.Principal, entity string) (*authz.Policy, error) {
+	pol, err := h.acl.Policy(ctx, tx, p, entity)
+	if errors.Is(err, authz.ErrNotVisible) {
+		return nil, pipeline.ErrNotFound
+	}
+	return pol, err
+}
+
+// shapedBody is the record body for p (P3-33): the one shaping layer every
+// record read goes through (GET, the 201 of a create, the 200 of a PATCH).
+// data is the record's payload under fixed, the mapping its row was written
+// under.
+func (h *handlers) shapedBody(ctx context.Context, tx pgx.Tx, p identity.Principal, rec *pipeline.Record, data map[string]any, fixed map[string]string) (api.Record, error) {
+	pol, err := h.policy(ctx, tx, p, rec.EntityKey)
+	if err != nil {
+		return api.Record{}, err
+	}
+	return shapeRecord(pol, p, rec, data, fixed), nil
+}
+
+// shapeRecord drops from data every property pol masks from p, and the
+// top-level fields that repeat a masked fixed-column property: state becomes
+// "" and assignment_group is left out. requester_id and assignee_id appear in
+// data only.
+func shapeRecord(pol *authz.Policy, p identity.Principal, rec *pipeline.Record, data map[string]any, fixed map[string]string) api.Record {
+	body := recordBody(rec, authz.Shape(pol, p, data))
+	for prop, col := range fixed {
+		if authz.Readable(pol, p, prop) {
+			continue
+		}
+		switch col {
+		case metadata.ColumnState:
+			body.State = ""
+		case metadata.ColumnAssignmentGroupID:
+			body.AssignmentGroup = nil
+		}
+	}
+	return body
 }
 
 // fixedColumnsOf is the fixed-column mapping of the version a row was written
 // under. It reads that version only when it is not the current one.
 func (h *handlers) fixedColumnsOf(ctx context.Context, tx pgx.Tx, entity string, version, curVersion int, cur *metadata.Compiled) (map[string]string, error) {
+	return fixedColumnsUnder(ctx, tx, h.store, entity, version, curVersion, cur)
+}
+
+func fixedColumnsUnder(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, version, curVersion int, cur *metadata.Compiled) (map[string]string, error) {
 	if version == curVersion {
 		return cur.FixedColumns(), nil
 	}
-	stored, err := h.store.Version(ctx, tx, entity, version)
+	stored, err := defs.Version(ctx, tx, entity, version)
 	if err != nil {
 		return nil, fmt.Errorf("read stored definition: %w", err)
 	}
@@ -234,6 +391,7 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		fixed, stateProp = av.FixedColumns, av.StateProperty
 	}
 	var (
+		nw *authz.ErrFieldNotWritable
 		ve *pipeline.ErrValidation
 		it *pipeline.ErrIllegalTransition
 		uv *pipeline.ErrUniqueViolation
@@ -243,6 +401,17 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 	switch {
 	case errors.As(err, &pe):
 		return pe
+	case errors.Is(err, pipeline.ErrRetryable):
+		// A number allocation past its timeout (ADR-005 A5) or a deadlock:
+		// the transaction committed nothing, so a retry is safe (TICK-657).
+		return &problemError{problem.RetryLater, nil, err}
+	case errors.As(err, &nw):
+		// The pointers name the fields the caller sent, never a value.
+		fields := make([]problem.FieldError, len(nw.Fields))
+		for i, f := range nw.Fields {
+			fields[i] = invalid("/data/"+escapePointer(f), maskRule)
+		}
+		return &problemError{problem.FieldNotWritable, fields, err}
 	case errors.Is(err, authz.ErrForbidden):
 		return &problemError{problem.Forbidden, nil, err}
 	case errors.Is(err, pipeline.ErrAssignmentGroupRemoved):

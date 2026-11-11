@@ -15,7 +15,10 @@ paths:
         `{"redacted":"op"}`, and `diff_redacted` says the diff differs from
         the stored one. `diff_salt` comes only with an unredacted diff, so
         `SHA-256(diff_salt || diff)` equals `diff_sha256`. An empty tenant
-        returns an empty page.
+        returns an empty page. A record entry's diff is masked for the
+        reader's record field masks too (P3-33): a property the entity
+        type's published ACL hides from the reader reads
+        `{"redacted":"mask"}`, as a secret does.
       parameters:
         - name: from
           in: query
@@ -42,7 +45,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [record, cascade_key, entity_definition, audit_export, audit_chain, erasure_request]
+            enum: [record, cascade_key, entity_definition, acl_policy, audit_export, audit_chain, erasure_request]
         - name: subject_id
           in: query
           required: false

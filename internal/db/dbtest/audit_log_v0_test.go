@@ -192,9 +192,10 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, deadLineageMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, deadLineageMigration)
 	}
+	gm, am := beforeACLTables(fsys, &withV0, &a)
 	log, _ := newLog()
-	return migrate.Run(context.Background(), roleConfig(t, withV0.Owner(), withV0.PlatformDatabase),
-		fsys, &withV0, &a, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),
+		fsys, gm, am, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // auditReaderPoliciesMigration is ADR-004-A1 A1-3's policy migration (TICK-558).

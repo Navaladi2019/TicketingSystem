@@ -6,8 +6,15 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)
+- [2026-11-10: the `filter[state]=new` miss reopens the list-shape work as one index task](decisions/2026-11-10-state-filter-index.md)
 - [2026-11-10: PLAN-006 drafted: ADR-005 lands in Milestone 2 as S17, S18, S19 after S10; M3 one release after the expand](decisions/2026-11-10-plan-006-adr-005.md)
+- [2026-11-10: D-3-9, each type chooses gaps (default) or gapless numbering; gaps are never reclaimed](decisions/2026-11-10-d-3-9-numbers-may-have-gaps.md)
 - [2026-11-09: TICK-638: every pull request into a story branch runs the full suite on open; skipped is not green](decisions/2026-11-09-full-suite-on-story-branch-prs.md)
+- [2026-11-09: D25, the list `total` is capped at 1,000 and a data-filter list has a 2 s timeout; the index and shape work for the P3-36 misses is deferred](decisions/2026-11-09-d25-list-total-cap-and-data-filter-timeout.md)
+- [2026-11-09: D-3-28, S10 contract amendment A3: ACL audit entries get the subject acl_policy; the default incident ACL lets a requester raise its own incident; a non-object PUT body is 400](decisions/2026-11-09-d-3-28-acl-audit-subject-default-acl-body-shape.md)
+- [2026-11-09: D-3-27, the stack seed publishes a temporary allow-all ACL until P3-35](decisions/2026-11-09-d-3-27-stack-seed-allow-all-acl.md)
+- [2026-11-09: D-3-26, S10 contract amendment A1: CanWrite takes the transaction and the record rows; only four system sources skip it](decisions/2026-11-09-d-3-26-authorizer-a1.md)
 - [2026-11-07: TICK-594: guarderrtype covers the audit.seal message; cause and details stay runtime-checked; a seal type held in a variable is deferred](decisions/2026-11-07-tick-594-seal-guard-lint-scope.md)
 - [2026-11-07: PLAN-005-E7 drafted: ADR-004-E7 lands as two tasks in S15; S15 acceptance waits for them](decisions/2026-11-07-plan-005-e7-adr-004-e7.md)
 - [2026-11-05: C5 amended: WithDelay option (P5-34a) and EnqueueReseed with reseed dedupe key (P5-35)](decisions/2026-11-05-c5-withdelay-and-enqueuereseed.md)

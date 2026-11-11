@@ -20,17 +20,21 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // PATCH and history of a record (TICK-358, P3-15). Check order of PATCH:
-// authn, entity type and record (the one 404), If-Match missing (428), stale
-// (412), body (422), then the authorizer inside the pipeline.
+// authn, entity type, record and read authorization (the one 404: an
+// unreadable record never yields 428 or 412, P3-31), If-Match missing (428),
+// stale (412), body (422), then the write authorizer inside the pipeline.
 
 const getRecordHistoryRoute = "getRecordHistory"
 
@@ -64,13 +68,25 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 	return versions, true
 }
 
+// patchBody is the 200 body's data. The row was written under the version the
+// pipeline read, which a publish since the handler's own read may have moved
+// (TICK-413, TICK-481): map it under that one, as create and GET do. Defaults
+// stay the current ones.
+func patchBody(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, rec *pipeline.Record, curVersion int, cur *metadata.Compiled) (map[string]any, map[string]string, error) {
+	fixed, err := fixedColumnsUnder(ctx, tx, defs, entity, rec.SchemaVersion, curVersion, cur)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cur.ApplyDefaults(rec.Payload(fixed)), fixed, nil
+}
+
 // PatchRecord serves PATCH /api/v1/records/{entity}/{id}.
 func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestObject) (api.PatchRecordResponseObject, error) {
 	p, ok := identity.FromContext(ctx)
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.pipe == nil {
+	if h.pool == nil || h.pipe == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -83,12 +99,12 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 	}
 	var (
 		rec       *pipeline.Record
-		data      map[string]any
 		tried     map[string]string // the handler's read; recordError prefers the pipeline's version
 		stateProp string
+		resp      api.PatchRecord200JSONResponse
 	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
-		cur, _, err := h.store.Current(ctx, tx, req.Entity)
+		cur, curVersion, err := h.store.Current(ctx, tx, req.Entity)
 		if err != nil {
 			return err
 		}
@@ -100,6 +116,9 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		}
 		if before.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
+		}
+		if err := h.canRead(ctx, tx, p, before); err != nil {
+			return err
 		}
 		// Only now may the caller learn that the record needs If-Match.
 		versions, ok := ifMatchVersions(req.Params.IfMatch)
@@ -124,10 +143,20 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		if rec, err = pipeline.Get(ctx, tx, p.TenantID, id); err != nil {
 			return err
 		}
-		// An update writes under the current version, so its mapping and
-		// defaults are the current ones.
-		data = cur.ApplyDefaults(rec.Payload(cur.FixedColumns()))
-		return nil
+		data, fixed, err := patchBody(ctx, tx, h.store, req.Entity, rec, curVersion, cur)
+		if err != nil {
+			return err
+		}
+		body, err := h.shapedBody(ctx, tx, p, rec, data, fixed)
+		if err != nil {
+			return err
+		}
+		resp = api.PatchRecord200JSONResponse{
+			Body:    body,
+			Headers: api.PatchRecord200ResponseHeaders{ETag: etag(rec.Version)},
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, resp.VisitPatchRecordResponse)
 	})
 	if err != nil {
 		var st *staleError
@@ -151,10 +180,7 @@ func (h *handlers) PatchRecord(ctx context.Context, req api.PatchRecordRequestOb
 		}
 		return nil, h.recordError(ctx, err, tried, stateProp)
 	}
-	return api.PatchRecord200JSONResponse{
-		Body:    recordBody(rec, data),
-		Headers: api.PatchRecord200ResponseHeaders{ETag: etag(rec.Version)},
-	}, nil
+	return resp, nil
 }
 
 // currentVersion reads a record's version in a transaction of its own.
@@ -239,7 +265,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.cursors == nil || h.audit == nil {
+	if h.pool == nil || h.cursors == nil || h.audit == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	id, perr := uuid.Parse(req.Id)
@@ -270,11 +296,15 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		}
 	}
 	// Two transactions (ADR-004-A1 A1-7). First nava_app reads the record in
-	// the caller's tenant, so another tenant's record, an unreadable one and
-	// a missing one are the same 404 before any audit row is read (Security
+	// the caller's tenant and checks the caller may read it (P3-31), so
+	// another tenant's record, an unreadable one and a missing one are the
+	// same 404 before any audit row is read (Security
 	// review of PR #432). Only then does the reader's pool read its entries.
 	// READ COMMITTED gives each statement its own snapshot, so the split adds
 	// no race.
+	// The policy is read in the transaction of the read check: every
+	// before, after and changed[] below is shaped with it (P3-33).
+	var pol *authz.Policy
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if _, _, err := h.store.Current(ctx, tx, req.Entity); err != nil {
 			return err
@@ -286,7 +316,11 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		if rec.EntityKey != req.Entity {
 			return pipeline.ErrNotFound
 		}
-		return nil
+		if err := h.canRead(ctx, tx, p, rec); err != nil {
+			return err
+		}
+		pol, err = h.policy(ctx, tx, p, req.Entity)
+		return err
 	})
 	var changes []read.Change
 	if err == nil {
@@ -317,7 +351,9 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	}
 	out := api.RecordHistory{Items: make([]api.RecordChange, 0, min(len(changes), limit))}
 	for _, c := range changes[:min(len(changes), limit)] {
-		after := c.After
+		// A masked field is absent from before, after and changed[]; an entry
+		// that changed only masked fields stays, with an empty changed[].
+		before, after := authz.Shape(pol, p, c.Before), authz.Shape(pol, p, c.After)
 		if after == nil {
 			after = map[string]any{}
 		}
@@ -330,10 +366,10 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 			ActorId: c.Entry.ActorPrincipalID, Changed: []string{}, After: after,
 		}
 		if c.Known {
-			item.Changed = ChangedPaths(c.Before, c.After)
+			item.Changed = ChangedPaths(before, after)
 		}
-		if c.Before != nil {
-			item.Before = &c.Before
+		if before != nil {
+			item.Before = &before
 		}
 		out.Items = append(out.Items, item)
 	}

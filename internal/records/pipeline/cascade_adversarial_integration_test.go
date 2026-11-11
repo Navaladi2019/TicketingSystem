@@ -30,7 +30,7 @@ import (
 func TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing(t *testing.T) {
 	e := migrated(t)
 	a, b := seedTenant(t, e), seedTenant(t, e)
-	p := pipeline.New(authz.TenantMemberAuthorizer{}, entitytypes.Store{}, &countingSink{},
+	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, &countingSink{},
 		pipeline.PoolRunner{Pool: e.app}, pipeline.SystemClock{})
 	ctx := context.Background()
 	victim := mustCreate(t, e, p, a, map[string]any{"title": "tenant A only"})

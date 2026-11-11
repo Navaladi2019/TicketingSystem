@@ -25,6 +25,12 @@ const (
 	// EntityDefinition is an entity type and its published versions (S8;
 	// domain config).
 	EntityDefinition Type = "entity_definition"
+	// ACLPolicy is an entity type's access policy and its published versions
+	// (S10, P3-35; domain config): subject_id is the entity definition id,
+	// version_before and version_after are ACL versions. Its own subject so
+	// the ACL chain never shares a (subject, version) key with the entity
+	// type's schema versions (contract amendment A3).
+	ACLPolicy Type = "acl_policy"
 	// AuditExport is one export of the log (R19; domain audit).
 	AuditExport Type = "audit_export"
 	// AuditChain is a tenant's chain head, the subject of chain:reseed (R17;
@@ -41,6 +47,7 @@ func All() []Type {
 		Record,
 		CascadeKey,
 		EntityDefinition,
+		ACLPolicy,
 		AuditExport,
 		AuditChain,
 		ErasureRequest,

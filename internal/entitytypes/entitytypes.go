@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 var (
@@ -34,7 +35,11 @@ var (
 	ErrPrefixTaken = errors.New("entitytypes: number prefix taken")
 	// ErrNoPublisher means a publish named no principal. published_by is
 	// nullable in the table for onboarding's seed (P3-06), so this is the guard.
+	// SetNumberingMode returns it too: its config entry needs an actor.
 	ErrNoPublisher = errors.New("entitytypes: publish needs a principal")
+	// ErrInvalidNumberingMode means a numbering mode other than gaps or
+	// gapless (entity_definitions_numbering_mode_check).
+	ErrInvalidNumberingMode = errors.New("entitytypes: numbering mode must be gaps or gapless")
 )
 
 // BreakingError is returned by Publish when the new definition is a breaking
@@ -71,6 +76,7 @@ type Summary struct {
 	Key            string
 	Name           string
 	NumberPrefix   string
+	NumberingMode  metadata.NumberingMode
 	CurrentVersion int
 	UpdatedAt      time.Time
 }
@@ -80,7 +86,10 @@ type Version struct {
 	Key          string
 	Name         string
 	NumberPrefix string
-	Version      int
+	// NumberingMode is the type's, not the version's (D-3-9): every version
+	// read reads the type's current mode.
+	NumberingMode metadata.NumberingMode
+	Version       int
 	// Schema is the exact bytes that were published.
 	Schema       json.RawMessage
 	SchemaSHA256 [sha256.Size]byte
@@ -92,7 +101,7 @@ type Version struct {
 }
 
 const versionSelect = `
-SELECT d.key, d.name, d.number_prefix, d.current_version, v.version, v.schema::text,
+SELECT d.key, d.name, d.number_prefix, d.numbering_mode, d.current_version, v.version, v.schema::text,
        v.schema_sha256, v.fixed_columns, v.states, v.compat, v.published_at
 FROM entity_definitions d
 JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id`
@@ -104,7 +113,7 @@ func scanVersion(row pgx.Row) (*Version, error) {
 		sum    []byte
 		cur    int
 	)
-	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt)
+	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &v.NumberingMode, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -136,7 +145,7 @@ func (Store) GetCurrent(ctx context.Context, tx pgx.Tx, key string) (*Version, e
 // List returns up to limit entity types with key greater than after, by key.
 func (Store) List(ctx context.Context, tx pgx.Tx, after string, limit int) ([]Summary, error) {
 	rows, err := tx.Query(ctx, `
-SELECT key, name, number_prefix, current_version, updated_at
+SELECT key, name, number_prefix, numbering_mode, current_version, updated_at
 FROM entity_definitions WHERE key > $1 ORDER BY key LIMIT $2`, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: list: %w", err)
@@ -145,7 +154,7 @@ FROM entity_definitions WHERE key > $1 ORDER BY key LIMIT $2`, after, limit)
 	out := []Summary{}
 	for rows.Next() {
 		var s Summary
-		if err := rows.Scan(&s.Key, &s.Name, &s.NumberPrefix, &s.CurrentVersion, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.Key, &s.Name, &s.NumberPrefix, &s.NumberingMode, &s.CurrentVersion, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("entitytypes: list: %w", err)
 		}
 		out = append(out, s)
@@ -160,7 +169,8 @@ FROM entity_definitions WHERE key > $1 ORDER BY key LIMIT $2`, after, limit)
 type NewInput struct {
 	Name        string
 	PublishedBy uuid.UUID
-	// Definition carries Key, NumberPrefix and the exact Schema bytes.
+	// Definition carries Key, NumberPrefix, NumberingMode (empty is gaps)
+	// and the exact Schema bytes.
 	Definition metadata.Definition
 }
 
@@ -169,6 +179,7 @@ type NewInput struct {
 // first, so a request that clashes on both reports the key. The caller's
 // transaction is unusable after an error.
 func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewInput) (*Version, error) {
+	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
 	var one int
 	switch err := tx.QueryRow(ctx, `SELECT 1 FROM entity_definitions WHERE key = $1`, d.Key).Scan(&one); {
@@ -201,8 +212,8 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 	defID, verID := uuid.New(), uuid.New()
 	// A race with a concurrent create surfaces as a unique violation.
 	if _, err := tx.Exec(ctx, `
-INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
-VALUES ($1, $2, $3, $4, $5, 1)`, tenantID, defID, d.Key, in.Name, d.NumberPrefix); err != nil {
+INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, numbering_mode, current_version)
+VALUES ($1, $2, $3, $4, $5, $6, 1)`, tenantID, defID, d.Key, in.Name, d.NumberPrefix, numberingMode(d.NumberingMode)); err != nil {
 		return nil, mapUnique(err)
 	}
 	// The schema goes in as text cast to json, so the stored bytes are the
@@ -240,6 +251,7 @@ type SeedInput struct {
 // commit check on both tables requires from migration B (P5-32) on. The
 // caller's transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
+	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
 	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
@@ -251,9 +263,9 @@ func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInp
 	}
 	sum := sha256.Sum256(d.Schema)
 	def, err := tx.Exec(ctx, `
-INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
-VALUES ($1, $2, $3, $4, $5, 1)
-ON CONFLICT DO NOTHING`, tenantID, in.DefinitionID, d.Key, in.Name, d.NumberPrefix)
+INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, numbering_mode, current_version)
+VALUES ($1, $2, $3, $4, $5, $6, 1)
+ON CONFLICT DO NOTHING`, tenantID, in.DefinitionID, d.Key, in.Name, d.NumberPrefix, numberingMode(d.NumberingMode))
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: seed definition: %w", err)
 	}
@@ -275,8 +287,8 @@ ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schem
 }
 
 // PublishInput is the next version of an existing entity type. Definition
-// carries Schema, FixedColumns and States; its Key and NumberPrefix are
-// ignored, since the stored type owns both.
+// carries Schema, FixedColumns and States; its Key, NumberPrefix and
+// NumberingMode are ignored, since the stored type owns them.
 type PublishInput struct {
 	Key         string
 	PublishedBy uuid.UUID
@@ -291,16 +303,19 @@ type PublishInput struct {
 // Breaking; nothing is written then. The caller's transaction is unusable
 // after an error.
 func (s Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in PublishInput) (*Version, error) {
+	defer tenancy.Forget(tx, currentKey{in.Key})
 	if in.PublishedBy == uuid.Nil {
 		return nil, ErrNoPublisher
 	}
 	var (
 		defID   uuid.UUID
 		prefix  string
+		mode    metadata.NumberingMode
 		current int
 	)
 	err := tx.QueryRow(ctx, `
-SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &prefix, &current)
+SELECT id, number_prefix, numbering_mode, current_version FROM entity_definitions WHERE key = $1 FOR UPDATE`,
+		in.Key).Scan(&defID, &prefix, &mode, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -316,7 +331,7 @@ SELECT id, number_prefix, current_version FROM entity_definitions WHERE key = $1
 		return nil, err
 	}
 	d := in.Definition
-	d.Key, d.NumberPrefix = in.Key, prefix
+	d.Key, d.NumberPrefix, d.NumberingMode = in.Key, prefix, mode
 	if err := CheckSchemaSecrets(d.Schema); err != nil {
 		return nil, err
 	}
@@ -367,6 +382,67 @@ UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id 
 	return s.GetVersion(ctx, tx, in.Key, number)
 }
 
+// SetNumberingModeInput changes an entity type's numbering mode (D-3-9).
+type SetNumberingModeInput struct {
+	Key  string
+	Mode metadata.NumberingMode
+	// By is the principal making the change; its config entry names them.
+	By uuid.UUID
+}
+
+// SetNumberingMode sets the entity type's numbering mode (PLAN-003 D-3-9,
+// P3-36g) and reports whether it changed. The type's counter row carries on
+// either way, so no record is renumbered. A mode equal to the stored one
+// writes nothing. A change writes the config update entry the commit check
+// requires (audited-tables.yaml lists numbering_mode), with the mode before
+// and after as its diff. It runs in the caller's InTenantTx, so a key of
+// another tenant is ErrNotFound, and locks the definition row, so it queues
+// behind a concurrent Publish or SetNumberingMode of the same type. It
+// returns ErrNoPublisher, ErrInvalidNumberingMode or ErrNotFound with nothing
+// written. The caller's transaction is unusable after any other error.
+func (Store) SetNumberingMode(ctx context.Context, tx pgx.Tx, in SetNumberingModeInput) (bool, error) {
+	defer tenancy.Forget(tx, currentKey{in.Key})
+	if in.By == uuid.Nil {
+		return false, ErrNoPublisher
+	}
+	if !in.Mode.Valid() {
+		return false, ErrInvalidNumberingMode
+	}
+	var (
+		defID uuid.UUID
+		prev  metadata.NumberingMode
+	)
+	err := tx.QueryRow(ctx, `
+SELECT id, numbering_mode FROM entity_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &prev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("entitytypes: lock definition: %w", err)
+	}
+	if prev == in.Mode {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE entity_definitions SET numbering_mode = $1, updated_at = now() WHERE id = $2`, string(in.Mode), defID); err != nil {
+		return false, fmt.Errorf("entitytypes: set numbering mode: %w", err)
+	}
+	if err := auditNumberingMode(ctx, tx, defID, prev, in.Mode, in.By); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// numberingMode is the mode a new type is stored with: m, or gaps when the
+// definition leaves it empty. An invalid m is refused by
+// entity_definitions_numbering_mode_check.
+func numberingMode(m metadata.NumberingMode) string {
+	if m == "" {
+		return string(metadata.NumberingGaps)
+	}
+	return string(m)
+}
+
 // marshalJSON is json.Marshal; tests replace it to reach the encode-failure
 // branches, which a map of strings and a states slice cannot trigger.
 var marshalJSON = json.Marshal //nolint:gochecknoglobals // test seam, replaced only by tests
@@ -404,8 +480,13 @@ func (s Store) Version(ctx context.Context, tx pgx.Tx, entityKey string, version
 	return compile(v)
 }
 
-// Current implements DefinitionReader.
+// Current implements DefinitionReader. A definition QueueCurrent prefetched
+// in tx is returned without a round trip.
 func (s Store) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error) {
+	if v, ok := tenancy.Recall(tx, currentKey{entityKey}); ok {
+		c := v.(current) //nolint:forcetypeassert // only QueueCurrent stores under currentKey
+		return c.def, c.version, c.err
+	}
 	v, err := s.GetCurrent(ctx, tx, entityKey)
 	if err != nil {
 		return nil, 0, err
@@ -417,11 +498,49 @@ func (s Store) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metad
 	return c, v.Version, nil
 }
 
+// currentKey is the tx memo key of an entity type's prefetched current
+// definition; current is what is stored under it.
+type currentKey struct{ key string }
+
+type current struct {
+	def     *metadata.Compiled
+	version int
+	err     error // what Current returns: ErrNotFound, or a stored row that does not scan or compile
+}
+
+// QueueCurrent queues Current's read on b, a batch the caller sends in tx
+// (TICK-648). When the batch runs, the compiled definition, or ErrNotFound,
+// goes in tx's memo (tenancy.Remember), and every Current of entityKey in the
+// rest of tx answers from it with no round trip. Create, Seed and Publish
+// drop it, so a transaction that changes the type reads it again. A stored
+// version that no longer scans or compiles is not a batch failure: Current
+// returns that error, as it would have unbatched. A failed statement fails the
+// batch.
+func (Store) QueueCurrent(tx pgx.Tx, b *pgx.Batch, entityKey string) {
+	b.Queue(versionSelect+` WHERE d.key = $1 AND v.version = d.current_version`, entityKey).
+		QueryRow(func(row pgx.Row) error {
+			v, err := scanVersion(row)
+			var pe *pgconn.PgError
+			if errors.As(err, &pe) {
+				return err // the statement failed: so does the batch
+			}
+			if err != nil {
+				// ErrNotFound, or a row that does not scan: Current returns it.
+				tenancy.Remember(tx, currentKey{entityKey}, current{err: err})
+				return nil
+			}
+			c, err := compile(v)
+			tenancy.Remember(tx, currentKey{entityKey}, current{def: c, version: v.Version, err: err})
+			return nil
+		})
+}
+
 // compile compiles a stored version. A stored row that no longer compiles is
 // a defect of the store, not of the caller, and is not ErrNotFound.
 func compile(v *Version) (*metadata.Compiled, error) {
 	c, err := metadata.Compile(metadata.Definition{
-		Key: v.Key, Schema: v.Schema, NumberPrefix: v.NumberPrefix, FixedColumns: v.FixedColumns, States: v.States,
+		Key: v.Key, Schema: v.Schema, NumberPrefix: v.NumberPrefix, NumberingMode: v.NumberingMode,
+		FixedColumns: v.FixedColumns, States: v.States,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: stored %s v%d does not compile: %v", v.Key, v.Version, err) //nolint:errorlint // %v on purpose: must not match *metadata.ErrInvalidDefinition (a caller 422)

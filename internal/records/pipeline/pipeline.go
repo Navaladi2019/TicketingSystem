@@ -1,7 +1,11 @@
 // Package pipeline is the record write pipeline (PLAN-003 D-3-6): Write is the
 // single way to create or update a record. In the caller's tenant transaction
-// it loads the record and the entity type's current definition, authorises,
-// applies the merge patch and defaults, validates against the JSON Schema,
+// it loads the record and the entity type's current definition, checks that
+// the caller can read the record (an unreadable one is ErrNotFound), applies
+// the merge patch and defaults, validates against the JSON Schema, authorises
+// the write against the record before and after it and against the field
+// masks (authz.Authorizer, A1, P3-33;
+// skipped only for the system sources rule, workflow, function and system),
 // writes the row with an optimistic version check, writes one ADR-004 audit
 // entry through audit.Append and calls the EventSink. Nothing commits unless
 // every stage succeeds: the caller's tenancy.InTenantTx commits or rolls back.
@@ -21,8 +25,12 @@
 // transaction (tenancy.TenantOf) and refuses an actor of another tenant.
 //
 // A create takes the next per-tenant, per-type number from record_counters
-// (D-3-9). Every write checks the type's state model and its unique
-// properties (D-3-22) (P3-11). A write that changes assignment_group_id must
+// (D-3-9 as amended 2026-11-10: gaps allowed, no reclaim) after every check,
+// in a short transaction of its own on the allocator pool that commits
+// before the record is inserted (ADR-005 L2s, tenancy.AllocTx, alloc.go). A
+// create that then fails leaves a gap.
+// Every write checks the type's state model and its unique properties
+// (D-3-22) (P3-11). A write that changes assignment_group_id must
 // name a live group of the tenant (ADR-004-E5 D6); an unchanged value passes
 // even after its group is tombstoned (D7).
 //
@@ -98,6 +106,18 @@ const (
 	SourceSystem   Source = "system"
 )
 
+// system reports whether a write from s skips the authorizer: the explicit
+// allowlist of contract amendment A1. A user, an AI (no privilege through the
+// AI path) and any source not listed here, empty or unknown, are authorized
+// as their principal (fail closed).
+func (s Source) system() bool {
+	switch s {
+	case SourceRule, SourceWorkflow, SourceFunction, SourceSystem:
+		return true
+	}
+	return false
+}
+
 func (s Source) valid() bool {
 	switch s {
 	case SourceUser, SourceRule, SourceWorkflow, SourceFunction, SourceAI, SourceSystem:
@@ -133,14 +153,33 @@ type Command struct {
 	// A deeper write names its origin and depth, taken from the delivery
 	// that caused it (A5-7); a workflow write is never depth 0.
 	Causation outbox.Causation
-	// IdempotencyKey is for system writers only (D-3-13): a replay with the
-	// same key, entity type, op and (on an update) record returns the earlier
-	// Result and writes nothing. The same key on a different write is
+	// IdempotencyKey is for system writers only (D-3-13): a replay by the
+	// same Actor.PrincipalID (none for a system writer) with the same key,
+	// entity type, op and (on an update) record returns the earlier Result
+	// and writes nothing. Each principal has its own key space: another
+	// principal's write with the key is never replayed (TICK-480) and never
+	// conflicts (TICK-626: record_write_keys is unique per principal). The
+	// same key on a different write by the same principal is
 	// *ErrIdempotencyConflict.
 	IdempotencyKey string
 	// SourceRef is the AI decision record's id, a lowercase UUID: required
 	// when Source is SourceAI and refused otherwise (ADR-004 R4).
 	SourceRef *string
+	// InsertAtCommit lets a create of a `gaps` type queue its write (the
+	// record, the write key, the audit entry) for the round trip that
+	// commits tx (tenancy.QueueAtCommit) instead of sending it as a round
+	// trip of its own (TICK-692). Set it only when the caller sends nothing
+	// on tx after Write returns but statements it queues at commit itself.
+	// Write then answers with the record as it will be stored, from the
+	// number, the allocation's instant and the payload preview; the INSERT
+	// fails, and nothing commits, unless the stored row is exactly that
+	// (store.QueueInsertRecordAsExpected). A failure of the queued write
+	// comes out of tenancy.InTenantTx mapped as Write would map it,
+	// *ErrAtVersion included. It is ignored for an update, a `gapless`
+	// type, a tx with no commit batch (a savepoint, or not from
+	// tenancy.InTenantTx) and an EventSink other than NoopSink, which may
+	// send statements that must follow the INSERT; those write as before.
+	InsertAtCommit bool
 }
 
 // Result is what a write produced.
@@ -194,16 +233,29 @@ type DefinitionReader interface {
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
 }
 
-// TxRunner runs fn in a tenant transaction of its own. Write records a
-// cascade_rejected audit row on it, so the row survives the caller's
-// rollback (D-3-7a). It needs a connection of its own while the caller's
-// transaction is open: a PoolRunner on the caller's pool needs at least two.
+// TxRunner runs fn in a tenant transaction of its own, while the caller's
+// transaction is open. Write records a cascade_rejected audit row on it, so
+// the row survives the caller's rollback (D-3-7a). A TxRunner that is also an
+// Allocator takes a `gaps` create's number (ADR-005 L2s, TICK-657). Each
+// call needs a connection the callers' transactions do not hold: a
+// PoolRunner over the callers' own pool can starve, every connection held by
+// a create waiting for a second one. nava-core gives it a pool of its own
+// (the allocator pool, cmd/nava-core/allocator.go).
 type TxRunner interface {
 	InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error
 }
 
-// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx.
-type PoolRunner struct{ Pool *pgxpool.Pool }
+// PoolRunner is the TxRunner over a pool, through tenancy.InTenantTx, so
+// the transaction's BEGIN sets the tenant and RLS applies to it. It is also
+// the Allocator, through tenancy.AllocTx (alloc.go).
+type PoolRunner struct {
+	Pool *pgxpool.Pool
+	// AllocTimeout bounds an allocation (ADR-005 A5); zero is
+	// DefaultAllocTimeout.
+	AllocTimeout time.Duration
+	// Metrics records the allocator's metrics (A8); nil records none.
+	Metrics *AllocMetrics
+}
 
 // InTenantTx implements TxRunner.
 func (r PoolRunner) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
@@ -235,7 +287,9 @@ var (
 	// can deadlock with another one (P3-11's locks are ordered within one
 	// write, not across writes: TICK-88, from the PR #360 review); cascades
 	// themselves never share one, because each runs in its own activity.
-	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, retry")
+	// It also means a create's number allocation passed its timeout
+	// (ADR-005 A5): nothing was inserted, and a retry takes a new number.
+	ErrRetryable = errors.New("pipeline: transaction aborted by a deadlock or serialization failure, or a number allocation timed out, retry")
 	// ErrAssignmentGroupRemoved means the write changes assignment_group_id to
 	// a group the tenant does not have live: tombstoned, another tenant's
 	// (live or tombstoned) or unknown. The cases are not told apart
@@ -346,7 +400,7 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 
 // Write performs cmd in tx, which must come from tenancy.InTenantTx at READ
 // COMMITTED (the default). It returns ErrInvalidCommand, ErrNotFound,
-// authz.ErrForbidden, *ErrValidation, *ErrIllegalTransition,
+// authz.ErrForbidden, *authz.ErrFieldNotWritable, *ErrValidation, *ErrIllegalTransition,
 // *ErrUniqueViolation, ErrAssignmentGroupRemoved, ErrVersionConflict,
 // *ErrIdempotencyConflict or
 // outbox.ErrCascadeTooDeep for a refused write; ErrRetryable, wrapping the
@@ -367,11 +421,17 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // If that entry cannot be written, the error also wraps the cause.
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001") {
+	if retryable(err) {
 		return Result{}, fmt.Errorf("%w: %w", ErrRetryable, err)
 	}
 	return res, err
+}
+
+// retryable reports whether PostgreSQL aborted the transaction for a
+// deadlock (40P01) or a serialization failure (40001).
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
 }
 
 // perform is Write before its error mapping.
@@ -400,17 +460,21 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 		cmd.Causation.OriginID = origin
 	}
 
+	pre, err := p.prefetch(ctx, tx, tenant, cmd)
+	if err != nil {
+		return Result{}, err
+	}
 	if cmd.IdempotencyKey != "" {
-		res, found, err := replay(ctx, tx, tenant, cmd)
+		res, found, err := replay(pre, cmd)
 		if err != nil || found {
 			return res, err
 		}
 	}
 
-	defID, err := store.DefinitionID(ctx, tx, tenant, cmd.EntityKey)
-	if err != nil {
-		return Result{}, mapNotFound(err)
+	if pre.defID == uuid.Nil {
+		return Result{}, ErrNotFound
 	}
+	defID := pre.defID
 	def, defVersion, err := p.defs.Current(ctx, tx, cmd.EntityKey)
 	if err != nil {
 		return Result{}, mapNotFound(err)
@@ -494,25 +558,21 @@ func (p *Pipeline) rejectTooDeep(ctx context.Context, tenant uuid.UUID, cmd Comm
 	return rejected
 }
 
-// replay returns the earlier Result of a write with cmd's idempotency key,
-// read from record_write_keys (D-5-3), never from the audit log. The stored
+// replay returns the earlier Result of a write by cmd's actor with cmd's
+// idempotency key, read from record_write_keys (D-5-3), never from the audit
+// log. The key is scoped by principal: another actor's write with the same
+// key is not found here, and the unique index is per principal (TICK-626),
+// so this write goes ahead as the caller's own. The stored
 // write must be the same entity type (by definition id) and op, and on an
 // update the same record; otherwise the key names another write,
 // *ErrIdempotencyConflict.
-func replay(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command) (Result, bool, error) {
-	k, err := store.WriteKeyByKey(ctx, tx, tenant, cmd.IdempotencyKey)
-	if errors.Is(err, store.ErrNotFound) {
+func replay(pre *prefetched, cmd Command) (Result, bool, error) {
+	k := pre.writeKey
+	if k == nil {
 		return Result{}, false, nil
 	}
-	if err != nil {
-		return Result{}, false, fmt.Errorf("pipeline: %w", err)
-	}
 	// An entity key the tenant does not have cannot name the stored write.
-	defID, err := store.DefinitionID(ctx, tx, tenant, cmd.EntityKey)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Result{}, false, fmt.Errorf("pipeline: %w", err)
-	}
-	if err != nil || k.DefinitionID != defID || k.Action != cmd.Op.String() || (cmd.Op == OpUpdate && k.RecordID != cmd.RecordID) {
+	if pre.defID == uuid.Nil || k.DefinitionID != pre.defID || k.Action != cmd.Op.String() || (cmd.Op == OpUpdate && k.RecordID != cmd.RecordID) {
 		return Result{}, false, &ErrIdempotencyConflict{}
 	}
 	return Result{RecordID: k.RecordID, Number: k.Number, Version: k.Version, SchemaVersion: k.SchemaVersion}, true, nil
@@ -542,7 +602,10 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
-	if err := w.p.authz.CanWrite(ctx, w.cmd.Actor, w.cmd.EntityKey, nil, after); err != nil {
+	// The mask write check runs first, on the caller's own data: the defaults
+	// applied below are not its writes, and no other error (validation,
+	// state, row scope, unique) can come back for a masked field (P3-33).
+	if err := w.canWriteFields(ctx, nil, after, nil); err != nil {
 		return Result{}, err
 	}
 	after = w.def.ApplyDefaults(after)
@@ -558,9 +621,6 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, &ErrIllegalTransition{To: state}
 	}
 	fixed := w.def.FixedColumns()
-	if err := w.checkUnique(ctx, uuid.Nil, nil, after, fixed); err != nil {
-		return Result{}, err
-	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return Result{}, fmt.Errorf("pipeline: new record id: %w", err)
@@ -575,21 +635,61 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	if err := rec.Split(after, fixed); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
-	if err := w.checkGroup(ctx, nil, rec.AssignmentGroupID); err != nil {
+	w.defaultRequester(rec, after, fixed)
+	// A new record has no shares. The check runs before the unique and
+	// group lookups, so a refused writer learns nothing from them.
+	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
 		return Result{}, err
 	}
-	// The number is taken after every check, as the last statement before
-	// the record, audit and outbox inserts, so the counter row's lock is held
-	// only for the rest of the write (D-3-9).
-	n, err := store.NextNumber(ctx, w.tx, w.tenant, w.defID)
+	// The unique and group checks, and the payload the audit entry is built
+	// from, go in one batch (TICK-648).
+	preview, err := w.checkCreate(ctx, rec, after, fixed)
 	if err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+		return Result{}, err
 	}
-	rec.Number = store.FormatNumber(w.def.NumberPrefix(), n)
-	if err := store.Insert(ctx, w.tx, rec); err != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", err)
+	// The number is taken after every check (ADR-001 I4, ADR-005 A6): a
+	// refused or invalid create never moves the counter. It is taken in a
+	// transaction of its own that commits before this one inserts the record
+	// (ADR-005 L2s), so a create that fails from here on leaves a gap.
+	// A `gapless` type takes it last inside this transaction instead
+	// (ADR-005 L1, writeCreate). The mode is the one the definition had
+	// when this create read it (§2.1.1).
+	if w.def.NumberingMode() != metadata.NumberingGapless {
+		alloc, err := w.allocate(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
+		// The record is created at the allocation's instant (A7), so a date
+		// in a number will always match created_at.
+		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
 	}
-	return w.finish(ctx, rec, nil)
+	if w.atCommit() {
+		return w.writeCreateAtCommit(ctx, rec, preview)
+	}
+	return w.writeCreate(ctx, rec, preview)
+}
+
+// defaultRequester sets requester_id to the caller when a user or AI create
+// leaves the requester property out (contract amendment A4), before the write
+// check, so the check sees the row that would be stored. An explicit value,
+// null included, is the caller's own and goes through the check as sent. A
+// system source gets no default: it has no principal to name. A type that maps
+// no property to requester_id has nothing to default.
+func (w *write) defaultRequester(rec *store.Record, after map[string]any, fixed map[string]string) {
+	if w.cmd.Source.system() || w.cmd.Actor.PrincipalID == uuid.Nil {
+		return
+	}
+	for prop, col := range fixed {
+		if col != metadata.ColumnRequesterID {
+			continue
+		}
+		if _, sent := after[prop]; !sent {
+			id := w.cmd.Actor.PrincipalID
+			rec.RequesterID = &id
+		}
+		return
+	}
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {
@@ -599,6 +699,23 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 	if rec.EntityKey != w.cmd.EntityKey {
 		return Result{}, ErrNotFound
+	}
+	// An unreadable record is a missing one, checked before the version so
+	// it never yields a version conflict (TICK-358 carry). Its shares are
+	// the caller's (pair-matched) and do not change in this write.
+	var beforeRow *authz.Row
+	if !w.cmd.Source.system() {
+		shares, err := authz.SharesFor(ctx, w.tx, w.cmd.Actor, rec.ID)
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		beforeRow = rowOf(rec, shares)
+		if err := w.p.authz.CanRead(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, *beforeRow); err != nil {
+			if errors.Is(err, authz.ErrNotVisible) {
+				return Result{}, ErrNotFound
+			}
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
 	}
 	if rec.Version != w.cmd.ExpectedVersion {
 		return Result{}, ErrVersionConflict
@@ -612,11 +729,16 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 	before := rec.Payload(stored.FixedColumns())
 
-	after := mergePatch(deepCopy(before), patch)
-	if err := w.p.authz.CanWrite(ctx, w.cmd.Actor, w.cmd.EntityKey, before, after); err != nil {
+	// merged is the caller's write: the stored payload with its patch, before
+	// defaults. The mask write check runs on it right away, before
+	// validation, the state model, the row check and the unique lookup, so
+	// no other answer can depend on a masked field's stored value (P3-33,
+	// TICK-633 B1). ApplyDefaults returns a new map.
+	merged := mergePatch(deepCopy(before), patch)
+	if err := w.canWriteFields(ctx, before, merged, patch); err != nil {
 		return Result{}, err
 	}
-	after = w.def.ApplyDefaults(after)
+	after := w.def.ApplyDefaults(merged)
 	fe := w.def.Validate(after)
 	if _, ok := after[w.def.StateProperty()]; !ok {
 		fe = appendField(fe, metadata.FieldError{Path: "/" + escape(w.def.StateProperty()), Code: "required"})
@@ -630,6 +752,18 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	}
 
 	fixed := w.def.FixedColumns()
+	// The after row is the record as this write leaves it: before and after
+	// must both be in the caller's write scope, so a write cannot move a
+	// record out of it. Checked before the unique and group lookups.
+	if !w.cmd.Source.system() {
+		next := *rec
+		if err := next.Split(after, fixed); err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		if err := w.canWrite(ctx, beforeRow, rowOf(&next, beforeRow.SharedWith)); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := w.checkUnique(ctx, rec.ID, before, after, fixed); err != nil {
 		return Result{}, err
 	}
@@ -654,6 +788,7 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	rec.SchemaVersion = w.defVersion
 	rec.UpdatedAt = w.p.clock.Now()
 	w.causation(rec)
+	tenancy.Forget(w.tx, storedKey{rec.ID})
 	v, err := store.Update(ctx, w.tx, rec, w.cmd.ExpectedVersion)
 	if errors.Is(err, store.ErrStale) {
 		return Result{}, ErrVersionConflict
@@ -684,11 +819,13 @@ func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Res
 	}
 	if w.cmd.IdempotencyKey != "" {
 		// The key is claimed before the audit entry, so a concurrent duplicate
-		// waits on and fails at record_write_keys_pkey (D-5-3).
+		// by the same principal waits on and fails at
+		// record_write_keys_actor_key (D-5-3, TICK-626).
 		if err := store.InsertWriteKey(ctx, w.tx, &store.WriteKey{
 			TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
 			Action: w.cmd.Op.String(), RecordID: rec.ID, Number: rec.Number, Version: rec.Version,
 			SchemaVersion: rec.SchemaVersion, AuditEntryID: auditID,
+			ActorPrincipalID: optional(w.cmd.Actor.PrincipalID),
 		}); err != nil {
 			if errors.Is(err, store.ErrDuplicateKey) {
 				return Result{}, &ErrIdempotencyConflict{Concurrent: true}
@@ -742,6 +879,48 @@ func (w *write) checkGroup(ctx context.Context, stored, next *uuid.UUID) error {
 		return ErrAssignmentGroupRemoved
 	}
 	return nil
+}
+
+// canWrite asks the authorizer, unless the write's source is a system one
+// (Source.system). A refusal is authz.ErrForbidden; a failure to decide is
+// wrapped.
+func (w *write) canWrite(ctx context.Context, before, after *authz.Row) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	err := w.p.authz.CanWrite(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after)
+	if err != nil && !errors.Is(err, authz.ErrForbidden) {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	return err
+}
+
+// canWriteFields is the mask write check of the authorise stage (P3-33),
+// skipped for the same system sources as canWrite. before is the stored
+// payload (nil on a create), after the caller's data without defaults, and
+// patch the caller's merge patch (nil on a create). A refusal is
+// *authz.ErrFieldNotWritable or authz.ErrForbidden; a failure to decide is
+// wrapped. It is the first check on the caller's data and runs before every
+// write statement, so a refused write leaves no record, audit or outbox row.
+func (w *write) canWriteFields(ctx context.Context, before, after, patch map[string]any) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	err := w.p.authz.CanWriteFields(ctx, w.tx, w.cmd.Actor, w.cmd.EntityKey, before, after, patch)
+	var nw *authz.ErrFieldNotWritable
+	if err != nil && !errors.As(err, &nw) && !errors.Is(err, authz.ErrForbidden) {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	return err
+}
+
+// rowOf is what the ACL sees of rec: its fixed columns, and shares, the
+// caller's pair-matched shares from authz.SharesFor.
+func rowOf(rec *store.Record, shares []uuid.UUID) *authz.Row {
+	return &authz.Row{
+		ID: rec.ID, State: rec.State, RequesterID: rec.RequesterID, AssigneeID: rec.AssigneeID,
+		AssignmentGroupID: rec.AssignmentGroupID, SharedWith: shares,
+	}
 }
 
 func (w *write) causation(rec *store.Record) {

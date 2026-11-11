@@ -24,6 +24,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -85,7 +86,7 @@ func (h *handlers) ListEntityTypes(ctx context.Context, req api.ListEntityTypesR
 	out := api.EntityTypeList{Items: make([]api.EntityTypeSummary, 0, min(len(rows), limit))}
 	for _, r := range rows[:min(len(rows), limit)] {
 		out.Items = append(out.Items, api.EntityTypeSummary{
-			Key: r.Key, Name: r.Name, NumberPrefix: r.NumberPrefix, CurrentVersion: r.CurrentVersion, UpdatedAt: r.UpdatedAt,
+			Key: r.Key, Name: r.Name, NumberPrefix: r.NumberPrefix, NumberingMode: api.EntityTypeSummaryNumberingMode(r.NumberingMode), CurrentVersion: r.CurrentVersion, UpdatedAt: r.UpdatedAt,
 		})
 	}
 	if len(rows) > limit {
@@ -187,8 +188,11 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 			return perr
 		}
 		var err error
-		v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def})
-		return err
+		if v, err = h.store.Create(ctx, tx, p.TenantID, entitytypes.NewInput{Name: cr.name, PublishedBy: p.PrincipalID, Definition: cr.def}); err != nil {
+			return err
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, (&entityTypeResponse{status: http.StatusCreated, v: v}).VisitCreateEntityTypeResponse)
 	})
 	var (
 		secret   *entitytypes.SecretInContentError
@@ -230,6 +234,7 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		raw = *req.Body
 	}
 	var v *entitytypes.Version
+	var modeOnly bool
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
 			return err
@@ -239,13 +244,28 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		if len(req.Key) > maxKeyBytes || !utf8.ValidString(req.Key) || strings.IndexByte(req.Key, 0) >= 0 {
 			return entitytypes.ErrNotFound // cannot exist, and must not reach the database
 		}
-		def, perr := parsePublish(raw)
+		pr, perr := parsePublish(raw)
 		if perr != nil {
 			return perr
 		}
+		modeOnly = pr.def == nil
 		var err error
-		v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: def})
-		return err
+		// The mode is set first, so a publish in the same request reads it.
+		if pr.hasMode {
+			if _, err = h.store.SetNumberingMode(ctx, tx, entitytypes.SetNumberingModeInput{Key: req.Key, Mode: pr.mode, By: p.PrincipalID}); err != nil {
+				return err
+			}
+		}
+		if pr.def != nil {
+			v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: *pr.def})
+		} else { // a mode-only change publishes no version: the reply is the current one
+			v, err = h.store.GetCurrent(ctx, tx, req.Key)
+		}
+		if err != nil {
+			return err
+		}
+		// The key completes in this transaction, with the write (TICK-482).
+		return idempotency.CompleteInTx(ctx, tx, (&entityTypeResponse{status: http.StatusCreated, v: v}).VisitPublishEntityTypeVersionResponse)
 	})
 	var (
 		breaking *entitytypes.BreakingError
@@ -277,23 +297,35 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	case err != nil:
 		return nil, err
 	}
-	h.log.InfoContext(ctx, "entity type version published",
-		slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
-		slog.Int("version", v.Version), slog.String("compat", v.Compat))
+	if modeOnly {
+		h.log.InfoContext(ctx, "entity type numbering mode changed",
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
+			slog.String("numbering_mode", string(v.NumberingMode)))
+	} else {
+		h.log.InfoContext(ctx, "entity type version published",
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", v.Key),
+			slog.Int("version", v.Version), slog.String("compat", v.Compat))
+	}
 	return &entityTypeResponse{status: http.StatusCreated, v: v}, nil
 }
 
-// parsePublish validates the publish body: only `definition`, and never a
-// number_prefix, which does not change after create. The definition itself is
-// compiled by the store against the stored key and prefix.
-func parsePublish(raw json.RawMessage) (metadata.Definition, *problemError) {
+// parsePublish validates the publish body: a `definition`, a `numbering_mode`
+// or both, and never a number_prefix, which does not change after create. The
+// definition itself is compiled by the store against the stored key and prefix.
+func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return metadata.Definition{}, unprocessable(invalid("", "type"))
+		return publishRequest{}, unprocessable(invalid("", "type"))
 	}
 	var bad []problem.FieldError
 	if _, present := fields["number_prefix"]; present {
 		bad = append(bad, invalid("/number_prefix", "immutable"))
+	}
+	var out publishRequest
+	_, out.hasMode = fields["numbering_mode"]
+	var modeBad bool
+	if out.mode, modeBad = parseNumberingMode(fields); modeBad {
+		bad = append(bad, invalid("/numbering_mode", "invalid"))
 	}
 	var def struct {
 		Schema       json.RawMessage     `json:"schema"`
@@ -302,15 +334,26 @@ func parsePublish(raw json.RawMessage) (metadata.Definition, *problemError) {
 	}
 	defRaw, present := fields["definition"]
 	switch {
-	case !present:
+	case !present && !out.hasMode:
 		bad = append(bad, invalid("/definition", "required"))
+	case !present:
 	case json.Unmarshal(defRaw, &def) != nil:
 		bad = append(bad, invalid("/definition", "type"))
+	default:
+		out.def = &metadata.Definition{Schema: def.Schema, FixedColumns: def.FixedColumns, States: def.States}
 	}
 	if len(bad) > 0 {
-		return metadata.Definition{}, unprocessable(bad...)
+		return publishRequest{}, unprocessable(bad...)
 	}
-	return metadata.Definition{Schema: def.Schema, FixedColumns: def.FixedColumns, States: def.States}, nil
+	return out, nil
+}
+
+// publishRequest is the body of POST /api/v1/entity-types/{key}/versions: a
+// definition to publish, a numbering mode to set, or both.
+type publishRequest struct {
+	def     *metadata.Definition // nil: a mode-only change
+	mode    metadata.NumberingMode
+	hasMode bool
 }
 
 // secretProblem is the 422 config_secret_in_content. The response and the log
@@ -378,6 +421,10 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 			bad = append(bad, invalid("/number_prefix", "pattern"))
 		}
 	}
+	mode, modeBad := parseNumberingMode(fields)
+	if modeBad {
+		bad = append(bad, invalid("/numbering_mode", "invalid"))
+	}
 	var def struct {
 		Schema       json.RawMessage     `json:"schema"`
 		FixedColumns map[string]string   `json:"fixed_columns"`
@@ -393,7 +440,7 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 	default:
 		defOK = true
 	}
-	cr.def = metadata.Definition{Key: cr.key, Schema: def.Schema, NumberPrefix: cr.prefix, FixedColumns: def.FixedColumns, States: def.States}
+	cr.def = metadata.Definition{Key: cr.key, Schema: def.Schema, NumberPrefix: cr.prefix, NumberingMode: mode, FixedColumns: def.FixedColumns, States: def.States}
 	// A value at a marked property is config_secret_in_content, ahead of the
 	// generic compile errors (ADR-004 R6).
 	if defOK {
@@ -411,7 +458,7 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 				return cr, &problemError{problem.InternalError, nil, err}
 			}
 			for _, path := range ie.Paths {
-				if path != "/key" && path != "/number_prefix" {
+				if path != "/key" && path != "/number_prefix" && path != "/numbering_mode" {
 					path = "/definition" + path
 				}
 				if !slices.ContainsFunc(bad, func(f problem.FieldError) bool { return f.Pointer == path }) {
@@ -424,6 +471,20 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 		return cr, unprocessable(bad...)
 	}
 	return cr, nil
+}
+
+// parseNumberingMode reads the optional numbering_mode field: the mode (empty
+// when absent) and whether the field is present but not gaps or gapless.
+func parseNumberingMode(fields map[string]json.RawMessage) (metadata.NumberingMode, bool) {
+	raw, present := fields["numbering_mode"]
+	if !present {
+		return "", false
+	}
+	var m metadata.NumberingMode
+	if json.Unmarshal(raw, &m) != nil || !m.Valid() {
+		return "", true
+	}
+	return m, false
 }
 
 func unprocessable(fields ...problem.FieldError) *problemError {
@@ -464,7 +525,7 @@ func (r *entityTypeResponse) write(w http.ResponseWriter) error {
 		name string
 		val  any
 	}{
-		{"key", v.Key}, {"name", v.Name}, {"number_prefix", v.NumberPrefix}, {"version", v.Version}, {"current", v.Current},
+		{"key", v.Key}, {"name", v.Name}, {"number_prefix", v.NumberPrefix}, {"numbering_mode", v.NumberingMode}, {"version", v.Version}, {"current", v.Current},
 		{"schema", v.Schema}, {"schema_sha256", sum}, {"fixed_columns", fixed}, {"states", v.States},
 		{"compat", v.Compat}, {"published_at", v.PublishedAt.UTC()},
 	} {

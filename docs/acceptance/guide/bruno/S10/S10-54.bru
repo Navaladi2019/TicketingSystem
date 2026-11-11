@@ -1,0 +1,27 @@
+meta {
+  name: S10.54 Isolation: Bob's list has none of tenant A's incidents
+  type: http
+  seq: 54
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('leaves out s10_sd_rec', () => expect(ids).to.not.include(bru.getVar('s10_sd_rec')));
+  test('leaves out s10_adm_rec', () => expect(ids).to.not.include(bru.getVar('s10_adm_rec')));
+  test('leaves out s10_un_rec', () => expect(ids).to.not.include(bru.getVar('s10_un_rec')));
+  test('leaves out s10_req_rec', () => expect(ids).to.not.include(bru.getVar('s10_req_rec')));
+  test('leaves out s10_req2_rec', () => expect(ids).to.not.include(bru.getVar('s10_req2_rec')));
+  N.noLeak('S10 ' + bru.getVar('s10_run'));
+}

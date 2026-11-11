@@ -31,12 +31,20 @@ type claimTx struct {
 }
 
 func (x *claimTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	// The lock names the transaction's tenant (TICK-480): tenancy.TenantOf
+	// reads it first. It is not one of the statements under test.
+	if strings.Contains(sql, "current_setting(") {
+		return rowFunc(func(dest ...any) error { *dest[0].(*string) = txTenant; return nil })
+	}
 	x.ran = append(x.ran, sql)
 	if strings.Contains(sql, "FOR UPDATE") {
 		return x.lock
 	}
 	return x.claim
 }
+
+// txTenant is the tenant every claimTx is scoped to.
+const txTenant = "0190a000-0000-7000-8000-00000000c0de"
 
 func failWith(err error) rowFunc { return func(...any) error { return err } }
 

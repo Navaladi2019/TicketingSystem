@@ -32,8 +32,8 @@ import (
 // (g) proves that: ci8LeakyAll also intercepts the random UUID, and the
 // mutation control must reject the control failure that produces.
 //
-// The masked-field filter case (400) needs S10's masks and lands with P3-37
-// (D-3-19); it is registered pending.
+// The masked-field filter case (d) needs S10's masks: it is registered with
+// the S10 attack rows (aclAttackPaths, P3-37, D-3-19).
 func recordCI8Paths() []Path {
 	db := func(name string, fn func(context.Context, *etIso, *ci8Fixture) error) Path {
 		return Path{Name: "records CI-8: " + name, Case: "CI-8", Role: "nava_app", DB: func(ctx context.Context, cl Cluster) error {
@@ -62,8 +62,6 @@ func recordCI8Paths() []Path {
 		db("(e) tenant B's PATCH of tenant A's record with A's current or a stale ETag is a random UUID's 404, never 412", ci8CurrentAndStaleETag),
 		db("(f) tenant B's PATCH of tenant A's record with no If-Match is a random UUID's 404, not 428", ci8NoIfMatch),
 		db("(g) the mutation control of (e) and (f) rejects a control failure: a leaky handler that also intercepts the random UUID does not pass it", ci8MutationRejectsControl),
-		{Name: "records CI-8: (d) a filter on a masked field is 400", Case: "CI-8", Pending: "P3-37 (S10, PLAN-003 D-3-19)",
-			DB: func(context.Context, Cluster) error { return errors.New("pending P3-37: field masks land in S10") }},
 	}
 }
 

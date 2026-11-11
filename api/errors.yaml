@@ -40,6 +40,10 @@ codes:
     status: 400
     title: Invalid cursor
     detail: The pagination cursor is invalid or has expired.
+  - code: retry_later
+    status: 503
+    title: Try again later
+    detail: The write could not finish now and changed nothing. Retry after the interval in Retry-After.
   - code: rate_limited
     status: 429
     title: Rate limited
@@ -116,6 +120,22 @@ codes:
     status: 422
     title: History too long
     detail: The record has more audit entries than a history page can replay. The history of this record cannot be read through this endpoint.
+  - code: masked_field
+    status: 400
+    title: Masked field
+    detail: The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.
+  - code: filter_too_expensive
+    status: 422
+    title: Filter too expensive
+    detail: The list filter on a data property took longer than the server allows. Narrow it with a filter on state, requester, assignee or assignment group, or try a more selective value.
+  - code: field_not_writable
+    status: 422
+    title: Field not writable
+    detail: The write sets or changes a field the entity type's access policy does not let you write. Nothing was written. See errors for the field.
+  - code: invalid_access_policy
+    status: 422
+    title: Invalid access policy
+    detail: The access policy is not accepted. Nothing was published. See errors for the failing fields.
   - code: export_in_progress
     status: 409
     title: Export in progress

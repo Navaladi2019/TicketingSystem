@@ -85,6 +85,11 @@ func TestComposeKeycloakIssuerPinned(t *testing.T) {
 		t.Errorf("KC_HOSTNAME_BACKCHANNEL_DYNAMIC = %q, want true", kc["KC_HOSTNAME_BACKCHANNEL_DYNAMIC"])
 	}
 	core := composeEnv(t, "../../compose.yaml", "nava-core")
+	// TICK-657: the allocator pool has PgBouncer's nava_alloc entry, a server
+	// pool of its own; nava-core does not start without it.
+	if alloc, err := url.Parse(core["NAVA_ALLOCATOR_DATABASE_URL"]); err != nil || alloc.Path != "/nava_alloc" || alloc.User.Username() != "nava_app" {
+		t.Errorf("NAVA_ALLOCATOR_DATABASE_URL: want nava_app on PgBouncer's /nava_alloc entry")
+	}
 	if got, want := core["NAVA_OIDC_ISSUERS"], host+"/realms/nava"; got != want {
 		t.Errorf("NAVA_OIDC_ISSUERS = %q, want exactly %q", got, want)
 	}

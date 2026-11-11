@@ -21,14 +21,15 @@ import (
 // other. canonical is the value's canonical form (the pipeline's canonical);
 // the separators keep a field name from running into its value.
 func LockUnique(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID uuid.UUID, field, canonical string) error {
-	_, err := tx.Exec(ctx, `
-SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3 || ':' || $4, 0))`,
-		tenantID, entityDefinitionID, field, canonical)
+	_, err := tx.Exec(ctx, lockUniqueSQL, tenantID, entityDefinitionID, field, canonical)
 	if err != nil {
 		return fmt.Errorf("records/store: lock unique value: %w", err)
 	}
 	return nil
 }
+
+const lockUniqueSQL = `
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3 || ':' || $4, 0))`
 
 // UniqueTaken reports whether another record of the tenant's entity type
 // (any record but except) holds value in field. A field mapped to a fixed
@@ -39,9 +40,23 @@ SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':'
 // records in the tenant.
 func UniqueTaken(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID, except uuid.UUID,
 	field string, value any, fixed map[string]string) (bool, error) {
+	sql, args, err := uniqueTakenSQL(tenantID, entityDefinitionID, except, field, value, fixed)
+	if err != nil {
+		return false, err
+	}
+	var taken bool
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&taken); err != nil {
+		return false, fmt.Errorf("records/store: check unique value: %w", err)
+	}
+	return taken, nil
+}
+
+// uniqueTakenSQL is UniqueTaken's statement and arguments.
+func uniqueTakenSQL(tenantID, entityDefinitionID, except uuid.UUID,
+	field string, value any, fixed map[string]string) (string, []any, error) {
 	v, err := json.Marshal(value)
 	if err != nil {
-		return false, fmt.Errorf("records/store: encode unique value: %w", err)
+		return "", nil, fmt.Errorf("records/store: encode unique value: %w", err)
 	}
 	args := []any{tenantID, entityDefinitionID, except, jsonParam(v)}
 	var match string
@@ -57,16 +72,10 @@ func UniqueTaken(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID, e
 	case metadata.ColumnAssignmentGroupID:
 		match = `to_jsonb(r.assignment_group_id) = $4::jsonb`
 	default:
-		return false, fmt.Errorf("records/store: unknown fixed column %q", fixed[field])
+		return "", nil, fmt.Errorf("records/store: unknown fixed column %q", fixed[field])
 	}
-	var taken bool
-	err = tx.QueryRow(ctx, `
+	return `
 SELECT EXISTS (
     SELECT 1 FROM records r
-    WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND r.id <> $3 AND `+match+`)`,
-		args...).Scan(&taken)
-	if err != nil {
-		return false, fmt.Errorf("records/store: check unique value: %w", err)
-	}
-	return taken, nil
+    WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND r.id <> $3 AND ` + match + `)`, args, nil
 }

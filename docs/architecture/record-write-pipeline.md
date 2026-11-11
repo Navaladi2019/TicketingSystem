@@ -3,7 +3,7 @@
 Scope: TICK-354, TICK-355. PLAN-003 D-3-2, D-3-6, D-3-7a, D-3-9, D-3-10,
 D-3-13, D-3-14, D-3-22; ADR-001 I4, I8, I9. Code: `internal/records/pipeline` (the one entry point),
 `internal/records/store` (its SQL), `outbox.EnqueueAtVersion`,
-`authz.TenantMemberAuthorizer`, `tenancy.TenantOf`. Tables:
+`authz.ACL` ([record-acl.md](record-acl.md)), `tenancy.TenantOf`. Tables:
 [`platform-tables.md`](../data/platform-tables.md#records-pipeline-records-audit_log_v0-record_counters-p3-09).
 
 `pipeline.Write(ctx, tx, cmd)` is the only way to create or update a record.
@@ -18,18 +18,18 @@ flowchart TD
     B --> C{idempotency key?}
     C -- same entity type, op, record --> R[return the earlier Result]
     C -- another write holds it --> X[ErrIdempotencyConflict]
-    C -- none / not found --> D[load entity type + current version<br/>update: load record, check version]
+    C -- none / not found --> D[load entity type + current version<br/>update: load record, CanRead<br/>unreadable = ErrNotFound, then check version]
     D --> E[update: JSON Merge Patch<br/>onto the stored payload]
-    E --> F[Authorizer.CanWrite before, after]
-    F --> G[ApplyDefaults from current version]
+    E --> G[ApplyDefaults from current version]
     G --> H[Validate against current version]
     H --> S[state model: create in Initial,<br/>update only along a listed transition]
-    S --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
-    U --> I[split fixed columns out of data]
-    I --> GR{assignment_group_id<br/>set or changed?}
+    S --> I[split fixed columns out of data]
+    I --> F[Authorizer.CanWrite before row, after row<br/>skipped for rule, workflow, function, system]
+    F --> U[each unique property set or changed:<br/>advisory xact lock, then SELECT]
+    U --> GR{assignment_group_id<br/>set or changed?}
     GR -- yes: not a live group of the tenant --> GX[ErrAssignmentGroupRemoved<br/>422, nothing written]
     GR -- no, or live --> N
-    N[create: record_counters upsert<br/>RETURNING next - 1]
+    N[create: record_counters upsert RETURNING next - 1<br/>in its own committed transaction on the allocator pool]
     N --> J[INSERT, or UPDATE ... version = version + 1<br/>WHERE tenant_id, id, version = expected]
     J --> W[keyed write: one record_write_keys row<br/>D-5-3, P5-13a]
     W --> K[one audit_log entry<br/>(audit.Append, ADR-004)]
@@ -66,23 +66,76 @@ flowchart TD
 - **Idempotency (system writers only).** A user write with a key is
   `ErrInvalidCommand`. The key lives in `record_write_keys` (PLAN-005 D-5-3,
   P5-13a), one row per keyed write inserted in the write's transaction, after
-  the record and before the audit row. The key is looked up there first; a
-  hit for the same entity type (by `definition_id`), op and (on an update)
-  record returns the earlier `Result` (record id, number, version, schema
-  version) from that row and writes nothing. Replay never reads the audit
-  log. A hit for any other write, or an entity type the tenant does not
-  have, is `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22
-  does for a different body). A concurrent duplicate waits on the first
-  write's uncommitted key and then hits `23505` on `record_write_keys_pkey`,
-  which aborts the transaction: `Write` returns
+  the record and before the audit row. Each principal has its own key space
+  (TICK-480, TICK-626): the row carries the writer's `actor_principal_id`
+  (NULL for a system writer), and `record_write_keys_actor_key` is unique on
+  `(tenant_id, idempotency_key, actor_principal_id) NULLS NOT DISTINCT`, so
+  another principal's write under the same key is neither replayed nor
+  refused, and a 409 never reveals that the key exists (AR-TICK-480-01;
+  [record-write-keys-per-principal.md](../data/record-write-keys-per-principal.md)).
+  The key is looked up there first, by the caller's principal; a hit for the
+  same entity type (by `definition_id`), op and (on an update) record returns
+  the earlier `Result` (record id, number, version, schema version) from that
+  row and writes nothing. Replay never reads the audit log. A hit for any
+  other write, or an entity type the tenant does not have, is
+  `*ErrIdempotencyConflict` (P3-14 maps it to 409, as PLAN-001 T22 does for a
+  different body). A concurrent duplicate by the same principal waits on the
+  first write's uncommitted key and then hits `23505` on
+  `record_write_keys_actor_key`, which aborts the transaction: `Write` returns
   `*ErrIdempotencyConflict{Concurrent: true}`, and the retry replays.
-- **Numbering (D-3-9).** A create takes its number with one upsert,
-  `INSERT INTO record_counters ... VALUES (..., 2) ON CONFLICT ... DO UPDATE
-  SET next = record_counters.next + 1 RETURNING next - 1`, after every check
-  and right before the record, audit and outbox inserts. The counter row's
-  lock is held from there to commit, so creates of one type in one tenant
-  queue on it and get consecutive numbers; a rollback gives its number back.
-  Nothing creates the counter row in advance, and there is no sequence (I8).
+- **Numbering (D-3-9 as amended 2026-11-10; ADR-005 L2s for `gaps` types).**
+  A create takes its number with one upsert, `INSERT INTO record_counters ...
+  VALUES (..., 2) ON CONFLICT ... DO UPDATE SET next = record_counters.next +
+  1 RETURNING next - 1, now()`, after the replay check, validation, the
+  write check and the unique and group checks (ADR-001 I4, ADR-005 A6), so a
+  refused or invalid create never moves the counter. It runs through
+  `tenancy.AllocTx` on the dedicated allocator pool: one pipelined send of
+  `BEGIN; set_config(app.tenant_id, tenant, true); SET LOCAL
+  synchronous_commit = off; upsert; COMMIT`, with the tenant taken from the
+  create's own transaction (A1, A2, A4). The allocation commits before the
+  record is inserted, without waiting for its WAL flush: the record's own
+  synchronous commit flushes it (AR-TICK-653-03). The counter row is locked
+  only for that one round trip. The create checks the allocation (tenant,
+  type, scope `''`, epoch 0) against its own transaction, and stores the
+  allocation's `now()` as `created_at` (A7). An allocation that takes longer
+  than 200 ms fails the create with `ErrRetryable` (A5). A create that fails
+  or rolls back after its number leaves a gap; a retry takes a new number.
+  Numbers stay unique and increasing per tenant and type. Nothing creates the
+  counter row in advance, and there is no sequence (I8). A type whose
+  `entity_definitions.numbering_mode` is `gapless` (TICK-659) takes its
+  number with L1 instead: the same upsert, last in the create's own write
+  batch (the TICK-648 layout), so a rollback gives the number back. The
+  create reads the mode with its definition (`Compiled.NumberingMode`); a
+  mode change applies to creates that start after it, and both paths upsert
+  the same row, so no number is used twice (ADR-005 §2.1.1,
+  `TestModeSwitchNeverReusesANumber`).
+- **Allocator pool (ADR-005 A3, A5, A8).** The allocation needs a connection
+  while the create's own transaction holds one, so nava-core gives it a pool
+  of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`
+  in the DSN overrides it and must match `nava_alloc pool_size`) and, behind
+  PgBouncer, a server pool of its own (the `nava_alloc` entry,
+  `NAVA_ALLOCATOR_DATABASE_URL`, required with the record routes: there is
+  no fallback to the API pool's DSN). The pool logs in as `nava_app` only:
+  startup refuses another login, and each connection is checked for
+  SUPERUSER and BYPASSRLS as it opens (`tenancy.AllocPoolConfig`). Metrics:
+  `nava_numbering_alloc_acquire_seconds`, `nava_numbering_alloc_seconds`,
+  `nava_numbering_alloc_timeouts`. On the API pool, or on the API pool's
+  PgBouncer server pool, creates that hold every connection would starve
+  their own allocations (`TestAllocatorPoolDoesNotStarveThePool`).
+
+```mermaid
+sequenceDiagram
+    participant H as create (API pool)
+    participant A as allocator pool
+    participant P as PostgreSQL
+    H->>P: BEGIN+tenant; prefetch; checks (CanWrite, unique, group)
+    H->>A: AllocTx(createTx) - tenant = TenantOf(createTx)
+    A->>P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off; upsert RETURNING next - 1, now(); COMMIT
+    A-->>H: (tenant, type, scope '', epoch 0, n, instant)
+    H->>P: batch: INSERT record (number n, created_at = instant), write key, audit
+    H->>P: COMMIT, synchronous (a failure here leaves n as a gap)
+```
+
   Format `<prefix><7 digits>` (`INC0000001`), growing past 7 digits; past
   that the text does not sort by number, so lists sort on `created_at`.
 - **State model.** A create must be in the type's `Initial` state. An
@@ -119,8 +172,8 @@ flowchart TD
 | Error | Meaning |
 | --- | --- |
 | `ErrInvalidCommand` | Caller bug: bad op, source, key or causation, or no tenant on tx |
-| `authz.ErrForbidden` | Actor of another tenant, or the Authorizer refused |
-| `ErrNotFound` | No such entity type or record in the tenant |
+| `authz.ErrForbidden` | Actor of another tenant, or the Authorizer refused the write (before or after row) |
+| `ErrNotFound` | No such entity type or record in the tenant, or (update) a record the actor cannot read |
 | `*ErrValidation{Fields}` | Schema failures, JSON pointers and keywords only |
 | `*ErrIllegalTransition{From, To}` | State change not in the state model, or a create not in `Initial` |
 | `*ErrUniqueViolation{Field}` | Another record of the type holds the unique value |
@@ -135,8 +188,8 @@ flowchart TD
   checks.
 - `NoopSink` is wired in S9. S11b's sink (P3-42) enqueues through
   `EnqueueAtVersion`.
-- `TenantMemberAuthorizer` lets any principal of the tenant, or a system
-  writer, write. S10 deletes it (P3-31).
+- The S9 interim authorizer is deleted (P3-31, AR-S9-01 closed); `authz.ACL`
+  decides every user and AI write ([record-acl.md](record-acl.md)).
 
 ## Tests
 

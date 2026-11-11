@@ -1,0 +1,28 @@
+meta {
+  name: S10.22 PUT without an Idempotency-Key: 400
+  type: http
+  seq: 22
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  If-Match: W/"1"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": []
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}

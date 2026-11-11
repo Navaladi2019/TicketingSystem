@@ -1,0 +1,30 @@
+meta {
+  name: S10.19 Explain for Bob, a user of tenant B: the same 404 as an unknown user
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_rec}}&user={{s10_bob}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+}
+
+docs {
+  Bob is another tenant's user: not found, byte for byte like a user that does not exist.
+}

@@ -231,14 +231,15 @@ func TestDiffIsBuiltFromStoredJSONB(t *testing.T) {
 		"requester":{"type":"string","format":"uuid"},"n":{"type":"number"},"m":{"type":"object"}}}`)
 	f := seedTenantWith(t, e, def)
 	p := newPipeline(e, nil)
-	cmd := createCmd(f, map[string]any{"title": "t", "n": json.Number("1e2"), "m": map[string]any{"z": 1, "a": json.Number("2.50")}})
+	// An explicit requester: this test is about jsonb's literals, not the default (A4).
+	cmd := createCmd(f, map[string]any{"title": "t", "requester": f.principal.PrincipalID.String(), "n": json.Number("1e2"), "m": map[string]any{"z": 1, "a": json.Number("2.50")}})
 	cmd.EntityKey = "metric"
 	res, err := write(context.Background(), e, p, f.id, cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := readEntry(t, e, f.id, "create", res.RecordID)
-	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"status":"open","title":"t"}}]`; got.Diff != want {
+	if want := `[{"op":"add","path":"","value":{"m":{"a":2.50,"z":1},"n":100,"requester":"` + f.principal.PrincipalID.String() + `","status":"open","title":"t"}}]`; got.Diff != want {
 		t.Errorf("diff %s, want %s (jsonb's literals)", got.Diff, want)
 	}
 }
@@ -286,13 +287,18 @@ func TestAIWriteCarriesSourceRef(t *testing.T) {
 	f := seedTenant(t, e)
 	ref := uuid.NewString()
 	cmd := createCmd(f, map[string]any{"title": "suggested"})
-	cmd.Actor, cmd.Source, cmd.SourceRef = f.system(), pipeline.SourceAI, &ref
+	// An AI write is authorized as its principal (D-3-26): f.principal, whom
+	// seedTenant's test ACL (acltest.AllowUsers) lets write. A principal-less
+	// AI write is refused (TestWriteScopeIsEnforcedBeforeAndAfter and the
+	// unit tests cover that).
+	cmd.Source, cmd.SourceRef = pipeline.SourceAI, &ref
 	res, err := write(context.Background(), e, newPipeline(e, nil), f.id, cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := queryText(t, e, `SELECT source || ' ' || source_ref || ' ' || actor_system FROM audit_log WHERE subject_id = $1`, res.RecordID); got != "ai "+ref+" ai" {
-		t.Errorf("entry %q, want ai %s ai", got, ref)
+	want := "ai " + ref + " " + f.principal.PrincipalID.String()
+	if got := queryText(t, e, `SELECT source || ' ' || source_ref || ' ' || actor_principal_id::text FROM audit_log WHERE subject_id = $1`, res.RecordID); got != want {
+		t.Errorf("entry %q, want %q", got, want)
 	}
 }
 

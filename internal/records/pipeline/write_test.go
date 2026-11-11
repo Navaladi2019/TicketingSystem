@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +88,56 @@ func (x *scriptTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.Command
 	return pgconn.NewCommandTag("OK"), s.err
 }
 
+// SendBatch runs b's statements one by one through QueryRow and Exec, as
+// PostgreSQL runs a batch: in order, and none after the first that fails
+// (TICK-648).
+func (x *scriptTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return &scriptBatch{ctx: ctx, x: x, b: b}
+}
+
+type scriptBatch struct {
+	ctx context.Context
+	x   *scriptTx
+	b   *pgx.Batch
+	i   int
+}
+
+func (r *scriptBatch) next() *pgx.QueuedQuery {
+	q := r.b.QueuedQueries[r.i]
+	r.i++
+	return q
+}
+
+func (r *scriptBatch) Exec() (pgconn.CommandTag, error) {
+	q := r.next()
+	return r.x.Exec(r.ctx, q.SQL, q.Arguments...)
+}
+
+func (r *scriptBatch) QueryRow() pgx.Row {
+	q := r.next()
+	return r.x.QueryRow(r.ctx, q.SQL, q.Arguments...)
+}
+
+func (r *scriptBatch) Query() (pgx.Rows, error) {
+	r.x.t.Error("scriptTx batches answer QueryRow and Exec only")
+	return nil, errors.New("unexpected Query in a batch")
+}
+
+func (r *scriptBatch) Close() error {
+	for r.i < len(r.b.QueuedQueries) {
+		var err error
+		if fn := r.b.QueuedQueries[r.i].Fn; fn != nil {
+			err = fn(r)
+		} else {
+			_, err = r.Exec()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ran reports whether any statement containing fragment ran.
 func (x *scriptTx) ranAny(fragment string) bool {
 	for _, s := range x.ran {
@@ -107,15 +159,13 @@ const (
 	sqlInsert     = "INSERT INTO records"
 	sqlUpdate     = "UPDATE records"
 	sqlPayload    = "::text FROM records"
+	sqlPreview    = ") AS records"
 	sqlAudit      = "INSERT INTO audit_log"
+	sqlShares     = "FROM record_shares"
 )
 
 func scanUUID(id uuid.UUID) func(...any) error {
 	return func(dest ...any) error { *dest[0].(*uuid.UUID) = id; return nil }
-}
-
-func scanInt(n int64) func(...any) error {
-	return func(dest ...any) error { *dest[0].(*int64) = n; return nil }
 }
 
 func scanString(v string) func(...any) error {
@@ -209,10 +259,38 @@ func (d fakeDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, 
 	return d.cur, d.curVersion, nil
 }
 
-type fakeAuthz struct{ err error }
+// fakeAuthz answers every write with err and every read with readErr, and
+// records the rows it was asked about.
+type fakeAuthz struct {
+	err, readErr, fieldsErr error
+	calls                   *[]authzCall
+}
 
-func (a fakeAuthz) CanWrite(context.Context, identity.Principal, string, map[string]any, map[string]any) error {
+type authzCall struct {
+	op                    string
+	before, after         *authz.Row
+	beforeData, afterData map[string]any
+}
+
+func (a fakeAuthz) CanRead(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, r authz.Row) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: authz.OpRead, after: &r})
+	}
+	return a.readErr
+}
+
+func (a fakeAuthz) CanWrite(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after *authz.Row) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: authz.OpWrite, before: before, after: after})
+	}
 	return a.err
+}
+
+func (a fakeAuthz) CanWriteFields(_ context.Context, _ pgx.Tx, _ identity.Principal, _ string, before, after, _ map[string]any) error {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, authzCall{op: "fields", beforeData: before, afterData: after})
+	}
+	return a.fieldsErr
 }
 
 // runnerFunc is a TxRunner.
@@ -233,7 +311,10 @@ func newFixture() fixture {
 }
 
 func (f fixture) tx(t *testing.T, stmts ...stmt) *scriptTx {
-	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts, stmt{match: sqlDefinition, scan: scanUUID(f.defID)})}
+	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts,
+		stmt{match: sqlDefinition, scan: scanUUID(f.defID)},
+		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = nil; return nil }},
+		stmt{match: sqlPreview, scan: scanString(`{}`)})}
 }
 
 func (f fixture) create(data map[string]any) pipeline.Command {
@@ -245,10 +326,56 @@ func (f fixture) update(id uuid.UUID, patch map[string]any) pipeline.Command {
 		Actor: f.actor, Source: pipeline.SourceUser, Data: patch}
 }
 
+// numberRunner is the unit pipeline's TxRunner and Allocator, where a create
+// takes its number (ADR-005 L2s): each Allocate answers next, or fails with
+// err, and is kept so a test can tell whether a number was taken and in
+// which tenant. forge, when set, rewrites the allocation before it is
+// returned (the A2 check). It runs no own-transaction work.
+type numberRunner struct {
+	t     *testing.T
+	next  int64
+	err   error
+	forge func(*pipeline.Allocation)
+	calls []pipeline.Allocation
+}
+
+func (r *numberRunner) InTenantTx(context.Context, uuid.UUID, func(pgx.Tx) error) error {
+	return errors.New("runner not expected")
+}
+
+// allocInstant is the instant numberRunner's allocations report.
+func allocInstant() time.Time { return time.Date(2026, 11, 10, 23, 59, 59, 0, time.UTC) }
+
+func (r *numberRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+	tenant, err := tenancy.TenantOf(ctx, createTx)
+	if err != nil {
+		return pipeline.Allocation{}, err
+	}
+	a := pipeline.Allocation{Tenant: tenant, Definition: def, Number: r.next, Instant: allocInstant()}
+	r.calls = append(r.calls, a)
+	if r.err != nil {
+		return pipeline.Allocation{}, fmt.Errorf("records/store: take record number: %w", r.err)
+	}
+	if r.forge != nil {
+		r.forge(&a)
+	}
+	return a, nil
+}
+
+// taken reports whether any create took a number.
+func (r *numberRunner) taken() bool { return len(r.calls) > 0 }
+
+// unitPipeline is a pipeline whose number allocation fails with errBoom: a
+// create that gets past every check stops at its number.
 func unitPipeline(a authz.Authorizer, defs pipeline.DefinitionReader) *pipeline.Pipeline {
-	return pipeline.New(a, defs, pipeline.NoopSink{}, runnerFunc(func(context.Context, uuid.UUID, func(pgx.Tx) error) error {
-		return errors.New("runner not expected")
-	}), pipeline.SystemClock{})
+	p, _ := numberedPipeline(nil, a, defs, &numberRunner{err: errBoom})
+	return p
+}
+
+// numberedPipeline is a pipeline that takes its numbers from r.
+func numberedPipeline(t *testing.T, a authz.Authorizer, defs pipeline.DefinitionReader, r *numberRunner) (*pipeline.Pipeline, *numberRunner) {
+	r.t = t
+	return pipeline.New(a, defs, pipeline.NoopSink{}, r, pipeline.SystemClock{}), r
 }
 
 // The tenant is the transaction's, never the command's: a transaction with
@@ -349,7 +476,7 @@ func TestWriteReplayReadFailure(t *testing.T) {
 // write and reported at the definition version the write used.
 func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 3})
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 3}, &numberRunner{next: 1})
 	tx := f.tx(t)
 	_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": make(chan int)}))
 	if !errors.Is(err, pipeline.ErrInvalidCommand) {
@@ -362,8 +489,8 @@ func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 	if !errors.As(err, &av) || av.SchemaVersion != 3 || av.StateProperty != "status" {
 		t.Errorf("err = %#v, want ErrAtVersion at version 3 naming status", err)
 	}
-	if tx.ranAny(sqlInsert) || tx.ranAny(sqlNumber) {
-		t.Error("a statement wrote after the refusal")
+	if tx.ranAny(sqlInsert) || numbers.taken() {
+		t.Error("a statement wrote or a number was taken after the refusal")
 	}
 }
 
@@ -371,7 +498,7 @@ func TestWriteRefusesDataThatIsNotJSON(t *testing.T) {
 // the required property, and nothing is inserted or numbered.
 func TestCreateValidatesBeforeWriting(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 	for name, data := range map[string]map[string]any{
 		"nil data":   nil,
 		"wrong type": {"name": "x", "tag": "seven"},
@@ -392,10 +519,13 @@ func TestCreateValidatesBeforeWriting(t *testing.T) {
 			if !reflect.DeepEqual(ve.Fields, want) {
 				t.Errorf("fields = %v, want %v", ve.Fields, want)
 			}
-			for _, s := range []string{sqlLock, sqlNumber, sqlInsert, sqlAudit} {
+			for _, s := range []string{sqlLock, sqlInsert, sqlAudit} {
 				if tx.ranAny(s) {
 					t.Errorf("%q ran after a validation failure", s)
 				}
+			}
+			if numbers.taken() {
+				t.Error("an invalid create took a number")
 			}
 		})
 	}
@@ -404,14 +534,14 @@ func TestCreateValidatesBeforeWriting(t *testing.T) {
 // A refused authorisation writes nothing, on a create and on an update.
 func TestWriteRefusedByTheAuthorizer(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{err: authz.ErrForbidden}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	p, numbers := numberedPipeline(t, fakeAuthz{err: authz.ErrForbidden}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 
 	tx := f.tx(t)
 	if _, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"})); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("create: %v, want authz.ErrForbidden", err)
 	}
-	if tx.ranAny(sqlInsert) || tx.ranAny(sqlNumber) {
-		t.Error("create: a statement wrote after the refusal")
+	if tx.ranAny(sqlInsert) || numbers.taken() {
+		t.Error("create: a statement wrote or a number was taken after the refusal")
 	}
 
 	rec := storedRecord{tenant: f.tenant, id: uuid.New(), def: f.defID, key: "asset", version: 1, schemaVersion: 1,
@@ -426,28 +556,36 @@ func TestWriteRefusedByTheAuthorizer(t *testing.T) {
 }
 
 // Each failing statement of a create is returned wrapped, naming its step,
-// and stops the write there.
+// and stops the write there. The number is taken between the checks batch
+// and the write batch, in a transaction of its own (D-3-9 as amended
+// 2026-11-10), never in the create's.
 func TestCreateStatementFailures(t *testing.T) {
 	f := newFixture()
-	p := unitPipeline(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1})
+	const payload = `{"name": "x", "serial": "SN-1", "status": "active"}`
 	ok := []stmt{
-		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlNumber, scan: scanInt(1)},
-		{match: sqlInsert}, {match: sqlPayload, scan: scanString(`{"name":"x","serial":"SN-1","status":"active"}`)},
-		{match: sqlAudit},
+		{match: sqlLock}, {match: sqlTaken, scan: scanBool(false)}, {match: sqlPreview, scan: scanString(payload)},
+		{match: sqlInsert, scan: scanInserted("AST0000001", payload)}, {match: sqlAudit},
 	}
 	cases := []struct {
 		fail     string
 		want     string
 		notAfter string
+		numbered bool // the number was taken before the failure
 	}{
-		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken},
-		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlNumber},
-		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert},
-		{sqlPayload, "pipeline: records/store: read payload as jsonb: boom", sqlAudit},
-		{sqlAudit, "pipeline: audit: audit: insert entry: boom", ""},
+		{sqlLock, "pipeline: records/store: lock unique value: boom", sqlTaken, false},
+		{sqlTaken, "pipeline: records/store: check unique value: boom", sqlInsert, false},
+		{sqlPreview, "pipeline: records/store: preview payload as jsonb: boom", sqlInsert, false},
+		{sqlNumber, "pipeline: records/store: take record number: boom", sqlInsert, true},
+		{sqlInsert, "pipeline: records/store: insert record: boom", sqlAudit, true},
+		{sqlAudit, "pipeline: audit: audit: insert entry: boom", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.fail, func(t *testing.T) {
+			r := &numberRunner{next: 1}
+			if c.fail == sqlNumber {
+				r.err = errBoom
+			}
+			p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, r)
 			stmts := make([]stmt, 0, len(ok))
 			for _, s := range ok {
 				if s.match == c.fail {
@@ -470,13 +608,99 @@ func TestCreateStatementFailures(t *testing.T) {
 			if c.notAfter != "" && tx.ranAny(c.notAfter) {
 				t.Errorf("%q ran after the failure", c.notAfter)
 			}
+			if numbers.taken() != c.numbered {
+				t.Errorf("number taken = %v, want %v", numbers.taken(), c.numbered)
+			}
+			if tx.ranAny(sqlNumber) {
+				t.Error("the create's transaction touched record_counters; the number has a transaction of its own")
+			}
 		})
 	}
 
-	// And with every statement answering, the create succeeds.
+	// And with every statement answering, the create succeeds with the
+	// number one transaction of its own took, in the write's tenant.
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
 	res, err := p.Write(t.Context(), f.tx(t, ok...), f.create(map[string]any{"name": "x", "serial": "SN-1"}))
 	if err != nil || res.Number != "AST0000001" || res.Version != 1 {
 		t.Fatalf("create = %+v, %v", res, err)
+	}
+	if len(numbers.calls) != 1 || numbers.calls[0].Tenant != f.tenant || numbers.calls[0].Definition != f.defID {
+		t.Fatalf("allocations = %+v, want one in tenant %s for type %s", numbers.calls, f.tenant, f.defID)
+	}
+}
+
+// ADR-005 A2: the create checks the allocation against its own transaction
+// and type before it inserts anything; an allocation for another tenant,
+// type, scope or epoch, or with no number or instant, stops the create.
+func TestCreateChecksTheAllocation(t *testing.T) {
+	f := newFixture()
+	for name, forge := range map[string]func(*pipeline.Allocation){
+		"other tenant": func(a *pipeline.Allocation) { a.Tenant = uuid.New() },
+		"other type":   func(a *pipeline.Allocation) { a.Definition = uuid.New() },
+		"scope":        func(a *pipeline.Allocation) { a.ScopeKey = "2026" },
+		"epoch":        func(a *pipeline.Allocation) { a.Epoch = 1 },
+		"no number":    func(a *pipeline.Allocation) { a.Number = 0 },
+		"no instant":   func(a *pipeline.Allocation) { a.Instant = time.Time{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, _ := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1, forge: forge})
+			const payload = `{"name": "x", "status": "active"}`
+			tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(payload)})
+			_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"}))
+			if err == nil || !strings.Contains(err.Error(), "is not this create's") {
+				t.Fatalf("err = %v, want the allocation refused", err)
+			}
+			if tx.ranAny(sqlInsert) || tx.ranAny(sqlAudit) {
+				t.Error("the create inserted after a foreign allocation")
+			}
+		})
+	}
+}
+
+// A TxRunner that cannot allocate fails the create at its number.
+func TestCreateNeedsAnAllocator(t *testing.T) {
+	f := newFixture()
+	p := pipeline.New(fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, pipeline.NoopSink{},
+		runnerFunc(func(context.Context, uuid.UUID, func(pgx.Tx) error) error { return errors.New("runner not expected") }), pipeline.SystemClock{})
+	tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(`{"name": "x", "status": "active"}`)})
+	if _, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"})); err == nil || !strings.Contains(err.Error(), "cannot allocate") {
+		t.Fatalf("err = %v, want the runner refused", err)
+	}
+}
+
+// scanInserted answers the create's INSERT ... RETURNING: number, the
+// timestamps and the stored payload.
+func scanInserted(number, payload string) func(...any) error {
+	return func(dest ...any) error {
+		now := time.Now()
+		*dest[0].(*string) = number
+		*dest[1].(*time.Time) = now
+		*dest[2].(*time.Time) = now
+		*dest[3].(*string) = payload
+		return nil
+	}
+}
+
+// A create whose stored number or payload is not the one it took or audited
+// fails, and returns no result: the audit entry would not describe the row.
+func TestCreateChecksWhatTheInsertStored(t *testing.T) {
+	f := newFixture()
+	p, _ := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: assetDef(t), curVersion: 1}, &numberRunner{next: 1})
+	const payload = `{"name": "x", "status": "active"}`
+	for name, c := range map[string]struct {
+		number, stored, want string
+	}{
+		"number":  {"AST0000002", payload, `pipeline: stored number "AST0000002", want "AST0000001"`},
+		"payload": {"AST0000001", `{"name": "y", "status": "active"}`, "pipeline: the stored payload is not the one the audit entry was built from"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tx := f.tx(t, stmt{match: sqlPreview, scan: scanString(payload)},
+				stmt{match: sqlInsert, scan: scanInserted(c.number, c.stored)}, stmt{match: sqlAudit})
+			_, err := p.Write(t.Context(), tx, f.create(map[string]any{"name": "x"}))
+			if err == nil || err.Error() != c.want {
+				t.Fatalf("err = %v, want %q", err, c.want)
+			}
+		})
 	}
 }
 
@@ -609,5 +833,63 @@ func TestRunnerIsTheConfiguredOne(t *testing.T) {
 	p := pipeline.New(fakeAuthz{}, nopDefs{}, pipeline.NoopSink{}, r, pipeline.SystemClock{})
 	if err := p.Runner().InTenantTx(t.Context(), uuid.New(), nil); err != nil || calls != 1 {
 		t.Fatalf("Runner().InTenantTx = %v after %d calls, want the configured runner", err, calls)
+	}
+}
+
+// A create checks every unique property in one batch, each lookup after its
+// lock, and refuses on the first taken one in property order. Ten unique
+// properties, more than a small slice's first allocation holds, so a lookup
+// result written through a stale pointer would be lost (TICK-648).
+func TestCreateChecksEveryUniquePropertyInOneBatch(t *testing.T) {
+	f := newFixture()
+	props := map[string]any{"name": map[string]any{"type": "string"},
+		"status": map[string]any{"type": "string", "enum": []string{"active"}}}
+	data := map[string]any{"name": "x"}
+	var fields []string
+	for i := range 10 {
+		field := fmt.Sprintf("u%d", i)
+		fields = append(fields, field)
+		props[field] = map[string]any{"type": "string", "x-nava-unique": true}
+		data[field] = "v-" + field
+	}
+	schema, err := json.Marshal(map[string]any{"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"type": "object", "additionalProperties": false, "required": []string{"name"}, "properties": props})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := metadata.Compile(metadata.Definition{
+		Key: "asset", Schema: schema, NumberPrefix: "AST",
+		FixedColumns: map[string]string{"status": metadata.ColumnState},
+		States:       metadata.StateModel{Initial: "active", States: []string{"active"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, numbers := numberedPipeline(t, fakeAuthz{}, fakeDefs{cur: def, curVersion: 1}, &numberRunner{next: 1})
+	for _, c := range []struct {
+		taken []int // indexes of the lookups that find the value taken
+		want  string
+	}{
+		{[]int{0}, "u0"},
+		{[]int{9}, "u9"},
+		{[]int{3, 7}, "u3"},
+	} {
+		i := 0
+		tx := f.tx(t, stmt{match: sqlLock}, stmt{match: sqlTaken, scan: func(dest ...any) error {
+			*dest[0].(*bool) = slices.Contains(c.taken, i)
+			i++
+			return nil
+		}})
+		_, err := p.Write(t.Context(), tx, f.create(data))
+		var uv *pipeline.ErrUniqueViolation
+		if !errors.As(err, &uv) || uv.Field != c.want {
+			t.Errorf("taken %v: err = %v, want the unique violation on %s", c.taken, err, c.want)
+		}
+		if i != len(fields) {
+			t.Errorf("taken %v: %d lookups ran, want all %d in the batch", c.taken, i, len(fields))
+		}
+		if numbers.taken() || tx.ranAny(sqlInsert) {
+			t.Errorf("taken %v: the create went on to the number", c.taken)
+		}
 	}
 }

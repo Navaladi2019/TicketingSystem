@@ -29,8 +29,12 @@ services:
     # schema init and realm import are fsync-bound. Dev data is disposable
     # (`down -v`); a host crash can corrupt this volume, so reset it then.
     # The flags are runtime settings, so an existing dev volume gets them too.
+    # max_connections (TICK-663): every pool's ceiling, PgBouncer's and the direct
+    # ones, must fit under it minus the superuser reserve; the sum is in
+    # docs/budgets.md "Connection sizing" and TestConnectionBudgetFits checks it.
     command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf",
-              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+              "-c", "max_connections=250"]
     environment:
       POSTGRES_INITDB_ARGS: --no-sync
       POSTGRES_USER: pgadmin
@@ -386,6 +390,10 @@ services:
       NAVA_TEMPORAL_TLS_SERVER_NAME: temporal
       # nava_app (db/grants.yaml) through PgBouncer; PostgreSQL gates /readyz.
       NAVA_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava?sslmode=disable
+      # TICK-657: nava_app again, for the record-number allocator pool, through
+      # PgBouncer's nava_alloc entry: a server pool of its own, so a number is
+      # never waiting for a server connection an open create holds.
+      NAVA_ALLOCATOR_DATABASE_URL: postgres://nava_app:${NAVA_APP_DB_PASSWORD:-dev-only-app}@pgbouncer:5432/nava_alloc?sslmode=disable
       # ADR-004-A1 A1-6: the audit reader's own login (nava_audit_reader), the
       # only one that reads audit_log.diff and diff_salt. nava-core only: no
       # other service gets it. nava-core does not start without it.

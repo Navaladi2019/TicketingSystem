@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +33,11 @@ import (
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
 // contract's paths already start with /api/v1, so both are empty.
 const baseURL = ""
+
+// createRecordPattern is the mux pattern of createRecord, the one route that
+// claims its Idempotency-Key in its own write transaction (TICK-688). A test
+// fails if the generated router's pattern ever differs.
+const createRecordPattern = "POST " + baseURL + "/api/v1/records/{entity}"
 
 // newAPI registers the /api/v1 routes of the embedded contract on mux and
 // returns the handler to serve. Authentication (routeAuth) wraps the whole
@@ -70,10 +77,10 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout}
 	if opts.pool != nil {
-		// The S9 composition (PLAN-003): any tenant member writes, no events.
-		// S10 swaps the authorizer, S11b the sink.
+		// The S10 composition (PLAN-003): the record ACL reads and writes,
+		// no events yet. S11b swaps the sink.
 		var masker read.Masker = read.DefinitionMasker{}
 		if opts.auditMasker != nil {
 			masker = opts.auditMasker
@@ -88,7 +95,20 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			metric.WithUnit("{request}")); err != nil {
 			return nil, err
 		}
-		h.pipe = pipeline.New(authz.TenantMemberAuthorizer{}, h.store, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: opts.pool}, pipeline.SystemClock{})
+		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
+		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		// A create takes its number on the allocator pool (ADR-005 L2s)
+		// while its own transaction holds a request-pool connection. On the
+		// request pool itself, creates holding every connection would starve
+		// their own allocations, so there is no fallback (TICK-657).
+		if opts.allocPool == nil {
+			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
+		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
+		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
@@ -98,7 +118,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		api.StdHTTPServerOptions{
 			BaseURL:          baseURL,
 			BaseRouter:       mux,
-			Middlewares:      []api.MiddlewareFunc{a.Middleware()},
+			Middlewares:      []api.MiddlewareFunc{withRawQuery, a.Middleware()},
 			ErrorHandlerFunc: a.ErrorHandler,
 		},
 	)
@@ -122,6 +142,9 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if err != nil {
 			return nil, err
 		}
+		// Record create claims its key in its own write transaction, one
+		// synchronous commit (TICK-688); CreateRecord settles it.
+		m.ClaimInTx(createRecordPattern)
 		idem = m.Handler
 	} else {
 		idem = refuseWrites(reg, log)
@@ -173,11 +196,17 @@ type handlers struct {
 	paths identity.GroupPathReader
 	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers
 	// 501 not_implemented.
-	pool    *pgxpool.Pool
-	cursors *cursor.Keyring
-	store   entitytypes.Store
+	pool              *pgxpool.Pool
+	cursors           *cursor.Keyring
+	dataFilterTimeout time.Duration
+	store             entitytypes.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
+	// acl decides record reads (and, inside pipe, writes) and gives the
+	// policy every record body and audit diff is shaped with (P3-33). A
+	// record or audit route without it answers 501 not_implemented, never an
+	// unchecked or unshaped read.
+	acl recordACL
 	// audit serves the audit timeline and a record's history (P5-17) on the
 	// nava_audit_reader pool (ADR-004-A1); nil answers 501 not_implemented.
 	audit *read.Reader
@@ -263,13 +292,44 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.InvalidIdPConfig:
 					h.reg.Write(w, r, problem.InvalidIdPConfig, pe.fields...)
 					return
+				case problem.FieldNotWritable:
+					h.reg.Write(w, r, problem.FieldNotWritable, pe.fields...)
+					return
+				case problem.MaskedField:
+					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
+					return
+				case problem.InvalidAccessPolicy:
+					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
+					return
 				}
+			}
+			if pe.code == problem.RetryLater {
+				// A 5xx is not stored against the Idempotency-Key (TICK-690).
+				// On a route that claims in a transaction of its own (PATCH)
+				// the key's in_flight claim stands until its lease ends, and
+				// a retry with the same key before then is 409
+				// idempotency_in_flight, so the advice is the lease. Record
+				// create's claim rolled back with the write (TICK-688), so
+				// its retry can run at once: it advises ClaimRetryAfter.
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter(r)/time.Second)))
 			}
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return
 		}
 		a.StrictResponseError(w, r, err)
 	}
+}
+
+// retryAfter is the Retry-After a write on r's route advises with 503
+// retry_later: idempotency.ClaimRetryAfter for record create, the one route
+// that claims its key in its write transaction (TICK-688), and
+// idempotency.Lease for every other route (TICK-690). The idempotency
+// middleware advises the same on 409 idempotency_in_flight.
+func retryAfter(r *http.Request) time.Duration {
+	if r.Pattern == createRecordPattern {
+		return idempotency.ClaimRetryAfter
+	}
+	return idempotency.Lease
 }
 
 // refuseWrites answers 501 to a tenant write when no key store is configured.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -8,9 +9,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
@@ -134,6 +138,88 @@ func TestPatchAndHistoryRefuseAPrincipalWithoutAnID(t *testing.T) {
 	if _, err := h.GetRecordHistory(t.Context(), api.GetRecordHistoryRequestObject{}); !errors.Is(err, errNoPrincipal) {
 		t.Errorf("GetRecordHistory err = %v", err)
 	}
+}
+
+// fakeDefs serves one current definition and the stored versions by number.
+type fakeDefs struct {
+	cur      *metadata.Compiled
+	curNum   int
+	versions map[int]*metadata.Compiled
+}
+
+func (f fakeDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, int, error) {
+	return f.cur, f.curNum, nil
+}
+
+func (f fakeDefs) Version(_ context.Context, _ pgx.Tx, _ string, v int) (*metadata.Compiled, error) {
+	if c, ok := f.versions[v]; ok {
+		return c, nil
+	}
+	return nil, entitytypes.ErrNotFound
+}
+
+// A version published between the handler's read and the pipeline's must not
+// change how the PATCH response maps fixed columns (TICK-481, the PATCH side of
+// TICK-413): the row was written under version 2, so its assignee column is
+// shown under the property version 2 maps it to, not version 1's.
+func TestPatchBodyMapsUnderTheVersionTheRowWasWrittenUnder(t *testing.T) {
+	t.Parallel()
+	def := func(fixed map[string]string, props map[string]any) *metadata.Compiled {
+		d := metadata.Definition{
+			Key: "ticket", NumberPrefix: "TKT", FixedColumns: fixed,
+			States: metadata.StateModel{Initial: "open", States: []string{"open"}},
+		}
+		props["state"] = map[string]any{"type": "string", "enum": []any{"open"}}
+		raw, err := json.Marshal(map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+			"additionalProperties": false, "properties": props,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Schema = raw
+		return mustCompileDef(t, d)
+	}
+	uid := map[string]any{"type": "string", "format": "uuid"}
+	v1 := def(map[string]string{"state": metadata.ColumnState, "assignee": metadata.ColumnAssigneeID}, map[string]any{"assignee": uid})
+	v2 := def(map[string]string{"state": metadata.ColumnState, "assignee_id": metadata.ColumnAssigneeID}, map[string]any{"assignee_id": uid})
+	assignee := uuid.New()
+	rec := &pipeline.Record{SchemaVersion: 2, State: "open", AssigneeID: &assignee, Data: map[string]any{}}
+
+	// The handler read v1 as current; the row was written under v2.
+	defs := fakeDefs{cur: v1, curNum: 1, versions: map[int]*metadata.Compiled{1: v1, 2: v2}}
+	got, _, err := patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1)
+	if err != nil {
+		t.Fatalf("patchBody: %v", err)
+	}
+	if got["assignee_id"] != assignee.String() {
+		t.Errorf("body = %v, want assignee_id = %s (mapped under v2)", got, assignee)
+	}
+	if _, stale := got["assignee"]; stale {
+		t.Errorf("body = %v, has the v1 property assignee", got)
+	}
+
+	// Same version as the handler read: no second read of the definition.
+	rec.SchemaVersion = 1
+	got, _, err = patchBody(t.Context(), nil, fakeDefs{cur: v1, curNum: 1}, "ticket", rec, 1, v1)
+	if err != nil || got["assignee"] != assignee.String() {
+		t.Errorf("same version: body = %v, err = %v, want assignee = %s", got, err, assignee)
+	}
+
+	// A version that cannot be read fails the request rather than guessing.
+	rec.SchemaVersion = 7
+	if _, _, err = patchBody(t.Context(), nil, defs, "ticket", rec, 1, v1); !errors.Is(err, entitytypes.ErrNotFound) {
+		t.Errorf("unknown version: err = %v, want ErrNotFound", err)
+	}
+}
+
+func mustCompileDef(t *testing.T, d metadata.Definition) *metadata.Compiled {
+	t.Helper()
+	c, err := metadata.Compile(d)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	return c
 }
 
 // historyPage pages newest first over the oldest-first replay, strictly older

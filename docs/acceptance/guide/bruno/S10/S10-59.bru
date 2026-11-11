@@ -1,0 +1,39 @@
+meta {
+  name: S10.59 C4: Alice writes an unmasked field of the same incident: 200
+  type: http
+  seq: 59
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s10_sd_rec}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-alice-prio
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 1
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 2, no description', () => {
+    expect(N.json().version).to.eql(2);
+    expect(N.json().data).to.not.have.property('description');
+  });
+}
+
+docs {
+  `default-service-desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.
+}

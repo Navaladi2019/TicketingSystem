@@ -44,8 +44,9 @@ erDiagram
         timestamptz export_lease_until
     }
     record_write_keys {
-        uuid tenant_id PK
-        text idempotency_key PK "record_write_keys_pkey"
+        uuid tenant_id UK "record_write_keys_actor_key"
+        text idempotency_key UK
+        uuid actor_principal_id UK "NULLS NOT DISTINCT (TICK-626)"
         uuid definition_id
         text action "create | update"
         uuid record_id
@@ -220,7 +221,7 @@ All three tables are new and empty, so the migration takes no lock that blocks a
 
 The write path has not been measured in this task:
 - `audit_log` has 7 indexes per partition (the PK, the R2 key and 5 from R28), and every append writes all 7.
-- `record_write_keys` adds one PK insert per keyed write.
+- `record_write_keys` adds one unique-index insert per keyed write (`record_write_keys_actor_key` since TICK-626).
 
 S1 measured the same index set on the spike schema (`docs/adr/ADR-004/spikes/postgres/s1/RESULT.md`):
 - item 3: 1,344 B of WAL per insert, plus 1,323 B per seal, so 1.98× with sealing;

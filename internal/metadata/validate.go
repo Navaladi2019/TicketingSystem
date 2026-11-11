@@ -130,6 +130,10 @@ func (c *Compiled) SecretProperties() []string {
 // NumberPrefix returns the definition's record number prefix.
 func (c *Compiled) NumberPrefix() string { return c.numberPrefix }
 
+// NumberingMode returns the type's numbering mode (D-3-9): NumberingGaps
+// unless the definition set NumberingGapless.
+func (c *Compiled) NumberingMode() NumberingMode { return c.numberingMode }
+
 // FixedColumns returns a copy of the mapping from top-level property to the
 // fixed column that stores it (one of the Column constants).
 func (c *Compiled) FixedColumns() map[string]string { return maps.Clone(c.fixedColumns) }
@@ -157,3 +161,17 @@ func (c *Compiled) AllowsTransition(from, to string) bool {
 
 // States returns a copy of the state model's states.
 func (c *Compiled) States() []string { return slices.Clone(c.states.States) }
+
+// PropertyTypes returns each top-level property's JSON Schema "type" when it
+// is a single string ("" otherwise, e.g. a union or none). The list route
+// builds its filter and masked-field checks from these names only (TICK-619).
+func (c *Compiled) PropertyTypes() map[string]string {
+	props, _ := c.doc["properties"].(map[string]any)
+	out := make(map[string]string, len(props))
+	for name, v := range props {
+		p, _ := v.(map[string]any)
+		t, _ := p["type"].(string)
+		out[name] = t
+	}
+	return out
+}

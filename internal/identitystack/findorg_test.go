@@ -257,7 +257,7 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 	dir := newDirectory(t, newRegistry(), true, specs.Source)
 	st := &resumeStore{failing: true, domains: map[string]uuid.UUID{}}
 	svc, err := onboard.New(onboard.Options{
-		Store: st, Directory: dir, Finder: dir, Domains: st, Specs: specs, Resolver: publicResolver{},
+		Store: st, Directory: dir, Finder: dir, Domains: st, ACL: noACL{}, Specs: specs, Resolver: publicResolver{},
 		Issuer: baseURL() + "/realms/nava", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
@@ -307,3 +307,9 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 }
 
 func (s *resumeStore) SeedAuditChain(context.Context, uuid.UUID) error { return nil }
+
+// noACL publishes nothing: these tests are about the Keycloak resume, not the
+// default ACL (P3-35), which has its own database tests.
+type noACL struct{}
+
+func (noACL) PublishDefaultIncident(context.Context, uuid.UUID) (bool, error) { return false, nil }

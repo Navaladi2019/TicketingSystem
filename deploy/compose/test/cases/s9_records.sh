@@ -12,7 +12,11 @@
 #           the second create's number right after the first.
 #      AC3  the updated incident has two audit_log entries, create and
 #           state_change (S9.9 moves it to in_progress; P5-13b, TICK-452),
-#           both source=user, both by Alice, the record's created_by.
+#           both source=user; the create by Alice (the record's created_by),
+#           the state_change by tenant A's admin: a requester cannot move her
+#           own incident out of `new` under the default incident ACL, so S9.9
+#           to S9.13 run as a principal allowed to triage (A6), and S9.8a shows
+#           Alice refused (403) with the version unchanged.
 #      AC4  the refused create left no record and no audit entry.
 # Serial: it writes records. Needs Node.js (npx) on the host.
 set -eu
@@ -70,16 +74,18 @@ bad=$(psql_super nava "SELECT (SELECT count(*) FROM records WHERE tenant_id = '$
 [ "$bad" = "0|0" ] || fail "AC4: the refused create left records|audit entries: $bad"
 pass "AC4: the refused create stored no record and no history"
 
-hist=$(psql_super nava "SELECT string_agg(a.action || ',' || a.source || ',' || (a.actor_principal_id = r.created_by)::text, ' ' ORDER BY a.version_after)
+hist=$(psql_super nava "SELECT string_agg(a.action || ',' || a.source || ',' || ap.email, ' ' ORDER BY a.version_after)
     FROM audit_log a JOIN records r ON r.tenant_id = a.tenant_id AND a.subject_type = 'record' AND r.id = a.subject_id
+    JOIN principals ap ON ap.tenant_id = a.tenant_id AND ap.id = a.actor_principal_id
     WHERE r.tenant_id = '$A' AND r.number = '$first'
       AND r.entity_definition_id = (SELECT id FROM entity_definitions WHERE tenant_id = '$A' AND key = 'incident')" | tr -d '\r')
-[ "$hist" = "create,user,true state_change,user,true" ] || fail "AC3: audit entries of $first: want 'create,user,true state_change,user,true', got '$hist'"
+want_hist="create,user,alice@tenant-a.test state_change,user,admin@tenant-a.test"
+[ "$hist" = "$want_hist" ] || fail "AC3: audit entries of $first: want '$want_hist', got '$hist'"
 alice=$(psql_super nava "SELECT count(*) FROM records r JOIN principals p ON p.tenant_id = r.tenant_id AND p.id = r.created_by
     WHERE r.tenant_id = '$A' AND r.number = '$first' AND p.email = 'alice@tenant-a.test'
       AND r.entity_definition_id = (SELECT id FROM entity_definitions WHERE tenant_id = '$A' AND key = 'incident')" | tr -d '\r ')
 [ "$alice" = 1 ] || fail "AC3: $first was not created by alice@tenant-a.test"
-pass "AC3: $first has two audit entries (create, state_change), source user, both by Alice"
+pass "AC3: $first has two audit entries (create by Alice, state_change by the admin), source user"
 
 [ "$bruno" -eq 0 ] || fail "Bruno folder S9 records failed (bru exit $bruno); see the bru output above"
 pass "Bruno folder S9 records: every check passed (AC1-AC5)"

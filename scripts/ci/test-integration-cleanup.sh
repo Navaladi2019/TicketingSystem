@@ -47,12 +47,6 @@ start() { # start <n> [log]: run n in the background, NAVA_IT_ID <base><n>
     pids="$pids $pid"
 }
 
-start 1
-st=0
-wait "$pid" || st=$?
-check "a run with go test arguments exits 0 (got $st)" '[ "$st" -eq 0 ]'
-check "a run with go test arguments leaves nothing: $(left "$id" | tr '\n' ' ')" '[ -z "$(left "$id")" ]'
-
 # wait_cluster <id>: until the run with that NAVA_IT_ID has its shared
 # cluster; it is then starting the rest or compiling, with something to remove.
 wait_cluster() { # wait_cluster <id> [container, default the cluster]
@@ -63,7 +57,13 @@ wait_cluster() { # wait_cluster <id> [container, default the cluster]
     done
 }
 
-# Run 3 beside run 2 (TICK-182): run 2's TERM teardown leaves run 3 alone.
+# Runs 1 and 3 beside run 2 (TICK-182): run 2's TERM teardown leaves both
+# alone. Run 1 used to run first and on its own (26 s of a 47 s step in run
+# 42962065688); started here it overlaps runs 2 and 3 (TICK-701). Its checks
+# are unchanged and come after theirs.
+start 1
+pid1=$pid
+id1=$id
 start 3
 pid3=$pid
 id3=$id
@@ -84,6 +84,10 @@ st=0
 wait "$pid3" || st=$?
 check "the run beside it still exits 0 (got $st)" '[ "$st" -eq 0 ]'
 check "the run beside it leaves nothing: $(left "$id3" | tr '\n' ' ')" '[ -z "$(left "$id3")" ]'
+st=0
+wait "$pid1" || st=$?
+check "a run with go test arguments exits 0 (got $st)" '[ "$st" -eq 0 ]'
+check "a run with go test arguments leaves nothing: $(left "$id1" | tr '\n' ' ')" '[ -z "$(left "$id1")" ]'
 
 # Run 4's cluster removed under it (TICK-182): it fails at once and says so,
 # well before the 120 s health deadline.

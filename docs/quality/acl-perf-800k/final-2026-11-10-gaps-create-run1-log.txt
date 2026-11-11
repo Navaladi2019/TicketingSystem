@@ -1,0 +1,5 @@
+    records_perf_integration_test.go:1012: FLOOR SELECT 1 round trip, 8 clients: p50=0.57 p95=1.19 p99=1.81 ms
+    records_perf_integration_test.go:1023: RESULT create, agent (1 client)                                       n=   679 p50=   27.67 p95=   40.04 p99=   48.51 ms
+    records_perf_integration_test.go:1023: RESULT create, agent                                                  n=  3428 p50=   40.30 p95=   80.27 p99=  106.67 ms
+    records_perf_integration_test.go:1023: RESULT create, admin                                                  n=  2583 p50=   66.40 p95=   97.79 p99=  120.96 ms
+    records_perf_integration_test.go:1023: RESULT create, small tenant agent                                     n=  4092 p50=   37.37 p95=   48.96 p99=   66.51 ms

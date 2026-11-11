@@ -35,7 +35,7 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.cursors == nil || h.audit == nil {
+	if h.pool == nil || h.cursors == nil || h.audit == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	prm := req.Params
@@ -79,9 +79,20 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 	// Two transactions (ADR-004-A1 A1-7): the gate and the cursor on
 	// nava_app, then the page on the reader's own pool, which alone may read
 	// the diff and the salt, with the masker in the same transaction.
-	var after *read.Position
+	// The caller's field masks (P3-33, PR #523 finding 4) are read here too,
+	// on nava_app: the timeline is not ACL-filtered (audit.read), but a field
+	// the record ACL hides from the caller is masked in every record entry's
+	// diff, as a secret is.
+	var (
+		after *read.Position
+		masks map[uuid.UUID][]string
+	)
 	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireAuditPermission(ctx, tx, p, authz.PermAuditRead); err != nil {
+			return err
+		}
+		var err error
+		if masks, err = h.acl.ReadMasks(ctx, tx, p); err != nil {
 			return err
 		}
 		if prm.PageToken != nil {
@@ -106,7 +117,7 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 	case err != nil:
 		return nil, err
 	}
-	entries, err := h.audit.List(ctx, p.TenantID, f, after, limit+1)
+	entries, err := h.audit.WithFieldMasks(masks).List(ctx, p.TenantID, f, after, limit+1)
 	switch {
 	case errors.Is(err, read.ErrNoDefinitionVersions):
 		return nil, h.maskerFailed(ctx, err)

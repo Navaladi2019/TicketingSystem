@@ -105,3 +105,29 @@ func TestTenantOfSetting(t *testing.T) {
 		t.Errorf("message %q, want %q", err, want)
 	}
 }
+
+// BeginTenant recognises exactly the statement InTenantTx begins with, for
+// any tenant, and nothing that only looks like it: another setting, a nil or
+// malformed tenant, a non-canonical spelling, or anything around it.
+func TestBeginTenant(t *testing.T) {
+	t.Parallel()
+	tenantA := uuid.New()
+	begin := "BEGIN; SELECT set_config('app.tenant_id', '" + tenantA.String() + "', true)"
+	if got, ok := tenancy.BeginTenant(begin); !ok || got != tenantA {
+		t.Fatalf("BeginTenant(the tenancy BEGIN) = %s, %v; want %s", got, ok, tenantA)
+	}
+	for name, sql := range map[string]string{
+		"plain begin":     "begin",
+		"bound":           "SELECT set_config('app.tenant_id', $1, true)",
+		"session setting": "BEGIN; SELECT set_config('app.tenant_id', '" + tenantA.String() + "', false)",
+		"other setting":   "BEGIN; SELECT set_config('app.other', '" + tenantA.String() + "', true)",
+		"nil tenant":      "BEGIN; SELECT set_config('app.tenant_id', '" + uuid.Nil.String() + "', true)",
+		"not a uuid":      "BEGIN; SELECT set_config('app.tenant_id', 'tenant-b', true)",
+		"upper case":      "BEGIN; SELECT set_config('app.tenant_id', '" + strings.ToUpper(tenantA.String()) + "', true)",
+		"trailing":        begin + "; SELECT 1",
+	} {
+		if got, ok := tenancy.BeginTenant(sql); ok {
+			t.Errorf("%s: BeginTenant(%q) = %s, want no match", name, sql, got)
+		}
+	}
+}

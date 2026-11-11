@@ -22,9 +22,10 @@
 set -eu
 cd "$(dirname "$0")/../../../.."
 
-# Git Bash would rewrite /run/... in the container command.
-MSYS_NO_PATHCONV=1
-export MSYS_NO_PATHCONV
+# Git Bash would rewrite /run/... in the container command. Only for docker:
+# exported for the whole script it also stops Git Bash from mapping curl's
+# `-o /dev/null`, and curl fails with exit 23 on a Windows host (TICK-623).
+dc() { MSYS_NO_PATHCONV=1 docker compose "$@"; }
 
 # .env applies as it does to compose (KEYCLOAK_PUBLIC_URL, COMPOSE_PROJECT_NAME).
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
@@ -34,7 +35,7 @@ A=00000000-0000-4000-8000-0000000000a1
 B=00000000-0000-4000-8000-0000000000b1
 
 echo "seed: tenants A and B, issuer $ISSUER"
-docker compose exec -T postgres sh -c \
+dc exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 INSERT INTO tenants (id, state) VALUES ('$A', 'active'), ('$B', 'active')
   ON CONFLICT (id) DO NOTHING;
@@ -73,9 +74,17 @@ user=$(kc "$KC/admin/realms/nava/users?username=admin%40tenant-a.test&exact=true
 [ -n "$admins" ] && [ -n "$user" ] || { echo "seed: no admins group or no admin@tenant-a.test" >&2; exit 1; }
 kc -X PUT "$KC/admin/realms/nava/users/$user/groups/$admins" >/dev/null
 echo "seed: admin@tenant-a.test is in /t/$A/admins"
+# Tenant B's admins group too, with no member: the default incident ACL names
+# the tenant's admins group, and a tenant with none gets no default (A5), so
+# both seeded tenants need the row. B has no admin user in the realm.
+parentb=$(kc "$KC/admin/realms/nava/group-by-path/t/$B" | first_id)
+[ -n "$parentb" ] || { echo "seed: no group /t/$B in realm nava" >&2; exit 1; }
+code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $kc_token"   -H 'Content-Type: application/json' -d '{"name":"admins"}' "$KC/admin/realms/nava/groups/$parentb/children")
+case $code in 201|409) ;; *) echo "seed: creating /t/$B/admins answered HTTP $code" >&2; exit 1 ;; esac
+echo "seed: /t/$B/admins exists"
 
 echo "seed: one group sync cycle (nava-groupsync --once)"
-docker compose run --rm --no-deps nava-groupsync --once
+dc run --rm --no-deps nava-groupsync --once
 
 # The admins group's platform id, the entity types at version 1. Template
 # bytes go in as dollar-quoted literals, so a template holding "$tpl$" would
@@ -99,14 +108,14 @@ for t in incident request change; do
 done
 tpl() { cat "internal/metadata/templates/$1.json"; }
 echo "seed: tenant A's admin group, incident/request/change at version 1 in A and B"
-docker compose exec -T postgres sh -c \
+dc exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
 INSERT INTO tenant_admin_group (tenant_id, group_id)
-  SELECT tenant_id, id FROM groups WHERE tenant_id = '$A' AND path = '/t/$A/admins'
+  SELECT tenant_id, id FROM groups WHERE tenant_id IN ('$A', '$B') AND path = '/t/' || tenant_id::text || '/admins'
   ON CONFLICT DO NOTHING;
 DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM tenant_admin_group WHERE tenant_id = '$A') THEN
-    RAISE EXCEPTION 'no groups row for /t/$A/admins after group sync';
+  IF (SELECT count(*) FROM tenant_admin_group WHERE tenant_id IN ('$A', '$B')) <> 2 THEN
+    RAISE EXCEPTION 'no groups row for an admins group after group sync';
   END IF;
 END \$\$;
 -- Auditors groups (P5-18): the realm import creates /t/<tenant>/auditors and
@@ -153,5 +162,27 @@ SELECT d.tenant_id AS tenant, d.key, d.current_version, encode(v.schema_sha256, 
     ON v.tenant_id = d.tenant_id AND v.definition_id = d.id AND v.version = 1
  WHERE d.tenant_id IN ('$A', '$B') ORDER BY 1, 2;
 SQL
+# The default incident ACL (P3-35): what onboarding publishes for a new tenant,
+# given to these two tenants, which never went through onboarding, by the same
+# code (nava-onboard reconcile-default-acl, which also writes the audit entry).
+# It replaces the temporary allow-all seed ACL (D-3-27): record authorization
+# fails closed, so the incident type needs a published ACL, and this is the
+# real one. Idempotent: a type that already has an ACL version keeps it. A
+# database seeded by an earlier version of this script still has the allow-all
+# version 1; drop the volumes and seed again to get the default.
+echo "seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)"
+dc exec -T nava-onboard nava-onboard reconcile-default-acl "$A" "$B"
+dc exec -T postgres sh -c   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
+DO \$\$ BEGIN
+  IF (SELECT count(*) FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
+      WHERE d.tenant_id IN ('$A', '$B') AND d.key = 'incident') < 2 THEN
+    RAISE EXCEPTION 'a seeded incident type has no ACL';
+  END IF;
+END \$\$;
+SELECT d.tenant_id AS tenant, a.version AS incident_acl_version, a.published_by IS NULL AS default_acl
+  FROM acl_versions a JOIN entity_definitions d ON d.tenant_id = a.tenant_id AND d.id = a.entity_definition_id
+ WHERE d.tenant_id IN ('$A', '$B') AND d.key = 'incident' ORDER BY 1, 2;
+SQL
 echo "seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;"
 echo "seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change."
+echo "seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one."

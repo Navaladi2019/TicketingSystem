@@ -5,7 +5,7 @@ module github.com/Navaladi2019/TicketingSystem/tools/navalint
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require golang.org/x/tools v0.52.0
 

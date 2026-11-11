@@ -336,14 +336,14 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		if got.Version != 2 || got.Data["name"] != "renamed" || got.Data["tag"] != json.Number("7") || got.State != "active" {
 			t.Errorf("Get = version %d, data %v, state %q", got.Version, got.Data, got.State)
 		}
-		kw, err := store.WriteKeyByKey(ctx, tx, tenant, key)
+		kw, err := store.WriteKeyByKey(ctx, tx, tenant, nil, key)
 		if err != nil {
 			return err
 		}
 		if kw.RecordID != rec.ID || kw.Action != "create" || kw.Version != 1 || kw.Number != rec.Number {
 			t.Errorf("WriteKeyByKey = %+v", kw)
 		}
-		if _, err := store.WriteKeyByKey(ctx, tx, tenant, "no-such-key"); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.WriteKeyByKey(ctx, tx, tenant, nil, "no-such-key"); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("unknown key: %v, want ErrNotFound", err)
 		}
 		return nil
@@ -434,7 +434,7 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if _, err := store.Update(ctx, tx, &forged, 1); !errors.Is(err, store.ErrStale) {
 			t.Errorf("B updates A's record: %v, want ErrStale (no row)", err)
 		}
-		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, key); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, nil, key); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("B reads A's idempotency key: %v, want ErrNotFound", err)
 		}
 		if p, err := store.PayloadJSON(ctx, tx, tenantA, rec.ID, 1, fixed); !errors.Is(err, store.ErrStale) {
@@ -480,14 +480,14 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if got.Version != 1 || got.Data["name"] != "a-secret" {
 			t.Errorf("A's record after B's attempts: version %d, data %v", got.Version, got.Data)
 		}
-		kw, err := store.WriteKeyByKey(ctx, tx, tenantA, key)
+		kw, err := store.WriteKeyByKey(ctx, tx, tenantA, nil, key)
 		if err != nil {
 			return err
 		}
 		if kw.RecordID != rec.ID || kw.Action != "create" {
 			t.Errorf("A's write key after B's attempts: %+v", kw)
 		}
-		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, "forged-key"); !errors.Is(err, store.ErrNotFound) {
+		if _, err := store.WriteKeyByKey(ctx, tx, tenantA, nil, "forged-key"); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("B's forged key for A exists: %v", err)
 		}
 		return nil

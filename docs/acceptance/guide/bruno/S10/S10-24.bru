@@ -1,0 +1,28 @@
+meta {
+  name: S10.24 PUT without a token: 401
+  type: http
+  seq: 24
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: tick620-s10-{{s10_run}}-anon
+  If-Match: W/"1"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": []
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

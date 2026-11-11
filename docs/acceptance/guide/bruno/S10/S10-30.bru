@@ -1,0 +1,24 @@
+meta {
+  name: S10.30 The admin's principal id and admins group
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s10_admin', N.json().user_id);
+  const g = N.json().group_paths.find(x => x.path === '/admins');
+  test('the admin is in /admins', () => expect(g, 'group_paths /admins').to.be.an('object'));
+  bru.setVar('s10_admins', g ? g.id : '');
+}
