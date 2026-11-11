@@ -2,7 +2,7 @@ module github.com/Navaladi2019/TicketingSystem
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/exaring/otelpgx v0.13.0
