@@ -11,6 +11,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/reseed"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -28,14 +29,23 @@ func (h *handlers) ReseedAuditChain(ctx context.Context, _ api.ReseedAuditChainR
 	if h.pool == nil {
 		return nil, notImplemented()
 	}
-	var res reseed.Result
+	var (
+		res  reseed.Result
+		resp api.ReseedAuditChain200JSONResponse
+	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireAuditPermission(ctx, tx, p, authz.PermAuditExport); err != nil {
 			return err
 		}
 		var err error
 		res, err = reseed.Do(ctx, tx, p.TenantID, p.PrincipalID)
-		return err
+		if err != nil {
+			return err
+		}
+		// The key completes in this transaction, with the write (TICK-487).
+		// A refused call returned above, so it stores no completed key.
+		resp = api.ReseedAuditChain200JSONResponse{ReseedId: res.ReseedID, SealOutboxId: res.OutboxID}
+		return idempotency.CompleteInTx(ctx, tx, resp.VisitReseedAuditChainResponse)
 	})
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
@@ -47,5 +57,5 @@ func (h *handlers) ReseedAuditChain(ctx context.Context, _ api.ReseedAuditChainR
 	case err != nil:
 		return nil, err
 	}
-	return api.ReseedAuditChain200JSONResponse{ReseedId: res.ReseedID, SealOutboxId: res.OutboxID}, nil
+	return resp, nil
 }
