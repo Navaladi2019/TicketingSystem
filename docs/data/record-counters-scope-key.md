@@ -58,14 +58,20 @@ unconditional drop on purpose; tested by `TestP601CounterScopeIndexRepair`.)
   on `record_counters_pkey`. So no binary can fork a type's counter before
   M3, and S18's publish gate keeps non-default formats off until then.
 
-**Open issue (TICK-665 review): first-upsert race while two unique indexes
+**First-upsert race while two unique indexes
 exist.** Between M2 and M3, two concurrent *first* upserts of one
 (tenant, type) can fail with 23505 on whichever unique index is not the
 statement's arbiter (`record_counters_scoped_key` for R0,
 `record_counters_pkey` for R1). Existing counter rows are not affected.
 Evidence: `scratch/tick-665/README.md` (0 of 160,000 before M2 and after M3;
 15,533 R0 and 19,829 R1 failures of 160,000 with both indexes, in a workload
-where every upsert is a first insert). The mitigation is pending a decision.
+where every upsert is a first insert). Decided (Technical Lead, option A):
+R1's allocation retries once on 23505 against either index, a fresh AllocTx
+for `gaps` and a savepoint for `gapless` (TICK-666, P6-02), pinned by
+`TestConcurrentFirstCreatesOfATypeAllSucceed`. This PR merges into the story
+branch only together with P6-02. R0 binaries keep the race during the R1
+rollout (accepted risk). **Operator guidance:** run M3 soon after R1 is fully
+rolled out; that closes the window.
 
 **Grants, RLS, audit:** unchanged. `nava_app` and `nava_worker` have
 table-level INSERT (the INSERT arm sets `scope_key` and `period_end`) and
