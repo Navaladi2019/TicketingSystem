@@ -1,0 +1,31 @@
+meta {
+  name: S10.53 Isolation: Bob opens tenant A's /service-desk incident: the same 404
+  type: http
+  seq: 53
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s10_sd_rec}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  test('body byte-identical to the missing id\'s 404', () => expect(N.text()).to.eql(bru.getVar('s10_ref404_bob')));
+  N.noLeak(bru.getVar('s10_sd_rec'), 's10-internal-' + bru.getVar('s10_run'));
+}
+
+docs {
+  Bob is in tenant B's `/service-desk`: a group of the same name in another tenant grants nothing in A.
+}

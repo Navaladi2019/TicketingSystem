@@ -1,5 +1,5 @@
 meta {
-  name: S10.8 Alice's principal id
+  name: S10.8 Alice's principal id and groups
   type: http
   seq: 8
 }
@@ -18,4 +18,12 @@ tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.me('00000000-0000-4000-8000-0000000000a1');
   bru.setVar('s10_alice', N.json().user_id);
+  const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+  test('Alice is in /service-desk', () => expect(sd, 'group_paths /service-desk').to.be.an('object'));
+  bru.setVar('s10_sd', sd ? sd.id : '');
+  bru.setVar('s10_alice_groups', JSON.stringify(N.json().groups));
+}
+
+docs {
+  Keeps Alice's `user_id`, her groups and the id of `/service-desk` for S10.28 on.
 }

@@ -1,0 +1,34 @@
+meta {
+  name: S10.32 A3: the publish is audited under subject acl_policy
+  type: http
+  seq: 32
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?subject_type=acl_policy&limit=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const e = N.json().items[0];
+  test('newest acl_policy entry: config publish', () => {
+    expect(e.subject_type).to.eql('acl_policy');
+    expect(e.domain).to.eql('config');
+    expect(e.action).to.eql('publish');
+  });
+  test('at the masked version, by the admin', () => {
+    expect(e.version_after).to.eql(Number(bru.getVar('s10_mask_version')));
+    expect(e.actor_principal_id).to.eql(bru.getVar('s10_admin'));
+  });
+}
+
+docs {
+  Amendment A3 (TICK-620): an ACL publish appends one `config` / `publish` entry under the subject type `acl_policy`, by the admin, at the new version.
+}

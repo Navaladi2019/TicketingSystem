@@ -1,0 +1,22 @@
+meta {
+  name: S10.55 C4: Alice reads the /service-desk incident: description is absent
+  type: http
+  seq: 55
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s10_sd_rec}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('data has no description', () => expect(N.json().data).to.not.have.property('description'));
+  N.noLeak('s10-internal-' + bru.getVar('s10_run'));
+}

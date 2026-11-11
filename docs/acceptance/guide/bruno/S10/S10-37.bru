@@ -1,0 +1,32 @@
+meta {
+  name: S10.37 The admin moves it to in_progress
+  type: http
+  seq: 37
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s10_req2_rec}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-req2-prog
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "state": "in_progress"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('state in_progress', () => expect(N.json().state).to.eql('in_progress'));
+}

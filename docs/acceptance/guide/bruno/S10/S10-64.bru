@@ -1,0 +1,25 @@
+meta {
+  name: S10.64 C5: explain (admin, unassigned incident): allow by default-admins (A3 triage)
+  type: http
+  seq: 64
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s10_un_rec}}&user={{s10_admin}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('decision allow', () => expect(b.decision).to.eql('allow'));
+  test('rule_id default-admins', () => expect(b.rule_id).to.eql('default-admins'));
+  test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Number(bru.getVar('s10_mask_version'))));
+  test('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));
+}

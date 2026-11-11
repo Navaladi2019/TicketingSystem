@@ -1,0 +1,20 @@
+meta {
+  name: S10.57 C4: Alice sorts on description: 400 masked_field
+  type: http
+  seq: 57
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?sort=description
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('masked_field', 400);
+}

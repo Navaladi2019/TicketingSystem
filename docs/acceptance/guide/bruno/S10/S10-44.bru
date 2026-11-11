@@ -1,0 +1,35 @@
+meta {
+  name: S10.44 A3: the requester edits its in_progress incident: 403, it can still read it
+  type: http
+  seq: 44
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s10_req2_rec}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-req2-edit
+  Content-Type: application/merge-patch+json
+  If-Match: W/"2"
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 2
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Past `new` only `default-requester` (read) admits it: the record is readable, so the answer is 403, not 404. Nothing is written.
+}
