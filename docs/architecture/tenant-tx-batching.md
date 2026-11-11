@@ -42,6 +42,17 @@ sends:
 - **Nothing sent:** nothing goes out, not even COMMIT. **Only `ExecAtCommit`
   statements:** one round trip of BEGIN, tenant, statements, COMMIT.
 
+Until the first send, `tx.Conn()` is a pooled connection with no transaction
+open and no tenant set, so a statement sent on it would run in autocommit with
+no `app.tenant_id` (row-level security fails closed: a failed query, not a
+leak). Its `LargeObjects()` panics: pgx cannot build an error-valued
+`pgx.LargeObjects` without `unsafe`, and nothing in the platform uses large
+objects. navalint `tenancyconn` (`tools/navalint/tenancyconn`, TICK-698)
+reports `.Conn()` and `.LargeObjects()` on any `pgx.Tx` outside
+`internal/tenancy` and the packages under it, so code that passes lint
+reaches neither; `_test.go` files are exempt. A feature that needs large
+objects needs its own design for setting the tenant first.
+
 Record create uses it. `tenancytest.Guard` recognises the first batch
 (`tenancy.FirstBatchTenant`) and scopes the connection from its first
 statement.

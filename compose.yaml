@@ -29,8 +29,12 @@ services:
     # schema init and realm import are fsync-bound. Dev data is disposable
     # (`down -v`); a host crash can corrupt this volume, so reset it then.
     # The flags are runtime settings, so an existing dev volume gets them too.
+    # max_connections (TICK-663): every pool's ceiling, PgBouncer's and the direct
+    # ones, must fit under it minus the superuser reserve; the sum is in
+    # docs/budgets.md "Connection sizing" and TestConnectionBudgetFits checks it.
     command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf",
-              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+              "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+              "-c", "max_connections=250"]
     environment:
       POSTGRES_INITDB_ARGS: --no-sync
       POSTGRES_USER: pgadmin
