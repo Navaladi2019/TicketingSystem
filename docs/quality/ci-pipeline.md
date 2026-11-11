@@ -116,6 +116,11 @@ a green run is cancelled and blocks the merge. This happened twice:
 - PR #344, push run 41278740124: `stack` was cancelled at the 25-minute bound
   on both attempts. On attempt 2 every case had passed; the cancel came 1 s
   over the bound, during report upload and teardown (TICK-400).
+- PR #544, run 42962065688 attempt 1: `integration` was cancelled at the
+  10-minute bound in `Integration script leaves nothing behind`, after its
+  tests (526 s) and coverage had passed. Green runs took up to 581 s, so the
+  bound went to 15 minutes, and the cleanup check's first run now overlaps
+  its runs 2 and 3 instead of running alone first (TICK-701).
 
 Measured on 2026-11-01 (TICK-400) over the last 10 green push runs of `main`
 and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
@@ -126,7 +131,8 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack` | 835 s / 1,399 s | 947 s / 1,474 s | 299 s / 678 s (758 s in cancelled run 41278740124) | 480 s / 719 s | 35 (was 25) |
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
-| `lint`, `unit`, `integration` | under 5 min | | | | 10 |
+| `lint`, `unit` | under 5 min | | | | 10 |
+| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701) | | | | 15 (was 10) |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
