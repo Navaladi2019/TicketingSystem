@@ -35,6 +35,36 @@ The method is in "Create re-run on the idle machine" below. The run with the voi
 - no PgBouncer;
 - no HTTP transport.
 
+## 100/s open-loop create, informational (TICK-700, 2026-11-11 04:43 UTC)
+
+**Informational only: no target, no verdict, no fix.** vknavaladi asked on TICK-621 for creates at 100/s, "do not need to fix it". This section does not change the P3-36 verdict above.
+
+**Method.**
+- Creates arrive at a constant rate on one entity type (`ticket`) in the large tenant, as the 200 large-tenant agents, whether or not earlier ones have answered. That is open loop, unlike the 8-client closed loop above.
+- Latency is timed from each request's scheduled send time, so queueing counts.
+- 10 s warm-up at the same rate, then a 60 s measured window.
+- Same harness and host as the idle-machine run below: the 800k seed (828k at the start of the creates), quiesce, isolation, and the host and storage probes before each row. The probes are reported, not gated.
+- Harness `712fe7cb` (rebased onto the story branch as `53743318`, same content), `NAVA_PERF_RATE=100,200 NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^create, agent(, gapless type)?$' sh bench/acl-perf/run.sh`.
+- Raw report: `docs/quality/acl-perf-800k/openloop-2026-11-11-create-100s.md`.
+
+| Row | Achieved /s | p50 | p95 | p99 | max | In flight max / p95 | Errors (409 / 503 `retry_later` / other) | Counter wait p50 / p95 | Commit p50 | API pool acquire p95 / max | `nava_numbering_alloc` acquire p95 / allocation p95 | Host / storage probe p50 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `gaps`, 100/s | 100.0 | 15.4 | 21.3 | 29.6 | 57.1 | 6 / 3 | 0 / 0 / 0 | 1.40 / 2.31 | 6.14 | 0.00 / 3.1 | 0.48 / 2.48 | 0.55 / 2.90 |
+| `gaps`, 200/s (optional trend row) | 199.9 | 20.7 | 33.2 | 47.8 | 124.7 | 20 / 7 | 0 / 0 / 0 | 2.28 / 3.63 | 7.68 | 0.00 / 43.4 | 0.48 / 4.74 | 0.55 / 2.99 |
+| `gapless`, 100/s | 99.7 | 17.3 | **648.7** | 971.3 | 1433.4 | 102 / 64 | 0 / 0 / 0 | 3.38 / **89.4** | 5.18 | **527.2** / 912.7 | n/a (no allocation) | 1.13 / 3.13 |
+
+All times are ms. No request was dropped and no other container ran during any row. Commit p50 is the round trip that ends the create's transaction: the `INSERT` + audit + idempotency batch for `gaps`, and the idempotency batch for `gapless`.
+
+**Where the time goes.**
+- **`gaps` at 100/s keeps up with room to spare.** A create is four round trips: begin, idempotency claim and type/ACL lookups (3.4 ms p50); the group check (1.7); the counter allocation on the allocator pool (1.4); `INSERT` + audit + commit (6.1). That is about 12.6 ms of database time plus about 3 ms of handler time. Nothing queues: about 3 requests are in flight at p95 and no create waited for a connection.
+- **`gaps` at 200/s still keeps up.** Every statement gets slower with more concurrency (commit 6.1 → 7.7 ms, the first batch p95 5.2 → 8.1). The 10-connection API pool starts to fill: 87 acquires found no idle connection and the worst wait was 43 ms. p95 is 33 ms, so it isn't saturated yet; the API pool would be the first limit.
+- **`gapless` at 100/s just about holds the rate but queues behind the counter row.** The type's `record_counters` row stays locked from the upsert until the create's commit, 5.5 ms p50 and 9.0 ms p95, so creates on one type run one at a time. At 100/s the row is busy more than half the time and the wait grows: counter wait p95 is 89 ms (p99 240). Each waiting create holds one of the 10 API connections, so the queue shows up as **pool acquire wait** (p95 527 ms, mean 55 ms) and pushes p95 to 649 ms. **The saturation point is the counter row**; the pool wait is a consequence of it, not a separate limit. The same harness's 8-client closed loop topped out at about 100/s on this type (idle-machine run below), so 100/s is about this type's ceiling on this host.
+
+**Known limits.**
+- In-process `httptest`, no PgBouncer, no network: the same gaps as P3-36.
+- The API pool is the harness's 10 connections (`NAVA_PERF_CLIENTS` + 2), not production sizing. The allocator pool is 4 connections, the `nava-core` default.
+- One type, one tenant, one host: a WSL2 virtual disk, the same caveat as `AR-S10-02`.
+
 ## Create re-run on the idle machine (option A, 2026-11-11 ~03:2x UTC): every valid row meets
 
 **Result: PASS.** All four scored create rows were valid on their first attempt, and all meet p95 ≤ 50 ms:

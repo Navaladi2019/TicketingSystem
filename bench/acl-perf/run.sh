@@ -8,7 +8,9 @@
 #   make bench-acl-perf        # about 32 minutes
 # Env: NAVA_PERF_SECONDS (20) per scenario, NAVA_PERF_CLIENTS (8),
 # NAVA_PERF_OUT (bin/acl-perf-800k-raw.md), NAVA_PERF_ONLY (a regexp over
-# scenario names, e.g. '^create'), BENCH_KEEP=1 keeps the container. The
+# scenario names, e.g. '^create'), NAVA_PERF_RATE (open-loop creates per
+# second, e.g. 100 or 100,200; TICK-700, informational) with NAVA_PERF_WARMUP
+# (10 s), BENCH_KEEP=1 keeps the container. The
 # test quiesces the seed (VACUUM (ANALYZE), CHECKPOINT) and, before each
 # create attempt, waits for other nava-it-pg-*/nava-aclperf-* containers to
 # stop and for autovacuum to finish in the bench database.
