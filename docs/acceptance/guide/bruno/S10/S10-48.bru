@@ -1,0 +1,37 @@
+meta {
+  name: S10.48 C3: Alice updates the admins incident with its ETag: the same 404, never 412 or 403
+  type: http
+  seq: 48
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s10_adm_rec}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-alice-adm
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 1
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  test('body byte-identical to the missing id\'s 404', () => expect(N.text()).to.eql(bru.getVar('s10_ref404_alice')));
+}

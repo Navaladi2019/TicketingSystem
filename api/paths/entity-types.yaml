@@ -358,9 +358,10 @@ components:
     PutAccessPolicyRequest:
       type: object
       description: >
-        Deliberately unconstrained here: the server checks every field after
-        the admin check and answers 422 `invalid_access_policy` with
-        `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+        Deliberately unconstrained here: the server checks the body after the
+        admin check, the entity type and `If-Match` (428, 412), and answers
+        422 `invalid_access_policy` with `errors[].pointer`. Kept as the
+        request bytes (`json.RawMessage`).
       x-go-type: json.RawMessage
       properties:
         rules:

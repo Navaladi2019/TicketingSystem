@@ -1,0 +1,35 @@
+meta {
+  name: S10.35 The admin creates an unassigned incident
+  type: http
+  seq: 35
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-un
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S10 {{s10_run}} unassigned"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s10_un_rec', N.json().id);
+}
+
+docs {
+  A3: an unassigned incident is triaged by the admins group; the service desk does not see it.
+}

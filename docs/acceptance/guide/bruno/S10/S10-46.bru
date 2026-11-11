@@ -1,0 +1,26 @@
+meta {
+  name: S10.46 C3: Alice opens the admins incident: the same 404
+  type: http
+  seq: 46
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s10_adm_rec}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  test('body byte-identical to the missing id\'s 404', () => expect(N.text()).to.eql(bru.getVar('s10_ref404_alice')));
+}

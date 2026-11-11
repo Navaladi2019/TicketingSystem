@@ -1,0 +1,32 @@
+meta {
+  name: S10.58 C4: Alice writes description: 422 field_not_writable, nothing written
+  type: http
+  seq: 58
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s10_sd_rec}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-alice-desc
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "description": "changed"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_writable', 422);
+  N.fieldError('/data/description');
+}

@@ -1,0 +1,40 @@
+meta {
+  name: S10.41 C1: Alice's whole list: only her groups' incidents and her own, total matches
+  type: http
+  seq: 41
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s10_sd_rec', () => expect(ids).to.include(bru.getVar('s10_sd_rec')));
+  test('leaves out s10_adm_rec', () => expect(ids).to.not.include(bru.getVar('s10_adm_rec')));
+  test('leaves out s10_un_rec', () => expect(ids).to.not.include(bru.getVar('s10_un_rec')));
+  test('leaves out s10_req_rec', () => expect(ids).to.not.include(bru.getVar('s10_req_rec')));
+  test('leaves out s10_req2_rec', () => expect(ids).to.not.include(bru.getVar('s10_req2_rec')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test('every item: one of her groups, or she is the requester', () => {
+    const mine = JSON.parse(bru.getVar('s10_alice_groups'));
+    N.json().items.forEach(i => expect(
+      (i.assignment_group && mine.includes(i.assignment_group.id)) || i.data.requester === bru.getVar('s10_alice'), i.number).to.eql(true));
+  });
+}
+
+docs {
+  Every item is assigned to one of Alice's groups (`default-service-desk`) or names Alice as requester (S9 and S10.17 raise incidents for her). The admins, unassigned and requester incidents are not there.
+}

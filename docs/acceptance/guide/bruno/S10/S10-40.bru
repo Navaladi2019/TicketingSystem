@@ -1,0 +1,34 @@
+meta {
+  name: S10.40 C1: the admin's same list has both groups; its /service-desk part is Alice's total
+  type: http
+  seq: 40
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[assignment_group][in]={{s10_sd}},{{s10_admins}}&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s10_sd_rec', () => expect(ids).to.include(bru.getVar('s10_sd_rec')));
+  test('includes s10_adm_rec', () => expect(ids).to.include(bru.getVar('s10_adm_rec')));
+  test('includes s10_req2_rec', () => expect(ids).to.include(bru.getVar('s10_req2_rec')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test("the /service-desk items are exactly Alice's total", () => {
+    const sd = N.json().items.filter(i => i.assignment_group.id === bru.getVar('s10_sd')).length;
+    expect(sd).to.eql(Number(bru.getVar('s10_alice_sd_total')));
+  });
+  test('more than Alice sees', () => expect(N.json().total).to.be.above(Number(bru.getVar('s10_alice_sd_total'))));
+}

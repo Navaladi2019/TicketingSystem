@@ -1,0 +1,39 @@
+meta {
+  name: S10.33 The admin creates an incident assigned to /service-desk, with an internal description
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick623-s10-{{s10_run}}-sd
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S10 {{s10_run}} service-desk",
+      "description": "s10-internal-{{s10_run}}",
+      "assignment_group": "{{s10_sd}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s10_sd_rec', N.json().id);
+  test('assigned to /service-desk', () => expect(N.json().assignment_group.id).to.eql(bru.getVar('s10_sd')));
+  test('the admin sees description', () => expect(N.json().data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));
+}
+
+docs {
+  The admin may write `description`; the 201 shows it to the admin.
+}
