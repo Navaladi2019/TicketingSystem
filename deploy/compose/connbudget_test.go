@@ -27,11 +27,11 @@ import (
 // services in one process) and the two one-shot schema jobs.
 
 const (
-	budgetCompose    = "../../compose.yaml"
-	budgetComposeCI  = "compose.ci.yaml"
-	pgbouncerINI   = "pgbouncer/pgbouncer.ini"
-	temporalConfig = "temporal/config/compose.yaml"
-	allocatorGo    = "../../cmd/nava-core/allocator.go"
+	budgetCompose   = "../../compose.yaml"
+	budgetComposeCI = "compose.ci.yaml"
+	pgbouncerINI    = "pgbouncer/pgbouncer.ini"
+	temporalConfig  = "temporal/config/compose.yaml"
+	allocatorGo     = "../../cmd/nava-core/allocator.go"
 	// PostgreSQL's default superuser_reserved_connections; db-roles, the
 	// only superuser login, uses it.
 	defaultSuperuserReserved = 3
