@@ -77,6 +77,21 @@ audited:
     subject_type: record
     subject_id_column: record_id
     attached: false
+  # P3-40 (TICK-709): workflow definitions and their immutable versions.
+  # Not attached yet: nothing writes them until P3-41's publish route, which
+  # writes its entry in the same transaction and attaches the trigger.
+  workflow_definitions:
+    writer_roles: [nava_app]
+    audited_columns: [current_version, updated_at]
+    subject_type: workflow_definition
+    subject_id_column: id
+    attached: false
+  workflow_definition_versions:
+    writer_roles: [nava_app]
+    audited_columns: []
+    subject_type: workflow_definition
+    subject_id_column: definition_id
+    attached: false
 
 exempt:
   audit_log:
@@ -91,6 +106,8 @@ exempt:
     reason: "Start transport (ADR-001 D22); the write that queues a start is audited, the relay's dispatch columns are bookkeeping."
   workflow_ref:
     reason: "Workflow bookkeeping for a start the audited write queued; holds no record or configuration content."
+  workflow_cause:
+    reason: "Durable copy of a delivered outbox row's causation (D-3-29); the write that queued the delivery is audited."
   cascade_start:
     reason: "Cascade start key (A5). A suppressed or rejected cascade is audited as a cascade_key entry by the pipeline (ADR-004-E1)."
   idempotency_keys:

@@ -235,9 +235,22 @@ type interpRow struct {
 	origin uuid.UUID
 }
 
-// interpDefinition is the definition the cascade start key names (A5): any
-// UUID, since each row's record is new.
+// interpDefinition is the definition the cascade start key names (A5),
+// created in each row's tenant by workflowDefinitionSQL.
 var interpDefinition = uuid.MustParse("51a11000-0000-4000-8000-0000000000d0")
+
+// workflowDefinitionSQL is, for a new tenant, what cascade_start's definition foreign key
+// (P3-40) needs before a claim: an entity type with its config audit entry
+// (the entity_definitions commit check, P5-32) whose id is the tenant's, and
+// the workflow definition def, seeded with no creator.
+func workflowDefinitionSQL(tenant, def uuid.UUID) string {
+	return fmt.Sprintf(`WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+    VALUES ('%[1]s', '%[1]s', 'wf_host', 'Workflow host', 'WFH', 1))
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
+VALUES ('%[1]s', gen_random_uuid(), 'config', 'create', 'entity_definition', '%[1]s', NULL, 'system', 'system', sha256(''::bytea));
+INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+VALUES ('%[1]s', '%[2]s', 'wf_start', '%[1]s', 1, NULL);`, tenant, def)
+}
 
 // newInterpRow creates an active tenant and a record (records table) that
 // carries a causation origin, and leaves the tenant's pending rows dead when
@@ -255,6 +268,7 @@ WITH r AS (INSERT INTO records (tenant_id, id, causation_origin_id, causation_de
 INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
 SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r;`,
 		r.tenant, r.record, r.origin))
+	psql(t, workflowDefinitionSQL(r.tenant, interpDefinition))
 	t.Cleanup(func() {
 		psql(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'TICK-367 cleanup'
 WHERE tenant_id = '%s' AND dispatched_at IS NULL AND dead_at IS NULL;`, r.tenant))

@@ -50,6 +50,8 @@ V2=51a11000-0000-4000-8000-000000000002
 # The fixture's definition: both versions belong to it, and it names the
 # cascade start key (ADR-001 A5), so it starts at most once per record.
 DEFINITION=51a11000-0000-4000-8000-0000000000d0
+# The entity type DEFINITION is defined on (workflow_definitions needs one).
+ENTITY=51a11000-0000-4000-8000-0000000000e1
 FIXTURE=internal/workflow/def/testdata
 # Host side of the fixture mount (read-only in the worker), and the worker's
 # writer and pause directories in the interptest-state volume, which outlives
@@ -124,12 +126,21 @@ approve_id() {
 }
 
 # seed_record <record>: the tenant's tenants row (cascade_start has a foreign
-# key to it), and the record's row with the depth-0 causation the write
-# pipeline stores on a person's create (ADR-001 A5-3), so ClaimStart can key
+# key to it), its workflow definition DEFINITION (another, P3-40), and the
+# record's row with the depth-0 causation the write pipeline stores on a
+# person's create (ADR-001 A5-3), so ClaimStart can key
 # its start. A seed, as the superuser: cmd/demo-interpreter writes no tenants
 # or record table (PLAN-003 D-3-6). A rerun keeps both rows and the origin.
 seed_record() {
 	printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_ID" | psql_q
+	# DEFINITION's row (cascade_start's definition foreign key, P3-40) on an
+	# entity type of its own, the type with its config entry in one statement
+	# (the entity_definitions commit check, P5-32). No creator: a seed. A rerun
+	# inserts nothing.
+	printf "WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ('%s', '%s', 'demo_interp', 'Interpreter demo', 'DMI', 1) ON CONFLICT DO NOTHING RETURNING tenant_id, id) INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256) SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'entity_definition', id, NULL, 'system', 'system', sha256(''::bytea) FROM d;\n" \
+		"$TENANT_ID" "$ENTITY" | psql_q
+	printf "INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by) VALUES ('%s', '%s', 'demo_interp', '%s', 1, NULL) ON CONFLICT DO NOTHING;\n" \
+		"$TENANT_ID" "$DEFINITION" "$ENTITY" | psql_q
 	# The record and its audit entry in one statement: the records commit-check
 	# trigger refuses a record written without one (P5-13c). A rerun inserts
 	# neither.

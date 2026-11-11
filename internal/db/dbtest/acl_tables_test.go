@@ -316,6 +316,7 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 // grant on the column, and no audited column, so a run over fsys applies a
 // manifest whose columns exist.
 func beforeNumberingMode(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m, a = beforeWorkflowTables(fsys, m, a)
 	if _, err := fs.Stat(fsys, numberingModeMigration); err == nil {
 		return m, a
 	}

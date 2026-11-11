@@ -309,7 +309,7 @@ func TestCIA17CycleEntries(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
 	ctx := context.Background()
-	d1, d2 := uuid.New(), uuid.New()
+	d1, d2 := workflowDefinition(t, e, f), workflowDefinition(t, e, f)
 	sink := &startSink{defs: []uuid.UUID{d1, d2}}
 	p := newPipeline(e, sink)
 	r, origin := createWithStart(t, e, p, sink, f)

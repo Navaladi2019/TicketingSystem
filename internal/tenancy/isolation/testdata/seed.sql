@@ -51,11 +51,8 @@ WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000
 INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0a000000-0000-4000-8000-0000000000a1', '0d000000-0000-4000-8000-0000000009d1', 0);
 
-INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id) VALUES
-    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
-        '0d000000-0000-4000-8000-0000000009d3', '0a000000-0000-4000-8000-0000000009a1'),
-    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
-        '0d000000-0000-4000-8000-0000000009d2', '0b000000-0000-4000-8000-0000000009b1');
+-- The claims themselves are at the end of the file: cascade_start's
+-- definition foreign key (P3-40) needs the workflow definitions first.
 
 INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq) VALUES
     ('0a000000-0000-4000-8000-0000000001a1', '0a000000-0000-4000-8000-00000000000a', 'record.changed', 'shared-dedupe-key', 'r-a1', 1),
@@ -229,6 +226,56 @@ INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_ki
         '0b000000-0000-4000-8000-0000000003b1'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', NULL, '0b000000-0000-4000-8000-0000000004b1', 'group',
         '0b000000-0000-4000-8000-0000000003b1');
+
+-- Workflow definitions (P3-40, TICK-709). Both tenants own the key triage;
+-- only tenant B owns escalate, and tenant B's triage has two versions where
+-- tenant A's has one, under the same version numbers, so a lookup by key or
+-- version alone would find tenant B's rows. Tenant B's triage is
+-- 0d…9d2, the definition of its seeded cascade claim; tenant A's is 0d…9d3.
+INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d3', 'triage',
+        '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d2', 'triage',
+        '0b000000-0000-4000-8000-0000000006b1', 2, '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b9', 'escalate',
+        '0b000000-0000-4000-8000-0000000006b2', 1, '0b000000-0000-4000-8000-0000000003b1');
+
+INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256, step_ids,
+                                          trigger_on, trigger_entity_definition_id, published_by)
+SELECT v.tenant_id::uuid, v.id::uuid, v.definition_id::uuid, v.version, v.body::json,
+       sha256(convert_to(v.body, 'UTF8')), '{}', 'record.created', v.entity::uuid, v.published_by::uuid
+FROM (VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000012a1', '0d000000-0000-4000-8000-0000000009d3', 1,
+        '{"format": "v1"}', '0a000000-0000-4000-8000-0000000006a1', '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b1', '0d000000-0000-4000-8000-0000000009d2', 1,
+        '{"format": "v1"}', '0b000000-0000-4000-8000-0000000006b1', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b2', '0d000000-0000-4000-8000-0000000009d2', 2,
+        '{"format": "v1", "start": "b"}', '0b000000-0000-4000-8000-0000000006b1', '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b3', '0b000000-0000-4000-8000-0000000012b9', 1,
+        '{"format": "v1"}', '0b000000-0000-4000-8000-0000000006b2', '0b000000-0000-4000-8000-0000000003b1')
+) AS v (tenant_id, id, definition_id, version, body, entity, published_by);
+
+-- workflow_cause (P3-40, D-3-29): outbox id 0d…9d5 is a delivery in both
+-- tenants, so a lookup by it alone would find tenant B's row. Each names its
+-- own tenant's seeded workflow_ref.
+INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d5', '0a000000-0000-4000-8000-0000000001a1',
+        '0d000000-0000-4000-8000-0000000009d1', 1),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d5', '0b000000-0000-4000-8000-0000000001b1',
+        '0d000000-0000-4000-8000-0000000009d1', 1),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b5', '0b000000-0000-4000-8000-0000000001b2',
+        '0d000000-0000-4000-8000-0000000009d1', 2);
+
+-- One open waiting run per tenant (the D-3-29 waiting state), on the same
+-- signal id, so a lookup by it alone would find both tenants' refs.
+UPDATE workflow_ref SET record_changed_signal_id = '0d000000-0000-4000-8000-0000000009d6'
+WHERE outbox_id IN ('0a000000-0000-4000-8000-0000000001a1', '0b000000-0000-4000-8000-0000000001b1');
+
+INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
+        '0d000000-0000-4000-8000-0000000009d3', '0a000000-0000-4000-8000-0000000009a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d1', '0a000000-0000-4000-8000-0000000000a1',
+        '0d000000-0000-4000-8000-0000000009d2', '0b000000-0000-4000-8000-0000000009b1');
 
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
