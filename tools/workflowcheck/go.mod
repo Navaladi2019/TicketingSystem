@@ -5,7 +5,7 @@ module github.com/Navaladi2019/TicketingSystem/tools/workflowcheck
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 tool go.temporal.io/sdk/contrib/tools/workflowcheck
 
