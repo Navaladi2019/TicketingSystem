@@ -385,6 +385,7 @@ func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	if n := queryString(t, super, "SELECT count(*)::text FROM goose_db_version WHERE version_id = 20261111123340"); n != "0" {
 		t.Fatalf("failed validate recorded %s version rows", n)
 	}
+	noMigratorPolicies(t, super, "after the failed validate")
 
 	seedWorkflowDefinition(t, super, wfDefA, tenantB)
 	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
@@ -393,6 +394,7 @@ func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	if !queryBool(t, super, `SELECT convalidated FROM pg_constraint WHERE conname = 'cascade_start_definition_fkey'`) {
 		t.Fatal("cascade_start_definition_fkey not validated")
 	}
+	noMigratorPolicies(t, super, "after the validate")
 	if got := queryString(t, super, "SELECT count(*)::text FROM cascade_start"); got != "3" {
 		t.Errorf("claims after the migration = %s, want the 3 seeded", got)
 	}
@@ -404,6 +406,19 @@ func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	wantSQLState(t, "tenant A claims a start of tenant B's definition", err, "23503")
 	if n, err := claimRows(app, tenantA, tenantA, outboxY, rec, wfDefA, outboxX); err != nil || n != 1 {
 		t.Errorf("control: tenant A claims a start of its own definition: %d rows, %v; want 1", n, err)
+	}
+}
+
+// noMigratorPolicies is the Security reviewer's guard on 20261111123340
+// (TICK-709): the SELECT USING (true) policies it gives nava_migrator to
+// validate cascade_start_definition_fkey must not outlive its transaction,
+// whether VALIDATE fails (rollback) or succeeds (dropped before commit). A
+// survivor would be an unscoped read path on two tenant tables.
+func noMigratorPolicies(t *testing.T, conn *pgx.Conn, when string) {
+	t.Helper()
+	if got := queryString(t, conn, `SELECT coalesce(string_agg(tablename || '.' || policyname, ', '), '') FROM pg_policies
+		WHERE 'nava_migrator' = ANY (roles) OR policyname LIKE '%migrator_validate'`); got != "" {
+		t.Errorf("%s: nava_migrator policies left behind: %s", when, got)
 	}
 }
 
