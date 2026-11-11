@@ -77,7 +77,6 @@ type perfOpen struct {
 	inFlight        []int // in flight at each measured arrival, itself included
 	maxInFlight     int64
 	acquire         []time.Duration // API pool acquire wait, per request (summed)
-	allocAcquire    []time.Duration // allocator pool acquire wait, per request (summed)
 	lateMax         time.Duration   // the scheduler's worst lag behind an arrival
 	drain           time.Duration   // from the end of the schedule to the last answer
 	poolMax         int32
@@ -227,13 +226,14 @@ func (e *perfEnv) runOpen(t *testing.T, sc perfScenario, rate int, warm, window 
 			if !measured {
 				return
 			}
-			var acq, allocAcq time.Duration
+			// The allocator pool acquires outside the request's context, so
+			// only the API pool shows here; the allocator's acquire wait is
+			// nava_numbering_alloc_acquire, in the number allocation table.
+			var acq time.Duration
 			tr.mu.Lock()
 			for _, a := range tr.acqs {
 				if a.pool == e.pool {
 					acq += a.dur
-				} else {
-					allocAcq += a.dur
 				}
 			}
 			stmts := tr.stmts
@@ -241,7 +241,6 @@ func (e *perfEnv) runOpen(t *testing.T, sc perfScenario, rate int, warm, window 
 			mu.Lock()
 			defer mu.Unlock()
 			o.acquire = append(o.acquire, acq)
-			o.allocAcquire = append(o.allocAcquire, allocAcq)
 			if !ok {
 				res.errs++
 				var pb struct {
@@ -310,10 +309,10 @@ func reportOpen(w func(string, ...any), results []*perfResult) {
 	}
 	o0 := open[0].open
 	w("## Open-loop create (TICK-700, informational: no target, no verdict)\n\n")
-	w("Creates are sent on a fixed schedule at the offered rate, whether or not earlier ones have answered, after a %s warm-up at the same rate; the window below is %s. Latency runs from each request's **scheduled** send time, so queueing counts (no coordinated omission). Achieved is the successful creates answered inside the window, per second. In flight is sampled at each arrival, itself included; an arrival that finds %d in flight is dropped. API pool: %d connections (NAVA_PERF_CLIENTS + 2); allocator pool: 4. In-process `httptest`, no PgBouncer, no network. Host probes are reported, not gated.\n\n",
+	w("Creates are sent on a fixed schedule at the offered rate, whether or not earlier ones have answered, after a %s warm-up at the same rate; the window below is %s. Latency runs from each request's **scheduled** send time, so queueing counts (no coordinated omission). Achieved is the successful creates answered inside the window, per second. In flight is sampled at each arrival, itself included; an arrival that finds %d in flight is dropped. API pool: %d connections (NAVA_PERF_CLIENTS + 2); allocator pool: 4. In-process `httptest`, no PgBouncer, no network. Host probes are reported, not gated. The allocator pool's acquire wait is `nava_numbering_alloc_acquire`, in the number allocation table.\n\n",
 		o0.warm, o0.window, perfMaxInFlight, o0.poolMax)
-	w("| Row | Offered /s | Achieved /s | Sent | Dropped | OK | p50 | p95 | p99 | max | In flight max / p95 | 409 | 503 retry_later | Other errors | Counter wait p50 / p95 | Commit p50 | API pool acquire p50 / p95 / max | Allocator acquire p95 | Drain after window | Host probe p50 | Storage probe p50 | Other containers |\n")
-	w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	w("| Row | Offered /s | Achieved /s | Sent | Dropped | OK | p50 | p95 | p99 | max | In flight max / p95 | 409 | 503 retry_later | Other errors | Counter wait p50 / p95 | Commit p50 | API pool acquire p50 / p95 / max | Drain after window | Host probe p50 | Storage probe p50 | Other containers |\n")
+	w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range open {
 		o := r.open
 		var c409, other int64
@@ -340,12 +339,12 @@ func reportOpen(w func(string, ...any), results []*perfResult) {
 		if len(r.intruders) > 0 {
 			intr = strings.Join(r.intruders, " ")
 		}
-		w("| %s | %d | %.1f | %d | %d | %d | %.2f | %.2f | %.2f | %.2f | %d / %d | %d | %d | %s | %.2f / %.2f | %.2f | %.2f / %.2f / %.2f | %.2f | %s | %.2f | %.2f | %s |\n",
+		w("| %s | %d | %.1f | %d | %d | %d | %.2f | %.2f | %.2f | %.2f | %d / %d | %d | %d | %s | %.2f / %.2f | %.2f | %.2f / %.2f / %.2f | %s | %.2f | %.2f | %s |\n",
 			r.sc.name, o.rate, o.achieved(), o.sent, o.dropped, len(r.lat),
 			pct(r.lat, .5), pct(r.lat, .95), pct(r.lat, .99), pct(r.lat, 1),
 			o.maxInFlight, pctInt(o.inFlight, .95), c409, r.retryLater(), otherCell,
 			pct(waits, .5), pct(waits, .95), r.commitP50(),
-			pct(o.acquire, .5), pct(o.acquire, .95), pct(o.acquire, 1), pct(o.allocAcquire, .95),
+			pct(o.acquire, .5), pct(o.acquire, .95), pct(o.acquire, 1),
 			o.drain.Round(time.Millisecond), r.probe, r.storage, intr)
 	}
 	w("\nAPI pool, from `pgxpool.Stat` over the window: acquires that found no idle connection, and the mean acquire wait.\n\n| Row | Empty acquires | Mean acquire | Scheduler worst lag |\n| --- | --- | --- | --- |\n")
