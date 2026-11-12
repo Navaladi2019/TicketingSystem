@@ -3,7 +3,9 @@ package numbering_test
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 )
@@ -36,24 +38,6 @@ func TestCompileDefaultIsEpochZeroWithEmptyScope(t *testing.T) {
 	}
 }
 
-func TestCompileRefusesEveryOtherTemplate(t *testing.T) {
-	for _, tc := range []struct {
-		template string
-		overflow numbering.Overflow
-	}{
-		{"{prefix}{seq:7}", numbering.Refuse},
-		{"{prefix}{seq:7}", ""},
-		{"{prefix}{seq:6}", numbering.Grow},
-		{"{prefix}-{yyyy}{MM}{seq:4}", numbering.Grow},
-		{"{yyyy}{MM}{seq:4}", numbering.Grow},
-		{"", numbering.Grow},
-	} {
-		if _, err := numbering.Compile(tc.template, tc.overflow); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
-			t.Errorf("Compile(%q, %q) = %v, want ErrTemplatesUnavailable", tc.template, tc.overflow, err)
-		}
-	}
-}
-
 func TestRenderDefault(t *testing.T) {
 	c := numbering.Default()
 	for n, want := range map[int64]string{
@@ -70,43 +54,65 @@ func TestRenderDefault(t *testing.T) {
 }
 
 func TestRenderRefuseOverflow(t *testing.T) {
-	c := numbering.Default()
-	c.Overflow = numbering.Refuse
+	c, err := numbering.Compile("{prefix}{seq:7}", numbering.Refuse)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, err := c.Render("INC", 9999999); err != nil || got != "INC9999999" {
 		t.Errorf("Render(9999999) = %q, %v", got, err)
 	}
 	if _, err := c.Render("INC", 10000000); !errors.Is(err, numbering.ErrNumberSpaceExhausted) {
 		t.Errorf("Render(10000000) = %v, want ErrNumberSpaceExhausted", err)
 	}
-	if _, err := c.SQL("$1", "v"); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
+	if _, _, err := c.SQL("$1", "v", nil); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
 		t.Errorf("SQL with refuse = %v, want ErrTemplatesUnavailable", err)
 	}
 }
 
-func TestRenderRefusesUnsupportedShapes(t *testing.T) {
+// A Compiled that is not what Compile makes of its own template (a corrupt
+// or edited snapshot) renders nothing, in Go or in SQL.
+func TestRenderRefusesEditedCompiled(t *testing.T) {
 	for name, mutate := range map[string]func(*numbering.Compiled){
-		"tail":        func(c *numbering.Compiled) { c.Tail = "/X" },
-		"head":        func(c *numbering.Compiled) { c.Head = "{prefix}-" },
-		"scope parts": func(c *numbering.Compiled) { c.ScopeParts = []string{"{yyyy}"} },
-		"width 0":     func(c *numbering.Compiled) { c.Width = 0 },
-		"width 13":    func(c *numbering.Compiled) { c.Width = 13 },
-		"overflow":    func(c *numbering.Compiled) { c.Overflow = "wrap" },
+		"tail":          func(c *numbering.Compiled) { c.Tail = "/X" },
+		"head":          func(c *numbering.Compiled) { c.Head = "{prefix}-" },
+		"scope parts":   func(c *numbering.Compiled) { c.ScopeParts = []string{"{yyyy}"} },
+		"width 0":       func(c *numbering.Compiled) { c.Width = 0 },
+		"width 13":      func(c *numbering.Compiled) { c.Width = 13 },
+		"overflow":      func(c *numbering.Compiled) { c.Overflow = "wrap" },
+		"hash":          func(c *numbering.Compiled) { c.CompiledSHA256 = strings.Repeat("0", 64) },
+		"default epoch": func(c *numbering.Compiled) { c.Epoch = 3 },
+		"epoch -2":      func(c *numbering.Compiled) { c.Epoch = -2 },
 	} {
 		c := numbering.Default()
 		mutate(&c)
-		if _, err := c.Render("INC", 1); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
-			t.Errorf("%s: Render = %v, want ErrTemplatesUnavailable", name, err)
+		if _, err := c.RenderAt("INC", time.Now(), 1); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: RenderAt = %v, want ErrInvalidCompiled", name, err)
 		}
-		if _, err := c.SQL("$1", "v"); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
-			t.Errorf("%s: SQL = %v, want ErrTemplatesUnavailable", name, err)
+		if _, _, err := c.SQL("$1", "v", nil); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: SQL = %v, want ErrInvalidCompiled", name, err)
+		}
+		if _, err := c.ScopeKeyAt(""); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: ScopeKeyAt = %v, want ErrInvalidCompiled", name, err)
+		}
+		if _, err := c.LiteralHead("INC"); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: LiteralHead = %v, want ErrInvalidCompiled", name, err)
+		}
+		if _, err := c.DatePart(time.Now()); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: DatePart = %v, want ErrInvalidCompiled", name, err)
+		}
+		if numbering.Disjoint(c, numbering.Default(), "INC") {
+			t.Errorf("%s: Disjoint = true, want false", name)
 		}
 	}
 }
 
 func TestSQLDefault(t *testing.T) {
-	got, err := numbering.Default().SQL("$15::text", "(c.next - 1)")
+	got, args, err := numbering.Default().SQL("$15::text", "(c.next - 1)", []any{"a"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(args) != 1 {
+		t.Errorf("SQL args = %v, want the caller's one arg only (the default has no literal)", args)
 	}
 	const want = "($15::text || CASE WHEN (c.next - 1) < 10000000 THEN lpad((c.next - 1)::text, 7, '0') ELSE (c.next - 1)::text END)"
 	if got != want {
