@@ -21,11 +21,11 @@ import (
 // docs/data/record-counters-scope-key.md.
 
 const (
-	scopeColumnsMigration = "20261111123000_record_counters_scope_columns.sql"
-	scopedKeyMigration    = "20261111123200_record_counters_scoped_key.sql"
-	periodEndMigration    = "20261111123300_record_counters_period_end.sql"
+	scopeColumnsMigration = "20261112193000_record_counters_scope_columns.sql"
+	scopedKeyMigration    = "20261112193200_record_counters_scoped_key.sql"
+	periodEndMigration    = "20261112193300_record_counters_period_end.sql"
 	// scopeColumnsBefore is the version just before M1.
-	scopeColumnsBefore = 20261111122959
+	scopeColumnsBefore = 20261112192959
 
 	// takeNumberR0 is today's (R0) upsert: tenant $1, type $2.
 	takeNumberR0 = nextNumber

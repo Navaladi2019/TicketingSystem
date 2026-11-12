@@ -35,10 +35,10 @@ R1 to every API and worker replica, then and only then run M3 with R2.
 
 | File | Step | Lock | Measured (PG 16.10, 20k rows, spike host below) |
 |---|---|---|---|
-| `20261111123000_record_counters_scope_columns.sql` | M1: `ADD COLUMN scope_key text NOT NULL DEFAULT ''`, `ADD COLUMN period_end timestamptz NULL`, `CHECK (length(scope_key) <= 128) NOT VALID` | ACCESS EXCLUSIVE, catalogue only, `lock_timeout = 5s` | 12.0 ms, filenode unchanged |
-| `20261111123100_record_counters_scope_key_len_validate.sql` | M1: `VALIDATE CONSTRAINT` | SHARE UPDATE EXCLUSIVE | 7.1 ms |
-| `20261111123200_record_counters_scoped_key.sql` | M2: `CREATE UNIQUE INDEX CONCURRENTLY record_counters_scoped_key` | none that blocks writes, `NO TRANSACTION` | 50 ms |
-| `20261111123300_record_counters_period_end.sql` | M2: `CREATE INDEX CONCURRENTLY record_counters_period_end ... WHERE period_end IS NOT NULL` | same | empty in R1 (every row is NULL) |
+| `20261112193000_record_counters_scope_columns.sql` | M1: `ADD COLUMN scope_key text NOT NULL DEFAULT ''`, `ADD COLUMN period_end timestamptz NULL`, `CHECK (length(scope_key) <= 128) NOT VALID` | ACCESS EXCLUSIVE, catalogue only, `lock_timeout = 5s` | 12.0 ms, filenode unchanged |
+| `20261112193100_record_counters_scope_key_len_validate.sql` | M1: `VALIDATE CONSTRAINT` | SHARE UPDATE EXCLUSIVE | 7.1 ms |
+| `20261112193200_record_counters_scoped_key.sql` | M2: `CREATE UNIQUE INDEX CONCURRENTLY record_counters_scoped_key` | none that blocks writes, `NO TRANSACTION` | 50 ms |
+| `20261112193300_record_counters_period_end.sql` | M2: `CREATE INDEX CONCURRENTLY record_counters_period_end ... WHERE period_end IS NOT NULL` | same | empty in R1 (every row is NULL) |
 
 M1 is two files, not one: the repo keeps `VALIDATE` in its own migration
 (D10, as `20261110040000`/`0100`). In one transaction the validate scan would
@@ -63,7 +63,7 @@ M2 and M3, two concurrent *first* upserts of one (tenant, type) can fail
 with 23505 on whichever unique index is not the statement's arbiter
 (`record_counters_scoped_key` for R0, `record_counters_pkey` for R1):
 `ON CONFLICT` absorbs conflicts on its arbiter only. Existing counter rows
-are not affected. Evidence: `scratch/tick-665/README.md` (0 of 160,000
+are not affected. Evidence: [`docs/adr/ADR-005/spikes/postgres/e1-first-create-race/README.md`](../adr/ADR-005/spikes/postgres/e1-first-create-race/README.md) (0 of 160,000
 before M2 and after M3; 15,533 R0 and 19,829 R1 failures of 160,000 with
 both indexes, in a workload where every upsert is a first insert).
 
@@ -141,8 +141,8 @@ update, since the upsert's UPDATE changes `next` only, which no index covers.
 
 | From | Back to | How |
 |---|---|---|
-| R1 binary | R0 binary | Redeploy R0. Safe: the old PK still exists and R0's upsert arbitrates on it. Leave M1/M2 in place. |
-| M1/M2 schema | pre-M1 schema | Only after no R1 replica serves: `goose down-to 20261111122959`. Drops both indexes, then the columns (and the CHECK with them). |
+| R1 binary | R0 binary | Redeploy R0. Safe: the old PK still exists and R0's upsert arbitrates on it. Leave M1/M2 in place. R0 has no retry, so while M1/M2 are in place it keeps the first-create race (AR-S17-01): expect occasional 23505 failures on `record_counters_scoped_key` on a type's first create until R1 is redeployed or M1/M2 are rolled back (the indexes dropped). |
+| M1/M2 schema | pre-M1 schema | Only after no R1 replica serves: `goose down-to 20261112192959`. Drops both indexes, then the columns (and the CHECK with them). |
 | R2 / M3 | anything earlier | **Not possible.** |
 
 **M3 is the point of no return.** After M3 the primary key is
