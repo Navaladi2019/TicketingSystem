@@ -700,6 +700,109 @@ class TestCheck(Base):
         self.assertIn("notes.txt is not generated", problems)
 
 
+BENCH_ROW = """  - group: "Record history"
+    budget: "History length"
+    budgets_md: "History length"
+    threshold: "500"
+    result: "42 entries"
+    date: "2026-11-11"
+    commit: "abcdef01"
+    host: "Laptop"
+    verdict: "met"
+    source: "docs/quality/r.md#final-verdict-p3-36"
+"""
+
+
+class TestBenchmarks(Base):
+    def setUp(self):
+        super().setUp()
+        write(self.root, "docs/quality/r.md", "# R\n\n## Final verdict (P3-36)\n\nx\n")
+        page(self.root, "benchmarks/index.md", "B", "benchmarks", body="<!-- gen:benchmarks -->")
+
+    def manifest(self, *rows):
+        write(self.root, "docs/handbook/src/benchmarks/benchmarks.yaml", "rows:\n" + "".join(rows))
+
+    def test_renders_each_row_with_host_commit_and_links(self):
+        self.manifest(BENCH_ROW, """  - group: "Other"
+    budget: "Relay claim"
+    threshold: "none"
+    host: "None"
+    verdict: "no result yet"
+    source: "docs/quality/r.md"
+""")
+        h = self.html("benchmarks/index.html")
+        for want in ("History length", "42 entries", "<code>abcdef01</code>", "Laptop", "<strong>met</strong>",
+                     "../../../docs/quality/r.md#final-verdict-p3-36", "Relay claim", "no recorded result"):
+            self.assertIn(want, h)
+
+    def test_commit_not_recorded_is_said_not_guessed(self):
+        self.manifest(BENCH_ROW.replace('"abcdef01"', '"not recorded"'))
+        self.assertIn("<td>not recorded</td>", self.html("benchmarks/index.html"))
+        self.manifest(BENCH_ROW.replace('"abcdef01"', '"latest"'))
+        self.fails("commit 'latest'", "never a guess")
+
+    def test_a_budget_row_with_no_entry_fails_naming_it(self):
+        self.manifest(BENCH_ROW.replace('    budgets_md: "History length"\n', ""))
+        self.fails("the docs/budgets.md row 'History length' has no entry")
+
+    def test_an_entry_for_a_removed_budget_row_fails(self):
+        self.manifest(BENCH_ROW, BENCH_ROW.replace('budgets_md: "History length"', 'budgets_md: "Gone"'))
+        self.fails("budgets_md 'Gone' is not a row of docs/budgets.md")
+
+    def test_zero_budget_rows_fails(self):
+        write(self.root, "docs/budgets.md", "# Budgets\n\nnone\n")
+        self.manifest(BENCH_ROW.replace('    budgets_md: "History length"\n', ""))
+        self.fails("docs/budgets.md: no budget rows found")
+
+    def test_dead_source_path_and_anchor_fail(self):
+        self.manifest(BENCH_ROW.replace("r.md#final-verdict-p3-36", "r.md#no-such-heading"))
+        self.fails("has no heading with the id 'no-such-heading'")
+        self.manifest(BENCH_ROW.replace("docs/quality/r.md", "docs/quality/gone.md"))
+        self.fails("docs/quality/gone.md does not exist")
+        self.manifest(BENCH_ROW.replace("docs/quality/r.md", "../outside.md"))
+        self.fails("is not a path inside the repository")
+
+    def test_verdict_vocabulary_and_decisions(self):
+        self.manifest(BENCH_ROW.replace('"met"', '"fine"'))
+        self.fails("verdict 'fine'")
+        self.manifest(BENCH_ROW.replace('"met"', '"waived"'))
+        self.fails("is waived and needs the decision")
+        self.manifest(BENCH_ROW.replace('"met"', '"known miss"') +
+                      '    decision: "docs/quality/r.md#final-verdict-p3-36"\n')
+        self.fails("needs a decision_label")
+        self.manifest(BENCH_ROW.replace('"met"', '"known miss"') +
+                      '    decision: "docs/quality/r.md#final-verdict-p3-36"\n    decision_label: "TICK-1"\n')
+        self.assertIn(">TICK-1</a>", self.html("benchmarks/index.html"))
+
+    def test_no_result_yet_carries_no_figures(self):
+        self.manifest(BENCH_ROW.replace('"met"', '"no result yet"'))
+        self.fails("has no result yet but sets result")
+
+    def test_required_keys_dates_and_run_links(self):
+        self.manifest(BENCH_ROW.replace('    host: "Laptop"\n', ""))
+        self.fails("needs host")
+        self.manifest(BENCH_ROW.replace('"2026-11-11"', '"last week"'))
+        self.fails("date 'last week'")
+        self.manifest(BENCH_ROW + '    run: "https://example.com/runs/1"\n')
+        self.fails("is not a GitHub Actions run link")
+        self.manifest(BENCH_ROW + '    colour: "red"\n')
+        self.fails("unknown keys ['colour']")
+
+    def test_missing_or_empty_manifest_fails(self):
+        self.fails("benchmarks.yaml does not exist")
+        write(self.root, "docs/handbook/src/benchmarks/benchmarks.yaml", "rows: []\n")
+        self.fails("rows is empty")
+
+    def test_github_heading_ids(self):
+        ids = build.md_anchors("# A\n## 2.1 Gaps policy — decided, per type\n"
+                               "## Create re-run (option A, 2026-11-11 ~03:2x UTC): every row\n"
+                               "## Dup\n## Dup\n```\n## Not a heading\n```\n")
+        for want in ("a", "21-gaps-policy--decided-per-type",
+                     "create-re-run-option-a-2026-11-11-032x-utc-every-row", "dup", "dup-1"):
+            self.assertIn(want, ids)
+        self.assertNotIn("not-a-heading", ids)
+
+
 class TestCLI(Base):
     def run_cli(self, *args):
         out, err = io.StringIO(), io.StringIO()

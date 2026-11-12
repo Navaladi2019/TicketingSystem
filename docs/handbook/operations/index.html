@@ -29,7 +29,7 @@
 <div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
 <ul></ul></div>
 <div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
-<ul></ul></div>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
 <ul></ul></div>
 </nav>
@@ -38,40 +38,79 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../operations/index.html">operations</a> / <span>Operations</span></nav>
 <article>
 <h1 class="page-title">Operations</h1>
-<p>TODO: the public API operations and how to run the stack.</p>
-<h2 id="audit-operations">Audit operations</h2>
+<p>How to run the platform on one machine and see what it is doing. Everything here is the local Docker Compose stack in <code>compose.yaml</code>. There is no production deployment on <code>main</code> yet.</p>
 <table>
 <thead>
 <tr>
-<th>Operation</th>
-<th>Method and path</th>
-<th>Summary</th>
-<th>Responses</th>
+<th>Page</th>
+<th>What it covers</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>reseedAuditChain</code></td>
-<td><code>POST /api/v1/audit/chain:reseed</code></td>
-<td>Restart a dead audit seal lineage</td>
-<td>200, 400, 401, 403, 404, 409, 429, 500, 501</td>
+<td><a href="../operations/local-stack.html">Local stack</a></td>
+<td>Start, stop, reset and seed the stack; what each service is and which ports reach the host</td>
 </tr>
 <tr>
-<td><code>listAuditEntries</code></td>
-<td><code>GET /api/v1/audit/entries</code></td>
-<td>The tenant's audit timeline</td>
-<td>200, 400, 401, 403, 429, 500, 501</td>
+<td><a href="../operations/listeners.html">Unpublished listeners</a></td>
+<td>Admin endpoints, the onboarding API and the Temporal UI publish no port. How to reach them through a tunnel or <code>docker compose exec</code></td>
 </tr>
 <tr>
-<td><code>exportAuditEntries</code></td>
-<td><code>GET /api/v1/audit/entries:export</code></td>
-<td>Download a verifiable JSONL export of the audit log</td>
-<td>200, 400, 401, 403, 409, 429, 500, 501</td>
+<td><a href="../operations/observability.html">Traces, logs and metrics</a></td>
+<td>OpenObserve and Prometheus: finding a slow or failed request, alert rules, health endpoints</td>
+</tr>
+<tr>
+<td><a href="../operations/troubleshooting.html">Troubleshooting</a></td>
+<td>Where to look first when something breaks</td>
+</tr>
+</tbody>
+</table>
+<h2 id="operator-tools">Operator tools</h2>
+<ul>
+<li><strong>Tenant onboarding</strong> goes through <code>nava-onboard</code>, an internal API that is never published. The request, its validation and how to recover a half-provisioned tenant are in <a href="../../../docs/operator/onboarding.md">docs/operator/onboarding.md</a>. The cursor keyring is in <a href="../../../docs/operator/cursor-keyring.md">docs/operator/cursor-keyring.md</a>.</li>
+<li><strong><code>nava audit verify &lt;file&gt;</code></strong> checks an audit export (<code>nava.audit.export/v1</code>, JSONL or CSV) with no database and no network. <code>task build</code> writes it to <code>bin/nava</code>. Its exit codes are a contract: 0 every line verified, 1 tampered (the first failing line is reported), 2 usage error, 3 an erasure entry is not sealed yet, 4 unverifiable, 5 nothing sealed in the window. The audit chain itself is on the <a href="../adr/adr-004.html">ADR-004 page</a>.</li>
+</ul>
+<h2 id="commands-at-a-glance">Commands at a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task stack:up</code></td>
+<td><code>make dev-ca</code>, then <code>docker compose --profile operator up -d --build</code></td>
+</tr>
+<tr>
+<td><code>task stack:down</code></td>
+<td><code>docker compose --profile operator down -v</code>: stops the stack <strong>and deletes its volumes</strong></td>
+</tr>
+<tr>
+<td><code>task stack:test</code></td>
+<td>Runs every stack case in <code>deploy/compose/test/cases</code> against a running stack</td>
+</tr>
+<tr>
+<td><code>task demo:outbox</code></td>
+<td>The S7 demo: one record written through the pipeline, one workflow started and signalled twice</td>
+</tr>
+<tr>
+<td><code>make operator-tunnel</code></td>
+<td>Forwards <code>127.0.0.1:18233</code> to the Temporal UI until interrupted</td>
+</tr>
+<tr>
+<td><code>sh docs/acceptance/guide/tools/tunnels.sh up</code></td>
+<td>Forwards for every unpublished listener (see <a href="../operations/listeners.html">Unpublished listeners</a>)</td>
+</tr>
+<tr>
+<td><code>sh docs/acceptance/guide/tools/seed.sh</code></td>
+<td>Seeds the two demo tenants and runs one group sync. Idempotent</td>
 </tr>
 </tbody>
 </table>
 </article>
-<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
