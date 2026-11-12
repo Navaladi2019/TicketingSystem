@@ -262,3 +262,71 @@ func TestReseedRefusesBeforeAnyWrite(t *testing.T) {
 		t.Fatalf("EnqueueAtVersion with a reseed dedupe key = %v, want ErrInvalidEntry", err)
 	}
 }
+
+// AR-041: a row of a listed kind carries exactly its allow-list. Every
+// payload here is references only, so only the per-kind rule refuses it.
+func TestValidateKindPayload(t *testing.T) {
+	ref := `"` + uuid.NewString() + `"`
+	cases := []struct {
+		kind, payload string
+		ok            bool
+	}{
+		{InterpreterKind, `{"definition_version_id":` + ref + `,"record_id":` + ref + `}`, true},
+		{InterpreterKind, `{"definition_version_id":` + ref + `,"record_id":` + ref + `,"extra":` + ref + `}`, false},
+		{InterpreterKind, `{"record_id":` + ref + `}`, false},
+		{InterpreterKind, `{"definition_version_id":` + ref + `,"record":` + ref + `}`, false},
+		{InterpreterSignalKind, `{"signal":` + ref + `}`, true},
+		{InterpreterSignalKind, `{"signal":` + ref + `,"record_id":` + ref + `}`, false},
+		{InterpreterSignalKind, `{}`, false},
+		{SealKind, `{}`, true},
+		{SealKind, `{"record_id":` + ref + `}`, false},
+		// A kind with no allow-list keeps the pattern rule only.
+		{"ticket.approval", `{"anything":` + ref + `}`, true},
+		// The references-only rule still applies first.
+		{InterpreterSignalKind, `{"signal":"not a uuid"}`, false},
+	}
+	for _, c := range cases {
+		err := ValidateKindPayload(c.kind, json.RawMessage(c.payload))
+		if (err == nil) != c.ok || (err != nil && !errors.Is(err, ErrInvalidEntry)) {
+			t.Errorf("ValidateKindPayload(%s, %s) = %v, want ok %v", c.kind, c.payload, err, c.ok)
+		}
+	}
+}
+
+// interpSignal is a valid record_changed signal entry.
+func interpSignal() Entry {
+	return Entry{Kind: InterpreterSignalKind, KindVersion: 1, DedupeKey: "s1", RecordID: uuid.New(),
+		Target:    TargetSignal{Kind: InterpreterKind, SignalName: InterpreterSignalKind},
+		Causation: Causation{OriginID: uuid.New(), Depth: 1}, Payload: json.RawMessage(`{"signal":"` + uuid.NewString() + `"}`)}
+}
+
+// Enqueueing with a key off the allow-list fails for each kind, before any
+// query (tx is nil, so a query would panic). EnqueueAtVersion refuses an
+// interpreter signal, which must go through EnqueueSignal (D-3-29), and
+// EnqueueSignal refuses any other signal and a missing ref.
+func TestInterpreterEntriesRefusedBeforeAnyWrite(t *testing.T) {
+	ctx := context.Background()
+	ref := uuid.New()
+
+	extra := interpSignal()
+	extra.Payload = json.RawMessage(`{"signal":"` + uuid.NewString() + `","record_id":"` + uuid.NewString() + `"}`)
+	if _, err := EnqueueSignal(ctx, nil, ref, extra, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Errorf("EnqueueSignal with an extra key = %v, want ErrInvalidEntry", err)
+	}
+	if _, err := EnqueueAtVersion(ctx, nil, interpSignal(), 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Errorf("EnqueueAtVersion of an interpreter signal = %v, want ErrInvalidEntry", err)
+	}
+	if _, err := EnqueueSignal(ctx, nil, uuid.Nil, interpSignal(), 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Errorf("EnqueueSignal with no ref = %v, want ErrInvalidEntry", err)
+	}
+	other := interpSignal()
+	other.Kind, other.Target = "approve", TargetSignal{Kind: InterpreterKind, SignalName: "approve"}
+	if _, err := EnqueueSignal(ctx, nil, ref, other, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Errorf("EnqueueSignal of another signal name = %v, want ErrInvalidEntry", err)
+	}
+	toOther := interpSignal()
+	toOther.Target = TargetSignal{Kind: "ticket.approval", SignalName: InterpreterSignalKind}
+	if _, err := EnqueueSignal(ctx, nil, ref, toOther, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Errorf("EnqueueSignal to another workflow type = %v, want ErrInvalidEntry", err)
+	}
+}

@@ -14,7 +14,7 @@
 //     database itself, for the CI-9 role reach checks that need seeded rows
 //     or a positive control;
 //   - writes a report, one line per role × table, grouped by ADR test id, so
-//     partial coverage (CI-8, CI-10) stays visible.
+//     partial coverage (CI-8) stays visible.
 //
 // Later epics register their named paths in Paths. Editing this file needs
 // CTO sign-off (docs/delivery/review-paths.yaml); so does removing a test of
@@ -231,7 +231,7 @@ func Coverage() map[string]string {
 		"CI-2":           "full: generic checks on every tenant table; forged-tenant HTTP paths (T17); the forged write on POST /api/v1/records/incident, StoredUnderA (P3-18)",
 		"CI-9":           "full: nava_relay, nava_purge, nava_onboard and nava_backup reach (T12); nava_backup through T08's pg_hba cases",
 		"CI-8":           "full: the record routes' byte-identical 404 on GET, PATCH and history, stale If-Match 412, and (e)/(f) (TICK-87); cursor cases from T23; idempotency cases from T22; the masked-field filter 400 (d) and the S10 attack rows on the record ACL, masks, admin routes and explainer (P3-37)",
-		"CI-10":          "partial → P3-42 (S11b): (g) signal ping-pong needs the interpreter; (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline and the outbox depth limit TestCI10_* in internal/outbox, both against real PostgreSQL in make test-integration",
+		"CI-10":          "full (P3-42, CTO ruling on TICK-88, 2026-11-01): (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline, (g) the signal ping-pong between two runs on R stopped at depth 9 is TestCI10_G_SignalPingPongBetweenTwoRunsStopsAtDepth9 there, through the real EventSink, and the outbox depth limit is TestCI10_* in internal/outbox, all against real PostgreSQL in make test-integration",
 		"T26":            "full: deprovisioning within D-P9's 10 minutes and the Epic 03 identity boundary (TICK-82); cases 1, 2, 6 and 8 run here, cases 3, 4, 5 and 7 need the real Keycloak and run in make stack-test-identity",
 		"CI-A4":          "full (ADR-004, P5-19, P5-42): audit_log through the parent, its DEFAULT partition, audit_chain_head and record_write_keys as every runtime role, with no tenant and with onboarding's pinned policies; GET /api/v1/audit/entries and record history for tenant B's admin, auditor and agent. export, stubs, reseed and erasure (P5-42, TICK-447): TestCIA4* in internal/server (make test-integration), tenant B against tenant A through the real handler, sealer, verifier and nava_erasure",
 		"CI-A5":          "full (ADR-004, P5-19, P5-42): table bytes of audit_log and entity_definition_versions after record and S8 canaries, the controls uncompressed and under 1,900 bytes stored; export bytes in TestCIA5ExportBytesCarryNoCanary in internal/server (P5-42, make test-integration)",
