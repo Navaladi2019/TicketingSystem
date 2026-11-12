@@ -179,7 +179,7 @@ func TestWorkflowDefinitionPublishKeepsStepIDsAndLeavesV1Untouched(t *testing.T)
 func TestWorkflowDefinitionInvalidBodiesAre422AndNameTheStep(t *testing.T) {
 	e := newWFEnv(t)
 	valid := wfBody("incident", "short_description")
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		name, body, pointer string
 		absent              string // a value the problem must not echo
 	}{
@@ -193,7 +193,7 @@ func TestWorkflowDefinitionInvalidBodiesAre422AndNameTheStep(t *testing.T) {
 		{"an empty object", `{}`, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code, b := e.wfPublish(t, "admin-a", "bad_one", "bad-"+tc.name, tc.body)
+			code, b := e.wfPublish(t, "admin-a", "bad_one", fmt.Sprintf("bad-%d", i), tc.body)
 			if code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d: %s", code, b)
 			}
