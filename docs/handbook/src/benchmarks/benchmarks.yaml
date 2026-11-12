@@ -198,6 +198,7 @@ rows:
     source: "docs/quality/acl-perf-800k.md#final-re-run-after-tick-647-tick-648-and-tick-644"
     decision: "docs/quality/acl-perf-800k.md#final-verdict-p3-36"
     decision_label: "accepted by the CTO (TICK-646)"
+    note: "ADR-006 (accepted, not implemented) replaces this scan with typed side tables (ADR-006 page in the ADR section)"
   - group: "Lists and reads at 800k records (P3-36)"
     budget: "Single read: agent / admin / small tenant"
     threshold: "≤ 50 ms p95"

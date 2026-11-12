@@ -18,7 +18,7 @@ Attributes are split two ways:
 - **`data jsonb`** holds the rest: the fields the type's JSON Schema defines.
   The service validates it against the schema version in `schema_version`.
   The diagram shows it as one attribute. Nothing indexes `data`, and there
-  are no expression indexes (PLAN-003 D25).
+  are no expression indexes (PLAN-003 D25). Filterable fields, which would add typed side tables, are accepted in [ADR-006](../adr/adr-006.md) but not on `main`.
 
 The list indexes all start with `(tenant_id, entity_definition_id)` and end
 with the sort key and `id`, so every allowed sort is an ordered index scan
