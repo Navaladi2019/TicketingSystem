@@ -225,11 +225,15 @@ def new_fixture():
     write(root, "docs/handbook/src/diagrams/ok.excalidraw.svg", SVG)
     write(root, "docs/handbook/src/stories/stories.yaml",
           "stories:\n  - id: S14\n    issue: TICK-409\n    title: Audit log\n    status: delivered\n"
-          "    evidence: [docs/evidence/e.md]\n")
+          "    verdict: READY\n    date: 2026-11-04\n    bruno: [S14]\n    evidence: [docs/evidence/e.md]\n")
+    write(root, "docs/acceptance/guide/bruno/S14/folder.bru", "meta {}")
     write(root, "docs/handbook/src/database/schema.json", SCHEMA)
     write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default, tenants]\n")
     for rel, text in GO_FIXTURE.items():
         write(root, rel, text)
+    write(root, "docs/handbook/src/database/migration-history.json",
+          '{"version": 1, "migrations": [{"file": "00001_init.sql", "on_main": true, "commit": "abc1234",'
+          ' "date": "2026-10-18", "pr": "17", "story": "S1", "tickets": ["TICK-64"]}]}\n')
     page(root, "index.md", "Home", "home", body="Welcome.")
     return root
 
@@ -299,6 +303,27 @@ class TestYAML(unittest.TestCase):
     def test_duplicate_key_is_an_error(self):
         with self.assertRaises(ValueError):
             build.parse_yaml("a: 1\na: 2\n")
+        with self.assertRaises(ValueError):
+            build.parse_yaml("a: { b: 1, b: 2 }\n")
+
+    def test_flow_maps_continued_lists_quoted_keys_and_folded_scalars(self):
+        # The shapes db/grants.yaml and db/audited-tables.yaml use (TICK-729).
+        doc = build.parse_yaml(
+            "roles:\n  r:\n    tables:\n      t: { SELECT: [a, b], INSERT: [] }\n"
+            "      u:\n        UPDATE: [x, y,\n                 z]\n"
+            "    functions:\n      \"public.f(jsonb)\": [EXECUTE]\n"
+            "ex:\n  e:\n    reason: >-\n      one line\n      and two\n")
+        r = doc["roles"]["r"]
+        self.assertEqual(r["tables"]["t"], {"SELECT": ["a", "b"], "INSERT": []})
+        self.assertEqual(r["tables"]["u"], {"UPDATE": ["x", "y", "z"]})
+        self.assertEqual(r["functions"], {"public.f(jsonb)": ["EXECUTE"]})
+        self.assertEqual(doc["ex"]["e"]["reason"], "one line and two")
+
+    def test_real_manifests_parse(self):
+        g = build.parse_yaml(build.read_text(os.path.join(build.ROOT, "db", "grants.yaml")))
+        self.assertIn("UPDATE", g["roles"]["nava_app"]["tables"]["records"])
+        a = build.parse_yaml(build.read_text(os.path.join(build.ROOT, "db", "audited-tables.yaml")))
+        self.assertIn("records", a["audited"])
 
 
 class TestFrontMatter(Base):
@@ -358,6 +383,41 @@ class TestReferences(Base):
               "stories:\n  - id: S1\n    status: delivered\n    evidence: [../outside.md]\n")
         os.remove(os.path.join(self.root, "docs/handbook/src/database/areas.yaml"))
         self.fails("S1", "is not a path inside the repository")
+
+    def test_story_manifest_contract(self):
+        head = "stories:\n  - id: S1\n    issue: TICK-1\n    title: T\n"
+        good = (head + "    status: delivered\n    verdict: READY\n    date: 2026-11-01\n"
+                "    bruno: S14\n    evidence: [docs/evidence/e.md]\n")
+        cases = [
+            (good.replace("    verdict: READY\n", ""), "needs a verdict"),
+            (good.replace("2026-11-01", "1 Nov"), "needs an ISO date"),
+            (good.replace("    evidence: [docs/evidence/e.md]\n", ""), "at least one evidence path"),
+            (good.replace("docs/evidence/e.md", "docs/evidence/nope.md"), "does not exist"),
+            (good.replace("bruno: S14", "bruno: [S99]"), "bruno folder 'S99' does not exist"),
+            (good + "unassigned:\n  - path: docs/evidence/e.md\n", "needs a reason"),
+            (good + "unassigned:\n  - path: docs/evidence/gone.md\n    reason: r\n", "does not exist"),
+            (good + "extra: 1\n", "the only top-level keys"),
+        ]
+        for text, want in cases:
+            with self.subTest(want):
+                write(self.root, "docs/handbook/src/stories/stories.yaml", text)
+                self.fails(want)
+        write(self.root, "docs/handbook/src/stories/stories.yaml",
+              good + "  - id: S2\n    status: planned\n    bruno: [S14]\n"
+                     "unassigned:\n  - path: docs/evidence/e.md\n    reason: cross-cutting\n")
+        self.build()  # a bare-string bruno, a planned story with no verdict, and unassigned all pass
+
+    def test_gen_stories_renders_the_manifest(self):
+        write(self.root, "docs/handbook/src/stories/stories.yaml",
+              "stories:\n  - id: S14\n    issue: TICK-419\n    title: Audit log\n    status: delivered\n"
+              "    verdict: READY\n    date: 2026-11-04\n    evidence: [docs/evidence/e.md]\n"
+              "  - id: S20\n    issue: TICK-684\n    title: Later\n    status: planned\n"
+              "unassigned:\n  - path: docs/evidence/e.md\n    reason: cross-cutting\n")
+        page(self.root, "stories/index.md", "Stories", "stories", body="<!-- gen:stories -->")
+        h = self.html("stories/index.html")
+        self.assertIn("TICK-419", h)
+        self.assertIn("TICK-684", h)
+        self.assertIn("cross-cutting", h)
 
     def test_a_method_is_not_a_test(self):
         page(self.root, "system/a.md", "A", "system", front="tests: [TestNotAFunc]\n")
@@ -582,9 +642,82 @@ class TestGen(Base):
         m = out["database/m.html"].decode()
         self.assertIn("00001_init.sql", m)
         self.assertIn("First migration.", m)
+        self.assertIn("S1, TICK-64, PR #17 (2026-10-18)", m)
         b = out["benchmarks/b.html"].decode()
         for want in ("History length", "Record history", "Principal"):
             self.assertIn(want, b)
+
+    def test_a_table_in_no_area_fails(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default]\n")
+        self.fails("table tenants (schema.json) is in no area")
+
+    def test_a_table_in_two_areas_fails(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml",
+              "audit: [audit_log, audit_log_default, tenants]\ntenancy: [tenants]\n")
+        self.fails("table tenants is in area audit and area tenancy")
+
+    def test_migration_history_must_match_the_files(self):
+        page(self.root, "database/m.md", "M", "database", body="<!-- gen:migrations -->")
+        write(self.root, "db/migrations/20261112000000_new.sql", "-- New.\n-- +goose Up\nSELECT 1;\n")
+        self.fails("migration-history.json is stale", "20261112000000_new.sql", "--capture-migrations")
+        os.remove(os.path.join(self.root, "docs/handbook/src/database/migration-history.json"))
+        self.fails("migration-history.json is missing")
+
+    def test_migration_facts(self):
+        nv = ("-- Adds it.\n-- +goose Up\nALTER TABLE t ADD CONSTRAINT t_c CHECK (x) NOT VALID;\n"
+              "-- +goose Down\nALTER TABLE t DROP CONSTRAINT t_c;\n")
+        self.assertEqual(build.migration_facts(nv), ({"t_c"}, set(), False, []))  # Down is not history
+        val = "-- +goose Up\nALTER TABLE t VALIDATE CONSTRAINT t_c;\n"
+        self.assertEqual(build.migration_facts(val)[1], {"t_c"})
+        rebuild = ("-- +goose NO TRANSACTION\n-- +goose Up\nDROP INDEX CONCURRENTLY IF EXISTS i;\n"
+                   "CREATE INDEX CONCURRENTLY i ON t (a);\nDROP POLICY p ON t;\n")
+        self.assertEqual(build.migration_facts(rebuild)[2:], (True, [("policy", "p")]))
+        self.assertEqual(build.migration_summary("-- T09 (TICK-64): the tables. More.\n-- +goose Up\n"),
+                         "T09 (TICK-64): the tables.")
+
+    def test_policy_classes(self):
+        pred = build.tenant_pred("tenant_id")
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": pred, "check": ""}), "canonical")
+        self.assertEqual(build.policy_class("t", {"command": "UPDATE", "using": pred, "check": pred}), "canonical")
+        self.assertEqual(build.policy_class("t", {"command": "INSERT", "using": "", "check": "(" + pred + " AND x)"}), "pinned")
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": "true", "check": ""}), "allow-list")
+        # A RESTRICTIVE policy is never folded into the canonical list.
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": pred, "check": "", "permissive": False}),
+                         "pinned")
+        self.assertEqual(build.policy_class("tenants", {"command": "SELECT", "using": build.tenant_pred("id"), "check": ""}),
+                         "canonical")
+
+    def test_rls_grants_audited_and_areas_blocks(self):
+        write(self.root, "db/grants.yaml", "roles:\n  nava_app:\n    attributes: [LOGIN]\n    pgbouncer_login: true\n"
+                                           "    tables:\n      audit_log: { SELECT: [id], INSERT: [] }\n")
+        write(self.root, "db/audited-tables.yaml", "audited: {}\nexempt:\n  audit_log:\n    reason: \"The log.\"\n")
+        page(self.root, "database/audit.md", "Audit", "database", body="x")
+        page(self.root, "database/rls.md", "RLS", "database", body="<!-- gen:rls -->")
+        page(self.root, "database/roles-and-grants.md", "Grants", "database",
+             body="<!-- gen:grants -->\n\n<!-- gen:audited -->\n\n<!-- gen:areas -->")
+        out = self.build()
+        rls = out["database/rls.html"].decode()
+        self.assertIn("app.tenant_id", rls)
+        self.assertIn("deny_other", rls)                     # RESTRICTIVE: listed as differing
+        self.assertIn("<strong>RESTRICTIVE</strong>", rls)
+        g = out["database/roles-and-grants.html"].decode()
+        for want in ("nava_app", "LOGIN", "The log.", 'href="../database/audit.html"'):
+            self.assertIn(want, g)
+        page(self.root, "database/audit.md", "Audit", "database", body="<!-- gen:tables area=audit -->")
+        a = self.html("database/audit.html")
+        self.assertIn("exempt from the audit log: The log", a)
+        self.assertIn("nava_app SELECT (id)", a)
+
+    def test_er_stubs_cross_area_targets(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml",
+              "audit: [audit_log, audit_log_default]\ntenancy: [tenants]\n")
+        page(self.root, "database/tenancy.md", "Tenancy", "database", body="x")
+        page(self.root, "database/audit.md", "Audit", "database", body="<!-- gen:er area=audit -->")
+        h = self.html("database/audit.html")
+        self.assertIn("tenants {\n        stub other_area", h)
+        self.assertIn('<a href="../database/tenancy.html">tenancy</a>', h)
+        self.assertIn("Partitions are left out of the diagram", h)
+        self.assertNotIn("audit_log_default {", h)
 
     def test_gen_line_in_a_code_fence_is_literal(self):
         page(self.root, "system/a.md", "A", "system", body="```\n<!-- gen:operations tag=nope -->\n```")

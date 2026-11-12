@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles and grants - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li class="current"><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Roles and grants</span></nav>
+<article>
+<h1 class="page-title">Roles and grants</h1>
+<p><code>db/grants.yaml</code> is the only place a privilege is granted. Two jobs read it:
+<code>db-roles</code>, as the bootstrap superuser, creates each role with exactly the
+attributes listed (always <code>NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS</code>)
+and revokes any membership; <code>migrate</code>, as <code>nava_migrator</code>, grants what each
+role lists and revokes, and logs, anything else on an object it owns,
+<code>PUBLIC</code> included. The database itself starts with <code>REVOKE ALL ... FROM PUBLIC</code> (<code>00001_global_revokes.sql</code>).</p>
+<p>A grant decides which columns a role may touch. Row-level security decides
+which rows: every table is under <code>FORCE ROW LEVEL SECURITY</code>, so a grant here
+reaches only the rows its <a href="../database/rls.html">policies</a> allow.</p>
+<p>Column lists matter. <code>UPDATE</code> never includes a key or a column that is set
+once at insert, so a record's number or a group's identity provider id cannot
+be rewritten. Only <code>nava_audit_reader</code> may read <code>audit_log.diff</code> and
+<code>diff_salt</code> (ADR-004-A1).</p>
+<h2 id="roles">Roles</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Attributes</th>
+<th>PgBouncer login</th>
+<th>Platform database</th>
+<th>Schemas</th>
+<th>Settings</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>keycloak</code></td>
+<td>LOGIN</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_app</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td><code>plan_cache_mode = force_custom_plan</code></td>
+</tr>
+<tr>
+<td><code>nava_audit_reader</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_backup</code></td>
+<td>LOGIN, REPLICATION</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_erasure</code></td>
+<td>LOGIN</td>
+<td>no</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_groupsync</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_migrator</code></td>
+<td>LOGIN</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_onboard</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_purge</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_relay</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>nava_worker</code></td>
+<td>LOGIN</td>
+<td>yes</td>
+<td>CONNECT</td>
+<td>public: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>pgbouncer_auth</code></td>
+<td>LOGIN</td>
+<td>no</td>
+<td>CONNECT</td>
+<td>pgbouncer: USAGE</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>temporal</code></td>
+<td>LOGIN</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navaapp"><code>nava_app</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>all columns</td>
+<td>-</td>
+<td><code>export_lease_until</code>, <code>next_seal_outbox_id</code>, <code>next_seal_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>occurred_at</code>, <code>txid</code>, <code>domain</code>, <code>action</code>, <code>subject_type</code>, <code>subject_id</code>, <code>entity_definition_id</code>, <code>version_before</code>, <code>version_after</code>, <code>actor_principal_id</code>, <code>actor_system</code>, <code>source</code>, <code>source_ref</code>, <code>change_set_id</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>request_id</code>, <code>backfilled</code>, <code>content_sha256</code>, <code>diff_sha256</code>, <code>diff_truncated</code>, <code>seq</code>, <code>sealed_at</code>, <code>erased_at</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>cascade_start</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>current_version</code>, <code>updated_at</code>, <code>numbering_mode</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>group_members</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td><a href="../database/idempotency.html">idempotency</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>state</code>, <code>response_status</code>, <code>response_body</code>, <code>lease_until</code>, <code>response_headers</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>org_units</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>dedupe_key</code></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>principals</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_counters</code></td>
+<td><a href="../database/numbering.html">numbering</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>next</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_shares</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_write_keys</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>records</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>version</code>, <code>schema_version</code>, <code>state</code>, <code>requester_id</code>, <code>assignee_id</code>, <code>assignment_group_id</code>, <code>updated_at</code>, <code>data</code>, <code>causation_origin_id</code>, <code>causation_depth</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>issuer</code>, <code>org_id</code>, <code>idp_aliases</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td><a href="../database/tenancy.html">tenancy</a></td>
+<td><code>id</code>, <code>state</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Functions: <code>public.acl_cond_valid(jsonb)</code> (EXECUTE), <code>public.acl_masks_valid(jsonb)</code> (EXECUTE), <code>public.acl_rules_valid(jsonb)</code> (EXECUTE), <code>public.acl_subject_valid(jsonb)</code> (EXECUTE), <code>public.acl_uuids_valid(jsonb)</code> (EXECUTE).</p>
+<p>Writes audited tables <code>acl_versions</code>, <code>entity_definition_versions</code>, <code>entity_definitions</code>, <code>record_shares</code>, <code>records</code>, so <code>nava-db migrate</code> also grants it INSERT on the R10 <code>audit_log</code> columns and SELECT on the commit-check columns, generated from <code>db/audited-tables.yaml</code>.</p>
+<h4 id="navaauditreader"><code>nava_audit_reader</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>occurred_at</code>, <code>domain</code>, <code>action</code>, <code>subject_type</code>, <code>subject_id</code>, <code>entity_definition_id</code>, <code>version_before</code>, <code>version_after</code>, <code>actor_principal_id</code>, <code>actor_system</code>, <code>source</code>, <code>source_ref</code>, <code>change_set_id</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>request_id</code>, <code>backfilled</code>, <code>content_sha256</code>, <code>diff_sha256</code>, <code>diff_truncated</code>, <code>diff</code>, <code>diff_salt</code>, <code>seq</code>, <code>prev_hash</code>, <code>entry_hash</code>, <code>sealed_at</code>, <code>erased_at</code>, <code>erasure_ref</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td><code>tenant_id</code>, <code>definition_id</code>, <code>schema</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navaerasure"><code>nava_erasure</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code>, <code>subject_type</code>, <code>subject_id</code>, <code>erased_at</code>, <code>erasure_ref</code></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>domain</code>, <code>action</code>, <code>subject_type</code>, <code>subject_id</code>, <code>entity_definition_id</code>, <code>version_before</code>, <code>version_after</code>, <code>actor_principal_id</code>, <code>actor_system</code>, <code>source</code>, <code>source_ref</code>, <code>change_set_id</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>request_id</code>, <code>content_sha256</code>, <code>diff_sha256</code>, <code>diff_truncated</code>, <code>diff</code>, <code>diff_salt</code></td>
+<td><code>diff</code>, <code>diff_salt</code>, <code>erased_at</code>, <code>erasure_ref</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navagroupsync"><code>nava_groupsync</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>group_members</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>path</code>, <code>deleted_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>org_units</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>parent_id</code>, <code>name</code></td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>email</code>, <code>expires_at</code>, <code>consumed_at</code></td>
+<td>-</td>
+<td><code>consumed_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>principals</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>email</code>, <code>enabled</code>, <code>federated_links</code>, <code>synced_at</code>, <code>deleted_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>group_id</code></td>
+<td>-</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>issuer</code>, <code>org_id</code>, <code>idp_aliases</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navaonboard"><code>nava_onboard</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>-</td>
+<td><code>tenant_id</code>, <code>id</code>, <code>next_seal_outbox_id</code>, <code>next_seal_at</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>-</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>-</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>keycloak_group_id</code>, <code>deleted_at</code></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>keycloak_group_id</code>, <code>path</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td>-</td>
+<td><code>id</code>, <code>tenant_id</code>, <code>kind</code>, <code>kind_version</code>, <code>dedupe_key</code>, <code>target_key</code>, <code>target_seq</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>payload</code>, <code>trace_context</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code>, <code>email</code>, <code>expires_at</code>, <code>consumed_at</code></td>
+<td><code>tenant_id</code>, <code>email</code>, <code>expires_at</code></td>
+<td><code>expires_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code></td>
+<td><code>tenant_id</code>, <code>group_id</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code></td>
+<td><code>tenant_id</code>, <code>group_id</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td><code>tenant_id</code></td>
+<td><code>tenant_id</code>, <code>domain</code></td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>-</td>
+<td><code>tenant_id</code>, <code>issuer</code>, <code>org_id</code>, <code>idp_aliases</code></td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td><a href="../database/tenancy.html">tenancy</a></td>
+<td><code>id</code>, <code>state</code>, <code>onboarding_request_hash</code>, <code>created_at</code></td>
+<td><code>id</code>, <code>state</code>, <code>onboarding_request_hash</code></td>
+<td><code>state</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Writes audited tables <code>entity_definition_versions</code>, <code>entity_definitions</code>, so <code>nava-db migrate</code> also grants it INSERT on the R10 <code>audit_log</code> columns and SELECT on the commit-check columns, generated from <code>db/audited-tables.yaml</code>.</p>
+<h4 id="navapurge"><code>nava_purge</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td><code>tenant_id</code>, <code>next_seal_at</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td><a href="../database/idempotency.html">idempotency</a></td>
+<td><code>tenant_id</code>, <code>principal_id</code>, <code>key</code>, <code>expires_at</code></td>
+<td>-</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>dispatched_at</code>, <code>dead_at</code></td>
+<td>-</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td><code>tenant_id</code>, <code>outbox_id</code>, <code>closed_at</code></td>
+<td>-</td>
+<td>-</td>
+<td>all columns</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navarelay"><code>nava_relay</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td><code>id</code>, <code>tenant_id</code>, <code>kind</code>, <code>kind_version</code>, <code>target_key</code>, <code>target_seq</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>payload</code>, <code>trace_context</code>, <code>created_at</code>, <code>available_at</code>, <code>attempts</code>, <code>dispatched_at</code>, <code>dead_at</code></td>
+<td>-</td>
+<td><code>available_at</code>, <code>attempts</code>, <code>last_error</code>, <code>dispatched_at</code>, <code>dead_at</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="navaworker"><code>nava_worker</code></h4>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>SELECT</th>
+<th>INSERT</th>
+<th>UPDATE</th>
+<th>DELETE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>all columns</td>
+<td>-</td>
+<td><code>version</code>, <code>seq</code>, <code>entry_hash</code>, <code>next_seal_outbox_id</code>, <code>next_seal_at</code>, <code>seal_interval_s</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>occurred_at</code>, <code>txid</code>, <code>domain</code>, <code>action</code>, <code>subject_type</code>, <code>subject_id</code>, <code>entity_definition_id</code>, <code>version_before</code>, <code>version_after</code>, <code>actor_principal_id</code>, <code>actor_system</code>, <code>source</code>, <code>source_ref</code>, <code>change_set_id</code>, <code>causation_id</code>, <code>causation_depth</code>, <code>request_id</code>, <code>backfilled</code>, <code>content_sha256</code>, <code>diff_sha256</code>, <code>diff_truncated</code>, <code>seq</code>, <code>prev_hash</code>, <code>entry_hash</code>, <code>sealed_at</code>, <code>erased_at</code>, <code>erasure_ref</code></td>
+<td>-</td>
+<td><code>seq</code>, <code>prev_hash</code>, <code>entry_hash</code>, <code>sealed_at</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>cascade_start</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td><code>tenant_id</code>, <code>id</code>, <code>dedupe_key</code></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_counters</code></td>
+<td><a href="../database/numbering.html">numbering</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>next</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_shares</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_write_keys</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>records</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>version</code>, <code>schema_version</code>, <code>state</code>, <code>requester_id</code>, <code>assignee_id</code>, <code>assignment_group_id</code>, <code>updated_at</code>, <code>data</code>, <code>causation_origin_id</code>, <code>causation_depth</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>all columns</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>all columns</td>
+<td>all columns</td>
+<td><code>closed_at</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Functions: <code>public.acl_cond_valid(jsonb)</code> (EXECUTE), <code>public.acl_masks_valid(jsonb)</code> (EXECUTE), <code>public.acl_rules_valid(jsonb)</code> (EXECUTE), <code>public.acl_subject_valid(jsonb)</code> (EXECUTE), <code>public.acl_uuids_valid(jsonb)</code> (EXECUTE).</p>
+<p>Writes audited tables <code>acl_versions</code>, <code>record_shares</code>, <code>records</code>, so <code>nava-db migrate</code> also grants it INSERT on the R10 <code>audit_log</code> columns and SELECT on the commit-check columns, generated from <code>db/audited-tables.yaml</code>.</p>
+<h4 id="pgbouncerauth"><code>pgbouncer_auth</code></h4>
+<p>Functions: <code>pgbouncer.get_auth(text)</code> (EXECUTE).</p>
+<h4 id="infrastructure-exceptions">Infrastructure exceptions</h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Object</th>
+<th>Security definer</th>
+<th>Granted to</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pgbouncer_get_auth</code></td>
+<td><code>pgbouncer.get_auth(text)</code></td>
+<td>true</td>
+<td><code>pgbouncer_auth</code></td>
+<td>PgBouncer's auth_query reads pg_shadow, which only a superuser can. The function returns a row only for roles with pgbouncer_login: true, and never for a superuser, BYPASSRLS or REPLICATION role.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="audited-and-exempt-tables">Audited and exempt tables</h2>
+<p>Every tenant table is either audited, with a commit-check trigger that makes a
+write fail unless it wrote its audit entry in the same transaction, or exempt
+with a reason (<code>db/audited-tables.yaml</code>, ADR-004 R12). The gate fails on a
+table that is neither.</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Status</th>
+<th>Writer roles or reason</th>
+<th>Subject type</th>
+<th>Trigger attached</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions</code></td>
+<td>audited</td>
+<td><code>nava_app</code>, <code>nava_worker</code></td>
+<td><code>acl_policy</code></td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td>audited</td>
+<td><code>nava_app</code>, <code>nava_onboard</code></td>
+<td><code>entity_definition</code></td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td>audited</td>
+<td><code>nava_app</code>, <code>nava_onboard</code></td>
+<td><code>entity_definition</code></td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>record_shares</code></td>
+<td>audited</td>
+<td><code>nava_app</code>, <code>nava_worker</code></td>
+<td><code>record</code></td>
+<td>false</td>
+</tr>
+<tr>
+<td><code>records</code></td>
+<td>audited</td>
+<td><code>nava_app</code>, <code>nava_worker</code></td>
+<td><code>record</code></td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td>exempt</td>
+<td>Chain state (R14). A seal is visible in the sealed entries; reseed and export write their own audit entries (R17, R19).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td>exempt</td>
+<td>The audit log itself (ADR-004 decision 1); R10 and R11 guard its writes.</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>cascade_start</code></td>
+<td>exempt</td>
+<td>Cascade start key (A5). A suppressed or rejected cascade is audited as a cascade_key entry by the pipeline (ADR-004-E1).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>group_members</code></td>
+<td>exempt</td>
+<td>Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td>exempt</td>
+<td>Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td>exempt</td>
+<td>HTTP replay cache; the write it replays is audited.</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>org_units</code></td>
+<td>exempt</td>
+<td>Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td>exempt</td>
+<td>Start transport (ADR-001 D22); the write that queues a start is audited, the relay's dispatch columns are bookkeeping.</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td>exempt</td>
+<td>Onboarding invites. R2 has no subject type for them (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>principals</code></td>
+<td>exempt</td>
+<td>Mirror of the identity provider written by group sync (T16); Keycloak holds the source and its event log. R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_counters</code></td>
+<td>exempt</td>
+<td>Record-number counter (D-3-9); the record insert that takes the number is audited.</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_write_keys</code></td>
+<td>exempt</td>
+<td>Dedupe index of a write that is already audited (PLAN-005 D-5-3).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td>exempt</td>
+<td>Pointer to the tenant's admins group, set once by onboarding. R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td>exempt</td>
+<td>Pointer to the tenant's auditors group, set once by onboarding. R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td>exempt</td>
+<td>Onboarding's email-domain claims. R2 has no subject type for them (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td>exempt</td>
+<td>Onboarding's binding to the identity provider. R2 has no subject type for it (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td>exempt</td>
+<td>Tenant lifecycle, written by onboarding. R2 has no tenant subject type; the epic that audits onboarding registers one (I8).</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td>exempt</td>
+<td>Workflow bookkeeping for a start the audited write queued; holds no record or configuration content.</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-004-A1</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../system/nava-core.html">nava-core</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

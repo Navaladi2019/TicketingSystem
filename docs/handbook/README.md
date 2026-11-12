@@ -99,7 +99,11 @@ the content by hand.
 | `<!-- gen:operations ids=a,b -->` | those operationIds | same |
 | `<!-- gen:tables area=audit -->` | columns, indexes and policies of the area's tables | `src/database/schema.json`, `src/database/areas.yaml` |
 | `<!-- gen:er area=audit -->` | a Mermaid `erDiagram` of the area | same |
-| `<!-- gen:migrations -->` | every migration with its first comment line | `db/migrations` |
+| `<!-- gen:migrations -->` | every migration: summary, the story, tasks and PR that added it, `NOT VALID`/`VALIDATE` pairs, `CREATE INDEX CONCURRENTLY` and drops | `db/migrations`, `src/database/migration-history.json` |
+| `<!-- gen:areas -->` | every area with its tables | `src/database/areas.yaml` |
+| `<!-- gen:rls -->` | the tenant predicate once, each table's RLS flags, and every policy that differs from the predicate | `src/database/schema.json` |
+| `<!-- gen:grants -->` | every role, its attributes and its grants | `db/grants.yaml`, `db/audited-tables.yaml` |
+| `<!-- gen:audited -->` | every table, audited or exempt with its reason | `db/audited-tables.yaml` |
 | `<!-- gen:adr-index -->` | every ADR, amendment and erratum with status and date | `docs/adr` |
 | `<!-- gen:budgets -->` | each budget with its owner; the numbers stay in the source | `docs/budgets.md` |
 
@@ -114,7 +118,18 @@ format (`version: 1`) is documented in `src/database/schema.md`. Until it
 lands, the stub `{"version": 1, "tables": []}` is accepted. Tables are named
 by their bare name (schema `public` only). Any `version` other than 1 fails
 the build; unknown keys are ignored. `src/database/areas.yaml` maps an area
-to its table names.
+to its table names. Every table in `schema.json` must be in exactly one area,
+and each area has a page `src/database/<area>.md`; the build fails on a table
+in no area or in two (TICK-729). `gen:tables` links each index to the
+`docs/data/*.md` design notes that name it.
+
+`src/database/migration-history.json` records, for each migration, the
+commit that first added it to `main` (`git log origin/main --first-parent
+--diff-filter=A`): its date, PR number, story and task ids. No branch or
+author name is kept. The build reads only this file, never git, and fails
+when it lists different files from `db/migrations`. After a migration merges
+to `main`, refresh it with `python -I docs/handbook/build/build.py
+--capture-migrations` (needs `origin/main`) and commit it.
 
 ## Content security policy
 
