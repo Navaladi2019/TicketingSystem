@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
@@ -182,6 +183,7 @@ func (w Writer) Write(ctx context.Context, tenantID, recordID, _, cause uuid.UUI
 // write, a database failure) is returned as is: retryable.
 func mapError(err error) error {
 	var (
+		pgErr       *pgconn.PgError
 		validation  *pipeline.ErrValidation
 		transition  *pipeline.ErrIllegalTransition
 		unique      *pipeline.ErrUniqueViolation
@@ -198,6 +200,10 @@ func mapError(err error) error {
 	case errors.Is(err, workerguard.ErrCauseNotFound), errors.Is(err, workerguard.ErrForeignCause),
 		errors.Is(err, workerguard.ErrStaleCause), errors.Is(err, outbox.ErrCascadeTooDeep),
 		errors.Is(err, authz.ErrForbidden), errors.As(err, &notWritable):
+		return fmt.Errorf("%w: refused", interp.ErrForbidden)
+	// A step that sets assignment_group_id makes the pipeline check the group,
+	// which the worker's role cannot read: refused for good, not retried.
+	case errors.As(err, &pgErr) && pgErr.Code == "42501":
 		return fmt.Errorf("%w: refused", interp.ErrForbidden)
 	case errors.As(err, &transition):
 		return fmt.Errorf("%w: transition", interp.ErrIllegalTransition)

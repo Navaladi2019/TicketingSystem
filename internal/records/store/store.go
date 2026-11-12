@@ -91,6 +91,24 @@ JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_defin
 LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
 WHERE r.tenant_id = $1 AND r.id = $2`
 
+// recordWriteSelect is recordSelect without the groups join: the write path
+// never reads Record.AssignmentGroupRemoved (a changed group is checked with
+// GroupLive), so a role with no read on groups, the worker's, can still read
+// the record it updates. AssignmentGroupRemoved is false.
+const recordWriteSelect = `
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), false
+FROM records r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+WHERE r.tenant_id = $1 AND r.id = $2`
+
+// GetForWrite is Get without the groups read: the record a write updates,
+// with AssignmentGroupRemoved left false. Use Get to show a record.
+func GetForWrite(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (*Record, error) {
+	return scan(tx.QueryRow(ctx, recordWriteSelect, tenantID, id))
+}
+
 // Get returns the record, or ErrNotFound. A PLAN-001 bare row (no entity
 // type) is not a pipeline record and reads as ErrNotFound.
 func Get(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (*Record, error) {

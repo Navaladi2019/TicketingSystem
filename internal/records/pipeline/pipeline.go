@@ -724,7 +724,9 @@ func (w *write) defaultRequester(rec *store.Record, after map[string]any, fixed 
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {
-	rec, err := store.Get(ctx, w.tx, w.tenant, w.cmd.RecordID)
+	// Without the groups read: an update never uses the record's group
+	// tombstone flag, and the worker's role cannot read groups.
+	rec, err := store.GetForWrite(ctx, w.tx, w.tenant, w.cmd.RecordID)
 	if err != nil {
 		return Result{}, mapNotFound(err)
 	}
