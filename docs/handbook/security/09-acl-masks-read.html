@@ -113,7 +113,19 @@ each row and its red mutation is in
 <td><code>TestPatchIsNoOracleForAMaskedField</code></td>
 </tr>
 <tr>
-<td>Hidden and missing records answer the same</td>
+<td>GET, history and PATCH (no, <code>*</code>, stale and current <code>If-Match</code>) on a record the ACL denies answer exactly like a missing record, and the refused PATCH writes nothing</td>
+<td><code>TestUnreadableRecordIsTheMissingRecord</code> (the admin's GET of the same record is the control)</td>
+</tr>
+<tr>
+<td>An unreadable match is in neither the page nor <code>total</code></td>
+<td><code>TestListRecordsHidesUnreadableFromPageAndTotal</code></td>
+</tr>
+<tr>
+<td>A unique-violation 409 caused by an unreadable record names no id or number of it and carries no <code>Location</code> or <code>ETag</code></td>
+<td><code>TestUniqueViolationDoesNotIdentifyAnUnreadableRecord</code></td>
+</tr>
+<tr>
+<td>The not-found body itself is fixed and has no <code>instance</code> (supporting, not the proof above)</td>
 <td><code>TestNotFoundBodyIsIdenticalAndHasNoInstance</code></td>
 </tr>
 <tr>

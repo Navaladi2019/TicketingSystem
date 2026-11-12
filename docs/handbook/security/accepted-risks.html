@@ -846,15 +846,6 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td><a href="../../../docs/adr/ADR-006-filterable-tenant-fields.md">ADR-006 Risks</a></td>
 </tr>
 <tr>
-<td>AR-TICK-628-01 (thin CI images)</td>
-<td>🟡 Low †</td>
-<td>A pull request's <code>stack</code> run builds the seven Go services' images, and the interpreter cases' <code>nava-worker-interptest</code>, from <code>deploy/compose/Dockerfile.ci</code> over binaries built on the runner (<code>make ci-binaries</code>, <code>make image-ci IMAGE_THIN=1</code>), so it no longer exercises the real Dockerfiles' build stage (<code>go mod download</code>, the <code>COPY</code> of <code>cmd</code>, <code>internal</code>, <code>api</code>, <code>db</code>, the in-Docker <code>go build</code>). A change that breaks only that stage passes its PR and fails on the push to <code>main</code>, where <code>main-red</code> opens a P0. Bounded by: the real Dockerfiles on every push to <code>main</code> and on any PR touching a Dockerfile, <code>Dockerfile.ci</code>, <code>.dockerignore</code>, <code>go.mod</code>, <code>go.sum</code> or a compose <code>build:</code> block (<code>cichanged -images</code>); <code>TestDockerfileCIMatchesRealFinalStages</code> keeps base image, UID, user, binary path, entrypoint and ports equal.</td>
-<td>Accepted (TICK-628, 2026-11-08)</td>
-<td>Quality, Testing &amp; CI Advisor</td>
-<td>A red <code>main</code> from a real-image build that its PR's thin run passed; a real Dockerfile gains a build input outside <code>cmd</code>, <code>internal</code>, <code>api</code>, <code>db</code> (then add it to the <code>cichanged -images</code> rule); or a stage the check does not compare (<code>ENV</code>, <code>HEALTHCHECK</code>, <code>VOLUME</code>) in a real final stage</td>
-<td><a href="../../../docs/quality/ci-pipeline.md#thin-ci-images-tick-628">TICK-628 PR</a></td>
-</tr>
-<tr>
 <td>AR-TICK-653-01 (numbers issued before a mask)</td>
 <td>🟡 Low</td>
 <td>A number format with a <code>{field:…}</code> token prints the field's code into every number. If that field is masked later, numbers already issued keep showing it in audit rows, outbox events, sent emails and external references; they cannot be recalled. New numbers stop carrying it because a mask on a referenced field must be published together with a format that drops it.</td>
