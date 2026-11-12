@@ -741,6 +741,53 @@ class TestGen(Base):
         write(self.root, "docs/adr/ADR-006-no-status.md", "---\nid: ADR-006\ntitle: No status\n---\nbody\n")
         self.fails("ADR-006-no-status.md", "has no status")
 
+    RISKS = ("# Accepted risks\n\n| Flag | Meaning |\n| --- | --- |\n| x | y |\n\n## Register\n\n"
+             "| ID | Sev | Risk | Source |\n| --- | --- | --- | --- |\n"
+             "| AR-001 (R8) | High | A `nava-worker` cert \\| any tenant. | [ADR-001 §5](../adr/ADR-001-platform-blueprint.md#5) |\n"
+             "| AR-S5-01 | Low | Sync lag. | [e](../evidence/e.md), [gh](https://github.com/x/y), [here](#reg) |\n")
+
+    def test_accepted_risks_copies_rows_and_rebases_links(self):
+        write(self.root, "docs/security/accepted-risks.md", self.RISKS)
+        out = build.gen_accepted_risks(build.Facts(self.root, None), "AR-S5-01,AR-001")
+        lines = out.rstrip("\n").split("\n")
+        self.assertEqual(lines[:2], ["| ID | Sev | Risk | Source |", "| --- | --- | --- | --- |"])
+        self.assertEqual(lines[2], "| AR-S5-01 | Low | Sync lag. | [e](../../../evidence/e.md), "
+                                   "[gh](https://github.com/x/y), [here](#reg) |")
+        self.assertEqual(lines[3], "| AR-001 (R8) | High | A `nava-worker` cert \\| any tenant. | "
+                                   "[ADR-001 §5](../../../adr/ADR-001-platform-blueprint.md#5) |")
+        self.assertEqual(len(lines), 4)
+        page(self.root, "security/r.md", "R", "security", body="<!-- gen:accepted-risks -->")
+        h = self.html("security/r.html")
+        for want in ("AR-001 (R8)", "AR-S5-01", 'href="../../../docs/evidence/e.md"',
+                     'href="../../../docs/adr/ADR-001-platform-blueprint.md#5"'):
+            self.assertIn(want, h)
+
+    def test_accepted_risks_unknown_id_or_missing_register_fails(self):
+        page(self.root, "security/r.md", "R", "security", body="<!-- gen:accepted-risks ids=AR-001 -->")
+        self.fails("security/r.md", "accepted-risks.md does not exist")
+        write(self.root, "docs/security/accepted-risks.md", self.RISKS)
+        page(self.root, "security/r.md", "R", "security", body="<!-- gen:accepted-risks ids=AR-001,AR-999 -->")
+        self.fails("security/r.md", "unknown accepted-risk id AR-999")
+
+    def test_accepted_risks_reads_only_the_register_table(self):
+        # AR lines before the register and in a later summary table are not rows.
+        text = ("# Accepted risks\n\n| AR-777 | stray line above the register |\n\n" + self.RISKS.split("# Accepted risks\n", 1)[1]
+                + "\n## Summary\n\n| ID | Count |\n| --- | --- |\n| AR-888 | 1 |\n")
+        write(self.root, "docs/security/accepted-risks.md", text)
+        out = build.gen_accepted_risks(build.Facts(self.root, None), "")
+        self.assertIn("| AR-001 (R8) |", out)
+        self.assertIn("| AR-S5-01 |", out)
+        for no in ("AR-777", "AR-888", "| Count |"):
+            self.assertNotIn(no, out)
+        with self.assertRaises(ValueError) as cm:
+            build.gen_accepted_risks(build.Facts(self.root, None), "AR-888")
+        self.assertIn("unknown accepted-risk id AR-888", str(cm.exception))
+        # A row inside the register that is not an AR row fails the build.
+        write(self.root, "docs/security/accepted-risks.md", self.RISKS + "| TODO-1 | Low | x | y |\n")
+        with self.assertRaises(ValueError) as cm:
+            build.gen_accepted_risks(build.Facts(self.root, None), "")
+        self.assertIn("is not an AR row", str(cm.exception))
+
 
 class TestMarkdown(Base):
     def test_links(self):
