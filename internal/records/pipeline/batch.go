@@ -95,19 +95,20 @@ func (p *Pipeline) queuePrefetch(ctx context.Context, tx pgx.Tx, b *pgx.Batch, t
 	if cmd.IdempotencyKey != "" {
 		store.QueueWriteKeyByKey(b, tenant, optional(cmd.Actor.PrincipalID), cmd.IdempotencyKey, &pre.writeKey)
 	}
-	store.QueueDefinitionID(b, tenant, cmd.EntityKey, &pre.defID)
+	// A create asks the sink, in the same read, whether it fires anything.
+	trigger, asks := p.sink.(CreateTriggerQueuer)
+	switch {
+	case cmd.Op == OpCreate && asks:
+		var fires bool
+		store.QueueDefinitionIDAndFlag(b, tenant, cmd.EntityKey, trigger.CreateTriggeredSQL(), &pre.defID, &fires)
+		afterLast(b, func() { pre.createQuiet = !fires })
+	default:
+		store.QueueDefinitionID(b, tenant, cmd.EntityKey, &pre.defID)
+		_, noop := p.sink.(NoopSink)
+		pre.createQuiet = cmd.Op == OpCreate && noop
+	}
 	if cq, ok := p.defs.(currentQueuer); ok {
 		cq.QueueCurrent(tx, b, cmd.EntityKey)
-	}
-	if cmd.Op == OpCreate {
-		switch s := p.sink.(type) {
-		case NoopSink:
-			pre.createQuiet = true
-		case CreateTriggerQueuer:
-			var fires bool
-			s.QueueCreateTriggered(b, tenant, cmd.EntityKey, &fires)
-			afterLast(b, func() { pre.createQuiet = !fires })
-		}
 	}
 	if !cmd.Source.system() {
 		if pq, ok := p.authz.(policyQueuer); ok {

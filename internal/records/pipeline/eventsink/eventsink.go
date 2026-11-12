@@ -54,12 +54,12 @@ const (
 JOIN workflow_definitions d ON d.tenant_id = v.tenant_id AND d.id = v.definition_id AND d.current_version = v.version
 WHERE v.tenant_id = $1 AND v.trigger_entity_definition_id = $2 AND v.trigger_on = $3
 ORDER BY v.definition_id`
-	// createTriggeredSQL is triggeredSQL's question for a create, by entity
-	// key, asked on the write's prefetch batch: is there anything to start?
-	createTriggeredSQL = `SELECT EXISTS (SELECT 1 FROM workflow_definition_versions v
+	// createTriggeredSQL is triggeredSQL's question for a create, as a
+	// column of the pipeline's prefetch read of the entity type (aliased e):
+	// is there anything to start? The same index serves it.
+	createTriggeredSQL = `EXISTS (SELECT 1 FROM workflow_definition_versions v
 JOIN workflow_definitions d ON d.tenant_id = v.tenant_id AND d.id = v.definition_id AND d.current_version = v.version
-JOIN entity_definitions e ON e.tenant_id = v.tenant_id AND e.id = v.trigger_entity_definition_id
-WHERE v.tenant_id = $1 AND e.key = $2 AND v.trigger_on = '` + onCreated + `')`
+WHERE v.tenant_id = e.tenant_id AND v.trigger_entity_definition_id = e.id AND v.trigger_on = '` + onCreated + `')`
 	// waitingSQL finds the open interpreter runs on the record that wait on
 	// record_changed, but the writing run (index workflow_ref_waiting).
 	waitingSQL = `SELECT outbox_id, record_changed_signal_id FROM workflow_ref
@@ -76,17 +76,11 @@ var (
 	_ pipeline.CreateTriggerQueuer = Sink{}
 )
 
-// QueueCreateTriggered queues on b whether a create of entityKey fires any
-// published definition of tenant. A create has no run on its record yet, so
-// with none the sink has nothing to do (pipeline.CreateTriggerQueuer).
-func (Sink) QueueCreateTriggered(b *pgx.Batch, tenant uuid.UUID, entityKey string, fires *bool) {
-	b.Queue(createTriggeredSQL, tenant, entityKey).QueryRow(func(row pgx.Row) error {
-		if err := row.Scan(fires); err != nil {
-			return fmt.Errorf("eventsink: read triggers: %w", err)
-		}
-		return nil
-	})
-}
+// CreateTriggeredSQL is true, on the pipeline's read of an entity type e,
+// when a create of e fires a published definition. A create has no run on
+// its record yet, so with none the sink has nothing to do
+// (pipeline.CreateTriggerQueuer).
+func (Sink) CreateTriggeredSQL() string { return createTriggeredSQL }
 
 // RecordChanged starts the definitions ev fires and signals the runs waiting
 // on the record, in tx (see the package comment). Any error rolls the write

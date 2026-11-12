@@ -229,15 +229,17 @@ type EventSink interface {
 	RecordChanged(ctx context.Context, tx pgx.Tx, ev Event) error
 }
 
-// CreateTriggerQueuer is an EventSink that can tell, from a read on the
-// write's prefetch batch, that a create of an entity type gives it nothing
-// to do. When the read says so (*fires false once the batch ran), Write does
-// not call RecordChanged for that create, so a create with
-// Command.InsertAtCommit keeps its write on the commit round trip
-// (TICK-692). A create has no workflow on its record yet, so only a start
-// could be due.
+// CreateTriggerQueuer is an EventSink that can tell, on the write's prefetch
+// read of its entity type, that a create of that type gives it nothing to
+// do. CreateTriggeredSQL is a constant boolean SQL expression over that
+// entity_definitions row, aliased e (e.tenant_id, e.id), true when a create
+// fires anything; it is a column of the read Write sends anyway, so it costs
+// no statement and no round trip. When it is false, Write does not call
+// RecordChanged for the create, so a create with Command.InsertAtCommit keeps
+// its write on the commit round trip (TICK-692). A create has no workflow on
+// its record yet, so only a start could be due.
 type CreateTriggerQueuer interface {
-	QueueCreateTriggered(b *pgx.Batch, tenant uuid.UUID, entityKey string, fires *bool)
+	CreateTriggeredSQL() string
 }
 
 // NoopSink is the S9 EventSink: it does nothing. The API's pipeline uses

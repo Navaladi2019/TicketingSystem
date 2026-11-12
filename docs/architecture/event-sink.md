@@ -38,9 +38,10 @@ sequenceDiagram
   (`Command.WorkflowRef`, which only a system writer may set) never does. A run
   that closes between the lookup and the enqueue is skipped. The signal
   carries the write's causation.
-- **Creates.** A create has no run on its record yet. The sink answers on the
-  write's prefetch batch whether the create fires any definition
-  (`pipeline.CreateTriggerQueuer`). If it fires none, the sink is not called,
+- **Creates.** A create has no run on its record yet. The sink's trigger check
+  is a column of the prefetch's existing entity-type read
+  (`pipeline.CreateTriggerQueuer`), so it costs no statement and no trip. If the create fires
+  no definition, the sink is not called,
   and an `InsertAtCommit` create keeps its 4 round trips (TICK-692,
   TODO-S10-02).
 
