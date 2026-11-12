@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "88",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s17-ba228fba-b43",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 ba228fba gaps first after the upgrade\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-12T20:53:55.219097Z",
+      "data": {
+        "priority": 3,
+        "requester": "78ab2e16-a0f7-4c98-8ae6-6cdcbf741785",
+        "short_description": "S17 ba228fba gaps first after the upgrade",
+        "state": "new"
+      },
+      "id": "01a1d189-db89-77c8-92ce-5c2288eeaf99",
+      "number": "INC0000043",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T20:53:55.219097Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "number INC0000043",
+      "status": "pass"
+    }
+  ]
+}

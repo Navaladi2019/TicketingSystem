@@ -1,0 +1,28 @@
+meta {
+  name: S17.8 AC1: the admin reads INC0000043 back
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s17_a43_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('INC0000043, version 1', () => {
+    expect(N.json().number).to.eql('INC0000043');
+    expect(N.json().version).to.eql(1);
+  });
+}
+
+docs {
+  The record of S17.6, stored with its number.
+}

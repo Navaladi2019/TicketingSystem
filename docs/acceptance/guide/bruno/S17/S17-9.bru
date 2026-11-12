@@ -1,0 +1,52 @@
+meta {
+  name: S17.9 AC2: 8 clients create admin@tenant-a's incidents at once (gapless): unique numbers
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s17_par_a_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  // 8 creates sent at once (AC2): 8 clients, one request each, no waiting
+  // between them. The results go to a runtime variable for the tests.
+  const N = require('./lib/nava')({ bru });
+  const tok = bru.getVar('admin_a_token');
+  const run = bru.getVar('s17_run');
+  const send = (i) => N.send({
+    url: N.url('{{core_url}}/api/v1/records/incident'),
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', 'Idempotency-Key': `s17-${run}-a-par-${i}` },
+    data: { data: { short_description: `S17 ${run} a parallel ${i}` } },
+  });
+  const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => send(i + 1)));
+  bru.setVar('s17_par_a', JSON.stringify(rs.map(r => ({ status: r.status, number: r.data && r.data.number, id: r.data && r.data.id }))));
+  bru.setVar('s17_par_a_id', (rs[0].data && rs[0].data.id) || '00000000-0000-4000-8000-000000000000');
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const inc = (n) => 'INC' + String(n).padStart(7, '0');
+  const num = (s) => Number(String(s).slice(3));
+  N.status(200);
+  const rs = JSON.parse(bru.getVar('s17_par_a'));
+  test('8 creates, each 201', () => expect(rs.map(r => r.status)).to.eql([201, 201, 201, 201, 201, 201, 201, 201]));
+  const nums = rs.map(r => num(r.number)).sort((a, b) => a - b);
+  test(`the 8 numbers: ${nums.map(inc).join(' ')}`, () => expect(rs.every(r => /^INC[0-9]{7}$/.test(r.number))).to.eql(true));
+  test('8 different numbers', () => expect(new Set(nums).size).to.eql(8));
+  test('gapless: exactly INC0000044 to INC0000051, no gap', () => expect(nums).to.eql([44, 45, 46, 47, 48, 49, 50, 51]));
+  test('the record read back has its number', () => expect(N.json().number).to.eql(rs[0].number));
+  bru.setVar('s17_max_a', String(Math.max(...nums)));
+  console.log('S17 parallel a:', nums.map(inc).join(' '));
+}
+
+docs {
+  The pre-request script sends 8 `createRecord` requests at the same time as admin@tenant-a, each with its own Idempotency-Key, and keeps the 8 answers; this request reads the first record back. Tenant A's incident type is `gapless`: its creates queue on the counter row, and the 8 numbers are exactly INC0000044 to INC0000051.
+}
