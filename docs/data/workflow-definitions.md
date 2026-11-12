@@ -2,7 +2,7 @@
 
 TICK-709, S11b (TICK-337). The shapes are the S11b interface contract (D-3-29,
 `docs/delivery/decisions/2026-11-11-d-3-29-s11b-interface-contract.md`).
-Migrations: `db/migrations/20261111123300` to `20261111123400`.
+Migrations: `db/migrations/20261112123300` to `20261112123400`.
 
 ## Model
 
@@ -69,7 +69,7 @@ No role has DELETE on any of the three tables, and no role has UPDATE on a versi
 ## Decisions beyond the contract
 
 - **Nullable `created_by` / `published_by`.** This follows `entity_definition_versions.published_by` (P3-02). A NULL is a seeded definition (the demos, and future templates). A set value is held to its own tenant by the composite FK. P3-41's publish route always sets it.
-- **Audit.** Both definition tables are `audited` under a new subject type, `workflow_definition` (`20261111123310`/`0123320`), with `attached: false`. P3-41's publish writes the config entry and attaches `audit_commit_check`, as `record_shares` did. `workflow_cause` is exempt: it copies the causation of an outbox row whose write is already audited.
+- **Audit.** Both definition tables are `audited` under a new subject type, `workflow_definition` (`20261112123310`/`0123320`), with `attached: false`. P3-41's publish writes the config entry and attaches `audit_commit_check`, as `record_shares` did. `workflow_cause` is exempt: it copies the causation of an outbox row whose write is already audited.
 - **No FK from `workflow_cause` to `outbox` or `workflow_ref`.** Both of those tables are purged, and a NO ACTION key would make the purge fail. `workflow_cause` has no purge yet. It should be purged with `workflow_ref` (30 days after close); that task is open.
 - **`step_ids` is `jsonb`, `CHECK (jsonb_typeof = 'object')`.** It is read whole and never hashed. Validating its contents (UUIDv4 values) stays in `AssignStepIDs` (P3-41).
 
@@ -107,7 +107,7 @@ This was found while proving the `cascade_start` FK pair, on postgres:16.10:
 | Both tables, with a temporary `TO nava_migrator USING (true)` SELECT policy on each | yes / none | fails / passes (correct) |
 | `CHECK` constraint on a FORCE RLS table | violating row | fails (correct: a heap scan) |
 
-`20261111123340` therefore creates those two temporary policies, validates and drops them in one transaction.
+`20261112123340` therefore creates those two temporary policies, validates and drops them in one transaction.
 `TestP340CascadeStartDefinitionKeyOverExistingClaims` pins this: an orphan claim must stop the migration.
 
 Two earlier FK validations have the same shape and were probably validated vacuously:

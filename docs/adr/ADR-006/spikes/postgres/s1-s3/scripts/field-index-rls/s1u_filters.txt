@@ -1,0 +1,8 @@
+u_eq_40|EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_tier::uuid AND v.value = 'a40')
+u_eq_2|EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_tier::uuid AND v.value = 'b2')
+u_eq_025|EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_tier::uuid AND v.value = 'c025')
+u_in_2|EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_zone::uuid AND v.value = ANY ('{p2a,p2b}'::text[]))
+u_lt_40|EXISTS (SELECT 1 FROM rfv_num v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_score::uuid AND v.value < 4000)
+u_lt_2|EXISTS (SELECT 1 FROM rfv_num v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_score::uuid AND v.value < 200)
+u_ts_2|EXISTS (SELECT 1 FROM rfv_ts v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_opened::uuid AND v.value >= timestamptz '2025-01-01T00:00:00Z' AND v.value < timestamptz '2025-01-02T09:20:00Z')
+u_bo_2|EXISTS (SELECT 1 FROM rfv_bool v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = :f_b2::uuid AND v.value = true)
