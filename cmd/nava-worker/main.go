@@ -125,7 +125,8 @@ func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) 
 // newWorker builds the guarded client and worker, the workflow_ref and sealer
 // activities' pool and the readiness checks, registers the audit sealer, and
 // registers the interpreter when
-// interpreterActivities returns its ports (an interptest build only). The
+// interpreterActivities returns its ports (the database DefinitionStore in a
+// production build, the fixtures in an interptest build). The
 // returned func closes the client and the pools; call it after the worker has
 // stopped.
 func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, lookup config.LookupFunc, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
@@ -136,13 +137,6 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	workflows, err := workflowsMode(lookup)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	acts, err := interpreterActivities(lookup)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if acts != nil && !workflows {
-		return nil, nil, nil, errors.New("config: " + WorkflowsEnv + "=off cannot run the interpreter")
 	}
 	tt, err := tel.NewTemporal(log)
 	if err != nil {
@@ -176,6 +170,16 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		return nil, nil, nil, err
 	}
 	closeAll := func() { closePG(); pool.Close(); c.Close() }
+
+	acts, err := interpreterActivities(lookup, pool)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
+	if acts != nil && !workflows {
+		closeAll()
+		return nil, nil, nil, errors.New("config: " + WorkflowsEnv + "=off cannot run the interpreter")
+	}
 
 	// Temporal gates readiness here: a worker that cannot reach the frontend
 	// does nothing. The probe uses the worker's own client.

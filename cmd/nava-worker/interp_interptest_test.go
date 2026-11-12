@@ -13,12 +13,12 @@ import (
 // directory); both must be absolute paths.
 func TestInterptestBuildWiresTheFakes(t *testing.T) {
 	for _, v := range []string{"", "relative/dir"} {
-		if _, err := interpreterActivities(func(string) (string, bool) { return v, v != "" }); err == nil {
+		if _, err := interpreterActivities(func(string) (string, bool) { return v, v != "" }, nil); err == nil {
 			t.Errorf("%s=%q: accepted", FixtureDirEnv, v)
 		}
 	}
 	dir := t.TempDir()
-	acts, err := interpreterActivities(func(k string) (string, bool) { return dir, k == FixtureDirEnv })
+	acts, err := interpreterActivities(func(k string) (string, bool) { return dir, k == FixtureDirEnv }, nil)
 	if err != nil || acts == nil {
 		t.Fatalf("interpreterActivities = (%v, %v)", acts, err)
 	}
@@ -33,7 +33,7 @@ func TestInterptestBuildWiresTheFakes(t *testing.T) {
 	// directory.
 	writes := t.TempDir()
 	env := map[string]string{FixtureDirEnv: dir, WritesDirEnv: writes}
-	acts, err = interpreterActivities(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+	acts, err = interpreterActivities(func(k string) (string, bool) { v, ok := env[k]; return v, ok }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestInterptestBuildWiresTheFakes(t *testing.T) {
 		t.Errorf("Records %#v, want the file records over %s", acts.Records, dir)
 	}
 	env[WritesDirEnv] = "relative"
-	if _, err := interpreterActivities(func(k string) (string, bool) { v, ok := env[k]; return v, ok }); err == nil {
+	if _, err := interpreterActivities(func(k string) (string, bool) { v, ok := env[k]; return v, ok }, nil); err == nil {
 		t.Errorf("%s=relative: accepted", WritesDirEnv)
 	}
 }
