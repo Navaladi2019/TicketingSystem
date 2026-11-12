@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Benchmarks - Nava handbook</title>
+<title>Benchmarks and budgets - Nava handbook</title>
 <link rel="stylesheet" href="../assets/handbook.css">
 </head>
 <body data-root="../">
@@ -29,16 +29,361 @@
 <div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
 <ul></ul></div>
 <div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
-<ul></ul></div>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
 <ul></ul></div>
 </nav>
 </aside>
 <main>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../benchmarks/index.html">benchmarks</a> / <span>Benchmarks</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../benchmarks/index.html">benchmarks</a> / <span>Benchmarks and budgets</span></nav>
 <article>
-<h1 class="page-title">Benchmarks</h1>
-<p>TODO: the performance budgets and how they are measured.</p>
+<h1 class="page-title">Benchmarks and budgets</h1>
+<p>A budget is a cost the platform keeps in bounds. <a href="../../../docs/budgets.md">docs/budgets.md</a> is the normative list: what is measured, how, the limit, the baseline and the owner. A change that breaks a budget needs a new measurement and the owner's sign-off. This page puts each budget next to its <strong>latest result of record</strong>.</p>
+<h2 id="how-to-read-the-tables">How to read the tables</h2>
+<ul>
+<li><strong>One row per budget and host class.</strong> Results from different hosts cannot be compared. The commit-check trigger reads 80 µs per probe on one CI CPU model and 195 µs on another, in the same job.</li>
+<li><strong>Host classes.</strong> <em>CI runner</em> is a GitHub-hosted <code>ubuntu-latest</code> runner, named with its CPU model. <em>Idle reference machine</em> is the Docker Desktop on Windows host with nothing else running. <em>Reference host</em> is the same kind of machine with other containers present. <em>Laptop</em> is a developer machine.</li>
+<li><strong>Verdicts.</strong> <strong>met</strong>: within the limit. <strong>warn</strong>: over a report-only threshold; the CI job passes with a warning. <strong>waived</strong> and <strong>known miss</strong>: over the target, with the decision that accepts it linked in the row. <strong>no result yet</strong>: the budget exists but no measured result is committed. The row says "no recorded result" and is not left out.</li>
+<li><strong>Commit.</strong> The commit the result was measured at. "not recorded" means the source did not record it. It is never guessed.</li>
+<li><strong>Nothing is fetched.</strong> The figures come from <code>docs/handbook/src/benchmarks/benchmarks.yaml</code>, written by hand from the sources. Run links are plain links. The build fails when a row of <code>docs/budgets.md</code> has no entry there, or when a source file or heading no longer exists.</li>
+</ul>
+<h2 id="results">Results</h2>
+<h3 id="audit-commit-check-trigger-ci-job-commit-check-budget">Audit commit-check trigger (CI job commit-check-budget)</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Commit-check trigger, single subject</td>
+<td>300 µs per call at N = 200, 1,000 and 5,000 (warn). The job fails on fail_no_rows, fail_ratio or fail_flat (ADR-004-E4)</td>
+<td>126.1 / 123.8 / 125.1 µs per call (max/min 1.02); reference 93.4, ratio 1.35</td>
+<td><strong>met</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), AMD EPYC 9V45</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41708883885/job/126171856161">run</a></td>
+</tr>
+<tr>
+<td>Commit-check trigger, single subject</td>
+<td>300 µs per call (as above)</td>
+<td>235.7 / 227.7 / 230.5 µs per call (1.03); reference 161.9, ratio 1.46</td>
+<td><strong>met</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), AMD EPYC 7763</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41679998550/job/126071064410">run</a></td>
+</tr>
+<tr>
+<td>Commit-check trigger, single subject</td>
+<td>300 µs per call (as above)</td>
+<td>170.5 / 163.6 / 164.8 µs per call (1.04); reference 133.5, ratio 1.28</td>
+<td><strong>met</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), CPU not logged</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41673342312/job/126047559767">run</a></td>
+</tr>
+<tr>
+<td>Commit-check trigger, import (10,000 subjects)</td>
+<td>175 µs per probe (warn). Same fail conditions as the single-subject row</td>
+<td>80.3 µs per probe (runs 80.2 / 81.5 / 80.3); reference 9.9, ratio 8.13</td>
+<td><strong>met</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), AMD EPYC 9V45</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41708883885/job/126171856161">run</a></td>
+</tr>
+<tr>
+<td>Commit-check trigger, import (10,000 subjects)</td>
+<td>175 µs per probe (as above)</td>
+<td>194.9 µs per probe (runs 195.3 / 194.9 / 191.2); reference 22.7, ratio 8.58. Over the threshold on a slow host, not a regression: the ratio is in line with the other CPU models and the TICK-526 spike read 189.0 to 193.5 over 7 runs (ADR-004-E6). The job passes with a warning</td>
+<td><strong>warn</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), AMD EPYC 7763</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41679998550/job/126071064410">run</a></td>
+</tr>
+<tr>
+<td>Commit-check trigger, import (10,000 subjects)</td>
+<td>175 µs per probe (as above)</td>
+<td>127.7 µs per probe (runs 127.4 / 127.7 / 129.3); reference 13.1, ratio 9.75</td>
+<td><strong>met</strong></td>
+<td>2026-11-03/04</td>
+<td>not recorded</td>
+<td>CI runner (ubuntu-latest, 4 vCPU), CPU not logged</td>
+<td><a href="../../../docs/budgets.md#performance-budgets">source</a> · <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/41673342312/job/126047559767">run</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="migration-lock-holds">Migration lock holds</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Migration A/B tenant-lock hold (S8 backfill, audit_backfill_s8())</td>
+<td>≤ 18 s at 100k S8 versions</td>
+<td>0.18 ms per backfilled version, linear: 5.62 s at 30,000 and 54.69 s at 300,000 (first run); a re-run with every entry present takes 2.32 s at 300,000. 100k was not run: 18 s is the linear figure, and the limit was set from this measurement</td>
+<td><strong>met</strong></td>
+<td>2026-11-03</td>
+<td>not recorded</td>
+<td>Laptop (dev host, Windows 11, Docker, 16 CPUs, postgres:16.10)</td>
+<td><a href="../../../scratch/audit-backfill-s8/RESULT.md#final-numbers">source</a></td>
+</tr>
+<tr>
+<td>Migration B lock hold (P5-32)</td>
+<td>≤ 5 s at 10,000 tenants and 300,000 S8 versions</td>
+<td>4.29 s at 10,000 tenants / 300,972 versions; 0.48 s at 1,000 / 30,093</td>
+<td><strong>met</strong></td>
+<td>2026-11-07</td>
+<td>not recorded</td>
+<td>Laptop (dev host, Windows 11, Docker, 16 CPUs, postgres:16.10, fsync off)</td>
+<td><a href="../../../docs/data/audit-migration-b-bench/RESULT.md#numbers">source</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="record-history">Record history</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Record history length (GET /api/v1/records/{entity}/{id}/history)</td>
+<td>500 entries; over it the endpoint answers 422 history_too_long and reads nothing</td>
+<td>no recorded result. A cap enforced in code, not a timing: TestPatchHistoryIsCapped proves a page reads at most the cap's rows. Lifting the cap is TICK-548</td>
+<td><strong>no result yet</strong></td>
+<td>-</td>
+<td>-</td>
+<td>None (no timing is recorded)</td>
+<td><a href="../../../docs/budgets.md#record-history">source</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="record-numbering-and-create-adr-005-p3-36">Record numbering and create (ADR-005, P3-36)</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Counter wait, gaps type (L2s), 8 clients, SQL level</td>
+<td>≤ 2 ms p95</td>
+<td>p95 0.99 / 0.84 ms over two reps on a quiet host (p50 0.31 / 0.25); 1.20 ms p95 on a contended host (p50 0.33). docs/budgets.md labels the quiet-host figures 0.84 / 0.99 as p50 / p95; they are the two reps' p95 (TICK-760)</td>
+<td><strong>met</strong></td>
+<td>2026-11-09/10</td>
+<td>not recorded</td>
+<td>Laptop (Technical Architect's spike S1 host, quiet), postgres:16.10</td>
+<td><a href="../../../docs/adr/ADR-005/spikes/technical-architect/s1/rfc014-s1-raw.md#quiet-host-8-clients-x2-reps--1-client">source</a></td>
+</tr>
+<tr>
+<td>Create, 1 client, in-process handler</td>
+<td>≤ 50 ms p95</td>
+<td>23.0 ms p95, first attempt, every gate passed</td>
+<td><strong>met</strong></td>
+<td>2026-11-11</td>
+<td><code>9975568b</code></td>
+<td>Idle reference machine (Docker Desktop on Windows, WSL2 disk; no PgBouncer, no HTTP transport)</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#create-re-run-on-the-idle-machine-option-a-2026-11-11-032x-utc-every-valid-row-meets">source</a></td>
+</tr>
+<tr>
+<td>Create, 8 clients, gaps type: agent / admin / small tenant</td>
+<td>≤ 50 ms p95, kept strictly (option A)</td>
+<td>42.4 / 42.1 / 47.2 ms p95, each row on its first attempt. Small tenant meets by 2.8 ms; whether production storage keeps the margin is an accepted risk</td>
+<td><strong>met</strong></td>
+<td>2026-11-11</td>
+<td><code>9975568b</code></td>
+<td>Idle reference machine (Docker Desktop on Windows, WSL2 disk; no PgBouncer, no HTTP transport)</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#create-re-run-on-the-idle-machine-option-a-2026-11-11-032x-utc-every-valid-row-meets">source</a> · <a href="../../../docs/security/accepted-risks.md#register">AR-S10-02</a></td>
+</tr>
+<tr>
+<td>Waiver: create, 8 clients, gapless type (L1)</td>
+<td>≤ 213.7 ms p95 (the 50 ms target is waived for gapless types only)</td>
+<td>205.7 ms p95; counter wait p50 / p95 39.3 / 186.2 ms. Reported, not scored. docs/budgets.md still quotes the earlier 213.7 ms at 25aedcf0 (2026-11-10) as its baseline</td>
+<td><strong>waived</strong></td>
+<td>2026-11-11</td>
+<td><code>9975568b</code></td>
+<td>Idle reference machine (Docker Desktop on Windows, WSL2 disk; no PgBouncer, no HTTP transport)</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#final-verdict-p3-36">source</a> · <a href="../../../docs/adr/ADR-005-record-numbering.md#21-gaps-policy--decided-per-type">ADR-005 §2.1 L1 waiver</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="lists-and-reads-at-800k-records-p3-36">Lists and reads at 800k records (P3-36)</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>List, fixed columns: agent by group page 1 / 20, agent filter[state]=new, admin state in</td>
+<td>≤ 150 ms p95</td>
+<td>73.5 / 71.2, 76.2, 68.2 ms p95</td>
+<td><strong>met</strong></td>
+<td>2026-11-10</td>
+<td><code>9da6f7e1</code></td>
+<td>Reference host (laptop, Docker on WSL2, 16 vCPU), idle apart from under-1% containers</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#final-re-run-after-tick-656-and-tick-657-gaps-allowed-numbering">source</a></td>
+</tr>
+<tr>
+<td>List, other rows: agent sort=-updated_at / sort=assignee, admin page 1 / 20, requester page 1 / 20, small tenant agent / admin</td>
+<td>≤ 150 ms p95</td>
+<td>146.2 / 117.5, 66.6 / 59.8, 75.4 / 76.8, 111.5 / 70.4 ms p95. Some rows ran while another stack came up; contention only adds time, so a meet still holds</td>
+<td><strong>met</strong></td>
+<td>2026-11-09</td>
+<td><code>45635f89</code></td>
+<td>Reference host (laptop, Intel i7-1260P, Docker on WSL2, 16 vCPU), partly contended</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#final-re-run-after-tick-647-tick-648-and-tick-644">source</a></td>
+</tr>
+<tr>
+<td>List, data filters: priority=1 / site=s7</td>
+<td>≤ 150 ms p95</td>
+<td>223.8 / 224.4 ms p95; a timeout answers 422 filter_too_expensive, none hang</td>
+<td><strong>known miss</strong></td>
+<td>2026-11-09</td>
+<td><code>45635f89</code></td>
+<td>Reference host (laptop, Intel i7-1260P, Docker on WSL2, 16 vCPU), partly contended</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#final-re-run-after-tick-647-tick-648-and-tick-644">source</a> · <a href="../../../docs/quality/acl-perf-800k.md#final-verdict-p3-36">accepted by the CTO (TICK-646)</a></td>
+</tr>
+<tr>
+<td>Single read: agent / admin / small tenant</td>
+<td>≤ 50 ms p95</td>
+<td>25.0 / 21.0 / 16.1 ms p95, no waiver</td>
+<td><strong>met</strong></td>
+<td>2026-11-09</td>
+<td><code>45635f89</code></td>
+<td>Reference host (laptop, Intel i7-1260P, Docker on WSL2, 16 vCPU), partly contended</td>
+<td><a href="../../../docs/quality/acl-perf-800k.md#final-re-run-after-tick-647-tick-648-and-tick-644">source</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="other-budgets">Other budgets</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PostgreSQL server connections, compose stack at 1 nava-core replica</td>
+<td>≤ 247 (max_connections 250 minus 3 reserved)</td>
+<td>226, summed from the configured ceilings (computed, not measured); each further replica adds 24</td>
+<td><strong>met</strong></td>
+<td>2026-11-11</td>
+<td><code>9975568b</code></td>
+<td>None: a static sum re-checked by TestConnectionBudgetFits on every test run</td>
+<td><a href="../../../docs/budgets.md#connection-sizing">source</a></td>
+</tr>
+<tr>
+<td>Relay claim latency (T33, task bench:relay, BenchmarkClaim), report-only</td>
+<td>None set: report-only</td>
+<td>no recorded result</td>
+<td><strong>no result yet</strong></td>
+<td>-</td>
+<td>-</td>
+<td>None</td>
+<td><a href="../../../Taskfile.yml">source</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="where-each-number-comes-from">Where each number comes from</h2>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>How to run it</th>
+<th>Where it runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Commit-check trigger</td>
+<td><code>task test:commit-check-budget</code> (<code>TestCommitCheckBudget</code>)</td>
+<td>CI job <code>commit-check-budget</code>, report-only (ADR-004-E4). The baseline is the median of at least 3 runs of the job on one CPU model (ADR-004-E6). A laptop run is not a baseline</td>
+</tr>
+<tr>
+<td>Lists, single reads and creates at 800k records (P3-36)</td>
+<td><code>task bench:acl-perf</code> (<code>bench/acl-perf/run.sh</code>), about 32 minutes</td>
+<td>Manually, on the reference host; not in CI. Each create attempt counts only when it passes the transport, host-speed, storage and container gates</td>
+</tr>
+<tr>
+<td>Migration lock holds</td>
+<td><code>scratch/audit-backfill-s8/run.sh</code>, <code>docs/data/audit-migration-b-bench/run.sh</code></td>
+<td>Manually, on a developer host, against <code>postgres:16.10</code> in Docker</td>
+</tr>
+<tr>
+<td>Connection sizing</td>
+<td><code>TestConnectionBudgetFits</code>, <code>TestAllocatorPoolSizing</code> in <code>task test</code></td>
+<td>Every test run: a static sum, nothing is timed</td>
+</tr>
+<tr>
+<td>Relay claim latency (T33)</td>
+<td><code>task bench:relay</code> (<code>BenchmarkClaim</code>)</td>
+<td>Report-only; no result is committed</td>
+</tr>
+</tbody>
+</table>
+<h2 id="not-on-this-page">Not on this page</h2>
+<ul>
+<li><strong>The 100/s open-loop create run</strong> (TICK-700) is informational: it has no target and no verdict. It is in <a href="../../../docs/quality/acl-perf-800k.md#100s-open-loop-create-informational-tick-700-2026-11-11-0443-utc">acl-perf-800k.md</a>.</li>
+<li><strong>The PgBouncer load test</strong> (T06) checks correctness under load, not a latency budget: 50 clients on 5 server connections with zero prepared-statement errors. See <a href="../../../docs/quality/pgbouncer-load.md">pgbouncer-load.md</a>.</li>
+<li><strong>Production numbers.</strong> Every result here comes from a CI runner or a local Docker host. The go-live benchmark on production storage is the trigger of accepted risk <code>AR-S10-02</code> in <a href="../../../docs/security/accepted-risks.md">accepted-risks.md</a>.</li>
+</ul>
+<h2 id="budget-owners">Budget owners</h2>
 <table>
 <thead>
 <tr>
@@ -80,7 +425,7 @@
 </tr>
 <tr>
 <td>Record numbering</td>
-<td>Create, 1 client, over HTTP</td>
+<td>Create, 1 client, in-process handler</td>
 <td>Quality, Testing &amp; CI Advisor</td>
 </tr>
 <tr>
@@ -96,7 +441,13 @@
 </tbody>
 </table>
 </article>
-<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-004-E3</h3><ul><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+<h3>ADR ADR-004-E4</h3><ul><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+<h3>ADR ADR-004-E6</h3><ul><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

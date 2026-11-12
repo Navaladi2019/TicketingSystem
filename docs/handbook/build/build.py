@@ -1049,7 +1049,7 @@ def expand_gen(f, body):
 def gen_block(f, kind, args):
     allow = {"operations": ("tag", "ids"), "tables": ("area",), "er": ("area",),
              "migrations": (), "adr-index": (), "budgets": (),
-             "areas": (), "rls": (), "grants": (), "audited": (), "stories": ()}
+             "areas": (), "rls": (), "grants": (), "audited": (), "stories": (), "benchmarks": ()}
     if kind not in allow:
         raise ValueError("unknown block kind")
     for k in args:
@@ -1075,6 +1075,8 @@ def gen_block(f, kind, args):
         return gen_adr_index(f)
     if kind == "stories":
         return gen_stories(f)
+    if kind == "benchmarks":
+        return gen_benchmarks(f)
     return gen_budgets(f)
 
 
@@ -1641,6 +1643,163 @@ def gen_budgets(f):
         if len(cols) >= 2:
             rows.append("| %s | %s | %s |" % (cell(section), cell(cols[0]), cell(cols[-1])))
     return "\n".join(rows) + "\n"
+
+
+# ------------------------------------------------------------- benchmarks
+# src/benchmarks/benchmarks.yaml says, for each budget, which measured result
+# is the latest one of record. The generator never guesses "latest" and never
+# fetches anything: every figure is written in the manifest with its date,
+# commit, host class and source, and the build checks what it can check
+# offline (every docs/budgets.md row is covered, every source path and
+# heading anchor exists, the verdict is one of the agreed words).
+
+BENCH_VERDICTS = ("met", "warn", "waived", "known miss", "no result yet")
+BENCH_KEYS = {"group", "budget", "budgets_md", "threshold", "result", "date", "commit", "host",
+              "verdict", "source", "run", "decision", "decision_label", "note"}
+BENCH_RUN = re.compile(r"^https://github\.com/Navaladi2019/TicketingSystem/actions/runs/\d+(/job/\d+)?$")
+NOT_RECORDED = "not recorded"
+NO_RESULT = "no recorded result"
+
+
+def budget_rows(f):
+    """The first column of every budget table row in docs/budgets.md."""
+    out = []
+    for line in read_text(f.path("docs", "budgets.md")).split("\n"):
+        if not line.startswith("|") or line.startswith("|---") or line.startswith("| Budget"):
+            continue
+        cols = split_row(line)
+        if len(cols) >= 2 and cols[0]:
+            out.append(cols[0])
+    return out
+
+
+def md_anchors(text):
+    """GitHub's heading ids for a Markdown file: lower case, punctuation other
+    than - and _ dropped, spaces to -, then -1, -2 ... for repeats."""
+    seen, out, fenced = {}, set(), False
+    for line in text.split("\n"):
+        if line.startswith("```"):
+            fenced = not fenced
+        m = None if fenced else re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", line)
+        if not m:
+            continue
+        slug = re.sub(r"[^\w\- ]", "", m.group(1).strip().lower()).replace(" ", "-")
+        n = seen.get(slug, 0)
+        seen[slug] = n + 1
+        out.add(slug if n == 0 else "%s-%d" % (slug, n))
+    return out
+
+
+def bench_path(f, what, ref, errs):
+    """Check path#anchor: the path is a file inside the repository and, for a
+    Markdown file, the anchor is one of its headings."""
+    path, _, anchor = ref.partition("#")
+    if not path or os.path.isabs(path) or ".." in path.split("/"):
+        errs.append("%s %r is not a path inside the repository" % (what, ref))
+        return
+    full = f.path(*path.split("/"))
+    if not os.path.isfile(full):
+        errs.append("%s %r: %s does not exist" % (what, ref, path))
+        return
+    if anchor and path.endswith(".md") and anchor not in md_anchors(read_text(full)):
+        errs.append("%s %r: %s has no heading with the id %r" % (what, ref, path, anchor))
+
+
+def load_benchmarks(f):
+    p = f.path(HANDBOOK, "src", "benchmarks", "benchmarks.yaml")
+    if not os.path.exists(p):
+        raise ValueError("docs/handbook/src/benchmarks/benchmarks.yaml does not exist")
+    try:
+        doc = parse_yaml(read_text(p))
+    except ValueError as e:
+        raise ValueError("benchmarks.yaml: %s" % e)
+    if not isinstance(doc, dict) or set(doc) != {"rows"} or not isinstance(doc["rows"], list):
+        raise ValueError("benchmarks.yaml: the only top-level key is rows, a list")
+    rows, errs, covered = doc["rows"], [], set()
+    if not rows:
+        raise ValueError("benchmarks.yaml: rows is empty")
+    for i, r in enumerate(rows, 1):
+        if not isinstance(r, dict):
+            errs.append("benchmarks.yaml: row %d is not a mapping" % i)
+            continue
+        name = "benchmarks.yaml: row %d (%s)" % (i, r.get("budget", "?"))
+        unknown = set(r) - BENCH_KEYS
+        if unknown:
+            errs.append("%s has unknown keys %s" % (name, sorted(unknown)))
+        for k in ("group", "budget", "threshold", "host", "verdict", "source"):
+            if not r.get(k):
+                errs.append("%s needs %s" % (name, k))
+        v = r.get("verdict", "")
+        if v and v not in BENCH_VERDICTS:
+            errs.append("%s verdict %r, want one of: %s" % (name, v, ", ".join(BENCH_VERDICTS)))
+        if v == "no result yet":
+            for k in ("result", "date", "commit", "run"):
+                if r.get(k):
+                    errs.append("%s has no result yet but sets %s" % (name, k))
+        elif v:
+            if not r.get("result"):
+                errs.append("%s needs a result (or verdict: no result yet)" % name)
+            if not re.match(r"^\d{4}-\d{2}-\d{2}(/\d{2})?$", r.get("date", "")):
+                errs.append("%s date %r is not YYYY-MM-DD or a range YYYY-MM-DD/DD" % (name, r.get("date", "")))
+            c = r.get("commit", "")
+            if c != NOT_RECORDED and not re.match(r"^[0-9a-f]{7,40}$", c):
+                errs.append("%s commit %r: a 7-40 digit hex sha, or %r, never a guess" % (name, c, NOT_RECORDED))
+        if v in ("waived", "known miss") and not r.get("decision"):
+            errs.append("%s is %s and needs the decision or accepted-risk row it rests on" % (name, v))
+        if r.get("decision") and not r.get("decision_label"):
+            errs.append("%s needs a decision_label for its decision link" % name)
+        if r.get("run") and not BENCH_RUN.match(r["run"]):
+            errs.append("%s run %r is not a GitHub Actions run link of this repository" % (name, r["run"]))
+        for k in ("source", "decision"):
+            if r.get(k):
+                bench_path(f, "%s %s" % (name, k), r[k], errs)
+        if r.get("budgets_md"):
+            covered.add(r["budgets_md"])
+    present = budget_rows(f)
+    if not present:
+        errs.append("docs/budgets.md: no budget rows found")
+    for b in present:
+        if b not in covered:
+            errs.append("benchmarks.yaml: the docs/budgets.md row %r has no entry (add one with budgets_md set to it)" % b)
+    for b in sorted(covered - set(present)):
+        errs.append("benchmarks.yaml: budgets_md %r is not a row of docs/budgets.md" % b)
+    if errs:
+        raise ValueError("\n".join(errs))
+    return rows
+
+
+def gen_benchmarks(f):
+    """One table per group: each budget next to its latest result of record."""
+    rows = load_benchmarks(f)
+    up = "../../../../"  # a section page sits at docs/handbook/src/<section>/
+    groups, order = {}, []
+    for r in rows:
+        if r["group"] not in groups:
+            groups[r["group"]] = []
+            order.append(r["group"])
+        groups[r["group"]].append(r)
+    out = []
+    for g in order:
+        out.append("### %s\n" % g)
+        out.append("| Budget | Threshold | Latest result | Verdict | Date | Commit | Host class | Evidence |")
+        out.append("|---|---|---|---|---|---|---|---|")
+        for r in groups[g]:
+            v = r["verdict"]
+            result = cell(r.get("result", "")) or NO_RESULT
+            if r.get("note"):
+                result += ". " + cell(r["note"])
+            commit = r.get("commit", "")
+            commit = "-" if v == "no result yet" else ("`%s`" % commit if commit != NOT_RECORDED else NOT_RECORDED)
+            ev = ["[source](%s%s)" % (up, r["source"])]
+            if r.get("run"):
+                ev.append("[run](%s)" % r["run"])
+            if r.get("decision"):
+                ev.append("[%s](%s%s)" % (cell(r["decision_label"]), up, r["decision"]))
+            out.append("| %s | %s | %s | **%s** | %s | %s | %s | %s |" % (
+                cell(r["budget"]), cell(r["threshold"]), result, v,
+                cell(r.get("date", "")) or "-", commit, cell(r["host"]), " · ".join(ev)))
+        out.append("")
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- Markdown
