@@ -397,6 +397,11 @@ class TestReferences(Base):
             (good + "unassigned:\n  - path: docs/evidence/e.md\n", "needs a reason"),
             (good + "unassigned:\n  - path: docs/evidence/gone.md\n    reason: r\n", "does not exist"),
             (good + "extra: 1\n", "the only top-level keys"),
+            (good.replace("2026-11-01", "2026-13-45"), "needs an ISO date"),
+            (good.replace("evidence: [docs/evidence/e.md]", "evidence:\n      - x: 1"),"evidence must be a list of repo paths"),
+            (head + "    status: planned\n    date: 2026-13-45\n", "date '2026-13-45' is not an ISO date"),
+            (good.replace("bruno: S14", "bruno: [a/b]"), "bruno 'a/b' is not a folder name"),
+            (good + "unassigned: nope\n", "unassigned must be a list"),
         ]
         for text, want in cases:
             with self.subTest(want):
