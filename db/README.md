@@ -36,12 +36,6 @@ migrates.
   longer wait must `SET lock_timeout = '<n>s'` before the statement and
   `RESET lock_timeout` at the end of the file, and stay re-runnable
   (`DROP ... IF EXISTS` before `CREATE ... IF NOT EXISTS`).
-- Every migration changes the schema snapshot that the handbook reads,
-  `docs/handbook/src/database/schema.json`, and its `migration` version.
-  Refresh it with `make schema-snapshot` (Docker) and commit it in the same
-  change. Until you do, `TestSchemaSnapshot` fails in the integration job.
-  The format is described in
-  [`docs/handbook/src/database/schema.md`](../docs/handbook/src/database/schema.md).
 
 ## JIT (off on the platform database)
 

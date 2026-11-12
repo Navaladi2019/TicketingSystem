@@ -1,7 +1,7 @@
 ---
 title: "Schema snapshot (schema.json)"
 section: database
-sources: [internal/db/catalog/snapshot.go, internal/db/catalog/snapshot_keys.go, internal/db/dbtest/schema_snapshot_test.go]
+sources: [docs/handbook/build/schema.sql, docs/handbook/build/schema_json.py, db/migrations]
 status: delivered
 ---
 
@@ -14,32 +14,41 @@ migration SQL and never connect to a database, so `task handbook`, `task lint`
 and `task test` stay database-free (TICK-718 D-HB-9, TICK-733).
 
 This page is the contract between the writer (TICK-733) and the handbook
-reader (TICK-719), as the Technical Lead decided on TICK-733. The key table
-below is machine-read: a test fails when the snapshot is missing a key that
-the table lists, or carries a key that the table does not list.
+reader (TICK-719), as the Technical Lead decided on TICK-733.
 
-## Who writes it and when it is checked
+## Regenerating it
 
-- `TestSchemaSnapshot` (`internal/db/dbtest`, build tag `integration`)
-  migrates a fresh cluster with the real migrator. The run includes the
-  runtime-built `audit_log` policies from `db/audited-tables.yaml`. The test
-  then reads the catalogue with `catalog.TakeSnapshot` and checks the result
-  against the key table on this page. It fails when the committed file
-  differs, and the failure message names any table that was added or removed,
-  or else the first line that differs.
-- To refresh the file, run `make schema-snapshot` or `task schema:snapshot`.
-  Both start a throwaway cluster and need Docker. Against your own cluster, run
-  `go test -tags integration ./internal/db/dbtest -run '^TestSchemaSnapshot$' -update`.
-  Commit the new file in the same change as the migration that caused it.
-- `TestCommittedSnapshotShape` (`internal/db/catalog`, plain `task test`)
-  checks the committed file against this page without a database. The file
-  must be in `Marshal`'s exact form (never hand-edit it), with tables sorted,
-  and it must contain no connection details.
+The snapshot is generated, never hand-edited. Regenerate it after a migration
+lands on `main`, and commit it with the handbook update for that change.
+
+1. Start the local stack (`docker compose up`), so that the `migrate` one-shot
+   has migrated the platform database `nava`. The migrator also builds the
+   runtime `audit_log` policies from `db/audited-tables.yaml`.
+2. From the repository root, run the one command:
+
+   ```sh
+   docker compose exec -T postgres sh -c 'PGPASSWORD="$(cat /run/pg_superuser_password)" psql -h /var/run/postgresql -U pgadmin -d nava -XAtq -v ON_ERROR_STOP=1' < docs/handbook/build/schema.sql | python3 docs/handbook/build/schema_json.py docs/handbook/src/database/schema.json
+   ```
+
+   On Windows, use `python` instead of `python3` if that is your interpreter's
+   name.
+
+The two build files do the following:
+
+- `docs/handbook/build/schema.sql` reads the catalogue and prints one JSON
+  document. Every name is sorted with `COLLATE "C"` (byte order), so the
+  output does not depend on the database's default collation.
+- `docs/handbook/build/schema_json.py` uses only the Python standard library.
+  It checks the document against the key table below: exact keys per object,
+  `kind` values, the partition-key rules, and byte order. It refuses a table
+  outside schema `public` or a foreign table, and it refuses connection
+  details (see the last section). It writes the file only when every check
+  passes.
 
 ## Version 1
 
 The file is UTF-8 with LF line endings, a two-space indent and one trailing
-newline. HTML characters are not escaped, so `<` stays `<`.
+newline. Non-ASCII characters are written as-is, not escaped.
 
 Every key below is always present: a string that does not apply is `""`, and
 a list that is empty is `[]`. A reader ignores keys it does not know, so a new
@@ -47,9 +56,7 @@ key is additive and does not change `version`. Renaming or removing a key
 bumps `version`.
 
 The snapshot covers schema `public` only. Tables are named by their bare
-name. `catalog.TakeSnapshot` fails on a table in any other schema, and on a
-foreign table, rather than leave it out silently. `goose_db_version` (the
-migrator's bookkeeping) is left out.
+name. `goose_db_version`, the migrator's bookkeeping table, is left out.
 
 | Key | Value |
 |---|---|
@@ -94,13 +101,16 @@ The predicates are PostgreSQL's own deparse, so the tenant predicate reads
 exactly as `catalog.TenantPred("tenant_id")`.
 
 Not in version 1: check and unique constraints, sequences, functions,
-triggers, grants and table areas. Grants come from `db/grants.yaml`, audited
-or exempt status from `db/audited-tables.yaml`, and the table-to-area mapping
-from `docs/handbook/src/database/areas.yaml` on the handbook side.
+triggers, grants, owners, comments and table areas. Grants come from
+`db/grants.yaml`, audited or exempt status from `db/audited-tables.yaml`, and
+the table-to-area mapping from `docs/handbook/src/database/areas.yaml` on the
+handbook side.
 
 ## What it never contains
 
 The file holds no DSN, host, port, role password, `pg_hba.conf` address or
-local path. `catalog.SnapshotLeaks` enforces this when the file is written,
-using the connection's actual host, user and password as well, and again in
-`task test`. The handbook sensitivity gate (TICK-735) scans the file too.
+local path. Version 1 has no key that could carry one. `schema_json.py`
+refuses to write a file that matches any of its leak patterns, and the
+handbook sensitivity gate (TICK-735) scans the file too. A future version
+that adds a free-text key, such as comments or owners, needs a new
+sensitivity review first.
