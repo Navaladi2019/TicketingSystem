@@ -39,6 +39,10 @@ Everything is created in `backlog`. Features and stories are assigned to the Tec
 | **D-7-9** | **Observability is owned by the task that creates the signal:** the non-coercing counter (R5) in TICK-742; `field_index_barrier_slow` (R11) in TICK-745; the list latency histogram by selectivity band and ACL presence (R-a trigger) in TICK-746. No tenant id is a metric label. |
 | **D-7-10** | **A measurement task (TICK-747) re-runs the spike harness on the merged code** before the kit. A miss of D13, the insert floor (40%) or the backfill +25% becomes a fix task, not a note. |
 | **D-7-11** | **No grooming meeting** (as D-6-12). The acceptance criteria are ADR-006's pinned CI list and API scenarios, already reviewed by the Technical Architect and the Security reviewer. The Solution Architect's plan verdict is the check. |
+| **D-7-12** | **One per-tenant coordinator for backfill and removal** (Solution Architect, CHANGES on TICK-736). The relay does `SignalWithStart` on `field-index/<tenant>` with `{field_id, requested_version}`. The coordinator dedups on that pair, runs one child workflow at a time (backfill or remove), and continues-as-new after N items or when idle. A plain start with a per-tenant id would drop a second field's backfill as `WorkflowExecutionAlreadyStarted`, leaving it `backfilling` forever. TICK-745 builds it; TICK-750 queues removals through it. |
+| **D-7-13** | **The publish quota check takes a tenant-scoped lock** (`pg_advisory_xact_lock` on the tenant, or `FOR UPDATE` on the tenant row) before counting, so two concurrent publishes cannot both pass at 49 and end at 51. Concurrent-publish test in TICK-744, plus a test that deleting a flagged property is refused in S21 like an unflag. |
+| **D-7-14** | **`fieldindex.LegacyScanFields` is keyed by (seed template type, field key)** and replaces only step 2 (not flagged) of the D6 order: masked answers 400 first, and a listed field that is flagged follows the registry (`backfilling` → 422, never the scan). One test per case in TICK-746. |
+| **D-7-15** | **The adaptive pause reads the batch duration the workflow measures** (`workflow.Now()` around each batch, replay-safe). No Prometheus dependency, and activities still return only the cursor and progress (D10.3). TICK-747 checks the +25% against the real histogram; a miss is a fix task (D-7-10). |
 
 ## Task graph
 
@@ -52,7 +56,7 @@ flowchart TD
       T742[TICK-742 P7-02 pg<br/>coerce + trigger]
       T743[TICK-743 P7-03 core<br/>metadata flag]
       T744[TICK-744 P7-04 backend<br/>publish + outbox + quota]
-      T745[TICK-745 P7-05 core<br/>barrier + backfill]
+      T745[TICK-745 P7-05 core<br/>barrier, coordinator, backfill]
       T746[TICK-746 P7-06 backend<br/>filter compile, EXISTS]
       T747[TICK-747 P7-07 pg<br/>measured vs D13]
       T748[TICK-748 P7-08 security<br/>attacks]
@@ -152,9 +156,9 @@ Before releasing each story, the Technical Lead re-checks that no other open sto
 | D7 one compiled query, static test | TICK-746 |
 | D8 flag at publish, top-level, type change, busy | TICK-743, TICK-744; removal TICK-750 |
 | D9 barrier | TICK-745 (reused by TICK-750) |
-| D10 backfill, adaptive pause, one per tenant | TICK-745; measured TICK-747 |
+| D10 backfill, adaptive pause, one per tenant | TICK-745 (coordinator D-7-12, pause signal D-7-15); measured TICK-747 |
 | D11 removal | TICK-750 |
-| D12 quota 5 / 50 | TICK-744; raise to 10 TICK-751 |
+| D12 quota 5 / 50 | TICK-744 (tenant lock D-7-13); raise to 10 TICK-751 |
 | D13 latency targets | TICK-747 |
 | D14 grants and policies | TICK-741; attacks TICK-748 |
 | `x-nava-searchable` reserved | TICK-743, TICK-744 |
