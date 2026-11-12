@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d189-db42-7eaf-9821-281efcaadaab",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1d204-89ea-729a-9d6f-614806c79878",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -15,18 +15,18 @@
   "response": {
     "status": 200,
     "body": {
-      "created_at": "2026-11-12T20:53:55.138962Z",
+      "created_at": "2026-11-12T23:07:55.242171Z",
       "data": {
         "priority": 3,
-        "requester": "6ad8a83e-3e97-440e-a3f0-1bd289200837",
-        "short_description": "S17 ba228fba gapless first after the upgrade",
+        "requester": "c21e6757-aebf-4c74-9097-2a6892c2b088",
+        "short_description": "S17 1d56cc66 gapless first after the upgrade",
         "state": "new"
       },
-      "id": "01a1d189-db42-7eaf-9821-281efcaadaab",
+      "id": "01a1d204-89ea-729a-9d6f-614806c79878",
       "number": "INC0000043",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T20:53:55.138962Z",
+      "updated_at": "2026-11-12T23:07:55.242171Z",
       "version": 1
     }
   },

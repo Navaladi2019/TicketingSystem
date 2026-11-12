@@ -1,4 +1,4 @@
-== counters on the pre-S17 build, before the upgrade (2026-11-12T20:47:23Z)
+== counters on the pre-S17 build, before the upgrade (2026-11-12T22:58:59Z)
               tenant_id               |   key    | number_prefix | numbering_mode | next | max_number | records 
 --------------------------------------+----------+---------------+----------------+------+------------+---------
  00000000-0000-4000-8000-0000000000a1 | incident | INC           | gapless        |   43 | INC0000042 |      42

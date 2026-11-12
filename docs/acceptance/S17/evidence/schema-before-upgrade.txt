@@ -1,4 +1,4 @@
-== schema on the pre-S17 build, before the upgrade (2026-11-12T20:47:20Z)
+== schema on the pre-S17 build, before the upgrade (2026-11-12T22:58:55Z)
      column_name      | data_type | is_nullable | column_default 
 ----------------------+-----------+-------------+----------------
  tenant_id            | uuid      | NO          | 

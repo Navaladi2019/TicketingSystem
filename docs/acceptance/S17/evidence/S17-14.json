@@ -1,34 +1,34 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "89",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-ba228fba-b-after",
+      "Idempotency-Key": "s17-1d56cc66-b-after",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 ba228fba gaps after tenant A's creates\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 1d56cc66 gaps after tenant A's creates\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-12T20:53:55.653202Z",
+      "created_at": "2026-11-12T23:07:56.152521Z",
       "data": {
         "priority": 3,
-        "requester": "78ab2e16-a0f7-4c98-8ae6-6cdcbf741785",
-        "short_description": "S17 ba228fba gaps after tenant A's creates",
+        "requester": "8222d761-d4df-4afa-8ad2-152c2165dff0",
+        "short_description": "S17 1d56cc66 gaps after tenant A's creates",
         "state": "new"
       },
-      "id": "01a1d189-dd44-7627-9346-4ff55a79084d",
+      "id": "01a1d204-8d77-7641-8e50-e7720be43b9a",
       "number": "INC0000052",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T20:53:55.653202Z",
+      "updated_at": "2026-11-12T23:07:56.152521Z",
       "version": 1
     }
   },

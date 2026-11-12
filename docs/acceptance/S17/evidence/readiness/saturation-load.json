@@ -1,0 +1,9 @@
+{
+  "clients": 40,
+  "seconds": 20,
+  "requests": 5728,
+  "statuses": {
+    "201": 1099,
+    "429 rate_limited": 4629
+  }
+}

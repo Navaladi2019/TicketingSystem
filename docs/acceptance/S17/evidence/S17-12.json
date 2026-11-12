@@ -1,15 +1,15 @@
 {
   "request": {
     "method": "PATCH",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d189-db42-7eaf-9821-281efcaadaab",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1d204-89ea-729a-9d6f-614806c79878",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "70",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-ba228fba-bob-patch-a",
+      "Idempotency-Key": "s17-1d56cc66-bob-patch-a",
       "Content-Type": "application/merge-patch+json",
       "If-Match": "W/\"1\""
     },
