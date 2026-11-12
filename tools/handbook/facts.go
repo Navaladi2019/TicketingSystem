@@ -51,22 +51,25 @@ type Story struct {
 	Evidence      []string `yaml:"evidence"`
 }
 
-// Column, Table and friends mirror docs/handbook/src/database/schema.json
-// (shape agreed with TICK-733). Unknown keys are ignored.
+// Column, Table and friends mirror docs/handbook/src/database/schema.json,
+// format 1 (shape agreed with TICK-733). Unknown keys are ignored.
 type Column struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Nullable bool   `json:"nullable"`
-	Default  string `json:"default"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	NotNull bool   `json:"not_null"`
+	Default string `json:"default"`
 }
 
-// ForeignKey is one foreign key of a table.
-type ForeignKey struct {
+// Constraint is one constraint of a table.
+type Constraint struct {
 	Name       string   `json:"name"`
+	Type       string   `json:"type"`
 	Columns    []string `json:"columns"`
-	RefTable   string   `json:"ref_table"`
-	RefColumns []string `json:"ref_columns"`
-	OnDelete   string   `json:"on_delete"`
+	Definition string   `json:"definition"`
+	References struct {
+		Table   string   `json:"table"`
+		Columns []string `json:"columns"`
+	} `json:"references"`
 }
 
 // Index is one index of a table.
@@ -74,35 +77,65 @@ type Index struct {
 	Name      string   `json:"name"`
 	Method    string   `json:"method"`
 	Unique    bool     `json:"unique"`
-	Columns   []string `json:"columns"`
+	Keys      []string `json:"keys"`
 	Predicate string   `json:"predicate"`
 }
 
 // Policy is one row-level-security policy of a table.
 type Policy struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Roles   []string `json:"roles"`
-	Using   string   `json:"using"`
-	Check   string   `json:"check"`
+	Name      string   `json:"name"`
+	Command   string   `json:"command"`
+	Roles     []string `json:"roles"`
+	Using     string   `json:"using"`
+	WithCheck string   `json:"with_check"`
 }
 
 // Table is one table of the schema snapshot.
 type Table struct {
+	Schema         string `json:"schema"`
 	Name           string `json:"name"`
 	Kind           string `json:"kind"`
 	PartitionOf    string `json:"partition_of"`
-	PartitionBy    string `json:"partition_by"`
+	PartitionKey   string `json:"partition_key"`
 	PartitionBound string `json:"partition_bound"`
 	RLS            struct {
 		Enabled bool `json:"enabled"`
 		Forced  bool `json:"forced"`
 	} `json:"rls"`
 	Columns     []Column     `json:"columns"`
-	PrimaryKey  []string     `json:"primary_key"`
-	ForeignKeys []ForeignKey `json:"foreign_keys"`
+	Constraints []Constraint `json:"constraints"`
 	Indexes     []Index      `json:"indexes"`
 	Policies    []Policy     `json:"policies"`
+}
+
+// Key is how a page names the table: the bare name in schema public (the
+// db/grants.yaml rule), "schema.name" in any other schema.
+func (t Table) Key() string {
+	if t.Schema == "" || t.Schema == "public" {
+		return t.Name
+	}
+	return t.Schema + "." + t.Name
+}
+
+// PrimaryKey is the primary-key columns, from the constraints.
+func (t Table) PrimaryKey() []string {
+	for _, c := range t.Constraints {
+		if c.Type == "primary_key" {
+			return c.Columns
+		}
+	}
+	return nil
+}
+
+// ForeignKeys is the foreign-key constraints.
+func (t Table) ForeignKeys() []Constraint {
+	var out []Constraint
+	for _, c := range t.Constraints {
+		if c.Type == "foreign_key" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // ADRRecord is one ADR, amendment or erratum.
@@ -379,23 +412,23 @@ func (f *Facts) loadSchema() error {
 	dir := filepath.Join(f.Root, "docs", "handbook", "src", "database")
 	data, err := os.ReadFile(filepath.Join(dir, "schema.json")) //nolint:gosec // fixed repository path
 	if err != nil {
-		return fmt.Errorf("docs/handbook/src/database/schema.json: %w (a stub {\"version\":1,\"tables\":[]} is accepted until TICK-733 lands)", err)
+		return fmt.Errorf("docs/handbook/src/database/schema.json: %w (a stub {\"format\":1,\"tables\":[],\"views\":[]} is accepted until TICK-733 lands)", err)
 	}
 	var doc struct {
-		Version int     `json:"version"`
-		Tables  []Table `json:"tables"`
+		Format int     `json:"format"`
+		Tables []Table `json:"tables"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("schema.json: %w", err)
 	}
-	if doc.Version != 1 {
-		return fmt.Errorf("schema.json: version %d, this generator reads version 1", doc.Version)
+	if doc.Format != 1 {
+		return fmt.Errorf("schema.json: format %d, this generator reads format 1", doc.Format)
 	}
 	for _, t := range doc.Tables {
-		f.Tables[t.Name] = t
+		f.Tables[t.Key()] = t
 		f.TableList = append(f.TableList, t)
 	}
-	sort.Slice(f.TableList, func(i, j int) bool { return f.TableList[i].Name < f.TableList[j].Name })
+	sort.Slice(f.TableList, func(i, j int) bool { return f.TableList[i].Key() < f.TableList[j].Key() })
 	areas, err := os.ReadFile(filepath.Join(dir, "areas.yaml")) //nolint:gosec // fixed repository path
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil

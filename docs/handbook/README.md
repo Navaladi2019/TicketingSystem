@@ -98,15 +98,13 @@ under a parent's `## Errata` or `## Amendments`. It skips `*-explained.md`,
 inline erratum with no `Status:` line of its own shows its parent's status as
 `<status> (inherited)`. Never print a count of records in prose.
 
-`src/database/schema.json` is written by the integration suite (TICK-733). Until
-it lands, a stub with an empty table list is accepted. Its shape is
-`{"version": 1, "tables": [{"name", "kind", "partition_of", "partition_by",
-"partition_bound", "rls": {"enabled", "forced"}, "columns": [{"name", "type",
-"nullable", "default"}], "primary_key", "foreign_keys": [{"name", "columns",
-"ref_table", "ref_columns", "on_delete"}], "indexes": [{"name", "method",
-"unique", "columns", "predicate"}], "policies": [{"name", "command", "roles",
-"using", "check"}]}]}`, tables sorted by name. `src/database/areas.yaml` maps an
-area to its table names.
+`src/database/schema.json` is written by the integration suite (TICK-733); its
+format (`format: 1`) is documented in `docs/handbook/schema.md`. Until it
+lands, the stub `{"format": 1, "tables": [], "views": []}` is accepted. A
+`tables:` value is the bare table name for schema `public` and `schema.name`
+for any other schema. Any `format` other than 1 fails the build; unknown keys
+are ignored. `src/database/areas.yaml` maps an area to its table names, with
+the same naming rule.
 
 ## Story manifest
 

@@ -95,13 +95,15 @@ func newFixture(t *testing.T) string {
 	write(t, root, "docs/handbook/assets/mermaid.min.js", "/* pinned */")
 	write(t, root, "docs/handbook/src/diagrams/ok.excalidraw.svg", fixtureSvg)
 	write(t, root, "docs/handbook/src/stories/stories.yaml", "stories:\n  - id: S14\n    issue: TICK-409\n    title: Audit log\n    status: delivered\n    evidence: [docs/evidence/e.md]\n")
-	write(t, root, "docs/handbook/src/database/schema.json", `{"version":1,"tables":[
- {"name":"audit_log","kind":"partitioned","rls":{"enabled":true,"forced":true},
-  "columns":[{"name":"id","type":"uuid","nullable":false,"default":"gen_random_uuid()"},{"name":"tenant_id","type":"uuid","nullable":false}],
-  "primary_key":["tenant_id","id"],
-  "indexes":[{"name":"audit_log_pk","method":"btree","unique":true,"columns":["tenant_id","id"]}],
-  "policies":[{"name":"tenant","command":"ALL","roles":["nava_app"],"using":"(tenant_id = x)"}]},
- {"name":"tenants","kind":"table","columns":[{"name":"id","type":"uuid"}],"primary_key":["id"]}]}`)
+	write(t, root, "docs/handbook/src/database/schema.json", `{"format":1,"postgres":"16","migration":"1","views":[],"tables":[
+ {"schema":"public","name":"audit_log","kind":"partitioned","rls":{"enabled":true,"forced":true},
+  "columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid()"},{"name":"tenant_id","type":"uuid","not_null":true}],
+  "constraints":[{"name":"audit_log_pkey","type":"primary_key","columns":["tenant_id","id"]},
+                 {"name":"audit_log_tenant_fk","type":"foreign_key","columns":["tenant_id"],"references":{"table":"tenants","columns":["id"]}}],
+  "indexes":[{"name":"audit_log_pk","method":"btree","unique":true,"keys":["tenant_id","id"]}],
+  "policies":[{"name":"tenant","command":"ALL","roles":["nava_app"],"permissive":true,"using":"(tenant_id = x)","with_check":"(tenant_id = y)"}]},
+ {"schema":"public","name":"tenants","kind":"table","columns":[{"name":"id","type":"uuid","not_null":true}],"constraints":[{"name":"tenants_pkey","type":"primary_key","columns":["id"]}]},
+ {"schema":"archive","name":"old_log","kind":"table","columns":[{"name":"id","type":"uuid"}]}]}`)
 	write(t, root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, tenants]\n")
 	page(t, root, "index.md", "Home", "home", "delivered", "", "Welcome.\n")
 	return root

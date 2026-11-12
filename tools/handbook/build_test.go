@@ -450,3 +450,23 @@ func TestSearchIndexHoldsPageText(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaTablesResolveByBareOrQualifiedName(t *testing.T) {
+	root := newFixture(t)
+	page(t, root, "database/a.md", "A", "database", "delivered", "tables: [audit_log, archive.old_log]\n", "x")
+	buildFixture(t, root)
+	for _, ref := range []string{"old_log", "public.audit_log", "archive.audit_log"} {
+		root := newFixture(t)
+		page(t, root, "database/a.md", "A", "database", "delivered", "tables: ["+ref+"]\n", "x")
+		mustFail(t, root, "database/a.md", ref)
+	}
+}
+
+func TestSchemaFormatIsChecked(t *testing.T) {
+	root := newFixture(t)
+	write(t, root, "docs/handbook/src/database/schema.json", `{"format": 2, "tables": []}`)
+	mustFail(t, root, "format 2")
+	write(t, root, "docs/handbook/src/database/schema.json", `{"format": 1, "future_key": {"x": 1}, "tables": [], "views": []}`)
+	write(t, root, "docs/handbook/src/database/areas.yaml", "{}\n")
+	buildFixture(t, root)
+}

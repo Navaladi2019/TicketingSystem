@@ -156,16 +156,16 @@ func (f *Facts) genTables(area string) (string, error) {
 	}
 	var b strings.Builder
 	for _, t := range tables {
-		fmt.Fprintf(&b, "#### `%s`\n\n", t.Name)
+		fmt.Fprintf(&b, "#### `%s`\n\n", t.Key())
 		kind := t.Kind
 		if t.PartitionOf != "" {
 			kind += " of " + t.PartitionOf
 		}
-		fmt.Fprintf(&b, "Kind: %s. Row-level security: enabled %t, forced %t. Primary key: %s.\n\n", cell(kind), t.RLS.Enabled, t.RLS.Forced, mdList(t.PrimaryKey))
+		fmt.Fprintf(&b, "Kind: %s. Row-level security: enabled %t, forced %t. Primary key: %s.\n\n", cell(kind), t.RLS.Enabled, t.RLS.Forced, mdList(t.PrimaryKey()))
 		b.WriteString("| Column | Type | Null | Default |\n|---|---|---|---|\n")
 		for _, c := range t.Columns {
 			null := "no"
-			if c.Nullable {
+			if !c.NotNull {
 				null = "yes"
 			}
 			fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s |\n", c.Name, cell(c.Type), null, codeOrDash(c.Default))
@@ -178,14 +178,14 @@ func (f *Facts) genTables(area string) (string, error) {
 				if i.Unique {
 					name += " (unique)"
 				}
-				fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", name, cell(i.Method), mdList(i.Columns), codeOrDash(i.Predicate))
+				fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", name, cell(i.Method), mdList(i.Keys), codeOrDash(i.Predicate))
 			}
 			b.WriteString("\n")
 		}
 		if len(t.Policies) > 0 {
 			b.WriteString("| Policy | Command | Roles | Using | Check |\n|---|---|---|---|---|\n")
 			for _, p := range t.Policies {
-				fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s |\n", p.Name, cell(p.Command), mdList(p.Roles), codeOrDash(p.Using), codeOrDash(p.Check))
+				fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s |\n", p.Name, cell(p.Command), mdList(p.Roles), codeOrDash(p.Using), codeOrDash(p.WithCheck))
 			}
 			b.WriteString("\n")
 		}
@@ -207,14 +207,14 @@ func (f *Facts) genER(area string) (string, error) {
 	}
 	in := map[string]bool{}
 	for _, t := range tables {
-		in[t.Name] = true
+		in[t.Key()] = true
 	}
 	var b strings.Builder
 	b.WriteString("```mermaid\nerDiagram\n")
 	for _, t := range tables {
 		fmt.Fprintf(&b, "    %s {\n", t.Name)
 		pk := map[string]bool{}
-		for _, c := range t.PrimaryKey {
+		for _, c := range t.PrimaryKey() {
 			pk[c] = true
 		}
 		for _, c := range t.Columns {
@@ -233,9 +233,9 @@ func (f *Facts) genER(area string) (string, error) {
 		b.WriteString("    }\n")
 	}
 	for _, t := range tables {
-		for _, fk := range t.ForeignKeys {
-			if in[fk.RefTable] {
-				fmt.Fprintf(&b, "    %s }o--|| %s : \"%s\"\n", t.Name, fk.RefTable, strings.Join(fk.Columns, ","))
+		for _, fk := range t.ForeignKeys() {
+			if in[fk.References.Table] {
+				fmt.Fprintf(&b, "    %s }o--|| %s : \"%s\"\n", erID(t.Key()), erID(fk.References.Table), strings.Join(fk.Columns, ","))
 			}
 		}
 	}
@@ -329,3 +329,6 @@ func splitRow(l string) []string {
 	}
 	return append(cols, strings.TrimSpace(cur.String()))
 }
+
+// erID makes a table key a valid Mermaid entity name.
+func erID(key string) string { return strings.ReplaceAll(key, ".", "_") }
