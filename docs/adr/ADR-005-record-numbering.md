@@ -16,7 +16,7 @@ deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with f
 
 > **Status: ACCEPTED (2026-11-10, Solution Architect verdict on TICK-653 after the Technical Architect critique and CTO rulings; no dissent).** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **The gaps policy is decided, per type** (vknavaladi on TICK-621, 2026-11-10 02:06 UTC; recorded as D-3-9 in PR #551): `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`. A `gaps` type allocates with **L2s**; a `gapless` type allocates with **L1** (§2.1). Every format starts with `{prefix}` (§3.1, CTO ruling 01a1c387-b543).
 >
-> **Erratum E1 (PROPOSED 2026-11-11, TICK-665):** §4.2 "old and new binaries coexist" holds for existing counters only; see [[ADR-005-E1-first-create-race-in-expand-window]].
+> **Erratum E1 (ACCEPTED 2026-11-12, TICK-665):** §4.2 "old and new binaries coexist" holds for existing counters only; see [[ADR-005-E1-first-create-race-in-expand-window]].
 >
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >

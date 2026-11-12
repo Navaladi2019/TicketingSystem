@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-11</span> <span class="src">ADR-005-E1 · issue TICK-665 · amends ADR-005 §4.2 and §8 · source: PR #581 integration test failure</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-12</span> <span class="src">ADR-005-E1 · issue TICK-665 · amends ADR-005 §4.2 and §8 · source: PR #581 integration test failure</span>
 
 <h1>During the counter migration, the first ticket of a brand-new type can fail to save</h1>
 
@@ -70,6 +70,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li>A test that races first creates is added now, switched off until TICK-666 switches it on.</li>
 <li>The migration (PR #581) and the retry (TICK-666) are merged together, so no build ever has the migration without the retry.</li>
 <li>The runbook says: run M3 soon after the new version is fully rolled out.</li>
+<li>The retry relies on the database's default <em>isolation level</em> (how strictly concurrent transactions are kept apart), "read committed". Nobody may raise it for the application, in code or in database settings; at a stricter level this race shows up as a different error and the retry would not fire.</li>
+<li>The retry is temporary: it is deleted together with the last migration step (M3), after which the race cannot happen.</li>
 <li>ADR-005 §4.2 is corrected: "old and new versions run side by side" holds for existing counters only.</li>
 </ul>
 
@@ -82,7 +84,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <h2>6. Evidence</h2>
 <ul>
 <li>Race reproduction, numbers above: <code>docs/adr/ADR-005/spikes/postgres/e1-first-create-race/</code>.</li>
-<li>Failing test: <code>TestAllocatorPoolDoesNotStarveThePool</code> on PR #581 (turns green when TICK-666 adds the retry).</li>
+<li>Pinned test: <code>TestConcurrentFirstCreatesOfATypeAllSucceed</code> on PR #581, switched off until TICK-666 adds the retry; with it switched on today, it fails in both modes.</li>
+<li>Retry check (Technical Architect): 13,136 retries, none failed; every attempt produced exactly one number. Under a stricter database isolation setting the retry does not help, which is why that setting is forbidden (section 4). <code>docs/adr/ADR-005/spikes/technical-architect/e1-retry-once/</code>.</li>
 <li>PostgreSQL's own documentation: an "insert or update" statement only handles duplicates on the index it names.</li>
 </ul>
 </main></body></html>

@@ -2,19 +2,20 @@
 type: adr-erratum
 id: ADR-005-E1
 title: "Erratum E1 to ADR-005: between M2 and M3, old and new binaries coexist only for existing counters; a type's first create can fail with 23505"
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-12 (Solution Architect verdict after the Technical Architect critique, TICK-665 comment 01a1cb58-39fe; no dissent, no tie-break)
 date: 2026-11-11
 issue: TICK-665
 rfc: none (erratum from an implementation finding; decision thread under TICK-665 comment 01a1cb3b-dde2-7529-bb5c-204bf554c874)
 supersedes: none
 amends: "[[ADR-005-record-numbering]] §4.2 (Deploy row, 'old and new binaries coexist'), §8 (new accepted risk)"
-source: "TICK-665 (P6-01, PR #581): `TestAllocatorPoolDoesNotStarveThePool` fails with 23505 on `record_counters_scoped_key` once M2 is applied (Postgres & Data Modeling Specialist, comment 01a1caee-0b64)"
-deciders: Postgres & Data Modeling Specialist (finding, options A–C, measurements); Technical Lead (decision: option A, B as runbook guidance, C rejected; comment 01a1cb3b-dde2; no dissent); Solution Architect (author)
+source: "TICK-665 (P6-01, PR #581): `TestAllocatorPoolDoesNotStarveThePool` (as it stood before `48ae5047`) failed with 23505 on `record_counters_scoped_key` once M2 is applied (Postgres & Data Modeling Specialist, comment 01a1caee-0b64)"
+deciders: Technical Architect (critique APPROVE with non-blocking items 1–4 and a retry spike, comment 01a1cb58-39fe); Postgres & Data Modeling Specialist (finding, options A–C, measurements); Technical Lead (decision: option A, B as runbook guidance, C rejected; comment 01a1cb3b-dde2; no dissent); Solution Architect (author)
 ---
 
 # ADR-005 erratum E1: the first create of a type can fail while both unique indexes exist
 
-> **Status: PROPOSED** (2026-11-11). Awaiting the Technical Architect critique; the Solution Architect gives the verdict after it (CTO breaks ties).
+> **Status: ACCEPTED** (2026-11-12, Solution Architect verdict on TICK-665). The Technical Architect approved with four non-blocking items, all folded in here (E1-1 `gapless` wording and retry lifetime, the isolation constraint, the reproducer test). No dissent; no CTO tie-break was needed.
 >
 > **Invariants source.** The project description defines no invariants; checked against [[ADR-001-platform-blueprint]] §1, I1–I9, as ADR-005 is.
 
@@ -41,12 +42,14 @@ Nothing is duplicated or corrupted: the failure is a refused create (a 500 to th
 
 | # | Decision |
 |---|---|
-| **E1-1** | **R1 retries once.** The allocation retries exactly once on `23505` whose constraint is `record_counters_pkey` or `record_counters_scoped_key`. `gaps`: the retry is a fresh `tenancy.AllocTx`. `gapless`: the retry runs behind a savepoint inside the create transaction. The second attempt sees the committed row and takes the UPDATE arm. A second `23505` is returned as an error, never retried again. Owner: TICK-666 (P6-02). |
+| **E1-1** | **R1 retries once.** The allocation retries exactly once on `23505` whose constraint is `record_counters_pkey` or `record_counters_scoped_key`. `gaps`: the retry is a fresh `tenancy.AllocTx`. `gapless`: the batch opens with `SAVEPOINT`, queued in the same `pgx.Batch` with no extra round trip. On `23505` from the counter statement, the pipeline runs `ROLLBACK TO SAVEPOINT` and rebuilds and re-sends the **whole** batch (counter, record, write key, audit), because the failed statement skips the rest of the batch. The retry and the savepoint exist only in R1: S18 (R2) removes both with M3 (TODO-S17-02), after which the predicate cannot fire. Owner: TICK-666 (P6-02). |
 | **E1-2** | **Pinned test.** A concurrent first-create test lands on PR #581 skipped, with the skip naming TICK-666; P6-02 removes the skip. It runs both modes. |
 | **E1-3** | **Merge order.** PR #581 (M1, M2) merges into `TICK-664/counter-scope-key` together with the P6-02 PR and immediately before it, so the story branch never runs M2 without the retry. |
 | **E1-4** | **Runbook (option B, guidance only).** `docs/data/record-counters-scope-key.md` says: run M3 soon after R1 is fully rolled out; the window is the exposure. |
 
 **Why the retry is sound.** The loser only raises `23505` after the winner committed (if the winner aborts, the loser's insert proceeds). The create transaction runs at PostgreSQL's default READ COMMITTED (no isolation override in `internal/`), so the retried statement sees the committed row in both modes. Only `scope_key = ''` is written before M3 (the publish gate refuses non-default formats until then), so the retry never meets the deterministic pkey failure a non-empty `scope_key` would cause.
+
+**This holds only at READ COMMITTED.** At REPEATABLE READ or above, the same race raises `40001`, not `23505` (Technical Architect spike, TICK-665), and the retry does not fire. Neither code nor `ALTER ROLE/DATABASE … SET default_transaction_isolation` may raise it for `nava_app`. A code-path change is caught by the pinned test once unskipped; a role- or database-level default is not, so it is an operator rule in the runbook.
 
 **Not changed:** I1, I4, I7 and I8 hold as in ADR-005 §7. The retry stays in the pipeline's allocation step under `nava_app`; it adds no write path and no grant.
 
@@ -67,5 +70,6 @@ Nothing is duplicated or corrupted: the failure is a refused create (a 500 to th
 ## Evidence
 
 - Race reproduction and table above: `docs/adr/ADR-005/spikes/postgres/e1-first-create-race/` (script and README); finding in TICK-665 comment 01a1caee-0b64.
-- Failing integration test: `TestAllocatorPoolDoesNotStarveThePool` (`internal/records/pipeline`) on PR #581.
+- Reproducer: `TestConcurrentFirstCreatesOfATypeAllSucceed` (`internal/records/pipeline`, PR #581; skipped until TICK-666); with the skip removed it fails in both modes with 23505 on `record_counters_scoped_key`. (`TestAllocatorPoolDoesNotStarveThePool` first showed the race; since `48ae5047` it runs the first create alone and no longer races.)
+- One-retry spike (Technical Architect): READ COMMITTED, 0 retry failures out of 13,136 retries, numbers = upserts (40,000); REPEATABLE READ fails with `40001`. `docs/adr/ADR-005/spikes/technical-architect/e1-retry-once/`.
 - PostgreSQL documentation, `INSERT … ON CONFLICT`: the conflict target names the arbiter index; violations of other unique indexes are raised.

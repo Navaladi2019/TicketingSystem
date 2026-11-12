@@ -18,4 +18,6 @@ tuple; the loser then hits the other unique index with an ordinary unique
 check and raises 23505. A row that already exists is unaffected (the pre-check
 sees it and takes the UPDATE arm); only the first create of a (tenant, type)
 races. Reproduced in CI-like conditions by
-`TestAllocatorPoolDoesNotStarveThePool` (`direct, allocator pool`).
+`TestAllocatorPoolDoesNotStarveThePool` (`direct, allocator pool`) at the time; since `48ae5047` that test runs
+the first create alone, and the reproducer is `TestConcurrentFirstCreatesOfATypeAllSucceed`
+(`internal/records/pipeline`, PR #581; skipped until TICK-666).
