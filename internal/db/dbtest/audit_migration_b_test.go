@@ -172,7 +172,7 @@ func TestP532MigrationB(t *testing.T) {
 
 	if got := queryString(t, super, `SELECT string_agg(t.tgrelid::regclass::text || ':' || t.tgname, ',' ORDER BY t.tgname COLLATE "C")
 		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got !=
-		"acl_versions:acl_versions_audit_commit_check,entity_definition_versions:entity_definition_versions_audit_commit_check,entity_definitions:entity_definitions_audit_commit_check,records:records_audit_commit_check" {
+		"acl_versions:acl_versions_audit_commit_check,entity_definition_versions:entity_definition_versions_audit_commit_check,entity_definitions:entity_definitions_audit_commit_check,records:records_audit_commit_check,workflow_definition_versions:workflow_definition_versions_audit_commit_check,workflow_definitions:workflow_definitions_audit_commit_check" {
 		t.Errorf("audit_commit_check triggers after B: %s", got)
 	}
 	// R26.3, and both functions are idempotent: a re-run adds nothing.

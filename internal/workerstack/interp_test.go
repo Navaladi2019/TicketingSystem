@@ -248,8 +248,10 @@ func workflowDefinitionSQL(tenant, def uuid.UUID) string {
     VALUES ('%[1]s', '%[1]s', 'wf_host', 'Workflow host', 'WFH', 1))
 INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
 VALUES ('%[1]s', gen_random_uuid(), 'config', 'create', 'entity_definition', '%[1]s', NULL, 'system', 'system', sha256(''::bytea));
-INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
-VALUES ('%[1]s', '%[2]s', 'wf_start', '%[1]s', 1, NULL);`, tenant, def)
+WITH w AS (INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+    VALUES ('%[1]s', '%[2]s', 'wf_start', '%[1]s', 1, NULL))
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
+VALUES ('%[1]s', gen_random_uuid(), 'config', 'create', 'workflow_definition', '%[2]s', NULL, 'system', 'system', sha256(''::bytea));`, tenant, def)
 }
 
 // newInterpRow creates an active tenant and a record (records table) that
