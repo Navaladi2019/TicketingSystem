@@ -82,7 +82,7 @@ func TestStatementErrorsAreWrapped(t *testing.T) {
 	_, err = store.DefinitionID(ctx, &fakeTx{row: failRow(pgx.ErrNoRows)}, tenant, "asset")
 	checkErr(t, err, store.ErrNotFound, "records/store: not found")
 
-	_, err = store.NextNumber(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id)
+	_, err = store.NextNumber(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id, "")
 	checkErr(t, err, errBoom, "records/store: take record number: boom")
 
 	_, err = store.Get(ctx, &fakeTx{row: failRow(errBoom)}, tenant, id)

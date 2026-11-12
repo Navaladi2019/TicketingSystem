@@ -1,0 +1,28 @@
+meta {
+  name: S17.15 Isolation: tenant A's INC0000043 is unchanged
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s17_a43_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 1, the text of S17.6', () => {
+    expect(N.json().version).to.eql(1);
+    expect(N.json().data.short_description).to.eql('S17 ' + bru.getVar('s17_run') + ' gapless first after the upgrade');
+  });
+}
+
+docs {
+  Still version 1 with the text of S17.6 after Bob's attempts.
+}

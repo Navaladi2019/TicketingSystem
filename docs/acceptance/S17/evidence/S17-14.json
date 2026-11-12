@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "89",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s17-ba228fba-b-after",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 ba228fba gaps after tenant A's creates\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-12T20:53:55.653202Z",
+      "data": {
+        "priority": 3,
+        "requester": "78ab2e16-a0f7-4c98-8ae6-6cdcbf741785",
+        "short_description": "S17 ba228fba gaps after tenant A's creates",
+        "state": "new"
+      },
+      "id": "01a1d189-dd44-7627-9346-4ff55a79084d",
+      "number": "INC0000052",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T20:53:55.653202Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "number INC0000052: the next of tenant B's own series",
+      "status": "pass"
+    }
+  ]
+}

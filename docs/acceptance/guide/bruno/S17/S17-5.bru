@@ -1,0 +1,30 @@
+meta {
+  name: S17.5 Tenant B's incident type is gaps (the default)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('incident, prefix INC, numbering_mode gaps', () => {
+    const b = N.json();
+    expect(b.key).to.eql('incident');
+    expect(b.number_prefix).to.eql('INC');
+    expect(b.numbering_mode).to.eql('gaps');
+  });
+}
+
+docs {
+  Bob reads his own tenant's type: the same key and prefix as tenant A's, its own mode.
+}

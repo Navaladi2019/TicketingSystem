@@ -28,6 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -118,8 +119,8 @@ type allocRecorder struct {
 	allocs []pipeline.Allocation
 }
 
-func (r *allocRecorder) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
-	a, err := r.PoolRunner.Allocate(ctx, createTx, def)
+func (r *allocRecorder) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
+	a, err := r.PoolRunner.Allocate(ctx, createTx, def, format)
 	if err == nil {
 		r.mu.Lock()
 		r.allocs = append(r.allocs, a)
@@ -216,7 +217,7 @@ func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
 			}
 			// A forged tenant: B's counter, under A's setting.
-			store.QueueAllocate(batch, b.id, defB, &got)
+			store.QueueAllocate(batch, b.id, defB, "", &got)
 		})
 		return err
 	})
@@ -334,7 +335,7 @@ type barrierRunner struct {
 	release chan struct{}
 }
 
-func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
 	r.mu.Lock()
 	if r.release == nil {
 		r.release = make(chan struct{})
@@ -350,7 +351,7 @@ func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.
 	case <-ctx.Done():
 		return pipeline.Allocation{}, ctx.Err()
 	}
-	return r.PoolRunner.Allocate(ctx, createTx, def)
+	return r.PoolRunner.Allocate(ctx, createTx, def, format)
 }
 
 // starve runs 2 x n concurrent creates whose allocations each wait until n
@@ -380,12 +381,9 @@ func allStarved(t *testing.T, errs []error) {
 	}
 }
 
-// noLatencyBudget is the allocation timeout of the subtests that must not
-// starve: they test that the create path cannot deadlock, not its latency,
-// so a slow CI host must not fail them on the production 200 ms (A5, which
-// TestAllocationTimeoutIsRetryableAndMeasured covers). The controls keep the
-// production timeout: their starvation is what they assert.
-const noLatencyBudget = 5 * time.Second
+// The subtests that must not starve run on noLatencyBudget
+// (harness_integration_test.go). The controls keep the production timeout:
+// their starvation is what they assert.
 
 // AC (scope 3, ADR-005 A5): no pool starvation at pool size x 2 concurrent
 // creates, each holding its create connection while it waits for a number.
@@ -404,6 +402,9 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 		cfg.MaxConns = size
 		return env{super: base.super, app: newPool(t, cfg), platform: base.platform}
 	}
+	// No warm-up: the first run's creates race the first insert of the
+	// counter row while both unique indexes exist (M2 to M3), which R1's one
+	// retry absorbs (ADR-005-E1, TICK-666).
 	const direct = 4
 	t.Run("direct, allocator pool", func(t *testing.T) {
 		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))

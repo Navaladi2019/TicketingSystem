@@ -3158,7 +3158,158 @@ The same lines as S16.6, as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S17
+# Story S17 (TICK-664, release R1 of ADR-005), kit TICK-668:
+# docs/acceptance/S17/README.md. docs/acceptance/S17/tools/run-kit.sh brings
+# up a fresh stack on the pre-S17 build (S10 included), takes tenant A's incident type (gapless)
+# and tenant B's (gaps) to INC0000042, upgrades the stack to the story build
+# (migrations M1 and M2 run) and then runs this folder once. The exact numbers
+# hold only on that stack, so the folder does not run again on the same stack.
+S17_PAR = r"""
+// 8 creates sent at once (AC2): 8 clients, one request each, no waiting
+// between them. The results go to a runtime variable for the tests.
+const N = require('./lib/nava')({ bru });
+const tok = bru.getVar('__TOKEN__');
+const run = bru.getVar('s17_run');
+const send = (i) => N.send({
+  url: N.url('{{core_url}}/api/v1/records/incident'),
+  method: 'POST',
+  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', 'Idempotency-Key': `s17-${run}-__TAG__-par-${i}` },
+  data: { data: { short_description: `S17 ${run} __TAG__ parallel ${i}` } },
+});
+const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => send(i + 1)));
+bru.setVar('s17_par___TAG__', JSON.stringify(rs.map(r => ({ status: r.status, number: r.data && r.data.number, id: r.data && r.data.id }))));
+bru.setVar('s17_par___TAG___id', (rs[0].data && rs[0].data.id) || '00000000-0000-4000-8000-000000000000');
+"""
+
+S17_NUM = r"""const inc = (n) => 'INC' + String(n).padStart(7, '0');
+const num = (s) => Number(String(s).slice(3));"""
+
+
+def s17():
+    inc = "{{core_url}}/api/v1/records/incident"
+    one_a = inc + "/{{s17_a43_id}}"
+    key = lambda tag: {"Idempotency-Key": "s17-{{s17_run}}-%s" % tag}
+    body = lambda text: {"data": {"short_description": "S17 {{s17_run}} " + text}}
+    no404 = """
+test('HTTP 404 problem+json with code not_found and no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  const b = N.json();
+  expect(b.code).to.eql('not_found');
+  expect(b).to.not.have.property('instance');
+});
+N.noLeak('INC0000043', bru.getVar('s17_a43_id'), 'S17 ' + bru.getVar('s17_run') + ' gapless');"""
+
+    def par(tag, who, gapless):
+        check = ("""
+test('gapless: exactly INC0000044 to INC0000051, no gap', () => expect(nums).to.eql([44, 45, 46, 47, 48, 49, 50, 51]));"""
+                 if gapless else """
+test('gaps: every number after INC0000043', () => expect(nums.every(n => n > 43)).to.eql(true));
+test('gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)', () => expect(nums).to.eql([44, 45, 46, 47, 48, 49, 50, 51]));""")
+        return req(
+            f"S17.{9 if gapless else 10} AC2: 8 clients create {who}'s incidents at once ({'gapless' if gapless else 'gaps'}): unique numbers",
+            "GET", inc + "/{{s17_par_%s_id}}" % tag, auth=f"{'admin_a' if gapless else 'bob'}_token",
+            pre=S17_PAR.replace("__TOKEN__", f"{'admin_a' if gapless else 'bob'}_token").replace("__TAG__", tag),
+            desc=f"The pre-request script sends 8 `createRecord` requests at the same time as {who}, each with its own Idempotency-Key, and keeps the 8 answers; this request reads the first record back. "
+                 + ("Tenant A's incident type is `gapless`: its creates queue on the counter row, and the 8 numbers are exactly INC0000044 to INC0000051."
+                    if gapless else "Tenant B's incident type is `gaps` (L2s, the allocator outside the create transaction): the 8 numbers are unique. A gaps type may skip a number only when a create fails after taking it; none fails here, so they are INC0000044 to INC0000051 too."),
+            tests=S17_NUM + f"""
+N.status(200);
+const rs = JSON.parse(bru.getVar('s17_par_{tag}'));
+test('8 creates, each 201', () => expect(rs.map(r => r.status)).to.eql([201, 201, 201, 201, 201, 201, 201, 201]));
+const nums = rs.map(r => num(r.number)).sort((a, b) => a - b);
+test(`the 8 numbers: ${{nums.map(inc).join(' ')}}`, () => expect(rs.every(r => /^INC[0-9]{{7}}$/.test(r.number))).to.eql(true));
+test('8 different numbers', () => expect(new Set(nums).size).to.eql(8));{check}
+test('the record read back has its number', () => expect(N.json().number).to.eql(rs[0].number));
+bru.setVar('s17_max_{tag}', String(Math.max(...nums)));
+console.log('S17 parallel {tag}:', nums.map(inc).join(' '));""")
+
+    return {
+        "dir": "S17", "name": "S17 numbering",
+        "desc": "Story S17, TICK-664 (kit TICK-668, docs/acceptance/S17/README.md): release R1 of ADR-005, the counter key gets `scope_key` (migrations M1 and M2) and both allocation paths upsert on the 3-column key. Nothing changes for a user: every type keeps counting where it was. Needs the stack docs/acceptance/S17/tools/run-kit.sh prepares: a fresh stack on the pre-S17 build (S10 included) where tenant A's `incident` type is `gapless` and tenant B's is `gaps` (the default), each at INC0000042, then upgraded to the story build. One `INC` type per tenant (the prefix is unique per tenant), so the gaps type is tenant B's and Bob creates its incidents. AC1 (S17.6-S17.8): the first incident after the upgrade is INC0000043 on both. AC2 (S17.9-S17.10): 8 clients at once get unique numbers on both. Isolation, AC3 (S17.11-S17.14): Bob cannot read or change tenant A's INC0000043, and neither tenant's creates move the other's counter. Runs once per prepared stack: the exact numbers do not hold on a second pass.",
+        "items": [
+            token("S17.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s17_run', N.v('s17_run_id') || Math.random().toString(16).slice(2, 10));\nconsole.log('S17 run', bru.getVar('s17_run'));"),
+            token("S17.2 Sign in as Bob (agent, tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S17.3 The admin is in tenant A", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+                desc="The token of S17.1 resolves to tenant A.", tests=f"N.me('{A}');"),
+            req("S17.4 Tenant A's incident type is gapless, after the upgrade", "GET", "{{core_url}}/api/v1/entity-types/incident", auth="admin_a_token",
+                desc="run-kit.sh set it to `gapless` on the pre-S17 build (S10 included) (`publishEntityTypeVersion` with `numbering_mode` alone); the upgrade kept it.",
+                tests="""N.status(200);
+test('incident, prefix INC, numbering_mode gapless', () => {
+  const b = N.json();
+  expect(b.key).to.eql('incident');
+  expect(b.number_prefix).to.eql('INC');
+  expect(b.numbering_mode).to.eql('gapless');
+});"""),
+            req("S17.5 Tenant B's incident type is gaps (the default)", "GET", "{{core_url}}/api/v1/entity-types/incident", auth="bob_token",
+                desc="Bob reads his own tenant's type: the same key and prefix as tenant A's, its own mode.",
+                tests="""N.status(200);
+test('incident, prefix INC, numbering_mode gaps', () => {
+  const b = N.json();
+  expect(b.key).to.eql('incident');
+  expect(b.number_prefix).to.eql('INC');
+  expect(b.numbering_mode).to.eql('gaps');
+});"""),
+            req("S17.6 AC1: the first incident after the upgrade on the gapless type is INC0000043", "POST", inc, auth="admin_a_token",
+                headers=key("a43"), body=body("gapless first after the upgrade"),
+                desc="admin@tenant-a creates an incident in tenant A. Its counter stood at INC0000042 under the old key; R1's 3-column upsert continues the same row (`scope_key = ''`).",
+                tests="""N.status(201);
+const b = N.json();
+test('number INC0000043', () => expect(b.number).to.eql('INC0000043'));
+bru.setVar('s17_a43_id', b.id);
+console.log('S17.6 tenant A (gapless):', b.number, b.id);"""),
+            req("S17.7 AC1: the first incident after the upgrade on the gaps type is INC0000043", "POST", inc, auth="bob_token",
+                headers=key("b43"), body=body("gaps first after the upgrade"),
+                desc="Bob creates an incident in tenant B, whose type is `gaps`: the allocator takes the number outside the create transaction (L2s), on the same counter row.",
+                tests="""N.status(201);
+const b = N.json();
+test('number INC0000043', () => expect(b.number).to.eql('INC0000043'));
+bru.setVar('s17_b43_id', b.id);
+console.log('S17.7 tenant B (gaps):', b.number, b.id);"""),
+            req("S17.8 AC1: the admin reads INC0000043 back", "GET", one_a, auth="admin_a_token",
+                desc="The record of S17.6, stored with its number.",
+                tests="""N.status(200);
+test('INC0000043, version 1', () => {
+  expect(N.json().number).to.eql('INC0000043');
+  expect(N.json().version).to.eql(1);
+});"""),
+            par("a", "admin@tenant-a", True),
+            par("b", "Bob", False),
+            req("S17.11 Isolation: Bob reads tenant A's INC0000043: 404", "GET", one_a, auth="bob_token",
+                desc="Tenant A's record id from tenant B's token: the same 404 as a record that does not exist, naming nothing of tenant A.",
+                tests=no404),
+            req("S17.12 Isolation: Bob changes tenant A's INC0000043: 404", "PATCH", one_a, auth="bob_token",
+                headers={**key("bob-patch-a"), "Content-Type": "application/merge-patch+json", "If-Match": 'W/"1"'},
+                body={"data": {"short_description": "S17 changed by tenant B"}},
+                desc="The same 404; S17.14 shows the record unchanged.", tests=no404),
+            req("S17.13 Isolation: tenant B's creates did not move tenant A's counter", "POST", inc, auth="admin_a_token",
+                headers=key("a-after"), body=body("gapless after tenant B's creates"),
+                desc="Tenant B made 9 creates since S17.6 (S17.7, S17.10). Tenant A's next number is the one after its own last (S17.9), not one after B's.",
+                tests=S17_NUM + """
+N.status(201);
+const want = inc(Number(bru.getVar('s17_max_a')) + 1);
+test(`number ${want}: the next of tenant A's own series`, () => expect(N.json().number).to.eql(want));"""),
+            req("S17.14 Isolation: tenant A's creates did not move tenant B's counter", "POST", inc, auth="bob_token",
+                headers=key("b-after"), body=body("gaps after tenant A's creates"),
+                desc="Tenant A made 10 creates since S17.7. Tenant B's next number is the one after its own last (S17.10); no B create failed, so none was skipped.",
+                tests=S17_NUM + """
+N.status(201);
+const want = inc(Number(bru.getVar('s17_max_b')) + 1);
+test(`number ${want}: the next of tenant B's own series`, () => expect(N.json().number).to.eql(want));"""),
+            req("S17.15 Isolation: tenant A's INC0000043 is unchanged", "GET", one_a, auth="admin_a_token",
+                desc="Still version 1 with the text of S17.6 after Bob's attempts.",
+                tests="""N.status(200);
+test('version 1, the text of S17.6', () => {
+  expect(N.json().version).to.eql(1);
+  expect(N.json().data.short_description).to.eql('S17 ' + bru.getVar('s17_run') + ' gapless first after the upgrade');
+});"""),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
