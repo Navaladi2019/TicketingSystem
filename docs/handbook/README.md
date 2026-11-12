@@ -44,13 +44,14 @@ reference that does not resolve (the error names the page and the reference).
 title: "Audit log"
 section: stories
 status: delivered                 # delivered | in-progress
-sources: [docs/adr/ADR-004-audit-log.md, internal/audit/...]  # files this page was checked against; must exist
+sources: [docs/adr/ADR-004-audit-log.md, internal/audit/..., internal/relay/dispatch.go:29]  # files (or file:line) this page was checked against; must exist
 adrs: [ADR-004, ADR-004-E7]       # ADR, amendment or erratum IDs under docs/adr
 stories: [S14]                    # ids in src/stories/stories.yaml
 operations: [listAuditEntries]    # operationIds in api/openapi.bundled.yaml
 tables: [audit_log]               # tables in src/database/schema.json
-workflows: [OutboxDispatch]       # needs the registry hook (TICK-727)
-activities: [SomeActivity]        # same
+workflows: [audit.seal]           # kinds in internal/outbox/outbox.go (parsed, TICK-727)
+activities: [audit.seal.Seal]     # names the seal, interp and workerguard Register functions register
+build: production                 # workflows pages: production | interptest (which build registers it)
 tests: [TestChainSeals]           # Test, Benchmark, Fuzz or Example functions in any _test.go file (or dir.Name)
 packages: [internal/audit]        # directories
 invariants: [I1, I6]              # rows of the ADR-001 section 1 table
@@ -62,8 +63,16 @@ normative: docs/adr/ADR-004-audit-log.md  # adds the "Summary. The normative tex
 Every other page that names the same table, workflow, story, ADR, operation or
 invariant is listed at the foot of the page ("Also named by").
 
-`workflows:` and `activities:` fail until TICK-727 wires the registry
-(`Unwired` in `docs/handbook/build/build.py`); until then do not use them.
+`workflows:` and `activities:` resolve against `GoRegistry` in
+`docs/handbook/build/build.py`, which parses the kind list in
+`internal/outbox/outbox.go` and the `Register` functions of `seal`, `interp`
+and `workerguard` with the standard library, and checks that every
+`.Register(w)` / `RegisterWorkflow(w)` call in `cmd/nava-worker` goes through
+one of those functions. It fails the build when it finds
+nothing, so a parser that drifted from the code cannot pass. A `sources:`
+entry may name lines (`path:12`, `path:12-20,31`; quote a comma list inside
+`[...]` or use a block list); the build checks the file
+has them, and the reviewer checks what they say against the footer sha.
 
 ## Diagrams
 

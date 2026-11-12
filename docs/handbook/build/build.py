@@ -35,7 +35,8 @@ HOME = "home"
 
 LIST_KEYS = ["sources", "adrs", "stories", "operations", "tables", "workflows",
              "activities", "tests", "packages", "invariants", "evidence"]
-SCALAR_KEYS = ["title", "section", "status", "normative"]
+SCALAR_KEYS = ["title", "section", "status", "normative", "build"]
+BUILDS = ("production", "interptest")
 
 
 class BuildError(Exception):
@@ -293,6 +294,11 @@ def parse_page(src_path, text):
         raise ValueError("front matter: status is required (delivered or in-progress)")
     if front["status"] not in ("delivered", "in-progress"):
         raise ValueError("front matter: status %r is not delivered or in-progress" % front["status"])
+    if front["build"] and front["build"] not in BUILDS:
+        raise ValueError("front matter: build %r is not production or interptest" % front["build"])
+    if front["section"] == "workflows" and front["workflows"] and not front["build"]:
+        raise ValueError("front matter: a workflows page that names workflows says which build registers them "
+                         "(build: production or build: interptest)")
     return Page(src_path, front, body)
 
 
@@ -334,13 +340,213 @@ def load_pages(root):
 # ------------------------------------------------------------------- facts
 
 class Unwired:
-    """The workflow/activity registry hook TICK-727 wires. Until then it knows nothing."""
+    """A registry that knows nothing: every workflows: or activities: reference fails."""
 
     def workflows(self):
         return None
 
     def activities(self):
         return None
+
+
+# Where GoRegistry reads names. The alias is the qualifier the Register
+# functions' constants use (outbox.SealKind, workerguard.DirectiveWorkflow).
+GO_PACKAGES = {
+    "outbox": "internal/outbox",
+    "workerguard": "internal/workerguard",
+    "seal": "internal/audit/seal",
+    "interp": "internal/workflow/interp",
+}
+# The closed kind list: notOwnEntryPointStart's array of {kind, Enqueue* entry point}.
+GO_KIND_FILE = "internal/outbox/outbox.go"
+GO_KIND_ROW = re.compile(r'\{\s*([A-Za-z_][\w.]*)\s*,\s*"(Enqueue\w+)"\s*\}')
+# The functions cmd/nava-worker registers through: (package, signature, what it registers).
+GO_REGISTER_FUNCS = [
+    ("seal", "func RegisterWorkflow(", "workflow"),
+    ("seal", "func (a *Activities) Register(", "activity"),
+    ("interp", "func RegisterWorkflow(", "workflow"),
+    ("interp", "func (a *Activities) Register(", "activity"),
+    ("workerguard", "func (a *Activities) Register(", "activity"),
+]
+# The worker's package main, scanned so no registration bypasses GO_REGISTER_FUNCS.
+GO_WORKER_DIR = "cmd/nava-worker"
+GO_WORKER_CALL = re.compile(r"(\(&[\w.]+\{[^{}]*\}\)|[A-Za-z_][\w.]*)\.(Register|RegisterWorkflow)\(\s*\w+\s*\)")
+
+
+def worker_receiver_package(text, pos, recv):
+    """The package alias of a Register call's receiver type: (&pkg.T{...}),
+    or a variable declared as `name *pkg.T`, `name := &pkg.T{` or
+    `name := pkg.T{` in the enclosing function. None if it cannot tell."""
+    m = re.match(r"^\(&(\w+)\.Activities\{", recv)
+    if m:
+        return m.group(1)
+    if not re.match(r"^\w+$", recv):
+        return None
+    start = text.rfind("\nfunc ", 0, pos)
+    scope = text[start if start >= 0 else 0:pos]
+    m = (re.search(r"\b%s\s+\*?(\w+)\.Activities\b" % re.escape(recv), scope)
+         or re.search(r"\b%s\s*:?=\s*&?(\w+)\.Activities\{" % re.escape(recv), scope))
+    return m.group(1) if m else None
+
+
+GO_REGISTER_CALL = re.compile(
+    r"Register(Workflow|Activity)WithOptions\(\s*[\w.]+\s*,\s*\w+\.RegisterOptions\{\s*Name:\s*([^},]+?)\s*,?\s*\}\s*\)")
+GO_CONST_IN_BLOCK = re.compile(r"^\s*([A-Za-z_]\w*)(?:\s+[\w.]+)?\s*=\s*(.+?)\s*(?://.*)?$")
+GO_CONST_SINGLE = re.compile(r"^const\s+([A-Za-z_]\w*)(?:\s+[\w.]+)?\s*=\s*(.+?)\s*(?://.*)?$")
+GO_STRING = re.compile(r'^"((?:[^"\\]|\\.)*)"$|^`([^`]*)`$')
+
+
+class GoRegistry:
+    """The workflow and activity names, parsed from the Go source with the
+    standard library (TICK-727: docs only, no Go code is added or run).
+
+    workflows() is the closed kind list in internal/outbox/outbox.go: each kind
+    with the Enqueue* function that alone may start it. activities() is every
+    name the Register functions of seal, interp and workerguard register. Each
+    name is resolved through the packages' const declarations, so it is the
+    string the worker registers. load() fails when it finds nothing, when a
+    name does not resolve, or when a registered workflow type is not a kind (or
+    a kind is registered by no RegisterWorkflow), so a parser that drifted from
+    the code cannot pass silently. Which build registers what is decided in
+    package main; the pages carry it as build: front matter."""
+
+    def __init__(self, root):
+        self.root = root
+        self.kinds = {}  # kind -> the Enqueue* function that alone may start it
+        self._consts = {}
+        self._workflows = None
+        self._activities = None
+
+    def workflows(self):
+        return self._workflows
+
+    def activities(self):
+        return self._activities
+
+    def _files(self, alias):
+        rel = GO_PACKAGES[alias]
+        d = os.path.join(self.root, *rel.split("/"))
+        if not os.path.isdir(d):
+            raise ValueError("workflow registry: %s is not a directory" % rel)
+        return [(rel + "/" + name, read_text(os.path.join(d, name)))
+                for name in sorted(os.listdir(d)) if name.endswith(".go") and not name.endswith("_test.go")]
+
+    def _const_table(self, alias):
+        if alias not in self._consts:
+            table, block = {}, False
+            for _rel, text in self._files(alias):
+                for line in text.split("\n"):
+                    if re.match(r"^const\s*\(\s*$", line):
+                        block = True
+                        continue
+                    if block and line.strip() == ")":
+                        block = False
+                        continue
+                    m = GO_CONST_IN_BLOCK.match(line) if block else GO_CONST_SINGLE.match(line)
+                    if m:
+                        table[m.group(1)] = m.group(2)
+            self._consts[alias] = table
+        return self._consts[alias]
+
+    def resolve(self, alias, expr, depth=0):
+        """The string value of a Go constant expression in package alias:
+        string literals and constants (Name or pkg.Name) joined with +."""
+        if depth > 10:
+            raise ValueError("workflow registry: %s: constant chain too deep at %r" % (GO_PACKAGES[alias], expr))
+        out = []
+        for term in expr.split("+"):
+            term = term.strip()
+            m = GO_STRING.match(term)
+            if m:
+                out.append(m.group(2) if m.group(1) is None else json.loads('"%s"' % m.group(1)))
+                continue
+            pkg, _, name = term.rpartition(".")
+            pkg = pkg or alias
+            if pkg not in GO_PACKAGES or not re.match(r"^[A-Za-z_]\w*$", name):
+                raise ValueError("workflow registry: %s: cannot resolve %r" % (GO_PACKAGES[alias], term))
+            value = self._const_table(pkg).get(name)
+            if value is None:
+                raise ValueError("workflow registry: %s has no constant %s" % (GO_PACKAGES[pkg], name))
+            out.append(self.resolve(pkg, value, depth + 1))
+        return "".join(out)
+
+    def _register_body(self, alias, sig):
+        for rel, text in self._files(alias):
+            i = text.find("\n" + sig)
+            if i < 0:
+                continue
+            end = text.find("\n}", i)
+            if end < 0:
+                raise ValueError("workflow registry: %s: %s...) has no closing brace" % (rel, sig))
+            return rel, text[i:end]
+        raise ValueError("workflow registry: %s has no %s...) function" % (GO_PACKAGES[alias], sig))
+
+    def check_worker_calls(self):
+        """Every .Register(w) / RegisterWorkflow(w) call in the worker's package
+        main must go through a function of GO_REGISTER_FUNCS, so a registration
+        added there cannot bypass the parsed names. Returns the problems."""
+        known = {(alias, "workflow" if "RegisterWorkflow" in sig else "activity") for alias, sig, _w in GO_REGISTER_FUNCS}
+        d = os.path.join(self.root, *GO_WORKER_DIR.split("/"))
+        if not os.path.isdir(d):
+            return ["workflow registry: %s is not a directory" % GO_WORKER_DIR]
+        problems, found = [], 0
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".go") or name.endswith("_test.go"):
+                continue
+            rel = GO_WORKER_DIR + "/" + name
+            text = read_text(os.path.join(d, name))
+            for m in GO_WORKER_CALL.finditer(text):
+                found += 1
+                line = text.count("\n", 0, m.start()) + 1
+                recv, fn = m.group(1), m.group(2)
+                where = "%s:%d: %s.%s(...)" % (rel, line, recv, fn)
+                if fn == "RegisterWorkflow":
+                    key = (recv, "workflow")
+                else:
+                    pkg = worker_receiver_package(text, m.start(), recv)
+                    if pkg is None:
+                        problems.append("workflow registry: %s: cannot tell the receiver's type; register through "
+                                        "a function the handbook build parses" % where)
+                        continue
+                    key = (pkg, "activity")
+                if key not in known:
+                    problems.append("workflow registry: %s is not one of the Register functions the handbook build "
+                                    "parses (GO_REGISTER_FUNCS)" % where)
+        if not found:
+            problems.append("workflow registry: %s: no .Register(w) or RegisterWorkflow(w) call found; "
+                            "the parser no longer matches the code" % GO_WORKER_DIR)
+        return problems
+
+    def load(self):
+        rel = GO_KIND_FILE
+        try:
+            text = read_text(os.path.join(self.root, *rel.split("/")))
+        except OSError:
+            raise ValueError("workflow registry: %s is missing" % rel)
+        for ident, via in GO_KIND_ROW.findall(text):
+            self.kinds[self.resolve("outbox", ident)] = via
+        if not self.kinds:
+            raise ValueError('workflow registry: %s: no {Kind, "Enqueue..."} rows found; '
+                             "the parser no longer matches the code" % rel)
+        registered = {"workflow": set(), "activity": set()}
+        for alias, sig, what in GO_REGISTER_FUNCS:
+            frel, body = self._register_body(alias, sig)
+            calls = GO_REGISTER_CALL.findall(body)
+            if not calls:
+                raise ValueError("workflow registry: %s: %s...) registers nothing the parser can read" % (frel, sig))
+            for kind, expr in calls:
+                if kind.lower() != what:
+                    raise ValueError("workflow registry: %s: %s...) registers a %s" % (frel, sig, kind.lower()))
+                registered[what].add(self.resolve(alias, expr))
+        problems = self.check_worker_calls()
+        for wf in sorted(registered["workflow"] - set(self.kinds)):
+            problems.append("workflow registry: workflow type %r is registered but is not a kind in %s" % (wf, rel))
+        for k in sorted(set(self.kinds) - registered["workflow"]):
+            problems.append("workflow registry: kind %r is registered by no RegisterWorkflow" % k)
+        if problems:
+            raise ValueError("\n".join(problems))
+        self._workflows = sorted(self.kinds)
+        self._activities = sorted(registered["activity"])
 
 
 class Facts:
@@ -360,7 +566,7 @@ class Facts:
         self.problems = []
         for load in (self.load_adrs, self.load_stories, self.load_operations,
                      self.load_schema, self.load_db_manifests, self.load_data_notes,
-                     self.load_invariants, self.load_tests):
+                     self.load_invariants, self.load_tests, self.load_registry):
             try:
                 load()
             except (OSError, ValueError) as e:
@@ -368,6 +574,11 @@ class Facts:
 
     def path(self, *parts):
         return os.path.join(self.root, *parts)
+
+    def load_registry(self):
+        load = getattr(self.registry, "load", None)
+        if load is not None:
+            load()
 
     # ADRs: file records plus inline "### E1" headings under "## Errata".
     def load_adrs(self):
@@ -730,7 +941,7 @@ def check_refs(f, p):
         names = getter()
         for r in refs:
             if names is None:
-                bad(kind, r, "cannot be checked: the registry hook is not wired yet (TICK-727)")
+                bad(kind, r, "cannot be checked: the workflow registry did not load")
             elif r not in names:
                 bad(kind, r, "is not in the registry")
     for r in fm["tests"]:
@@ -747,11 +958,35 @@ def check_refs(f, p):
     for r in fm["evidence"]:
         check_path(f, r, "evidence", bad)
     for r in fm["sources"]:
+        m = SOURCE_LINES.match(r)
+        if m:
+            check_source_lines(f, r, m.group(1), m.group(2), bad)
+            continue
         r2 = r[:-3] if r.endswith("...") else r
         check_path(f, r2.rstrip("/"), "sources", bad)
     if fm["normative"]:
         check_path(f, fm["normative"], "normative", bad)
     return out
+
+
+# A source with lines: path:N, path:N-M or path:N,M,... . The build checks the
+# file exists and has those lines; a reviewer checks what they say against the
+# footer sha (numbers quoted by hand, TICK-727).
+SOURCE_LINES = re.compile(r"^([^:]+):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$")
+
+
+def check_source_lines(f, ref, path, spec, bad):
+    check_path(f, path, "sources", bad)
+    full = f.path(*path.split("/")) if path and not os.path.isabs(path) and ".." not in path.split("/") else ""
+    if not full or not os.path.isfile(full):
+        return
+    count = read_text(full).count("\n") + 1
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        lo, hi = int(lo), int(hi or lo)
+        if lo < 1 or hi < lo or hi > count:
+            bad("sources", ref, "names line %s, but %s has %d lines" % (part, path, count))
+            return
 
 
 def check_path(f, r, kind, bad):
@@ -1894,6 +2129,8 @@ def render_page(p, pages, nav, body, has_mermaid, stamp):
             esc(href), esc(p.front["normative"])))
     if p.front["status"] == "in-progress":
         o.append('<p class="badge">In progress: not on main yet</p>')
+    if p.front["build"] == "interptest":
+        o.append('<p class="badge">Registered only in the <code>interptest</code> build; not running in the stack</p>')
     o += ["<article>", '<h1 class="page-title">%s</h1>' % esc(p.front["title"]), body, "</article>"]
     bl = backlinks(p, pages)
     if bl:
@@ -1936,7 +2173,7 @@ def build(root, sha, date, registry=None):
         problems.append("stamp sha %r is not a 7-40 digit lower-case hex commit" % sha)
     if not DATE_RE.match(date or ""):
         problems.append("stamp date %r is not YYYY-MM-DD" % date)
-    facts = Facts(root, registry or Unwired())
+    facts = Facts(root, registry or GoRegistry(root))
     problems += facts.problems
     pages, pp = load_pages(root)
     problems += pp
