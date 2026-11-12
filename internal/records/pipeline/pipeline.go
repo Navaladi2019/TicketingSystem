@@ -177,9 +177,14 @@ type Command struct {
 	// comes out of tenancy.InTenantTx mapped as Write would map it,
 	// *ErrAtVersion included. It is ignored for an update, a `gapless`
 	// type, a tx with no commit batch (a savepoint, or not from
-	// tenancy.InTenantTx) and an EventSink other than NoopSink, which may
-	// send statements that must follow the INSERT; those write as before.
+	// tenancy.InTenantTx) and a create the EventSink has work for (it may
+	// send statements that must follow the INSERT); those write as before.
 	InsertAtCommit bool
+	// WorkflowRef is the outbox id of the writing run's workflow_ref, for a
+	// write a workflow makes; uuid.Nil otherwise. Only a system source may
+	// name one. The EventSink never signals that run about its own write
+	// (D-3-14).
+	WorkflowRef uuid.UUID
 }
 
 // Result is what a write produced.
@@ -207,6 +212,10 @@ type Event struct {
 	ActorID   uuid.UUID
 	Source    Source
 	SourceRef *string
+	// WorkflowRef is Command.WorkflowRef: the run whose own write this is,
+	// which the sink never signals about it (D-3-14). uuid.Nil for a write
+	// no workflow made.
+	WorkflowRef uuid.UUID
 }
 
 // EventSink is told about every write, in the write's transaction (D-3-14).
@@ -220,7 +229,20 @@ type EventSink interface {
 	RecordChanged(ctx context.Context, tx pgx.Tx, ev Event) error
 }
 
-// NoopSink is the S9 EventSink: it does nothing. S11b replaces it (P3-42).
+// CreateTriggerQueuer is an EventSink that can tell, from a read on the
+// write's prefetch batch, that a create of an entity type gives it nothing
+// to do. When the read says so (*fires false once the batch ran), Write does
+// not call RecordChanged for that create, so a create with
+// Command.InsertAtCommit keeps its write on the commit round trip
+// (TICK-692). A create has no workflow on its record yet, so only a start
+// could be due.
+type CreateTriggerQueuer interface {
+	QueueCreateTriggered(b *pgx.Batch, tenant uuid.UUID, entityKey string, fires *bool)
+}
+
+// NoopSink is the S9 EventSink: it does nothing. The API's pipeline uses
+// the real one (internal/records/eventsink, P3-42); tests that start no
+// workflow keep this one.
 type NoopSink struct{}
 
 // RecordChanged does nothing.
@@ -479,7 +501,8 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	if err != nil {
 		return Result{}, mapNotFound(err)
 	}
-	w := write{p: p, tx: tx, tenant: tenant, cmd: cmd, defID: defID, def: def, defVersion: defVersion}
+	w := write{p: p, tx: tx, tenant: tenant, cmd: cmd, defID: defID, def: def, defVersion: defVersion,
+		sinkQuiet: cmd.Op == OpCreate && pre.createQuiet}
 	res, err := w.do(ctx)
 	if err != nil {
 		return Result{}, &ErrAtVersion{SchemaVersion: defVersion, FixedColumns: def.FixedColumns(), StateProperty: def.StateProperty(), Err: err}
@@ -515,6 +538,9 @@ func (c *Command) check() error {
 	}
 	if c.Source == SourceUser && c.Actor.PrincipalID == uuid.Nil {
 		return bad("a user write names a principal")
+	}
+	if c.WorkflowRef != uuid.Nil && !c.Source.system() {
+		return bad("only a system writer names a workflow ref")
 	}
 	if c.IdempotencyKey != "" && (c.Source == SourceUser || len(c.IdempotencyKey) > maxIdempotencyKeyLen) {
 		return bad("an idempotency key is for system writers only, at most %d bytes", maxIdempotencyKeyLen)
@@ -587,6 +613,9 @@ type write struct {
 	defID      uuid.UUID
 	def        *metadata.Compiled
 	defVersion int
+	// sinkQuiet: a create the EventSink said, in the prefetch, it has
+	// nothing to do for (CreateTriggerQueuer). RecordChanged is not called.
+	sinkQuiet bool
 }
 
 // do performs the write under w.def.
@@ -850,7 +879,8 @@ func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Res
 		return Result{}, err
 	}
 	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
-		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef,
+		WorkflowRef: w.cmd.WorkflowRef}
 	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
 		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 	}

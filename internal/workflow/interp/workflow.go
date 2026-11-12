@@ -63,8 +63,12 @@ type signalPayload struct {
 // step to resume at, and the deliveries this run received but did not act on
 // yet, as two arrays of the same length (outbox id, signal id). UUIDs only,
 // so outbox.ValidatePayload, and so the guard, accepts it.
+//
+// Cause is StepRef.Cause at the continue-as-new; a run continued before it
+// existed has none and takes its start's outbox id.
 type runRefs struct {
 	Step          uuid.UUID   `json:"step"`
+	Cause         uuid.UUID   `json:"cause,omitzero"`
 	PendingOutbox []uuid.UUID `json:"pending_outbox,omitempty"`
 	PendingSignal []uuid.UUID `json:"pending_signal,omitempty"`
 }
@@ -119,14 +123,20 @@ func Workflow(ctx workflow.Context, in workerguard.RunInput) error {
 	for i := range refs.PendingOutbox {
 		r.pending = append(r.pending, delivered{outbox: refs.PendingOutbox[i], signal: refs.PendingSignal[i]})
 	}
-	ref := StepRef{DefinitionVersionID: start.DefinitionVersionID, RecordID: start.RecordID, Step: refs.Step}
+	// The cause is the start delivery until a signal resumes the run
+	// (D-3-29): a reference, resolved under RLS by whoever writes.
+	cause := refs.Cause
+	if cause == uuid.Nil {
+		cause = in.OutboxID
+	}
+	ref := StepRef{DefinitionVersionID: start.DefinitionVersionID, RecordID: start.RecordID, Step: refs.Step, Cause: cause}
 	for {
 		var d workerguard.Directive
 		if err := workflow.ExecuteActivity(ctx, NextStepActivity, ref).Get(ctx, &d); err != nil {
 			return err
 		}
 		if workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
-			return r.continueAsNew(ctx, d.Step)
+			return r.continueAsNew(ctx, d.Step, ref.Cause)
 		}
 		ref.Signal = nil
 		var (
@@ -141,7 +151,7 @@ func Workflow(ctx workflow.Context, in workerguard.RunInput) error {
 		case workerguard.KindWaitSignal:
 			next, err = r.waitSignal(ctx, d, &ref)
 		case workerguard.KindUpdateRecord:
-			apply := StepRef{DefinitionVersionID: ref.DefinitionVersionID, RecordID: ref.RecordID, Step: d.Step}
+			apply := StepRef{DefinitionVersionID: ref.DefinitionVersionID, RecordID: ref.RecordID, Step: d.Step, Cause: ref.Cause}
 			if err = workflow.ExecuteActivity(ctx, ApplyStepActivity, apply).Get(ctx, nil); err == nil {
 				next, err = follow(d.Next)
 			}
@@ -191,7 +201,7 @@ func (r *run) waitSignal(ctx workflow.Context, d workerguard.Directive, ref *Ste
 		p := r.pending[0]
 		r.pending = r.pending[1:]
 		if p.signal == want && r.in.Seen.TryApply(ctx, p.outbox) {
-			ref.Signal = &want
+			ref.Signal, ref.Cause = &want, p.outbox
 			return follow(d.Next)
 		}
 	}
@@ -225,7 +235,7 @@ func (r *run) waitSignal(ctx workflow.Context, d workerguard.Directive, ref *Ste
 			continue
 		}
 		if sig, ok := signalOf(got); ok && sig == want && r.in.Seen.TryApply(ctx, got.OutboxID) {
-			ref.Signal = &want
+			ref.Signal, ref.Cause = &want, got.OutboxID
 			return follow(d.Next)
 		}
 	}
@@ -242,7 +252,7 @@ func signalOf(d outbox.Delivery) (uuid.UUID, bool) {
 
 // continueAsNew carries step, the applied-signal set and every delivery not
 // yet acted on (carried, and still buffered on the channel) to a new run.
-func (r *run) continueAsNew(ctx workflow.Context, step uuid.UUID) error {
+func (r *run) continueAsNew(ctx workflow.Context, step, cause uuid.UUID) error {
 	for {
 		var got outbox.Delivery
 		if !r.ch.ReceiveAsync(&got) {
@@ -252,7 +262,7 @@ func (r *run) continueAsNew(ctx workflow.Context, step uuid.UUID) error {
 			r.pending = append(r.pending, delivered{outbox: got.OutboxID, signal: sig})
 		}
 	}
-	refs := runRefs{Step: step}
+	refs := runRefs{Step: step, Cause: cause}
 	for _, p := range r.pending {
 		refs.PendingOutbox = append(refs.PendingOutbox, p.outbox)
 		refs.PendingSignal = append(refs.PendingSignal, p.signal)

@@ -22,6 +22,9 @@ type Activities struct {
 	Definitions DefinitionStore
 	Records     RecordReader
 	Writer      RecordWriter
+	// Waits records the record_changed wait (D-3-29). Nil records nothing:
+	// the run is then never signalled about its record.
+	Waits WaitTracker
 }
 
 // Register adds the activities to r under their fixed names.
@@ -111,11 +114,43 @@ func (l *loaded) id(key string) (*uuid.UUID, error) {
 // that needs the workflow: condition and branch steps are resolved here,
 // against the record. The walk is bounded by def.MaxSteps (the graph is
 // acyclic). ref.Signal, when set, must be one of the version's signal ids.
+//
+// Before it returns a Directive it records the run's record_changed wait
+// through Waits: the RecordChangedSignal id when the Directive is a
+// wait_signal on it, nil for any other Directive (D-3-29). A failure to
+// record it fails the attempt, which is retried.
 func (a *Activities) NextStep(ctx context.Context, ref StepRef) (workerguard.Directive, error) {
 	tenant, l, err := a.load(ctx, ref)
 	if err != nil {
 		return workerguard.Directive{}, err
 	}
+	d, err := a.nextStep(ctx, tenant, l, ref)
+	if err != nil {
+		return workerguard.Directive{}, err
+	}
+	if a.Waits != nil {
+		if err := a.Waits.SetRecordChangedWait(ctx, tenant, l.recordChangedWait(d)); err != nil {
+			return workerguard.Directive{}, err
+		}
+	}
+	return d, nil
+}
+
+// recordChangedWait is the signal id d waits on if it is the version's
+// RecordChangedSignal, else nil.
+func (l *loaded) recordChangedWait(d workerguard.Directive) *uuid.UUID {
+	if d.Kind != workerguard.KindWaitSignal || d.Signal == nil {
+		return nil
+	}
+	id, ok := l.StepIDs[def.SignalKey(RecordChangedSignal)]
+	if !ok || id != *d.Signal {
+		return nil
+	}
+	return &id
+}
+
+// nextStep is NextStep's walk.
+func (a *Activities) nextStep(ctx context.Context, tenant uuid.UUID, l *loaded, ref StepRef) (workerguard.Directive, error) {
 	if ref.Signal != nil {
 		if k, ok := l.keyOf[*ref.Signal]; !ok || len(k) <= len(def.SignalKeyPrefix) || k[:len(def.SignalKeyPrefix)] != def.SignalKeyPrefix {
 			return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectNotFound)

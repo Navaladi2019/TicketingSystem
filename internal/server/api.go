@@ -28,6 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline/eventsink"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
 
@@ -109,7 +110,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
 		}
 		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
-		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
+		h.pipe = pipeline.New(h.acl, h.store, eventsink.Sink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{

@@ -61,6 +61,11 @@ const (
 	signalName   = "demo.note"
 	// definition is the one the cascade start key names (A5).
 	definition = "5e7a0000-0000-4000-8000-0000000000d0"
+	// definitionVersion is the version id the start row names: a start of
+	// nava.interpreter carries exactly {definition_version_id, record_id}
+	// (outbox.ValidateKindPayload, AR-041). The demo's stand-in body never
+	// loads it, so no version row is seeded.
+	definitionVersion = "5e7a0000-0000-4000-8000-0000000000d1"
 	// The longest key whose suffixed forms fit outbox's 200-byte dedupe key
 	// and the pipeline's 200-byte idempotency key.
 	maxKeyLen = 150
@@ -278,7 +283,11 @@ type demoSink struct {
 // signal through EnqueueAtVersion at ev.Version, under the write's causation.
 func (s *demoSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
 	e := s.next
-	payload, err := json.Marshal(map[string]string{"record_id": ev.RecordID.String()})
+	refs := map[string]string{"record_id": ev.RecordID.String()}
+	if _, ok := e.Target.(outbox.TargetStart); ok {
+		refs["definition_version_id"] = definitionVersion
+	}
+	payload, err := json.Marshal(refs)
 	if err != nil {
 		return err
 	}
