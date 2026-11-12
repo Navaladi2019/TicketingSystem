@@ -1,0 +1,53 @@
+### 20_s1_data.sql
+ large_tenant | tier_b2 | score_lt_25 | b001 | avg_data_bytes 
+       400000 |    8024 |        1006 |   46 |           1450
+### 21_s1_schema.sql
+### 22b_s1_populate_noterms.sql
+ terms_large_tenant | distinct_terms 
+                  0 |              0
+### 23_split.sql
+800000|400000
+393411
+### R10 / coerce A/B
+ERROR:  constraint "rfv_text_field_fk" for relation "rfv_text" already exists
+ERROR:  constraint "rfv_num_field_fk" for relation "rfv_num" already exists
+ERROR:  constraint "rfv_ts_field_fk" for relation "rfv_ts" already exists
+ERROR:  constraint "rfv_bool_field_fk" for relation "rfv_bool" already exists
+ERROR:  constraint "record_search_terms_field_fk" for relation "record_search_terms" already exists
+WRITE kind=insert set=10f,fk,round1 tps=400.773784 failed=0 tx=11987 p50_ms=18.24 p95_ms=31.74 p99_ms=48.52 max_ms=130.52
+WRITE kind=insert set=10f,no-fk,round1 tps=385.307416 failed=0 tx=11545 p50_ms=17.96 p95_ms=39.10 p99_ms=63.58 max_ms=141.36
+WRITE kind=insert set=10f,fk,round2 tps=312.882015 failed=0 tx=9318 p50_ms=20.66 p95_ms=52.14 p99_ms=77.81 max_ms=487.94
+WRITE kind=insert set=10f,no-fk,round2 tps=236.049427 failed=0 tx=7072 p50_ms=27.45 p95_ms=71.99 p99_ms=93.16 max_ms=216.25
+WRITE kind=insert set=10f,fk,round3 tps=279.161231 failed=0 tx=8343 p50_ms=21.16 p95_ms=48.34 p99_ms=124.51 max_ms=2946.40
+WRITE kind=insert set=10f,no-fk,round3 tps=334.415043 failed=0 tx=10010 p50_ms=20.10 p95_ms=46.73 p99_ms=63.62 max_ms=351.57
+WRITE kind=insert set=10f,fk,coerce-SET(D19 as written) tps=280.036094 failed=0 tx=8376 p50_ms=24.87 p95_ms=52.00 p99_ms=69.95 max_ms=126.69
+WRITE kind=insert set=10f,fk,coerce-inlined,round1 tps=280.086564 failed=0 tx=8378 p50_ms=24.42 p95_ms=49.81 p99_ms=77.62 max_ms=367.54
+1
+WRITE kind=insert set=10f,fk,coerce-SET,round1 tps=382.144936 failed=0 tx=11418 p50_ms=18.46 p95_ms=35.87 p99_ms=60.27 max_ms=122.53
+WRITE kind=insert set=10f,fk,coerce-inlined,round2 tps=225.946515 failed=0 tx=6748 p50_ms=27.98 p95_ms=71.74 p99_ms=108.47 max_ms=870.13
+1
+WRITE kind=insert set=10f,fk,coerce-SET,round2 tps=319.471590 failed=0 tx=9568 p50_ms=22.60 p95_ms=41.99 p99_ms=62.75 max_ms=140.71
+WRITE kind=insert set=no-trigger,end tps=727.257521 failed=0 tx=21739 p50_ms=9.36 p95_ms=21.57 p99_ms=43.41 max_ms=103.70
+AB-DONE
+### cleanup of A/B inserts
+### S3
+### (1) backfill alone (pause 200 ms between batches)
+BARRIER xids=[] polls=1 waited_ms=1
+BARRIER xids=[] polls=1 waited_ms=3
+BACKFILL done rows=400034 batches=401 ms=6
+BATCHES n=401 avg_ms=997.6 max_ms=1000 avg_wal_bytes=252 total_wal_mb=0.1
+DIFF expected=400034 actual=400034 missing_or_stale=0 extra=0 orphans_any_field=0
+BARRIER xids=[] polls=1 waited_ms=3
+REMOVE registry row deleted
+REMOVE ms=48028
+### (2) live mix alone, 180 s
+LIVE tps=358.911538 tx=64575 p50_ms=19.39 p95_ms=40.89 p99_ms=58.82 max_ms=1514.87
+### (3) live mix with the backfill
+BARRIER xids=[191608,191611] polls=1 waited_ms=138
+BARRIER xids=[] polls=1 waited_ms=2
+BACKFILL done rows=453072 batches=454 ms=5
+BATCHES n=454 avg_ms=998.0 max_ms=1000 avg_wal_bytes_incl_live=407
+LIVE tps=298.348473 tx=53659 p50_ms=22.71 p95_ms=53.39 p99_ms=81.74 max_ms=611.61
+DIFF expected=459124 actual=459124 missing_or_stale=0 extra=0 orphans_any_field=0
+S3-DONE
+ALL-DONE

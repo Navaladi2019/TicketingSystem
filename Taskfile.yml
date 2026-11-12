@@ -103,6 +103,16 @@ tasks:
     cmds:
       - go generate ./...
 
+  handbook:
+    desc: Build the product handbook, docs/handbook/src/**/*.md into docs/handbook/**/*.html (TICK-719); the footer takes HANDBOOK_SHA / HANDBOOK_DATE, else git merge-base HEAD origin/main
+    cmds:
+      - python -I docs/handbook/build/build.py
+
+  handbook:check:
+    desc: Fail when the committed handbook HTML is stale (rebuilt in memory, footer stamp ignored), the stamped sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md
+    cmds:
+      - python -I docs/handbook/build/build.py --check
+
   check-openapi:
     desc: Fail if the api bundle removes or narrows anything on origin/main (additive-only rule for /api/v1)
     cmds:
