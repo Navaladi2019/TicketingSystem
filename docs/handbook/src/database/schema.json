@@ -2629,6 +2629,18 @@
           "type": "bigint",
           "nullable": false,
           "default": ""
+        },
+        {
+          "name": "scope_key",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "name": "period_end",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": ""
         }
       ],
       "primary_key": [
@@ -2652,12 +2664,34 @@
       ],
       "indexes": [
         {
+          "name": "record_counters_period_end",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "period_end"
+          ],
+          "include": [],
+          "predicate": "(period_end IS NOT NULL)"
+        },
+        {
           "name": "record_counters_pkey",
           "method": "btree",
           "unique": true,
           "columns": [
             "tenant_id",
             "entity_definition_id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "record_counters_scoped_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "scope_key"
           ],
           "include": [],
           "predicate": ""
