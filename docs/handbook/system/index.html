@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>System - Nava handbook</title>
+<title>System map - Nava handbook</title>
 <link rel="stylesheet" href="../assets/handbook.css">
 </head>
 <body data-root="../">
@@ -13,13 +13,13 @@
 <div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
 <nav aria-label="Sections">
 <div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
-<ul></ul></div>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
-<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
-<ul></ul></div>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
-<ul></ul></div>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
 <ul></ul></div>
 <div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
@@ -35,15 +35,305 @@
 </nav>
 </aside>
 <main>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>System</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>System map</span></nav>
 <article>
-<h1 class="page-title">System</h1>
-<p>TODO: components and how a request flows through them.</p>
-<p>See also the <a href="../system/viewer-sample.html">viewer sample</a>.</p>
+<h1 class="page-title">System map</h1>
+<p>Every container that <code>docker compose up</code> starts from <code>compose.yaml</code> on <code>main</code>, the network each one sits on, and who talks to whom. Each component has its own page (listed below) with its listeners, database role and the work that introduced it. How the code inside a service is organised is not covered here.</p>
+<h2 id="the-map">The map</h2>
+<figure class="diagram" data-kind="excalidraw"><div class="dz-wrap"><img class="dz-img" src="../diagrams/system-map.excalidraw.svg" alt="System map: every compose service, its networks and its connections"></div></figure>
+<p>The SVG embeds its Excalidraw scene. To change it, open the file in Excalidraw, edit it, and export again with <strong>Embed scene</strong>. If the SVG and <code>compose.yaml</code> disagree, the Mermaid version below was updated with the code and is the one to trust.</p>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+  subgraph host[&quot;Host, 127.0.0.1 only&quot;]
+    client[&quot;API client / browser&quot;]
+    op[&quot;Operator shell (tunnels.sh)&quot;]
+  end
+  subgraph internal[&quot;internal (no egress)&quot;]
+    core[&quot;nava-core&lt;br/&gt;:8080 public, :9090 admin&quot;]
+    kc[&quot;keycloak&lt;br/&gt;:8080, :9000 mgmt&quot;]
+    onboard[&quot;nava-onboard&lt;br/&gt;:8081, :9090&quot;]
+    gs[&quot;nava-groupsync&lt;br/&gt;:9090&quot;]
+    relay[&quot;nava-relay&lt;br/&gt;:9090&quot;]
+    worker[&quot;nava-worker&lt;br/&gt;:9090&quot;]
+    purge[&quot;nava-purge&lt;br/&gt;:9090&quot;]
+    pgb[&quot;pgbouncer&lt;br/&gt;:5432&quot;]
+    migrate[&quot;migrate (one-shot)&quot;]
+    otel[&quot;otel-collector&lt;br/&gt;:4318, :4317&quot;]
+    oo[&quot;openobserve&lt;br/&gt;:5080 (operator)&quot;]
+    prom[&quot;prometheus&lt;br/&gt;:9091 (operator)&quot;]
+    tproxy[&quot;temporal (gateway)&lt;br/&gt;:7233&quot;]
+    pg[(&quot;postgres&lt;br/&gt;:5432&quot;)]
+  end
+  subgraph backplane[&quot;temporal-backplane&quot;]
+    tserver[&quot;temporal-server&lt;br/&gt;:7233 mTLS&quot;]
+    tschema[&quot;temporal-schema (one-shot)&quot;]
+  end
+  subgraph operator[&quot;operator (profile operator)&quot;]
+    ui[&quot;temporal-ui&lt;br/&gt;:8080&quot;]
+  end
+  dbroles[&quot;db-roles (one-shot)&lt;br/&gt;network none&quot;]
+
+  client --&gt;|&quot;127.0.0.1:18080&quot;| core
+  client --&gt;|&quot;OIDC login 127.0.0.1:18081&quot;| kc
+  op -. &quot;tunnels&quot; .-&gt; onboard
+  op -. &quot;tunnel 18233&quot; .-&gt; ui
+  core --&gt;|&quot;discovery, JWKS, health&quot;| kc
+  onboard --&gt;|&quot;org + admin API&quot;| kc
+  gs --&gt;|&quot;admin API read&quot;| kc
+  core --&gt; pgb
+  onboard --&gt; pgb
+  gs --&gt; pgb
+  relay --&gt; pgb
+  worker --&gt; pgb
+  purge --&gt; pgb
+  pgb --&gt;|&quot;server pools&quot;| pg
+  migrate --&gt;|&quot;direct, nava_migrator&quot;| pg
+  kc --&gt;|&quot;direct, db keycloak&quot;| pg
+  dbroles -. &quot;pgsocket Unix socket&quot; .-&gt; pg
+  relay --&gt;|&quot;start / signal&quot;| tproxy
+  worker --&gt;|&quot;poll nava-tq&quot;| tproxy
+  core -. &quot;readiness probe&quot; .-&gt; tproxy
+  ui --&gt; tproxy
+  tproxy --&gt;|&quot;tcp 7233&quot;| tserver
+  tserver --&gt;|&quot;persistence, direct&quot;| pg
+  tschema --&gt;|&quot;schema, direct&quot;| pg
+  otel --&gt;|&quot;OTLP/HTTP&quot;| oo
+  prom -. &quot;scrape :9090&quot; .-&gt; core
+</pre></div></figure>
+<p>Not drawn, to keep the map readable: every <code>nava-*</code> service exports OTLP to <code>otel-collector:4318</code>, and Prometheus scrapes the <code>:9090</code> admin listener of all six <code>nava-*</code> services (<code>deploy/compose/prometheus/prometheus.yml</code>).</p>
+<h2 id="networks">Networks</h2>
+<table>
+<thead>
+<tr>
+<th>Network</th>
+<th>Kind</th>
+<th>Who is on it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default</code></td>
+<td>publishes ports to the host (loopback only)</td>
+<td>nava-core, keycloak</td>
+</tr>
+<tr>
+<td><code>internal</code></td>
+<td><code>internal: true</code>, no egress</td>
+<td>every backing service and every <code>nava-*</code> service</td>
+</tr>
+<tr>
+<td><code>operator</code></td>
+<td>not internal, so the UIs can publish on 127.0.0.1</td>
+<td>temporal-ui, temporal (gateway), openobserve, prometheus</td>
+</tr>
+<tr>
+<td><code>temporal-backplane</code></td>
+<td><code>internal: true</code></td>
+<td>postgres, temporal-schema, temporal-server, temporal (gateway)</td>
+</tr>
+</tbody>
+</table>
+<p>No platform process joins <code>temporal-backplane</code>, so the server's internode and membership ports have no route from <code>internal</code>. <code>db-roles</code> has no network (<code>network_mode: none</code>); it reaches PostgreSQL only over the Unix socket on the <code>pgsocket</code> volume, which only <code>postgres</code> and <code>db-roles</code> mount. <code>deploy/compose/compose.internal.yaml</code> makes <code>default</code> and <code>operator</code> internal as well.</p>
+<h2 id="rules-every-edge-follows">Rules every edge follows</h2>
+<ul>
+<li>Every <code>nava-*</code> service reaches PostgreSQL only through PgBouncer. The direct connections are <code>migrate</code> (as <code>nava_migrator</code>, which PgBouncer refuses), <code>db-roles</code> (the superuser, over the socket), Temporal's persistence (<code>temporal-schema</code>, <code>temporal-server</code>) and Keycloak's own database.</li>
+<li>Clients reach Temporal only through the <code>temporal</code> gateway at <code>temporal:7233</code>, which forwards to <code>temporal-server</code>. The workflow edges are <code>nava-relay</code> (start and signal) and <code>nava-worker</code> (poll <code>nava-tq</code>). <code>nava-core</code> dials the gateway only for its readiness probe. <code>nava-onboard</code>, <code>nava-groupsync</code> and <code>nava-purge</code> have no Temporal edge.</li>
+<li>Among the <code>nava-*</code> services, only <code>nava-core</code> publishes a port (<code>127.0.0.1:18080</code>). No <code>:9090</code> admin listener is published. The other published ports are Keycloak (<code>127.0.0.1:18081</code>) and, with the <code>operator</code> profile, OpenObserve (<code>127.0.0.1:5080</code>) and Prometheus (<code>127.0.0.1:9091</code>), all on loopback.</li>
+<li>Everything else is reached from the host through <code>docs/acceptance/guide/tools/tunnels.sh</code> (local forwards on 127.0.0.1) or <code>docker compose exec</code>.</li>
+</ul>
+<h2 id="components">Components</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Kind</th>
+<th>Listeners (container)</th>
+<th>Host port</th>
+<th>DB role(s)</th>
+<th>Introduced by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../system/postgres.html">postgres</a></td>
+<td>backing</td>
+<td><code>:5432</code>, Unix socket</td>
+<td>none</td>
+<td>(server)</td>
+<td>PLAN-001 T02 (TICK-51)</td>
+</tr>
+<tr>
+<td><a href="../system/pgbouncer.html">pgbouncer</a></td>
+<td>backing</td>
+<td><code>:5432</code></td>
+<td>none</td>
+<td><code>pgbouncer_auth</code> (lookup)</td>
+<td>PLAN-001 T02 (TICK-51)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-db.html">nava-db: db-roles, migrate</a></td>
+<td>one-shot</td>
+<td>none</td>
+<td>none</td>
+<td>superuser; <code>nava_migrator</code></td>
+<td>PLAN-001 T03</td>
+</tr>
+<tr>
+<td><a href="../system/keycloak.html">keycloak</a></td>
+<td>backing</td>
+<td><code>:8080</code>, <code>:9000</code> management</td>
+<td><code>127.0.0.1:18081</code></td>
+<td><code>keycloak</code></td>
+<td>PLAN-001 T02 (TICK-51)</td>
+</tr>
+<tr>
+<td>temporal-schema</td>
+<td>one-shot</td>
+<td>none</td>
+<td>none</td>
+<td><code>temporal</code></td>
+<td>PLAN-001 T28</td>
+</tr>
+<tr>
+<td><a href="../system/temporal-server.html">temporal-server</a></td>
+<td>backing</td>
+<td><code>:7233</code> frontend (+ internode)</td>
+<td>none</td>
+<td><code>temporal</code></td>
+<td>PLAN-001 T28</td>
+</tr>
+<tr>
+<td><a href="../system/temporal.html">temporal (gateway)</a></td>
+<td>backing</td>
+<td><code>:7233</code></td>
+<td>none</td>
+<td>none</td>
+<td>PLAN-001 T02, gateway since T28</td>
+</tr>
+<tr>
+<td><a href="../system/temporal-ui.html">temporal-ui</a></td>
+<td>operator profile</td>
+<td><code>:8080</code></td>
+<td>none (tunnel 18233)</td>
+<td>none</td>
+<td>PLAN-001 T28</td>
+</tr>
+<tr>
+<td><a href="../system/otel-collector.html">otel-collector</a></td>
+<td>backing</td>
+<td><code>:4318</code>, <code>:4317</code>, <code>:13133</code> health</td>
+<td>none</td>
+<td>none</td>
+<td>PLAN-001 T02 (TICK-51)</td>
+</tr>
+<tr>
+<td><a href="../system/openobserve.html">openobserve</a></td>
+<td>operator profile</td>
+<td><code>:5080</code></td>
+<td><code>127.0.0.1:5080</code></td>
+<td>none</td>
+<td>TICK-634</td>
+</tr>
+<tr>
+<td><a href="../system/prometheus.html">prometheus</a></td>
+<td>operator profile</td>
+<td><code>:9091</code></td>
+<td><code>127.0.0.1:9091</code></td>
+<td>none</td>
+<td>TICK-330</td>
+</tr>
+<tr>
+<td><a href="../system/nava-core.html">nava-core</a></td>
+<td>platform</td>
+<td><code>:8080</code> public, <code>:9090</code> admin</td>
+<td><code>127.0.0.1:18080</code></td>
+<td><code>nava_app</code>, <code>nava_audit_reader</code></td>
+<td>PLAN-001 T02 (TICK-51)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-worker.html">nava-worker</a></td>
+<td>platform</td>
+<td><code>:9090</code> admin</td>
+<td>none</td>
+<td><code>nava_worker</code></td>
+<td>PLAN-001 T31b (TICK-159)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-relay.html">nava-relay</a></td>
+<td>platform</td>
+<td><code>:9090</code> admin</td>
+<td>none</td>
+<td><code>nava_relay</code></td>
+<td>PLAN-001 T30b (TICK-85)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-purge.html">nava-purge</a></td>
+<td>platform</td>
+<td><code>:9090</code> admin</td>
+<td>none</td>
+<td><code>nava_purge</code></td>
+<td>PLAN-001 T13 (TICK-143)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-onboard.html">nava-onboard</a></td>
+<td>platform</td>
+<td><code>:8081</code> operator API, <code>:9090</code> admin</td>
+<td>none</td>
+<td><code>nava_app</code>, <code>nava_onboard</code></td>
+<td>PLAN-001 T21 (TICK-234)</td>
+</tr>
+<tr>
+<td><a href="../system/nava-groupsync.html">nava-groupsync</a></td>
+<td>platform</td>
+<td><code>:9090</code> admin</td>
+<td>none</td>
+<td><code>nava_groupsync</code></td>
+<td>PLAN-001 T25 (TICK-234)</td>
+</tr>
+</tbody>
+</table>
+<p>"Introduced by" names the work that first added the service to the compose file. The story manifest does not list these yet, so they are named in prose here, not linked.</p>
+<h3 id="temporal-schema-one-shot">temporal-schema (one-shot)</h3>
+<p>Runs <code>setup-schema.sh</code> from the <code>nava/temporal-server</code> image once per <code>up</code>. It connects straight to PostgreSQL as <code>temporal</code> (not through PgBouncer) and creates or upgrades the schema in the <code>temporal</code> and <code>temporal_visibility</code> databases, then exits. It is on <code>temporal-backplane</code> only; <code>temporal-server</code> waits for it to complete.</p>
+<h2 id="binaries-that-are-not-services">Binaries that are not services</h2>
+<table>
+<thead>
+<tr>
+<th>Binary</th>
+<th>What it is</th>
+<th>Covered on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cmd/nava-db</code></td>
+<td>the <code>db-roles</code> and <code>migrate</code> one-shots</td>
+<td><a href="../system/nava-db.html">nava-db</a></td>
+</tr>
+<tr>
+<td><code>cmd/nava</code></td>
+<td>offline operator CLI, <code>nava audit verify &lt;file&gt;</code>; no database, no network</td>
+<td>the audit-chain page in Security and the Operations section</td>
+</tr>
+<tr>
+<td><code>cmd/openapi-compat</code></td>
+<td>CI tooling: fails when <code>api/openapi.yaml</code> removes or narrows anything</td>
+<td>not a runtime component</td>
+</tr>
+<tr>
+<td><code>cmd/demo-outbox</code>, <code>cmd/demo-interpreter</code></td>
+<td>demos run by scripts under <code>scripts/dev/</code></td>
+<td>excluded: not part of the running platform</td>
+</tr>
+</tbody>
+</table>
 </article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+</section>
 <footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
 <script src="../assets/handbook.js"></script>
 </body>
 </html>

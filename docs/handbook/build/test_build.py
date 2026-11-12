@@ -128,7 +128,8 @@ def new_fixture():
     write(root, "docs/handbook/src/diagrams/ok.excalidraw.svg", SVG)
     write(root, "docs/handbook/src/stories/stories.yaml",
           "stories:\n  - id: S14\n    issue: TICK-409\n    title: Audit log\n    status: delivered\n"
-          "    evidence: [docs/evidence/e.md]\n")
+          "    verdict: READY\n    date: 2026-11-04\n    bruno: [S14]\n    evidence: [docs/evidence/e.md]\n")
+    write(root, "docs/acceptance/guide/bruno/S14/folder.bru", "meta {}")
     write(root, "docs/handbook/src/database/schema.json", SCHEMA)
     write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default, tenants]\n")
     write(root, "docs/handbook/src/database/migration-history.json",
@@ -283,6 +284,41 @@ class TestReferences(Base):
               "stories:\n  - id: S1\n    status: delivered\n    evidence: [../outside.md]\n")
         os.remove(os.path.join(self.root, "docs/handbook/src/database/areas.yaml"))
         self.fails("S1", "is not a path inside the repository")
+
+    def test_story_manifest_contract(self):
+        head = "stories:\n  - id: S1\n    issue: TICK-1\n    title: T\n"
+        good = (head + "    status: delivered\n    verdict: READY\n    date: 2026-11-01\n"
+                "    bruno: S14\n    evidence: [docs/evidence/e.md]\n")
+        cases = [
+            (good.replace("    verdict: READY\n", ""), "needs a verdict"),
+            (good.replace("2026-11-01", "1 Nov"), "needs an ISO date"),
+            (good.replace("    evidence: [docs/evidence/e.md]\n", ""), "at least one evidence path"),
+            (good.replace("docs/evidence/e.md", "docs/evidence/nope.md"), "does not exist"),
+            (good.replace("bruno: S14", "bruno: [S99]"), "bruno folder 'S99' does not exist"),
+            (good + "unassigned:\n  - path: docs/evidence/e.md\n", "needs a reason"),
+            (good + "unassigned:\n  - path: docs/evidence/gone.md\n    reason: r\n", "does not exist"),
+            (good + "extra: 1\n", "the only top-level keys"),
+        ]
+        for text, want in cases:
+            with self.subTest(want):
+                write(self.root, "docs/handbook/src/stories/stories.yaml", text)
+                self.fails(want)
+        write(self.root, "docs/handbook/src/stories/stories.yaml",
+              good + "  - id: S2\n    status: planned\n    bruno: [S14]\n"
+                     "unassigned:\n  - path: docs/evidence/e.md\n    reason: cross-cutting\n")
+        self.build()  # a bare-string bruno, a planned story with no verdict, and unassigned all pass
+
+    def test_gen_stories_renders_the_manifest(self):
+        write(self.root, "docs/handbook/src/stories/stories.yaml",
+              "stories:\n  - id: S14\n    issue: TICK-419\n    title: Audit log\n    status: delivered\n"
+              "    verdict: READY\n    date: 2026-11-04\n    evidence: [docs/evidence/e.md]\n"
+              "  - id: S20\n    issue: TICK-684\n    title: Later\n    status: planned\n"
+              "unassigned:\n  - path: docs/evidence/e.md\n    reason: cross-cutting\n")
+        page(self.root, "stories/index.md", "Stories", "stories", body="<!-- gen:stories -->")
+        h = self.html("stories/index.html")
+        self.assertIn("TICK-419", h)
+        self.assertIn("TICK-684", h)
+        self.assertIn("cross-cutting", h)
 
     def test_a_method_is_not_a_test(self):
         page(self.root, "system/a.md", "A", "system", front="tests: [TestNotAFunc]\n")

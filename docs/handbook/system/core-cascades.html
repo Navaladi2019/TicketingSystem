@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core: cascade bounds (I9) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li class="current"><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Core: cascade bounds (I9)</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-001-A5-i9-cycle-suppress-start.md"><code>docs/adr/ADR-001-A5-i9-cycle-suppress-start.md</code></a>.</p>
+<article>
+<h1 class="page-title">Core: cascade bounds (I9)</h1>
+<h2 id="purpose">Purpose</h2>
+<p>A record write can start a workflow, which can write a record, which can start
+another workflow. ADR-001 I9 bounds that chain two ways: every write carries a
+causation (origin id and depth) and a write deeper than the limit is refused,
+and a workflow definition starts at most once per (tenant, origin, record).
+This page shows where both checks run inside the write pipeline.</p>
+<h2 id="entry-point">Entry point</h2>
+<ul>
+<li>Depth: <code>Pipeline.perform</code> in <code>internal/records/pipeline/pipeline.go</code>
+compares <code>Command.Causation.Depth</code> with <code>config.CascadeDepthLimit</code>
+(<code>internal/platform/config/config.go</code>) before any statement but the tenant
+read.</li>
+<li>Start key: <code>cascade.ClaimStart(ctx, tx, cascade.Key)</code> in
+<code>internal/records/cascade/cascade.go</code>, called by the event sink in the
+triggering write's transaction; a repeat is audited by
+<code>pipeline.AuditSuppressed</code>.</li>
+</ul>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TD
+    W[&quot;pipeline.Write(cmd)&quot;] --&gt; CK[&quot;Command.check:&lt;br/&gt;depth 0 names no origin;&lt;br/&gt;workflow write never at depth 0&quot;]
+    CK --&gt; D0{Depth == 0?}
+    D0 -- yes --&gt; MO[mint origin: uuid.NewV7]
+    D0 -- no --&gt; LIM{Depth &gt; CascadeDepthLimit?}
+    LIM -- yes --&gt; TD[&quot;rejectTooDeep: appendTooDeep on the&lt;br/&gt;TxRunner, own committed transaction;&lt;br/&gt;return outbox.ErrCascadeTooDeep&quot;]
+    LIM -- no --&gt; GO
+    MO --&gt; GO[&quot;write runs; records row stores&lt;br/&gt;causation_origin_id, causation_depth&quot;]
+    GO --&gt; SK[&quot;EventSink.RecordChanged&quot;]
+    SK --&gt; CS[&quot;cascade.ClaimStart: lock record row,&lt;br/&gt;INSERT cascade_start ON CONFLICT DO NOTHING&quot;]
+    CS -- claimed --&gt; EN[&quot;outbox.EnqueueStart(claim)&quot;]
+    CS -- repeat --&gt; AS[&quot;pipeline.AuditSuppressed:&lt;br/&gt;cascade_cycle entry, write commits&quot;]
+</pre></div></figure>
+<h2 id="steps">Steps</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Where</th>
+<th>Invariant</th>
+<th>Proving test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Refuse a given origin at depth 0 and a workflow write at depth 0; mint the origin for a depth-0 write</td>
+<td><code>Command.check</code>, <code>Pipeline.perform</code></td>
+<td>Origin and depth never come from a request or payload (A5-3, A5-7)</td>
+<td><code>TestDepthZeroWritesMintTheirOrigin</code>, <code>TestWorkflowWriteAtDepthZeroIsInvalidEntry</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Refuse a write beyond the depth limit; write one <code>cascade_too_deep</code> audit entry in a transaction of its own on the <code>TxRunner</code>, committed before <code>Write</code> returns</td>
+<td><code>Pipeline.rejectTooDeep</code>, <code>appendTooDeep</code> (<code>audit.go</code>)</td>
+<td>I9 depth bound; nothing in the caller's transaction changes</td>
+<td><code>TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner</code>, <code>TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing</code>, <code>TestTooDeepAuditFailure</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Store the causation on the record row with the write</td>
+<td><code>write.causation</code></td>
+<td>The start key is read from the row, never passed in</td>
+<td><code>TestClaimStartReadsTheKeyFromTheRecord</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Claim the start key K(tenant, origin, record, definition): lock the record row (naming the tenant), insert into <code>cascade_start</code></td>
+<td><code>cascade.ClaimStart</code></td>
+<td>A5: at most one start per key; per tenant</td>
+<td><code>TestCI10_StartKeyIsPerTenant</code>, <code>TestCI10_ConcurrentClaimsOfOneKey</code>, <code>TestCI10_RetriedActivityCreatesNoSecondStart</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Claimed: enqueue the start through <code>outbox.EnqueueStart</code>, which only takes a claimed <code>cascade.Claim</code></td>
+<td>outbox producer</td>
+<td>I6: starts only through the outbox</td>
+<td><code>TestCascadeStartGuards</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Repeat: enqueue nothing, append a <code>cascade_cycle</code> entry, let the write commit</td>
+<td><code>pipeline.AuditSuppressed</code></td>
+<td>A5-4: a cycle is suppressed, not failed</td>
+<td><code>TestCIA17CycleEntries</code>, <code>TestCI10_WriteBackToTriggeringRecordCommits</code>, <code>TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="errors">Errors</h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>outbox.ErrCascadeTooDeep</code></td>
+<td>depth past <code>config.CascadeDepthLimit</code>; joined with the audit failure if the entry could not be written</td>
+</tr>
+<tr>
+<td><code>cascade.ErrRecordNotFound</code></td>
+<td>no such record in the transaction's tenant, or no tenant</td>
+</tr>
+<tr>
+<td><code>cascade.ErrNoOrigin</code></td>
+<td>the record row has no causation</td>
+</tr>
+<tr>
+<td><code>cascade.ErrInvalidKey</code></td>
+<td>no record or definition in the key; <code>AuditSuppressed</code> called with a claimed start</td>
+</tr>
+</tbody>
+</table>
+<p>None of these reach an HTTP client: the record routes always write at depth 0.</p>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>The limit's value lives only in <code>internal/platform/config/config.go</code>; this
+page does not copy it.</li>
+</ul>
+<h2 id="links">Links</h2>
+<ul>
+<li>The workflow side (outbox, relay, interpreter):
+<a href="../workflows/index.html">workflows section</a>.</li>
+<li>Tables <code>cascade_start</code>, <code>outbox</code>, <code>audit_log</code>:
+<a href="../database/index.html">database section</a>.</li>
+<li>The write this hangs off: <a href="../system/core-write-pipeline.html">core-write-pipeline</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table audit_log</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table cascade_start</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul>
+<h3>Table outbox</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../database/outbox.html">Outbox</a></li></ul>
+<h3>Table records</h3><ul><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>ADR ADR-001-A5</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li></ul>
+<h3>ADR ADR-004-E1</h3><ul><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+<h3>Invariant I6</h3><ul><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li></ul>
+<h3>Invariant I7</h3><ul><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li></ul>
+<h3>Invariant I9</h3><ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

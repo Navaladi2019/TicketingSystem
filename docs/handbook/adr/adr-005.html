@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-005: record numbering - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li class="current"><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../adr/index.html">adr</a> / <span>ADR-005: record numbering</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-005-record-numbering.md"><code>docs/adr/ADR-005-record-numbering.md</code></a>.</p>
+<p class="badge">In progress: not on main yet</p>
+<article>
+<h1 class="page-title">ADR-005: record numbering</h1>
+<p>Status on <code>main</code>: <strong>ACCEPTED</strong>, 2026-11-10, by the Solution Architect after the Technical Architect's critique and CTO rulings; no dissent. The ADR is accepted as a whole, but only part of it is built (see "What is on main"). Normative text: <a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005-record-numbering.md</a>; explainer: <a href="../../../docs/adr/ADR-005-explained.html">ADR-005-explained.html</a>. Supporting material: <a href="../../../docs/adr/ADR-005/rfc">rfc/</a>, <a href="../../../docs/adr/ADR-005/spikes">spikes/</a>. Delivery plan: <a href="../../../docs/delivery/plan-adr-005.md">plan-adr-005.md</a>.</p>
+<p><em>Each section names the ADR heading it paraphrases.</em></p>
+<h2 id="what-is-on-main">What is on main</h2>
+<table>
+<thead>
+<tr>
+<th>Part of the ADR</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Per-type <code>numbering_mode</code> (<code>gaps</code> default, <code>gapless</code>) on entity definitions, and the allocator for both modes (story S10)</td>
+<td><strong>Delivered on <code>main</code>.</strong></td>
+</tr>
+<tr>
+<td>Scoped counters (<code>scope_key</code> on <code>record_counters</code>, expand then contract migrations), release R1 (story S17)</td>
+<td><strong>In progress, not on <code>main</code>.</strong></td>
+</tr>
+<tr>
+<td>Number format tables, links to entity types, epochs, the admin API, formats rendered by the allocator, mandatory counter purge, and the contract migration (story S18)</td>
+<td><strong>In progress, not on <code>main</code>.</strong></td>
+</tr>
+<tr>
+<td>Field tokens (enum properties), immutable-field marker, coupled mask publish (story S19)</td>
+<td><strong>In progress, not on <code>main</code>.</strong></td>
+</tr>
+<tr>
+<td>Plugin-authored formats (story S20)</td>
+<td><strong>Planned</strong>, parked until the plugin principal condition is met.</td>
+</tr>
+<tr>
+<td>Plugins that run code per create, or own the counter</td>
+<td>Deferred (per-create) and rejected (counter ownership).</td>
+</tr>
+</tbody>
+</table>
+<p>Until the scoped counters and formats ship, every type numbers with today's format, the type's prefix followed by seven digits, on the one counter row per tenant and type.</p>
+<h2 id="problem">Problem</h2>
+<p><em>Paraphrases: "Context".</em> Every record gets a human-facing number taken inside the create transaction, which keeps the counter row locked until the create commits. With 8 clients creating the same type in one tenant, counter wait p95 was 237 to 310 ms and create p95 264 to 408 ms against a 50 ms target. Tenants also want formats such as monthly or daily resets, or per-branch counters, and the format was fixed in code.</p>
+<h2 id="decision">Decision</h2>
+<p><em>Paraphrases: "Decision", "2. The allocator".</em></p>
+<ul>
+<li><strong>Allocate in its own tiny transaction (L2s)</strong> on a dedicated allocator pool, after authorisation and validation and before the create transaction, with <code>synchronous_commit</code> off for that transaction only. This is the path for <code>gaps</code> types, the default. A create that fails after allocation leaves a hole; gaps are never reclaimed.</li>
+<li><strong><code>gapless</code> types</strong> take their number last, inside the create transaction (L1), so a rolled-back create gives its number back. The 50 ms 8-client target is waived for those types only.</li>
+<li>Both paths upsert the same counter row, so changing a type's mode cannot produce a duplicate number; the change applies to creates that start afterwards.</li>
+<li>Why L2s cannot put one number on two records: a record's synchronous commit flushes all earlier WAL, including the counter advance, so a crash can lose only advances whose numbers never reached a committed record.</li>
+<li><strong>Number formats</strong> (planned, S17 to S19): declarative templates that start with the type's <code>{prefix}</code>, with exactly one <code>{seq:N}</code>, date parts, and enum field codes; versioned tenant metadata linked to entity types by pinned version.</li>
+<li><strong>Scoped counters</strong> (planned): <code>record_counters</code> gains <code>scope_key</code> and a period end, with an expand, deploy, contract migration. The default format keeps today's counter, so no existing number is migrated.</li>
+</ul>
+<h2 id="options-that-lost">Options that lost</h2>
+<p><em>Paraphrases: "1. Options considered", "6. Plugins".</em> Keeping the counter lock until commit (misses the target); allocating on the main pool before authorisation (a caller with no create permission could advance a counter); cached blocks of numbers (large gaps on restart, kept as a trigger for very hot scopes); assigning the number after commit; a plugin that owns the counter or runs inside the lock (rejected, I8).</p>
+<h2 id="accepted-risks">Accepted risks</h2>
+<p><em>Paraphrases: "8. Accepted risks".</em></p>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AR-TICK-653-01 (Low)</td>
+<td>Numbers issued before a field was masked keep showing that field's code.</td>
+</tr>
+<tr>
+<td>AR-TICK-653-02 (Low)</td>
+<td>A per-scope sequence reveals volume per scope, within the tenant only.</td>
+</tr>
+<tr>
+<td>AR-TICK-653-03 (Low)</td>
+<td>The no-duplicate guarantee assumes WAL replays as a prefix; logical replication on <code>record_counters</code> reopens the ADR.</td>
+</tr>
+<tr>
+<td>AR-TICK-653-04 (Info)</td>
+<td>The allocator pool adds 4 connections per API replica.</td>
+</tr>
+<tr>
+<td>(product)</td>
+<td>Gaps on <code>gaps</code> types after failed creates or a crash. A tenant with a legal gapless requirement sets <code>numbering_mode = gapless</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="still-owed">Still owed</h2>
+<p><em>Paraphrases: "10. Still owed".</em> A one-client create over HTTP at or under 50 ms on a quiet host, and the matching budget rows.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table entity_definitions</h3><ul><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Table record_counters</h3><ul><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

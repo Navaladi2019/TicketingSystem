@@ -348,7 +348,7 @@ class Facts:
         self.root = root
         self.registry = registry
         self.adrs, self.adr_list = {}, []
-        self.stories, self.story_list = {}, []
+        self.stories, self.story_list, self.unassigned = {}, [], []
         self.operations, self.op_list = {}, []
         self.tables, self.table_list = {}, []
         self.areas = {}
@@ -413,13 +413,20 @@ class Facts:
             doc = parse_yaml(read_text(p))
         except ValueError as e:
             raise ValueError("stories.yaml: %s" % e)
-        if not isinstance(doc, dict) or set(doc) - {"stories"}:
-            raise ValueError("stories.yaml: the only top-level key is stories")
+        if not isinstance(doc, dict) or set(doc) - {"stories", "unassigned"}:
+            raise ValueError("stories.yaml: the only top-level keys are stories and unassigned")
         items = doc.get("stories", [])
         if items == "":
             items = []
-        allowed = {"id", "issue", "title", "status", "verdict_comment", "bruno", "evidence"}
+        allowed = {"id", "issue", "title", "status", "verdict", "date", "verdict_comment", "bruno", "evidence"}
         errs = []
+
+        def repo_path(what, rel, folder_ok=False):
+            if not rel or os.path.isabs(rel) or ".." in rel.split("/"):
+                errs.append("stories.yaml: %s %r is not a path inside the repository" % (what, rel))
+            elif not os.path.exists(self.path(*rel.split("/"))):
+                errs.append("stories.yaml: %s %r does not exist" % (what, rel))
+
         for s in items:
             if not isinstance(s, dict):
                 errs.append("stories.yaml: an entry is not a mapping")
@@ -437,11 +444,43 @@ class Facts:
             else:
                 self.stories[sid] = s
                 self.story_list.append(s)
-                for ev in s.get("evidence", []) or []:
-                    if not ev or os.path.isabs(ev) or ".." in ev.split("/"):
-                        errs.append("stories.yaml: story %s evidence %r is not a path inside the repository" % (sid, ev))
-                    elif not os.path.exists(self.path(*ev.split("/"))):
-                        errs.append("stories.yaml: story %s evidence %r does not exist" % (sid, ev))
+                evidence = s.get("evidence", []) or []
+                bruno = s.get("bruno", []) or []
+                if isinstance(evidence, str):
+                    evidence = [evidence]
+                if isinstance(bruno, str):
+                    bruno = [bruno]
+                s["evidence"], s["bruno"] = evidence, bruno
+                for ev in evidence:
+                    repo_path("story %s evidence" % sid, ev)
+                for br in bruno:
+                    if not br or "/" in br or br.startswith("."):
+                        errs.append("stories.yaml: story %s bruno %r is not a folder name" % (sid, br))
+                    elif not os.path.isdir(self.path("docs", "acceptance", "guide", "bruno", br)):
+                        errs.append("stories.yaml: story %s bruno folder %r does not exist under docs/acceptance/guide/bruno" % (sid, br))
+                if s["status"] == "delivered":
+                    if not s.get("verdict"):
+                        errs.append("stories.yaml: delivered story %s needs a verdict" % sid)
+                    if not evidence:
+                        errs.append("stories.yaml: delivered story %s needs at least one evidence path" % sid)
+                    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s.get("date", "")):
+                        errs.append("stories.yaml: delivered story %s needs an ISO date (YYYY-MM-DD)" % sid)
+                elif s.get("date") and not re.match(r"^\d{4}-\d{2}-\d{2}$", s["date"]):
+                    errs.append("stories.yaml: story %s date %r is not an ISO date" % (sid, s["date"]))
+        un = doc.get("unassigned", [])
+        if un == "":
+            un = []
+        if not isinstance(un, list):
+            errs.append("stories.yaml: unassigned must be a list of {path, reason}")
+            un = []
+        for u in un:
+            if not isinstance(u, dict) or set(u) - {"path", "reason"}:
+                errs.append("stories.yaml: an unassigned entry must be {path, reason}")
+                continue
+            if not u.get("reason"):
+                errs.append("stories.yaml: unassigned %r needs a reason" % u.get("path", ""))
+            repo_path("unassigned path", u.get("path", ""))
+        self.unassigned = [u for u in un if isinstance(u, dict)]
         if errs:
             raise ValueError("\n".join(errs))
 
@@ -762,7 +801,7 @@ def expand_gen(f, body):
 def gen_block(f, kind, args):
     allow = {"operations": ("tag", "ids"), "tables": ("area",), "er": ("area",),
              "migrations": (), "adr-index": (), "budgets": (),
-             "areas": (), "rls": (), "grants": (), "audited": ()}
+             "areas": (), "rls": (), "grants": (), "audited": (), "stories": ()}
     if kind not in allow:
         raise ValueError("unknown block kind")
     for k in args:
@@ -786,6 +825,8 @@ def gen_block(f, kind, args):
         return gen_audited(f)
     if kind == "adr-index":
         return gen_adr_index(f)
+    if kind == "stories":
+        return gen_stories(f)
     return gen_budgets(f)
 
 
@@ -1286,6 +1327,19 @@ def capture_migrations(root, git=None):
     with open(os.path.join(root, *MIGRATION_HISTORY.split("/")), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(data)
     return len(rows)
+
+
+def gen_stories(f):
+    rows = ["| Story | Issue | Title | Status | Verdict | Date |", "|---|---|---|---|---|---|"]
+    for st in f.story_list:
+        rows.append("| %s | %s | %s | %s | %s | %s |" % tuple(
+            cell(st.get(k, "")) or "-" for k in ("id", "issue", "title", "status", "verdict", "date")))
+    out = "\n".join(rows) + "\n"
+    if f.unassigned:
+        out += "\nKits and folders that belong to no single story:\n\n| Path | Reason |\n|---|---|\n"
+        for u in f.unassigned:
+            out += "| `%s` | %s |\n" % (cell(u["path"]).replace("`", "'"), cell(u.get("reason", "")))
+    return out
 
 
 def gen_adr_index(f):
