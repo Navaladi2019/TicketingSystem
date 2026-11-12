@@ -3,7 +3,7 @@ title: "Core: record numbering (gaps and gapless)"
 section: system
 status: delivered
 normative: docs/adr/ADR-005-record-numbering.md
-sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, docs/architecture/number-format-compiler.md, internal/records/numbering/numbering.go, internal/records/numbering/template.go, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, docs/architecture/number-format-compiler.md, internal/records/numbering/numbering.go, internal/records/numbering/template.go, docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/alloc.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/store/numbering.go, internal/tenancy/alloc.go, internal/entitytypes/entitytypes.go, cmd/nava-core/allocator.go]
+sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, docs/architecture/number-format-compiler.md, internal/records/numbering/numbering.go, internal/records/numbering/template.go, docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/alloc.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/store/numbering.go, internal/tenancy/alloc.go, internal/entitytypes/entitytypes.go, cmd/nava-core/allocator.go]
 packages: [internal/records/pipeline, internal/records/store, internal/records/numbering, internal/tenancy, cmd/nava-core]
 stories: [S10, S17]
 adrs: [ADR-005, ADR-005-E1, ADR-001]
@@ -64,10 +64,13 @@ sequenceDiagram
         T->>P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;<br/>record_counters upsert RETURNING next - 1, now(); COMMIT
         T-->>C: Allocation (tenant, type, scope '', epoch 0, n, instant)<br/>one retry on 23505 on the other unique index (E1)
         C->>C: check allocation is this create's; created_at = instant
-        C->>P: INSERT record with FormatNumber(prefix, n), audit, COMMIT
+        C->>P: INSERT record with format.RenderAt(prefix, instant, n), audit, COMMIT
         Note over C,P: failure after the allocation: n is a gap
     else numbering_mode = gapless
-        C->>P: write batch: record_counters upsert + INSERT record, audit, COMMIT
+        C->>P: write batch: SAVEPOINT, record_counters upsert + INSERT record, audit, COMMIT
+        opt 23505 on the other unique index (E1)
+            C->>P: ROLLBACK TO SAVEPOINT, send the whole batch once more
+        end
         Note over C,P: rollback gives n back
     end
 ```
@@ -92,7 +95,8 @@ sequenceDiagram
 
 | Error | HTTP |
 |---|---|
-| a second `23505` on the counter after the one retry | `500 internal_error`, nothing committed but possibly the number (a gap) |
+| a second `23505` on the counter after the one retry, `gaps` | `500 internal_error`, nothing committed but possibly the number (a gap) |
+| a second `23505` on the counter after the one retry, `gapless` | `500 internal_error`, the create rolls back and gives the number back: no gap (`batch.go:257`) |
 | `ErrRetryable` (allocation past its timeout) | `503 retry_later`, nothing committed but possibly the number (a gap) |
 | allocation not this create's (tenant, type, scope, epoch) | `500 internal_error` (a bug, never expected) |
 | `entitytypes.ErrInvalidNumberingMode` | refused before anything is written |
@@ -100,8 +104,9 @@ sequenceDiagram
 ## Notes
 
 - Metrics: `nava_numbering_alloc_acquire_seconds`,
-  `nava_numbering_alloc_seconds`, `nava_numbering_alloc_timeouts`, and a retry
-  counter for the first-create race (no tenant or type attribute).
+  `nava_numbering_alloc_seconds`, `nava_numbering_alloc_timeouts`, and
+  `nava_numbering_first_create_retries` (first-create races retried, with a
+  `mode` attribute: `gaps` or `gapless`; no tenant or type attribute).
 - Story: [S17](../stories/s17.md).
 - Measured create latency under both modes: [benchmarks page](../benchmarks/index.md).
 

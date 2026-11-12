@@ -87,10 +87,13 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
         T-&gt;&gt;P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;&lt;br/&gt;record_counters upsert RETURNING next - 1, now(); COMMIT
         T--&gt;&gt;C: Allocation (tenant, type, scope &#x27;&#x27;, epoch 0, n, instant)&lt;br/&gt;one retry on 23505 on the other unique index (E1)
         C-&gt;&gt;C: check allocation is this create&#x27;s; created_at = instant
-        C-&gt;&gt;P: INSERT record with FormatNumber(prefix, n), audit, COMMIT
+        C-&gt;&gt;P: INSERT record with format.RenderAt(prefix, instant, n), audit, COMMIT
         Note over C,P: failure after the allocation: n is a gap
     else numbering_mode = gapless
-        C-&gt;&gt;P: write batch: record_counters upsert + INSERT record, audit, COMMIT
+        C-&gt;&gt;P: write batch: SAVEPOINT, record_counters upsert + INSERT record, audit, COMMIT
+        opt 23505 on the other unique index (E1)
+            C-&gt;&gt;P: ROLLBACK TO SAVEPOINT, send the whole batch once more
+        end
         Note over C,P: rollback gives n back
     end
 </pre></div></figure>
@@ -195,8 +198,12 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 </thead>
 <tbody>
 <tr>
-<td>a second <code>23505</code> on the counter after the one retry</td>
+<td>a second <code>23505</code> on the counter after the one retry, <code>gaps</code></td>
 <td><code>500 internal_error</code>, nothing committed but possibly the number (a gap)</td>
+</tr>
+<tr>
+<td>a second <code>23505</code> on the counter after the one retry, <code>gapless</code></td>
+<td><code>500 internal_error</code>, the create rolls back and gives the number back: no gap (<code>batch.go:257</code>)</td>
 </tr>
 <tr>
 <td><code>ErrRetryable</code> (allocation past its timeout)</td>
@@ -215,8 +222,9 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 <h2 id="notes">Notes</h2>
 <ul>
 <li>Metrics: <code>nava_numbering_alloc_acquire_seconds</code>,
-<code>nava_numbering_alloc_seconds</code>, <code>nava_numbering_alloc_timeouts</code>, and a retry
-counter for the first-create race (no tenant or type attribute).</li>
+<code>nava_numbering_alloc_seconds</code>, <code>nava_numbering_alloc_timeouts</code>, and
+<code>nava_numbering_first_create_retries</code> (first-create races retried, with a
+<code>mode</code> attribute: <code>gaps</code> or <code>gapless</code>; no tenant or type attribute).</li>
 <li>Story: <a href="../stories/s17.html">S17</a>.</li>
 <li>Measured create latency under both modes: <a href="../benchmarks/index.html">benchmarks page</a>.</li>
 </ul>
