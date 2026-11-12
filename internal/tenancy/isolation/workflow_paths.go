@@ -3,15 +3,19 @@ package isolation
 // The workflow definition seed (testdata/seed.sql, P3-40): both tenants own
 // the key triage (tenant A's is WorkflowDefinitionA, tenant B's is
 // SharedDefinition, the definition of tenant B's seeded cascade claim), and
-// only tenant B owns escalate. SharedCause is a delivered outbox id in both
-// tenants' workflow_cause, and SharedSignal the record_changed signal id both
-// tenants' open refs wait on, so a lookup by any of them alone would find
-// tenant B's rows.
+// only tenant B owns escalate (WorkflowDefinitionB2). Tenant A also holds a
+// definition with the id SharedDefinition (TICK-755), so the cascade case can
+// claim tenant B's key by the same uuids; a case that must aim at a
+// definition only tenant B holds names WorkflowDefinitionB2. SharedCause is a
+// delivered outbox id in both tenants' workflow_cause, and SharedSignal the
+// record_changed signal id both tenants' open refs wait on, so a lookup by
+// any of them alone would find tenant B's rows.
 const (
-	WorkflowDefinitionA = "0d000000-0000-4000-8000-0000000009d3"
-	WorkflowVersionB2   = "0b000000-0000-4000-8000-0000000012b2"
-	SharedCause         = "0d000000-0000-4000-8000-0000000009d5"
-	SharedSignal        = "0d000000-0000-4000-8000-0000000009d6"
+	WorkflowDefinitionA  = "0d000000-0000-4000-8000-0000000009d3"
+	WorkflowDefinitionB2 = "0b000000-0000-4000-8000-0000000012b9"
+	WorkflowVersionB2    = "0b000000-0000-4000-8000-0000000012b2"
+	SharedCause          = "0d000000-0000-4000-8000-0000000009d5"
+	SharedSignal         = "0d000000-0000-4000-8000-0000000009d6"
 	// refA1 is tenant A's seeded workflow_ref (outbox row a1).
 	refA1 = "0a000000-0000-4000-8000-0000000001a1"
 	// entityTypeA1 is tenant A's seeded ticket type.
@@ -66,7 +70,7 @@ func workflowPaths() []Path {
 		sql("workflow_definition_versions: publish a version for tenant B", "nava_app", Denied,
 			insertVersion, TenantB, NewID, SharedDefinition, EntityDefinitionB1, PrincipalB1),
 		sql("workflow_definition_versions: hang tenant A's version off tenant B's definition", "nava_app", Denied,
-			insertVersion, TenantA, NewID, SharedDefinition, entityTypeA1, principalA1),
+			insertVersion, TenantA, NewID, WorkflowDefinitionB2, entityTypeA1, principalA1),
 		sql("workflow_definition_versions: trigger tenant A's version on tenant B's entity type", "nava_app", Denied,
 			insertVersion, TenantA, NewID, WorkflowDefinitionA, EntityDefinitionB1, principalA1),
 		sql("workflow_definition_versions: rewrite tenant B's versions", "nava_worker", Denied,
@@ -90,6 +94,6 @@ func workflowPaths() []Path {
 		// start of tenant B's definition on its own record.
 		sql("cascade_start: claim a start of tenant B's definition from tenant A", "nava_worker", Denied,
 			`INSERT INTO cascade_start (tenant_id, causation_origin_id, record_id, definition_id, outbox_id)
-			 VALUES ($1, $2, $3, $4, $5)`, TenantA, SharedOrigin, RecordA2, SharedDefinition, NewID),
+			 VALUES ($1, $2, $3, $4, $5)`, TenantA, SharedOrigin, RecordA2, WorkflowDefinitionB2, NewID),
 	}
 }
