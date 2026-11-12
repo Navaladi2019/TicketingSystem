@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goals and non-goals - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li class="current"><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../vision/index.html">vision</a> / <span>Goals and non-goals</span></nav>
+<article>
+<h1 class="page-title">Goals and non-goals</h1>
+<p>This page follows ADR-001 and the README, and the Milestone 1 scope as recorded in the ADR-001 reading guide. It adds no goals of its own.</p>
+<h2 id="goals">Goals</h2>
+<ul>
+<li><strong>Keep tenants apart.</strong> One tenant can never read or change another's data. The <a href="../vision/invariants.html">nine invariants</a> are the rules that guarantee it.</li>
+<li><strong>Know the tenant from a verified source only</strong> (decision D26): the identity provider's token, resolved through a platform lookup table.</li>
+<li><strong>One predictable API</strong> (decision D6): REST at <code>/api/v1</code>, generated from an OpenAPI contract, with stable error codes, idempotency keys and optimistic concurrency.</li>
+<li><strong>Reliable background work</strong> (decision D22): saved changes start workflows through a transactional outbox and a relay, with workflows kept inside their tenant.</li>
+<li><strong>Narrow database accounts</strong> (decision D28): one account per system actor, none able to skip the tenant wall.</li>
+<li><strong>Third-party systems behind ports and adapters</strong>, so a vendor can be replaced without touching the core (README, design principles).</li>
+</ul>
+<h2 id="non-goals-for-milestone-1">Non-goals for Milestone 1</h2>
+<p>ADR-001 and its reading guide list what is deliberately left out, because each item adds a path that is not yet secured:</p>
+<ul>
+<li>Temporal Schedules, cron and reset.</li>
+<li>Partitioned tables.</li>
+<li>Tenant self-service administration of the identity provider (residual R3); the platform API does it.</li>
+<li>GraphQL. It arrives later, as a read surface over the same authorization layer.</li>
+<li>Encrypting workflow histories per tenant (residual R1). Workflow payloads carry references only.</li>
+</ul>
+<h2 id="planned-not-on-main">Planned, not on <code>main</code></h2>
+<p>Stories S12, S18, S19 and S20 are planned and are not described anywhere in this handbook yet; the <a href="../stories/index.html">stories section</a> lists them.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
