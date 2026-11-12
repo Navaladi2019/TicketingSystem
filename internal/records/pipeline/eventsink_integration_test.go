@@ -37,10 +37,16 @@ const versionBody = `{"format": "v1"}`
 func publishTrigger(t *testing.T, e env, f tenantFixture, on string) (def, version uuid.UUID) {
 	t.Helper()
 	def, version = workflowDefinition(t, e, f), uuid.New()
-	mustExec(t, e.super, `INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256,
+	// The version's audit entry is written in the same statement, as the
+	// workflow tables' commit check wants (P3-41b, TICK-737).
+	mustExec(t, e.super, `WITH r AS (INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256,
 		step_ids, trigger_on, trigger_entity_definition_id, published_by)
 		SELECT $1, $2, $3, 1, $4::text::json, sha256(convert_to($4::text, 'UTF8')), '{}', $5, d.id, $6
-		FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $7`,
+		FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $7
+		RETURNING tenant_id, definition_id, version)
+		INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
+		SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'workflow_definition', definition_id, version,
+			'system', 'system', sha256('workflow_definition_version') FROM r`,
 		f.id, version, def, versionBody, on, f.principal.PrincipalID, entityKey)
 	return def, version
 }

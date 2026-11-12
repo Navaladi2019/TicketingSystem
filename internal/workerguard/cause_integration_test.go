@@ -130,7 +130,6 @@ func TestWaitTrackerSetsAndClearsOnlyTheRunsRow(t *testing.T) {
 	ctx := ContextWithTenant(context.Background(), tenantA)
 	w := WaitTracker{Pool: pool}
 	sig := uuid.New()
-	// seedRef's record is at version 1.
 	rec := func(ref uuid.UUID) uuid.UUID {
 		var r uuid.UUID
 		if err := conn.QueryRow(context.Background(), `SELECT record_id FROM workflow_ref WHERE tenant_id = $1 AND outbox_id = $2`,
@@ -139,8 +138,10 @@ func TestWaitTrackerSetsAndClearsOnlyTheRunsRow(t *testing.T) {
 		}
 		return r
 	}
+	// The version seedRef's record has: read, not assumed.
+	ver := recordVersion(t, conn, tenantA, rec(x))
 
-	if err := w.setWait(ctx, xID, tenantA, rec(x), &sig, 1); err != nil {
+	if err := w.setWait(ctx, xID, tenantA, rec(x), &sig, ver); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	if got := waitOf(t, conn, tenantA, x); got == nil || *got != sig {
@@ -163,14 +164,14 @@ func TestWaitTrackerSetsAndClearsOnlyTheRunsRow(t *testing.T) {
 			t.Errorf("%s: %v, want a non-retryable ApplicationError", name, err)
 		}
 	}
-	wantNonRetryable("header tenant differs", w.setWait(ctx, xID, tenantB, rec(x), &sig, 1))
+	wantNonRetryable("header tenant differs", w.setWait(ctx, xID, tenantB, rec(x), &sig, ver))
 	approvalID, approval := seedRef(t, conn, tenantA, "approval")
-	wantNonRetryable("not an interpreter run", w.setWait(ctx, approvalID, tenantA, rec(approval), &sig, 1))
+	wantNonRetryable("not an interpreter run", w.setWait(ctx, approvalID, tenantA, rec(approval), &sig, recordVersion(t, conn, tenantA, rec(approval))))
 	if got := waitOf(t, conn, tenantA, approval); got != nil {
 		t.Errorf("a non-interpreter run's wait was set: %v", got)
 	}
 	mustExec(t, conn, `UPDATE workflow_ref SET closed_at = now() WHERE tenant_id = $1 AND outbox_id = $2`, tenantA, x)
-	wantNonRetryable("closed run", w.setWait(ctx, xID, tenantA, rec(x), &sig, 1))
+	wantNonRetryable("closed run", w.setWait(ctx, xID, tenantA, rec(x), &sig, ver))
 	if got := waitOf(t, conn, tenantA, x); got != nil {
 		t.Errorf("a closed run's wait was set: %v", got)
 	}
@@ -189,10 +190,12 @@ func TestWaitTrackerRefusesAMovedRecord(t *testing.T) {
 	if err := conn.QueryRow(ctx, `SELECT record_id FROM workflow_ref WHERE tenant_id = $1 AND outbox_id = $2`, tenantA, x).Scan(&rec); err != nil {
 		t.Fatal(err)
 	}
+	ver := recordVersion(t, conn, tenantA, rec)
 	for name, c := range map[string]struct {
 		record  uuid.UUID
 		version int64
-	}{"older version": {rec, 0}, "newer version": {rec, 2}, "no such record": {uuid.New(), 1}} {
+	}{"lower version": {rec, ver - 1}, "higher version": {rec, ver + 1}, "no such record": {uuid.New(), ver}} {
+		mustExec(t, conn, `UPDATE workflow_ref SET record_changed_signal_id = NULL WHERE tenant_id = $1 AND outbox_id = $2`, tenantA, x)
 		err := w.setWait(ctx, xID, tenantA, c.record, &sig, c.version)
 		if !errors.Is(err, ErrRecordMoved) {
 			t.Errorf("%s: %v, want ErrRecordMoved", name, err)
@@ -205,6 +208,19 @@ func TestWaitTrackerRefusesAMovedRecord(t *testing.T) {
 			t.Errorf("%s: wait %v was set", name, got)
 		}
 	}
+	// And the version itself is accepted.
+	if err := w.setWait(ctx, xID, tenantA, rec, &sig, ver); err != nil {
+		t.Errorf("the current version: %v", err)
+	}
+}
+
+func recordVersion(t *testing.T, conn *pgx.Conn, tenant, record uuid.UUID) int64 {
+	t.Helper()
+	var v int64
+	if err := conn.QueryRow(context.Background(), `SELECT version FROM records WHERE tenant_id = $1 AND id = $2`, tenant, record).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 // A run's causation is refused when a newer workflow_cause row of the same
