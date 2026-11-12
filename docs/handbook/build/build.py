@@ -21,6 +21,7 @@ import hashlib
 import html
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -1049,7 +1050,8 @@ def expand_gen(f, body):
 def gen_block(f, kind, args):
     allow = {"operations": ("tag", "ids"), "tables": ("area",), "er": ("area",),
              "migrations": (), "adr-index": (), "budgets": (),
-             "areas": (), "rls": (), "grants": (), "audited": (), "stories": (), "benchmarks": ()}
+             "areas": (), "rls": (), "grants": (), "audited": (), "stories": (), "benchmarks": (),
+             "accepted-risks": ("ids",)}
     if kind not in allow:
         raise ValueError("unknown block kind")
     for k in args:
@@ -1077,6 +1079,8 @@ def gen_block(f, kind, args):
         return gen_stories(f)
     if kind == "benchmarks":
         return gen_benchmarks(f)
+    if kind == "accepted-risks":
+        return gen_accepted_risks(f, args.get("ids", ""))
     return gen_budgets(f)
 
 
@@ -1643,6 +1647,56 @@ def gen_budgets(f):
         if len(cols) >= 2:
             rows.append("| %s | %s | %s |" % (cell(section), cell(cols[0]), cell(cols[-1])))
     return "\n".join(rows) + "\n"
+
+
+# --------------------------------------------------------- accepted risks
+# docs/security/accepted-risks.md is the register; the handbook never
+# paraphrases it. Each row is copied as written. The only change is to
+# relative link targets, which are rebased from docs/security/ so they still
+# resolve from a page at docs/handbook/src/<section>/. An id that is not in the
+# register fails the build.
+
+RISKS_MD = "docs/security/accepted-risks.md"
+RISK_LINK = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def risk_id(line):
+    return split_row(line)[0].split()[0] if line.startswith("| AR-") else ""
+
+
+def rebase_risk_links(line):
+    def sub(m):
+        dest = m.group(1)
+        if dest.startswith("#") or SCHEME.match(dest):
+            return m.group(0)
+        file_, sep, frag = dest.partition("#")
+        rel = posixpath.normpath(posixpath.join("security", file_))
+        return "](%s%s%s%s)" % ("../../../", rel, sep, frag)
+    return RISK_LINK.sub(sub, line)
+
+
+def gen_accepted_risks(f, ids):
+    path = f.path(*RISKS_MD.split("/"))
+    if not os.path.exists(path):
+        raise ValueError("%s does not exist" % RISKS_MD)
+    header, rows = [], []
+    for line in read_text(path).split("\n"):
+        if line.startswith("| ID |"):
+            header = [line]
+        elif header and len(header) == 1 and line.startswith("| ---"):
+            header.append(line)
+        elif risk_id(line):
+            rows.append(line)
+    if len(header) != 2:
+        raise ValueError("%s has no register table" % RISKS_MD)
+    want = [i for i in ids.split(",") if i] if ids else []
+    if want:
+        known = {risk_id(r) for r in rows}
+        unknown = [i for i in want if i not in known]
+        if unknown:
+            raise ValueError("unknown accepted-risk id %s (not in %s)" % (", ".join(unknown), RISKS_MD))
+        rows = [r for i in want for r in rows if risk_id(r) == i]
+    return "\n".join(header + [rebase_risk_links(r) for r in rows]) + "\n"
 
 
 # ------------------------------------------------------------- benchmarks
