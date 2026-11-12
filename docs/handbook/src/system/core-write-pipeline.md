@@ -97,7 +97,7 @@ flowchart TD
 
 ## Errors
 
-Generated from the mapping in `handlers.recordError`
+Written by hand from the mapping in `handlers.recordError`
 (`internal/server/records.go`) and the PATCH handler
 (`internal/server/records_patch.go`), statuses from `api/errors.yaml`. Every
 pipeline error raised after the definition was read is wrapped in
