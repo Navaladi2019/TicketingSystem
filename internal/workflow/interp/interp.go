@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/def"
 )
@@ -46,19 +47,32 @@ const (
 // (D-3-12). Its argument is the relay's outbox.Delivery, whose payload is
 // {"signal": <signal id>}; the signal id is the "signal:<name>" entry of the
 // version's step-id map.
-const SignalName = "nava.interpreter.signal"
+const SignalName = outbox.InterpreterSignalKind
 
 // StepRef is the one argument of NextStep and ApplyStep. It holds UUIDs only,
 // so the worker guard records it (internal/workerguard/args.go). Step is
 // uuid.Nil for the definition's start step. Signal is set only on the
 // NextStep call that follows a delivered signal, and is omitted otherwise,
 // never null.
+//
+// Cause is the outbox id of the delivery, start or signal, that last
+// resumed the run (D-3-29). It is a reference only: a writer reads the
+// workflow_cause row it names, under RLS, and refuses a row that is not this
+// run's (workerguard.ResolveCause). Nothing trusts a value carried here.
 type StepRef struct {
 	DefinitionVersionID uuid.UUID  `json:"definition_version_id"`
 	RecordID            uuid.UUID  `json:"record_id"`
 	Step                uuid.UUID  `json:"step"`
 	Signal              *uuid.UUID `json:"signal,omitempty"`
+	Cause               uuid.UUID  `json:"cause"`
 }
+
+// RecordChangedSignal is the wait_signal name a run waits on to hear about a
+// change to its record. While NextStep has the run waiting on it, the run's
+// workflow_ref.record_changed_signal_id is that signal's id, and the records
+// pipeline's EventSink signals the run on every write to the record but its
+// own (D-3-14, D-3-29).
+const RecordChangedSignal = "record_changed"
 
 // Version is one published definition version: the parsed definition and
 // the step-id map def.AssignStepIDs assigned at publish (D-3-15).
@@ -99,6 +113,14 @@ var (
 	ErrIllegalTransition = errors.New("interp: record write is an illegal transition")
 	ErrForbidden         = errors.New("interp: record write is forbidden")
 )
+
+// WaitTracker records, for the run the activity belongs to, the
+// record_changed signal id it waits on, or nil when it waits on none
+// (workflow_ref.record_changed_signal_id). The run is the one the workflow id
+// names, never an argument. The real adapter is workerguard.WaitTracker.
+type WaitTracker interface {
+	SetRecordChangedWait(ctx context.Context, tenantID uuid.UUID, signal *uuid.UUID) error
+}
 
 // IdempotencyKey is the key ApplyStep writes a step with (D-3-13). The
 // workflow id stays the same across continue-as-new, so a step keeps its key.

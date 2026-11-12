@@ -378,6 +378,17 @@ func relayWorkflowID(tenant, start uuid.UUID) string {
 // refs is a references-only payload (outbox.ValidatePayload).
 func (tg *target) refs() string { return `{"record_id":"` + tg.record.String() + `"}` }
 
+// startVersion is the definition version id every probe start row names: a
+// start of nava.interpreter carries exactly {definition_version_id,
+// record_id} (outbox.ValidateKindPayload, AR-041), and the probe body never
+// reads it.
+const startVersion = "5e7a0000-0000-4000-8000-0000000000d1"
+
+// startRefs is the payload of a start row: the interpreter's allow-list.
+func (tg *target) startRefs() string {
+	return `{"definition_version_id":"` + startVersion + `","record_id":"` + tg.record.String() + `"}`
+}
+
 // signalRowSQL is a pipeline write plus outbox.EnqueueAtVersion for a
 // signal: bump the record's version, write the update's audit entry (the
 // records commit-check trigger, P5-13c) and insert the row with the version

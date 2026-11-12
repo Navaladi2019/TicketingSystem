@@ -86,7 +86,7 @@ func TestCI6_WorkerWrongTenantSignalDroppedWithAlertWorkflowKeepsRunning(t *test
 	ctx := ci6Context(t)
 	s := newRelayStack(t)
 	tg := newTarget(t)
-	psqlSuper(t, tg.startSQL(tg.refs()))
+	psqlSuper(t, tg.startSQL(tg.startRefs()))
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
 	if r := awaitSettled(t, tg.start); !r.dispatched {
@@ -132,7 +132,7 @@ func TestCI6_RelayRedeliveredStartAfterCompletionStartsNoSecondRun(t *testing.T)
 	s := newRelayStack(t)
 	tg := newTarget(t)
 	_, doneSQL := tg.signalSQL(t, sigDone)
-	psqlSuper(t, tg.startSQL(tg.refs())+doneSQL)
+	psqlSuper(t, tg.startSQL(tg.startRefs())+doneSQL)
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
 	if out := s.result(ctx, t, id); out != "" {
@@ -175,7 +175,7 @@ func TestCI6_RelayRedeliveredSignalAppliedOnceAcrossContinueAsNew(t *testing.T) 
 	s := newRelayStack(t)
 	tg := newTarget(t)
 	s1, s1SQL := tg.signalSQL(t, sigNote)
-	psqlSuper(t, tg.startSQL(tg.refs())+s1SQL)
+	psqlSuper(t, tg.startSQL(tg.startRefs())+s1SQL)
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
 	if r := awaitSettled(t, s1); !r.dispatched {
@@ -224,7 +224,7 @@ func TestCI6_RelaySignalQueuesBehindItsStart(t *testing.T) {
 	note, noteSQL := tg.signalSQL(t, sigNote)
 	done, doneSQL := tg.signalSQL(t, sigDone)
 	hold := "UPDATE outbox SET available_at = now() + interval '15 seconds' WHERE id = '" + tg.start.String() + "';\n"
-	psqlSuper(t, tg.startSQL(tg.refs())+hold+noteSQL+doneSQL)
+	psqlSuper(t, tg.startSQL(tg.startRefs())+hold+noteSQL+doneSQL)
 	id := tg.workflowID()
 	s.terminateAtEnd(t, id)
 
@@ -306,7 +306,7 @@ func TestCI6_RelayTwoRelaysNeverReorderOneTarget(t *testing.T) {
 		last := make([]uuid.UUID, targets)
 		for i, tg := range tgs {
 			if start {
-				sql.WriteString(tg.startSQL(tg.refs()))
+				sql.WriteString(tg.startSQL(tg.startRefs()))
 			}
 			for range n {
 				id, q := tg.signalSQL(t, sigNote)
@@ -371,7 +371,7 @@ func TestCI6_RelaySignalNotFoundIsTerminal(t *testing.T) {
 		}},
 		{"completed", func(t *testing.T, tg *target) string {
 			_, doneSQL := tg.signalSQL(t, sigDone)
-			psqlSuper(t, tg.startSQL(tg.refs())+doneSQL)
+			psqlSuper(t, tg.startSQL(tg.startRefs())+doneSQL)
 			s.terminateAtEnd(t, tg.workflowID())
 			if out := s.result(ctx, t, tg.workflowID()); out != "" {
 				t.Fatalf("result %q, want empty", out)

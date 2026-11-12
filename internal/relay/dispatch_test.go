@@ -678,3 +678,51 @@ func TestErrorCode(t *testing.T) {
 		}
 	}
 }
+
+// AR-041: a row of a kind with an allow-list whose payload keys are not
+// exactly that list (written around Enqueue, which refuses it) never reaches
+// Temporal: it is dead at its first attempt as an invalid payload. Each
+// row's payload is references only, so only the per-kind rule refuses it.
+func TestKindAllowListRefusesExtraOrMissingKey(t *testing.T) {
+	ref := `"` + recordXID + `"`
+	for name, tc := range map[string]struct {
+		kind, payload string
+		signal        bool
+	}{
+		"start extra key":    {outbox.InterpreterKind, `{"definition_version_id":` + ref + `,"record_id":` + ref + `,"watcher":` + ref + `}`, false},
+		"start missing key":  {outbox.InterpreterKind, `{"record_id":` + ref + `}`, false},
+		"signal extra key":   {outbox.InterpreterSignalKind, `{"signal":` + ref + `,"record_id":` + ref + `}`, true},
+		"signal missing key": {outbox.InterpreterSignalKind, `{}`, true},
+		"seal any key":       {outbox.SealKind, `{"record_id":` + ref + `}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			start := startRow()
+			c := start
+			if tc.signal {
+				h.fe.addExecution(wfID(start), false)
+				c = signalRow(start, 2)
+			} else {
+				c.TargetKey = tc.kind + ":" + c.ID.String()
+			}
+			c.Kind, c.Payload = tc.kind, json.RawMessage(tc.payload)
+			h.dispatch(t.Context(), c)
+
+			if _, starts, signals := h.fe.counts(); starts+signals != 0 {
+				t.Errorf("%d Temporal calls, want 0", starts+signals)
+			}
+			if got := h.db.only(t); got.op != "dead" || got.id != c.ID || got.cause != CauseInvalidPayload {
+				t.Errorf("settled %+v, want dead %q", got, CauseInvalidPayload)
+			}
+		})
+	}
+	// The exact allow-list is dispatched.
+	h := newHarness(t)
+	c := startRow()
+	c.Kind, c.TargetKey = outbox.InterpreterKind, outbox.InterpreterKind+":"+c.ID.String()
+	c.Payload = json.RawMessage(`{"definition_version_id":` + ref + `,"record_id":` + ref + `}`)
+	h.dispatch(t.Context(), c)
+	if got := h.db.only(t); got.op == "dead" {
+		t.Errorf("an allow-listed start was refused: %+v", got)
+	}
+}

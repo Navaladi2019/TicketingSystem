@@ -186,8 +186,8 @@ sequenceDiagram
 - `TxRunner` is taken and held for P3-12 (TICK-88), which writes a rejected
   cascade's audit row on it (D-3-7a). P3-12 also adds the depth and cycle
   checks.
-- `NoopSink` is wired in S9. S11b's sink (P3-42) enqueues through
-  `EnqueueAtVersion`.
+- `NoopSink` was wired in S9. Since P3-42 the API uses `eventsink.Sink`, which
+  enqueues through `EnqueueStart` and `EnqueueSignal` ([event-sink.md](event-sink.md)).
 - The S9 interim authorizer is deleted (P3-31, AR-S9-01 closed); `authz.ACL`
   decides every user and AI write ([record-acl.md](record-acl.md)).
 

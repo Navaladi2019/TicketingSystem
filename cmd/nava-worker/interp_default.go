@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
@@ -36,6 +37,7 @@ func interpreterActivities(_ config.LookupFunc, pool *pgxpool.Pool, workflows bo
 		Definitions: workflowdefs.Reader{Pool: pool},
 		Records:     noRecords{},
 		Writer:      noRecords{},
+		Waits:       workerguard.WaitTracker{Pool: pool},
 	}, nil
 }
 

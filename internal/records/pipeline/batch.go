@@ -42,6 +42,10 @@ type prefetched struct {
 	defID uuid.UUID
 	// writeKey is the actor's write under cmd's idempotency key, if any.
 	writeKey *store.WriteKey
+	// createQuiet: the EventSink has nothing to do for a create of this
+	// entity type (NoopSink, or CreateTriggerQueuer said so). False, so the
+	// sink runs, whenever that is not known.
+	createQuiet bool
 }
 
 // prefetchKey is the tx memo key of a prefetch: one per entity type, actor,
@@ -91,7 +95,18 @@ func (p *Pipeline) queuePrefetch(ctx context.Context, tx pgx.Tx, b *pgx.Batch, t
 	if cmd.IdempotencyKey != "" {
 		store.QueueWriteKeyByKey(b, tenant, optional(cmd.Actor.PrincipalID), cmd.IdempotencyKey, &pre.writeKey)
 	}
-	store.QueueDefinitionID(b, tenant, cmd.EntityKey, &pre.defID)
+	// A create asks the sink, in the same read, whether it fires anything.
+	trigger, asks := p.sink.(CreateTriggerQueuer)
+	switch {
+	case cmd.Op == OpCreate && asks:
+		var fires bool
+		store.QueueDefinitionIDAndFlag(b, tenant, cmd.EntityKey, trigger.CreateTriggeredSQL(), &pre.defID, &fires)
+		afterLast(b, func() { pre.createQuiet = !fires })
+	default:
+		store.QueueDefinitionID(b, tenant, cmd.EntityKey, &pre.defID)
+		_, noop := p.sink.(NoopSink)
+		pre.createQuiet = cmd.Op == OpCreate && noop
+	}
 	if cq, ok := p.defs.(currentQueuer); ok {
 		cq.QueueCurrent(tx, b, cmd.EntityKey)
 	}
@@ -270,9 +285,12 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	}
 	rec.Data = data
 	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
-		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
-	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
-		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
+		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef,
+		WorkflowRef: w.cmd.WorkflowRef}
+	if !w.sinkQuiet {
+		if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
+			return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
+		}
 	}
 	// Get of this record later in tx answers with the row as stored, with
 	// no round trip (TICK-648).
@@ -286,9 +304,10 @@ func (w *write) atCommit() bool {
 	if !w.cmd.InsertAtCommit || w.cmd.Op != OpCreate || w.def.NumberingMode() == metadata.NumberingGapless {
 		return false
 	}
-	// TODO(TODO-S10-02): a real sink (P3-42) must queue its statements after
-	// the record on the commit batch, or creates go back to 5 round trips.
-	if _, noop := w.p.sink.(NoopSink); !noop {
+	// A create the sink has work for (a published definition it triggers)
+	// sends its statements after the record's, so it writes in a round trip
+	// of its own (TODO-S10-02 as narrowed by P3-42).
+	if !w.sinkQuiet {
 		return false
 	}
 	_, ok := tenancy.QueueAtCommit(w.tx)
@@ -342,11 +361,9 @@ func (w *write) writeCreateAtCommit(ctx context.Context, rec *store.Record, afte
 	for prop := range fixed {
 		delete(data, prop)
 	}
-	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
-		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
-	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
-		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
-	}
+	// No RecordChanged: this path runs only for a create the sink said it
+	// has nothing to do for (atCommit, sinkQuiet), and anything the sink
+	// sent would have to follow the INSERT queued here.
 	commit, ok := tenancy.QueueAtCommit(w.tx)
 	if !ok {
 		return Result{}, errors.New("pipeline: the transaction has no commit batch")

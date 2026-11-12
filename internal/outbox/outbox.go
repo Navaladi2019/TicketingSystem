@@ -104,6 +104,11 @@ func ValidKind(s string) bool { return kindPattern.MatchString(s) }
 // starts go through EnqueueStart only, under a cascade.Claim (A5-6).
 const InterpreterKind = "nava.interpreter"
 
+// InterpreterSignalKind is the one signal name the interpreter listens on
+// (interp.SignalName, D-3-12). A signal to an interpreter run goes through
+// EnqueueSignal only, so it always has its workflow_cause row (D-3-29).
+const InterpreterSignalKind = "nava.interpreter.signal"
+
 // SealKind is the workflow type of the audit sealer (ADR-004 R16). Its
 // starts are not tied to a record and go through EnqueueSeal only
 // (ADR-001 A6.3).
@@ -141,7 +146,12 @@ ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
 RETURNING id`
-	insertRefSQL = `INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)`
+	// The named ref of EnqueueSignal: open, of its kind, on the entry's record.
+	namedRefSQL = `SELECT outbox_id FROM workflow_ref
+WHERE tenant_id = $1 AND outbox_id = $2 AND record_id = $3 AND kind = $4 AND closed_at IS NULL`
+	insertRefSQL   = `INSERT INTO workflow_ref (tenant_id, outbox_id, record_id, kind) VALUES ($1, $2, $3, $4)`
+	insertCauseSQL = `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth)
+VALUES ($1, $2, $3, $4, $5)`
 )
 
 // EnqueueAtVersion writes e as an outbox row in tx and returns the row's id.
@@ -169,13 +179,27 @@ RETURNING id`
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 //
-// A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart.
+// A start of InterpreterKind is ErrInvalidEntry: use EnqueueStart. So is a
+// signal on InterpreterSignalKind, the one name an interpreter run acts on:
+// use EnqueueSignal, which writes its workflow_cause row. (A signal of any
+// other name to an InterpreterKind run is never received by the
+// interpreter, so it resumes nothing; the S7 demo's stand-in body uses one.)
 func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (uuid.UUID, error) {
 	if err := notOwnEntryPointStart(e); err != nil {
 		return uuid.Nil, err
 	}
-	return enqueue(ctx, tx, e, uuid.Nil, func() (uuid.UUID, int64, error) {
-		tenant, got, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
+	if e.Kind == InterpreterSignalKind {
+		return uuid.Nil, fmt.Errorf("%w: a %s signal goes through EnqueueSignal", ErrInvalidEntry, InterpreterSignalKind)
+	}
+	id, _, err := enqueue(ctx, tx, e, enqueueOpts{}, lockAtVersion(ctx, tx, e.RecordID, version))
+	return id, err
+}
+
+// lockAtVersion is the lock of EnqueueAtVersion and EnqueueSignal: the
+// record's row lock, and its version, which must be version.
+func lockAtVersion(ctx context.Context, tx pgx.Tx, record uuid.UUID, version int64) func() (uuid.UUID, int64, error) {
+	return func() (uuid.UUID, int64, error) {
+		tenant, got, err := lockRecord(ctx, tx, lockRecordSQL, record)
 		if err != nil {
 			return uuid.Nil, 0, err
 		}
@@ -183,7 +207,7 @@ func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (u
 			return uuid.Nil, 0, fmt.Errorf("%w: have %d, given %d", ErrVersionMismatch, got, version)
 		}
 		return tenant, got, nil
-	})
+	}
 }
 
 // EnqueueStart is the only way to enqueue a start of InterpreterKind (ADR-001
@@ -199,6 +223,11 @@ func EnqueueAtVersion(ctx context.Context, tx pgx.Tx, e Entry, version int64) (u
 // write has already bumped it (D-3-6), and a start's target_key is its own,
 // so its target_seq orders nothing. A dedupe key already in use is
 // ErrInvalidEntry, because the claim's id would then name no row.
+//
+// In tx it also writes the start's workflow_cause row (D-3-29): its own
+// outbox id, its own id as ref_outbox_id, and the row's origin and depth.
+// The payload must be exactly {definition_version_id, record_id}
+// (ValidateKindPayload, AR-041).
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uuid.UUID, error) {
@@ -220,7 +249,7 @@ func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uui
 		return uuid.Nil, invalid("the entry's causation is not the one stored on the record")
 	}
 	e.Causation = claimed
-	id, err := enqueue(ctx, tx, e, c.OutboxID(), func() (uuid.UUID, int64, error) {
+	id, _, err := enqueue(ctx, tx, e, enqueueOpts{id: c.OutboxID(), cause: true}, func() (uuid.UUID, int64, error) {
 		tenant, seq, err := lockRecord(ctx, tx, lockRecordSQL, e.RecordID)
 		if err == nil && tenant != c.TenantID() {
 			return uuid.Nil, 0, ErrRecordNotFound
@@ -230,6 +259,33 @@ func EnqueueStart(ctx context.Context, tx pgx.Tx, c cascade.Claim, e Entry) (uui
 	if err == nil && id != c.OutboxID() {
 		return uuid.Nil, invalid("dedupe key already used by another row")
 	}
+	return id, err
+}
+
+// EnqueueSignal is the only way to enqueue a signal to a nava.interpreter
+// run (D-3-14, D-3-29). ref is the run's workflow_ref outbox id (the id of
+// its start row): it must be an open InterpreterKind ref on e's record in
+// the transaction's tenant, or it returns ErrNoOpenWorkflow and writes
+// nothing. e must be a signal on InterpreterSignalKind to InterpreterKind,
+// with exactly the payload {signal} (ValidateKindPayload, AR-041).
+//
+// The row's target_key is nava.interpreter:<ref>, and its target_seq is
+// version, which must be the record's version in tx as for
+// EnqueueAtVersion. In tx it also writes the signal's workflow_cause row:
+// the new row's id, ref as ref_outbox_id, and e.Causation, the row's own
+// origin and depth. A dedupe key already in use returns that row's id, a
+// nil error, and writes nothing, as EnqueueAtVersion does.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueSignal(ctx context.Context, tx pgx.Tx, ref uuid.UUID, e Entry, version int64) (uuid.UUID, error) {
+	t, ok := e.Target.(TargetSignal)
+	if !ok || t.Kind != InterpreterKind || t.SignalName != InterpreterSignalKind || e.Kind != InterpreterSignalKind {
+		return uuid.Nil, fmt.Errorf("%w: EnqueueSignal enqueues only a %s signal to %s", ErrInvalidEntry, InterpreterSignalKind, InterpreterKind)
+	}
+	if ref == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("%w: no workflow_ref", ErrInvalidEntry)
+	}
+	id, _, err := enqueue(ctx, tx, e, enqueueOpts{ref: ref, cause: true}, lockAtVersion(ctx, tx, e.RecordID, version))
 	return id, err
 }
 
@@ -467,70 +523,97 @@ func lockRecord(ctx context.Context, tx pgx.Tx, sql string, record uuid.UUID) (u
 	return tenant, seq, nil
 }
 
-// enqueue is EnqueueAtVersion and EnqueueStart; lock locks the
-// record and returns its tenant and the row's target_seq. id is the row's id,
-// or uuid.Nil to mint a UUIDv7.
-func enqueue(ctx context.Context, tx pgx.Tx, e Entry, id uuid.UUID, lock func() (uuid.UUID, int64, error)) (uuid.UUID, error) {
+// enqueueOpts are what EnqueueStart and EnqueueSignal add to the common
+// path. The zero value is EnqueueAtVersion's.
+type enqueueOpts struct {
+	// id is the row's id, or uuid.Nil to mint a UUIDv7.
+	id uuid.UUID
+	// ref names the open workflow_ref a signal targets; uuid.Nil targets
+	// the newest open one of its kind.
+	ref uuid.UUID
+	// cause writes the row's workflow_cause row in tx (D-3-29).
+	cause bool
+}
+
+// enqueue is EnqueueAtVersion, EnqueueStart and EnqueueSignal; lock locks
+// the record and returns its tenant and the row's target_seq. inserted is
+// false when the dedupe key already named a row, whose id it returns.
+func enqueue(ctx context.Context, tx pgx.Tx, e Entry, o enqueueOpts, lock func() (uuid.UUID, int64, error)) (_ uuid.UUID, inserted bool, _ error) {
 	if e.Causation.Depth > config.CascadeDepthLimit {
-		return uuid.Nil, fmt.Errorf("%w: depth %d, limit %d", ErrCascadeTooDeep, e.Causation.Depth, config.CascadeDepthLimit)
+		return uuid.Nil, false, fmt.Errorf("%w: depth %d, limit %d", ErrCascadeTooDeep, e.Causation.Depth, config.CascadeDepthLimit)
 	}
 	payload, err := validate(e)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, false, err
 	}
 
 	var existing uuid.UUID
 	switch err := tx.QueryRow(ctx, dedupeLookupSQL, e.DedupeKey).Scan(&existing); {
 	case err == nil:
-		return existing, nil
+		return existing, false, nil
 	case !errors.Is(err, pgx.ErrNoRows):
-		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup: %w", err)
+		return uuid.Nil, false, fmt.Errorf("outbox: dedupe lookup: %w", err)
 	}
 
 	tenant, seq, err := lock()
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, false, err
 	}
 
+	id := o.id
 	if id == uuid.Nil {
 		if id, err = uuid.NewV7(); err != nil {
-			return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+			return uuid.Nil, false, fmt.Errorf("outbox: new id: %w", err)
 		}
 	}
-	var targetKey string
+	var (
+		targetKey string
+		ref       = id
+	)
 	switch t := e.Target.(type) {
 	case TargetStart:
 		targetKey = t.Kind + ":" + id.String()
 	case TargetSignal:
-		var start uuid.UUID
-		switch err := tx.QueryRow(ctx, openRefSQL, tenant, e.RecordID, t.Kind).Scan(&start); {
-		case errors.Is(err, pgx.ErrNoRows):
-			return uuid.Nil, ErrNoOpenWorkflow
-		case err != nil:
-			return uuid.Nil, fmt.Errorf("outbox: find open workflow: %w", err)
+		sql, args := openRefSQL, []any{tenant, e.RecordID, t.Kind}
+		if o.ref != uuid.Nil {
+			sql, args = namedRefSQL, []any{tenant, o.ref, e.RecordID, t.Kind}
 		}
-		targetKey = t.Kind + ":" + start.String()
+		switch err := tx.QueryRow(ctx, sql, args...).Scan(&ref); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return uuid.Nil, false, ErrNoOpenWorkflow
+		case err != nil:
+			return uuid.Nil, false, fmt.Errorf("outbox: find open workflow: %w", err)
+		}
+		targetKey = t.Kind + ":" + ref.String()
 	}
 
-	var inserted uuid.UUID
+	var got uuid.UUID
 	err = tx.QueryRow(ctx, insertSQL, id, tenant, e.Kind, e.KindVersion, e.DedupeKey, targetKey, seq,
-		e.Causation.OriginID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&inserted)
+		e.Causation.OriginID, e.Causation.Depth, payload, traceparent(ctx)).Scan(&got)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.QueryRow(ctx, dedupeLookupSQL, e.DedupeKey).Scan(&existing); err != nil {
-			return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
+			return uuid.Nil, false, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
 		}
-		return existing, nil
+		return existing, false, nil
 	}
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("outbox: insert: %w", err)
+		return uuid.Nil, false, fmt.Errorf("outbox: insert: %w", err)
 	}
 
 	if t, ok := e.Target.(TargetStart); ok {
 		if _, err := tx.Exec(ctx, insertRefSQL, tenant, id, e.RecordID, t.Kind); err != nil {
-			return uuid.Nil, fmt.Errorf("outbox: insert workflow_ref: %w", err)
+			return uuid.Nil, false, fmt.Errorf("outbox: insert workflow_ref: %w", err)
 		}
 	}
-	return id, nil
+	// The cause copies the row just written: its id, its ref, its origin
+	// and depth. Never a Command field or a workflow input (D-3-29, the
+	// P3-40 security conditions).
+	if o.cause {
+		if _, err := tx.Exec(ctx, insertCauseSQL, tenant, id, ref, e.Causation.OriginID, e.Causation.Depth); err != nil {
+			return uuid.Nil, false, fmt.Errorf("outbox: insert workflow_cause: %w", err)
+		}
+	}
+	return id, true, nil
 }
 
 // validate checks everything that needs no database, and returns the payload
@@ -579,10 +662,51 @@ func validate(e Entry) (json.RawMessage, error) {
 	if payload == nil {
 		payload = json.RawMessage("{}")
 	}
-	if err := ValidatePayload(payload); err != nil {
+	if err := ValidateKindPayload(e.Kind, payload); err != nil {
 		return nil, err
 	}
 	return payload, nil
+}
+
+// kindPayloadKeys is the per-kind payload key allow-list (AR-041, D-3-14):
+// a row of a listed kind carries exactly these keys. A start's kind is its
+// workflow type and a signal's its signal name, so the interpreter's start
+// and its signal have an entry each. Every production kind is listed; a
+// kind not listed (the demos, test kinds) keeps the pattern rule only.
+//
+//nolint:gochecknoglobals // fixed table, read only
+var kindPayloadKeys = map[string][]string{
+	InterpreterKind:       {"definition_version_id", "record_id"},
+	InterpreterSignalKind: {"signal"},
+	SealKind:              {},
+}
+
+// ValidateKindPayload is ValidatePayload plus the per-kind allow-list
+// (AR-041): a row of a kind kindPayloadKeys lists carries exactly its keys,
+// no more and no fewer. Every Enqueue function and the relay apply it.
+// Like ValidatePayload, the error names no key.
+func ValidateKindPayload(kind string, p json.RawMessage) error {
+	if err := ValidatePayload(p); err != nil {
+		return err
+	}
+	want, ok := kindPayloadKeys[kind]
+	if !ok {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(p, &fields); err != nil {
+		return fmt.Errorf("%w: payload must be a JSON object", ErrInvalidEntry)
+	}
+	bad := fmt.Errorf("%w: payload keys are not the allow-list of the row's kind", ErrInvalidEntry)
+	if len(fields) != len(want) {
+		return bad
+	}
+	for _, k := range want {
+		if _, ok := fields[k]; !ok {
+			return bad
+		}
+	}
+	return nil
 }
 
 // payloadKeyPattern bounds every payload key (TICK-240), so a key can carry

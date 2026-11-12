@@ -52,6 +52,27 @@ func QueueDefinitionID(b *pgx.Batch, tenantID uuid.UUID, key string, dst *uuid.U
 		})
 }
 
+// QueueDefinitionIDAndFlag is QueueDefinitionID with one more column in the
+// same statement: *flag is the boolean SQL expression flagSQL evaluated on
+// the tenant's entity type row, aliased e (false when it has none). flagSQL
+// must be a constant of the caller's package, never built from input
+// (pipeline.CreateTriggerQueuer); it lets a check ride on this read without
+// a statement of its own (TICK-711).
+func QueueDefinitionIDAndFlag(b *pgx.Batch, tenantID uuid.UUID, key, flagSQL string, dst *uuid.UUID, flag *bool) {
+	b.Queue(`SELECT e.id, (`+flagSQL+`) FROM entity_definitions e WHERE e.tenant_id = $1 AND e.key = $2`, tenantID, key).
+		QueryRow(func(row pgx.Row) error {
+			err := row.Scan(dst, flag)
+			if errors.Is(err, pgx.ErrNoRows) {
+				*dst, *flag = uuid.Nil, false
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("records/store: read entity type: %w", err)
+			}
+			return nil
+		})
+}
+
 // QueueGet queues Get: *dst is the record, or nil when the tenant has no
 // such pipeline record.
 func QueueGet(b *pgx.Batch, tenantID, id uuid.UUID, dst **Record) {
