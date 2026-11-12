@@ -466,12 +466,24 @@ class TestMarkdown(Base):
             "foreign": "<svg><!-- payload-start --><foreignObject/></svg>",
             "remote image": '<svg><!-- payload-start --><image href="https://example.com/a.png"/></svg>',
             "remote font": "<svg><!-- payload-start --><style>@font-face{src:url(https://example.com/f.woff2)}</style></svg>",
+            "prefixed script": '<svg xmlns:svg="http://www.w3.org/2000/svg"><!-- payload-start --><svg:script>x()</svg:script></svg>',
+            "data link": '<svg><!-- payload-start --><a href="data:text/html,x"><text>x</text></a></svg>',
+            "entity scheme": '<svg><!-- payload-start --><a href="javascript&#x3a;x"><text>x</text></a></svg>',
+            "xlink javascript": '<svg xmlns:xlink="http://www.w3.org/1999/xlink"><!-- payload-start --><use xlink:href="javascript:x()"/></svg>',
+            "doctype": '<!DOCTYPE svg [<!ENTITY e "x">]><svg><!-- payload-start --></svg>',
+            "not xml": "<svg><!-- payload-start --><rect></svg>",
         }
         for name, svg in bad.items():
             with self.subTest(name):
                 write(self.root, "docs/handbook/src/diagrams/bad.excalidraw.svg", svg)
                 page(self.root, "system/a.md", "A", "system", body="![x](../diagrams/bad.excalidraw.svg)")
                 self.fails("bad.excalidraw.svg")
+
+    def test_allowlist_accepts_a_normal_diagram(self):
+        ok = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><!-- payload-start -->'
+              '<defs><style>.a{fill:red}</style></defs><g><path d="M0 0"/><use xlink:href="#a"/><text><tspan>x</tspan></text></g></svg>')
+        self.assertEqual(build.check_excalidraw_svg(ok), [])
+        self.assertEqual(build.check_excalidraw_svg(SVG), [])
 
     def test_mermaid_fence(self):
         page(self.root, "system/a.md", "A", "system",

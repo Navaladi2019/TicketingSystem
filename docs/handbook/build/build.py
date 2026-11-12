@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -903,18 +904,48 @@ def link_dest(ctx, dest):
     return ctx.up_to_root() + "/" + repo + frag
 
 
-SVG_ACTIVE = re.compile(r"(?is)<script|<foreignObject|\son[a-z]+\s*=|javascript:")
-SVG_REMOTE = re.compile(r"(?is)(href|src)\s*=\s*[\"']\s*https?:|url\(\s*[\"']?\s*https?:|@import")
+SVG_NS = "http://www.w3.org/2000/svg"
+XLINK_NS = "http://www.w3.org/1999/xlink"
+# The only elements an embedded diagram may hold, all in the SVG namespace.
+SVG_ELEMENTS = frozenset(["svg", "g", "path", "rect", "ellipse", "line", "polyline", "polygon", "text", "tspan",
+                          "defs", "style", "symbol", "use", "mask", "clipPath", "metadata"])
+SVG_REMOTE_CSS = re.compile(r"(?is)@import|url\(\s*[\"']?\s*(?!#)")
 
 
 def check_excalidraw_svg(data):
+    """An allowlist, not a denylist: the SVG is parsed (entities decoded by the
+    parser), every element must be a listed SVG element, no attribute may be an
+    on* handler, and href / xlink:href may only point at "#id"."""
     out = []
     if "payload-start" not in data:
         out.append('has no embedded scene: export from Excalidraw with "Embed scene"')
-    if SVG_ACTIVE.search(data):
-        out.append("contains script, foreignObject or an event handler")
-    if SVG_REMOTE.search(data):
-        out.append("references a remote resource")
+    if re.search(r"(?i)<!DOCTYPE|<!ENTITY", data):
+        return out + ["declares a DOCTYPE or entity"]
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as e:
+        return out + ["is not well-formed XML: %s" % e]
+    bad_elements, bad_attrs = set(), set()
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        ns, _, local = el.tag[1:].partition("}") if el.tag.startswith("{") else ("", "", el.tag)
+        if (ns, local) not in {(SVG_NS, n) for n in SVG_ELEMENTS} and (ns != "" or local not in SVG_ELEMENTS):
+            bad_elements.add(el.tag)
+        for name, value in el.attrib.items():
+            local_attr = name.rpartition("}")[2].lower()
+            if local_attr.startswith("on"):
+                bad_attrs.add(name)
+            elif local_attr == "href" and not value.strip().startswith("#"):
+                bad_attrs.add("%s=%s" % (name, value[:40]))
+            elif local_attr == "style" and SVG_REMOTE_CSS.search(value):
+                bad_attrs.add("style=%s" % value[:40])
+        if el.tag.endswith("style") and el.text and SVG_REMOTE_CSS.search(el.text):
+            bad_attrs.add("a <style> with @import or url()")
+    if bad_elements:
+        out.append("contains elements outside the allowed SVG set: %s" % ", ".join(sorted(bad_elements)))
+    if bad_attrs:
+        out.append("contains an event handler, an external href or a remote style: %s" % ", ".join(sorted(bad_attrs)))
     return out
 
 
