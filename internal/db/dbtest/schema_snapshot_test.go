@@ -32,6 +32,10 @@ var update = flag.Bool("update", false, "rewrite docs/handbook/src/database/sche
 // schemaSnapshotPath is the committed snapshot, from this package's directory.
 const schemaSnapshotPath = "../../../docs/handbook/src/database/schema.json"
 
+// schemaContractPath is the contract document whose key table the snapshot
+// must match.
+const schemaContractPath = "../../../docs/handbook/src/database/schema.md"
+
 const refreshHint = "go test -tags integration ./internal/db/dbtest -run '^TestSchemaSnapshot$' -update (or task schema:snapshot)"
 
 // updating is -update, or NAVA_SCHEMA_SNAPSHOT_UPDATE=1 for task
@@ -44,7 +48,7 @@ func updating() bool { return *update || os.Getenv("NAVA_SCHEMA_SNAPSHOT_UPDATE"
 // line that differs, and how to refresh the file.
 func checkGolden(path string, got []byte, write bool) error {
 	if write {
-		return os.WriteFile(path, got, 0o644) //nolint:gosec // a committed docs file, world-readable like the rest of the tree
+		return os.WriteFile(path, got, 0o644)
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
@@ -66,7 +70,7 @@ func snapshotDiff(want, got []byte) string {
 		}
 		var out []string
 		for _, t := range s.Tables {
-			out = append(out, catalog.RefName(t.Schema, t.Name))
+			out = append(out, t.Name)
 		}
 		return out
 	}
@@ -123,7 +127,7 @@ func takeSnapshot(t *testing.T) (*catalog.Schema, []byte) {
 
 func findTable(s *catalog.Schema, name string) *catalog.Table {
 	for i := range s.Tables {
-		if catalog.RefName(s.Tables[i].Schema, s.Tables[i].Name) == name {
+		if s.Tables[i].Name == name {
 			return &s.Tables[i]
 		}
 	}
@@ -150,15 +154,15 @@ func TestSchemaSnapshot(t *testing.T) {
 	}
 	var want []string
 	for _, tt := range tenant {
-		want = append(want, catalog.RefName(tt.Schema, tt.Name))
+		want = append(want, tt.Name)
 	}
 	for _, g := range globalTables(t).Names() {
-		sch, n, _ := strings.Cut(g, ".")
-		want = append(want, catalog.RefName(sch, n))
+		_, n, _ := strings.Cut(g, ".")
+		want = append(want, n)
 	}
 	var got []string
 	for _, tt := range s.Tables {
-		got = append(got, catalog.RefName(tt.Schema, tt.Name))
+		got = append(got, tt.Name)
 	}
 	if slices.Sort(want); !slices.Equal(sorted(got), want) {
 		t.Errorf("snapshot tables %q, want the gate's %q", got, want)
@@ -179,7 +183,7 @@ func TestSchemaSnapshot(t *testing.T) {
 	// audit_log: partitioned, its DEFAULT partition, the runtime-built
 	// policies (db/audited-tables.yaml), under ENABLE + FORCE.
 	al := findTable(s, "audit_log")
-	if al == nil || al.Kind != "partitioned" || al.PartitionKey == "" || !al.RLS.Enabled || !al.RLS.Forced {
+	if al == nil || al.Kind != "partitioned" || al.PartitionBy == "" || !al.RLS.Enabled || !al.RLS.Forced {
 		t.Fatalf("audit_log = %+v, want partitioned under ENABLE + FORCE RLS", al)
 	}
 	if d := findTable(s, "audit_log_default"); d == nil || d.Kind != "partition" || d.PartitionOf != "audit_log" || d.PartitionBound != "DEFAULT" {
@@ -193,12 +197,21 @@ func TestSchemaSnapshot(t *testing.T) {
 		found := false
 		for _, sp := range al.Policies {
 			if sp.Name == p.Name {
-				found = sp.Command == p.Cmd && strings.Join(sp.Roles, ",") == p.Roles && sp.Using == p.Qual && sp.WithCheck == p.Check
+				found = sp.Command == p.Cmd && strings.Join(sp.Roles, ",") == p.Roles && sp.Using == p.Qual && sp.Check == p.Check
 			}
 		}
 		if !found {
 			t.Errorf("runtime-built policy %s (%+v) is missing or differs on audit_log: %+v", p.Name, p.Policy, al.Policies)
 		}
+	}
+
+	// Every key docs/handbook/src/database/schema.md lists, and no other.
+	doc, err := os.ReadFile(schemaContractPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := catalog.SnapshotKeyProblems(doc, b); len(problems) > 0 {
+		t.Errorf("the generated snapshot does not match the contract in schema.md: %q", problems)
 	}
 
 	// No connection detail: no DSN, password, host or pg_hba.conf address.

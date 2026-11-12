@@ -41,7 +41,7 @@ migrates.
   Refresh it with `make schema-snapshot` (Docker) and commit it in the same
   change. Until you do, `TestSchemaSnapshot` fails in the integration job.
   The format is described in
-  [`docs/handbook/schema.md`](../docs/handbook/schema.md).
+  [`docs/handbook/src/database/schema.md`](../docs/handbook/src/database/schema.md).
 
 ## JIT (off on the platform database)
 
