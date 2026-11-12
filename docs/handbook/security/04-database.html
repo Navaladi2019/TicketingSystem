@@ -47,22 +47,48 @@ forgets, a role connected with tenant A's setting, or with no setting, reaches
 <p>ADR-001 invariants I1 (tenant wall in the database) and I3 (least-privilege
 roles):</p>
 <ul>
-<li>Every tenant table has <code>tenant_id</code>, <code>ENABLE</code> <strong>and</strong> <code>FORCE ROW LEVEL SECURITY</code>, and a policy on
+<li><p>Every tenant table has <code>tenant_id</code>, <code>ENABLE</code> <strong>and</strong> <code>FORCE ROW LEVEL SECURITY</code>, and a policy on
 <code>NULLIF(current_setting(&#x27;app.tenant_id&#x27;, true), &#x27;&#x27;)::uuid</code>. <code>FORCE</code> makes the
-policies apply to the table owner as well.</li>
-<li><strong>Owner vs app.</strong> <code>nava_migrator</code> owns the schema and is granted to no one;
+policies apply to the table owner as well.</p></li>
+<li><p><strong>Owner vs app.</strong> <code>nava_migrator</code> owns the schema and is granted to no one;
 runtime roles (<code>nava_app</code>, <code>nava_worker</code>, <code>nava_relay</code>, <code>nava_purge</code>,
 <code>nava_onboard</code>, <code>nava_groupsync</code>, <code>nava_erasure</code>, <code>nava_audit_reader</code> and
 the others) own nothing, cannot run DDL, and none has <code>SUPERUSER</code> or
-<code>BYPASSRLS</code>.</li>
-<li><strong>Per-service roles.</strong> <code>db/grants.yaml</code> lists each role's table and column
-grants; <code>migrate</code> grants exactly those and revokes anything else.</li>
-<li>A policy that does not test <code>app.tenant_id</code> must be on the ADR-001 Annex A.3
-allow-list (today: <code>outbox_relay_select</code>, <code>outbox_relay_update</code>,
-<code>binding_lookup</code>), and has a fixed <code>FOR</code> and <code>TO</code>.</li>
-<li>Unique keys and foreign keys include <code>tenant_id</code>, so a row of tenant A can
-never reference a row of tenant B.</li>
-<li>No <code>SECURITY DEFINER</code> function; views are <code>security_invoker</code>.</li>
+<code>BYPASSRLS</code>.</p></li>
+<li><p><strong>Per-service roles.</strong> <code>db/grants.yaml</code> lists each role's table and column
+grants; <code>migrate</code> grants exactly those and revokes anything else.</p></li>
+<li><p>A policy that does not test <code>app.tenant_id</code> must be on the ADR-001 Annex A.3
+allow-list (<code>catalog.AllowList()</code>, <code>internal/db/catalog/policy.go</code>), and has
+a fixed <code>FOR</code>, <code>TO</code> and predicate. Today it has 11 policies; these are the
+only places a role can reach rows across tenants:</p>
+<ul>
+<li><code>outbox_relay_select</code>: <code>SELECT</code> by <code>nava_relay</code>, <code>USING (true)</code>.</li>
+<li><code>outbox_relay_update</code>: <code>UPDATE</code> by <code>nava_relay</code>, <code>USING</code> pending rows
+(<code>dispatched_at IS NULL AND dead_at IS NULL</code>), <code>WITH CHECK (true)</code>.</li>
+<li><code>binding_lookup</code>: <code>SELECT</code> by <code>nava_app</code> and <code>nava_groupsync</code>, <code>USING (true)</code>.</li>
+<li><code>binding_onboard</code>: <code>INSERT</code> by <code>nava_onboard</code>, <code>WITH CHECK</code> the tenant is
+<code>provisioning</code>.</li>
+<li><code>idempotency_purge</code> and <code>idempotency_purge_select</code>: <code>DELETE</code> and <code>SELECT</code>
+by <code>nava_purge</code>, <code>USING</code> the key is expired (<code>expires_at &lt; now()</code>).</li>
+<li><code>outbox_purge</code> and <code>outbox_purge_select</code>: <code>DELETE</code> and <code>SELECT</code> by
+<code>nava_purge</code>, <code>USING</code> dispatched more than 7 days ago or dead more than
+30 days ago.</li>
+<li><code>workflow_ref_purge</code> and <code>workflow_ref_purge_select</code>: <code>DELETE</code> and <code>SELECT</code>
+by <code>nava_purge</code>, <code>USING</code> closed more than 30 days ago.</li>
+<li><code>audit_chain_head_purge_select</code>: <code>SELECT</code> by <code>nava_purge</code>, <code>USING</code> the R17
+predicate (shared with the <code>chain:reseed</code> gate).</li>
+</ul>
+<p>So <code>nava_purge</code> selects and deletes expired rows of every tenant.
+<code>PinnedTenantPolicies()</code> adds a state test to the tenant predicate for the
+onboarding and group-sync policies (for example the tenant is <code>provisioning</code>,
+or its group is tombstoned).</p></li>
+<li><p>Unique keys and foreign keys include <code>tenant_id</code>, so a row of tenant A can
+never reference a row of tenant B.</p></li>
+<li><p><code>pgbouncer.get_auth(text)</code> is the one <code>SECURITY DEFINER</code> exception: the
+infrastructure function in <code>db/grants.yaml</code>, granted only to
+<code>pgbouncer_auth</code>, which returns no row for a superuser, <code>BYPASSRLS</code> or
+<code>REPLICATION</code> role. <code>main</code> has no views. The proof is CI-1
+(<code>ci1SecurityDefiner</code>), which fails on any other <code>SECURITY DEFINER</code> function.</p></li>
 </ul>
 <p>The policy text of every table is on <a href="../database/rls.html">Row-level security</a>,
 and every role's grants are on <a href="../database/roles-and-grants.html">Roles and grants</a>.</p>
@@ -107,7 +133,7 @@ and every role's grants are on <a href="../database/roles-and-grants.html">Roles
 <td><code>TestD28NoSuperuserOrBypassRLS</code>, <code>TestMigratorOwnsDatabaseAndIsGrantedToNoOne</code>, <code>TestAppCannotRunDDL</code></td>
 </tr>
 <tr>
-<td>No <code>SECURITY DEFINER</code>; views are security invoker</td>
+<td>One <code>SECURITY DEFINER</code> exception (<code>pgbouncer.get_auth</code>); no views on <code>main</code></td>
 <td><code>TestT10GateEmptySecurityDefinerExceptions</code>, <code>TestT10GatePassesSecurityInvokerView</code></td>
 </tr>
 <tr>
