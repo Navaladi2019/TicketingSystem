@@ -37,9 +37,11 @@ const migratorRole = "nava_migrator"
 // existed. Applied migrations are never edited; each entry names why it is
 // safe or the migration that re-checks it for real. An entry that no longer
 // matches a finding fails the test.
-var fkValidateAllowed = map[string]string{
-	"20261104013500_groups_tombstone_validate.sql group_members_group_live_fkey": "re-checked by 20261112100000_group_members_group_live_fkey_recheck.sql",
-	"20261104043100_groups_contract_validate.sql records_assignment_group_fkey":  "re-checked by 20261112100100_records_assignment_group_fkey_recheck.sql",
+func fkValidateAllowed() map[string]string {
+	return map[string]string{
+		"20261104013500_groups_tombstone_validate.sql group_members_group_live_fkey": "re-checked by 20261112100000_group_members_group_live_fkey_recheck.sql",
+		"20261104043100_groups_contract_validate.sql records_assignment_group_fkey":  "re-checked by 20261112100100_records_assignment_group_fkey_recheck.sql",
+	}
 }
 
 func TestMigrationsFKValidateUnderForceRLS(t *testing.T) {
@@ -47,16 +49,17 @@ func TestMigrationsFKValidateUnderForceRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	allowed := fkValidateAllowed()
 	var problems []string
 	seen := map[string]bool{}
 	for _, f := range findings {
-		if _, ok := fkValidateAllowed[f.key()]; ok {
+		if _, ok := allowed[f.key()]; ok {
 			seen[f.key()] = true
 			continue
 		}
 		problems = append(problems, f.String())
 	}
-	for key, why := range fkValidateAllowed {
+	for key, why := range allowed {
 		if !seen[key] {
 			problems = append(problems, fmt.Sprintf("fkValidateAllowed entry %q matches no finding: remove it", key))
 		}
