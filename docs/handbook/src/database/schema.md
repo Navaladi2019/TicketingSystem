@@ -9,7 +9,7 @@ status: delivered
 
 `docs/handbook/src/database/schema.json` describes the platform database
 schema as a freshly migrated database has it. The handbook build
-(`tools/handbook`) and the coverage test read this file. They never parse the
+(`docs/handbook/build/build.py`) and the coverage test read this file. They never parse the
 migration SQL and never connect to a database, so `task handbook`, `task lint`
 and `task test` stay database-free (TICK-718 D-HB-9, TICK-733).
 
