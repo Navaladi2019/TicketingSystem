@@ -165,6 +165,7 @@ stories:
     evidence:
       - docs/acceptance/S15/README.md
       - docs/acceptance/S15/evidence/ac1-seal-latency.txt
+      - docs/acceptance/S15/evidence/run-summary.json
   - id: S16
     issue: TICK-421
     title: An auditor exports a filtered audit log and proves it complete
