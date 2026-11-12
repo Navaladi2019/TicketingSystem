@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Migration history - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li class="current"><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted-risk register</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Migration history</span></nav>
+<article>
+<h1 class="page-title">Migration history</h1>
+<p>Migrations live in <code>db/migrations</code> and run with goose, as <code>nava_migrator</code>,
+in the one-shot <code>migrate</code> job. Every table, index, policy and grant on the
+other database pages is the state after the last of them. Dropped objects
+appear only here, in the migration that dropped them.</p>
+<h2 id="two-naming-eras">Two naming eras</h2>
+<ul>
+<li><strong><code>00001</code> to <code>00012</code></strong>: five-digit sequential versions, from the first
+platform tables to TICK-285. No new migration may take one.</li>
+<li><strong><code>YYYYMMDDHHMMSS_&lt;name&gt;.sql</code></strong>: a 14-digit UTC timestamp, from
+<code>20261028175712</code> on (TICK-288). Timestamps from two branches do not
+collide. Before a pull request merges, each migration it adds must be newer
+than the newest one on <code>main</code>, or be re-stamped (<code>db/migrations/README.md</code>).</li>
+</ul>
+<h2 id="online-steps">Online steps</h2>
+<p>Migrations run against a live database, so the slow parts are split off:</p>
+<ul>
+<li><strong><code>NOT VALID</code>, then <code>*_validate</code>.</strong> A new <code>CHECK</code> or foreign key is added
+<code>NOT VALID</code>, which takes a brief lock and checks only new rows. A second
+migration, whose name ends in <code>_validate</code>, runs <code>VALIDATE CONSTRAINT</code> in its
+own transaction. That scan takes <code>SHARE UPDATE EXCLUSIVE</code>, so reads and
+writes go on while it runs. The table pairs them both ways.</li>
+<li><strong><code>CONCURRENTLY</code>.</strong> An index on a large table is built with <code>CREATE INDEX CONCURRENTLY</code>, alone in a <code>-- +goose NO TRANSACTION</code> file. A failed build
+leaves an invalid index, which the file drops and rebuilds when it runs
+again.</li>
+<li><strong><code>drops</code></strong> marks a migration that removes a table, index, policy, column,
+constraint, function or trigger.</li>
+</ul>
+<h2 id="every-migration">Every migration</h2>
+<p>"Introduced by" names the story, tasks and pull request of the commit that
+first added the file to <code>main</code>. The build takes these from
+<code>docs/handbook/src/database/migration-history.json</code>, so it needs no git
+history. After a migration merges to <code>main</code>, refresh the file with
+<code>python -I docs/handbook/build/build.py --capture-migrations</code>. That command
+needs <code>origin/main</code>. The build fails when the file and <code>db/migrations</code> list
+different files. The summary is the first sentence of the file's header
+comment.</p>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>File</th>
+<th>Summary</th>
+<th>Introduced by</th>
+<th>Online steps and drops</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>00001</code></td>
+<td><code>00001_global_revokes.sql</code></td>
+<td>ADR-001 A.3 global settings.</td>
+<td>PR #17 (2026-10-18)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00002</code></td>
+<td><code>00002_platform_tables.sql</code></td>
+<td>T09 (TICK-64): the platform tables of ADR-001 A.3, each under ENABLE + FORCE ROW LEVEL SECURITY.</td>
+<td>TICK-64, PR #44 (2026-10-24)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00003</code></td>
+<td><code>00003_identity_tables.sql</code></td>
+<td>T16 (TICK-69): the identity tables group sync (T25) fills from Keycloak and tenant resolution (T17, ADR-001 A.1 step 3) reads.</td>
+<td>TICK-69, PR #88 (2026-10-25)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00004</code></td>
+<td><code>00004_tenant_email_domain.sql</code></td>
+<td>T18a (TICK-194): the email domains each tenant owns.</td>
+<td>TICK-194, PR #115 (2026-10-26)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00005</code></td>
+<td><code>00005_purge_indexes.sql</code></td>
+<td>T13 follow-up (TICK-146): indexes for nava-purge's batch DELETEs (internal/purge), PR #51's non-blocking item 2.</td>
+<td>TICK-146, PR #128 (2026-10-26)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>00006</code></td>
+<td><code>00006_pending_invite.sql</code></td>
+<td>T252a (TICK-254): the admins a tenant has invited who have not signed in yet (TICK-252 option 2, CTO 2026-10-27).</td>
+<td>TICK-46, TICK-254, PR #215 (2026-10-28)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00007</code></td>
+<td><code>00007_email_domain_release.sql</code></td>
+<td>TICK-280 (follow-up from TICK-276 item 1, AR-036): nava_onboard may release the email domains of its own tenant while that tenant is still provisioning, so a stuck onboarding stops holding domains against their real owner.</td>
+<td>TICK-46, TICK-280, PR #215 (2026-10-28)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>00008</code></td>
+<td><code>00008_outbox_payload_references.sql</code></td>
+<td>T32c (TICK-214), CI-7 finding T32b-1 (docs/security/temporal-ci6.md): an outbox row's payload holds references only (ADR-001 R1), even when the writer skips outbox.Enqueue.</td>
+<td>S7, TICK-49, PR #223 (2026-10-28)</td>
+<td><code>outbox_payload_references_check</code> NOT VALID, validated in the same file</td>
+</tr>
+<tr>
+<td><code>00009</code></td>
+<td><code>00009_outbox_payload_keys.sql</code></td>
+<td>T32f (TICK-240), CI-7 finding T32b-1 remainder (docs/security/temporal-ci6.md): 00008 checks an outbox payload's values only.</td>
+<td>S7, TICK-49, PR #223 (2026-10-28)</td>
+<td><code>outbox_payload_check</code> NOT VALID, validated in the same file; drops constraint <code>outbox_payload_references_check</code></td>
+</tr>
+<tr>
+<td><code>00010</code></td>
+<td><code>00010_principal_tombstone.sql</code></td>
+<td>TICK-220 (T25 follow-up): a principal who leaves the Keycloak directory is tombstoned, not deleted, so a foreign key to principals never makes group sync's DELETE fail and roll the tenant's sync back on every cycle (QA finding 2, docs/re...</td>
+<td>S5, TICK-47, PR #221 (2026-10-28)</td>
+<td><code>principals_tombstone_check</code> NOT VALID, validated in <code>00011</code></td>
+</tr>
+<tr>
+<td><code>00011</code></td>
+<td><code>00011_principal_tombstone_validate.sql</code></td>
+<td>TICK-220: validates 00010's principals_tombstone_check in its own transaction.</td>
+<td>S5, TICK-47, PR #221 (2026-10-28)</td>
+<td>VALIDATE <code>principals_tombstone_check</code> (added in <code>00010</code>)</td>
+</tr>
+<tr>
+<td><code>00012</code></td>
+<td><code>00012_drop_principals_delete_policy.sql</code></td>
+<td>TICK-265 (contract step of TICK-220): group sync tombstones a principal that leaves the directory instead of deleting it, so nava_groupsync no longer needs DELETE on principals.</td>
+<td>S5, TICK-47, PR #221 (2026-10-28)</td>
+<td>drops policy <code>principals_delete</code></td>
+</tr>
+<tr>
+<td><code>20261028175712</code></td>
+<td><code>20261028175712_idempotency_lease.sql</code></td>
+<td>T22a (TICK-212): a lease nava_app can extend, so a takeover of an abandoned in_flight idempotency row commits before the handler runs instead of holding a row lock, and a connection, for the whole handler.</td>
+<td>TICK-48, PR #266 (2026-10-29)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261031150000</code></td>
+<td><code>20261031150000_entity_definitions.sql</code></td>
+<td>P3-02 (TICK-340): entity types and their published, immutable versions (PLAN-003 D-3-2, D-3-4; groomed on TICK-360 and TICK-363).</td>
+<td>TICK-333, TICK-340, PR #300 (2026-11-01)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261031160000</code></td>
+<td><code>20261031160000_tenant_admin_group.sql</code></td>
+<td>P3-04 (TICK-342, PLAN-003 D-3-3): the platform id of each tenant's <code>admins</code> group.</td>
+<td>TICK-333, TICK-342, PR #300 (2026-11-01)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261101120000</code></td>
+<td><code>20261101120000_tenant_admin_group_onboard_select.sql</code></td>
+<td>P3-04h (TICK-373, PLAN-003 D-3-3): "active implies the tenant has an admin" is enforced by the store, not only by the order of calls in onboard.Service.</td>
+<td>TICK-333, TICK-373, PR #300 (2026-11-01)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261101130000</code></td>
+<td><code>20261101130000_entity_versions_published_by_check.sql</code></td>
+<td>P3-06c (TICK-383): every version after v1 names who published it, in the database and not only in entitytypes.Publish.</td>
+<td>TICK-333, TICK-383, PR #300 (2026-11-01)</td>
+<td><code>entity_definition_versions_published_by_check</code> NOT VALID, validated in <code>20261101130100</code></td>
+</tr>
+<tr>
+<td><code>20261101130100</code></td>
+<td><code>20261101130100_entity_versions_published_by_validate.sql</code></td>
+<td>P3-06c (TICK-383): validates 20261101130000's entity_definition_versions_published_by_check in its own transaction.</td>
+<td>TICK-333, TICK-383, PR #300 (2026-11-01)</td>
+<td>VALIDATE <code>entity_definition_versions_published_by_check</code> (added in <code>20261101130000</code>)</td>
+</tr>
+<tr>
+<td><code>20261101180000</code></td>
+<td><code>20261101180000_entity_definition_versions_jsonb_check.sql</code></td>
+<td>TICK-378: fixed_columns and states on entity_definition_versions must be JSON objects.</td>
+<td>TICK-333, TICK-378, PR #300 (2026-11-01)</td>
+<td><code>entity_definition_versions_fixed_columns_check</code> NOT VALID, validated in <code>20261101180100</code>; <code>entity_definition_versions_states_check</code> NOT VALID, validated in <code>20261101180100</code></td>
+</tr>
+<tr>
+<td><code>20261101180100</code></td>
+<td><code>20261101180100_entity_definition_versions_jsonb_check_validate.sql</code></td>
+<td>TICK-378: validates the previous migration's fixed_columns and states CHECKs in their own transaction.</td>
+<td>TICK-333, TICK-378, PR #300 (2026-11-01)</td>
+<td>VALIDATE <code>entity_definition_versions_fixed_columns_check</code> (added in <code>20261101180000</code>); VALIDATE <code>entity_definition_versions_states_check</code> (added in <code>20261101180000</code>)</td>
+</tr>
+<tr>
+<td><code>20261101190000</code></td>
+<td><code>20261101190000_records_pipeline.sql</code></td>
+<td>P3-09 (TICK-353): records gains what the write pipeline needs, audit_log is append-only and record_counters backs per-tenant numbering (PLAN-003 D-3-2, D-3-9, D-3-13; ADR-001 I1, I8, I9; groomed on TICK-360 and TICK-363).</td>
+<td>S9, TICK-335, TICK-353, PR #390 (2026-11-02)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261102100000</code></td>
+<td><code>20261102100000_cascade_start.sql</code></td>
+<td>P3-12 (TICK-88): cascade_start, the start key of ADR-001 amendment A5 (A5-2).</td>
+<td>S9, TICK-88, TICK-335, PR #390 (2026-11-02)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261102120000</code></td>
+<td><code>20261102120000_idempotency_response_headers.sql</code></td>
+<td>TICK-412: a replayed idempotent response restores an allow-listed set of response headers (ETag, Location), not only Content-Type.</td>
+<td>S9, TICK-335, TICK-412, PR #390 (2026-11-02)</td>
+<td><code>idempotency_keys_response_headers_check</code> NOT VALID, validated in <code>20261102120100</code></td>
+</tr>
+<tr>
+<td><code>20261102120100</code></td>
+<td><code>20261102120100_idempotency_response_headers_validate.sql</code></td>
+<td>TICK-412: validates the previous migration's response_headers CHECK in its own transaction.</td>
+<td>S9, TICK-335, TICK-412, PR #390 (2026-11-02)</td>
+<td>VALIDATE <code>idempotency_keys_response_headers_check</code> (added in <code>20261102120000</code>)</td>
+</tr>
+<tr>
+<td><code>20261102130000</code></td>
+<td><code>20261102130000_audit_log_v0.sql</code></td>
+<td>P5-10a (TICK-427), PLAN-005 D-5-1: S9's interim audit table becomes audit_log_v0, so ADR-004's audit_log (P5-10b) can take the name.</td>
+<td>TICK-419, TICK-427, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261102130100</code></td>
+<td><code>20261102130100_tenant_auditor_group.sql</code></td>
+<td>P5-18 (TICK-434, PLAN-005 D-5-4): the platform id of each tenant's <code>auditors</code> group.</td>
+<td>TICK-419, TICK-434, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261102233600</code></td>
+<td><code>20261102233600_audit_log.sql</code></td>
+<td>P5-10b (TICK-450): ADR-004's audit_log, its chain head and the pipeline's idempotency keys (ADR-004 R1, R2, R9, R10, R11, R14, R28; ADR-004-E1; ADR-001-A6.1; PLAN-005 D-5-3; spike S1 finding F1).</td>
+<td>TICK-419, TICK-450, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261103100000</code></td>
+<td><code>20261103100000_audit_commit_check.sql</code></td>
+<td>P5-11 (TICK-428): ADR-004 decision 2's commit check, as a function any audited table can attach, and the hand-off of the writers' audit_log policies to the generator (R12; PLAN-005 TICK-449 grooming; S1 finding F1).</td>
+<td>TICK-419, TICK-428, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261103120000</code></td>
+<td><code>20261103120000_audit_backfill_s8.sql</code></td>
+<td>P5-15 (TICK-433): migration A's backfill (ADR-004 R25 A half, R26).</td>
+<td>TICK-419, TICK-433, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261103150000</code></td>
+<td><code>20261103150000_audit_commit_check_custom_plan.sql</code></td>
+<td>P5-11-E3 (TICK-508): audit_commit_check() is planned on every call (ADR-004-E3 decisions 1 to 4 and 6; PLAN-005-E3 D-E3-2).</td>
+<td>TICK-419, TICK-508, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261104013400</code></td>
+<td><code>20261104013400_groups_tombstone.sql</code></td>
+<td>ADR-004-E5 step (i), expand (TICK-534; D1, D2, D5, D10, D11, I1, I5).</td>
+<td>TICK-419, TICK-534, PR #471 (2026-11-05)</td>
+<td><code>group_members_group_live_fkey</code> NOT VALID, validated in <code>20261104013500</code>; <code>group_members_live_check</code> NOT VALID, validated in <code>20261104013500</code></td>
+</tr>
+<tr>
+<td><code>20261104013500</code></td>
+<td><code>20261104013500_groups_tombstone_validate.sql</code></td>
+<td>ADR-004-E5 step (i) (TICK-534, I5): validates 20261104013400's group_members_live_check and group_members_group_live_fkey in their own transaction.</td>
+<td>TICK-419, TICK-534, PR #471 (2026-11-05)</td>
+<td>VALIDATE <code>group_members_group_live_fkey</code> (added in <code>20261104013400</code>); VALIDATE <code>group_members_live_check</code> (added in <code>20261104013400</code>)</td>
+</tr>
+<tr>
+<td><code>20261104043000</code></td>
+<td><code>20261104043000_groups_contract.sql</code></td>
+<td>ADR-004-E5 step (ii-a), contract (TICK-538; D2, D10).</td>
+<td>TICK-419, TICK-538, PR #471 (2026-11-05)</td>
+<td><code>records_assignment_group_fkey</code> NOT VALID, validated in <code>20261104043100</code>; drops policy <code>groups_delete</code></td>
+</tr>
+<tr>
+<td><code>20261104043100</code></td>
+<td><code>20261104043100_groups_contract_validate.sql</code></td>
+<td>ADR-004-E5 step (ii-b) (TICK-538; D10, CI-E5-8): validates 20261104043000's records_assignment_group_fkey in its own transaction.</td>
+<td>TICK-419, TICK-538, PR #471 (2026-11-05)</td>
+<td>VALIDATE <code>records_assignment_group_fkey</code> (added in <code>20261104043000</code>)</td>
+</tr>
+<tr>
+<td><code>20261104100000</code></td>
+<td><code>20261104100000_drop_audit_log_v0.sql</code></td>
+<td>P5-17 (TICK-435): drops S9's audit_log_v0 (PLAN-005 D-5-1, moved here from P5-13 by the TICK-449 grooming).</td>
+<td>TICK-419, TICK-435, PR #471 (2026-11-05)</td>
+<td>drops table <code>audit_log_v0</code></td>
+</tr>
+<tr>
+<td><code>20261104110000</code></td>
+<td><code>20261104110000_records_audit_commit_check.sql</code></td>
+<td>P5-13c (TICK-530): attach ADR-004 decision 2's commit check to records, after ADR-004-E5 step (ii) (D10).</td>
+<td>TICK-419, TICK-530, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261104133000</code></td>
+<td><code>20261104133000_audit_reader_policies.sql</code></td>
+<td>ADR-004-A1 A1-3 (TICK-558): nava_audit_reader, the masking reader's own login (db/grants.yaml), reads audit_log and the masker's entity_definition_versions rows under the canonical predicate, unchanged.</td>
+<td>TICK-419, TICK-558, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261104191200</code></td>
+<td><code>20261104191200_auditor_group_active_tenant.sql</code></td>
+<td>P5-23 (TICK-568, ADR-004 with ADR-001-A6, PLAN-005 D-5-4): nava_onboard may create the auditors group of an ACTIVE tenant that has none, and nothing else.</td>
+<td>TICK-419, TICK-568, PR #471 (2026-11-05)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261105100000</code></td>
+<td><code>20261105100000_onboard_seal_start.sql</code></td>
+<td>P5-33 (TICK-441, ADR-001-A6.2, ADR-004 R16): onboarding seeds a tenant's audit_chain_head row and its first audit.seal start row.</td>
+<td>TICK-420, TICK-441, PR #505 (2026-11-08)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261107053707</code></td>
+<td><code>20261107053707_audit_migration_b.sql</code></td>
+<td>P5-32 (TICK-442): migration B (ADR-004 R25 B half, R26, R27; R16 seeding).</td>
+<td>TICK-420, TICK-442, PR #505 (2026-11-08)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261107100000</code></td>
+<td><code>20261107100000_audit_chain_head_dead_lineage.sql</code></td>
+<td>P5-34f (TICK-590, ADR-004 R17): the dead-lineage gauge.</td>
+<td>TICK-420, TICK-590, PR #505 (2026-11-08)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261108120000</code></td>
+<td><code>20261108120000_record_write_keys_actor.sql</code></td>
+<td>TICK-626 (AR-TICK-480-01, carried onto D-5-3): an idempotency key belongs to one principal, not to the whole tenant.</td>
+<td>TICK-336, PR #579 (2026-11-11)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261108120100</code></td>
+<td><code>20261108120100_record_write_keys_actor_key.sql</code></td>
+<td>TICK-626 (AR-TICK-480-01): record_write_keys is unique per principal.</td>
+<td>TICK-336, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY; drops constraint <code>record_write_keys_pkey</code></td>
+</tr>
+<tr>
+<td><code>20261108124249</code></td>
+<td><code>20261108124249_acl_tables.sql</code></td>
+<td>P3-30 (TICK-615): the S10 authorization tables (PLAN-003 D-3-2, the S10 rows; ADR-001 I5: one authorization layer, inside the query).</td>
+<td>TICK-336, TICK-615, PR #579 (2026-11-11)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261108184658</code></td>
+<td><code>20261108184658_record_shares_typed_principals.sql</code></td>
+<td>P3-30a (TICK-625, closes AR-S10-01): a record share names a principal of the right kind that exists in the share's tenant.</td>
+<td>TICK-336, TICK-625, PR #579 (2026-11-11)</td>
+<td>drops constraint <code>record_shares_principal_kind_check</code>; drops column <code>principal_id</code></td>
+</tr>
+<tr>
+<td><code>20261109100000</code></td>
+<td><code>20261109100000_acl_versions_shape_check.sql</code></td>
+<td>TICK-629 (deferred from P3-31): acl_versions.rules and masks must have the shape internal/authz decodes and the S10 contract (amendment A1) defines.</td>
+<td>TICK-336, TICK-629, PR #579 (2026-11-11)</td>
+<td><code>acl_versions_masks_check</code> NOT VALID, validated in <code>20261109100100</code>; <code>acl_versions_rules_check</code> NOT VALID, validated in <code>20261109100100</code></td>
+</tr>
+<tr>
+<td><code>20261109100100</code></td>
+<td><code>20261109100100_acl_versions_shape_check_validate.sql</code></td>
+<td>TICK-629: validates the previous migration's rules and masks CHECKs in their own transaction.</td>
+<td>TICK-336, TICK-629, PR #579 (2026-11-11)</td>
+<td>VALIDATE <code>acl_versions_masks_check</code> (added in <code>20261109100000</code>); VALIDATE <code>acl_versions_rules_check</code> (added in <code>20261109100000</code>)</td>
+</tr>
+<tr>
+<td><code>20261109120000</code></td>
+<td><code>20261109120000_acl_versions_audit_commit_check.sql</code></td>
+<td>P3-35 (TICK-620): attach the audit commit check to acl_versions (ADR-004 CI-A3).</td>
+<td>TICK-336, TICK-620, PR #579 (2026-11-11)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261109130000</code></td>
+<td><code>20261109130000_audit_log_subject_acl_policy.sql</code></td>
+<td>P3-35 (TICK-620), contract amendment A3: registers the audit subject type acl_policy (internal/audit/subjects).</td>
+<td>TICK-336, TICK-620, PR #579 (2026-11-11)</td>
+<td><code>audit_log_subject_type_check</code> NOT VALID, validated in <code>20261109130100</code></td>
+</tr>
+<tr>
+<td><code>20261109130100</code></td>
+<td><code>20261109130100_audit_log_subject_acl_policy_validate.sql</code></td>
+<td>P3-35 (TICK-620): validates the previous migration's audit_log subject_type CHECK in its own transaction.</td>
+<td>TICK-336, TICK-620, PR #579 (2026-11-11)</td>
+<td>VALIDATE <code>audit_log_subject_type_check</code> (added in <code>20261109130000</code>)</td>
+</tr>
+<tr>
+<td><code>20261109140000</code></td>
+<td><code>20261109140000_records_list_updated.sql</code></td>
+<td>TICK-640 (P3-34b): the default sort (-updated_at) and sort=updated_at.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140100</code></td>
+<td><code>20261109140100_records_list_created.sql</code></td>
+<td>TICK-640 (P3-34b): sort=created_at, read forward (descending) or backward (ascending).</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140200</code></td>
+<td><code>20261109140200_records_list_state.sql</code></td>
+<td>TICK-640 (P3-34b): sort=state, ordered state, updated_at, id; and filter[state]=&lt;s&gt; under the default sort, which reads one state's range in updated_at order.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140300</code></td>
+<td><code>20261109140300_records_list_group.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for assignment_group_id: filter[group]=&lt;g&gt; in updated_at order, and sort=group ordered assignment_group_id, updated_at, id.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140400</code></td>
+<td><code>20261109140400_records_list_requester.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for requester_id: filter[requester]=&lt;p&gt; and the requester branch of the decomposed "mine" rule in updated_at order, and sort=requester ordered requester_id, updated_at, id.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140500</code></td>
+<td><code>20261109140500_records_list_assignee.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for assignee_id: filter[assignee]=&lt;p&gt; and the assignee branch of the decomposed "mine" rule in updated_at order, and sort=assignee ordered assignee_id, updated_at, id.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261109140600</code></td>
+<td><code>20261109140600_drop_records_s9_list_indexes.sql</code></td>
+<td>TICK-640 (P3-34b): drops P3-09's list indexes, which the records_list_* set (20261109140000 to 20261109140500) supersedes.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>drops index <code>records_tenant_updated</code>; drops index <code>records_tenant_requester</code>; drops index <code>records_tenant_group_open</code></td>
+</tr>
+<tr>
+<td><code>20261109140700</code></td>
+<td><code>20261109140700_platform_database_jit_off.sql</code></td>
+<td>TICK-640 (P3-34b): JIT off for every session on the platform database.</td>
+<td>TICK-336, TICK-640, PR #579 (2026-11-11)</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>20261110040000</code></td>
+<td><code>20261110040000_entity_definitions_numbering_mode.sql</code></td>
+<td>P3-36f (TICK-659): each entity type chooses how its records are numbered (PLAN-003 D-3-9, amended in PR #551): 'gaps' (the default) takes the number in its own short transaction before the create, 'gapless' takes it last inside the creat...</td>
+<td>TICK-336, TICK-659, PR #579 (2026-11-11)</td>
+<td><code>entity_definitions_numbering_mode_check</code> NOT VALID, validated in <code>20261110040100</code></td>
+</tr>
+<tr>
+<td><code>20261110040100</code></td>
+<td><code>20261110040100_entity_definitions_numbering_mode_validate.sql</code></td>
+<td>P3-36f (TICK-659): validates entity_definitions_numbering_mode_check, added NOT VALID by 20261110040000.</td>
+<td>TICK-336, TICK-659, PR #579 (2026-11-11)</td>
+<td>VALIDATE <code>entity_definitions_numbering_mode_check</code> (added in <code>20261110040000</code>)</td>
+</tr>
+<tr>
+<td><code>20261110100000</code></td>
+<td><code>20261110100000_records_list_group_state.sql</code></td>
+<td>TICK-656 (P3-36d): the group access path with state as an index condition.</td>
+<td>TICK-336, TICK-656, PR #579 (2026-11-11)</td>
+<td>CREATE INDEX CONCURRENTLY</td>
+</tr>
+<tr>
+<td><code>20261112100000</code></td>
+<td><code>20261112100000_group_members_group_live_fkey_recheck.sql</code></td>
+<td>TICK-715: re-checks group_members_group_live_fkey for real.</td>
+<td>TICK-715, PR #588 (2026-11-12)</td>
+<td><code>group_members_group_live_fkey</code> NOT VALID, validated in <code>20261104013500</code></td>
+</tr>
+<tr>
+<td><code>20261112100100</code></td>
+<td><code>20261112100100_records_assignment_group_fkey_recheck.sql</code></td>
+<td>TICK-715: re-checks records_assignment_group_fkey for real.</td>
+<td>TICK-715, PR #588 (2026-11-12)</td>
+<td><code>records_assignment_group_fkey</code> NOT VALID, validated in <code>20261104043100</code></td>
+</tr>
+</tbody>
+</table>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 41275106ee61 (2026-11-12)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

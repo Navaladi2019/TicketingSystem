@@ -1,0 +1,22 @@
+# S1 mitigation run: the (d) ACL compiled as a UNION of index-friendly branches,
+# side table as a correlated EXISTS (scratch/field-index-rls/s1u_load.sh). 60 s list, 30 s count, 8 clients.
+EXPLAIN u_eq_40  Execution Time: 275.663 ms
+filter=u_eq_40 acl=acl mode=list tenant=large tps=36.020153 failed=0 tx=2163 p50_ms=202.85 p95_ms=340.87 p99_ms=521.30 max_ms=742.20
+EXPLAIN u_eq_2  Execution Time: 22.491 ms
+filter=u_eq_2 acl=acl mode=list tenant=large tps=159.193538 failed=0 tx=9554 p50_ms=45.95 p95_ms=81.90 p99_ms=116.16 max_ms=303.02
+EXPLAIN u_eq_025  Execution Time: 51.053 ms
+filter=u_eq_025 acl=acl mode=list tenant=large tps=253.561470 failed=0 tx=15185 p50_ms=28.75 p95_ms=53.84 p99_ms=68.53 max_ms=109.61
+EXPLAIN u_in_2  Execution Time: 29.038 ms
+filter=u_in_2 acl=acl mode=list tenant=large tps=145.498673 failed=0 tx=8719 p50_ms=49.58 p95_ms=94.92 p99_ms=127.74 max_ms=201.19
+EXPLAIN u_lt_40  Execution Time: 659.225 ms
+filter=u_lt_40 acl=acl mode=list tenant=large tps=32.890631 failed=0 tx=1976 p50_ms=220.80 p95_ms=391.73 p99_ms=469.82 max_ms=576.99
+EXPLAIN u_lt_2  Execution Time: 24.350 ms
+filter=u_lt_2 acl=acl mode=list tenant=large tps=158.137029 failed=0 tx=9479 p50_ms=45.59 p95_ms=88.92 p99_ms=114.11 max_ms=195.10
+EXPLAIN u_ts_2  Execution Time: 68.683 ms
+filter=u_ts_2 acl=acl mode=list tenant=large tps=154.837943 failed=0 tx=9274 p50_ms=46.80 p95_ms=88.59 p99_ms=113.66 max_ms=185.03
+EXPLAIN u_bo_2  Execution Time: 25.888 ms
+filter=u_bo_2 acl=acl mode=list tenant=large tps=93.225310 failed=0 tx=5597 p50_ms=77.89 p95_ms=141.60 p99_ms=191.88 max_ms=322.43
+filter=u_eq_40 acl=acl mode=count tenant=large tps=65.045974 failed=0 tx=1950 p50_ms=114.91 p95_ms=180.53 p99_ms=222.40 max_ms=287.52
+filter=u_eq_2 acl=acl mode=count tenant=large tps=154.874150 failed=0 tx=4622 p50_ms=47.61 p95_ms=87.07 p99_ms=109.08 max_ms=146.82
+filter=u_lt_40 acl=acl mode=count tenant=large tps=60.706052 failed=0 tx=1823 p50_ms=119.96 p95_ms=207.77 p99_ms=268.72 max_ms=338.67
+CONTROL q=d mode=list tenant=large pred=explicit page=1 tps=382.492621 failed=0 tx=22921 p50_ms=17.78 p95_ms=41.56 p99_ms=64.56 max_ms=113.58

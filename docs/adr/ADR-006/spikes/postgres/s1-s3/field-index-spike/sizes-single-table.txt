@@ -1,0 +1,94 @@
+Timing is on.
+SET
+Time: 0.277 ms
+SET
+Time: 0.108 ms
+ALTER TABLE
+Time: 4.559 ms
+ALTER TABLE
+Time: 2.866 ms
+INSERT 0 19960
+Time: 707.933 ms
+INSERT 0 3
+Time: 4.460 ms
+INSERT 0 8000000
+Time: 85753.018 ms (01:25.753)
+INSERT 0 19851854
+Time: 274583.078 ms (04:34.583)
+SET
+Time: 0.740 ms
+CREATE INDEX
+Time: 10274.622 ms (00:10.275)
+CREATE INDEX
+Time: 1819.636 ms (00:01.820)
+CREATE INDEX
+Time: 3091.550 ms (00:03.092)
+CREATE INDEX
+Time: 14174.480 ms (00:14.174)
+ALTER TABLE
+Time: 1712.734 ms (00:01.713)
+ALTER TABLE
+Time: 4818.451 ms (00:04.818)
+CREATE TRIGGER
+Time: 3.729 ms
+CREATE TRIGGER
+Time: 2.869 ms
+RESET
+Time: 0.234 ms
+VACUUM
+Time: 78.169 ms
+VACUUM
+Time: 541.518 ms
+VACUUM
+Time: 1678.290 ms (00:01.678)
+SELECT 599
+Time: 34.644 ms
+ALTER TABLE
+Time: 7.890 ms
+GRANT
+Time: 2.808 ms
+  kind  | field_key |  rows  
+--------+-----------+--------
+ filter | b001      | 400000
+ filter | b025      | 400000
+ filter | b2        | 400000
+ filter | b40       | 400000
+ filter | category  | 400000
+ filter | opened    | 400000
+ filter | score     | 400000
+ filter | site      | 400000
+ filter | tier      | 400000
+ filter | zone      | 400000
+(10 rows)
+
+Time: 1784.779 ms (00:01.785)
+ terms_large_tenant | distinct_terms 
+--------------------+----------------
+           19851854 |         839383
+(1 row)
+
+Time: 9248.120 ms (00:09.248)
+           relname            |  size   |   bytes    
+------------------------------+---------+------------
+ record_field_values          | 665 MB  |  697196544
+ record_field_values_pkey     | 573 MB  |  600424448
+ record_index_fields          | 2256 kB |    2310144
+ record_index_fields_key      | 1816 kB |    1859584
+ record_index_fields_pkey     | 1272 kB |    1302528
+ record_search_terms          | 1616 MB | 1694031872
+ record_search_terms_pkey     | 1933 MB | 2027175936
+ record_shares                | 1184 kB |    1212416
+ record_shares_pkey           | 1256 kB |    1286144
+ records                      | 1673 MB | 1754120192
+ records_pkey                 | 41 MB   |   42614784
+ records_tenant_assignee_open | 16 MB   |   16408576
+ records_tenant_group_open    | 16 MB   |   16564224
+ records_tenant_requester     | 63 MB   |   66191360
+ records_tenant_updated       | 48 MB   |   50454528
+ rfv_bool                     | 236 MB  |  247971840
+ rfv_num                      | 59 MB   |   61890560
+ rfv_text                     | 243 MB  |  255082496
+ rfv_ts                       | 59 MB   |   61890560
+(19 rows)
+
+Time: 4.697 ms
