@@ -2671,7 +2671,7 @@
             "period_end"
           ],
           "include": [],
-          "predicate": "(period_end IS NOT NULL)"
+          "predicate": "period_end IS NOT NULL"
         },
         {
           "name": "record_counters_pkey",

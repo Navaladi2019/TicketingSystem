@@ -68,27 +68,6 @@ deployed again, and there is no rollback past it. Rolling back the S17
 schema before M3 is <code>goose down-to 20261112192959</code>, only once no R1 replica
 serves.</li>
 </ul>
-<h2 id="scope-key-and-period-end-s17-release-r1-1">Scope key and period end (S17, release R1)</h2>
-<p>Four migrations, all online (runbook:
-<a href="../../../docs/data/record-counters-scope-key.md"><code>record-counters-scope-key.md</code></a>):</p>
-<ul>
-<li><strong>M1</strong> adds <code>scope_key text NOT NULL DEFAULT &#x27;&#x27;</code> and <code>period_end timestamptz NULL</code>, plus <code>record_counters_scope_key_len</code> (at most 128 characters), added
-<code>NOT VALID</code> and validated by the next migration. Existing rows read <code>&#x27;&#x27;</code>.</li>
-<li><strong>M2</strong> builds <code>record_counters_scoped_key</code>, a unique index on <code>(tenant_id, entity_definition_id, scope_key)</code> that the upsert names as its arbiter, and
-<code>record_counters_period_end</code>, a partial index on <code>period_end IS NOT NULL</code>
-that the purge job will read. Both are built <code>CONCURRENTLY</code>; the partial
-index stays empty until S18 publishes period formats.</li>
-<li>The primary key is still <code>(tenant_id, entity_definition_id)</code>. Until M3
-(S18, release R2) both unique indexes exist, so the pre-S17 build still runs
-and a rollout with mixed binaries works for existing counters.</li>
-<li>A type's first create can lose a race for its counter row with <code>23505</code> on
-the index the upsert does not name (ADR-005-E1). R1 retries once. The
-pre-S17 build has no retry (accepted risk AR-S17-01).</li>
-<li><strong>M3 is the point of no return.</strong> After it the pre-S17 build can never be
-deployed again, and there is no rollback past it. Rolling back the S17
-schema before M3 is <code>goose down-to 20261112192959</code>, only once no R1 replica
-serves.</li>
-</ul>
 <h2 id="diagram">Diagram</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
     record_counters {
@@ -185,7 +164,7 @@ serves.</li>
 <td>btree</td>
 <td><code>period_end</code></td>
 <td>-</td>
-<td><code>(period_end IS NOT NULL)</code></td>
+<td><code>period_end IS NOT NULL</code></td>
 <td><a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
 </tr>
 <tr>
