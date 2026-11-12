@@ -339,9 +339,15 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
+	base := []any{
+		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.State,
+		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
+		r.CausationOriginID, r.CausationDepth, prefix, format.ScopeKey(),
+	}
 	// The number, rendered from the counter value the upsert left, read
-	// back by key in the INSERT.
-	render, err := format.SQL("$15::text", "(c.next - 1)")
+	// back by key in the INSERT. The format's literal text is bound as
+	// parameters after base, never pasted into the statement.
+	render, base, err := format.SQL("$15::text", "(c.next - 1)", base)
 	if err != nil {
 		return fmt.Errorf("records/store: %w", err)
 	}
@@ -354,11 +360,7 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 		}
 		return nil
 	})
-	expr, args, err := payloadExpr(fixed, []any{
-		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.State,
-		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth, prefix, format.ScopeKey(),
-	})
+	expr, args, err := payloadExpr(fixed, base)
 	if err != nil {
 		return err
 	}
