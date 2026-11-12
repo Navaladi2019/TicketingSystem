@@ -35,13 +35,14 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-006 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-006 ACCEPTED</span>
 <span class="src">This companion explains <code>docs/adr/ADR-006-filterable-tenant-fields.md</code>. It changes nothing. If this page and the ADR disagree, the ADR wins. The debate is archived in <code>docs/adr/ADR-006/rfc/</code> (RFC-015 rev 0 and rev 1), and the measurements are in <code>docs/adr/ADR-006/spikes/</code>.</span></div>
 <table class="front"><tbody>
 <tr><th>Question</th><td>How can tenant-defined ticket fields be filtered fast at 100k+ records, including a field an admin marks filterable after the data already exists?</td></tr>
 <tr><th>Decision</th><td>Copy each filterable field into a small typed table that the database can index safely inside the tenant wall. A database trigger keeps the copy in step on every save. A field flagged late is filled by a background job that cannot miss or duplicate a ticket.</td></tr>
 <tr><th>Not decided here</th><td><b>Free-text search.</b> The measured design was too slow and too large, so it moves to its own RFC (RFC-016).</td></tr>
 <tr><th>Issue</th><td>TICK-714 &middot; RFC-015 &middot; benchmarks PR #587</td></tr>
+<tr><th>Status</th><td><b>ACCEPTED</b> on 2026-11-12 (Solution Architect verdict, after both reviews approved and the CTO ruled on the benchmarks).</td></tr>
 <tr><th>Reviews</th><td>Technical Architect: APPROVE (round 2). Security &amp; Multi-Tenancy Reviewer: APPROVE. CTO: five rulings on the benchmarks, no dissent.</td></tr>
 </tbody></table>
 

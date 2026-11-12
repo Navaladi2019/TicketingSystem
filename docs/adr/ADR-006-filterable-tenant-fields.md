@@ -2,7 +2,7 @@
 type: adr
 id: ADR-006
 title: Filterable tenant fields — typed per-type side tables kept by trigger, late-flag backfill behind a snapshot barrier
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-12
 issue: TICK-714
 rfc: RFC-015 (rev 1, docs/adr/ADR-006/rfc/RFC-015-filterable-searchable-fields.md)
@@ -86,6 +86,10 @@ A tenant field marked `x-nava-filterable` is copied, by a trigger on `records` i
 | **R12** | **Accepted.** Rare values of low-cardinality fields depend on the MCV list. Bool needs statistics target 10,000: 5–11 ms of planning and an 11.8 s `ANALYZE`. Rare combinations can fall out of the list as tenants multiply | Postgres specialist | A filter on a rare value plans a type-wide walk (> 1 s) in telemetry |
 | R5 | A non-coercing value is not filterable; it is counted, not raised | Technical Lead | Counter > 0 for a tenant → admin report |
 | R3 | float8 decimals beyond 15 significant digits | Solution Architect | A field needs exact decimals beyond 2^53 → `bigint` scaled column |
+
+## Status
+
+ACCEPTED on 2026-11-12 by the Solution Architect under the merge policy, after the Technical Architect APPROVE (round 2), the Security & Multi-Tenancy Reviewer APPROVE and the CTO rulings on S1–S3 (TICK-714). vknavaladi lifted the human gate on 2026-11-11.
 
 ## Recorded dissent
 
