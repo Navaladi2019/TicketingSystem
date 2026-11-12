@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core: field masks on read and write - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li class="current"><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Core: field masks on read and write</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/architecture/record-field-masks.md"><code>docs/architecture/record-field-masks.md</code></a>.</p>
+<article>
+<h1 class="page-title">Core: field masks on read and write</h1>
+<h2 id="purpose">Purpose</h2>
+<p>A field mask hides one top-level property from every principal its <code>read</code>
+subject does not name, and makes it unwritable for every principal its
+<code>write</code> subject does not name. Masks live in the <code>acl_versions</code> document of
+the entity type, in its <code>masks</code> array beside <code>rules</code>, and are published,
+versioned and audited with the rules (<a href="../system/core-acl.html">core-acl</a>). The rules are
+in the normative
+<a href="../../../docs/architecture/record-field-masks.md">record-field-masks.md</a>.</p>
+<h2 id="entry-point">Entry point</h2>
+<ul>
+<li>Write: <code>write.canWriteFields</code> in <code>internal/records/pipeline/pipeline.go</code>
+calls <code>ACL.CanWriteFields</code> (<code>internal/authz/aclstore.go</code>), which calls
+<code>authz.CheckWriteFields</code> (<code>internal/authz/mask.go</code>).</li>
+<li>Read: the record handlers call <code>authz.Shape</code> through <code>shapeRecord</code>
+(<code>internal/server/records.go</code>); lists call <code>authz.CheckQueryFields</code>
+(<code>internal/server/records_list.go</code>); the audit timeline gets the caller's
+masks from <code>ACL.ReadMasks</code>.</li>
+</ul>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TB
+    subgraph Write
+      M[&quot;create: caller&#x27;s data&lt;br/&gt;update: stored payload + patch&quot;] --&gt; FW[&quot;CanWriteFields -&gt; CheckWriteFields&lt;br/&gt;WrittenFields + unreadable patch keys&quot;]
+      FW -- refused --&gt; X[&quot;*ErrFieldNotWritable&lt;br/&gt;422 field_not_writable, nothing written&quot;]
+      FW -- ok --&gt; R[defaults, validate, state, CanWrite, ...]
+    end
+    subgraph Read
+      G[GET / 201 / PATCH 200 / history] --&gt; SH[&quot;authz.Shape(policy, p, data)&lt;br/&gt;new map without masked fields&quot;]
+      L[list filter / sort] --&gt; CQ[&quot;authz.CheckQueryFields&lt;br/&gt;400 masked_field before SQL&quot;]
+      AT[audit timeline] --&gt; RM[&quot;ACL.ReadMasks -&gt; diff redacted&quot;]
+    end
+</pre></div></figure>
+<h2 id="steps">Steps</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Where</th>
+<th>Invariant</th>
+<th>Proving test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Decide per field and principal: <code>Readable</code> / <code>Writable</code>; only <code>Groups</code> and <code>Users</code> in a mask subject match; every mask on a field must admit</td>
+<td><code>authz.Readable</code>, <code>authz.Writable</code> (<code>mask.go</code>)</td>
+<td>A2: one answer per caller and field, row-independent</td>
+<td><code>TestReadableAndWritableFollowGroupsAndUsers</code>, <code>TestRowDependentMaskSubjectsNeverMatch</code>, <code>TestEveryMaskOnAFieldMustAdmit</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Write check, first on the caller's data (before defaults, validation, state, <code>CanWrite</code>, unique); system sources skip it</td>
+<td><code>write.canWriteFields</code>, <code>ACL.CanWriteFields</code>, <code>authz.CheckWriteFields</code>, <code>authz.WrittenFields</code></td>
+<td>I5: masks apply on write; no other error depends on a masked field</td>
+<td><code>TestFieldCheckRunsBeforeValidationAndTheStateModel</code>, <code>TestFieldCheckSeesOnlyTheCallersWrite</code>, <code>TestFieldNotWritableWritesNothing</code></td>
+</tr>
+<tr>
+<td>2a</td>
+<td>A patch key the caller cannot read counts as a write whatever its value</td>
+<td><code>authz.CheckWriteFields</code></td>
+<td>A patch is no oracle for a masked value</td>
+<td><code>TestUnreadablePatchKeyIsAlwaysAWrite</code>, <code>TestPatchingAMaskedFieldIsRefusedEvenWithItsStoredValue</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Shape every record body and every history <code>before</code> / <code>after</code></td>
+<td><code>authz.Shape</code>, <code>authz.MaskedFields</code></td>
+<td>I5: masks apply on read; input never mutated</td>
+<td><code>TestShapeDropsMaskedFieldsAndNeverMutates</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Refuse a list filter or sort on a field the caller cannot read, before any SQL</td>
+<td><code>authz.CheckQueryFields</code></td>
+<td>A hidden field cannot be filtered, sorted or counted</td>
+<td><code>TestCheckQueryFields</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Redact masked fields in audit-timeline diffs</td>
+<td><code>ACL.ReadMasks</code> -&gt; <code>read.FieldMasks</code></td>
+<td>The reader role needs no new grant</td>
+<td>see <code>internal/audit/read</code> tests</td>
+</tr>
+</tbody>
+</table>
+<h2 id="errors">Errors</h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>HTTP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>*authz.ErrFieldNotWritable{Fields}</code></td>
+<td><code>422 field_not_writable</code>, one pointer per field, rule <code>mask</code></td>
+</tr>
+<tr>
+<td><code>*authz.ErrMaskedField{Field}</code></td>
+<td><code>400 masked_field</code></td>
+</tr>
+<tr>
+<td>a mask naming <code>requester</code>, <code>assignee</code> or <code>shared</code>, or an unknown property</td>
+<td><code>422 invalid_access_policy</code> at publish</td>
+</tr>
+</tbody>
+</table>
+<h2 id="links">Links</h2>
+<ul>
+<li>Storage (<code>acl_versions.masks</code>): <a href="../database/index.html">database section</a>.</li>
+<li>Masking guarantees: <a href="../security/index.html">security section</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table acl_versions</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation getRecord</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation getRecordHistory</h3><ul><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation listRecords</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation patchRecord</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

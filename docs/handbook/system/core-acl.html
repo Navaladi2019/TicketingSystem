@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li class="current"><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/architecture/record-acl.md"><code>docs/architecture/record-acl.md</code></a>.</p>
+<article>
+<h1 class="page-title">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</h1>
+<h2 id="purpose">Purpose</h2>
+<p>Each entity type has a versioned, allow-only access policy. It is checked in
+four steps: an admin's JSON is parsed and checked, the policy is published as
+a new <code>acl_versions</code> row, every read and write is evaluated against the
+newest version, and the explainer reports a decision with the same evaluator.
+The policy model and every rule are in the normative
+<a href="../../../docs/architecture/record-acl.md">record-acl.md</a>; field masks are on
+<a href="../system/core-masks.html">core-masks</a>.</p>
+<h2 id="entry-point">Entry point</h2>
+<ul>
+<li>HTTP: <code>getEntityTypeAccess</code>, <code>putEntityTypeAccess</code>, <code>explainAccess</code> in
+<code>internal/server/access.go</code> (tenant admins only, <code>authz.RequireTenantAdminTx</code>
+first).</li>
+<li>Evaluation: <code>authz.ACL</code> (<code>internal/authz/aclstore.go</code>), the
+<code>authz.Authorizer</code> the pipeline and the record handlers hold.</li>
+</ul>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+    subgraph S1[&quot;1. ParsePolicy (policycheck.go)&quot;]
+      J[PUT body JSON] --&gt; PP[&quot;shape rules of the DB CHECK,&lt;br/&gt;unique rule ids, mask rules&quot;]
+      PP --&gt; CM[&quot;CheckMaskFields vs current schema&quot;]
+      CM --&gt; NT[&quot;NotInTenant: every group/user id&lt;br/&gt;looked up in the tx&#x27;s tenant&quot;]
+    end
+    subgraph S2[&quot;2. PolicyStore.Publish (publish.go)&quot;]
+      NT --&gt; LK[&quot;lock entity_definitions row&quot;]
+      LK --&gt; VC[&quot;expected == newest version?&quot;]
+      VC --&gt; IN[&quot;INSERT acl_versions N+1&lt;br/&gt;+ audit config/publish entry&quot;]
+    end
+    subgraph S3[&quot;3. Evaluate (acl.go, aclstore.go)&quot;]
+      IN --&gt; PS[&quot;PolicyStore.Current: newest row,&lt;br/&gt;tenant from TenantOf&quot;]
+      PS --&gt; PL[&quot;plan(): resolve subjects&lt;br/&gt;and conditions&quot;]
+      PL --&gt; AL[&quot;Allows (Go, one row):&lt;br/&gt;ACL.CanRead / ACL.CanWrite&quot;]
+      PL --&gt; CR[&quot;CompileRead / ReadBranches&lt;br/&gt;(SQL predicate for lists)&quot;]
+    end
+    subgraph S4[&quot;4. Explain (explain.go)&quot;]
+      PS --&gt; EX[&quot;authz.Explain: Allows for the&lt;br/&gt;target user + masked fields&quot;]
+    end
+</pre></div></figure>
+<h2 id="steps">Steps</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Where</th>
+<th>Invariant</th>
+<th>Proving test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Parse and check the PUT body: database shape rules first (so no raw constraint error), then unique rule ids and mask rules; collect every referenced id</td>
+<td><code>authz.ParsePolicy</code> (<code>policycheck.go</code>)</td>
+<td>A stored policy always decodes</td>
+<td><code>TestParsePolicyAcceptsTheShapesTheCheckAccepts</code>, <code>TestParsePolicyRefusesWithPointers</code>, <code>TestParsePolicyCollectsEveryIdAsATenantRef</code></td>
+</tr>
+<tr>
+<td>1b</td>
+<td>Mask fields must be top-level properties of the current schema; every id must be a live group or user of the transaction's tenant</td>
+<td><code>authz.CheckMaskFields</code>, <code>authz.NotInTenant</code> (<code>explain.go</code>)</td>
+<td>I1: a policy names only its own tenant's ids; foreign and unknown ids answer alike</td>
+<td><code>TestCheckMaskFields</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Publish version N+1 under the entity type's row lock, with one <code>config</code> / <code>publish</code> audit entry in the same transaction</td>
+<td><code>PolicyStore.Publish</code>, <code>publishLocked</code> (<code>publish.go</code>); <code>PolicyStore.PublishIfNone</code> for the onboarding default</td>
+<td><code>audit_commit_check</code> refuses an unaudited insert</td>
+<td><code>TestP335ACLPublishWithoutAnAuditEntryIsRefused</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Load the newest policy of the type in the caller's transaction; refuse a principal of another tenant first</td>
+<td><code>PolicyStore.Current</code>, <code>PolicyStore.QueuePolicy</code>, <code>ACL.policy</code></td>
+<td>No published version fails closed</td>
+<td><code>TestPolicyStoreReadsTheNewestVersionOfItsTenant</code>, <code>TestNoPublishedACLRefusesUserWrites</code></td>
+</tr>
+<tr>
+<td>3a</td>
+<td>Read one record: <code>ACL.CanRead</code> -&gt; <code>Allows(pol, p, read, row)</code>; shares loaded pair-matched by <code>SharesFor</code></td>
+<td><code>aclstore.go</code>, <code>acl.go</code></td>
+<td>Unreadable is the same 404 as missing</td>
+<td><code>TestACLCanRead</code>, <code>TestSharesMatchOnKindAndID</code></td>
+</tr>
+<tr>
+<td>3b</td>
+<td>Write: <code>ACL.CanWrite(before, after)</code>; both rows must be in write scope</td>
+<td><code>aclstore.go</code></td>
+<td>A write cannot move a record out of scope</td>
+<td><code>TestACLCanWrite</code>, <code>TestWriteScopeIsEnforcedBeforeAndAfter</code></td>
+</tr>
+<tr>
+<td>3c</td>
+<td>List: <code>CompileRead</code> / <code>ReadBranches</code> render the same planned rules as SQL inside the query</td>
+<td><code>acl.go</code></td>
+<td>I5: ACL inside the query, Go and SQL agree</td>
+<td><code>TestCompileReadAgreesWithAllows</code>, <code>TestI5Agreement</code>, <code>TestI5SharedWithIsPairMatched</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Explain: the target user's decision with the same <code>Allows</code>, and only the masked fields the asking admin may read</td>
+<td><code>authz.Explain</code>, <code>authz.PrincipalOf</code> (<code>explain.go</code>)</td>
+<td>The explainer cannot disagree with enforcement</td>
+<td><code>TestExplainMatchesTheEnforcementOnState</code>, <code>TestExplainNeverListsAFieldTheAdminCannotRead</code>, <code>TestExplainWithNoPolicyDeniesAtVersionZero</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="errors">Errors</h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>HTTP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>not a tenant admin (<code>RequireTenantAdminTx</code>)</td>
+<td><code>403 forbidden</code></td>
+</tr>
+<tr>
+<td>unknown or foreign entity type, no published version (GET), unknown record or user (explain)</td>
+<td><code>404 not_found</code> (one body)</td>
+</tr>
+<tr>
+<td><code>If-Match</code> missing or <code>*</code></td>
+<td><code>428 if_match_required</code></td>
+</tr>
+<tr>
+<td><code>*authz.ConflictError</code> (stale <code>If-Match</code>)</td>
+<td><code>412 version_conflict</code> with the current <code>ETag</code></td>
+</tr>
+<tr>
+<td>body not a JSON object</td>
+<td><code>400 validation_failed</code></td>
+</tr>
+<tr>
+<td><code>ParsePolicy</code> / <code>CheckMaskFields</code> / <code>NotInTenant</code> problems</td>
+<td><code>422 invalid_access_policy</code> with pointers</td>
+</tr>
+<tr>
+<td><code>authz.ErrNotVisible</code> on a record read</td>
+<td><code>404 not_found</code></td>
+</tr>
+<tr>
+<td><code>authz.ErrForbidden</code> on a write</td>
+<td><code>403 forbidden</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>The order of the PUT checks (admin, entity type, <code>If-Match</code>, body, write)
+and the default incident ACL are defined in the normative note.</li>
+<li>There is no separate "compiler" stage: <code>CompileRead</code> is the SQL rendering of
+the same planned rules <code>Allows</code> evaluates.</li>
+</ul>
+<h2 id="links">Links</h2>
+<ul>
+<li>Tables <code>acl_versions</code>, <code>record_shares</code>: <a href="../database/index.html">database section</a>.</li>
+<li>Masks: <a href="../system/core-masks.html">core-masks</a>. Where the pipeline calls the ACL:
+<a href="../system/core-write-pipeline.html">core-write-pipeline</a>.</li>
+<li>Isolation and ACL guarantees: <a href="../security/index.html">security section</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table acl_versions</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Table entity_definitions</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Table groups</h3><ul><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table record_shares</h3><ul><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation getRecord</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation listRecords</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation patchRecord</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Invariant I1</h3><ul><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

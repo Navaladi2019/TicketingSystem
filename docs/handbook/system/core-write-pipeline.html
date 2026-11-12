@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core: record write pipeline (write, read, list) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li class="current"><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Core: record write pipeline (write, read, list)</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/architecture/record-write-pipeline.md"><code>docs/architecture/record-write-pipeline.md</code></a>.</p>
+<article>
+<h1 class="page-title">Core: record write pipeline (write, read, list)</h1>
+<h2 id="purpose">Purpose</h2>
+<p><code>pipeline.Write</code> is the only way to create or update a record (ADR-001 I4).
+It runs inside the caller's <code>tenancy.InTenantTx</code> transaction and never
+commits, so the record, its write key, its audit entry and whatever the
+<code>EventSink</code> wrote commit together or not at all. Reads go through
+<code>pipeline.Get</code> and <code>pipeline.List</code>; only the pipeline imports
+<code>internal/records/store</code>. The rules are in the normative
+<a href="../../../docs/architecture/record-write-pipeline.md">record-write-pipeline.md</a>.</p>
+<h2 id="entry-point">Entry point</h2>
+<ul>
+<li>HTTP: <code>createRecord</code> (<code>handlers.CreateRecord</code>, <code>internal/server/records.go</code>),
+<code>patchRecord</code> (<code>internal/server/records_patch.go</code>), <code>getRecord</code>,
+<code>listRecords</code> (<code>internal/server/records_list.go</code>).</li>
+<li>Go: <code>(*pipeline.Pipeline).Write(ctx, tx, pipeline.Command)</code> in
+<code>internal/records/pipeline/pipeline.go</code>; <code>pipeline.Get</code>, <code>pipeline.QueueGet</code>
+and <code>pipeline.List</code> in <code>internal/records/pipeline/read.go</code>.</li>
+<li>Other writers (workflows, rules) call the same <code>Write</code> with a system
+<code>Source</code>; the architecture test <code>TestRecordWritersOnlyInPipeline</code> fails on
+any other writer of <code>records</code>.</li>
+</ul>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TD
+    A[&quot;Command.check&lt;br/&gt;(op, source, key, causation)&quot;] --&gt; B[&quot;tenancy.TenantOf(tx)&lt;br/&gt;Actor.TenantID must match&quot;]
+    B --&gt; CD{&quot;Causation.Depth &gt; limit?&quot;}
+    CD -- yes --&gt; TD[&quot;rejectTooDeep&lt;br/&gt;(see core-cascades)&quot;]
+    CD -- no --&gt; PF[&quot;prefetch: definition id, write key,&lt;br/&gt;current definition, policy (batch.go)&quot;]
+    PF --&gt; RP{&quot;replay(pre, cmd)&lt;br/&gt;record_write_keys hit?&quot;}
+    RP -- same write --&gt; RR[earlier Result]
+    RP -- other write --&gt; IC[ErrIdempotencyConflict]
+    RP -- none --&gt; OP{op}
+    OP -- create --&gt; C1[&quot;canWriteFields (masks)&quot;]
+    OP -- update --&gt; U0[&quot;store.Get, SharesFor, CanRead&lt;br/&gt;unreadable = ErrNotFound;&lt;br/&gt;version == ExpectedVersion&quot;]
+    U0 --&gt; U1[&quot;mergePatch, canWriteFields&quot;]
+    C1 --&gt; V[&quot;ApplyDefaults, Validate,&lt;br/&gt;state model&quot;]
+    U1 --&gt; V
+    V --&gt; S[&quot;Record.Split fixed columns;&lt;br/&gt;defaultRequester (create)&quot;]
+    S --&gt; W[&quot;canWrite(before, after)&quot;]
+    W --&gt; UQ[&quot;checkUnique: advisory xact lock + SELECT&lt;br/&gt;checkGroup: groups live&quot;]
+    UQ --&gt; N{create of a gaps type?}
+    N -- yes --&gt; AL[&quot;allocate: tenancy.AllocTx&lt;br/&gt;(see core-numbering)&quot;]
+    N -- no --&gt; WR
+    AL --&gt; WR[&quot;INSERT (asserted, at commit) or&lt;br/&gt;UPDATE ... WHERE version = expected&quot;]
+    WR --&gt; K[&quot;record_write_keys row (keyed system writes)&quot;]
+    K --&gt; AU[&quot;appendRecordEntry -&gt; audit.Append&quot;]
+    AU --&gt; EV[&quot;EventSink.RecordChanged(tx, Event)&quot;]
+    EV --&gt; RES[Result]
+</pre></div></figure>
+<h2 id="steps">Steps</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Where</th>
+<th>Invariant</th>
+<th>Proving test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Check the command's shape: op and record, source, a user write with an idempotency key, a depth-0 write that names an origin (<code>Write</code> mints it), a workflow write at depth 0, an AI write without <code>source_ref</code></td>
+<td><code>Command.check</code></td>
+<td>A cascade origin is minted, never given (ADR-001 A5)</td>
+<td><code>TestWriteRefusesBadCommands</code>, <code>TestDepthZeroWritesMintTheirOrigin</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Tenant from the transaction; an actor of another tenant is refused</td>
+<td><code>Pipeline.perform</code>, <code>tenancy.TenantOf</code></td>
+<td>I1, I2</td>
+<td><code>TestWriteTakesTheTenantFromTheTransaction</code>, <code>TestWriteRefusesAnActorOfAnotherTenant</code>, <code>TestCrossTenantWritesRefused</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Prefetch in one batch (definition id, write key, current definition, ACL policy); on the HTTP create the same batch carries BEGIN and the request's idempotency claim</td>
+<td><code>Pipeline.QueuePrefetch</code>, <code>Pipeline.prefetch</code> (<code>batch.go</code>), <code>idempotency.ResolveClaim</code> in the handler</td>
+<td>The claim is the transaction's first write</td>
+<td><code>TestCreateRecordFailureInFirstOrLastTripLeavesNothing</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Replay a keyed system write from <code>record_write_keys</code>, per principal</td>
+<td><code>replay</code>, <code>store.QueueWriteKeyByKey</code></td>
+<td>I7: a retry never acts twice</td>
+<td><code>TestIdempotencyKeyReplays</code>, <code>TestIdempotencyKeyIsScopedByPrincipal</code>, <code>TestIdempotencyKeyMismatchConflicts</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Update only: load the record, check read access (unreadable = not found), then the version</td>
+<td><code>write.update</code>, <code>store.Get</code>, <code>authz.SharesFor</code>, <code>ACL.CanRead</code></td>
+<td>No version or existence oracle</td>
+<td><code>TestUpdateOfAnUnreadableRecordIsNotFound</code>, <code>TestConcurrentUpdatesOneWins</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Mask write check on the caller's own data, before anything else can depend on a masked field</td>
+<td><code>write.canWriteFields</code> -&gt; <code>ACL.CanWriteFields</code></td>
+<td>I5 (see <a href="../system/core-masks.html">core-masks</a>)</td>
+<td><code>TestFieldCheckRunsBeforeValidationAndTheStateModel</code>, <code>TestFieldNotWritableWritesNothing</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>JSON Merge Patch (update), defaults, JSON Schema, state model</td>
+<td><code>mergePatch</code> (<code>patch.go</code>), <code>Compiled.ApplyDefaults</code>, <code>Compiled.Validate</code>, <code>Compiled.AllowsTransition</code></td>
+<td>I4: validation before every write</td>
+<td><code>TestCreateValidatesBeforeWriting</code>, <code>TestInvalidCreateWritesNothing</code>, <code>TestIncidentTransitions</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Split fixed columns out of <code>data</code>; default <code>requester_id</code> to the caller on a user/AI create</td>
+<td><code>store.Record.Split</code>, <code>write.defaultRequester</code></td>
+<td>A fixed property is stored only in its column</td>
+<td><code>TestFixedColumnsOnlyInTheirColumn</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Row write check on before and after rows (skipped for <code>rule</code>, <code>workflow</code>, <code>function</code>, <code>system</code>)</td>
+<td><code>write.canWrite</code> -&gt; <code>ACL.CanWrite</code></td>
+<td>I5 (see <a href="../system/core-acl.html">core-acl</a>)</td>
+<td><code>TestWriteChecksTheRowBeforeAndAfter</code>, <code>TestOnlyTheSystemSourcesSkipTheAuthorizer</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>Unique properties: <code>pg_advisory_xact_lock</code> on the canonical value, then a <code>SELECT</code>; assignment group must be live</td>
+<td><code>write.checkUnique</code>, <code>store.LockUnique</code>, <code>store.UniqueTaken</code>, <code>write.checkGroup</code>, <code>store.GroupLive</code>; batched on create by <code>write.checkCreate</code></td>
+<td>Safe under PgBouncer transaction pooling</td>
+<td><code>TestUniqueConcurrentCreatesOneWins</code>, <code>TestUniqueConcurrentUpdateAndCreateOneWins</code>, <code>TestCreateChecksEveryUniquePropertyInOneBatch</code>, <code>TestGroupLive</code></td>
+</tr>
+<tr>
+<td>11</td>
+<td>Number (create): see <a href="../system/core-numbering.html">core-numbering</a></td>
+<td><code>write.allocate</code></td>
+<td>I4: a refused create never moves the counter</td>
+<td><code>TestRefusedCreatesLeaveTheCounter</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td>Write: create <code>INSERT</code> (queued at commit and asserted against the 201, or sent now); update <code>UPDATE ... version = version + 1 WHERE version = expected</code></td>
+<td><code>write.writeCreateAtCommit</code>, <code>store.QueueInsertRecordAsExpected</code>, <code>write.writeCreate</code>, <code>store.Update</code></td>
+<td>One version bump per write (optimistic concurrency)</td>
+<td><code>TestInsertRecordAsExpected</code>, <code>TestEveryWriteBumpsVersionOnce</code>, <code>TestCreateChecksWhatTheInsertStored</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td>Keyed write row, audit entry (diff built from the stored jsonb; secrets refused), event sink, all in the same transaction</td>
+<td><code>write.finish</code>, <code>store.InsertWriteKey</code>, <code>appendRecordEntry</code> -&gt; <code>audit.Append</code>, <code>EventSink.RecordChanged</code></td>
+<td>I6 entry point: the sink enqueues outbox rows in the write's transaction</td>
+<td><code>TestAuditAndSinkInTheWriteTransaction</code>, <code>TestDiffIsBuiltFromStoredJSONB</code>, <code>TestSecretInRecordDiffIsRefused</code>, <code>TestCreateRollsBackAtEveryStage</code>, <code>TestPipelineKill</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="read-and-list">Read and list</h2>
+<ul>
+<li><strong>Get</strong>: <code>pipeline.Get</code> answers a record created in the same transaction from
+the memo, otherwise <code>store.Get</code>. The handler then calls <code>ACL.CanRead</code>
+(unreadable is the same 404 as missing) and shapes the body with
+<code>authz.Shape</code>. <code>pipeline.QueueGet</code> puts the read in the GET's single batch.</li>
+<li><strong>List</strong>: the handler builds the predicate with <code>authz.CompileRead</code> (or
+<code>authz.ReadBranches</code> for one index-ordered branch per subject) and checks
+every filter and sort field with <code>authz.CheckQueryFields</code>, before any SQL.
+<code>store.List</code> (<code>list.go</code>) counts (capped at <code>TotalCap</code>) and pages by keyset
+over a <code>listable</code> column; a data-property filter runs under
+<code>DataFilterTimeout</code> and maps a cancel to <code>ErrStatementTimeout</code>.</li>
+<li>Proving tests: <code>TestCompileReadAgreesWithAllows</code>, <code>TestBranchedStatements</code>,
+<code>TestTimedOutMapsOnlyADataFilterCancel</code>.</li>
+</ul>
+<h2 id="errors">Errors</h2>
+<p>Generated from the mapping in <code>handlers.recordError</code>
+(<code>internal/server/records.go</code>) and the PATCH handler
+(<code>internal/server/records_patch.go</code>), statuses from <code>api/errors.yaml</code>. Every
+pipeline error raised after the definition was read is wrapped in
+<code>*pipeline.ErrAtVersion</code>, so error pointers are built from the version the
+write used.</p>
+<table>
+<thead>
+<tr>
+<th>Pipeline result</th>
+<th>HTTP</th>
+<th><code>code</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ErrNotFound</code> (also an unreadable record on update)</td>
+<td>404</td>
+<td><code>not_found</code></td>
+</tr>
+<tr>
+<td><code>authz.ErrForbidden</code></td>
+<td>403</td>
+<td><code>forbidden</code></td>
+</tr>
+<tr>
+<td><code>*authz.ErrFieldNotWritable</code></td>
+<td>422</td>
+<td><code>field_not_writable</code></td>
+</tr>
+<tr>
+<td><code>*ErrValidation</code> (incl. rule <code>audit_secret_in_diff</code>)</td>
+<td>422</td>
+<td><code>record_invalid</code></td>
+</tr>
+<tr>
+<td><code>*ErrIllegalTransition</code></td>
+<td>422</td>
+<td><code>illegal_transition</code></td>
+</tr>
+<tr>
+<td><code>ErrAssignmentGroupRemoved</code></td>
+<td>422</td>
+<td><code>assignment_group_removed</code></td>
+</tr>
+<tr>
+<td><code>*ErrUniqueViolation</code></td>
+<td>409</td>
+<td><code>unique_violation</code> (names the property only)</td>
+</tr>
+<tr>
+<td><code>ErrVersionConflict</code></td>
+<td>412</td>
+<td><code>version_conflict</code> (current <code>ETag</code> re-read)</td>
+</tr>
+<tr>
+<td><code>ErrRetryable</code> (deadlock, serialization failure, allocation timeout)</td>
+<td>503</td>
+<td><code>retry_later</code></td>
+</tr>
+<tr>
+<td>foreign-key <code>23503</code> on a fixed column</td>
+<td>422</td>
+<td><code>record_invalid</code> (rule <code>reference</code>)</td>
+</tr>
+<tr>
+<td><code>ErrInvalidCommand</code>, <code>*ErrIdempotencyConflict</code>, <code>outbox.ErrCascadeTooDeep</code></td>
+<td>500</td>
+<td><code>internal_error</code>: the HTTP handlers never send a key or causation, so these are system-writer results only</td>
+</tr>
+</tbody>
+</table>
+<p>The HTTP request's own <code>Idempotency-Key</code> is a separate layer
+(<code>idempotency_keys</code>, <code>409 idempotency_key_reuse</code> / <code>idempotency_in_flight</code>),
+not <code>record_write_keys</code>.</p>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>The handbook generator has no error-table block (the TICK-720 gate was
+cancelled), so the table above is written by hand from the two files named;
+check it against them when either changes.</li>
+<li>The round-trip layout of a create is on <a href="../system/core-tenancy.html">core-tenancy</a>.</li>
+</ul>
+<h2 id="links">Links</h2>
+<ul>
+<li>Tables: <a href="../database/index.html">database section</a>.</li>
+<li>What the event sink starts: <a href="../workflows/index.html">workflows section</a>;
+cascade bounds on <a href="../system/core-cascades.html">core-cascades</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table audit_log</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li></ul>
+<h3>Table groups</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li></ul>
+<h3>Table idempotency_keys</h3><ul><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
+<h3>Table record_counters</h3><ul><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
+<h3>Table record_shares</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li></ul>
+<h3>Table records</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Operation getRecord</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Operation getRecordHistory</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Operation listRecords</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Operation patchRecord</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Invariant I1</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
+<h3>Invariant I4</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Invariant I7</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
