@@ -5,9 +5,10 @@
 // and record_counters_scoped_key (tenant_id, entity_definition_id,
 // scope_key). INSERT ... ON CONFLICT absorbs a conflict on its arbiter index
 // only, so two concurrent FIRST upserts of one type can fail with 23505 on
-// the other index (scratch/tick-665/README.md: 15,533 R0 and 19,829 R1
-// failures in 160,000 first upserts). The fix is R1's allocation retrying
-// once on that 23505 (TICK-666, P6-02). It is also the guard on the
+// the other index (docs/adr/ADR-005/spikes/postgres/e1-first-create-race/
+// README.md: 15,533 R0 and 19,829 R1 failures in 160,000 first upserts).
+// The fix is R1's allocation retrying once on that 23505 (TICK-666,
+// P6-02). It is also the guard on the
 // isolation level: at REPEATABLE READ the same race raises 40001, which is
 // not retried (ADR-005-E1).
 
