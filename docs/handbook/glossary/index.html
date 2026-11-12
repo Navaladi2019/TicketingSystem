@@ -13,7 +13,7 @@
 <div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
 <nav aria-label="Sections">
 <div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
-<ul></ul></div>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
 <ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
@@ -38,8 +38,64 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../glossary/index.html">glossary</a> / <span>Glossary</span></nav>
 <article>
 <h1 class="page-title">Glossary</h1>
-<p>TODO: terms used across the platform.</p>
+<p>Terms used across the handbook, including every term that appears in a vision-section heading. Each entry points to the page that explains it most fully. Pages for the security, database and workflow sections are written by other handbook tasks; until they exist, entries point to the section's index.</p>
+<h2 id="tenancy-and-identity">Tenancy and identity</h2>
+<ul>
+<li><strong>Tenant.</strong> One customer organisation using the shared platform. Main page: <a href="../vision/tenant-wall.html">I1: tenant wall</a>.</li>
+<li><strong>Tenant wall.</strong> The row-level-security rule set that makes a query without a tenant return nothing. <a href="../vision/tenant-wall.html">I1</a>.</li>
+<li><strong>Row-level security (RLS) and FORCE RLS.</strong> A PostgreSQL feature that adds an invisible "only this tenant's rows" filter to every query. <code>FORCE</code> applies it even to the table's owner. <a href="../vision/tenant-wall.html">I1</a>.</li>
+<li><strong>Principal.</strong> The authenticated caller of an API request, a user or a service, resolved from a verified token inside one tenant. <a href="../vision/tenant-source.html">I2</a>.</li>
+<li><strong>Group.</strong> A set of principals in one tenant, changed only through the platform API (tenants cannot administer Keycloak in Milestone 1, residual R3) and mirrored from Keycloak into the platform's identity tables by the group sync (<code>internal/groupsync</code>); used by access rules. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
+<li><strong>Identity port and adapter.</strong> The core-owned interface to the identity provider and the single package that talks to Keycloak. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
+<li><strong>Platform-verified source.</strong> A tenant value that comes from a validated token via the identity binding table, or from a row the platform wrote. <a href="../vision/tenant-source.html">I2</a>.</li>
+</ul>
+<h2 id="database-roles">Database roles</h2>
+<ul>
+<li><strong>Database role and least privilege.</strong> One narrow database account per system actor; none is a superuser, owns objects or bypasses RLS. <a href="../vision/least-privilege-roles.html">I3</a>.</li>
+<li><strong>Grant manifest.</strong> The single file listing every permission of every role; CI compares the live database with it. <a href="../vision/least-privilege-roles.html">I3</a>.</li>
+<li><strong>Migrator.</strong> The one-shot job that owns the schema and runs migrations. <a href="../database/index.html">Database</a>.</li>
+</ul>
+<h2 id="records-and-writes">Records and writes</h2>
+<ul>
+<li><strong>Entity definition and entity definition version.</strong> A tenant's JSON Schema description of a kind of record, and one published, immutable version of it. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Record.</strong> One stored item of an entity type, with a <code>version</code> used for optimistic concurrency. <a href="../vision/one-write-pipeline.html">I4</a>.</li>
+<li><strong>Write pipeline.</strong> The single path every write takes: authorisation, defaults, schema validation, checks, commit with audit. <a href="../vision/one-write-pipeline.html">I4</a>.</li>
+<li><strong>Optimistic concurrency.</strong> An update names the version it expects; a stale one is a typed conflict (HTTP 412 with <code>If-Match</code>). <a href="../vision/one-write-pipeline.html">I4</a>.</li>
+<li><strong>Authorization layer.</strong> The access rules, compiled to SQL and agreeing with the Go single-record check. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
+<li><strong>ACL and ACL version.</strong> An access-control list for an entity type, and the version number of the published list a decision was made under. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
+<li><strong>Mask (field mask).</strong> A rule hiding a field from readers who may not see it, on write and on read. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
+<li><strong>Numbering mode.</strong> How a record's human-readable number is allocated, per tenant, from a counter table. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
+<li><strong>Idempotency key.</strong> A client-supplied key (<code>Idempotency-Key</code>) that makes a repeated write return the first response. <a href="../vision/idempotent-side-effects.html">I7</a>.</li>
+<li><strong>Idempotent.</strong> Doing it twice has the effect of doing it once. <a href="../vision/idempotent-side-effects.html">I7</a>.</li>
+</ul>
+<h2 id="audit">Audit</h2>
+<ul>
+<li><strong>Audit log.</strong> The per-tenant record of every change, written in the same transaction as the change. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Seal.</strong> The sequence number and hash assigned to an audit entry by the asynchronous sealer. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Chain head.</strong> The latest sealed entry of a tenant's audit hash chain; each new seal hashes the previous one. <a href="../database/index.html">Database</a>.</li>
+</ul>
+<h2 id="workflows">Workflows</h2>
+<ul>
+<li><strong>Outbox.</strong> A table of work rows saved in the same transaction as the change that caused them. <a href="../vision/durable-path-outbox.html">I6</a>.</li>
+<li><strong>Relay.</strong> The process that reads outbox rows and starts or signals workflows. <a href="../vision/durable-path-outbox.html">I6</a>.</li>
+<li><strong>Temporal and workflow.</strong> The workflow engine and a durable process it runs. Workflow code is deterministic; side effects run in activities. <a href="../vision/durable-path-outbox.html">I6</a>.</li>
+<li><strong>Causation and cascade.</strong> The origin event id and depth carried by every write and outbox row; a cascade is a write that triggers further writes, bounded by a depth limit. <a href="../vision/bounded-cascades.html">I9</a>.</li>
+</ul>
+<h2 id="process-words">Process words</h2>
+<ul>
+<li><strong>Invariant.</strong> A rule that must always hold; changing one needs a new signed ADR. <a href="../vision/invariants.html">The nine invariants</a>.</li>
+<li><strong>Decision (D and G numbers).</strong> D numbers are decisions in ADR-001 section 2; G numbers are the TICK-2 gaps it closes (G7 is recorded as a decision). <a href="../vision/goals-and-non-goals.html">Goals and non-goals</a>.</li>
+<li><strong>Goal and non-goal.</strong> What Milestone 1 sets out to do, and what it deliberately leaves out. <a href="../vision/goals-and-non-goals.html">Goals and non-goals</a>.</li>
+<li><strong>Configuration, not code.</strong> Tenant changes are data, never new code or schema changes. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
+<li><strong>Advisory AI.</strong> AI may suggest, and change data only above a recorded confidence threshold. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
+<li><strong>Proof and enforcement point.</strong> The test or ADR section that shows an invariant holds, and the layer that applies it. <a href="../vision/invariants.html">The nine invariants</a>.</li>
+<li><strong>Known technical risks.</strong> The CTO's register of live risks. <a href="../vision/index.html">Vision</a>.</li>
+<li><strong>ADR.</strong> Architecture Decision Record. <a href="../adr/index.html">Architecture decisions</a>.</li>
+</ul>
 </article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+</section>
 <footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
