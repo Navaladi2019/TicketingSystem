@@ -1,0 +1,20 @@
+R1 (nobarrier): DIFF expected=203 actual=202 missing_or_stale=1 extra=0 orphans_any_field=0
+BARRIER xids=[119968] polls=4 waited_ms=3454
+BARRIER xids=[] polls=1 waited_ms=4
+R1 (barrier): DIFF expected=204 actual=204 missing_or_stale=0 extra=0 orphans_any_field=0
+ERROR:  relation "record_field_values" does not exist
+LINE 1: SELECT count(*) FROM record_field_values v WHERE v.tenant_id...
+                             ^
+BARRIER xids=[] polls=1 waited_ms=3
+ERROR:  relation "record_field_values" does not exist
+LINE 1: SELECT count(*) FROM record_field_values v WHERE v.tenant_id...
+                             ^
+R3 (nobarrier): REMOVE registry row deleted; side rows left for the field: 0; registry row: deleted
+BARRIER xids=[] polls=1 waited_ms=2
+BARRIER xids=[] polls=1 waited_ms=5
+R3 (barrier): BARRIER xids=[120007] polls=4 waited_ms=3547
+REMOVE registry row deleted; side rows left for the field: 0; registry row: deleted
+R3 (nobarrier): REMOVE registry delete FAILED: ERROR:  update or delete on table "record_index_fields" violates foreign key constraint "rfv_text_field_fk" on table "rfv_text"
+DETAIL:  Key is still referenced from table "rfv_text".; side rows left for the field: 1; registry row: removing
+R3 (barrier): BARRIER xids=[120027] polls=4 waited_ms=3634
+REMOVE registry row deleted; side rows left for the field: 0; registry row: deleted

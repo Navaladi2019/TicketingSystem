@@ -1,0 +1,39 @@
+Timing is on.
+SET
+Time: 0.535 ms
+SET
+Time: 0.142 ms
+DROP TABLE
+Time: 1.093 ms
+psql:/bench/fi/23_split.sql:10: NOTICE:  table "record_field_values_num" does not exist, skipping
+DROP INDEX
+Time: 229.981 ms
+DROP STATISTICS
+Time: 8.342 ms
+DO
+Time: 89520.085 ms (01:29.520)
+DROP TABLE
+Time: 337.307 ms
+ANALYZE
+Time: 906.185 ms
+CREATE FUNCTION
+Time: 4.262 ms
+CREATE FUNCTION
+Time: 1.742 ms
+    relname     |  size  |   bytes   
+----------------+--------+-----------
+ rfv_bool       | 258 MB | 270254080
+ rfv_bool_pkey  | 233 MB | 244629504
+ rfv_bool_value | 236 MB | 247971840
+ rfv_num        | 71 MB  |  74473472
+ rfv_num_pkey   | 59 MB  |  61743104
+ rfv_num_value  | 59 MB  |  61890560
+ rfv_text       | 266 MB | 278519808
+ rfv_text_pkey  | 233 MB | 244629504
+ rfv_text_value | 243 MB | 255082496
+ rfv_ts         | 71 MB  |  74473472
+ rfv_ts_pkey    | 59 MB  |  61743104
+ rfv_ts_value   | 59 MB  |  61890560
+(12 rows)
+
+Time: 3.696 ms
