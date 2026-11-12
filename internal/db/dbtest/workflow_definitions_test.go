@@ -45,7 +45,11 @@ const (
 		step_ids, trigger_on, trigger_entity_definition_id, published_by)
 		VALUES ($1, $2, $3, $4, $5::json, $6, '{"start": "0e000000-0000-4000-8000-0000000000aa"}', 'record.created', $7, $8)`
 	insertWorkflowVersion = `WITH r AS (` + insertWorkflowVersionBare + ` RETURNING tenant_id, definition_id, version) ` + workflowVersionEntry
-	insertWorkflowCause   = `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth)
+	// moveWorkflowCurrentVersion: tenant $1, definition $2, to version 1, with
+	// the audit entry the commit check wants (P3-41b).
+	moveWorkflowCurrentVersion = `WITH r AS (UPDATE workflow_definitions SET current_version = 1, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2 RETURNING tenant_id, id AS definition_id, current_version AS version) ` + workflowVersionEntry
+	insertWorkflowCause = `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth)
 		VALUES ($1, $2, $3, $4, $5)`
 )
 
@@ -163,8 +167,7 @@ func TestP340WorkflowDefinitionsTenantIsolation(t *testing.T) {
 		if _, err := execIn(app, s.tenant, insertWorkflowVersion, s.tenant, s.ver, s.def, 1, wfBody, schemaSum(wfBody), s.tenant, s.tenant); err != nil {
 			t.Fatalf("tenant %s publishes version 1: %v", s.tenant, err)
 		}
-		if _, err := execIn(app, s.tenant, "UPDATE workflow_definitions SET current_version = 1, updated_at = now() WHERE tenant_id = $1 AND id = $2",
-			s.tenant, s.def); err != nil {
+		if _, err := execIn(app, s.tenant, moveWorkflowCurrentVersion, s.tenant, s.def); err != nil {
 			t.Fatalf("tenant %s moves current_version: %v", s.tenant, err)
 		}
 		if _, err := execIn(app, s.tenant, insertWorkflowCause, s.tenant, wfCause, s.def, originX, 1); err != nil {
