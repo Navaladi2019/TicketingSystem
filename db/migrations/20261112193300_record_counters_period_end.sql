@@ -11,7 +11,7 @@
 -- period_end NULL, so the index stays empty until S18 publishes period
 -- formats. The purge policies and grants come with the purge change, not here.
 --
--- Built CONCURRENTLY and re-runnable, as 20261111123200: an INVALID index left
+-- Built CONCURRENTLY and re-runnable, as 20261112193200: an INVALID index left
 -- by a failed build is dropped first, a VALID one is kept.
 
 -- +goose NO TRANSACTION

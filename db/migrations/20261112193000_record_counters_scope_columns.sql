@@ -9,7 +9,7 @@
 --     No rewrite, no backfill: every existing row reads scope_key = ''.
 --     R0's INSERT names neither column, so it writes '' and NULL.
 --   - The CHECK is added NOT VALID, so there is no scan under the ACCESS
---     EXCLUSIVE lock; 20261111123100 validates it under SHARE UPDATE
+--     EXCLUSIVE lock; 20261112193100 validates it under SHARE UPDATE
 --     EXCLUSIVE (the split of 20261110040000/0100, D10).
 --   - lock_timeout: a queued ACCESS EXCLUSIVE would stall every create behind
 --     it, so the migration fails and is re-run instead.
@@ -38,7 +38,7 @@ ALTER TABLE record_counters ADD CONSTRAINT record_counters_scope_key_len
 
 -- Only before M3 (S18): after it the primary key needs scope_key. Run it only
 -- once no R1 binary serves (R1's three-column ON CONFLICT needs the column),
--- and after 20261111123200's Down. Dropping the column drops its CHECK.
+-- and after 20261112193200's Down. Dropping the column drops its CHECK.
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE record_counters
