@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-001-E3: the onboarding role reads its own tenant row - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li class="current"><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../adr/index.html">adr</a> / <span>ADR-001-E3: the onboarding role reads its own tenant row</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-001-E3-a3-onboard-select-own-row.md"><code>docs/adr/ADR-001-E3-a3-onboard-select-own-row.md</code></a>.</p>
+<article>
+<h1 class="page-title">ADR-001-E3: the onboarding role reads its own tenant row</h1>
+<p>Status on <code>main</code>: <strong>ACCEPTED</strong>, 2026-10-25, approved by the product owner. Erratum to <a href="../adr/adr-001.html">ADR-001</a> Annex A.3, onboarding row. Normative text: <a href="../../../docs/adr/ADR-001-E3-a3-onboard-select-own-row.md">the E3 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E3-explained.html">E3-explained.html</a>.</p>
+<p><em>Paraphrases: "Decision", "Context", "Consequences", "Rejected options", "Accepted residual".</em></p>
+<h2 id="problem">Problem</h2>
+<p>Annex A.3 said the onboarding role may <code>SELECT</code> "its own provisioning row". The shipped policy has no state test, and a state test cannot be added: activating a tenant is an <code>UPDATE</code>, and PostgreSQL applies the <code>SELECT</code> policy to the new row too, so a provisioning-only policy rejects the switch to <code>active</code> (error 42501). The idempotency check also needs to read a tenant that may already be active.</p>
+<h2 id="decision">Decision</h2>
+<p>The words change; the code does not. The clause now reads: <code>SELECT</code> on its own row (the tenant of its transaction, in either state). No migration, grant or policy changes.</p>
+<h2 id="options-that-lost">Options that lost</h2>
+<p>Adding <code>state = &#x27;provisioning&#x27;</code> to the policy (breaks activation); the same with an unfiltered <code>UPDATE</code> (works only until a statement names a column); a second permissive policy for active rows (identical to the shipped policy, with more surface).</p>
+<h2 id="consequences">Consequences</h2>
+<p>Text now matches code. A test pins that the role sees only its own tenant, in both states, and nothing with no tenant set.</p>
+<h2 id="accepted-risks">Accepted risks</h2>
+<p>RS8: the onboarding role bound to tenant A can read A's active row (id, state, request hash, created time), nothing else. Severity Info. It holds only while the caller cannot choose the tenant id, which the server derives itself.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>ADR ADR-001-E3</h3><ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
