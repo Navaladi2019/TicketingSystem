@@ -85,12 +85,12 @@ SVG = ('<svg xmlns="http://www.w3.org/2000/svg"><!-- payload-start -->QUJD<!-- p
        '<rect width="1" height="1"/></svg>')
 
 SCHEMA = """{"version":1,"tables":[
- {"name":"audit_log","kind":"partitioned","rls":{"enabled":true,"forced":true},
+ {"name":"audit_log","kind":"partitioned","partition_by":"RANGE (occurred_at)","rls":{"enabled":true,"forced":true},
   "columns":[{"name":"id","type":"uuid","nullable":false,"default":"gen_random_uuid()"},{"name":"tenant_id","type":"uuid","nullable":false,"default":""}],
   "primary_key":["tenant_id","id"],
   "foreign_keys":[{"name":"fk","columns":["tenant_id"],"ref_table":"tenants","ref_columns":["id"],"on_delete":"NO ACTION"}],
-  "indexes":[{"name":"audit_log_pk","method":"btree","unique":true,"columns":["tenant_id","id"],"include":[],"predicate":""}],
-  "policies":[{"name":"tenant","command":"ALL","roles":["nava_app"],"permissive":true,"using":"(tenant_id = x)","check":"(tenant_id = y)"}]},
+  "indexes":[{"name":"audit_log_pk","method":"btree","unique":true,"columns":["tenant_id","id"],"include":["occurred_at"],"predicate":""}],
+  "policies":[{"name":"tenant","command":"ALL","roles":["nava_app"],"permissive":true,"using":"(tenant_id = x)","check":"(tenant_id = y)"},\n   {"name":"deny_other","command":"SELECT","roles":["nava_app"],"permissive":false,"using":"(tenant_id = z)","check":""}]},\n {"name":"audit_log_default","kind":"partition","partition_of":"audit_log","partition_bound":"DEFAULT","columns":[],"primary_key":[]},
  {"name":"tenants","kind":"table","columns":[{"name":"id","type":"uuid","nullable":false,"default":""}],"primary_key":["id"]}]}"""
 
 
@@ -130,7 +130,7 @@ def new_fixture():
           "stories:\n  - id: S14\n    issue: TICK-409\n    title: Audit log\n    status: delivered\n"
           "    evidence: [docs/evidence/e.md]\n")
     write(root, "docs/handbook/src/database/schema.json", SCHEMA)
-    write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, tenants]\n")
+    write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default, tenants]\n")
     page(root, "index.md", "Home", "home", body="Welcome.")
     return root
 
@@ -249,6 +249,16 @@ class TestReferences(Base):
                 self.fails("docs/handbook/src/system/a.md", ref)
         page(self.root, "system/a.md", "A", "system", front="normative: docs/adr/nope.md\n")
         self.fails("docs/adr/nope.md")
+
+    def test_parent_directory_paths_are_refused(self):
+        for key in ("packages", "evidence", "sources"):
+            with self.subTest(key):
+                page(self.root, "system/a.md", "A", "system", front="%s: [internal/../docs]\n" % key)
+                self.fails("system/a.md", "is not a path inside the repository")
+        write(self.root, "docs/handbook/src/stories/stories.yaml",
+              "stories:\n  - id: S1\n    status: delivered\n    evidence: [../outside.md]\n")
+        os.remove(os.path.join(self.root, "docs/handbook/src/database/areas.yaml"))
+        self.fails("S1", "is not a path inside the repository")
 
     def test_a_method_is_not_a_test(self):
         page(self.root, "system/a.md", "A", "system", front="tests: [TestNotAFunc]\n")
@@ -373,6 +383,23 @@ class TestGen(Base):
             self.assertIn(want, h)
         self.assertIn("assets/mermaid.min.js", h)
 
+    def test_tables_render_the_isolation_fields(self):
+        page(self.root, "database/audit.md", "Audit", "database", body="<!-- gen:tables area=audit -->")
+        h = self.html("database/audit.html")
+        self.assertIn("<th>Type</th>", h)
+        self.assertIn("<strong>RESTRICTIVE</strong>", h)          # permissive: false
+        self.assertEqual(h.count("<strong>RESTRICTIVE</strong>"), 1)
+        self.assertIn("<td>permissive</td>", h)                   # the other policy
+        self.assertIn("<th>Include</th>", h)
+        self.assertIn("<code>occurred_at</code>", h)              # index include
+        self.assertIn("Partitioned by <code>RANGE (occurred_at)</code>", h)
+        self.assertIn("Partition bound: <code>DEFAULT</code>", h)
+
+    def test_schema_entry_without_a_name_is_a_named_error(self):
+        write(self.root, "docs/handbook/src/database/schema.json", '{"version":1,"tables":[{"kind":"table"}]}')
+        write(self.root, "docs/handbook/src/database/areas.yaml", "{}")
+        self.fails("tables[0] has no name")
+
     def test_area_naming_an_unknown_table(self):
         write(self.root, "docs/handbook/src/database/areas.yaml", "audit: [no_such_table]\n")
         self.fails("no_such_table")
@@ -457,6 +484,13 @@ class TestMarkdown(Base):
         self.assertIn('<img class="dz-img" src="../diagrams/ok.excalidraw.svg" alt="Two boxes">', h)
         self.assertNotIn("<svg", h)
         self.assertEqual(out["diagrams/ok.excalidraw.svg"].decode(), SVG)
+
+    def test_image_figure_has_no_paragraph_wrapper(self):
+        page(self.root, "system/a.md", "A", "system", body="![Two boxes](../diagrams/ok.excalidraw.svg)\n\ntext")
+        h = self.html("system/a.html")
+        self.assertNotIn("<p><figure", h)
+        self.assertNotIn("</figure></p>", h)
+        self.assertIn("<p>text</p>", h)
 
     def test_excalidraw_refuses_bad_svg(self):
         bad = {
@@ -617,11 +651,17 @@ class TestCheck(Base):
         self.commit()
         write(self.root, "docs/handbook/README.md", "readme")
         write(self.root, "docs/handbook/build/build.py", "# the generator")
-        write(self.root, "docs/handbook/gone/old.html", "stale")
+        write(self.root, "docs/handbook/system/old.html", "stale generated page")
+        write(self.root, "docs/handbook/notes.txt", "not ours")
+        write(self.root, "docs/handbook/gone/old.html", "not in a section")
         self.commit()
-        for keep in ("README.md", "src/index.md", "assets/mermaid.min.js", "system/a.html", "build/build.py"):
+        for keep in ("README.md", "src/index.md", "assets/mermaid.min.js", "system/a.html", "build/build.py",
+                     "notes.txt", "gone/old.html"):
             self.assertTrue(os.path.exists(os.path.join(self.root, "docs/handbook", keep)), keep)
-        self.assertFalse(os.path.exists(os.path.join(self.root, "docs/handbook/gone/old.html")))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "docs/handbook/system/old.html")))
+        # --check still reports what the build does not own
+        problems = "\n".join(build.check(self.root, FakeGit()))
+        self.assertIn("notes.txt is not generated", problems)
 
 
 class TestCLI(Base):

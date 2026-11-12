@@ -377,7 +377,9 @@ class Facts:
                 self.stories[sid] = s
                 self.story_list.append(s)
                 for ev in s.get("evidence", []) or []:
-                    if not os.path.exists(self.path(*ev.split("/"))):
+                    if not ev or os.path.isabs(ev) or ".." in ev.split("/"):
+                        errs.append("stories.yaml: story %s evidence %r is not a path inside the repository" % (sid, ev))
+                    elif not os.path.exists(self.path(*ev.split("/"))):
                         errs.append("stories.yaml: story %s evidence %r does not exist" % (sid, ev))
         if errs:
             raise ValueError("\n".join(errs))
@@ -450,7 +452,9 @@ class Facts:
             raise ValueError("schema.json: %s" % e)
         if doc.get("version") != 1:
             raise ValueError("schema.json: version %r, this generator reads version 1" % doc.get("version"))
-        for t in doc.get("tables", []):
+        for n, t in enumerate(doc.get("tables", [])):
+            if not isinstance(t, dict) or not t.get("name"):
+                raise ValueError("schema.json: tables[%d] has no name" % n)
             self.tables[t["name"]] = t
             self.table_list.append(t)
         self.table_list.sort(key=lambda t: t["name"])
@@ -596,7 +600,9 @@ def check_refs(f, p):
         if r not in f.tests:
             bad("tests", r, "is not a Test, Benchmark, Fuzz or Example function in any _test.go file")
     for r in fm["packages"]:
-        if not os.path.isdir(f.path(*r.split("/"))):
+        if not r or os.path.isabs(r) or ".." in r.split("/"):
+            bad("packages", r, "is not a path inside the repository")
+        elif not os.path.isdir(f.path(*r.split("/"))):
             bad("packages", r, "is not a directory in the repository")
     for r in fm["invariants"]:
         if r not in f.invariants:
@@ -612,7 +618,7 @@ def check_refs(f, p):
 
 
 def check_path(f, r, kind, bad):
-    if not r or os.path.isabs(r) or ".." in r:
+    if not r or os.path.isabs(r) or ".." in r.split("/"):
         bad(kind, r, "is not a path inside the repository")
     elif not os.path.exists(f.path(*r.split("/"))):
         bad(kind, r, "does not exist in the repository")
@@ -727,26 +733,34 @@ def gen_tables(f, area):
         if t.get("partition_of"):
             kind += " of " + t["partition_of"]
         rls = t.get("rls", {})
-        out.append("Kind: %s. Row-level security: enabled %s, forced %s. Primary key: %s.\n" % (
+        part = ""
+        if t.get("partition_by"):
+            part += " Partitioned by `%s`." % cell(t["partition_by"]).replace("`", "'")
+        if t.get("partition_bound"):
+            part += " Partition bound: `%s`." % cell(t["partition_bound"]).replace("`", "'")
+        out.append("Kind: %s. Row-level security: enabled %s, forced %s. Primary key: %s.%s\n" % (
             cell(kind), str(bool(rls.get("enabled"))).lower(), str(bool(rls.get("forced"))).lower(),
-            md_list(t.get("primary_key", []))))
+            md_list(t.get("primary_key", [])), part))
         out.append("| Column | Type | Null | Default |\n|---|---|---|---|")
         for c in t.get("columns", []):
             out.append("| `%s` | `%s` | %s | %s |" % (c["name"], cell(c["type"]), "yes" if c.get("nullable") else "no",
                                                       code_or_dash(c.get("default", ""))))
         out.append("")
         if t.get("indexes"):
-            out.append("| Index | Method | Columns | Predicate |\n|---|---|---|---|")
+            out.append("| Index | Method | Columns | Include | Predicate |\n|---|---|---|---|---|")
             for i in t["indexes"]:
                 name = "`%s`%s" % (i["name"], " (unique)" if i.get("unique") else "")
-                out.append("| %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
-                                                       code_or_dash(i.get("predicate", ""))))
+                inc = md_list(i["include"]) if i.get("include") else "-"
+                out.append("| %s | %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
+                                                          inc, code_or_dash(i.get("predicate", ""))))
             out.append("")
         if t.get("policies"):
-            out.append("| Policy | Command | Roles | Using | Check |\n|---|---|---|---|---|")
+            out.append("| Policy | Type | Command | Roles | Using | Check |\n|---|---|---|---|---|---|")
             for p in t["policies"]:
-                out.append("| `%s` | %s | %s | %s | %s |" % (p["name"], cell(p.get("command", "")),
-                                                              md_list(p.get("roles", [])),
+                # A RESTRICTIVE policy narrows what the permissive ones grant, so it must stand out.
+                ptype = "permissive" if p.get("permissive", True) else "**RESTRICTIVE**"
+                out.append("| `%s` | %s | %s | %s | %s | %s |" % (p["name"], ptype, cell(p.get("command", "")),
+                                                                  md_list(p.get("roles", [])),
                                                               code_or_dash(p.get("using", "")),
                                                               code_or_dash(p.get("check", ""))))
             out.append("")
@@ -1211,7 +1225,11 @@ def render_blocks(ctx, lines):
                 "|" in lines[i] and i + 1 < n and TABLE_DELIM.match(lines[i + 1])):
             para.append(lines[i].strip())
             i += 1
-        out.append("<p>%s</p>" % inline(ctx, "\n".join(para)))
+        rendered = inline(ctx, "\n".join(para))
+        if rendered.startswith("<figure") and rendered.endswith("</figure>") and rendered.count("<figure") == 1:
+            out.append(rendered)  # a block element must not sit inside <p>
+        else:
+            out.append("<p>%s</p>" % rendered)
     return "\n".join(out)
 
 
@@ -1480,11 +1498,26 @@ def generated_files(base):
     return found
 
 
+def is_generated_name(rel):
+    """Only these paths are the build's own: section pages, index.html, the three
+    generated assets and copied diagrams. Anything else under docs/handbook is
+    never deleted by a build; --check reports it instead."""
+    if rel in ("index.html", "assets/handbook.css", "assets/handbook.js", "assets/search-index.js"):
+        return True
+    parts = rel.split("/")
+    if len(parts) == 2 and parts[0] in SECTIONS and parts[1].endswith(".html"):
+        return True
+    return len(parts) == 2 and parts[0] == "diagrams" and parts[1].endswith(".svg")
+
+
 def write_output(root, output):
     base = os.path.join(root, HANDBOOK)
-    for rel in generated_files(base):
-        if rel not in output and rel != "assets/mermaid.min.js":
-            os.remove(os.path.join(base, *rel.split("/")))
+    for rel in sorted(generated_files(base)):
+        if rel in output or not is_generated_name(rel):
+            if rel not in output and rel != "assets/mermaid.min.js":
+                print("handbook: leaving %s/%s alone: the build does not own it" % (HANDBOOK, rel), file=sys.stderr)
+            continue
+        os.remove(os.path.join(base, *rel.split("/")))
     for rel, data in output.items():
         p = os.path.join(base, *rel.split("/"))
         os.makedirs(os.path.dirname(p), exist_ok=True)

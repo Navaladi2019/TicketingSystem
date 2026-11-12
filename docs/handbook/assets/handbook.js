@@ -29,6 +29,13 @@
     return hits.slice(0, 20);
   }
   if (input && list) {
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') { input.value = ''; list.textContent = ''; list.hidden = true; input.blur(); }
+      if (ev.key === 'Enter') {
+        var first = list.querySelector('a');
+        if (first) { window.location.href = first.href; }
+      }
+    });
     input.addEventListener('input', function () {
       var ts = terms(input.value);
       list.textContent = '';
@@ -82,6 +89,7 @@
     }, { passive: false });
     wrap.addEventListener('pointerdown', function (ev) {
       if (ev.button !== 0) { return; }
+      ev.preventDefault(); /* no text selection while panning */
       drag = { x: ev.clientX - st.x, y: ev.clientY - st.y };
       wrap.classList.add('grabbing');
       wrap.setPointerCapture(ev.pointerId);
@@ -91,6 +99,8 @@
       st.x = ev.clientX - drag.x; st.y = ev.clientY - drag.y; apply();
     });
     function end() { drag = null; wrap.classList.remove('grabbing'); }
+    /* A native image drag would fire pointercancel and stop the pan. */
+    wrap.addEventListener('dragstart', function (e) { e.preventDefault(); });
     wrap.addEventListener('pointerup', end);
     wrap.addEventListener('pointercancel', end);
 
@@ -118,12 +128,24 @@
         if (p && p.catch) { p.catch(overlay); }
       } catch (e) { overlay(); }
     });
-    document.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape' && fig.classList.contains('dz-max')) { fig.classList.remove('dz-max'); reset(); }
-    });
     fig.insertBefore(bar, wrap);
-    document.addEventListener('fullscreenchange', reset);
+    diagrams.push({ fig: fig, reset: reset, fs: false });
   }
+
+  /* One listener each for every diagram on the page. */
+  var diagrams = [];
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') { return; }
+    diagrams.forEach(function (d) {
+      if (d.fig.classList.contains('dz-max')) { d.fig.classList.remove('dz-max'); d.reset(); }
+    });
+  });
+  document.addEventListener('fullscreenchange', function () {
+    diagrams.forEach(function (d) {
+      var now = document.fullscreenElement === d.fig;
+      if (now !== d.fs) { d.fs = now; d.reset(); }
+    });
+  });
 
   /* ---- Mermaid, rendered lazily when the diagram scrolls into view ---- */
   var seq = 0;
