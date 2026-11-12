@@ -30,14 +30,14 @@ func (s versionStore) Load(context.Context, uuid.UUID, uuid.UUID) (*interp.Versi
 // staticRecords is a RecordReader returning one record.
 type staticRecords map[string]any
 
-func (r staticRecords) Read(context.Context, uuid.UUID, uuid.UUID) (map[string]any, error) {
-	return r, nil
+func (r staticRecords) Read(context.Context, uuid.UUID, uuid.UUID) (map[string]any, int64, error) {
+	return r, 1, nil
 }
 
 // noWrites fails the test if ApplyStep reaches the writer.
 type noWrites struct{ t *testing.T }
 
-func (w noWrites) Write(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string, map[string]any) error {
+func (w noWrites) Write(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, string, map[string]any) error {
 	w.t.Error("RecordWriter.Write called on a refused step")
 	return nil
 }

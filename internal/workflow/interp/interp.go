@@ -88,21 +88,25 @@ type DefinitionStore interface {
 	Load(ctx context.Context, tenantID, versionID uuid.UUID) (*Version, error)
 }
 
-// RecordReader reads a record of tenant as encoding/json decodes it. It
-// returns ErrNotFound when tenant has no such record. Activity side only; the
-// real adapter reads in workerguard.InTenantTx.
+// RecordReader reads a record of tenant as encoding/json decodes it, with the
+// record's version at that read. It returns ErrNotFound when tenant has no
+// such record. NextStep hands the version to WaitTracker, so a wait is never
+// set on a record that changed after the walk read it. Activity side only;
+// the real adapter reads in workerguard.InTenantTx.
 type RecordReader interface {
-	Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[string]any, error)
+	Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[string]any, int64, error)
 }
 
 // RecordWriter applies an update_record step's set to a record of tenant,
 // once per idempotencyKey: a second call with the same key returns the first
 // result and changes nothing (D-3-13). The real adapter writes through the
-// records pipeline as the workflow actor (P3-43). Business rejections wrap
+// records pipeline as the workflow actor (P3-43). cause is StepRef.Cause, the
+// workflow_cause row the adapter takes the write's causation from; it is the
+// only causation input. Business rejections wrap
 // ErrValidation, ErrIllegalTransition or ErrForbidden; a missing record wraps
 // ErrNotFound.
 type RecordWriter interface {
-	Write(ctx context.Context, tenantID, recordID, stepID uuid.UUID, idempotencyKey string, set map[string]any) error
+	Write(ctx context.Context, tenantID, recordID, stepID, cause uuid.UUID, idempotencyKey string, set map[string]any) error
 }
 
 // Port errors. Adapters wrap them; the activities map each to a fixed
@@ -117,9 +121,12 @@ var (
 // WaitTracker records, for the run the activity belongs to, the
 // record_changed signal id it waits on, or nil when it waits on none
 // (workflow_ref.record_changed_signal_id). The run is the one the workflow id
-// names, never an argument. The real adapter is workerguard.WaitTracker.
+// names, never an argument. A non-nil signal is set only if the record is
+// still at version, the one the walk read; otherwise the adapter returns a
+// retryable error and NextStep re-walks. A nil signal clears the wait with no
+// check. The real adapter is workerguard.WaitTracker.
 type WaitTracker interface {
-	SetRecordChangedWait(ctx context.Context, tenantID uuid.UUID, signal *uuid.UUID) error
+	SetRecordChangedWait(ctx context.Context, tenantID, recordID uuid.UUID, signal *uuid.UUID, version int64) error
 }
 
 // IdempotencyKey is the key ApplyStep writes a step with (D-3-13). The
