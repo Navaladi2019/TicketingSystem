@@ -39,7 +39,7 @@ func publishTrigger(t *testing.T, e env, f tenantFixture, on string) (def, versi
 	def, version = workflowDefinition(t, e, f), uuid.New()
 	mustExec(t, e.super, `INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256,
 		step_ids, trigger_on, trigger_entity_definition_id, published_by)
-		SELECT $1, $2, $3, 1, $4::json, sha256(convert_to($4, 'UTF8')), '{}', $5, d.id, $6
+		SELECT $1, $2, $3, 1, $4::text::json, sha256(convert_to($4::text, 'UTF8')), '{}', $5, d.id, $6
 		FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $7`,
 		f.id, version, def, versionBody, on, f.principal.PrincipalID, entityKey)
 	return def, version

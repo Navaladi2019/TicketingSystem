@@ -360,11 +360,9 @@ func (w *write) writeCreateAtCommit(ctx context.Context, rec *store.Record, afte
 	for prop := range fixed {
 		delete(data, prop)
 	}
-	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
-		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef}
-	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
-		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
-	}
+	// No RecordChanged: this path runs only for a create the sink said it
+	// has nothing to do for (atCommit, sinkQuiet), and anything the sink
+	// sent would have to follow the INSERT queued here.
 	commit, ok := tenancy.QueueAtCommit(w.tx)
 	if !ok {
 		return Result{}, errors.New("pipeline: the transaction has no commit batch")

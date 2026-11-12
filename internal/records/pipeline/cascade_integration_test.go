@@ -11,6 +11,7 @@ package pipeline_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -58,11 +59,18 @@ func (s *startSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Ev
 		}
 		if _, err := outbox.EnqueueStart(ctx, tx, c, outbox.Entry{Kind: outbox.InterpreterKind, KindVersion: 1,
 			DedupeKey: "start:" + c.OutboxID().String(), RecordID: ev.RecordID,
-			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}}); err != nil {
+			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Payload: startPayload(ev.RecordID)}); err != nil {
 			return err
 		}
 	}
 	return s.failAfter
+}
+
+// startPayload is a start's payload: exactly the interpreter's allow-list
+// (outbox.ValidateKindPayload, AR-041). The version id names no row; nothing
+// here loads it.
+func startPayload(record uuid.UUID) json.RawMessage {
+	return json.RawMessage(`{"definition_version_id":"` + uuid.NewString() + `","record_id":"` + record.String() + `"}`)
 }
 
 func (s *startSink) last() pipeline.Event {
@@ -628,7 +636,7 @@ func TestCascadeStartGuards(t *testing.T) {
 	d := workflowDefinition(t, e, f)
 	start := func(record uuid.UUID, c outbox.Causation) outbox.Entry {
 		return outbox.Entry{Kind: outbox.InterpreterKind, KindVersion: 1, DedupeKey: "g-" + uuid.NewString(), RecordID: record,
-			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Causation: c}
+			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Causation: c, Payload: startPayload(record)}
 	}
 	inRollback := func(fn func(tx pgx.Tx) error) error {
 		err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
