@@ -717,6 +717,28 @@
         "TICK-336",
         "TICK-656"
       ]
+    },
+    {
+      "file": "20261112100000_group_members_group_live_fkey_recheck.sql",
+      "on_main": true,
+      "commit": "41275106",
+      "date": "2026-11-12",
+      "pr": "588",
+      "story": "",
+      "tickets": [
+        "TICK-715"
+      ]
+    },
+    {
+      "file": "20261112100100_records_assignment_group_fkey_recheck.sql",
+      "on_main": true,
+      "commit": "41275106",
+      "date": "2026-11-12",
+      "pr": "588",
+      "story": "",
+      "tickets": [
+        "TICK-715"
+      ]
     }
   ]
 }
