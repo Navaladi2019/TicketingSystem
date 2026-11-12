@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S16: An auditor exports a filtered audit log and proves it complete - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li class="current"><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S16: An auditor exports a filtered audit log and proves it complete</span></nav>
+<article>
+<h1 class="page-title">S16: An auditor exports a filtered audit log and proves it complete</h1>
+<p>Story TICK-421 (kit TICK-448). Verdict <strong>READY</strong>, 2026-11-08, recorded in the
+<a href="../../../docs/acceptance/S16/README.md">acceptance kit</a>. All five criteria and the
+isolation check pass.</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<ul>
+<li>Download the tenant's audit log as JSONL or CSV, all of it or filtered by time
+window, subject or domain, and check it offline with <code>nava audit verify</code>
+(see <a href="../stories/s13.html">S13</a>).</li>
+<li>Get <code>ok</code> when nothing in the range was removed or changed, and <code>tampered</code>
+naming the line when even one byte was.</li>
+<li>Open the CSV in a spreadsheet without any cell running as a formula.</li>
+<li>Run one export per tenant at a time (<code>409 export_in_progress</code> for a second),
+and find every export recorded in the audit log.</li>
+<li>Be refused a chain reseed while sealing is alive (<code>409 chain_alive</code>).
+Callers without <code>audit.export</code> get <code>403</code>.</li>
+</ul>
+<h2 id="flow">Flow</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TD
+  aud[Auditor with audit.export] --&gt; x[&quot;GET audit entries:export, JSONL or CSV&quot;]
+  x --&gt; lease{&quot;Another export running?&quot;}
+  lease -- yes --&gt; c409[&quot;409 export_in_progress&quot;]
+  lease -- no --&gt; file[&quot;File: matching entries in full, others as stubs&quot;]
+  x --&gt; rec[&quot;An audit export entry is written&quot;]
+  file --&gt; v[&quot;nava audit verify, offline&quot;]
+  aud --&gt; rs[&quot;POST chain:reseed&quot;] --&gt; alive[&quot;409 chain_alive while sealing runs&quot;]
+</pre></div></figure>
+<h2 id="api-operations">API operations</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Method and path</th>
+<th>Summary</th>
+<th>Responses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exportAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries:export</code></td>
+<td>Download a verifiable JSONL export of the audit log</td>
+<td>200, 400, 401, 403, 409, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>reseedAuditChain</code></td>
+<td><code>POST /api/v1/audit/chain:reseed</code></td>
+<td>Restart a dead audit seal lineage</td>
+<td>200, 400, 401, 403, 404, 409, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>listAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries</code></td>
+<td>The tenant's audit timeline</td>
+<td>200, 400, 401, 403, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>createRecord</code></td>
+<td><code>POST /api/v1/records/{entity}</code></td>
+<td>Create a record of an entity type</td>
+<td>201, 400, 401, 403, 404, 409, 422, 429, 500, 501, 503</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-to-try-it">How to try it</h2>
+<ol>
+<li><code>sh docs/acceptance/S15/tools/upgrade-setup.sh</code> (the same upgraded stack as S15).</li>
+<li><code>sh docs/acceptance/S16/tools/run-kit.sh</code>: builds <code>bin/nava</code>, runs the Bruno
+folder <code>S16</code> (21 requests) and the saved-file checks. In Bruno, save the body
+of <code>S16-6</code> (JSONL) or <code>S16-20</code> (CSV) and run <code>bin/nava audit verify &lt;file&gt;</code>.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Bruno request file</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exportAuditEntries</code></td>
+<td><code>S16/S16-6.bru</code> (filtered to one incident), <code>S16/S16-7.bru</code> (whole log), <code>S16/S16-8.bru</code>, <code>S16/S16-9.bru</code> (filters, <code>stubs=false</code>), <code>S16/S16-20.bru</code> (CSV), <code>S16/S16-12.bru</code> (Bob: 403), <code>S16/S16-14.bru</code> to <code>S16/S16-16.bru</code>, <code>S16/S16-21.bru</code> (401, 403, 400s)</td>
+</tr>
+<tr>
+<td><code>reseedAuditChain</code></td>
+<td><code>S16/S16-11.bru</code> (409 chain_alive), <code>S16/S16-13.bru</code> (Bob: 403), <code>S16/S16-17.bru</code> to <code>S16/S16-19.bru</code> (403, 401, 400)</td>
+</tr>
+<tr>
+<td><code>listAuditEntries</code></td>
+<td><code>S16/S16-5.bru</code> (the incident is sealed), <code>S16/S16-10.bru</code> (the export is in the log)</td>
+</tr>
+<tr>
+<td><code>createRecord</code></td>
+<td><code>S16/S16-4.bru</code> (Alice's incident)</td>
+</tr>
+</tbody>
+</table>
+<p><code>S16/S16-1.bru</code> to <code>S16/S16-3.bru</code> sign in.</p>
+<h2 id="verdict-and-evidence">Verdict and evidence</h2>
+<ul>
+<li>Verdict: READY, 2026-11-08, five of five criteria pass.</li>
+<li>Recorded run used: the kit's committed evidence in <code>docs/acceptance/S16/evidence/</code>
+(Bruno 21 requests and 65 tests; kit checks 33 of 33), listed in the
+<a href="../../../docs/acceptance/S16/README.md">kit</a>. AC5 (an erased entry still verifies)
+is evidenced by a CI job, not on the stack: there is no erasure API until
+Epic 30. That run is not linked here, because handbook evidence points to
+committed files only. Not re-run for this page.</li>
+<li>Known limit: a dead-lineage reseed is covered by integration tests, not on the stack.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation exportAuditEntries</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+<h3>Operation listAuditEntries</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
+<h3>Operation reseedAuditChain</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

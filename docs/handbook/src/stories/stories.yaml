@@ -2,9 +2,10 @@
 #
 # stories: one entry per story.
 #   id, issue (TICK-nn), title, status (delivered | in-progress | planned)
-#   verdict + date (ISO): required when delivered. The verdict is the one the
-#     acceptance kit records (READY = the Quality, Testing & CI Advisor ran
-#     every criterion and all pass); verdict_comment is link text only.
+#   verdict + date (ISO): required when delivered. verdict normalised to READY
+#     from the kit's result or the story's ACCEPTED comment; date from the kit's
+#     verified line, else the commit that recorded the run. verdict_comment is
+#     link text only.
 #   bruno: folder names under docs/acceptance/guide/bruno/ (list; a bare string is accepted)
 #   evidence: repo paths, at least one when delivered. Committed files only,
 #     never a GitHub Actions run URL.
@@ -139,7 +140,7 @@ stories:
     status: delivered
     verdict: READY
     date: 2026-11-02
-    verdict_comment: "Acceptance kit S13/README.md"
+    verdict_comment: "TICK-418 VERDICT: ACCEPTED"
     evidence:
       - docs/acceptance/S13/README.md
   - id: S14

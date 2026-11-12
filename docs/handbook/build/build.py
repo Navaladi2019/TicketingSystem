@@ -16,6 +16,7 @@ pinned in docs/pins.md. See docs/handbook/README.md.
 """
 
 import argparse
+import datetime
 import hashlib
 import html
 import json
@@ -617,6 +618,12 @@ class Facts:
             raise ValueError("\n".join(errs))
 
     def load_stories(self):
+        def valid_date(d):
+            try:
+                return isinstance(d, str) and bool(re.match(r"^\d{4}-\d{2}-\d{2}$", d)) and bool(datetime.date.fromisoformat(d))
+            except ValueError:
+                return False
+
         p = self.path(HANDBOOK, "src", "stories", "stories.yaml")
         if not os.path.exists(p):
             return
@@ -632,8 +639,8 @@ class Facts:
         allowed = {"id", "issue", "title", "status", "verdict", "date", "verdict_comment", "bruno", "evidence"}
         errs = []
 
-        def repo_path(what, rel, folder_ok=False):
-            if not rel or os.path.isabs(rel) or ".." in rel.split("/"):
+        def repo_path(what, rel):
+            if not isinstance(rel, str) or not rel or os.path.isabs(rel) or ".." in rel.split("/"):
                 errs.append("stories.yaml: %s %r is not a path inside the repository" % (what, rel))
             elif not os.path.exists(self.path(*rel.split("/"))):
                 errs.append("stories.yaml: %s %r does not exist" % (what, rel))
@@ -662,6 +669,13 @@ class Facts:
                 if isinstance(bruno, str):
                     bruno = [bruno]
                 s["evidence"], s["bruno"] = evidence, bruno
+                if not isinstance(evidence, list) or any(not isinstance(x, str) for x in evidence):
+                    errs.append("stories.yaml: story %s evidence must be a list of repo paths" % sid)
+                    evidence = []
+                if not isinstance(bruno, list) or any(not isinstance(x, str) for x in bruno):
+                    errs.append("stories.yaml: story %s bruno must be a list of folder names" % sid)
+                    bruno = []
+                s["evidence"], s["bruno"] = evidence, bruno
                 for ev in evidence:
                     repo_path("story %s evidence" % sid, ev)
                 for br in bruno:
@@ -674,9 +688,9 @@ class Facts:
                         errs.append("stories.yaml: delivered story %s needs a verdict" % sid)
                     if not evidence:
                         errs.append("stories.yaml: delivered story %s needs at least one evidence path" % sid)
-                    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s.get("date", "")):
+                    if not valid_date(s.get("date", "")):
                         errs.append("stories.yaml: delivered story %s needs an ISO date (YYYY-MM-DD)" % sid)
-                elif s.get("date") and not re.match(r"^\d{4}-\d{2}-\d{2}$", s["date"]):
+                elif s.get("date") and not valid_date(s["date"]):
                     errs.append("stories.yaml: story %s date %r is not an ISO date" % (sid, s["date"]))
         un = doc.get("unassigned", [])
         if un == "":
@@ -1565,11 +1579,18 @@ def capture_migrations(root, git=None):
 
 
 def gen_stories(f):
-    rows = ["| Story | Issue | Title | Status | Verdict | Date |", "|---|---|---|---|---|---|"]
-    for st in f.story_list:
-        rows.append("| %s | %s | %s | %s | %s | %s |" % tuple(
-            cell(st.get(k, "")) or "-" for k in ("id", "issue", "title", "status", "verdict", "date")))
-    out = "\n".join(rows) + "\n"
+    def table(items):
+        rows = ["| Story | Issue | Title | Status | Verdict | Date |", "|---|---|---|---|---|---|"]
+        for st in items:
+            rows.append("| %s | %s | %s | %s | %s | %s |" % tuple(
+                cell(st.get(k, "")) or "-" for k in ("id", "issue", "title", "status", "verdict", "date")))
+        return "\n".join(rows) + "\n"
+    done = [st for st in f.story_list if st["status"] == "delivered"]
+    todo = [st for st in f.story_list if st["status"] != "delivered"]
+    out = "**Delivered (on `main`)**\n\n" + table(done)
+    if todo:
+        out += ("\n**Not delivered: in progress or planned.** These are not on `main` and "
+                "have no handbook page.\n\n" + table(todo))
     if f.unassigned:
         out += "\nKits and folders that belong to no single story:\n\n| Path | Reason |\n|---|---|\n"
         for u in f.unassigned:
