@@ -668,7 +668,6 @@ class Facts:
                     evidence = [evidence]
                 if isinstance(bruno, str):
                     bruno = [bruno]
-                s["evidence"], s["bruno"] = evidence, bruno
                 if not isinstance(evidence, list) or any(not isinstance(x, str) for x in evidence):
                     errs.append("stories.yaml: story %s evidence must be a list of repo paths" % sid)
                     evidence = []
