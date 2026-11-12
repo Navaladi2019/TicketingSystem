@@ -82,7 +82,7 @@ func (h *handlers) GetWorkflowDefinition(ctx context.Context, req api.GetWorkflo
 		if err = authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
 			return err
 		}
-		v, err = h.workflows.GetCurrent(ctx, tx, req.Key)
+		v, err = h.workflows.GetCurrent(ctx, tx, p.TenantID, req.Key)
 		return err
 	})
 	switch {

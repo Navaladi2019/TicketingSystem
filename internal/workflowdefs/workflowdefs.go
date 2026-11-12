@@ -145,11 +145,11 @@ func scanVersion(row pgx.Row) (*Version, error) {
 }
 
 // GetCurrent returns the current version of the definition, or ErrNotFound.
-func (Store) GetCurrent(ctx context.Context, tx pgx.Tx, key string) (*Version, error) {
+func (Store) GetCurrent(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) (*Version, error) {
 	if !KeyPattern.MatchString(key) {
 		return nil, ErrNotFound // cannot exist, and must not reach the database
 	}
-	return scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE d.key = $1 AND v.version = d.current_version`, key))
+	return scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE d.tenant_id = $1 AND d.key = $2 AND v.version = d.current_version`, tenantID, key))
 }
 
 // Publish writes the next version of the definition named key and makes it
@@ -206,7 +206,7 @@ ON CONFLICT (tenant_id, key) DO NOTHING`, tenantID, uuid.New(), in.Key, entityID
 		defEntry uuid.UUID
 	)
 	if err := tx.QueryRow(ctx, `
-SELECT id, entity_definition_id FROM workflow_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &defEntry); err != nil {
+SELECT id, entity_definition_id FROM workflow_definitions WHERE tenant_id = $1 AND key = $2 FOR UPDATE`, tenantID, in.Key).Scan(&defID, &defEntry); err != nil {
 		return nil, fmt.Errorf("workflowdefs: lock definition: %w", err)
 	}
 	if defEntry != entityID {
@@ -255,7 +255,7 @@ UPDATE workflow_definitions SET current_version = $1, updated_at = now() WHERE i
 	if err := auditVersion(ctx, tx, defID, number, prevRaw, sum, in.PublishedBy); err != nil {
 		return nil, err
 	}
-	return scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE d.key = $1 AND v.version = $2`, in.Key, number))
+	return scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE d.tenant_id = $1 AND d.key = $2 AND v.version = $3`, tenantID, in.Key, number))
 }
 
 // entityID is the id of the tenant's entity type key; an unknown key is a 422

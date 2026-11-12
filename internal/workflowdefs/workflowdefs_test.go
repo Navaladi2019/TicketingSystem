@@ -21,7 +21,7 @@ func TestPublishRefusesBeforeTouchingTheDatabase(t *testing.T) {
 	if !errors.As(err, &inv) || len(inv.Fields) != 1 || inv.Fields[0].Pointer != "/key" || inv.Fields[0].Rule != RuleKey {
 		t.Errorf("bad key: err = %v, want InvalidError at /key", err)
 	}
-	if _, err := (Store{}).GetCurrent(context.Background(), nil, "Bad Key"); !errors.Is(err, ErrNotFound) {
+	if _, err := (Store{}).GetCurrent(context.Background(), nil, uuid.New(), "Bad Key"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetCurrent with a malformed key: err = %v, want ErrNotFound", err)
 	}
 }

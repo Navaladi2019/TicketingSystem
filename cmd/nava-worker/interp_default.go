@@ -21,7 +21,14 @@ import (
 // RecordWriter do not exist yet (P3-43): until they do, a step that needs one
 // fails with a retryable error instead of reading or writing anything.
 // TODO(TODO-TICK-367-01): wire the real RecordReader and RecordWriter here when P3-43 lands.
-func interpreterActivities(_ config.LookupFunc, pool *pgxpool.Pool) (*interp.Activities, error) {
+//
+// With workflows off (WorkflowsEnv=off, the activity-only worker) it returns
+// nil, nil: that worker polls no workflow tasks and registers no interpreter,
+// and must still start. The interptest build errors instead (newWorker).
+func interpreterActivities(_ config.LookupFunc, pool *pgxpool.Pool, workflows bool) (*interp.Activities, error) {
+	if !workflows {
+		return nil, nil //nolint:nilnil // nil Activities is "not registered", not an error
+	}
 	if pool == nil {
 		return nil, errors.New("config: the interpreter needs the database pool")
 	}

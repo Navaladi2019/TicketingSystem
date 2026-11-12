@@ -124,10 +124,10 @@ func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) 
 
 // newWorker builds the guarded client and worker, the workflow_ref and sealer
 // activities' pool and the readiness checks, registers the audit sealer, and
-// registers the interpreter when
-// interpreterActivities returns its ports (the database DefinitionStore in a
-// production build, the fixtures in an interptest build). The
-// returned func closes the client and the pools; call it after the worker has
+// registers the interpreter when workflows are on: interpreterActivities
+// returns its ports (the database DefinitionStore in a production build, the
+// fixtures in an interptest build), and nothing with workflows off (an
+// interptest build refuses that combination below). The returned func closes the client and the pools; call it after the worker has
 // stopped.
 func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, lookup config.LookupFunc, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
 	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
@@ -171,7 +171,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	}
 	closeAll := func() { closePG(); pool.Close(); c.Close() }
 
-	acts, err := interpreterActivities(lookup, pool)
+	acts, err := interpreterActivities(lookup, pool, workflows)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, err

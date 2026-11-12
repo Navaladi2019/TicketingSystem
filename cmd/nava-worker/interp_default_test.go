@@ -17,7 +17,7 @@ import (
 // record ports refuse until P3-43 (they never read or write anything).
 func TestProductionBuildWiresTheDatabaseDefinitionStore(t *testing.T) {
 	pool := &pgxpool.Pool{}
-	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool)
+	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool, true)
 	if err != nil || acts == nil {
 		t.Fatalf("interpreterActivities = (%v, %v), want the interpreter's ports", acts, err)
 	}
@@ -39,7 +39,19 @@ func TestProductionBuildWiresTheDatabaseDefinitionStore(t *testing.T) {
 }
 
 func TestProductionBuildInterpreterNeedsAPool(t *testing.T) {
-	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil); err == nil {
+	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil, true); err == nil {
 		t.Error("interpreterActivities with no pool returned no error")
+	}
+}
+
+// The activity-only worker (WorkflowsEnv=off) polls no workflow tasks, so it
+// registers no interpreter and must still start: no ports, no error, with or
+// without a pool.
+func TestProductionBuildWithWorkflowsOffRegistersNoInterpreter(t *testing.T) {
+	for _, pool := range []*pgxpool.Pool{nil, {}} {
+		acts, err := interpreterActivities(func(string) (string, bool) { return "", false }, pool, false)
+		if err != nil || acts != nil {
+			t.Fatalf("interpreterActivities(workflows off) = (%v, %v), want (nil, nil)", acts, err)
+		}
 	}
 }
