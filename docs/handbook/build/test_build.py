@@ -159,6 +159,28 @@ func RegisterWorkflow(r worker.WorkflowRegistry) {
 	r.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})
 }
 """,
+    "cmd/nava-worker/main.go": """package main
+
+func run() {
+	w := worker.New(c, taskQueue, opts)
+	(&workerguard.Activities{Pool: pool}).Register(w)
+	registerSealer(w, &seal.Activities{Pool: pool}, true)
+}
+
+func registerSealer(w worker.Registry, acts *seal.Activities, workflows bool) {
+	if workflows {
+		seal.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+""",
+    "cmd/nava-worker/interp.go": """package main
+
+func registerInterpreter(w worker.Registry, acts *interp.Activities) {
+	interp.RegisterWorkflow(w)
+	acts.Register(w)
+}
+""",
     "internal/workflow/interp/activities.go": """package interp
 
 func (a *Activities) Register(r worker.ActivityRegistry) {
@@ -412,6 +434,14 @@ class TestReferences(Base):
         self.fails("names line 99, but internal/audit/seal/workflow.go has")
         page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/nope.go:1]\n")
         self.fails("sources 'internal/nope.go' does not exist")
+
+    def test_go_registry_fails_on_a_worker_registration_it_does_not_parse(self):
+        write(self.root, "cmd/nava-worker/extra.go",
+              "package main\n\nfunc registerPurge(w worker.Registry) {\n\tpurge.RegisterWorkflow(w)\n"
+              "\t(&purge.Activities{Pool: pool}).Register(w)\n\tthing.Register(w)\n}\n")
+        self.fails("cmd/nava-worker/extra.go:4: purge.RegisterWorkflow(...) is not one of the Register functions",
+                   "cmd/nava-worker/extra.go:5: (&purge.Activities{Pool: pool}).Register(...) is not one of",
+                   "cmd/nava-worker/extra.go:6: thing.Register(...): cannot tell the receiver's type")
 
     def test_build_front_matter(self):
         page(self.root, "workflows/a.md", "A", "workflows", front="build: staging\n")

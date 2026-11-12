@@ -311,6 +311,27 @@ GO_REGISTER_FUNCS = [
     ("interp", "func (a *Activities) Register(", "activity"),
     ("workerguard", "func (a *Activities) Register(", "activity"),
 ]
+# The worker's package main, scanned so no registration bypasses GO_REGISTER_FUNCS.
+GO_WORKER_DIR = "cmd/nava-worker"
+GO_WORKER_CALL = re.compile(r"(\(&[\w.]+\{[^{}]*\}\)|[A-Za-z_][\w.]*)\.(Register|RegisterWorkflow)\(\s*\w+\s*\)")
+
+
+def worker_receiver_package(text, pos, recv):
+    """The package alias of a Register call's receiver type: (&pkg.T{...}),
+    or a variable declared as `name *pkg.T`, `name := &pkg.T{` or
+    `name := pkg.T{` in the enclosing function. None if it cannot tell."""
+    m = re.match(r"^\(&(\w+)\.Activities\{", recv)
+    if m:
+        return m.group(1)
+    if not re.match(r"^\w+$", recv):
+        return None
+    start = text.rfind("\nfunc ", 0, pos)
+    scope = text[start if start >= 0 else 0:pos]
+    m = (re.search(r"\b%s\s+\*?(\w+)\.Activities\b" % re.escape(recv), scope)
+         or re.search(r"\b%s\s*:?=\s*&?(\w+)\.Activities\{" % re.escape(recv), scope))
+    return m.group(1) if m else None
+
+
 GO_REGISTER_CALL = re.compile(
     r"Register(Workflow|Activity)WithOptions\(\s*[\w.]+\s*,\s*\w+\.RegisterOptions\{\s*Name:\s*([^},]+?)\s*,?\s*\}\s*\)")
 GO_CONST_IN_BLOCK = re.compile(r"^\s*([A-Za-z_]\w*)(?:\s+[\w.]+)?\s*=\s*(.+?)\s*(?://.*)?$")
@@ -403,6 +424,42 @@ class GoRegistry:
             return rel, text[i:end]
         raise ValueError("workflow registry: %s has no %s...) function" % (GO_PACKAGES[alias], sig))
 
+    def check_worker_calls(self):
+        """Every .Register(w) / RegisterWorkflow(w) call in the worker's package
+        main must go through a function of GO_REGISTER_FUNCS, so a registration
+        added there cannot bypass the parsed names. Returns the problems."""
+        known = {(alias, "workflow" if "RegisterWorkflow" in sig else "activity") for alias, sig, _w in GO_REGISTER_FUNCS}
+        d = os.path.join(self.root, *GO_WORKER_DIR.split("/"))
+        if not os.path.isdir(d):
+            return ["workflow registry: %s is not a directory" % GO_WORKER_DIR]
+        problems, found = [], 0
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".go") or name.endswith("_test.go"):
+                continue
+            rel = GO_WORKER_DIR + "/" + name
+            text = read_text(os.path.join(d, name))
+            for m in GO_WORKER_CALL.finditer(text):
+                found += 1
+                line = text.count("\n", 0, m.start()) + 1
+                recv, fn = m.group(1), m.group(2)
+                where = "%s:%d: %s.%s(...)" % (rel, line, recv, fn)
+                if fn == "RegisterWorkflow":
+                    key = (recv, "workflow")
+                else:
+                    pkg = worker_receiver_package(text, m.start(), recv)
+                    if pkg is None:
+                        problems.append("workflow registry: %s: cannot tell the receiver's type; register through "
+                                        "a function the handbook build parses" % where)
+                        continue
+                    key = (pkg, "activity")
+                if key not in known:
+                    problems.append("workflow registry: %s is not one of the Register functions the handbook build "
+                                    "parses (GO_REGISTER_FUNCS)" % where)
+        if not found:
+            problems.append("workflow registry: %s: no .Register(w) or RegisterWorkflow(w) call found; "
+                            "the parser no longer matches the code" % GO_WORKER_DIR)
+        return problems
+
     def load(self):
         rel = GO_KIND_FILE
         try:
@@ -424,7 +481,7 @@ class GoRegistry:
                 if kind.lower() != what:
                     raise ValueError("workflow registry: %s: %s...) registers a %s" % (frel, sig, kind.lower()))
                 registered[what].add(self.resolve(alias, expr))
-        problems = []
+        problems = self.check_worker_calls()
         for wf in sorted(registered["workflow"] - set(self.kinds)):
             problems.append("workflow registry: workflow type %r is registered but is not a kind in %s" % (wf, rel))
         for k in sorted(set(self.kinds) - registered["workflow"]):

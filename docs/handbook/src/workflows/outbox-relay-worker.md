@@ -17,8 +17,12 @@ sources:
   - internal/outbox/outbox.go:139-143
   - internal/outbox/outbox.go:204
   - internal/outbox/outbox.go:338
+  - internal/outbox/outbox.go:318-319
+  - internal/outbox/outbox.go:528-531
   - internal/records/pipeline/pipeline.go:212-227
   - internal/server/api.go:111
+  - cmd/demo-interpreter/main.go:192,221
+  - cmd/demo-outbox/main.go:290,293
   - internal/records/cascade/cascade.go:117
   - internal/audit/seal/seal.go:140
   - internal/onboard/store.go:255-266
@@ -112,15 +116,15 @@ sequenceDiagram
 
 | Producer | Writes | Through | Source |
 |---|---|---|---|
-| Record write pipeline `EventSink` | `nava.interpreter` start | `cascade.ClaimStart` claims the start key, then `outbox.EnqueueStart`; a repeat claim enqueues nothing and writes `AuditSuppressed` (A5-4) | `internal/records/pipeline/pipeline.go:212-227`, `internal/records/cascade/cascade.go:117`, `internal/outbox/outbox.go:204` |
-| Interpreter signals from a record write | signal to an open `nava.interpreter` | `outbox.EnqueueAtVersion` at the version the write gave the record | `internal/records/pipeline/pipeline.go:217` |
+| Record write pipeline `EventSink` (**EventSink contract; not wired on `main` (`NoopSink`), S11b in progress**) | `nava.interpreter` start | `cascade.ClaimStart` claims the start key, then `outbox.EnqueueStart`; a repeat claim enqueues nothing and writes `AuditSuppressed` (A5-4) | `internal/records/pipeline/pipeline.go:212-227`, `internal/records/cascade/cascade.go:117`, `internal/outbox/outbox.go:204` |
+| Interpreter signals from a record write (**EventSink contract; not wired on `main` (`NoopSink`), S11b in progress**) | signal to an open `nava.interpreter` | `outbox.EnqueueAtVersion` at the version the write gave the record | `internal/records/pipeline/pipeline.go:217` |
 | Sealer A1 (`audit.seal.Reschedule`) | next `audit.seal` start | `outbox.EnqueueSeal` with `WithDelay` (10 s with pending work, else the stored interval, up to 300 s) | `internal/audit/seal/seal.go:140`, `internal/outbox/outbox.go:338` |
 | `chain:reseed` | a new `audit.seal` lineage | `outbox.EnqueueReseed`, its own dedupe key | `internal/audit/reseed/reseed.go:72` |
 | Onboarding (`nava-onboard`) | the tenant's first `audit.seal` start | a plain `INSERT` with the same column list as `EnqueueSeal` | `internal/onboard/store.go:255-266` |
 
 **Onboarding writes the row directly.** `nava_onboard` has INSERT only, so `outbox.EnqueueSeal`, which locks the head and reads back, is not usable. The row is the same row, written with a plain `INSERT`, no `RETURNING` and no conflict clause. The head insert is the idempotency record: if the head already exists, nothing else is written. `TestSealInsertMatchesOutbox` keeps the column lists equal.
 
-**On `main` no production sink starts the interpreter yet.** `nava-core` builds the pipeline with `pipeline.NoopSink{}` (`internal/server/api.go:111`); S11b replaces it (P3-42) and is in progress on its story branch. Today only `cmd/demo-outbox` and `cmd/demo-interpreter` call `EnqueueStart`.
+**On `main` no production sink starts the interpreter yet.** `nava-core` builds the pipeline with `pipeline.NoopSink{}` (`internal/server/api.go:111`); S11b replaces it (P3-42) and is in progress on its story branch. Today only `cmd/demo-outbox` and `cmd/demo-interpreter` call `EnqueueStart` (`cmd/demo-interpreter/main.go:221`, `cmd/demo-outbox/main.go:290`), and they are also the only callers of `EnqueueAtVersion` (`cmd/demo-interpreter/main.go:192`, `cmd/demo-outbox/main.go:293`).
 
 ## Workflow ID and start options
 
@@ -154,7 +158,7 @@ A row reached after its dispatch deadline is backed off without a call, so a lat
 | Rows claimed per tenant per poll | 2 (`PerTenant`) | `internal/relay/relay.go:33` |
 | Pending rows scanned per tenant per poll | 200 (`ScanCap`) | `internal/relay/relay.go:35` |
 | Lease | 30 s | `internal/relay/relay.go:115` |
-| Dispatch deadline | lease / 2 after the claim | `internal/relay/dispatch.go:188` |
+| Dispatch deadline | lease / 2 from the start of the poll | `internal/relay/dispatch.go:188` |
 | Rows dispatched at once per poll | 8 | `internal/relay/dispatch.go:124` |
 | Settle timeout (runs even during shutdown) | 5 s | `internal/relay/dispatch.go:83` |
 | Backoff | 1 s, doubled per attempt, capped at 5 min | `internal/relay/relay.go:118,121` |
@@ -179,7 +183,7 @@ A row reached after its dispatch deadline is backed off without a call, so a lat
 - **Activity**: a missing or different header fails it non-retryably; otherwise the tenant is put on the context for `InTenantTx` (`guard.go:604`). Proof: `TestActivityGuard`.
 - **Arguments and results**: every activity, child and continue-as-new argument must be references only (CI-7), and a result that is not fails. Proof: `TestContinueAsNewArgsGuard`.
 - **Continue-as-new, checked twice.** `NewContinueAsNewError` checks the header and input when the command is built (`guard.go:352-366`). `ContinueAsNewError` is plain data, so workflow code could change it afterwards; `ExecuteWorkflow` checks it again on the way out, and the input must be one the first check saw (`guard.go:161-178`). Proof: `TestAdversarialContinueAsNewInputRewrittenAfterGuard`, `TestAdversarialContinueAsNewHeaderRewrittenAfterGuard`.
-- **`nava.workflow_ref.Close`** (`workflowref.go:34`, registered at `workflowref.go:52-54`): a relay-started workflow calls it last. It finds its `workflow_ref` row from the workflow ID, never from an argument, runs in `InTenantTx` with the header tenant and keeps the first `closed_at`, so a retry is a no-op. Start-to-close 30 s, SDK default retries (`workflowref.go:105-110`). Proof: `TestCompletedWorkflowClosesItsWorkflowRef`, `TestWorkflowRefCloseIsTenantScoped`, `TestWorkflowRefCloseWithWrongHeaderTouchesNothing`.
+- **`nava.workflow_ref.Close`** (`workflowref.go:34`, registered at `workflowref.go:52-54`): a workflow whose start row has a `workflow_ref` row calls it last. On `main` that is `nava.interpreter`, whose start row's `workflow_ref` is written by `EnqueueStart` (`outbox.go:528-531`). `audit.seal` has no `workflow_ref` row (`outbox.go:318-319`) and never calls it. It finds its `workflow_ref` row from the workflow ID, never from an argument, runs in `InTenantTx` with the header tenant and keeps the first `closed_at`, so a retry is a no-op. Start-to-close 30 s, SDK default retries (`workflowref.go:105-110`). Proof: `TestCompletedWorkflowClosesItsWorkflowRef`, `TestWorkflowRefCloseIsTenantScoped`, `TestWorkflowRefCloseWithWrongHeaderTouchesNothing`.
 
 ## Versioning
 

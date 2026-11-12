@@ -105,13 +105,13 @@
 </thead>
 <tbody>
 <tr>
-<td>Record write pipeline <code>EventSink</code></td>
+<td>Record write pipeline <code>EventSink</code> (<strong>EventSink contract; not wired on <code>main</code> (<code>NoopSink</code>), S11b in progress</strong>)</td>
 <td><code>nava.interpreter</code> start</td>
 <td><code>cascade.ClaimStart</code> claims the start key, then <code>outbox.EnqueueStart</code>; a repeat claim enqueues nothing and writes <code>AuditSuppressed</code> (A5-4)</td>
 <td><code>internal/records/pipeline/pipeline.go:212-227</code>, <code>internal/records/cascade/cascade.go:117</code>, <code>internal/outbox/outbox.go:204</code></td>
 </tr>
 <tr>
-<td>Interpreter signals from a record write</td>
+<td>Interpreter signals from a record write (<strong>EventSink contract; not wired on <code>main</code> (<code>NoopSink</code>), S11b in progress</strong>)</td>
 <td>signal to an open <code>nava.interpreter</code></td>
 <td><code>outbox.EnqueueAtVersion</code> at the version the write gave the record</td>
 <td><code>internal/records/pipeline/pipeline.go:217</code></td>
@@ -137,7 +137,7 @@
 </tbody>
 </table>
 <p><strong>Onboarding writes the row directly.</strong> <code>nava_onboard</code> has INSERT only, so <code>outbox.EnqueueSeal</code>, which locks the head and reads back, is not usable. The row is the same row, written with a plain <code>INSERT</code>, no <code>RETURNING</code> and no conflict clause. The head insert is the idempotency record: if the head already exists, nothing else is written. <code>TestSealInsertMatchesOutbox</code> keeps the column lists equal.</p>
-<p><strong>On <code>main</code> no production sink starts the interpreter yet.</strong> <code>nava-core</code> builds the pipeline with <code>pipeline.NoopSink{}</code> (<code>internal/server/api.go:111</code>); S11b replaces it (P3-42) and is in progress on its story branch. Today only <code>cmd/demo-outbox</code> and <code>cmd/demo-interpreter</code> call <code>EnqueueStart</code>.</p>
+<p><strong>On <code>main</code> no production sink starts the interpreter yet.</strong> <code>nava-core</code> builds the pipeline with <code>pipeline.NoopSink{}</code> (<code>internal/server/api.go:111</code>); S11b replaces it (P3-42) and is in progress on its story branch. Today only <code>cmd/demo-outbox</code> and <code>cmd/demo-interpreter</code> call <code>EnqueueStart</code> (<code>cmd/demo-interpreter/main.go:221</code>, <code>cmd/demo-outbox/main.go:290</code>), and they are also the only callers of <code>EnqueueAtVersion</code> (<code>cmd/demo-interpreter/main.go:192</code>, <code>cmd/demo-outbox/main.go:293</code>).</p>
 <h2 id="workflow-id-and-start-options">Workflow ID and start options</h2>
 <ul>
 <li><strong>Workflow ID</strong> <code>t:&lt;tenant_id&gt;:&lt;target_key&gt;</code>, where a start row's <code>target_key</code> is <code>&lt;kind&gt;:&lt;its own outbox id&gt;</code> (<code>dispatch.go:336-348</code>). The relay accepts only a <code>target_key</code> of <code>&lt;kind&gt;:&lt;canonical uuid&gt;</code> with a kind matching <code>^[a-z][a-z0-9._-]{0,99}$</code>, so the ID carries no free text and no PII. Proof: <code>TestWorkflowID</code>, <code>TestInvalidTargetKeyIsDead</code>.</li>
@@ -226,7 +226,7 @@
 </tr>
 <tr>
 <td>Dispatch deadline</td>
-<td>lease / 2 after the claim</td>
+<td>lease / 2 from the start of the poll</td>
 <td><code>internal/relay/dispatch.go:188</code></td>
 </tr>
 <tr>
@@ -301,7 +301,7 @@
 <li><strong>Activity</strong>: a missing or different header fails it non-retryably; otherwise the tenant is put on the context for <code>InTenantTx</code> (<code>guard.go:604</code>). Proof: <code>TestActivityGuard</code>.</li>
 <li><strong>Arguments and results</strong>: every activity, child and continue-as-new argument must be references only (CI-7), and a result that is not fails. Proof: <code>TestContinueAsNewArgsGuard</code>.</li>
 <li><strong>Continue-as-new, checked twice.</strong> <code>NewContinueAsNewError</code> checks the header and input when the command is built (<code>guard.go:352-366</code>). <code>ContinueAsNewError</code> is plain data, so workflow code could change it afterwards; <code>ExecuteWorkflow</code> checks it again on the way out, and the input must be one the first check saw (<code>guard.go:161-178</code>). Proof: <code>TestAdversarialContinueAsNewInputRewrittenAfterGuard</code>, <code>TestAdversarialContinueAsNewHeaderRewrittenAfterGuard</code>.</li>
-<li><strong><code>nava.workflow_ref.Close</code></strong> (<code>workflowref.go:34</code>, registered at <code>workflowref.go:52-54</code>): a relay-started workflow calls it last. It finds its <code>workflow_ref</code> row from the workflow ID, never from an argument, runs in <code>InTenantTx</code> with the header tenant and keeps the first <code>closed_at</code>, so a retry is a no-op. Start-to-close 30 s, SDK default retries (<code>workflowref.go:105-110</code>). Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>, <code>TestWorkflowRefCloseIsTenantScoped</code>, <code>TestWorkflowRefCloseWithWrongHeaderTouchesNothing</code>.</li>
+<li><strong><code>nava.workflow_ref.Close</code></strong> (<code>workflowref.go:34</code>, registered at <code>workflowref.go:52-54</code>): a workflow whose start row has a <code>workflow_ref</code> row calls it last. On <code>main</code> that is <code>nava.interpreter</code>, whose start row's <code>workflow_ref</code> is written by <code>EnqueueStart</code> (<code>outbox.go:528-531</code>). <code>audit.seal</code> has no <code>workflow_ref</code> row (<code>outbox.go:318-319</code>) and never calls it. It finds its <code>workflow_ref</code> row from the workflow ID, never from an argument, runs in <code>InTenantTx</code> with the header tenant and keeps the first <code>closed_at</code>, so a retry is a no-op. Start-to-close 30 s, SDK default retries (<code>workflowref.go:105-110</code>). Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>, <code>TestWorkflowRefCloseIsTenantScoped</code>, <code>TestWorkflowRefCloseWithWrongHeaderTouchesNothing</code>.</li>
 </ul>
 <h2 id="versioning">Versioning</h2>
 <p>Neither workflow calls <code>workflow.GetVersion</code> today. Every row a producer on <code>main</code> writes carries <code>kind_version</code> 1 (the seal producers fix it; the demo producers pass 1), and the relay passes <code>kind_version</code> to the workflow in <code>outbox.Delivery</code>; no workflow branches on it yet. A later code change to the interpreter follows ADR-003. Details and proofs are on each workflow page.</p>

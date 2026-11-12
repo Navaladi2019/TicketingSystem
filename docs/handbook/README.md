@@ -66,7 +66,9 @@ invariant is listed at the foot of the page ("Also named by").
 `workflows:` and `activities:` resolve against `GoRegistry` in
 `docs/handbook/build/build.py`, which parses the kind list in
 `internal/outbox/outbox.go` and the `Register` functions of `seal`, `interp`
-and `workerguard` with the standard library. It fails the build when it finds
+and `workerguard` with the standard library, and checks that every
+`.Register(w)` / `RegisterWorkflow(w)` call in `cmd/nava-worker` goes through
+one of those functions. It fails the build when it finds
 nothing, so a parser that drifted from the code cannot pass. A `sources:`
 entry may name lines (`path:12`, `path:12-20,31`; quote a comma list inside
 `[...]` or use a block list); the build checks the file
