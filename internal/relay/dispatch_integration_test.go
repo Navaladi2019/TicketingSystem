@@ -305,6 +305,32 @@ func TestInvalidTargetKeyRow(t *testing.T) {
 	}
 }
 
+// AR-041: a hand-inserted nava.interpreter start whose payload carries a key
+// off its kind's allow-list (references only, so outbox_payload_check takes
+// it) is dead as an invalid payload, without a Temporal call.
+func TestKindAllowListRowIsDead(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	fe, addr := startFrontend(t)
+	tenant, id, ref := uuid.New(), uuid.Must(uuid.NewV7()), uuid.NewString()
+	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", tenant)
+	mustExec(t, e.super, `INSERT INTO outbox (id, tenant_id, kind, dedupe_key, target_key, target_seq, payload)
+		VALUES ($1, $2, $3, 'd', $4, 1, $5::jsonb)`, id, tenant, outbox.InterpreterKind,
+		outbox.InterpreterKind+":"+id.String(),
+		`{"definition_version_id":"`+ref+`","record_id":"`+ref+`","watcher":"`+ref+`"}`)
+	d, _, _ := dispatcherOn(t, e.relay, addr, Options{})
+	if n, err := d.Poll(ctx); err != nil || n != 1 {
+		t.Fatalf("poll claimed %d, %v", n, err)
+	}
+	if n := count(t, e.super, "SELECT count(*) FROM outbox WHERE id = $1 AND dead_at IS NOT NULL AND last_error = $2",
+		id, CauseInvalidPayload); n != 1 {
+		t.Error("the row is not dead with the invalid-payload cause")
+	}
+	if _, starts, signals := fe.counts(); starts+signals != 0 {
+		t.Errorf("%d Temporal calls, want 0", starts+signals)
+	}
+}
+
 // The environment of the relay subprocess (TestRelayProcess).
 const (
 	helperEnv     = "NAVA_RELAY_TEST_HELPER"
