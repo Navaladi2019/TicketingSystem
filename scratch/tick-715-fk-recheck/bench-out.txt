@@ -1,0 +1,251 @@
+Timing is on.
+DROP TABLE
+Time: 206.063 ms
+DROP ROLE
+Time: 2.949 ms
+CREATE ROLE
+Time: 4.001 ms
+CREATE TABLE
+Time: 20.063 ms
+CREATE TABLE
+Time: 7.898 ms
+CREATE TABLE
+Time: 11.692 ms
+INSERT 0 50000
+Time: 563.351 ms
+SELECT 50000
+Time: 71.267 ms
+CREATE INDEX
+Time: 25.040 ms
+ANALYZE
+Time: 43.392 ms
+INSERT 0 2500000
+Time: 17857.591 ms (00:17.858)
+INSERT 0 1000000
+Time: 16246.199 ms (00:16.246)
+ALTER TABLE
+Time: 3.455 ms
+ALTER TABLE
+Time: 2.268 ms
+ALTER TABLE
+Time: 2.157 ms
+ALTER TABLE
+Time: 1.937 ms
+ALTER TABLE
+Time: 2.202 ms
+ALTER TABLE
+Time: 1.878 ms
+ALTER TABLE
+Time: 1.970 ms
+ALTER TABLE
+Time: 2.418 ms
+ALTER TABLE
+Time: 2.045 ms
+ALTER TABLE
+Time: 1.894 ms
+ALTER TABLE
+Time: 1.904 ms
+SET
+Time: 0.178 ms
+INSERT 0 1
+Time: 2.171 ms
+INSERT 0 1
+Time: 2.274 ms
+RESET
+Time: 0.238 ms
+VACUUM
+Time: 312.368 ms
+VACUUM
+Time: 374.993 ms
+VACUUM
+Time: 427.410 ms
+ groups | memberships | records | with_group 
+--------+-------------+---------+------------
+  50000 |     2500001 | 1000001 |     900001
+(1 row)
+
+Time: 361.291 ms
+ records_size | members_size 
+--------------+--------------
+ 553 MB       | 404 MB
+(1 row)
+
+Time: 0.557 ms
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+Time: 0.254 ms
+=== Orphan query, RLS bypassed (superuser): one orphan per key ===
+             fkey              | orphans 
+-------------------------------+---------
+ group_members_group_live_fkey |       1
+ records_assignment_group_fkey |       1
+(2 rows)
+
+Time: 1193.768 ms (00:01.194)
+=== BUG: the table owner, bare VALIDATE, passes over the orphans ===
+SET
+Time: 0.313 ms
+BEGIN
+Time: 0.141 ms
+ALTER TABLE
+Time: 186.173 ms
+ALTER TABLE
+Time: 123.512 ms
+            conname            | convalidated 
+-------------------------------+--------------
+ group_members_group_live_fkey | t
+ records_assignment_group_fkey | t
+(2 rows)
+
+Time: 0.879 ms
+ROLLBACK
+Time: 0.283 ms
+=== FIX, group_members: the validate under migrator policies fails on the orphan ===
+BEGIN
+Time: 0.183 ms
+SET
+Time: 0.135 ms
+CREATE POLICY
+Time: 0.385 ms
+CREATE POLICY
+Time: 0.306 ms
+psql:bench.sql:85: ERROR:  insert or update on table "group_members" violates foreign key constraint "group_members_group_live_fkey"
+DETAIL:  Key is not present in table "groups".
+Time: 1114.162 ms (00:01.114)
+ROLLBACK
+Time: 0.224 ms
+=== FIX, records: the validate under migrator policies fails on the orphan ===
+BEGIN
+Time: 0.165 ms
+SET
+Time: 0.139 ms
+CREATE POLICY
+Time: 0.356 ms
+CREATE POLICY
+Time: 0.283 ms
+Time: 436.196 ms
+ROLLBACK
+Time: 0.215 ms
+psql:bench.sql:92: ERROR:  insert or update on table "records" violates foreign key constraint "records_assignment_group_fkey"
+DETAIL:  Key is not present in table "groups".
+RESET
+Time: 0.170 ms
+=== Remove the orphans and mark both keys valid, as the vacuous migrations left them ===
+SET
+Time: 0.172 ms
+DELETE 1
+Time: 1161.211 ms (00:01.161)
+DELETE 1
+Time: 572.498 ms
+RESET
+Time: 0.242 ms
+SET
+Time: 0.665 ms
+ALTER TABLE
+Time: 197.310 ms
+ALTER TABLE
+Time: 114.524 ms
+=== Re-check migration 1 as written: group_members_group_live_fkey ===
+Time: 0.555 ms
+BEGIN
+Time: 0.173 ms
+SET
+Time: 0.148 ms
+CREATE POLICY
+Time: 0.511 ms
+CREATE POLICY
+Time: 0.313 ms
+ALTER TABLE
+Time: 0.808 ms
+ALTER TABLE
+Time: 1013.602 ms (00:01.014)
+DROP POLICY
+Time: 0.369 ms
+DROP POLICY
+Time: 0.331 ms
+   relation    |           mode           
+---------------+--------------------------
+ groups        | AccessExclusiveLock
+ groups        | AccessShareLock
+ groups        | RowShareLock
+ groups        | ShareRowExclusiveLock
+ group_members | AccessExclusiveLock
+ group_members | AccessShareLock
+ group_members | ShareRowExclusiveLock
+ group_members | ShareUpdateExclusiveLock
+(8 rows)
+
+Time: 1.108 ms
+COMMIT
+Time: 1.925 ms
+ group_members_tx_ms 
+---------------------
+                1021
+(1 row)
+
+Time: 0.682 ms
+=== Re-check migration 2 as written: records_assignment_group_fkey ===
+Time: 0.148 ms
+BEGIN
+Time: 0.101 ms
+SET
+Time: 0.136 ms
+CREATE POLICY
+Time: 0.391 ms
+CREATE POLICY
+Time: 0.351 ms
+ALTER TABLE
+Time: 1.711 ms
+ALTER TABLE
+Time: 541.478 ms
+DROP POLICY
+Time: 0.426 ms
+DROP POLICY
+Time: 0.560 ms
+ relation |           mode           
+----------+--------------------------
+ groups   | AccessExclusiveLock
+ groups   | AccessShareLock
+ groups   | RowShareLock
+ groups   | ShareRowExclusiveLock
+ records  | AccessExclusiveLock
+ records  | AccessShareLock
+ records  | ShareRowExclusiveLock
+ records  | ShareUpdateExclusiveLock
+(8 rows)
+
+Time: 0.560 ms
+COMMIT
+Time: 2.736 ms
+ records_tx_ms 
+---------------
+           579
+(1 row)
+
+Time: 0.456 ms
+RESET
+Time: 0.179 ms
+            conname            | convalidated 
+-------------------------------+--------------
+ group_members_group_live_fkey | t
+ records_assignment_group_fkey | t
+(2 rows)
+
+Time: 0.377 ms
+ leftover_policies 
+-------------------
+                 0
+(1 row)
+
+Time: 1.359 ms
+=== Orphan query on the clean database ===
+             fkey              | orphans 
+-------------------------------+---------
+ group_members_group_live_fkey |       0
+ records_assignment_group_fkey |       0
+(2 rows)
+
+Time: 1159.330 ms (00:01.159)
