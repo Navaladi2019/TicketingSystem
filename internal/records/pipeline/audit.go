@@ -160,7 +160,7 @@ func appendTooDeep(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command
 	if cmd.Op == OpUpdate {
 		v := cmd.ExpectedVersion
 		versionBefore = &v
-		switch rec, err := store.GetForWrite(ctx, tx, tenant, cmd.RecordID); {
+		switch rec, err := store.Get(ctx, tx, tenant, cmd.RecordID); {
 		case err == nil:
 			subjectType, subjectID = audit.SubjectRecord, rec.ID
 			detail["record_id"] = rec.ID.String()

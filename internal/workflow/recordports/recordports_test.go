@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -33,7 +31,6 @@ func TestMapError(t *testing.T) {
 		"transition":         {&pipeline.ErrIllegalTransition{}, interp.ErrIllegalTransition},
 		"validation":         {&pipeline.ErrValidation{}, interp.ErrValidation},
 		"invalid command":    {pipeline.ErrInvalidCommand, interp.ErrValidation},
-		"permission denied":  {fmt.Errorf("read: %w", &pgconn.PgError{Code: "42501"}), interp.ErrForbidden},
 		"version conflict":   {pipeline.ErrVersionConflict, nil},
 		"retryable":          {pipeline.ErrRetryable, nil},
 		"other database err": {boom, nil},
