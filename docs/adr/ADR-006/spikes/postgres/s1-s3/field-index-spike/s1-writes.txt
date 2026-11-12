@@ -1,0 +1,18 @@
+kind=insert set=no-trigger tps=779.188295 p50_ms=9.64 p95_ms=15.07 p99_ms=21.42 max_ms=117.16
+kind=update set=no-trigger tps=879.569649 p50_ms=8.92 p95_ms=13.56 p99_ms=17.58 max_ms=105.15
+kind=insert set=trigger,0-fields tps=683.062194 p50_ms=10.27 p95_ms=18.12 p99_ms=37.40 max_ms=375.11
+kind=update set=trigger,0-fields tps=603.741808 p50_ms=9.90 p95_ms=26.18 p99_ms=43.98 max_ms=3774.87
+kind=insert set=5-fields,fk tps=338.160816 p50_ms=20.71 p95_ms=41.44 p99_ms=58.14 max_ms=446.86
+kind=update set=5-fields,fk tps=394.105035 p50_ms=17.27 p95_ms=37.73 p99_ms=56.97 max_ms=825.62
+kind=insert set=10-fields,fk tps=318.428516 p50_ms=22.44 p95_ms=40.08 p99_ms=62.69 max_ms=512.60
+kind=update set=10-fields,fk tps=376.952404 p50_ms=19.68 p95_ms=34.81 p99_ms=48.76 max_ms=206.79
+kind=update_nf set=10-fields,fk,unflagged-key-update tps=585.065497 p50_ms=12.34 p95_ms=21.88 p99_ms=32.25 max_ms=394.73
+kind=insert set=10-fields+3-search,fk tps=89.794943 p50_ms=77.07 p95_ms=147.45 p99_ms=417.16 max_ms=1295.41
+kind=update set=10-fields+3-search,fk tps=386.623591 p50_ms=18.58 p95_ms=30.68 p99_ms=46.46 max_ms=1178.32
+kind=insert set=5-fields,no-fk tps=228.703766 p50_ms=27.80 p95_ms=54.26 p99_ms=168.40 max_ms=2276.16
+kind=update set=5-fields,no-fk tps=333.978500 p50_ms=19.08 p95_ms=35.64 p99_ms=62.07 max_ms=5887.77
+kind=insert set=10-fields,no-fk tps=281.701134 p50_ms=24.40 p95_ms=45.08 p99_ms=90.75 max_ms=1382.04
+kind=update set=10-fields,no-fk tps=458.140065 p50_ms=15.19 p95_ms=33.57 p99_ms=53.30 max_ms=243.59
+kind=insert set=no-trigger(repeat) tps=533.328624 p50_ms=11.86 p95_ms=30.25 p99_ms=62.10 max_ms=314.21
+kind=update set=no-trigger(repeat) tps=763.324243 p50_ms=9.38 p95_ms=18.04 p99_ms=30.67 max_ms=740.82
+WRITES-DONE      
