@@ -4,8 +4,9 @@
 # 3-column counter upsert). The story's claim is that nothing changes for a
 # user: every type keeps counting where it was, on both numbering modes.
 #
-#   1. A fresh stack (volumes deleted) on the S10 build, PRE_REF (default
-#      0e79d828, `main` after S10 merged, the story branch's base), from the
+#   1. A fresh stack (volumes deleted) on the pre-S17 build, PRE_REF (default
+#      ec863ece: the `main` merged into the story branch, S10 included, so the
+#      upgrade applies S17's four migrations only), from the
 #      sibling worktree ../s17-pre, seeded with that commit's tools/seed.sh.
 #   2. On that build (kit.mjs pre): admin@tenant-a sets tenant A's incident
 #      type to gapless; tenant B's stays gaps. Each tenant's incidents are
@@ -32,7 +33,7 @@ ROOT=$(pwd)
 MSYS_NO_PATHCONV=1
 export MSYS_NO_PATHCONV
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-PRE_REF=${PRE_REF:-0e79d828}
+PRE_REF=${PRE_REF:-ec863ece}
 COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-nava-s17}
 export COMPOSE_PROJECT_NAME
 PRE="$ROOT/../s17-pre"
@@ -52,7 +53,7 @@ schema() {
   sql -c "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
            WHERE table_name = 'record_counters' ORDER BY ordinal_position"
   sql -c "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'record_counters' ORDER BY indexname"
-  sql -c "SELECT version_id FROM goose_db_version WHERE version_id >= 20261111000000 ORDER BY version_id"
+  sql -c "SELECT version_id FROM goose_db_version WHERE version_id BETWEEN 20261112193000 AND 20261112193300 ORDER BY version_id"
 }
 counters() {
   echo "== $1 ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
@@ -68,7 +69,7 @@ counters() {
            ORDER BY c.tenant_id, d.key"
 }
 
-echo "s17: 1. fresh stack on the S10 build ($PRE_REF)"
+echo "s17: 1. fresh stack on the pre-S17 build ($PRE_REF)"
 # A relative path: with MSYS_NO_PATHCONV set, Git for Windows reads /c/... as
 # C:/c/... and puts the worktree there.
 [ -d "$PRE" ] || git worktree add -q --detach ../s17-pre "$PRE_REF"
@@ -77,21 +78,21 @@ make dev-ca
 mkdir -p "$PRE/deploy/compose/certs" && cp -R deploy/compose/certs/. "$PRE/deploy/compose/certs/"
 rm -f "$PRE/.env"
 [ -f .env ] && cp .env "$PRE/.env"
-# The S10 images get their own tag, so the upgrade below rebuilds and
+# The pre-S17 images get their own tag, so the upgrade below rebuilds and
 # recreates every nava/* service from this checkout.
 ( cd "$PRE" && export NAVA_IMAGE_TAG=s17pre \
   && docker compose down -v \
   && docker compose up -d --build --wait \
   && env -u MSYS_NO_PATHCONV sh docs/acceptance/guide/tools/seed.sh )
-schema "schema on the S10 build, before the upgrade" | tee "$EV/schema-before-upgrade.txt"
+schema "schema on the pre-S17 build, before the upgrade" | tee "$EV/schema-before-upgrade.txt"
 
-echo "s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (S10 build)"
+echo "s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (pre-S17 build)"
 node docs/acceptance/S17/tools/kit.mjs pre "$EV"
-counters "counters on the S10 build, before the upgrade" | tee "$EV/counters-before-upgrade.txt"
+counters "counters on the pre-S17 build, before the upgrade" | tee "$EV/counters-before-upgrade.txt"
 
 echo "s17: 3. upgrade the same stack to $(git rev-parse --short HEAD)"
 docker compose up -d --build --wait
-docker compose logs --no-log-prefix migrate | grep -E '20261111123[0-3]00|"migrate done"' | tee "$EV/migrate-log.txt"
+docker compose logs --no-log-prefix migrate | grep -E '20261112193[0-3]00|"migrate done"' | tee "$EV/migrate-log.txt"
 grep -q '"migrate done"' "$EV/migrate-log.txt" || { echo "s17: the migrate service did not finish" >&2; exit 1; }
 schema "schema after the upgrade (M1, M2)" | tee "$EV/schema-after-upgrade.txt"
 counters "counters after the upgrade, before any create" | tee "$EV/counters-after-upgrade.txt"

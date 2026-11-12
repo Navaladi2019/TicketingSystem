@@ -1,7 +1,7 @@
 // S17 acceptance (TICK-668): the API steps run-kit.sh needs outside Bruno.
 //
 //   node kit.mjs pre <evidence-dir>
-//     On the S10 build, before the upgrade. admin@tenant-a sets tenant A's
+//     On the pre-S17 build, before the upgrade. admin@tenant-a sets tenant A's
 //     incident type to gapless (publishEntityTypeVersion with numbering_mode
 //     alone); tenant B's stays gaps (the default). Then admin@tenant-a creates
 //     tenant A's incidents and Bob tenant B's, one at a time, until each
@@ -82,7 +82,7 @@ if (mode === 'pre') {
   const typeB = await call(await token('bob'), 'GET', '/api/v1/entity-types/incident');
   const [a, b] = await Promise.all([createUpTo('admin_a', 'A'), createUpTo('bob', 'B')]);
   const out = {
-    step: 'on the S10 build, before the upgrade',
+    step: 'on the pre-S17 build, before the upgrade',
     set_tenant_a_gapless: { request: 'POST /api/v1/entity-types/incident/versions {"numbering_mode":"gapless"}', status: set.status, numbering_mode: set.body.numbering_mode },
     tenant_a_type: { numbering_mode: typeA.body.numbering_mode, number_prefix: typeA.body.number_prefix },
     tenant_b_type: { numbering_mode: typeB.body.numbering_mode, number_prefix: typeB.body.number_prefix },

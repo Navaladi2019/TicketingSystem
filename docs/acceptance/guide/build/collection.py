@@ -3161,7 +3161,7 @@ The same lines as S16.6, as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 
 # --------------------------------------------------------------------------- S17
 # Story S17 (TICK-664, release R1 of ADR-005), kit TICK-668:
 # docs/acceptance/S17/README.md. docs/acceptance/S17/tools/run-kit.sh brings
-# up a fresh stack on the S10 build, takes tenant A's incident type (gapless)
+# up a fresh stack on the pre-S17 build (S10 included), takes tenant A's incident type (gapless)
 # and tenant B's (gaps) to INC0000042, upgrades the stack to the story build
 # (migrations M1 and M2 run) and then runs this folder once. The exact numbers
 # hold only on that stack, so the folder does not run again on the same stack.
@@ -3227,7 +3227,7 @@ console.log('S17 parallel {tag}:', nums.map(inc).join(' '));""")
 
     return {
         "dir": "S17", "name": "S17 numbering",
-        "desc": "Story S17, TICK-664 (kit TICK-668, docs/acceptance/S17/README.md): release R1 of ADR-005, the counter key gets `scope_key` (migrations M1 and M2) and both allocation paths upsert on the 3-column key. Nothing changes for a user: every type keeps counting where it was. Needs the stack docs/acceptance/S17/tools/run-kit.sh prepares: a fresh stack on the S10 build where tenant A's `incident` type is `gapless` and tenant B's is `gaps` (the default), each at INC0000042, then upgraded to the story build. One `INC` type per tenant (the prefix is unique per tenant), so the gaps type is tenant B's and Bob creates its incidents. AC1 (S17.6-S17.8): the first incident after the upgrade is INC0000043 on both. AC2 (S17.9-S17.10): 8 clients at once get unique numbers on both. Isolation, AC3 (S17.11-S17.14): Bob cannot read or change tenant A's INC0000043, and neither tenant's creates move the other's counter. Runs once per prepared stack: the exact numbers do not hold on a second pass.",
+        "desc": "Story S17, TICK-664 (kit TICK-668, docs/acceptance/S17/README.md): release R1 of ADR-005, the counter key gets `scope_key` (migrations M1 and M2) and both allocation paths upsert on the 3-column key. Nothing changes for a user: every type keeps counting where it was. Needs the stack docs/acceptance/S17/tools/run-kit.sh prepares: a fresh stack on the pre-S17 build (S10 included) where tenant A's `incident` type is `gapless` and tenant B's is `gaps` (the default), each at INC0000042, then upgraded to the story build. One `INC` type per tenant (the prefix is unique per tenant), so the gaps type is tenant B's and Bob creates its incidents. AC1 (S17.6-S17.8): the first incident after the upgrade is INC0000043 on both. AC2 (S17.9-S17.10): 8 clients at once get unique numbers on both. Isolation, AC3 (S17.11-S17.14): Bob cannot read or change tenant A's INC0000043, and neither tenant's creates move the other's counter. Runs once per prepared stack: the exact numbers do not hold on a second pass.",
         "items": [
             token("S17.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
                   extra="bru.setVar('s17_run', N.v('s17_run_id') || Math.random().toString(16).slice(2, 10));\nconsole.log('S17 run', bru.getVar('s17_run'));"),
@@ -3235,7 +3235,7 @@ console.log('S17 parallel {tag}:', nums.map(inc).join(' '));""")
             req("S17.3 The admin is in tenant A", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
                 desc="The token of S17.1 resolves to tenant A.", tests=f"N.me('{A}');"),
             req("S17.4 Tenant A's incident type is gapless, after the upgrade", "GET", "{{core_url}}/api/v1/entity-types/incident", auth="admin_a_token",
-                desc="run-kit.sh set it to `gapless` on the S10 build (`publishEntityTypeVersion` with `numbering_mode` alone); the upgrade kept it.",
+                desc="run-kit.sh set it to `gapless` on the pre-S17 build (S10 included) (`publishEntityTypeVersion` with `numbering_mode` alone); the upgrade kept it.",
                 tests="""N.status(200);
 test('incident, prefix INC, numbering_mode gapless', () => {
   const b = N.json();
