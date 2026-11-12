@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S1: Local stack starts healthy and CI gates every PR - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li class="current"><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S1: Local stack starts healthy and CI gates every PR</span></nav>
+<article>
+<h1 class="page-title">S1: Local stack starts healthy and CI gates every PR</h1>
+<p>Story TICK-43. Verdict <strong>READY</strong>, 2026-10-25, recorded in the
+<a href="../../../docs/acceptance/s1-platform-foundation.md">acceptance kit</a>.</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<ul>
+<li>Bring up the whole platform on one machine with one command: PostgreSQL,
+PgBouncer, Keycloak, Temporal, the Collector, <code>nava-core</code> and the worker.</li>
+<li>Ask the service whether it and its dependencies are well. It stays ready when
+only Keycloak or Temporal is down, and stops taking traffic within seconds
+when the database goes.</li>
+<li>Every pull request is checked against real PostgreSQL, Keycloak and Temporal,
+and a failing test turns it red.</li>
+</ul>
+<h2 id="flow">Flow</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+  op[Operator] --&gt; up[&quot;docker compose up --wait&quot;]
+  up --&gt; svc[nava-core and dependencies]
+  op --&gt; hz[&quot;/healthz on the admin port&quot;]
+  op --&gt; rz[&quot;/readyz on the admin port&quot;]
+  hz --&gt; svc
+  rz --&gt; svc
+  pr[Pull request] --&gt; ci[CI against real services]
+</pre></div></figure>
+<h2 id="api-operations">API operations</h2>
+<p>No public API operations. <code>/healthz</code>, <code>/readyz</code> and <code>/metrics</code> are served on
+the admin port, which is not published and is not part of <code>api/openapi.bundled.yaml</code>.
+The public port answers 404 for all three (negative checks S1.4 and S1.5).</p>
+<h2 id="how-to-try-it">How to try it</h2>
+<ol>
+<li>Start the stack and the local forwards (the admin port is reachable only
+through them):
+<code>sh docs/acceptance/guide/tools/seed.sh</code>, then
+<code>sh docs/acceptance/guide/tools/tunnels.sh up</code>.</li>
+<li>In Bruno open the collection <code>docs/acceptance/guide/bruno/</code>, select the
+<code>local</code> environment and run the folder <code>S1</code>. Or headless:
+<code>sh docs/acceptance/guide/tools/api-test.sh S1</code>.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Bruno request</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S1/S1-1.bru</code></td>
+<td><code>GET /healthz</code> lists every dependency</td>
+</tr>
+<tr>
+<td><code>S1/S1-2.bru</code></td>
+<td><code>GET /readyz</code></td>
+</tr>
+<tr>
+<td><code>S1/S1-3.bru</code></td>
+<td><code>GET /metrics</code></td>
+</tr>
+<tr>
+<td><code>S1/S1-4.bru</code></td>
+<td>negative: <code>/healthz</code> is not on the public port</td>
+</tr>
+<tr>
+<td><code>S1/S1-5.bru</code></td>
+<td>negative: <code>/metrics</code> is not on the public port</td>
+</tr>
+<tr>
+<td><code>S1/S1-6.bru</code></td>
+<td>the Keycloak realm is up with the pinned issuer</td>
+</tr>
+</tbody>
+</table>
+<p>The step-by-step kit, including stopping Keycloak and PostgreSQL to watch
+<code>/healthz</code> and <code>/readyz</code> change, is the
+<a href="../../../docs/acceptance/guide/s1.html">acceptance guide page for S1</a> and the
+<a href="../../../docs/acceptance/s1-platform-foundation.md">kit</a>; this page does not copy it.</p>
+<h2 id="verdict-and-evidence">Verdict and evidence</h2>
+<ul>
+<li>Verdict: READY, all acceptance criteria pass (QA, 2026-10-25, on <code>main</code>).</li>
+<li>Recorded run used: the committed Bruno run
+<a href="../../../docs/acceptance/guide/acceptance-run.md">acceptance-run.md</a> (2026-10-29,
+145 requests and 466 tests, 0 failed) and the kit above. Not re-run for this
+page.</li>
+<li>Regression of milestone 1 on <code>main</code>:
+<a href="../../../docs/acceptance/regression-milestone-1-evidence/s1-platform-foundation.md">S1 evidence</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S2: A query without the right tenant returns nothing - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li class="current"><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S2: A query without the right tenant returns nothing</span></nav>
+<article>
+<h1 class="page-title">S2: A query without the right tenant returns nothing</h1>
+<p>Story TICK-44. Verdict <strong>READY</strong>, 2026-10-26, recorded in the
+<a href="../../../docs/acceptance/s2-tenant-isolation.md">acceptance kit</a>. The first run failed
+criterion 3; it was fixed (TICK-233, TICK-235) and run again.</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<ul>
+<li>Rely on the database itself to keep each tenant's rows away from every other
+tenant. A query that names no tenant, an empty tenant, or a tenant left over
+from an earlier request returns nothing.</li>
+<li>Rely on each part of the platform (API, worker, relay, purge, onboarding,
+group sync, backup) logging in as its own database user, each able to do only
+its own job.</li>
+<li>Rely on CI to refuse a migration that grants a role more than
+<code>db/grants.yaml</code> lists.</li>
+</ul>
+<h2 id="flow">Flow</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+  req[Request] --&gt; tx[&quot;Transaction sets the tenant&quot;]
+  tx --&gt; rls{&quot;Row-level security: tenant matches?&quot;}
+  rls -- yes --&gt; rows[Tenant rows]
+  rls -- &quot;no, empty or stale&quot; --&gt; none[Zero rows]
+  mig[Migration] --&gt; gate{&quot;Grants equal db/grants.yaml?&quot;}
+  gate -- no --&gt; red[CI fails]
+</pre></div></figure>
+<h2 id="api-operations">API operations</h2>
+<p>No public API operations. The story is a database and CI guarantee. Its Bruno
+requests only probe the tenant boundary through the existing <code>GET /api/v1/me</code>
+and a record id.</p>
+<h2 id="how-to-try-it">How to try it</h2>
+<ol>
+<li><code>sh docs/acceptance/guide/tools/seed.sh</code> (seeds tenants A and B).</li>
+<li>In Bruno run the folder <code>S2</code>, or headless
+<code>sh docs/acceptance/guide/tools/api-test.sh S2</code>.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Bruno request</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S2/S2-1.bru</code>, <code>S2-2.bru</code></td>
+<td>sign in as a tenant A user and a tenant B user</td>
+</tr>
+<tr>
+<td><code>S2/S2-3.bru</code></td>
+<td><code>GET /me</code> is tenant A</td>
+</tr>
+<tr>
+<td><code>S2/S2-4.bru</code></td>
+<td><code>GET /me</code> is tenant B, none of A's groups</td>
+</tr>
+<tr>
+<td><code>S2/S2-5.bru</code></td>
+<td>negative: tenant B named in headers, query and body is ignored</td>
+</tr>
+<tr>
+<td><code>S2/S2-6.bru</code></td>
+<td>negative: the same from tenant B</td>
+</tr>
+<tr>
+<td><code>S2/S2-7.bru</code></td>
+<td>negative: a tenant B record by id returns nothing</td>
+</tr>
+</tbody>
+</table>
+<p>The database half (catalogue queries, <code>make isolation</code>) is in the
+<a href="../../../docs/acceptance/guide/s2.html">acceptance guide page for S2</a> and the
+<a href="../../../docs/acceptance/s2-tenant-isolation.md">kit</a>; this page does not copy it.</p>
+<h2 id="verdict-and-evidence">Verdict and evidence</h2>
+<ul>
+<li>Verdict: READY, all 4 criteria pass (QA, 2026-10-26).</li>
+<li>Recorded run used: the committed Bruno run
+<a href="../../../docs/acceptance/guide/acceptance-run.md">acceptance-run.md</a> (2026-10-29,
+145 requests and 466 tests, 0 failed) and the kit. Not re-run for this page.</li>
+<li>Regression of milestone 1 on <code>main</code>:
+<a href="../../../docs/acceptance/regression-milestone-1-evidence/s2-tenant-isolation.md">S2 evidence</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
