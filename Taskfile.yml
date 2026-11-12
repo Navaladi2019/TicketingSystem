@@ -58,7 +58,7 @@ tasks:
       - sh bench/acl-perf/run.sh
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check, then the handbook staleness check (handbook:check) (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
@@ -66,6 +66,7 @@ tasks:
       - sh scripts/ci/nolint-allowlist.sh
       - go run ./tools/docindex -check
       - go run ./tools/dupids
+      - go run ./tools/handbook -check
 
   vet:tags:
     desc: Run go vet once per build-tag set the //go:build lines use, so a tagged test that stops compiling fails (TICK-320), the same as make vet-tags
@@ -102,6 +103,16 @@ tasks:
     desc: Bundle api/openapi.yaml + api/paths/*.yaml and regenerate api/api.gen.go (oapi-codegen, pinned by the go.mod tool directive)
     cmds:
       - go generate ./...
+
+  handbook:
+    desc: Build the product handbook, docs/handbook/src/**/*.md into docs/handbook/**/*.html (TICK-719); the footer takes HANDBOOK_SHA / HANDBOOK_DATE, else git merge-base HEAD origin/main
+    cmds:
+      - go run ./tools/handbook
+
+  handbook:check:
+    desc: Fail when the committed handbook HTML is stale (rebuilt in memory, footer stamp ignored), the stamped sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md; the same as make check-handbook
+    cmds:
+      - go run ./tools/handbook -check
 
   check-openapi:
     desc: Fail if the api bundle removes or narrows anything on origin/main (additive-only rule for /api/v1)

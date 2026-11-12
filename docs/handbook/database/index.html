@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Database</span></nav>
+
+
+<article>
+<h1 class="page-title">Database</h1>
+<p>TODO: tables by area, from the schema snapshot.</p>
+<h2 id="migrations">Migrations</h2>
+<table>
+<thead>
+<tr>
+<th>Migration</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>00001_global_revokes.sql</code></td>
+<td>ADR-001 A.3 global settings. Runs as nava_migrator, the database owner.</td>
+</tr>
+<tr>
+<td><code>00002_platform_tables.sql</code></td>
+<td>T09 (TICK-64): the platform tables of ADR-001 A.3, each under ENABLE + FORCE</td>
+</tr>
+<tr>
+<td><code>00003_identity_tables.sql</code></td>
+<td>T16 (TICK-69): the identity tables group sync (T25) fills from Keycloak and</td>
+</tr>
+<tr>
+<td><code>00004_tenant_email_domain.sql</code></td>
+<td>T18a (TICK-194): the email domains each tenant owns. InviteUser creates a</td>
+</tr>
+<tr>
+<td><code>00005_purge_indexes.sql</code></td>
+<td>T13 follow-up (TICK-146): indexes for nava-purge's batch DELETEs</td>
+</tr>
+<tr>
+<td><code>00006_pending_invite.sql</code></td>
+<td>T252a (TICK-254): the admins a tenant has invited who have not signed in</td>
+</tr>
+<tr>
+<td><code>00007_email_domain_release.sql</code></td>
+<td>TICK-280 (follow-up from TICK-276 item 1, AR-036): nava_onboard may</td>
+</tr>
+<tr>
+<td><code>00008_outbox_payload_references.sql</code></td>
+<td>T32c (TICK-214), CI-7 finding T32b-1 (docs/security/temporal-ci6.md): an</td>
+</tr>
+<tr>
+<td><code>00009_outbox_payload_keys.sql</code></td>
+<td>T32f (TICK-240), CI-7 finding T32b-1 remainder (docs/security/temporal-ci6.md):</td>
+</tr>
+<tr>
+<td><code>00010_principal_tombstone.sql</code></td>
+<td>TICK-220 (T25 follow-up): a principal who leaves the Keycloak directory is</td>
+</tr>
+<tr>
+<td><code>00011_principal_tombstone_validate.sql</code></td>
+<td>TICK-220: validates 00010's principals_tombstone_check in its own</td>
+</tr>
+<tr>
+<td><code>00012_drop_principals_delete_policy.sql</code></td>
+<td>TICK-265 (contract step of TICK-220): group sync tombstones a principal</td>
+</tr>
+<tr>
+<td><code>20261028175712_idempotency_lease.sql</code></td>
+<td>T22a (TICK-212): a lease nava_app can extend, so a takeover of an abandoned</td>
+</tr>
+<tr>
+<td><code>20261031150000_entity_definitions.sql</code></td>
+<td>P3-02 (TICK-340): entity types and their published, immutable versions</td>
+</tr>
+<tr>
+<td><code>20261031160000_tenant_admin_group.sql</code></td>
+<td>P3-04 (TICK-342, PLAN-003 D-3-3): the platform id of each tenant's <code>admins</code></td>
+</tr>
+<tr>
+<td><code>20261101120000_tenant_admin_group_onboard_select.sql</code></td>
+<td>P3-04h (TICK-373, PLAN-003 D-3-3): &quot;active implies the tenant has an admin&quot;</td>
+</tr>
+<tr>
+<td><code>20261101130000_entity_versions_published_by_check.sql</code></td>
+<td>P3-06c (TICK-383): every version after v1 names who published it, in the</td>
+</tr>
+<tr>
+<td><code>20261101130100_entity_versions_published_by_validate.sql</code></td>
+<td>P3-06c (TICK-383): validates 20261101130000's</td>
+</tr>
+<tr>
+<td><code>20261101180000_entity_definition_versions_jsonb_check.sql</code></td>
+<td>TICK-378: fixed_columns and states on entity_definition_versions must be</td>
+</tr>
+<tr>
+<td><code>20261101180100_entity_definition_versions_jsonb_check_validate.sql</code></td>
+<td>TICK-378: validates the previous migration's fixed_columns and states</td>
+</tr>
+<tr>
+<td><code>20261101190000_records_pipeline.sql</code></td>
+<td>P3-09 (TICK-353): records gains what the write pipeline needs, audit_log is</td>
+</tr>
+<tr>
+<td><code>20261102100000_cascade_start.sql</code></td>
+<td>P3-12 (TICK-88): cascade_start, the start key of ADR-001 amendment A5</td>
+</tr>
+<tr>
+<td><code>20261102120000_idempotency_response_headers.sql</code></td>
+<td>TICK-412: a replayed idempotent response restores an allow-listed set of</td>
+</tr>
+<tr>
+<td><code>20261102120100_idempotency_response_headers_validate.sql</code></td>
+<td>TICK-412: validates the previous migration's response_headers CHECK in its</td>
+</tr>
+<tr>
+<td><code>20261102130000_audit_log_v0.sql</code></td>
+<td>P5-10a (TICK-427), PLAN-005 D-5-1: S9's interim audit table becomes</td>
+</tr>
+<tr>
+<td><code>20261102130100_tenant_auditor_group.sql</code></td>
+<td>P5-18 (TICK-434, PLAN-005 D-5-4): the platform id of each tenant's <code>auditors</code></td>
+</tr>
+<tr>
+<td><code>20261102233600_audit_log.sql</code></td>
+<td>P5-10b (TICK-450): ADR-004's audit_log, its chain head and the pipeline's</td>
+</tr>
+<tr>
+<td><code>20261103100000_audit_commit_check.sql</code></td>
+<td>P5-11 (TICK-428): ADR-004 decision 2's commit check, as a function any</td>
+</tr>
+<tr>
+<td><code>20261103120000_audit_backfill_s8.sql</code></td>
+<td>P5-15 (TICK-433): migration A's backfill (ADR-004 R25 A half, R26). Every</td>
+</tr>
+<tr>
+<td><code>20261103150000_audit_commit_check_custom_plan.sql</code></td>
+<td>P5-11-E3 (TICK-508): audit_commit_check() is planned on every call</td>
+</tr>
+<tr>
+<td><code>20261104013400_groups_tombstone.sql</code></td>
+<td>ADR-004-E5 step (i), expand (TICK-534; D1, D2, D5, D10, D11, I1, I5). Group</td>
+</tr>
+<tr>
+<td><code>20261104013500_groups_tombstone_validate.sql</code></td>
+<td>ADR-004-E5 step (i) (TICK-534, I5): validates 20261104013400's</td>
+</tr>
+<tr>
+<td><code>20261104043000_groups_contract.sql</code></td>
+<td>ADR-004-E5 step (ii-a), contract (TICK-538; D2, D10). Runs only after step</td>
+</tr>
+<tr>
+<td><code>20261104043100_groups_contract_validate.sql</code></td>
+<td>ADR-004-E5 step (ii-b) (TICK-538; D10, CI-E5-8): validates 20261104043000's</td>
+</tr>
+<tr>
+<td><code>20261104100000_drop_audit_log_v0.sql</code></td>
+<td>P5-17 (TICK-435): drops S9's audit_log_v0 (PLAN-005 D-5-1, moved here from</td>
+</tr>
+<tr>
+<td><code>20261104110000_records_audit_commit_check.sql</code></td>
+<td>P5-13c (TICK-530): attach ADR-004 decision 2's commit check to records,</td>
+</tr>
+<tr>
+<td><code>20261104133000_audit_reader_policies.sql</code></td>
+<td>ADR-004-A1 A1-3 (TICK-558): nava_audit_reader, the masking reader's own</td>
+</tr>
+<tr>
+<td><code>20261104191200_auditor_group_active_tenant.sql</code></td>
+<td>P5-23 (TICK-568, ADR-004 with ADR-001-A6, PLAN-005 D-5-4): nava_onboard may</td>
+</tr>
+<tr>
+<td><code>20261105100000_onboard_seal_start.sql</code></td>
+<td>P5-33 (TICK-441, ADR-001-A6.2, ADR-004 R16): onboarding seeds a tenant's</td>
+</tr>
+<tr>
+<td><code>20261107053707_audit_migration_b.sql</code></td>
+<td>P5-32 (TICK-442): migration B (ADR-004 R25 B half, R26, R27; R16</td>
+</tr>
+<tr>
+<td><code>20261107100000_audit_chain_head_dead_lineage.sql</code></td>
+<td>P5-34f (TICK-590, ADR-004 R17): the dead-lineage gauge. nava-purge, as</td>
+</tr>
+<tr>
+<td><code>20261108120000_record_write_keys_actor.sql</code></td>
+<td>TICK-626 (AR-TICK-480-01, carried onto D-5-3): an idempotency key belongs</td>
+</tr>
+<tr>
+<td><code>20261108120100_record_write_keys_actor_key.sql</code></td>
+<td>TICK-626 (AR-TICK-480-01): record_write_keys is unique per principal.</td>
+</tr>
+<tr>
+<td><code>20261108124249_acl_tables.sql</code></td>
+<td>P3-30 (TICK-615): the S10 authorization tables (PLAN-003 D-3-2, the S10</td>
+</tr>
+<tr>
+<td><code>20261108184658_record_shares_typed_principals.sql</code></td>
+<td>P3-30a (TICK-625, closes AR-S10-01): a record share names a principal of</td>
+</tr>
+<tr>
+<td><code>20261109100000_acl_versions_shape_check.sql</code></td>
+<td>TICK-629 (deferred from P3-31): acl_versions.rules and masks must have</td>
+</tr>
+<tr>
+<td><code>20261109100100_acl_versions_shape_check_validate.sql</code></td>
+<td>TICK-629: validates the previous migration's rules and masks CHECKs in</td>
+</tr>
+<tr>
+<td><code>20261109120000_acl_versions_audit_commit_check.sql</code></td>
+<td>P3-35 (TICK-620): attach the audit commit check to acl_versions (ADR-004</td>
+</tr>
+<tr>
+<td><code>20261109130000_audit_log_subject_acl_policy.sql</code></td>
+<td>P3-35 (TICK-620), contract amendment A3: registers the audit subject type</td>
+</tr>
+<tr>
+<td><code>20261109130100_audit_log_subject_acl_policy_validate.sql</code></td>
+<td>P3-35 (TICK-620): validates the previous migration's audit_log subject_type</td>
+</tr>
+<tr>
+<td><code>20261109140000_records_list_updated.sql</code></td>
+<td>TICK-640 (P3-34b): the default sort (-updated_at) and sort=updated_at. A</td>
+</tr>
+<tr>
+<td><code>20261109140100_records_list_created.sql</code></td>
+<td>TICK-640 (P3-34b): sort=created_at, read forward (descending) or backward</td>
+</tr>
+<tr>
+<td><code>20261109140200_records_list_state.sql</code></td>
+<td>TICK-640 (P3-34b): sort=state, ordered state, updated_at, id; and</td>
+</tr>
+<tr>
+<td><code>20261109140300_records_list_group.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for assignment_group_id:</td>
+</tr>
+<tr>
+<td><code>20261109140400_records_list_requester.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for requester_id: filter[requester]=<!-- raw HTML omitted --></td>
+</tr>
+<tr>
+<td><code>20261109140500_records_list_assignee.sql</code></td>
+<td>TICK-640 (P3-34b): the access path for assignee_id: filter[assignee]=<!-- raw HTML omitted --> and</td>
+</tr>
+<tr>
+<td><code>20261109140600_drop_records_s9_list_indexes.sql</code></td>
+<td>TICK-640 (P3-34b): drops P3-09's list indexes, which the records_list_*</td>
+</tr>
+<tr>
+<td><code>20261109140700_platform_database_jit_off.sql</code></td>
+<td>TICK-640 (P3-34b): JIT off for every session on the platform database.</td>
+</tr>
+<tr>
+<td><code>20261110040000_entity_definitions_numbering_mode.sql</code></td>
+<td>P3-36f (TICK-659): each entity type chooses how its records are numbered</td>
+</tr>
+<tr>
+<td><code>20261110040100_entity_definitions_numbering_mode_validate.sql</code></td>
+<td>P3-36f (TICK-659): validates entity_definitions_numbering_mode_check, added</td>
+</tr>
+<tr>
+<td><code>20261110100000_records_list_group_state.sql</code></td>
+<td>TICK-656 (P3-36d): the group access path with state as an index condition.</td>
+</tr>
+</tbody>
+</table>
+
+</article>
+
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

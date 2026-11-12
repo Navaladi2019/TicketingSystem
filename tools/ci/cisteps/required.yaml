@@ -19,6 +19,9 @@ steps:
     run: make check-guide
     why: rebuilds docs/acceptance/guide/ and fails on any diff; without it bruno/lib/nava.js REGISTERED and the pages drift from api/errors.yaml and the spec unnoticed (TICK-391)
   - job: lint
+    run: make check-handbook
+    why: rebuilds docs/handbook in memory and fails when the committed HTML is stale, the footer sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md; without it the handbook drifts from its sources unnoticed (TICK-719)
+  - job: lint
     run: make check-ci-steps
     why: this list stops being enforced (TICK-297)
   - job: lint

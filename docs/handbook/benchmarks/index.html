@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmarks - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../benchmarks/index.html">benchmarks</a> / <span>Benchmarks</span></nav>
+
+
+<article>
+<h1 class="page-title">Benchmarks</h1>
+<p>TODO: the performance budgets and how they are measured.</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Budget</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td></td>
+<td>Commit-check trigger (<code>audit_commit_check</code>, ADR-004 decision 2), single subject</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td></td>
+<td>Commit-check trigger, import</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Migration lock holds</td>
+<td>Migration A/B tenant-lock hold (S8 backfill, <code>audit_backfill_s8()</code>): ACCESS EXCLUSIVE on <code>tenants</code>, <code>entity_definition_versions</code> and <code>audit_log</code> until COMMIT</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Migration lock holds</td>
+<td>Migration B lock hold (P5-32): ACCESS EXCLUSIVE on <code>tenants</code>, <code>entity_definitions</code>, <code>entity_definition_versions</code>, <code>audit_log</code>, <code>audit_chain_head</code> and <code>outbox</code> until COMMIT (R27)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Record history</td>
+<td>Record history length (<code>GET /api/v1/records/{entity}/{id}/history</code>)</td>
+<td>Principal Software Engineer</td>
+</tr>
+<tr>
+<td>Record numbering</td>
+<td>Counter wait, <code>gaps</code> type (L2s)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Record numbering</td>
+<td>Create, 1 client, over HTTP</td>
+<td>Quality, Testing &amp; CI Advisor</td>
+</tr>
+<tr>
+<td>Record numbering</td>
+<td>Create, 8 clients, <code>gaps</code> type</td>
+<td>Quality, Testing &amp; CI Advisor</td>
+</tr>
+<tr>
+<td>Record numbering</td>
+<td><strong>Waiver: create, 8 clients, <code>gapless</code> type (L1)</strong></td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+</tbody>
+</table>
+
+</article>
+
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

@@ -42,3 +42,11 @@ internal/audit/chain/testdata/*.json text eol=lf
 # CSV export fixtures have CRLF row ends and verbatim diff bytes, compared
 # byte for byte (TestCSVFixturesAreCurrent).
 internal/audit/verify/testdata/** -text
+
+# The product handbook (TICK-719): the generator's output is compared byte for
+# byte, so sources, viewer assets and generated files are LF on every checkout.
+# The pinned Mermaid bundle is hashed against docs/pins.md, so it is never
+# converted.
+docs/handbook/** text eol=lf
+tools/handbook/** text eol=lf
+docs/handbook/assets/mermaid.min.js -text

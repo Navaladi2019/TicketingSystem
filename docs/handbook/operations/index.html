@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../operations/index.html">operations</a> / <span>Operations</span></nav>
+
+
+<article>
+<h1 class="page-title">Operations</h1>
+<p>TODO: the public API operations and how to run the stack.</p>
+<h2 id="audit-operations">Audit operations</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Method and path</th>
+<th>Summary</th>
+<th>Responses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reseedAuditChain</code></td>
+<td><code>POST /api/v1/audit/chain:reseed</code></td>
+<td>Restart a dead audit seal lineage</td>
+<td>200, 400, 401, 403, 404, 409, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>listAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries</code></td>
+<td>The tenant's audit timeline</td>
+<td>200, 400, 401, 403, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>exportAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries:export</code></td>
+<td>Download a verifiable JSONL export of the audit log</td>
+<td>200, 400, 401, 403, 409, 429, 500, 501</td>
+</tr>
+</tbody>
+</table>
+
+</article>
+
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
