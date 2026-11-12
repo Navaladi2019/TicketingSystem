@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflow interpreter (nava.interpreter) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li class="current"><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../workflows/index.html">workflows</a> / <span>Workflow interpreter (nava.interpreter)</span></nav>
+<p class="badge">Registered only in the <code>interptest</code> build; not running in the stack</p>
+<article>
+<h1 class="page-title">Workflow interpreter (nava.interpreter)</h1>
+<p>Registered only in the <code>interptest</code> build; not running in the stack.</p>
+<p>In a production build <code>interpreterActivities</code> returns nil (<code>cmd/nava-worker/interp_default.go:15-17</code>), because the interpreter's real definition store, record reader and record writer do not exist yet (P3-41, P3-43, <code>TODO-TICK-367-01</code>). <code>registerInterpreter</code> then registers nothing (<code>cmd/nava-worker/interp.go:14-20</code>), and the worker runs only <code>audit.seal</code>. The <code>interptest</code> build wires file-backed fakes. Proof: <code>TestProductionBuildRegistersNoInterpreter</code>, <code>TestProductionBuildLinksNoFakes</code>, <code>TestInterptestBuildWiresTheFakes</code>.</p>
+<p>The workflow code is on <code>main</code>. The producer that would start it from a record write (S11b, P3-42) is <strong>in progress</strong> on its story branch: on <code>main</code> the pipeline's sink is <code>NoopSink</code>.</p>
+<h2 id="trigger">Trigger</h2>
+<p>A start row of kind <code>nava.interpreter</code> (<code>internal/outbox/outbox.go:105</code>), written only by <code>outbox.EnqueueStart</code> under a claimed <code>cascade.Claim</code> (ADR-001 A5-6). The claim is a <code>cascade_start</code> row keyed on the record, the definition and the causation origin, so a cascade cycle starts nothing (I9). The relay starts it as <code>t:&lt;tenant&gt;:nava.interpreter:&lt;outbox id&gt;</code>.</p>
+<p>The input is <code>workerguard.RunInput</code>: the relay's <code>outbox.Delivery</code> with payload <code>{definition_version_id, record_id}</code> and nothing else (<code>workflow.go:52-55</code>). The definition version is pinned at start; the workflow never reads "latest". Any other payload is a non-retryable <code>RejectInput</code> (<code>TestStartInputRefused</code>).</p>
+<h2 id="sequence">Sequence</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
+    autonumber
+    participant R as nava-relay
+    participant T as Temporal (nava-tq)
+    participant W as nava.interpreter
+    participant N as NextStep activity
+    participant A as ApplyStep activity
+    participant C as nava.workflow_ref.Close
+    R-&gt;&gt;T: start t:{tenant}:nava.interpreter:{outbox id}
+    T-&gt;&gt;W: run, guard checks nava-tenant header
+    loop each step
+        W-&gt;&gt;N: StepRef (version id, record id, step, signal?)
+        N--&gt;&gt;W: Directive (timer, wait_signal, update_record or end)
+        opt server suggests continue-as-new
+            W-&gt;&gt;T: continue-as-new with step, applied signals, pending deliveries
+        end
+        alt timer
+            W-&gt;&gt;W: timer of WaitSeconds, 1 s to 30 days
+        else wait_signal
+            R-&gt;&gt;T: signal nava.interpreter.signal, arg Delivery with outbox id
+            T-&gt;&gt;W: delivery, dropped if from another tenant
+            W-&gt;&gt;W: apply once per outbox id, else OnTimeout when the timer fires
+        else update_record
+            W-&gt;&gt;A: StepRef
+            A--&gt;&gt;W: ok or non-retryable rejection
+        else end
+            W-&gt;&gt;C: close workflow_ref, start-to-close 30 s
+            W--&gt;&gt;T: complete
+        end
+    end
+</pre></div></figure>
+<h2 id="activities-timeouts-and-retries-quoted-by-hand-checked-against-the-footer-sha">Activities, timeouts and retries (quoted by hand; checked against the footer sha)</h2>
+<table>
+<thead>
+<tr>
+<th>Activity</th>
+<th>Registered name</th>
+<th>Start-to-close</th>
+<th>Retry policy</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NextStep</code></td>
+<td><code>nava.interpreter.NextStep</code></td>
+<td>10 s</td>
+<td><code>ActivityRetryPolicy()</code>: initial 1 s, coefficient 2, max interval 1 min, 10 attempts</td>
+<td><code>workflow.go:20</code>, <code>workflow.go:27-42</code></td>
+</tr>
+<tr>
+<td><code>ApplyStep</code></td>
+<td><code>nava.interpreter.ApplyStep</code></td>
+<td>10 s</td>
+<td>same</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>CloseWorkflowRef</code></td>
+<td><code>nava.workflow_ref.Close</code></td>
+<td>30 s</td>
+<td>SDK default</td>
+<td><code>internal/workerguard/workflowref.go:105-110</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>The 10 s cap is the P3-24 contract: an attempt on a dead worker is retried only when it expires, so it sets how fast a crash recovers. Proof: <code>TestApplyStepStartToCloseWithinContract</code>.</li>
+<li>The SDK default retries forever; the explicit policy fails the run after about six minutes of backoff. Proof: <code>TestActivityRetryPolicyIsBounded</code>, <code>TestPersistentNextStepFaultFailsTheRun</code>, <code>TestPersistentApplyStepFaultFailsTheRun</code>.</li>
+<li>Wait bounds of a timer or <code>wait_signal</code>: 1 s to 30 days (<code>internal/workerguard/directive.go:76-77</code>). Proof: <code>TestWaitBoundsMatchTheGuard</code>.</li>
+</ul>
+<p><code>NextStep</code> is the one activity whose result the guard lets carry a <code>workerguard.Directive</code>, and <code>nava.interpreter</code> the one workflow that may receive one (<code>directive.go:41,49</code>).</p>
+<h2 id="signals-and-idempotency">Signals and idempotency</h2>
+<ul>
+<li><strong>Start</strong>: the workflow ID with <code>REJECT_DUPLICATE</code>; the start row's ID is the claim's outbox ID, so one claim is one start.</li>
+<li><strong>Signals</strong>: one signal name, <code>nava.interpreter.signal</code> (<code>interp.go:49</code>). Its argument is the relay's <code>Delivery</code>, payload <code>{&quot;signal&quot;: &lt;signal id&gt;}</code>. A delivery is applied only if it is the signal the current step awaits and its <strong>outbox ID</strong> is new (<code>AppliedSignals.TryApply</code>, <code>workflow.go:193,227</code>, I7); others are dropped. The applied set covers 48 h, longer than the relay's 24 h redelivery age. Proof: <code>TestSignalAppliedOnce</code>, <code>TestSignalWithoutSignalIDDropped</code>, <code>TestSignalAppliedOnceAcrossContinueAsNew</code>.</li>
+<li><strong><code>ApplyStep</code></strong>: delivered twice, it writes once. Proof: <code>TestApplyStepDeliveredTwice</code>.</li>
+<li><strong><code>workflow_ref</code> close</strong>: keeps the first <code>closed_at</code>, so a retry is a no-op. Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>.</li>
+</ul>
+<h2 id="failure-handling">Failure handling</h2>
+<table>
+<thead>
+<tr>
+<th>Failure</th>
+<th>Result</th>
+<th>Proof</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Start input or carried refs malformed</td>
+<td>non-retryable <code>RejectInput</code>, run fails</td>
+<td><code>TestStartInputRefused</code>, <code>TestRunRefsRefused</code></td>
+</tr>
+<tr>
+<td>Business rejection (validation, illegal transition, forbidden) or missing version, record or step</td>
+<td>non-retryable <code>workerguard.Rejected</code> with fixed text, run fails</td>
+<td><code>TestBusinessRejectionFailsTheRun</code></td>
+</tr>
+<tr>
+<td>Directive of an unknown kind or with a missing edge</td>
+<td>non-retryable <code>RejectDirective</code>, never a panic (AR-042)</td>
+<td><code>TestKindDefaultFailsWithoutPanic</code></td>
+</tr>
+<tr>
+<td>Any other activity error</td>
+<td>retried by the policy above; the guard withholds its text as <code>nava.Opaque</code></td>
+<td><code>TestNextStepFailureWithheld</code></td>
+</tr>
+<tr>
+<td>Cancelled during a wait</td>
+<td>the wait ends with the cancellation</td>
+<td><code>TestCancelDuringWait</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="tenant-scoping">Tenant scoping</h2>
+<p>The tenant is never in the input. Activities read it from the guard-verified header and load the version and record in that tenant's transaction, so another tenant's version or record is "not found". The history holds IDs only, never a definition or record value. Proof: <code>TestCrossTenantIsNotFound</code>, <code>TestHistoryHoldsNoDefinitionLiteral</code>, <code>TestSignalAbsentPassesGuard</code>.</p>
+<h2 id="determinism-continue-as-new-and-versioning">Determinism, continue-as-new and versioning</h2>
+<ul>
+<li><strong>Continue-as-new</strong>: when <code>GetContinueAsNewSuggested()</code> is true, only between steps, after <code>NextStep</code> returns and before the wait starts (<code>workflow.go:128-129</code>). The new run carries the step, the applied-signal set and every delivery not yet acted on (<code>workflow.go:245-266</code>); the guard checks that input twice (see <a href="../workflows/outbox-relay-worker.html#the-workerguard-interceptor">the durable path</a>). Proof: <code>TestContinueAsNewResumesAtSameStep</code>, <code>TestContinueAsNewWaitsForTheWaitToEnd</code>, <code>TestPinnedAcrossContinueAsNew</code>.</li>
+<li><strong>Version pinning</strong>: a run keeps the definition version it started with, across continue-as-new. Proof: <code>TestInFlightRunKeepsItsVersion</code>.</li>
+<li><strong>Replay</strong>: <code>TestReplayRecordedHistories</code> replays every committed history in <code>internal/workflow/testdata/histories/</code> (<code>continue-as-new.run1.json</code> to <code>run5.json</code>, <code>else-default.json</code>, <code>signal.json</code>, <code>timeout.json</code>). <code>TestHistorySetRequired</code> requires the set, <code>TestHistoriesAppendOnly</code> forbids editing or deleting one on <code>main</code>, <code>TestHistoriesHoldReferencesOnly</code> checks they carry no record data, and <code>TestReplayCatchesNonDeterminism</code> proves the gate fails on a changed command sequence. <code>NextStep</code> itself is deterministic for the same input (<code>TestNextStepIsDeterministic</code>).</li>
+<li><strong><code>workflowcheck</code></strong> runs on <code>./internal/workflow/...</code> (<code>scripts/ci/workflowcheck.sh:13</code>).</li>
+<li><strong>No <code>GetVersion</code> today.</strong> No non-test file calls <code>workflow.GetVersion</code>, and the retired-histories manifest is empty (<code>internal/workflow/testdata/retired-histories.json</code>). Start rows carry <code>kind_version</code> 1 in the <code>Delivery</code>, and the workflow does not branch on it. When a code change needs <code>GetVersion</code>, ADR-003 governs it: an old arm is retired only by raising <code>minSupported</code>, and the call is never deleted. The tooling is ready: <code>TestScanGetVersionCalls</code>, <code>TestRetiredHistoriesManifest</code>, <code>TestReplayGetVersionKeepsHistoriesGreen</code>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table cascade_start</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Table outbox</h3><ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Table workflow_ref</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Workflow nava.interpreter</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-001-A5</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Invariant I2</h3><ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Invariant I6</h3><ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Invariant I7</h3><ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Invariant I9</h3><ul><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

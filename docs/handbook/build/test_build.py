@@ -94,6 +94,81 @@ SCHEMA = """{"version":1,"tables":[
  {"name":"tenants","kind":"table","columns":[{"name":"id","type":"uuid","nullable":false,"default":""}],"primary_key":["id"]}]}"""
 
 
+# The Go files GoRegistry reads, in the shape of the real ones (TICK-727).
+GO_FIXTURE = {
+    "internal/outbox/outbox.go": """package outbox
+
+const InterpreterKind = "nava.interpreter"
+
+// SealKind is the sealer.
+const SealKind = "audit.seal"
+
+func notOwnEntryPointStart(e Entry) error {
+	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
+		_ = k
+	}
+	return nil
+}
+""",
+    "internal/workerguard/directive.go": """package workerguard
+
+const DirectiveActivity = "nava.interpreter.NextStep"
+
+const DirectiveWorkflow = "nava.interpreter"
+""",
+    "internal/workerguard/workflowref.go": """package workerguard
+
+const CloseWorkflowRefActivity = "nava.workflow_ref.Close"
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.CloseWorkflowRef, activity.RegisterOptions{Name: CloseWorkflowRefActivity})
+}
+""",
+    "internal/audit/seal/workflow.go": """package seal
+
+const WorkflowType = outbox.SealKind
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})
+}
+""",
+    "internal/audit/seal/activities.go": """package seal
+
+const (
+	RescheduleActivity = outbox.SealKind + ".Reschedule"
+	SealActivity       = outbox.SealKind + ".Seal"
+)
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.Reschedule, activity.RegisterOptions{Name: RescheduleActivity})
+	r.RegisterActivityWithOptions(a.Seal, activity.RegisterOptions{Name: SealActivity})
+}
+""",
+    "internal/workflow/interp/interp.go": """package interp
+
+const WorkflowType = workerguard.DirectiveWorkflow
+
+const (
+	NextStepActivity  = workerguard.DirectiveActivity
+	ApplyStepActivity = "nava.interpreter.ApplyStep" // a comment
+)
+""",
+    "internal/workflow/interp/workflow.go": """package interp
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})
+}
+""",
+    "internal/workflow/interp/activities.go": """package interp
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.NextStep, activity.RegisterOptions{Name: NextStepActivity})
+	r.RegisterActivityWithOptions(a.ApplyStep, activity.RegisterOptions{Name: ApplyStepActivity})
+}
+""",
+}
+
+
 def write(root, rel, content):
     p = os.path.join(root, *rel.split("/"))
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -131,6 +206,8 @@ def new_fixture():
           "    evidence: [docs/evidence/e.md]\n")
     write(root, "docs/handbook/src/database/schema.json", SCHEMA)
     write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default, tenants]\n")
+    for rel, text in GO_FIXTURE.items():
+        write(root, rel, text)
     page(root, "index.md", "Home", "home", body="Welcome.")
     return root
 
@@ -274,11 +351,72 @@ class TestReferences(Base):
         self.assertIn('Summary. The normative text is the linked <a href="../../../docs/adr/ADR-004-audit-log.md">', h)
 
     def test_wired_registry(self):
-        page(self.root, "workflows/a.md", "A", "workflows", front="workflows: [OutboxDispatch]\nactivities: [Send]\n")
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [OutboxDispatch]\nactivities: [Send]\n")
         self.build(registry=FakeRegistry(["OutboxDispatch"], ["Send"]))
         with self.assertRaises(build.BuildError) as cm:
             self.build(registry=FakeRegistry([], ["Send"]))
         self.assertIn("OutboxDispatch", str(cm.exception))
+
+    def test_go_registry_reads_kinds_and_activities(self):
+        r = build.GoRegistry(self.root)
+        r.load()
+        self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal"})
+        self.assertEqual(r.workflows(), ["audit.seal", "nava.interpreter"])
+        self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "nava.interpreter.ApplyStep",
+                                          "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
+
+    def test_go_registry_resolves_front_matter(self):
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [audit.seal]\nactivities: [audit.seal.Seal]\n")
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [audit.sealer]\nactivities: [audit.seal.Sealed]\n")
+        self.fails("workflows 'audit.sealer' is not in the registry", "activities 'audit.seal.Sealed' is not in the registry")
+
+    def test_go_registry_fails_when_it_finds_nothing(self):
+        write(self.root, "internal/outbox/outbox.go", "package outbox\n\nconst SealKind = \"audit.seal\"\n")
+        self.fails("no {Kind, \"Enqueue...\"} rows found")
+
+    def test_go_registry_fails_when_outbox_is_missing(self):
+        os.remove(os.path.join(self.root, "internal", "outbox", "outbox.go"))
+        self.fails("internal/outbox/outbox.go is missing")
+
+    def test_go_registry_fails_on_an_unreadable_register_function(self):
+        write(self.root, "internal/workerguard/workflowref.go",
+              "package workerguard\n\nfunc (a *Activities) Register(r worker.ActivityRegistry) {\n"
+              "\tr.RegisterActivity(a.CloseWorkflowRef)\n}\n")
+        self.fails("registers nothing the parser can read")
+        os.remove(os.path.join(self.root, "internal", "workerguard", "workflowref.go"))
+        self.fails("internal/workerguard has no func (a *Activities) Register(...) function")
+
+    def test_go_registry_fails_on_an_unresolved_name(self):
+        write(self.root, "internal/workflow/interp/interp.go", "package interp\n\nconst WorkflowType = workerguard.DirectiveWorkflow\n")
+        self.fails("internal/workflow/interp has no constant NextStepActivity")
+
+    def test_go_registry_fails_when_kinds_and_workflows_drift(self):
+        write(self.root, "internal/audit/seal/workflow.go",
+              "package seal\n\nconst WorkflowType = \"audit.sealer\"\n\nfunc RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})\n}\n")
+        self.fails("workflow type 'audit.sealer' is registered but is not a kind",
+                   "kind 'audit.seal' is registered by no RegisterWorkflow")
+
+    def test_sources_with_lines(self):
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="sources: [internal/audit/seal/workflow.go:3, internal/outbox/outbox.go:1-3,5]\n")
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/audit/seal/workflow.go:99]\n")
+        self.fails("names line 99, but internal/audit/seal/workflow.go has")
+        page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/nope.go:1]\n")
+        self.fails("sources 'internal/nope.go' does not exist")
+
+    def test_build_front_matter(self):
+        page(self.root, "workflows/a.md", "A", "workflows", front="build: staging\n")
+        self.fails("build 'staging' is not production or interptest")
+        page(self.root, "workflows/a.md", "A", "workflows", front="workflows: [audit.seal]\n")
+        self.fails("says which build registers them")
+        page(self.root, "workflows/a.md", "A", "workflows", front="build: interptest\nworkflows: [nava.interpreter]\n")
+        self.assertIn("Registered only in the <code>interptest</code> build", self.html("workflows/a.html"))
 
     def test_schema_version_is_checked(self):
         write(self.root, "docs/handbook/src/database/schema.json", '{"version": 2, "tables": []}')
