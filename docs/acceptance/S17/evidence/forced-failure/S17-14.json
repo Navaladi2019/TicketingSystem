@@ -9,26 +9,26 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-3bc72a93-b-after",
+      "Idempotency-Key": "s17-99f0b2fe-b-after",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 3bc72a93 gaps after tenant A's creates\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 99f0b2fe gaps after tenant A's creates\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-12T19:56:30.933831Z",
+      "created_at": "2026-11-12T20:56:18.503273Z",
       "data": {
         "priority": 3,
-        "requester": "67329c17-7939-40e9-ad59-7643b1eab37c",
-        "short_description": "S17 3bc72a93 gaps after tenant A's creates",
+        "requester": "c6e6b97b-6072-4985-9c69-53a59fec1dc3",
+        "short_description": "S17 99f0b2fe gaps after tenant A's creates",
         "state": "new"
       },
-      "id": "01a1d155-4d53-7d27-8e46-7e7f2482bcc3",
+      "id": "01a1d18c-0b45-7e7e-a609-7d9ca5deeb8e",
       "number": "INC0000052",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T19:56:30.933831Z",
+      "updated_at": "2026-11-12T20:56:18.503273Z",
       "version": 1
     }
   },

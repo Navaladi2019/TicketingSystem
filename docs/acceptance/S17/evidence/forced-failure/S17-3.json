@@ -17,16 +17,16 @@
     "body": {
       "group_paths": [
         {
-          "id": "b1e82df5-0910-4567-a099-2ff1c0696d4a",
+          "id": "1305da41-22fa-4fb5-96ac-dd77036cb4d4",
           "path": "/admins"
         }
       ],
       "groups": [
-        "b1e82df5-0910-4567-a099-2ff1c0696d4a"
+        "1305da41-22fa-4fb5-96ac-dd77036cb4d4"
       ],
       "idp_alias": "",
       "tenant_id": "00000000-0000-4000-8000-0000000000a1",
-      "user_id": "da8fe547-846c-4126-9db4-0246d89e3ef5"
+      "user_id": "12a4c57d-53a5-4c8d-84b4-25f7591f8630"
     }
   },
   "tests": [

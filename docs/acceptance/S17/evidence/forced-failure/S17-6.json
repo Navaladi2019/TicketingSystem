@@ -9,26 +9,26 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-3bc72a93-a43",
+      "Idempotency-Key": "s17-99f0b2fe-a43",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 3bc72a93 gapless first after the upgrade\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 99f0b2fe gapless first after the upgrade\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-12T19:56:29.860677Z",
+      "created_at": "2026-11-12T20:56:18.073923Z",
       "data": {
         "priority": 3,
-        "requester": "da8fe547-846c-4126-9db4-0246d89e3ef5",
-        "short_description": "S17 3bc72a93 gapless first after the upgrade",
+        "requester": "12a4c57d-53a5-4c8d-84b4-25f7591f8630",
+        "short_description": "S17 99f0b2fe gapless first after the upgrade",
         "state": "new"
       },
-      "id": "01a1d155-4924-7a53-afbd-0f71c29c5160",
+      "id": "01a1d18c-0999-7e17-90ce-25a4b0b0f9b6",
       "number": "INC0000044",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T19:56:29.860677Z",
+      "updated_at": "2026-11-12T20:56:18.073923Z",
       "version": 1
     }
   },

@@ -1,5 +1,5 @@
 {
-  "step": "on the S10 build, before the upgrade",
+  "step": "on the pre-S17 build, before the upgrade",
   "set_tenant_a_gapless": {
     "request": "POST /api/v1/entity-types/incident/versions {\"numbering_mode\":\"gapless\"}",
     "status": 201,

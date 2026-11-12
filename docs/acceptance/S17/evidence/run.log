@@ -1,4 +1,4 @@
-s17: 1. fresh stack on the S10 build (0e79d828)
+s17: 1. fresh stack on the pre-S17 build (ec863ece)
 seed: tenants A and B, issuer http://localhost:28081/realms/nava
 seed: admin@tenant-a.test is in /t/00000000-0000-4000-8000-0000000000a1/admins
 seed: /t/00000000-0000-4000-8000-0000000000b1/admins exists
@@ -8,9 +8,9 @@ seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)
 seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
 seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
 seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
-s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (S10 build)
+s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (pre-S17 build)
 s17: before the upgrade: A (gapless) last INC0000042, B (gaps) last INC0000042
-s17: 3. upgrade the same stack to c5185432
+s17: 3. upgrade the same stack to 3626155d
 s17: 4. Bruno folder S17
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
@@ -59,7 +59,7 @@ s17: 4. Bruno folder S17
 │ Requests      │ 15 (15 Passed) │
 │ Tests         │     42/42      │
 │ Assertions    │      0/0       │
-│ Duration (ms) │      8589      │
+│ Duration (ms) │      1375      │
 api-test: reports in /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-668-51d4e6ff99e9/workdir/TicketingSystem/docs/acceptance/guide/reports/S17.{junit.xml,html,json}
 api-test: PASS
 s17: 5. database after the run, and the runbook (AC4)

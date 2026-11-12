@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d149-8551-749d-9b2c-82de2aa6703e",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d189-dc8f-741e-be72-dd44d6abcd81",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
@@ -15,18 +15,18 @@
   "response": {
     "status": 200,
     "body": {
-      "created_at": "2026-11-12T19:43:38.841176Z",
+      "created_at": "2026-11-12T20:53:55.486009Z",
       "data": {
         "priority": 3,
-        "requester": "f57190c5-19b9-48b9-9b20-38ddc87b7642",
-        "short_description": "S17 523169e1 b parallel 1",
+        "requester": "78ab2e16-a0f7-4c98-8ae6-6cdcbf741785",
+        "short_description": "S17 ba228fba b parallel 1",
         "state": "new"
       },
-      "id": "01a1d149-8551-749d-9b2c-82de2aa6703e",
-      "number": "INC0000045",
+      "id": "01a1d189-dc8f-741e-be72-dd44d6abcd81",
+      "number": "INC0000049",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T19:43:38.841176Z",
+      "updated_at": "2026-11-12T20:53:55.486009Z",
       "version": 1
     }
   },

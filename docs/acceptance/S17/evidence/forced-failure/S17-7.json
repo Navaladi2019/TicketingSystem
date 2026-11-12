@@ -9,26 +9,26 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-3bc72a93-b43",
+      "Idempotency-Key": "s17-99f0b2fe-b43",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 3bc72a93 gaps first after the upgrade\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 99f0b2fe gaps first after the upgrade\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-12T19:56:29.965419Z",
+      "created_at": "2026-11-12T20:56:18.119708Z",
       "data": {
         "priority": 3,
-        "requester": "67329c17-7939-40e9-ad59-7643b1eab37c",
-        "short_description": "S17 3bc72a93 gaps first after the upgrade",
+        "requester": "c6e6b97b-6072-4985-9c69-53a59fec1dc3",
+        "short_description": "S17 99f0b2fe gaps first after the upgrade",
         "state": "new"
       },
-      "id": "01a1d155-4983-71ce-b92d-6aa6ed2875fa",
+      "id": "01a1d18c-09c1-77b5-af55-ef346add0361",
       "number": "INC0000043",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T19:56:29.965419Z",
+      "updated_at": "2026-11-12T20:56:18.119708Z",
       "version": 1
     }
   },
