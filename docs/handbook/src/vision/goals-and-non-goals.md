@@ -22,7 +22,7 @@ This page follows ADR-001 and the README, and the Milestone 1 scope as recorded 
 ADR-001 and its reading guide list what is deliberately left out, because each item adds a path that is not yet secured:
 
 - Temporal Schedules, cron and reset.
-- Partitioned tables.
+- Partitioned tables (since adopted for `audit_log` by ADR-004; general table partitioning remains out of scope (partition management: Epic 30)).
 - Tenant self-service administration of the identity provider (residual R3); the platform API does it.
 - GraphQL. It arrives later, as a read surface over the same authorization layer.
 - Encrypting workflow histories per tenant (residual R1). Workflow payloads carry references only.

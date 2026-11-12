@@ -52,7 +52,7 @@
 <p>ADR-001 and its reading guide list what is deliberately left out, because each item adds a path that is not yet secured:</p>
 <ul>
 <li>Temporal Schedules, cron and reset.</li>
-<li>Partitioned tables.</li>
+<li>Partitioned tables (since adopted for <code>audit_log</code> by ADR-004; general table partitioning remains out of scope (partition management: Epic 30)).</li>
 <li>Tenant self-service administration of the identity provider (residual R3); the platform API does it.</li>
 <li>GraphQL. It arrives later, as a read surface over the same authorization layer.</li>
 <li>Encrypting workflow histories per tenant (residual R1). Workflow payloads carry references only.</li>

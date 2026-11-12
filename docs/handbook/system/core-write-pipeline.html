@@ -185,7 +185,7 @@ any other writer of <code>records</code>.</li>
 <td>13</td>
 <td>Keyed write row, audit entry (diff built from the stored jsonb; secrets refused), event sink, all in the same transaction</td>
 <td><code>write.finish</code>, <code>store.InsertWriteKey</code>, <code>appendRecordEntry</code> -&gt; <code>audit.Append</code>, <code>EventSink.RecordChanged</code></td>
-<td>I6 entry point: the sink enqueues outbox rows in the write's transaction</td>
+<td>I6 entry point: the sink runs in the write's transaction; the wired sink on <code>main</code> is <code>NoopSink</code> (S11b replaces it)</td>
 <td><code>TestAuditAndSinkInTheWriteTransaction</code>, <code>TestDiffIsBuiltFromStoredJSONB</code>, <code>TestSecretInRecordDiffIsRefused</code>, <code>TestCreateRollsBackAtEveryStage</code>, <code>TestPipelineKill</code></td>
 </tr>
 </tbody>

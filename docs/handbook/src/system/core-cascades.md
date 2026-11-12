@@ -19,6 +19,8 @@ causation (origin id and depth) and a write deeper than the limit is refused,
 and a workflow definition starts at most once per (tenant, origin, record).
 This page shows where both checks run inside the write pipeline.
 
+On `main` the record API wires `pipeline.NoopSink`; the start-key path (steps 4–6) is built and tested but not called by a running service until S11b's EventSink (P3-42, TICK-711). Steps 1–3 (depth bound, minted origin, causation on the row) are delivered and live in `Pipeline.perform`.
+
 ## Entry point
 
 - Depth: `Pipeline.perform` in `internal/records/pipeline/pipeline.go`
@@ -26,8 +28,8 @@ This page shows where both checks run inside the write pipeline.
   (`internal/platform/config/config.go`) before any statement but the tenant
   read.
 - Start key: `cascade.ClaimStart(ctx, tx, cascade.Key)` in
-  `internal/records/cascade/cascade.go`, called by the event sink in the
-  triggering write's transaction; a repeat is audited by
+  `internal/records/cascade/cascade.go`, called by the EventSink (S11b, in
+  progress) in the triggering write's transaction; a repeat is audited by
   `pipeline.AuditSuppressed`.
 
 ```mermaid

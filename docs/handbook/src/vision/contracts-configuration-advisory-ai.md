@@ -2,7 +2,7 @@
 title: "I8: Contracts are the boundary; configuration, not code; AI is advisory"
 section: vision
 sources: [docs/adr/ADR-001-platform-blueprint.md, docs/adr/ADR-001-explained.md, .golangci.yml, README.md, internal/identity/keycloak/contract_test.go]
-adrs: [ADR-001]
+adrs: [ADR-001, ADR-006]
 invariants: [I8]
 tests: [TestContract, TestCompileNumberingMode, TestAllocationTransactionIsTenantScoped]
 packages: [internal/identity, internal/identity/keycloak]

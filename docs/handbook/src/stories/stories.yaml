@@ -126,7 +126,7 @@ stories:
       - docs/acceptance/s10-evidence/s10-fresh-stack-run.txt
   - id: S11a
     issue: TICK-334
-    title: The workflow interpreter runs a definition on Temporal (scope: interpreter only; S11b, records starting workflows, is in progress)
+    title: "The workflow interpreter runs a definition on Temporal (scope: interpreter only; S11b, records starting workflows, is in progress)"
     status: delivered
     verdict: READY
     date: 2026-11-01

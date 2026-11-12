@@ -45,6 +45,7 @@ another workflow. ADR-001 I9 bounds that chain two ways: every write carries a
 causation (origin id and depth) and a write deeper than the limit is refused,
 and a workflow definition starts at most once per (tenant, origin, record).
 This page shows where both checks run inside the write pipeline.</p>
+<p>On <code>main</code> the record API wires <code>pipeline.NoopSink</code>; the start-key path (steps 4–6) is built and tested but not called by a running service until S11b's EventSink (P3-42, TICK-711). Steps 1–3 (depth bound, minted origin, causation on the row) are delivered and live in <code>Pipeline.perform</code>.</p>
 <h2 id="entry-point">Entry point</h2>
 <ul>
 <li>Depth: <code>Pipeline.perform</code> in <code>internal/records/pipeline/pipeline.go</code>
@@ -52,8 +53,8 @@ compares <code>Command.Causation.Depth</code> with <code>config.CascadeDepthLimi
 (<code>internal/platform/config/config.go</code>) before any statement but the tenant
 read.</li>
 <li>Start key: <code>cascade.ClaimStart(ctx, tx, cascade.Key)</code> in
-<code>internal/records/cascade/cascade.go</code>, called by the event sink in the
-triggering write's transaction; a repeat is audited by
+<code>internal/records/cascade/cascade.go</code>, called by the EventSink (S11b, in
+progress) in the triggering write's transaction; a repeat is audited by
 <code>pipeline.AuditSuppressed</code>.</li>
 </ul>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TD

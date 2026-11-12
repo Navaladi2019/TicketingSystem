@@ -36,11 +36,36 @@ roles):
 - **Per-service roles.** `db/grants.yaml` lists each role's table and column
   grants; `migrate` grants exactly those and revokes anything else.
 - A policy that does not test `app.tenant_id` must be on the ADR-001 Annex A.3
-  allow-list (today: `outbox_relay_select`, `outbox_relay_update`,
-  `binding_lookup`), and has a fixed `FOR` and `TO`.
+  allow-list (`catalog.AllowList()`, `internal/db/catalog/policy.go`), and has
+  a fixed `FOR`, `TO` and predicate. Today it has 11 policies; these are the
+  only places a role can reach rows across tenants:
+  - `outbox_relay_select`: `SELECT` by `nava_relay`, `USING (true)`.
+  - `outbox_relay_update`: `UPDATE` by `nava_relay`, `USING` pending rows
+    (`dispatched_at IS NULL AND dead_at IS NULL`), `WITH CHECK (true)`.
+  - `binding_lookup`: `SELECT` by `nava_app` and `nava_groupsync`, `USING (true)`.
+  - `binding_onboard`: `INSERT` by `nava_onboard`, `WITH CHECK` the tenant is
+    `provisioning`.
+  - `idempotency_purge` and `idempotency_purge_select`: `DELETE` and `SELECT`
+    by `nava_purge`, `USING` the key is expired (`expires_at < now()`).
+  - `outbox_purge` and `outbox_purge_select`: `DELETE` and `SELECT` by
+    `nava_purge`, `USING` dispatched more than 7 days ago or dead more than
+    30 days ago.
+  - `workflow_ref_purge` and `workflow_ref_purge_select`: `DELETE` and `SELECT`
+    by `nava_purge`, `USING` closed more than 30 days ago.
+  - `audit_chain_head_purge_select`: `SELECT` by `nava_purge`, `USING` the R17
+    predicate (shared with the `chain:reseed` gate).
+
+  So `nava_purge` selects and deletes expired rows of every tenant.
+  `PinnedTenantPolicies()` adds a state test to the tenant predicate for the
+  onboarding and group-sync policies (for example the tenant is `provisioning`,
+  or its group is tombstoned).
 - Unique keys and foreign keys include `tenant_id`, so a row of tenant A can
   never reference a row of tenant B.
-- No `SECURITY DEFINER` function; views are `security_invoker`.
+- `pgbouncer.get_auth(text)` is the one `SECURITY DEFINER` exception: the
+  infrastructure function in `db/grants.yaml`, granted only to
+  `pgbouncer_auth`, which returns no row for a superuser, `BYPASSRLS` or
+  `REPLICATION` role. `main` has no views. The proof is CI-1
+  (`ci1SecurityDefiner`), which fails on any other `SECURITY DEFINER` function.
 
 The policy text of every table is on [Row-level security](../database/rls.md),
 and every role's grants are on [Roles and grants](../database/roles-and-grants.md).
@@ -67,7 +92,7 @@ sequenceDiagram
 | Every table forces RLS; the policy allow-list catches a leaking policy | `TestT09EveryTableForcesRLS`, `TestT09PolicyAllowListCatchesLeaks`, `TestExemptionsAreAllowListed` |
 | Foreign keys include the tenant | `TestT09ForeignKeyIncludesTenant`, `TestP302ForeignKeysRejectCrossTenant` |
 | No superuser or `BYPASSRLS` role; the migrator is granted to no one; the app cannot run DDL | `TestD28NoSuperuserOrBypassRLS`, `TestMigratorOwnsDatabaseAndIsGrantedToNoOne`, `TestAppCannotRunDDL` |
-| No `SECURITY DEFINER`; views are security invoker | `TestT10GateEmptySecurityDefinerExceptions`, `TestT10GatePassesSecurityInvokerView` |
+| One `SECURITY DEFINER` exception (`pgbouncer.get_auth`); no views on `main` | `TestT10GateEmptySecurityDefinerExceptions`, `TestT10GatePassesSecurityInvokerView` |
 | System roles (relay, purge, onboard, backup) reach only what their row of ADR-001 allows (CI-9) | DB paths in `TestRegisteredPaths` |
 
 ## Fixture that turns it red
