@@ -1,0 +1,68 @@
+s17: 1. fresh stack on the S10 build (0e79d828)
+seed: tenants A and B, issuer http://localhost:28081/realms/nava
+seed: admin@tenant-a.test is in /t/00000000-0000-4000-8000-0000000000a1/admins
+seed: /t/00000000-0000-4000-8000-0000000000b1/admins exists
+seed: one group sync cycle (nava-groupsync --once)
+seed: tenant A's admin group, incident/request/change at version 1 in A and B
+seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
+s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (S10 build)
+s17: before the upgrade: A (gapless) last INC0000042, B (gaps) last INC0000042
+s17: 3. upgrade the same stack to c5185432
+s17: FORCED FAILURE: tenant A took INC0000043 before the kit; S17.6 must now fail
+s17: 4. Bruno folder S17
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ HTTP 200
+   ✓ incident, prefix INC, numbering_mode gapless
+   ✓ HTTP 200
+   ✓ incident, prefix INC, numbering_mode gaps
+AssertionError: expected 'INC0000044' to deeply equal 'INC0000043'
+   ✓ HTTP 201
+   ✓ HTTP 201
+   ✓ number INC0000043
+AssertionError: expected 'INC0000044' to deeply equal 'INC0000043'
+   ✓ HTTP 200
+AssertionError: expected [ 45, 46, 47, 48, 49, 50, 51, 52 ] to deeply equal [ 44, 45, 46, 47, 48, 49, 50, 51 ]
+   ✓ HTTP 200
+   ✓ 8 creates, each 201
+   ✓ the 8 numbers: INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051 INC0000052
+   ✓ 8 different numbers
+   ✓ the record read back has its number
+   ✓ HTTP 200
+   ✓ 8 creates, each 201
+   ✓ the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051
+   ✓ 8 different numbers
+   ✓ gaps: every number after INC0000043
+   ✓ gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)
+   ✓ the record read back has its number
+   ✓ HTTP 404 problem+json with code not_found and no instance
+   ✓ response names nothing of the other tenant
+   ✓ HTTP 404 problem+json with code not_found and no instance
+   ✓ response names nothing of the other tenant
+   ✓ HTTP 201
+   ✓ number INC0000053: the next of tenant A's own series
+   ✓ HTTP 201
+   ✓ number INC0000052: the next of tenant B's own series
+   ✓ HTTP 200
+   ✓ version 1, the text of S17.6
+│ Metric        │          Result          │
+│ Status        │          ✗ FAIL          │
+│ Requests      │ 15 (12 Passed, 3 Failed) │
+│ Tests         │          39/42           │
+│ Assertions    │           0/0            │
+│ Duration (ms) │           2659           │
+api-test: reports in /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-668-51d4e6ff99e9/workdir/TicketingSystem/docs/acceptance/guide/reports/S17.{junit.xml,html,json}
+api-test: FAILED (bru exit 1)
+s17: 5. database after the run, and the runbook (AC4)
+s17: FAILED: S17; evidence in docs/acceptance/S17/evidence/forced-failure
+EXIT 1

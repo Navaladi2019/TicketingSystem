@@ -1,0 +1,24 @@
+meta {
+  name: S17.3 The admin is in tenant A
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+}
+
+docs {
+  The token of S17.1 resolves to tenant A.
+}

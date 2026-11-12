@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d149-7cbc-7edb-b02d-2600cc1d52e7",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 404 problem+json with code not_found and no instance",
+      "status": "pass"
+    },
+    {
+      "test": "response names nothing of the other tenant",
+      "status": "pass"
+    }
+  ]
+}

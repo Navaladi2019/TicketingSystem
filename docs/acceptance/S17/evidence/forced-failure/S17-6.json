@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "91",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s17-3bc72a93-a43",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 3bc72a93 gapless first after the upgrade\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-12T19:56:29.860677Z",
+      "data": {
+        "priority": 3,
+        "requester": "da8fe547-846c-4126-9db4-0246d89e3ef5",
+        "short_description": "S17 3bc72a93 gapless first after the upgrade",
+        "state": "new"
+      },
+      "id": "01a1d155-4924-7a53-afbd-0f71c29c5160",
+      "number": "INC0000044",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T19:56:29.860677Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "number INC0000043",
+      "status": "fail",
+      "error": "expected 'INC0000044' to deeply equal 'INC0000043'"
+    },
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    }
+  ]
+}

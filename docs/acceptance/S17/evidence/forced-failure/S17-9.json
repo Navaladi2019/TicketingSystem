@@ -1,0 +1,60 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d155-4a71-77e2-9d14-4fff5c0f7331",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "created_at": "2026-11-12T19:56:30.193517Z",
+      "data": {
+        "priority": 3,
+        "requester": "da8fe547-846c-4126-9db4-0246d89e3ef5",
+        "short_description": "S17 3bc72a93 a parallel 1",
+        "state": "new"
+      },
+      "id": "01a1d155-4a71-77e2-9d14-4fff5c0f7331",
+      "number": "INC0000045",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T19:56:30.193517Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "gapless: exactly INC0000044 to INC0000051, no gap",
+      "status": "fail",
+      "error": "expected [ 45, 46, 47, 48, 49, 50, 51, 52 ] to deeply equal [ 44, 45, 46, 47, 48, 49, 50, 51 ]"
+    },
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "8 creates, each 201",
+      "status": "pass"
+    },
+    {
+      "test": "the 8 numbers: INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051 INC0000052",
+      "status": "pass"
+    },
+    {
+      "test": "8 different numbers",
+      "status": "pass"
+    },
+    {
+      "test": "the record read back has its number",
+      "status": "pass"
+    }
+  ]
+}

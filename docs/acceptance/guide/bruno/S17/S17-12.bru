@@ -1,0 +1,42 @@
+meta {
+  name: S17.12 Isolation: Bob changes tenant A's INC0000043: 404
+  type: http
+  seq: 12
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s17_a43_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: s17-{{s17_run}}-bob-patch-a
+  Content-Type: application/merge-patch+json
+  If-Match: W/"1"
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S17 changed by tenant B"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json with code not_found and no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    const b = N.json();
+    expect(b.code).to.eql('not_found');
+    expect(b).to.not.have.property('instance');
+  });
+  N.noLeak('INC0000043', bru.getVar('s17_a43_id'), 'S17 ' + bru.getVar('s17_run') + ' gapless');
+}
+
+docs {
+  The same 404; S17.14 shows the record unchanged.
+}

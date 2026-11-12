@@ -1,0 +1,131 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/entity-types/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "key": "incident",
+      "name": "Incident",
+      "number_prefix": "INC",
+      "numbering_mode": "gapless",
+      "version": 1,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "title": "Short description",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "maxLength": 32000
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "enum": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "default": 3
+          },
+          "requester": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requester"
+          },
+          "assignee": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignee"
+          },
+          "assignment_group": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment group"
+          }
+        }
+      },
+      "schema_sha256": "3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f",
+      "fixed_columns": {
+        "assignee": "assignee_id",
+        "assignment_group": "assignment_group_id",
+        "requester": "requester_id",
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "in_progress",
+          "resolved",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "in_progress"
+          },
+          {
+            "from": "in_progress",
+            "to": "resolved"
+          },
+          {
+            "from": "resolved",
+            "to": "closed"
+          },
+          {
+            "from": "resolved",
+            "to": "in_progress"
+          }
+        ]
+      },
+      "compat": "initial",
+      "published_at": "2026-11-12T19:51:48.438611Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "incident, prefix INC, numbering_mode gapless",
+      "status": "pass"
+    }
+  ]
+}

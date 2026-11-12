@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident/01a1d149-7cbc-7edb-b02d-2600cc1d52e7",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "created_at": "2026-11-12T19:43:36.636974Z",
+      "data": {
+        "priority": 3,
+        "requester": "ca054905-25e5-416a-b81c-7498fccdd94c",
+        "short_description": "S17 523169e1 gapless first after the upgrade",
+        "state": "new"
+      },
+      "id": "01a1d149-7cbc-7edb-b02d-2600cc1d52e7",
+      "number": "INC0000043",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T19:43:36.636974Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "INC0000043, version 1",
+      "status": "pass"
+    }
+  ]
+}

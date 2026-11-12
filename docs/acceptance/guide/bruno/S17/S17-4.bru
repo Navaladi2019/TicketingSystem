@@ -1,0 +1,30 @@
+meta {
+  name: S17.4 Tenant A's incident type is gapless, after the upgrade
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('incident, prefix INC, numbering_mode gapless', () => {
+    const b = N.json();
+    expect(b.key).to.eql('incident');
+    expect(b.number_prefix).to.eql('INC');
+    expect(b.numbering_mode).to.eql('gapless');
+  });
+}
+
+docs {
+  run-kit.sh set it to `gapless` on the S10 build (`publishEntityTypeVersion` with `numbering_mode` alone); the upgrade kept it.
+}
