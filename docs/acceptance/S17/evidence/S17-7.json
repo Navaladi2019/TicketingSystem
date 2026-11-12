@@ -1,34 +1,34 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:28080/api/v1/records/incident",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "88",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:28080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s17-ba228fba-b43",
+      "Idempotency-Key": "s17-1d56cc66-b43",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 ba228fba gaps first after the upgrade\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 1d56cc66 gaps first after the upgrade\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-12T20:53:55.219097Z",
+      "created_at": "2026-11-12T23:07:55.295309Z",
       "data": {
         "priority": 3,
-        "requester": "78ab2e16-a0f7-4c98-8ae6-6cdcbf741785",
-        "short_description": "S17 ba228fba gaps first after the upgrade",
+        "requester": "8222d761-d4df-4afa-8ad2-152c2165dff0",
+        "short_description": "S17 1d56cc66 gaps first after the upgrade",
         "state": "new"
       },
-      "id": "01a1d189-db89-77c8-92ce-5c2288eeaf99",
+      "id": "01a1d204-8a1d-7d7b-9cd8-ee3ac825281c",
       "number": "INC0000043",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-12T20:53:55.219097Z",
+      "updated_at": "2026-11-12T23:07:55.295309Z",
       "version": 1
     }
   },

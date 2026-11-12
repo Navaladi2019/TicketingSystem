@@ -182,12 +182,16 @@ stories:
     status: in-progress
   - id: S17
     issue: TICK-664
-    title: Record numbers keep counting while the counter table moves (story branch TICK-664/counter-scope-key)
-    status: in-progress
-    # Verdict and date stay empty until the Technical Lead posts the verdict (TICK-764); then set status delivered, verdict and date.
+    title: Record numbers keep counting while the counter table moves (release R1; M3 ships in S18)
+    status: delivered
+    verdict: ACCEPTED
+    date: 2026-11-13
+    verdict_comment: "Fresh-stack kit PASS on 672a9e66 (15/15 requests, 42/42 tests), ci:full green; story PR #623 merged"
     bruno: [S17]
     evidence:
       - docs/acceptance/S17/README.md
+      - docs/acceptance/S17/evidence/run.log
+      - docs/acceptance/S17/evidence/readiness/result.txt
   - id: S12
     issue: TICK-338
     title: Agents comment, write internal work notes, and link records

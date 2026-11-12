@@ -1,4 +1,4 @@
-== schema after the upgrade (M1, M2) (2026-11-12T20:53:42Z)
+== schema after the upgrade (M1, M2) (2026-11-12T23:06:09Z)
      column_name      |        data_type         | is_nullable | column_default 
 ----------------------+--------------------------+-------------+----------------
  tenant_id            | uuid                     | NO          | 

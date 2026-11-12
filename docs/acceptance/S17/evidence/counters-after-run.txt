@@ -1,4 +1,4 @@
-== counters after the Bruno folder (2026-11-12T20:53:56Z)
+== counters after the Bruno folder (2026-11-12T23:07:56Z)
               tenant_id               |   key    | number_prefix | numbering_mode | scope_key | period_end | next | max_number | records 
 --------------------------------------+----------+---------------+----------------+-----------+------------+------+------------+---------
  00000000-0000-4000-8000-0000000000a1 | incident | INC           | gapless        |           |            |   53 | INC0000052 |      52
