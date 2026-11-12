@@ -1,0 +1,27 @@
+meta {
+  name: S11b.5 Read the definition: 200, version 2 current
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('version 2 is current, with its body and a sha256', () => {
+    expect(b.version).to.eql(2);
+    expect(b.current).to.eql(true);
+    expect(b.body.format).to.eql('nava.workflow/v1');
+    expect(b.body_sha256).to.match(/^[0-9a-f]{64}$/);
+  });
+}

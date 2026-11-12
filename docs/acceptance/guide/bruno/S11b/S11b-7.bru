@@ -1,0 +1,54 @@
+meta {
+  name: S11b.7 An unknown trigger entity: 422
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick710-s11b-{{s11b_run}}-entity
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "no_such_type"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "mark"
+      },
+      {
+        "key": "mark",
+        "type": "update_record",
+        "set": {
+          "short_description": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('workflow_definition_invalid', 422);
+  test('the entity is named', () => expect(N.json().errors.map(e => e.pointer)).to.include('/trigger/entity'));
+}

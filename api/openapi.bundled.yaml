@@ -377,6 +377,79 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+  /api/v1/workflow-definitions/{key}:
+    get:
+      operationId: getWorkflowDefinition
+      summary: The current version of a workflow definition (tenant admin)
+      description: >
+        Tenant admins only. `body` is the stored bytes of the published definition, exactly as sent, and `body_sha256` is their SHA-256 in lowercase hex. `step_ids` maps each step key, and `signal:<name>` for each wait_signal name, to the id assigned at publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/WorkflowDefinitionKey"
+      responses:
+        "200":
+          description: The current version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionVersion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/workflow-definitions/{key}/versions:
+    post:
+      operationId: publishWorkflowDefinitionVersion
+      summary: Publish the next version of a workflow definition (tenant admin)
+      description: >
+        Publishes immutable version N+1 and makes it current; the first publish of a key creates the definition as version 1. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is a workflow definition in format `nava.workflow/v1`, stored as the exact request bytes. A client never supplies a step or signal id: the server assigns them, keeps the id of every key the previous version had and draws a new one for each new key. A body that is not a valid definition, that supplies an id, names a trigger entity the tenant lacks, or sets a field the trigger entity's current schema lacks answers 422 `workflow_definition_invalid`, with `errors[].pointer` naming the step by its key and no value echoed. Publishes to one key are serialized, so versions number 1, 2, 3 with no gap or duplicate. A key of another tenant is not visible: the tenant publishes its own definition. `Idempotency-Key` is required.
+
+      parameters:
+        - $ref: "#/components/parameters/WorkflowDefinitionKey"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishWorkflowDefinitionRequest"
+      responses:
+        "201":
+          description: The new version, now current.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
   /api/v1/access/explain:
     get:
       operationId: explainAccess
@@ -1434,6 +1507,42 @@ components:
         after:
           type: object
           additionalProperties: true
+    PublishWorkflowDefinitionRequest:
+      type: object
+      description: >
+        A workflow definition, format `nava.workflow/v1`. Deliberately unconstrained here: the server checks every field after the admin check, and keeps the request bytes so the body is stored byte for byte.
+
+      x-go-type: json.RawMessage
+    WorkflowDefinitionVersion:
+      type: object
+      required: [key, entity, version, current, version_id, body, body_sha256, step_ids, published_at]
+      properties:
+        key:
+          type: string
+        entity:
+          type: string
+          description: The key of the trigger entity type.
+        version:
+          type: integer
+        current:
+          type: boolean
+        version_id:
+          type: string
+          format: uuid
+          description: The id a workflow is pinned to.
+        body:
+          type: object
+          description: The published definition, the stored bytes.
+        body_sha256:
+          type: string
+        step_ids:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+        published_at:
+          type: string
+          format: date-time
   responses:
     Problem:
       description: An RFC 9457 problem.
@@ -1462,5 +1571,14 @@ components:
       in: path
       required: true
       description: The entity type key. Its shape is not checked here, a key that cannot exist is a 404.
+      schema:
+        type: string
+    WorkflowDefinitionKey:
+      name: key
+      in: path
+      required: true
+      description: >
+        The definition key, `^[a-z][a-z0-9_]{1,40}$`. A malformed key cannot exist: a read answers 404, a publish 422.
+
       schema:
         type: string

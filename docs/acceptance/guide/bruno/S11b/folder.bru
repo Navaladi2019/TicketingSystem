@@ -1,0 +1,8 @@
+meta {
+  name: S11b workflow definitions
+  seq: 11
+}
+
+docs {
+  Story S11b, TICK-337, P3-41 (TICK-710). A tenant admin publishes a workflow definition version and reads it back; the server assigns the step ids and keeps them across versions. Needs `tools/seed.sh`. Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Tenant B's admin getting the 404 for tenant A's key is asserted in CI (`TestWorkflowDefinitions*`), not here: the seed has no tenant B admin. Runs again on the same stack: every pass uses a new definition key.
+}

@@ -84,6 +84,10 @@ codes:
     status: 422
     title: Schema breaking change
     detail: The new version cannot be applied to existing records. See errors for the offending paths.
+  - code: workflow_definition_invalid
+    status: 422
+    title: Workflow definition invalid
+    detail: The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.
   - code: record_invalid
     status: 422
     title: Record invalid

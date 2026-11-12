@@ -58,6 +58,10 @@ func refusalOps(e *etEnv, id string) []refusalOp {
 				e.a.user.PrincipalID.String() + `", "` + e.a.lookalike.PrincipalID.String() + `"]}}]}`},
 		{id: "explainAccess", method: http.MethodGet, want: http.StatusOK,
 			path: "/api/v1/access/explain?entity=ticket&record=" + id + "&user=" + e.a.user.PrincipalID.String()},
+		// The publish comes first: the read is 200 only once a version exists.
+		{id: "publishWorkflowDefinitionVersion", method: http.MethodPost, path: "/api/v1/workflow-definitions/refused_flow/versions", write: true,
+			want: http.StatusCreated, body: wfBody("ticket", "short_description")},
+		{id: "getWorkflowDefinition", method: http.MethodGet, path: "/api/v1/workflow-definitions/refused_flow", want: http.StatusOK},
 	}
 }
 
@@ -163,6 +167,8 @@ func checkRefusals(t *testing.T, e *etEnv, status int, code problem.Code, token 
 // covers: getEntityTypeAccess 401
 // covers: putEntityTypeAccess 401
 // covers: explainAccess 401
+// covers: publishWorkflowDefinitionVersion 401
+// covers: getWorkflowDefinition 401
 func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusUnauthorized, problem.InvalidToken, "", func() {}, func() {})
@@ -181,6 +187,8 @@ func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 // covers: getEntityTypeAccess 429
 // covers: putEntityTypeAccess 429
 // covers: explainAccess 429
+// covers: publishWorkflowDefinitionVersion 429
+// covers: getWorkflowDefinition 429
 func TestEveryTenantOperationOverTheLimitIs429AndWritesNothing(t *testing.T) {
 	e := newRecEnv(t)
 	checkRefusals(t, e, http.StatusTooManyRequests, problem.RateLimited, "admin-a",
@@ -211,6 +219,8 @@ func withoutIdempotencyKeys(counts []string) []string {
 // covers: getEntityTypeAccess 500
 // covers: putEntityTypeAccess 500
 // covers: explainAccess 500
+// covers: publishWorkflowDefinitionVersion 500
+// covers: getWorkflowDefinition 500
 func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.T) {
 	// The table each operation reads or writes first in its own store;
 	// renaming it is a database failure in the middle of the request.
@@ -228,6 +238,9 @@ func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.
 		"getEntityTypeAccess":      "acl_versions",
 		"putEntityTypeAccess":      "entity_definitions",
 		"explainAccess":            "records",
+
+		"publishWorkflowDefinitionVersion": "workflow_definitions",
+		"getWorkflowDefinition":            "workflow_definitions",
 	}
 	e := newRecEnv(t)
 	r := e.mustCreateRec(t, "user-a", "ticket", "seed", `{"short_description": "seed"}`)

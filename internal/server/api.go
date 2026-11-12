@@ -28,6 +28,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
 
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
@@ -200,6 +201,7 @@ type handlers struct {
 	cursors           *cursor.Keyring
 	dataFilterTimeout time.Duration
 	store             entitytypes.Store
+	workflows         workflowdefs.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the
@@ -270,6 +272,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.SchemaBreakingChange:
 					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
+					return
+				case problem.WorkflowDefinitionInvalid:
+					h.reg.Write(w, r, problem.WorkflowDefinitionInvalid, pe.fields...)
 					return
 				case problem.IllegalTransition:
 					h.reg.Write(w, r, problem.IllegalTransition, pe.fields...)

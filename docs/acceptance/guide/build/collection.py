@@ -3158,7 +3158,116 @@ The same lines as S16.6, as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S11b
+def s11b():
+    base = "{{core_url}}/api/v1/workflow-definitions/{{s11b_key}}"
+    pub = base + "/versions"
+    key = lambda k: {"Idempotency-Key": "tick710-s11b-{{s11b_run}}-" + k}
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+
+    def wf(steps, start="wait", entity="incident"):
+        return {"format": "nava.workflow/v1", "trigger": {"on": "record.created", "entity": entity},
+                "start": start, "steps": steps}
+
+    wait = {"key": "wait", "type": "timer", "duration": "PT1H", "next": "mark"}
+    mark = {"key": "mark", "type": "update_record", "set": {"short_description": "triaged"}, "next": "done"}
+    done = {"key": "done", "type": "end"}
+    v1 = wf([wait, mark, done])
+    v2 = wf([{**wait, "next": "notify"},
+             {"key": "notify", "type": "update_record", "set": {"short_description": "notified"}, "next": "mark"},
+             mark, done])
+    return {
+        "dir": "S11b", "name": "S11b workflow definitions",
+        "desc": "Story S11b, TICK-337, P3-41 (TICK-710). A tenant admin publishes a workflow definition version and reads it back; the server assigns the step ids and keeps them across versions. Needs `tools/seed.sh`. Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Tenant B's admin getting the 404 for tenant A's key is asserted in CI (`TestWorkflowDefinitions*`), not here: the seed has no tenant B admin. Runs again on the same stack: every pass uses a new definition key.",
+        "items": [
+            token("S11b.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s11b_run', Math.random().toString(16).slice(2, 10));\nbru.setVar('s11b_key', 'wf_' + bru.getVar('s11b_run'));"),
+            token("S11b.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            req("S11b.3 Publish v1: 201, version 1, ids assigned by the server", "POST", pub, auth="admin_a_token",
+                headers=key("v1"), body=v1,
+                desc="The first publish of a key creates the definition. `step_ids` maps every step key to an id the server drew; the body is stored byte for byte (`body_sha256`).",
+                tests="""N.status(201);
+const b = N.json();
+test('version 1, current, entity incident', () => {
+  expect(b.version).to.eql(1);
+  expect(b.current).to.eql(true);
+  expect(b.entity).to.eql('incident');
+});
+test('an id per step key', () => expect(Object.keys(b.step_ids).sort()).to.eql(['done', 'mark', 'wait']));
+bru.setVar('s11b_v1_ids', JSON.stringify(b.step_ids));
+bru.setVar('s11b_v1_id', b.version_id);"""),
+            req("S11b.4 Publish v2 with a new step: unchanged keys keep their id", "POST", pub, auth="admin_a_token",
+                headers=key("v2"), body=v2,
+                desc="Version 2 keeps v1's id for `wait`, `mark` and `done` and draws a new one for `notify`.",
+                tests="""N.status(201);
+const b = N.json();
+const v1 = JSON.parse(bru.getVar('s11b_v1_ids'));
+test('version 2, a new version id', () => {
+  expect(b.version).to.eql(2);
+  expect(b.version_id).to.not.eql(bru.getVar('s11b_v1_id'));
+});
+test('unchanged keys keep their id', () => ['wait', 'mark', 'done'].forEach(k => expect(b.step_ids[k]).to.eql(v1[k])));
+test('the new key has a new id', () => {
+  expect(b.step_ids.notify).to.be.a('string');
+  expect(Object.values(v1)).to.not.include(b.step_ids.notify);
+});"""),
+            req("S11b.5 Read the definition: 200, version 2 current", "GET", base, auth="admin_a_token",
+                tests="""N.status(200);
+const b = N.json();
+test('version 2 is current, with its body and a sha256', () => {
+  expect(b.version).to.eql(2);
+  expect(b.current).to.eql(true);
+  expect(b.body.format).to.eql('nava.workflow/v1');
+  expect(b.body_sha256).to.match(/^[0-9a-f]{64}$/);
+});"""),
+            req("S11b.6 A body that supplies a step id: 422", "POST", pub, auth="admin_a_token", headers=key("id"),
+                body=wf([{**wait, "id": "00000000-0000-4000-8000-000000000001"}, mark, done]),
+                desc="A client never supplies a step id. 422 `workflow_definition_invalid`; the step is named by its key.",
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step is named', () => expect(N.json().errors.map(e => e.pointer).join(' ')).to.include('/steps/wait'));"""),
+            req("S11b.7 An unknown trigger entity: 422", "POST", pub, auth="admin_a_token", headers=key("entity"),
+                body=wf([wait, mark, done], entity="no_such_type"),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the entity is named', () => expect(N.json().errors.map(e => e.pointer)).to.include('/trigger/entity'));"""),
+            req("S11b.8 A set on a field the schema lacks: 422 naming the step", "POST", pub, auth="admin_a_token",
+                headers=key("field"),
+                body=wf([wait, {**mark, "set": {"no_such_field": "x"}}, done]),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step and field are named', () => expect(N.json().errors.map(e => e.pointer)).to.include('/steps/mark/set/no_such_field'));"""),
+            req("S11b.9 A field reference as a duration: 422", "POST", pub, auth="admin_a_token", headers=key("dur"),
+                body=wf([{**wait, "duration": "/due_in"}, mark, done]),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step is named and no value is echoed', () => {
+  expect(N.json().errors.map(e => e.pointer).join(' ')).to.include('/steps/wait');
+  expect(JSON.stringify(N.json())).to.not.include('due_in');
+});"""),
+            req("S11b.10 Alice (not an admin) publishes: 403", "POST", pub, auth="alice_token", headers=key("alice"),
+                body=v1, tests="N.problem('forbidden', 403);"),
+            req("S11b.11 Alice reads the definition: 403", "GET", base, auth="alice_token",
+                tests="N.problem('forbidden', 403);"),
+            req("S11b.12 A key nobody has: 404", "GET", "{{core_url}}/api/v1/workflow-definitions/no_such_workflow",
+                auth="admin_a_token", tests=no404),
+            req("S11b.13 Publish without a token: 401", "POST", pub, headers=key("anon"), body=v1,
+                tests="N.problem('invalid_token', 401);"),
+            req("S11b.14 Read without a token: 401", "GET", base, tests="N.problem('invalid_token', 401);"),
+            req("S11b.15 Publish without an Idempotency-Key: 400", "POST", pub, auth="admin_a_token", body=v1,
+                tests="N.problem('validation_failed', 400);"),
+            req("S11b.16 Reuse an Idempotency-Key with another body: 409", "POST", pub, auth="admin_a_token",
+                headers=key("v1"), body=v2,
+                desc="S11b.3's key with a different body.",
+                tests="N.problem('idempotency_key_reuse', 409);"),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
