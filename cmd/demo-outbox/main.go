@@ -142,8 +142,8 @@ func seedSQL() (string, error) {
 	sum := sha256.Sum256([]byte(entitySchema))
 	// The seed is a bare fixture, not a publish: like the isolation seed
 	// (internal/tenancy/isolation/testdata/seed.sql), it turns the
-	// entity-definition commit-check triggers (P5-32, migration B) off for
-	// its own explicit transaction and back on before it commits. Only
+	// entity-definition (P5-32, migration B) and workflow_definitions (P3-41b)
+	// commit-check triggers off for its own explicit transaction and back on before it commits. Only
 	// audit.Append writes audit_log (internal/records/arch_test.go).
 	return fmt.Sprintf(`BEGIN;
 ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;

@@ -134,12 +134,13 @@ approve_id() {
 seed_record() {
 	printf "INSERT INTO tenants (id, state) VALUES ('%s', 'active') ON CONFLICT DO NOTHING;\n" "$TENANT_ID" | psql_q
 	# DEFINITION's row (cascade_start's definition foreign key, P3-40) on an
-	# entity type of its own, the type with its config entry in one statement
-	# (the entity_definitions commit check, P5-32). No creator: a seed. A rerun
-	# inserts nothing.
+	# entity type of its own, each row with its config entry in one statement
+	# (the entity_definitions commit check, P5-32, and the workflow_definitions
+	# one, P3-41b). No creator: a seed. A rerun inserts nothing, so it writes
+	# no entry either.
 	printf "WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ('%s', '%s', 'demo_interp', 'Interpreter demo', 'DMI', 1) ON CONFLICT DO NOTHING RETURNING tenant_id, id) INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256) SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'entity_definition', id, NULL, 'system', 'system', sha256(''::bytea) FROM d;\n" \
 		"$TENANT_ID" "$ENTITY" | psql_q
-	printf "INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by) VALUES ('%s', '%s', 'demo_interp', '%s', 1, NULL) ON CONFLICT DO NOTHING;\n" \
+	printf "WITH w AS (INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by) VALUES ('%s', '%s', 'demo_interp', '%s', 1, NULL) ON CONFLICT DO NOTHING RETURNING tenant_id, id) INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256) SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'workflow_definition', id, NULL, 'system', 'system', sha256(''::bytea) FROM w;\n" \
 		"$TENANT_ID" "$DEFINITION" "$ENTITY" | psql_q
 	# The record and its audit entry in one statement: the records commit-check
 	# trigger refuses a record written without one (P5-13c). A rerun inserts
