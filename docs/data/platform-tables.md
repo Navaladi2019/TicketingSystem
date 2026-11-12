@@ -509,7 +509,9 @@ erDiagram
   `groups.deleted_at` on a group Keycloak no longer has and holds no DELETE
   on `groups`; a record keeps its `assignment_group_id` (D7). The foreign key
   is `ON DELETE RESTRICT` (TICK-538, migrations `20261104043000` and
-  `20261104043100`): it was `ON DELETE SET NULL (assignment_group_id)`, an
+  `20261104043100`, re-checked for real by `20261112100100` after TICK-715
+  found that validate vacuous under FORCE RLS: see
+  [`fk-validate-force-rls.md`](fk-validate-force-rls.md)): it was `ON DELETE SET NULL (assignment_group_id)`, an
   FK action that rewrote `records` with no audit entry. R29 in CI-A3
   (`internal/db/audited/check.go`) now fails any audited table whose foreign
   key has an action other than `NO ACTION` or `RESTRICT`.

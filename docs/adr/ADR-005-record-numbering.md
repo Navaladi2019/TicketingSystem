@@ -16,6 +16,8 @@ deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with f
 
 > **Status: ACCEPTED (2026-11-10, Solution Architect verdict on TICK-653 after the Technical Architect critique and CTO rulings; no dissent).** All reviewers have approved RFC-014 rev 1 or had their blocking items closed (CTO ruling, comment 01a1c30c-b7e4). Security approved rev 1's additions with conditions C8–C13 (comment 01a1c310-2851), written in §3.7. **The gaps policy is decided, per type** (vknavaladi on TICK-621, 2026-11-10 02:06 UTC; recorded as D-3-9 in PR #551): `entity_definitions.numbering_mode` is `gaps` (default) or `gapless`. A `gaps` type allocates with **L2s**; a `gapless` type allocates with **L1** (§2.1). Every format starts with `{prefix}` (§3.1, CTO ruling 01a1c387-b543).
 >
+> **Erratum E1 (ACCEPTED 2026-11-12, TICK-665):** §4.2 "old and new binaries coexist" holds for existing counters only; see [[ADR-005-E1-first-create-race-in-expand-window]].
+>
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >
 > Reviewer conditions are written as rules and tagged: **[TA-n]** Technical Architect finding n, **[Sec Cn]** Security condition n (C8 and C11 are **High if missed**), **[PG n]** Postgres item n, **[CTO]** chair ruling.
@@ -177,7 +179,7 @@ Security approved rev 1's additions with these conditions (comment 01a1c310-2851
 |---|---|---|
 | M1 | `ADD COLUMN scope_key … DEFAULT ''`, `ADD COLUMN period_end`, `CHECK … NOT VALID`, then `VALIDATE` | 12 ms + 7 ms, catalog only |
 | M2 | `CREATE UNIQUE INDEX CONCURRENTLY` on `(tenant_id, entity_definition_id, scope_key)` and the partial `(period_end) WHERE period_end IS NOT NULL`, each in its own `NO TRANSACTION` migration, drop-if-exists then create (as `00005`) | 50 ms at 20k rows |
-| Deploy | 3-column `ON CONFLICT`, still writing only `''`. Same PR rewrites `internal/tenancy/isolation/registry.go:454-462` on the new key [Sec C4] | old and new binaries coexist |
+| Deploy | 3-column `ON CONFLICT`, still writing only `''`. Same PR rewrites `internal/tenancy/isolation/registry.go:454-462` on the new key [Sec C4] | old and new binaries coexist **for existing counters only**; a type's first create can fail with 23505 until M3, so R1 retries once ([[ADR-005-E1-first-create-race-in-expand-window]]) |
 | M3 | After the deploy is fully rolled out: `SET LOCAL lock_timeout = '2s'`; drop the old PK and `ADD PRIMARY KEY USING INDEX`; retry up to 5 times with backoff | 1.6 ms |
 
 - **Publish gate.** Until M3 has run, a non-default format publish is refused with `numbering_templates_unavailable` (422). The check reads the catalog (does `record_counters_pkey` cover `scope_key`?) and is cached per process with a **60 s TTL**, so processes booted before M3 open within a minute without a restart [TA-5].
@@ -238,6 +240,7 @@ Rewritten on the new key, plus:
 | AR-TICK-653-02 | 🟡 Low | A per-scope sequence reveals the volume per scope (e.g. records per branch this month) to anyone who can read one record in it; within the tenant only | A tenant treats per-scope volume as confidential |
 | AR-TICK-653-03 | 🟡 Low | The L2s no-duplicate guarantee assumes WAL replays as a prefix (crash recovery, physical replicas, PITR) | **Logical replication on `record_counters`** reopens this ADR [CTO] |
 | AR-TICK-653-04 | ⚪ Info | The allocator pool adds 4 connections per API replica to `max_connections` and PgBouncer | More than ~10 API replicas, or connection pressure on PostgreSQL |
+| AR-S17-01 (E1) | 🟡 Low | During the R1 rollout (after M2, before M3), an R0 binary can fail a type's **first** create with 23505 when it races another first create; no duplicate number | R1 rollout or the R1→M3 gap exceeds one deploy cycle ([[ADR-005-E1-first-create-race-in-expand-window]]) |
 | (product) | ⚪ Info | Gaps in numbering on `gaps` types (the default) after failed creates and after a crash; gaps are never reclaimed | A tenant's legal gapless requirement: that type sets `numbering_mode = gapless` (D-3-9, PR #551) |
 
 ## 9. Evidence

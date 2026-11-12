@@ -120,7 +120,7 @@ roles:
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
-      # Workflow definitions (P3-40, TICK-709, 20261111123300): a definition's
+      # Workflow definitions (P3-40, TICK-709, 20261112123300): a definition's
       # key, entity and creator are set once; publishing moves current_version.
       # Versions are immutable, insert-only (D-3-12). workflow_cause is the
       # durable copy of a delivery's causation (D-3-29), insert-only.

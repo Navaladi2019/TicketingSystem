@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-12: product handbook in docs/handbook/ (TICK-718)](decisions/2026-11-12-handbook.md)
 - [2026-11-11: D-3-29, S11b contract: causation is copied durably into workflow_cause, and the waiting state is tracked on workflow_ref](decisions/2026-11-11-d-3-29-s11b-interface-contract.md)
 - [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)
 - [2026-11-10: the `filter[state]=new` miss reopens the list-shape work as one index task](decisions/2026-11-10-state-filter-index.md)
