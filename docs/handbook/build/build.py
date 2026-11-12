@@ -1679,14 +1679,25 @@ def gen_accepted_risks(f, ids):
     path = f.path(*RISKS_MD.split("/"))
     if not os.path.exists(path):
         raise ValueError("%s does not exist" % RISKS_MD)
+    # Only the register table counts: its header, its separator, then every
+    # row up to the first line that is not a table row. An AR line anywhere
+    # else in the file (a summary table, a list) is never picked up, and a
+    # row inside the register that is not an AR row fails the build.
     header, rows = [], []
     for line in read_text(path).split("\n"):
-        if line.startswith("| ID |"):
-            header = [line]
-        elif header and len(header) == 1 and line.startswith("| ---"):
+        if not header:
+            if line.startswith("| ID |"):
+                header = [line]
+        elif len(header) == 1:
+            if not line.startswith("| ---"):
+                raise ValueError("%s: the register header is not followed by its separator row" % RISKS_MD)
             header.append(line)
-        elif risk_id(line):
+        elif line.startswith("|"):
+            if not risk_id(line):
+                raise ValueError("%s: register row %r is not an AR row" % (RISKS_MD, line[:40]))
             rows.append(line)
+        else:
+            break
     if len(header) != 2:
         raise ValueError("%s has no register table" % RISKS_MD)
     want = [i for i in ids.split(",") if i] if ids else []
