@@ -12,6 +12,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -25,6 +26,12 @@ import (
 // pool_max_conns in NAVA_ALLOCATOR_DATABASE_URL overrides it; PgBouncer's
 // nava_alloc pool_size (deploy/compose/pgbouncer/pgbouncer.ini) must match.
 const allocatorMaxConns = 4
+
+// allocatorMinConns keeps one allocator connection open while idle
+// (TICK-778). The 200 ms allocation budget (ADR-005 A5) includes the pool
+// acquire, and a first allocation that had to connect, through PgBouncer,
+// went over it after a restart. pool_min_conns in the DSN overrides it.
+const allocatorMinConns = 1
 
 // newAllocatorPool opens the record pipeline's allocator pool (TICK-657): the
 // nava_app pool a create takes its number on, in a transaction of its own
@@ -60,10 +67,41 @@ func newAllocatorPool(ctx context.Context, tel *telemetry.Telemetry, cfg config.
 	if !strings.Contains(dsn, "pool_max_conns") {
 		poolCfg.MaxConns = allocatorMaxConns
 	}
+	if !strings.Contains(dsn, "pool_min_conns") {
+		poolCfg.MinConns = allocatorMinConns
+	}
 	// ADR-005 A3: nava_app only. Another login fails startup here; every
 	// connection is also checked for SUPERUSER and BYPASSRLS as it opens.
 	if err := tenancy.AllocPoolConfig(poolCfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	return db.NewPool(ctx, poolCfg, tel)
+}
+
+// withAllocatorWarm makes the readiness check pg also ping the allocator
+// pool (TICK-778), so /readyz is 200 only while that pool holds a live
+// connection: pgxpool connects lazily and fills MinConns in the background,
+// and a cold pool cost a restart's first allocation its 200 ms budget
+// (ADR-005 A5). The ping leaves its connection idle in the pool, and a
+// connection PgBouncer or PostgreSQL dropped fails it, so readiness drops
+// until the pool reconnects. The check keeps pg's name: the dependency is
+// the same database. The ping sends no statement that reads a table, so it
+// needs no tenant. alloc nil (no record routes) returns pg unchanged.
+func withAllocatorWarm(pg health.Check, alloc *pgxpool.Pool) health.Check {
+	if alloc == nil {
+		return pg
+	}
+	probe := pg.Probe
+	pg.Probe = func(ctx context.Context) error {
+		if err := probe(ctx); err != nil {
+			return err
+		}
+		if err := alloc.Ping(ctx); err != nil {
+			// As pg's own ping error: pgconn quotes the host, never the
+			// password.
+			return fmt.Errorf("allocator pool: %w", err)
+		}
+		return nil
+	}
+	return pg
 }

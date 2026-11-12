@@ -381,12 +381,9 @@ func allStarved(t *testing.T, errs []error) {
 	}
 }
 
-// noLatencyBudget is the allocation timeout of the subtests that must not
-// starve: they test that the create path cannot deadlock, not its latency,
-// so a slow CI host must not fail them on the production 200 ms (A5, which
-// TestAllocationTimeoutIsRetryableAndMeasured covers). The controls keep the
-// production timeout: their starvation is what they assert.
-const noLatencyBudget = 5 * time.Second
+// The subtests that must not starve run on noLatencyBudget
+// (harness_integration_test.go). The controls keep the production timeout:
+// their starvation is what they assert.
 
 // AC (scope 3, ADR-005 A5): no pool starvation at pool size x 2 concurrent
 // creates, each holding its create connection while it waits for a number.
