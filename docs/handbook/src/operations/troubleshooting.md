@@ -50,8 +50,9 @@ Where to look first, by symptom. The acceptance guide's [troubleshooting page](.
 
 ```sh
 sh docs/acceptance/guide/tools/tunnels.sh down
-docker compose down -v          # deletes all data: tenants, users, workflows, telemetry
-docker compose up --wait
+task stack:down                 # deletes all data: tenants, users, workflows, telemetry
+task stack:up                   # includes the operator profile
+docker compose up --wait        # blocks until every service is healthy
 sh docs/acceptance/guide/tools/seed.sh
 sh docs/acceptance/guide/tools/tunnels.sh up
 ```

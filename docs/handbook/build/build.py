@@ -16,6 +16,7 @@ pinned in docs/pins.md. See docs/handbook/README.md.
 """
 
 import argparse
+import datetime
 import hashlib
 import html
 import json
@@ -35,7 +36,8 @@ HOME = "home"
 
 LIST_KEYS = ["sources", "adrs", "stories", "operations", "tables", "workflows",
              "activities", "tests", "packages", "invariants", "evidence"]
-SCALAR_KEYS = ["title", "section", "status", "normative"]
+SCALAR_KEYS = ["title", "section", "status", "normative", "build"]
+BUILDS = ("production", "interptest")
 
 
 class BuildError(Exception):
@@ -69,33 +71,79 @@ def _unquote(s):
     return s
 
 
-def _split_flow(inner):
-    items, cur, quote = [], [], None
+def _split_top(inner):
+    """Split a flow collection's inside on top-level commas (outside quotes and brackets)."""
+    items, cur, quote, depth = [], [], None, 0
     for ch in inner:
         if quote:
             cur.append(ch)
             if ch == quote:
                 quote = None
-        elif ch in "\"'":
+            continue
+        if ch in "\"'":
             quote = ch
-            cur.append(ch)
-        elif ch == ",":
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
             items.append("".join(cur))
             cur = []
-        else:
-            cur.append(ch)
+            continue
+        cur.append(ch)
     if "".join(cur).strip():
         items.append("".join(cur))
-    return [_unquote(x) for x in items]
+    return items
+
+
+def _split_flow(inner):
+    return [_scalar(x) for x in _split_top(inner)]
+
+
+def _flow_map(inner):
+    out = {}
+    for item in _split_top(inner):
+        key, sep, rest = _split_key(item.strip())
+        if not sep:
+            raise ValueError("not a key: value pair in a flow mapping: " + item.strip())
+        if key in out:
+            raise ValueError("duplicate key " + key)
+        out[key] = _scalar(rest) if rest.strip() else ""
+    return out
+
+
+def _split_key(text):
+    """key, ':', rest; the key may be double- or single-quoted."""
+    if text[:1] in "\"'":
+        end = text.find(text[0], 1)
+        if end > 0 and text[end + 1:end + 2] == ":":
+            return _unquote(text[:end + 1]), ":", text[end + 2:]
+    key, sep, rest = text.partition(":")
+    return _unquote(key), sep, rest
 
 
 def _scalar(v):
     v = v.strip()
     if v.startswith("[") and v.endswith("]"):
         return _split_flow(v[1:-1])
-    if v == "{}":
-        return {}
+    if v.startswith("{") and v.endswith("}"):
+        return _flow_map(v[1:-1])
     return _unquote(v)
+
+
+def _depth(s):
+    d, quote = 0, None
+    for ch in s:
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "[{":
+            d += 1
+        elif ch in "]}":
+            d -= 1
+    return d
 
 
 def parse_yaml(text):
@@ -105,8 +153,13 @@ def parse_yaml(text):
     lines = []
     for raw in text.replace("\r\n", "\n").split("\n"):
         s = _strip_comment(raw)
-        if s.strip():
-            lines.append((len(s) - len(s.lstrip(" ")), s.strip()))
+        if not s.strip():
+            continue
+        if lines and _depth(lines[-1][1]) > 0:
+            # a flow collection continued on the next line
+            lines[-1] = (lines[-1][0], lines[-1][1] + " " + s.strip())
+            continue
+        lines.append((len(s) - len(s.lstrip(" ")), s.strip()))
     if not lines or [l[1] for l in lines] == ["{}"]:
         return {}
     value, pos = _block(lines, 0, lines[0][0])
@@ -125,15 +178,21 @@ def _mapping(lines, pos, indent):
     out = {}
     while pos < len(lines) and lines[pos][0] == indent and not lines[pos][1].startswith("- "):
         text = lines[pos][1]
-        key, sep, rest = text.partition(":")
+        key, sep, rest = _split_key(text)
         if not sep:
             raise ValueError("not a key: value line: " + text)
-        key = _unquote(key)
         if key in out:
             raise ValueError("duplicate key " + key)
         rest = rest.strip()
         pos += 1
-        if rest:
+        if rest in (">", ">-", "|", "|-"):
+            # a block scalar: folded (>) joins its lines with spaces, literal (|) with newlines
+            body = []
+            while pos < len(lines) and lines[pos][0] > indent:
+                body.append(lines[pos][1])
+                pos += 1
+            out[key] = (" " if rest[0] == ">" else "\n").join(body)
+        elif rest:
             out[key] = _scalar(rest)
         elif pos < len(lines) and (lines[pos][0] > indent or
                                    (lines[pos][0] == indent and lines[pos][1].startswith("- "))):
@@ -236,6 +295,11 @@ def parse_page(src_path, text):
         raise ValueError("front matter: status is required (delivered or in-progress)")
     if front["status"] not in ("delivered", "in-progress"):
         raise ValueError("front matter: status %r is not delivered or in-progress" % front["status"])
+    if front["build"] and front["build"] not in BUILDS:
+        raise ValueError("front matter: build %r is not production or interptest" % front["build"])
+    if front["section"] == "workflows" and front["workflows"] and not front["build"]:
+        raise ValueError("front matter: a workflows page that names workflows says which build registers them "
+                         "(build: production or build: interptest)")
     return Page(src_path, front, body)
 
 
@@ -277,13 +341,213 @@ def load_pages(root):
 # ------------------------------------------------------------------- facts
 
 class Unwired:
-    """The workflow/activity registry hook TICK-727 wires. Until then it knows nothing."""
+    """A registry that knows nothing: every workflows: or activities: reference fails."""
 
     def workflows(self):
         return None
 
     def activities(self):
         return None
+
+
+# Where GoRegistry reads names. The alias is the qualifier the Register
+# functions' constants use (outbox.SealKind, workerguard.DirectiveWorkflow).
+GO_PACKAGES = {
+    "outbox": "internal/outbox",
+    "workerguard": "internal/workerguard",
+    "seal": "internal/audit/seal",
+    "interp": "internal/workflow/interp",
+}
+# The closed kind list: notOwnEntryPointStart's array of {kind, Enqueue* entry point}.
+GO_KIND_FILE = "internal/outbox/outbox.go"
+GO_KIND_ROW = re.compile(r'\{\s*([A-Za-z_][\w.]*)\s*,\s*"(Enqueue\w+)"\s*\}')
+# The functions cmd/nava-worker registers through: (package, signature, what it registers).
+GO_REGISTER_FUNCS = [
+    ("seal", "func RegisterWorkflow(", "workflow"),
+    ("seal", "func (a *Activities) Register(", "activity"),
+    ("interp", "func RegisterWorkflow(", "workflow"),
+    ("interp", "func (a *Activities) Register(", "activity"),
+    ("workerguard", "func (a *Activities) Register(", "activity"),
+]
+# The worker's package main, scanned so no registration bypasses GO_REGISTER_FUNCS.
+GO_WORKER_DIR = "cmd/nava-worker"
+GO_WORKER_CALL = re.compile(r"(\(&[\w.]+\{[^{}]*\}\)|[A-Za-z_][\w.]*)\.(Register|RegisterWorkflow)\(\s*\w+\s*\)")
+
+
+def worker_receiver_package(text, pos, recv):
+    """The package alias of a Register call's receiver type: (&pkg.T{...}),
+    or a variable declared as `name *pkg.T`, `name := &pkg.T{` or
+    `name := pkg.T{` in the enclosing function. None if it cannot tell."""
+    m = re.match(r"^\(&(\w+)\.Activities\{", recv)
+    if m:
+        return m.group(1)
+    if not re.match(r"^\w+$", recv):
+        return None
+    start = text.rfind("\nfunc ", 0, pos)
+    scope = text[start if start >= 0 else 0:pos]
+    m = (re.search(r"\b%s\s+\*?(\w+)\.Activities\b" % re.escape(recv), scope)
+         or re.search(r"\b%s\s*:?=\s*&?(\w+)\.Activities\{" % re.escape(recv), scope))
+    return m.group(1) if m else None
+
+
+GO_REGISTER_CALL = re.compile(
+    r"Register(Workflow|Activity)WithOptions\(\s*[\w.]+\s*,\s*\w+\.RegisterOptions\{\s*Name:\s*([^},]+?)\s*,?\s*\}\s*\)")
+GO_CONST_IN_BLOCK = re.compile(r"^\s*([A-Za-z_]\w*)(?:\s+[\w.]+)?\s*=\s*(.+?)\s*(?://.*)?$")
+GO_CONST_SINGLE = re.compile(r"^const\s+([A-Za-z_]\w*)(?:\s+[\w.]+)?\s*=\s*(.+?)\s*(?://.*)?$")
+GO_STRING = re.compile(r'^"((?:[^"\\]|\\.)*)"$|^`([^`]*)`$')
+
+
+class GoRegistry:
+    """The workflow and activity names, parsed from the Go source with the
+    standard library (TICK-727: docs only, no Go code is added or run).
+
+    workflows() is the closed kind list in internal/outbox/outbox.go: each kind
+    with the Enqueue* function that alone may start it. activities() is every
+    name the Register functions of seal, interp and workerguard register. Each
+    name is resolved through the packages' const declarations, so it is the
+    string the worker registers. load() fails when it finds nothing, when a
+    name does not resolve, or when a registered workflow type is not a kind (or
+    a kind is registered by no RegisterWorkflow), so a parser that drifted from
+    the code cannot pass silently. Which build registers what is decided in
+    package main; the pages carry it as build: front matter."""
+
+    def __init__(self, root):
+        self.root = root
+        self.kinds = {}  # kind -> the Enqueue* function that alone may start it
+        self._consts = {}
+        self._workflows = None
+        self._activities = None
+
+    def workflows(self):
+        return self._workflows
+
+    def activities(self):
+        return self._activities
+
+    def _files(self, alias):
+        rel = GO_PACKAGES[alias]
+        d = os.path.join(self.root, *rel.split("/"))
+        if not os.path.isdir(d):
+            raise ValueError("workflow registry: %s is not a directory" % rel)
+        return [(rel + "/" + name, read_text(os.path.join(d, name)))
+                for name in sorted(os.listdir(d)) if name.endswith(".go") and not name.endswith("_test.go")]
+
+    def _const_table(self, alias):
+        if alias not in self._consts:
+            table, block = {}, False
+            for _rel, text in self._files(alias):
+                for line in text.split("\n"):
+                    if re.match(r"^const\s*\(\s*$", line):
+                        block = True
+                        continue
+                    if block and line.strip() == ")":
+                        block = False
+                        continue
+                    m = GO_CONST_IN_BLOCK.match(line) if block else GO_CONST_SINGLE.match(line)
+                    if m:
+                        table[m.group(1)] = m.group(2)
+            self._consts[alias] = table
+        return self._consts[alias]
+
+    def resolve(self, alias, expr, depth=0):
+        """The string value of a Go constant expression in package alias:
+        string literals and constants (Name or pkg.Name) joined with +."""
+        if depth > 10:
+            raise ValueError("workflow registry: %s: constant chain too deep at %r" % (GO_PACKAGES[alias], expr))
+        out = []
+        for term in expr.split("+"):
+            term = term.strip()
+            m = GO_STRING.match(term)
+            if m:
+                out.append(m.group(2) if m.group(1) is None else json.loads('"%s"' % m.group(1)))
+                continue
+            pkg, _, name = term.rpartition(".")
+            pkg = pkg or alias
+            if pkg not in GO_PACKAGES or not re.match(r"^[A-Za-z_]\w*$", name):
+                raise ValueError("workflow registry: %s: cannot resolve %r" % (GO_PACKAGES[alias], term))
+            value = self._const_table(pkg).get(name)
+            if value is None:
+                raise ValueError("workflow registry: %s has no constant %s" % (GO_PACKAGES[pkg], name))
+            out.append(self.resolve(pkg, value, depth + 1))
+        return "".join(out)
+
+    def _register_body(self, alias, sig):
+        for rel, text in self._files(alias):
+            i = text.find("\n" + sig)
+            if i < 0:
+                continue
+            end = text.find("\n}", i)
+            if end < 0:
+                raise ValueError("workflow registry: %s: %s...) has no closing brace" % (rel, sig))
+            return rel, text[i:end]
+        raise ValueError("workflow registry: %s has no %s...) function" % (GO_PACKAGES[alias], sig))
+
+    def check_worker_calls(self):
+        """Every .Register(w) / RegisterWorkflow(w) call in the worker's package
+        main must go through a function of GO_REGISTER_FUNCS, so a registration
+        added there cannot bypass the parsed names. Returns the problems."""
+        known = {(alias, "workflow" if "RegisterWorkflow" in sig else "activity") for alias, sig, _w in GO_REGISTER_FUNCS}
+        d = os.path.join(self.root, *GO_WORKER_DIR.split("/"))
+        if not os.path.isdir(d):
+            return ["workflow registry: %s is not a directory" % GO_WORKER_DIR]
+        problems, found = [], 0
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".go") or name.endswith("_test.go"):
+                continue
+            rel = GO_WORKER_DIR + "/" + name
+            text = read_text(os.path.join(d, name))
+            for m in GO_WORKER_CALL.finditer(text):
+                found += 1
+                line = text.count("\n", 0, m.start()) + 1
+                recv, fn = m.group(1), m.group(2)
+                where = "%s:%d: %s.%s(...)" % (rel, line, recv, fn)
+                if fn == "RegisterWorkflow":
+                    key = (recv, "workflow")
+                else:
+                    pkg = worker_receiver_package(text, m.start(), recv)
+                    if pkg is None:
+                        problems.append("workflow registry: %s: cannot tell the receiver's type; register through "
+                                        "a function the handbook build parses" % where)
+                        continue
+                    key = (pkg, "activity")
+                if key not in known:
+                    problems.append("workflow registry: %s is not one of the Register functions the handbook build "
+                                    "parses (GO_REGISTER_FUNCS)" % where)
+        if not found:
+            problems.append("workflow registry: %s: no .Register(w) or RegisterWorkflow(w) call found; "
+                            "the parser no longer matches the code" % GO_WORKER_DIR)
+        return problems
+
+    def load(self):
+        rel = GO_KIND_FILE
+        try:
+            text = read_text(os.path.join(self.root, *rel.split("/")))
+        except OSError:
+            raise ValueError("workflow registry: %s is missing" % rel)
+        for ident, via in GO_KIND_ROW.findall(text):
+            self.kinds[self.resolve("outbox", ident)] = via
+        if not self.kinds:
+            raise ValueError('workflow registry: %s: no {Kind, "Enqueue..."} rows found; '
+                             "the parser no longer matches the code" % rel)
+        registered = {"workflow": set(), "activity": set()}
+        for alias, sig, what in GO_REGISTER_FUNCS:
+            frel, body = self._register_body(alias, sig)
+            calls = GO_REGISTER_CALL.findall(body)
+            if not calls:
+                raise ValueError("workflow registry: %s: %s...) registers nothing the parser can read" % (frel, sig))
+            for kind, expr in calls:
+                if kind.lower() != what:
+                    raise ValueError("workflow registry: %s: %s...) registers a %s" % (frel, sig, kind.lower()))
+                registered[what].add(self.resolve(alias, expr))
+        problems = self.check_worker_calls()
+        for wf in sorted(registered["workflow"] - set(self.kinds)):
+            problems.append("workflow registry: workflow type %r is registered but is not a kind in %s" % (wf, rel))
+        for k in sorted(set(self.kinds) - registered["workflow"]):
+            problems.append("workflow registry: kind %r is registered by no RegisterWorkflow" % k)
+        if problems:
+            raise ValueError("\n".join(problems))
+        self._workflows = sorted(self.kinds)
+        self._activities = sorted(registered["activity"])
 
 
 class Facts:
@@ -295,11 +559,15 @@ class Facts:
         self.operations, self.op_list = {}, []
         self.tables, self.table_list = {}, []
         self.areas = {}
+        self.area_of = {}
+        self.grants, self.audited = None, None
+        self.data_notes = {}
         self.invariants = {}
         self.tests = set()
         self.problems = []
         for load in (self.load_adrs, self.load_stories, self.load_operations,
-                     self.load_schema, self.load_invariants, self.load_tests):
+                     self.load_schema, self.load_db_manifests, self.load_data_notes,
+                     self.load_invariants, self.load_tests, self.load_registry):
             try:
                 load()
             except (OSError, ValueError) as e:
@@ -307,6 +575,11 @@ class Facts:
 
     def path(self, *parts):
         return os.path.join(self.root, *parts)
+
+    def load_registry(self):
+        load = getattr(self.registry, "load", None)
+        if load is not None:
+            load()
 
     # ADRs: file records plus inline "### E1" headings under "## Errata".
     def load_adrs(self):
@@ -345,6 +618,12 @@ class Facts:
             raise ValueError("\n".join(errs))
 
     def load_stories(self):
+        def valid_date(d):
+            try:
+                return isinstance(d, str) and bool(re.match(r"^\d{4}-\d{2}-\d{2}$", d)) and bool(datetime.date.fromisoformat(d))
+            except ValueError:
+                return False
+
         p = self.path(HANDBOOK, "src", "stories", "stories.yaml")
         if not os.path.exists(p):
             return
@@ -360,8 +639,8 @@ class Facts:
         allowed = {"id", "issue", "title", "status", "verdict", "date", "verdict_comment", "bruno", "evidence"}
         errs = []
 
-        def repo_path(what, rel, folder_ok=False):
-            if not rel or os.path.isabs(rel) or ".." in rel.split("/"):
+        def repo_path(what, rel):
+            if not isinstance(rel, str) or not rel or os.path.isabs(rel) or ".." in rel.split("/"):
                 errs.append("stories.yaml: %s %r is not a path inside the repository" % (what, rel))
             elif not os.path.exists(self.path(*rel.split("/"))):
                 errs.append("stories.yaml: %s %r does not exist" % (what, rel))
@@ -389,6 +668,12 @@ class Facts:
                     evidence = [evidence]
                 if isinstance(bruno, str):
                     bruno = [bruno]
+                if not isinstance(evidence, list) or any(not isinstance(x, str) for x in evidence):
+                    errs.append("stories.yaml: story %s evidence must be a list of repo paths" % sid)
+                    evidence = []
+                if not isinstance(bruno, list) or any(not isinstance(x, str) for x in bruno):
+                    errs.append("stories.yaml: story %s bruno must be a list of folder names" % sid)
+                    bruno = []
                 s["evidence"], s["bruno"] = evidence, bruno
                 for ev in evidence:
                     repo_path("story %s evidence" % sid, ev)
@@ -402,9 +687,9 @@ class Facts:
                         errs.append("stories.yaml: delivered story %s needs a verdict" % sid)
                     if not evidence:
                         errs.append("stories.yaml: delivered story %s needs at least one evidence path" % sid)
-                    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s.get("date", "")):
+                    if not valid_date(s.get("date", "")):
                         errs.append("stories.yaml: delivered story %s needs an ISO date (YYYY-MM-DD)" % sid)
-                elif s.get("date") and not re.match(r"^\d{4}-\d{2}-\d{2}$", s["date"]):
+                elif s.get("date") and not valid_date(s["date"]):
                     errs.append("stories.yaml: story %s date %r is not an ISO date" % (sid, s["date"]))
         un = doc.get("unassigned", [])
         if un == "":
@@ -513,8 +798,45 @@ class Facts:
             for n in names:
                 if n not in self.tables:
                     errs.append("areas.yaml: area %s names table %r, which is not in schema.json" % (a, n))
+                elif n in self.area_of:
+                    errs.append("areas.yaml: table %s is in area %s and area %s; a table belongs to exactly one"
+                                % (n, self.area_of[n], a))
+                else:
+                    self.area_of[n] = a
+        # TICK-729: a new table cannot drift into the schema without an area.
+        for t in self.table_list:
+            if t["name"] not in self.area_of:
+                errs.append("areas.yaml: table %s (schema.json) is in no area; add it to "
+                            "docs/handbook/src/database/areas.yaml" % t["name"])
         if errs:
             raise ValueError("\n".join(sorted(errs)))
+
+    def load_db_manifests(self):
+        """db/grants.yaml and db/audited-tables.yaml, when the repository has them."""
+        for attr, rel in (("grants", "db/grants.yaml"), ("audited", "db/audited-tables.yaml")):
+            p = self.path(*rel.split("/"))
+            if not os.path.exists(p):
+                continue
+            try:
+                setattr(self, attr, parse_yaml(read_text(p)))
+            except ValueError as e:
+                raise ValueError("%s: %s" % (rel, e))
+
+    def load_data_notes(self):
+        """docs/data/*.md: index name -> the design notes that name it."""
+        d = self.path("docs", "data")
+        if not os.path.isdir(d):
+            return
+        texts = {}
+        for name in sorted(os.listdir(d)):
+            if name.endswith(".md"):
+                texts["docs/data/" + name] = read_text(os.path.join(d, name))
+        for t in self.table_list:
+            for i in t.get("indexes", []):
+                pat = re.compile(r"(?<![\w])" + re.escape(i["name"]) + r"(?![\w])")
+                hits = [rel for rel, text in texts.items() if pat.search(text)]
+                if hits:
+                    self.data_notes[i["name"]] = hits
 
     def load_invariants(self):
         text = read_text(self.path("docs", "adr", "ADR-001-platform-blueprint.md"))
@@ -632,7 +954,7 @@ def check_refs(f, p):
         names = getter()
         for r in refs:
             if names is None:
-                bad(kind, r, "cannot be checked: the registry hook is not wired yet (TICK-727)")
+                bad(kind, r, "cannot be checked: the workflow registry did not load")
             elif r not in names:
                 bad(kind, r, "is not in the registry")
     for r in fm["tests"]:
@@ -649,11 +971,35 @@ def check_refs(f, p):
     for r in fm["evidence"]:
         check_path(f, r, "evidence", bad)
     for r in fm["sources"]:
+        m = SOURCE_LINES.match(r)
+        if m:
+            check_source_lines(f, r, m.group(1), m.group(2), bad)
+            continue
         r2 = r[:-3] if r.endswith("...") else r
         check_path(f, r2.rstrip("/"), "sources", bad)
     if fm["normative"]:
         check_path(f, fm["normative"], "normative", bad)
     return out
+
+
+# A source with lines: path:N, path:N-M or path:N,M,... . The build checks the
+# file exists and has those lines; a reviewer checks what they say against the
+# footer sha (numbers quoted by hand, TICK-727).
+SOURCE_LINES = re.compile(r"^([^:]+):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$")
+
+
+def check_source_lines(f, ref, path, spec, bad):
+    check_path(f, path, "sources", bad)
+    full = f.path(*path.split("/")) if path and not os.path.isabs(path) and ".." not in path.split("/") else ""
+    if not full or not os.path.isfile(full):
+        return
+    count = read_text(full).count("\n") + 1
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        lo, hi = int(lo), int(hi or lo)
+        if lo < 1 or hi < lo or hi > count:
+            bad("sources", ref, "names line %s, but %s has %d lines" % (part, path, count))
+            return
 
 
 def check_path(f, r, kind, bad):
@@ -702,7 +1048,8 @@ def expand_gen(f, body):
 
 def gen_block(f, kind, args):
     allow = {"operations": ("tag", "ids"), "tables": ("area",), "er": ("area",),
-             "migrations": (), "adr-index": (), "budgets": (), "stories": (), "benchmarks": ()}
+             "migrations": (), "adr-index": (), "budgets": (),
+             "areas": (), "rls": (), "grants": (), "audited": (), "stories": (), "benchmarks": ()}
     if kind not in allow:
         raise ValueError("unknown block kind")
     for k in args:
@@ -716,6 +1063,14 @@ def gen_block(f, kind, args):
         return gen_er(f, args.get("area", ""))
     if kind == "migrations":
         return gen_migrations(f)
+    if kind == "areas":
+        return gen_areas(f)
+    if kind == "rls":
+        return gen_rls(f)
+    if kind == "grants":
+        return gen_grants(f)
+    if kind == "audited":
+        return gen_audited(f)
     if kind == "adr-index":
         return gen_adr_index(f)
     if kind == "stories":
@@ -768,8 +1123,77 @@ def code_or_dash(s):
     return "-" if not str(s).strip() else "`%s`" % cell(s).replace("`", "'")
 
 
+def mm_type(t):
+    return re.sub(r"[^A-Za-z0-9_]", "_", t).strip("_") or "type"
+
+
+def tenant_pred(col):
+    """The deparsed tenant predicate; must equal catalog.TenantPred (internal/db/catalog/policy.go)."""
+    return "(" + col + " = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+
+
+def tenant_key(table):
+    return "id" if table == "tenants" else "tenant_id"
+
+
+def policy_class(table, p):
+    """canonical: exactly the tenant predicate on every clause its command uses (catalog.testsTenant).
+    pinned: the tenant predicate plus a further condition (catalog.PinnedTenantPolicies).
+    allow-list: no tenant test at all (catalog.AllowList)."""
+    want = tenant_pred(tenant_key(table))
+    cmd, using, check = p.get("command", ""), p.get("using", ""), p.get("check", "")
+    if p.get("permissive", True):
+        if cmd in ("SELECT", "DELETE") and using == want and check == "":
+            return "canonical"
+        if cmd == "INSERT" and using == "" and check == want:
+            return "canonical"
+        if cmd == "UPDATE" and using == want and check == want:
+            return "canonical"
+    if want in using or want in check:
+        return "pinned"
+    return "allow-list"
+
+
+def area_link(f, table, here):
+    a = f.area_of.get(table, "")
+    if not a or a == here:
+        return "`%s`" % table
+    return "`%s` ([%s](%s.md))" % (table, a, a)
+
+
+def grants_by_table(f):
+    """table -> [(role, privilege, columns)] from db/grants.yaml."""
+    out = {}
+    roles = (f.grants or {}).get("roles", {}) or {}
+    for role in sorted(roles):
+        for table, privs in sorted(((roles[role] or {}).get("tables", {}) or {}).items()):
+            for priv in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+                if priv in (privs or {}):
+                    out.setdefault(table, []).append((role, priv, privs[priv] or []))
+    return out
+
+
+def audit_status(f, table):
+    if not f.audited:
+        return ""
+    if table in (f.audited.get("audited") or {}):
+        a = f.audited["audited"][table]
+        return "audited (subject `%s`, writers %s)" % (cell(a.get("subject_type", "")), md_list(a.get("writer_roles", [])))
+    if table in (f.audited.get("exempt") or {}):
+        return "exempt from the audit log: %s" % cell((f.audited["exempt"][table] or {}).get("reason", "")).rstrip(".")
+    return ""
+
+
+def notes_for(f, index):
+    links = []
+    for rel in f.data_notes.get(index, []):
+        links.append("[%s](../../../%s)" % (rel.rsplit("/", 1)[-1][:-3], rel[len("docs/"):]))
+    return ", ".join(links) if links else "-"
+
+
 def gen_tables(f, area):
     out = []
+    by_table = grants_by_table(f)
     for t in area_tables(f, area):
         out.append("#### `%s`\n" % t["name"])
         kind = t.get("kind", "")
@@ -784,72 +1208,390 @@ def gen_tables(f, area):
         out.append("Kind: %s. Row-level security: enabled %s, forced %s. Primary key: %s.%s\n" % (
             cell(kind), str(bool(rls.get("enabled"))).lower(), str(bool(rls.get("forced"))).lower(),
             md_list(t.get("primary_key", [])), part))
+        status = audit_status(f, t["name"])
+        if status:
+            out.append("Audit: %s.\n" % status)
         out.append("| Column | Type | Null | Default |\n|---|---|---|---|")
         for c in t.get("columns", []):
             out.append("| `%s` | `%s` | %s | %s |" % (c["name"], cell(c["type"]), "yes" if c.get("nullable") else "no",
                                                       code_or_dash(c.get("default", ""))))
         out.append("")
+        if t.get("foreign_keys"):
+            out.append("| Foreign key | Columns | References | On delete |\n|---|---|---|---|")
+            for fk in t["foreign_keys"]:
+                out.append("| `%s` | %s | %s (%s) | %s |" % (fk["name"], md_list(fk.get("columns", [])),
+                                                           area_link(f, fk["ref_table"], area),
+                                                           md_list(fk.get("ref_columns", [])), cell(fk.get("on_delete", ""))))
+            out.append("")
         if t.get("indexes"):
-            out.append("| Index | Method | Columns | Include | Predicate |\n|---|---|---|---|---|")
+            out.append("| Index | Method | Columns | Include | Predicate | Design note |\n|---|---|---|---|---|---|")
             for i in t["indexes"]:
                 name = "`%s`%s" % (i["name"], " (unique)" if i.get("unique") else "")
                 inc = md_list(i["include"]) if i.get("include") else "-"
-                out.append("| %s | %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
-                                                          inc, code_or_dash(i.get("predicate", ""))))
+                out.append("| %s | %s | %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
+                                                               inc, code_or_dash(i.get("predicate", "")), notes_for(f, i["name"])))
             out.append("")
-        if t.get("policies"):
-            out.append("| Policy | Type | Command | Roles | Using | Check |\n|---|---|---|---|---|---|")
-            for p in t["policies"]:
+        pols = t.get("policies", [])
+        canon = [p for p in pols if policy_class(t["name"], p) == "canonical"]
+        other = [p for p in pols if policy_class(t["name"], p) != "canonical"]
+        if canon:
+            out.append("Policies with exactly the tenant predicate on `%s` ([RLS](rls.md)): %s.\n" % (
+                tenant_key(t["name"]), ", ".join("`%s` (%s, %s)" % (p["name"], p.get("command", ""), ", ".join(p.get("roles", [])))
+                                               for p in canon)))
+        if other:
+            out.append("| Policy | Kind | Type | Command | Roles | Using | Check |\n|---|---|---|---|---|---|---|")
+            for p in other:
                 # A RESTRICTIVE policy narrows what the permissive ones grant, so it must stand out.
                 ptype = "permissive" if p.get("permissive", True) else "**RESTRICTIVE**"
-                out.append("| `%s` | %s | %s | %s | %s | %s |" % (p["name"], ptype, cell(p.get("command", "")),
-                                                                  md_list(p.get("roles", [])),
-                                                              code_or_dash(p.get("using", "")),
-                                                              code_or_dash(p.get("check", ""))))
+                out.append("| `%s` | %s | %s | %s | %s | %s | %s |" % (
+                    p["name"], policy_class(t["name"], p), ptype, cell(p.get("command", "")), md_list(p.get("roles", [])),
+                    code_or_dash(p.get("using", "")), code_or_dash(p.get("check", ""))))
             out.append("")
+        if not pols and t.get("kind") == "partition":
+            out.append("A partition has no policies of its own: a query through `%s` uses the parent's.\n" % t["partition_of"])
+        grants = by_table.get(t["name"], [])
+        if grants:
+            out.append("Grants (`db/grants.yaml`, [roles and grants](roles-and-grants.md)): %s.\n" % "; ".join(
+                "%s %s%s" % (role, priv, " (" + ", ".join(cols) + ")" if cols else "") for role, priv, cols in grants))
     return "\n".join(out) + "\n"
 
 
 def gen_er(f, area):
-    tables = area_tables(f, area)
+    tables = [t for t in area_tables(f, area) if t.get("kind") != "partition"]
     names = {t["name"] for t in tables}
     out = ["```mermaid", "erDiagram"]
+    stubs = {}
     for t in tables:
         out.append("    %s {" % t["name"])
         pk = set(t.get("primary_key", []))
+        fkcols = {c for fk in t.get("foreign_keys", []) for c in fk.get("columns", [])}
         for c in t.get("columns", []):
-            typ = re.sub(r"[ (),\"]", "_", c["type"])
-            out.append("        %s %s%s" % (typ, c["name"], " PK" if c["name"] in pk else ""))
+            keys = ",".join(k for k, on in (("PK", c["name"] in pk), ("FK", c["name"] in fkcols)) if on)
+            out.append("        %s %s%s" % (mm_type(c["type"]), c["name"], " " + keys if keys else ""))
         out.append("    }")
+    rels = set()
     for t in tables:
         for fk in t.get("foreign_keys", []):
-            if fk["ref_table"] in names:
-                out.append('    %s }o--|| %s : "%s"' % (t["name"], fk["ref_table"], ",".join(fk["columns"])))
+            ref = fk["ref_table"]
+            if ref not in names:
+                stubs[ref] = f.area_of.get(ref, "")
+            label = ",".join(fk["columns"])
+            cols = {c["name"]: c for c in t.get("columns", [])}
+            # A nullable referencing column means the row may point at nothing: zero or one.
+            optional = any(cols.get(c, {}).get("nullable") for c in fk["columns"])
+            rel = '    %s }o--%s %s : "%s"' % (t["name"], "o|" if optional else "||", ref, label)
+            if rel not in rels:
+                rels.add(rel)
+                out.append(rel)
+    for ref in sorted(stubs):
+        # A cross-area target is a stub: its name only, its columns are on its own page.
+        out.append("    %s {" % ref)
+        out.append("        stub other_area")
+        out.append("    }")
     out.append("```")
+    if stubs:
+        out.append("")
+        out.append("Stub entities (`stub other_area`) belong to another area: %s." % ", ".join(
+            "`%s` on [%s](%s.md)" % (r, a, a) if a else "`%s`" % r for r, a in sorted(stubs.items())))
+    parts = [t["name"] for t in area_tables(f, area) if t.get("kind") == "partition"]
+    if parts:
+        out.append("")
+        out.append("Partitions are left out of the diagram: %s." % md_list(parts))
     return "\n".join(out) + "\n"
 
 
-def gen_migrations(f):
-    d = f.path("db", "migrations")
-    rows = ["| Migration | Purpose |", "|---|---|"]
-    for name in sorted(os.listdir(d)):
-        if not name.endswith(".sql"):
-            continue
-        first = ""
-        for line in read_text(os.path.join(d, name)).split("\n"):
-            if line.startswith("--") and "+goose" not in line:
-                first = line[2:].strip()
-                break
-        rows.append("| `%s` | %s |" % (name, cell(first)))
+def gen_areas(f):
+    rows = ["| Area | Tables |", "|---|---|"]
+    for a in f.areas:
+        rows.append("| [%s](%s.md) | %s |" % (a, a, md_list(f.areas[a])))
     return "\n".join(rows) + "\n"
 
 
+def gen_rls(f):
+    if not f.table_list:
+        raise ValueError("schema.json has no tables")
+    out = ["The tenant predicate, written once (`catalog.TenantPred`, `internal/db/catalog/policy.go`), "
+           "on the tenant key column `<col>` (`id` for `tenants`, `tenant_id` everywhere else):", "",
+           "```sql", tenant_pred("<col>"), "```", "",
+           "| Table | Area | RLS enabled | RLS forced | Tenant key | Policies with exactly the tenant predicate | Other policies |",
+           "|---|---|---|---|---|---|---|"]
+    others = []
+    for t in f.table_list:
+        rls = t.get("rls", {})
+        pols = t.get("policies", [])
+        canon = [p for p in pols if policy_class(t["name"], p) == "canonical"]
+        other = [p for p in pols if policy_class(t["name"], p) != "canonical"]
+        others += [(t["name"], p) for p in other]
+        if t.get("kind") == "partition":
+            canon_txt = "parent's (`%s`)" % t["partition_of"]
+        else:
+            canon_txt = ", ".join("`%s` %s (%s)" % (p["name"], p.get("command", ""), ", ".join(p.get("roles", [])))
+                                  for p in canon) or "none"
+        out.append("| `%s` | [%s](%s.md) | %s | %s | `%s` | %s | %d |" % (
+            t["name"], f.area_of.get(t["name"], "-"), f.area_of.get(t["name"], "index"),
+            str(bool(rls.get("enabled"))).lower(), str(bool(rls.get("forced"))).lower(),
+            tenant_key(t["name"]), canon_txt, len(other)))
+    out += ["", "### Policies that differ from the tenant predicate", "",
+            "`allow-list`: no tenant test at all (`catalog.AllowList`, ADR-001 A.3). "
+            "`pinned`: the tenant predicate and one more condition (`catalog.PinnedTenantPolicies`). "
+            "The catalogue gate fails the migrator run when any of them differs from its pinned text.", "",
+            "| Table | Policy | Kind | Type | Command | Roles | Using | Check |", "|---|---|---|---|---|---|---|---|"]
+    for table, p in sorted(others, key=lambda x: (policy_class(x[0], x[1]), x[0], x[1]["name"])):
+        ptype = "permissive" if p.get("permissive", True) else "**RESTRICTIVE**"
+        out.append("| `%s` | `%s` | %s | %s | %s | %s | %s | %s |" % (
+            table, p["name"], policy_class(table, p), ptype, cell(p.get("command", "")), md_list(p.get("roles", [])),
+            code_or_dash(p.get("using", "")), code_or_dash(p.get("check", ""))))
+    return "\n".join(out) + "\n"
+
+
+def gen_grants(f):
+    if not f.grants:
+        raise ValueError("db/grants.yaml is missing")
+    g = f.grants
+    roles = g.get("roles", {}) or {}
+    out = ["| Role | Attributes | PgBouncer login | Platform database | Schemas | Settings |",
+           "|---|---|---|---|---|---|"]
+    for r in sorted(roles):
+        v = roles[r] or {}
+        sch = "; ".join("%s: %s" % (k, ", ".join(x)) for k, x in sorted((v.get("schemas") or {}).items()))
+        sets = "; ".join("`%s = %s`" % (k, x) for k, x in sorted((v.get("settings") or {}).items()))
+        out.append("| `%s` | %s | %s | %s | %s | %s |" % (
+            r, ", ".join(v.get("attributes", [])) or "-", "yes" if v.get("pgbouncer_login") == "true" else "no",
+            ", ".join(v.get("database", [])) or "-", cell(sch) or "-", sets or "-"))
+    out.append("")
+    writers = {}
+    for table, a in sorted(((f.audited or {}).get("audited") or {}).items()):
+        for r in a.get("writer_roles", []):
+            writers.setdefault(r, []).append(table)
+    for r in sorted(roles):
+        v = roles[r] or {}
+        tables, funcs = v.get("tables") or {}, v.get("functions") or {}
+        if not tables and not funcs and r not in writers:
+            continue
+        out.append("#### `%s`\n" % r)
+        if tables:
+            out.append("| Table | Area | SELECT | INSERT | UPDATE | DELETE |\n|---|---|---|---|---|---|")
+            for t in sorted(tables):
+                privs = tables[t] or {}
+
+                def show(priv):
+                    if priv not in privs:
+                        return "-"
+                    return "all columns" if not privs[priv] else md_list(privs[priv])
+                a = f.area_of.get(t, "")
+                out.append("| `%s` | %s | %s | %s | %s | %s |" % (t, "[%s](%s.md)" % (a, a) if a else "-",
+                                                               show("SELECT"), show("INSERT"), show("UPDATE"), show("DELETE")))
+            out.append("")
+        if funcs:
+            out.append("Functions: %s.\n" % ", ".join("`%s` (%s)" % (k, ", ".join(x)) for k, x in sorted(funcs.items())))
+        if r in writers:
+            out.append("Writes audited tables %s, so `nava-db migrate` also grants it INSERT on the R10 `audit_log` columns "
+                       "and SELECT on the commit-check columns, generated from `db/audited-tables.yaml`.\n" % md_list(writers[r]))
+    ex = g.get("infrastructure_exceptions") or {}
+    if ex:
+        out.append("#### Infrastructure exceptions\n")
+        out.append("| Name | Object | Security definer | Granted to | Reason |\n|---|---|---|---|---|")
+        for k in sorted(ex):
+            v = ex[k] or {}
+            out.append("| `%s` | `%s` | %s | %s | %s |" % (k, cell(v.get("function", "")), v.get("security_definer", "false"),
+                                                        md_list(v.get("granted_to", [])), cell(v.get("reason", ""))))
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def gen_audited(f):
+    if not f.audited:
+        raise ValueError("db/audited-tables.yaml is missing")
+    out = ["| Table | Status | Writer roles or reason | Subject type | Trigger attached |", "|---|---|---|---|---|"]
+    for t, a in sorted((f.audited.get("audited") or {}).items()):
+        out.append("| `%s` | audited | %s | `%s` | %s |" % (t, md_list(a.get("writer_roles", [])),
+                                                        cell(a.get("subject_type", "")), a.get("attached", "false")))
+    for t, a in sorted((f.audited.get("exempt") or {}).items()):
+        out.append("| `%s` | exempt | %s | - | - |" % (t, cell((a or {}).get("reason", ""))))
+    return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------ migration history
+# The history is captured from git once (`build.py --capture-migrations`) into a
+# committed file, so a build needs no git history and gives the same output on any clone.
+
+MIGRATION_HISTORY = HANDBOOK + "/src/database/migration-history.json"
+SQL_COMMENT = re.compile(r"--[^\n]*")
+
+
+def migration_files(f_or_root):
+    root = f_or_root.root if hasattr(f_or_root, "root") else f_or_root
+    d = os.path.join(root, "db", "migrations")
+    return sorted(n for n in os.listdir(d) if n.endswith(".sql"))
+
+
+def migration_summary(text):
+    """The header comment's first sentence."""
+    words = []
+    for line in text.split("\n"):
+        if not line.startswith("--") or "+goose" in line:
+            if words:
+                break
+            continue
+        body = line[2:].strip()
+        if not body:
+            if words:
+                break
+            continue
+        words.append(body)
+    para = " ".join(words)
+    m = re.search(r"^(.+?\.)(\s|$)", para)
+    first = m.group(1) if m else para
+    return first if len(first) <= 240 else first[:237].rstrip() + "..."
+
+
+def migration_up(text):
+    """The Up section's SQL with comments removed (a Down section is not history)."""
+    up = re.split(r"(?m)^--\s*\+goose\s+Down\b", text)[0]
+    return SQL_COMMENT.sub("", up)
+
+
+CREATED = re.compile(r"(?i)\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?|"
+                     r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?|CREATE\s+POLICY\s+|ADD\s+CONSTRAINT\s+|"
+                     r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+|CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+)(?:public\.)?(\w+)")
+DROPPED = re.compile(r"(?i)\bDROP\s+(TABLE|INDEX|POLICY|CONSTRAINT|COLUMN|FUNCTION|TRIGGER)\s+(?:CONCURRENTLY\s+)?"
+                     r"(?:IF\s+EXISTS\s+)?(?:public\.)?(\w+)")
+
+
+def migration_facts(text):
+    """(constraints added NOT VALID, constraints validated,
+    builds an index CONCURRENTLY, [(kind, name)] dropped)."""
+    code = migration_up(text)
+    created = {m.group(1).lower() for m in CREATED.finditer(code)}
+    not_valid = set()
+    for stmt in code.split(";"):
+        if re.search(r"(?i)\bNOT\s+VALID\b", stmt):
+            not_valid |= {m.lower() for m in re.findall(r"(?i)\bADD\s+CONSTRAINT\s+(\w+)", stmt)}
+    validated = {m.lower() for m in re.findall(r"(?i)\bVALIDATE\s+CONSTRAINT\s+(\w+)", code)}
+    concurrently = bool(re.search(r"(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b", code))
+    drops = []
+    for m in DROPPED.finditer(code):
+        item = (m.group(1).lower(), m.group(2).lower())
+        # DROP and CREATE of one name in one file is a rebuild (an invalid concurrent index), not a drop.
+        if item[1] not in created and item not in drops:
+            drops.append(item)
+    return not_valid, validated, concurrently, drops
+
+
+def gen_migrations(f):
+    p = f.path(*MIGRATION_HISTORY.split("/"))
+    if not os.path.exists(p):
+        raise ValueError("%s is missing; run `python -I docs/handbook/build/build.py --capture-migrations`" % MIGRATION_HISTORY)
+    try:
+        hist = json.loads(read_text(p))
+    except ValueError as e:
+        raise ValueError("%s: %s" % (MIGRATION_HISTORY, e))
+    if hist.get("version") != 1:
+        raise ValueError("%s: version %r, this generator reads version 1" % (MIGRATION_HISTORY, hist.get("version")))
+    by_file = {m["file"]: m for m in hist.get("migrations", [])}
+    files = migration_files(f)
+    missing = [n for n in files if n not in by_file]
+    extra = [n for n in by_file if n not in files]
+    if missing or extra:
+        raise ValueError("%s is stale (not captured: %s; no longer in db/migrations: %s); run "
+                         "`python -I docs/handbook/build/build.py --capture-migrations`"
+                         % (MIGRATION_HISTORY, ", ".join(missing) or "none", ", ".join(extra) or "none"))
+    texts = {n: read_text(f.path("db", "migrations", n)) for n in files}
+    facts = {n: migration_facts(texts[n]) for n in files}
+    version = {n: n.split("_", 1)[0] for n in files}
+    added_in, validated_in = {}, {}
+    for n in files:
+        for c in facts[n][0]:
+            added_in.setdefault(c, n)
+        for c in facts[n][1]:
+            validated_in.setdefault(c, n)
+    rows = ["| Version | File | Summary | Introduced by | Online steps and drops |", "|---|---|---|---|---|"]
+    for n in files:
+        m = by_file[n]
+        nv, val, conc, drops = facts[n]
+        marks = []
+        for c in sorted(nv):
+            later = validated_in.get(c)
+            if later == n:
+                marks.append("`%s` NOT VALID, validated in the same file" % c)
+            else:
+                marks.append("`%s` NOT VALID%s" % (c, ", validated in `%s`" % version[later] if later else ""))
+        for c in sorted(val - nv):
+            first = added_in.get(c)
+            marks.append("VALIDATE `%s`%s" % (c, " (added in `%s`)" % version[first] if first else ""))
+        if conc:
+            marks.append("CREATE INDEX CONCURRENTLY")
+        for kind, name in drops:
+            marks.append("drops %s `%s`" % (kind, name))
+        if not m.get("on_main", True):
+            who = "in progress (not on main)"
+        else:
+            bits = [m["story"]] if m.get("story") else []
+            bits += m.get("tickets", [])
+            if m.get("pr"):
+                bits.append("PR #%s" % m["pr"])
+            who = ", ".join(bits) or "-"
+            if m.get("date"):
+                who += " (%s)" % m["date"]
+        rows.append("| `%s` | `%s` | %s | %s | %s |" % (version[n], n, cell(migration_summary(texts[n])) or "-",
+                                                       cell(who), "; ".join(marks) or "-"))
+    return "\n".join(rows) + "\n"
+
+
+def _git_out(root, *args):
+    r = subprocess.run(["git"] + list(args), cwd=root, capture_output=True, check=True)
+    return r.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
+
+
+def _added(root, rev, first_parent):
+    """file -> (short sha, date, subject) of the commit on rev's history that added it (oldest wins)."""
+    args = ["log", rev, "--diff-filter=A", "--name-only", "--format=@@%h|%cs|%s"]
+    if first_parent:
+        args.insert(2, "--first-parent")
+    out, cur = {}, None
+    for line in _git_out(root, *(args + ["--", "db/migrations"])).split("\n"):
+        if line.startswith("@@"):
+            cur = tuple(line[2:].split("|", 2))
+        elif line.strip().endswith(".sql") and cur:
+            out[line.strip().rsplit("/", 1)[-1]] = cur   # git log is newest first: the oldest add wins
+    return out
+
+
+def capture_migrations(root, git=None):
+    """Write MIGRATION_HISTORY from `git log --diff-filter=A` on origin/main. Branch and author names are not kept."""
+    merged = _added(root, "origin/main", True)
+    authored = _added(root, "origin/main", False)
+    rows = []
+    for n in migration_files(root):
+        if n not in merged:
+            rows.append({"file": n, "on_main": False})
+            continue
+        sha, date, subject = merged[n]
+        inner = authored.get(n, merged[n])[2]
+        pr = re.search(r"#(\d+)", subject)
+        story = re.search(r"\b(S\d{1,2})\b", subject)
+        tickets = sorted(set(re.findall(r"\bTICK-\d+\b", subject + " " + inner)), key=lambda x: int(x[5:]))
+        rows.append({"file": n, "on_main": True, "commit": sha, "date": date, "pr": pr.group(1) if pr else "",
+                     "story": story.group(1) if story else "", "tickets": tickets})
+    data = json.dumps({"version": 1, "migrations": rows}, indent=2, ensure_ascii=False) + "\n"
+    with open(os.path.join(root, *MIGRATION_HISTORY.split("/")), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(data)
+    return len(rows)
+
+
 def gen_stories(f):
-    rows = ["| Story | Issue | Title | Status | Verdict | Date |", "|---|---|---|---|---|---|"]
-    for st in f.story_list:
-        rows.append("| %s | %s | %s | %s | %s | %s |" % tuple(
-            cell(st.get(k, "")) or "-" for k in ("id", "issue", "title", "status", "verdict", "date")))
-    out = "\n".join(rows) + "\n"
+    def table(items):
+        rows = ["| Story | Issue | Title | Status | Verdict | Date |", "|---|---|---|---|---|---|"]
+        for st in items:
+            rows.append("| %s | %s | %s | %s | %s | %s |" % tuple(
+                cell(st.get(k, "")) or "-" for k in ("id", "issue", "title", "status", "verdict", "date")))
+        return "\n".join(rows) + "\n"
+    done = [st for st in f.story_list if st["status"] == "delivered"]
+    todo = [st for st in f.story_list if st["status"] != "delivered"]
+    out = "**Delivered (on `main`)**\n\n" + table(done)
+    if todo:
+        out += ("\n**Not delivered: in progress or planned.** These are not on `main` and "
+                "have no handbook page.\n\n" + table(todo))
     if f.unassigned:
         out += "\nKits and folders that belong to no single story:\n\n| Path | Reason |\n|---|---|\n"
         for u in f.unassigned:
@@ -998,7 +1740,7 @@ def load_benchmarks(f):
             if not r.get("result"):
                 errs.append("%s needs a result (or verdict: no result yet)" % name)
             if not re.match(r"^\d{4}-\d{2}-\d{2}(/\d{2})?$", r.get("date", "")):
-                errs.append("%s date %r is not YYYY-MM-DD" % (name, r.get("date", "")))
+                errs.append("%s date %r is not YYYY-MM-DD or a range YYYY-MM-DD/DD" % (name, r.get("date", "")))
             c = r.get("commit", "")
             if c != NOT_RECORDED and not re.match(r"^[0-9a-f]{7,40}$", c):
                 errs.append("%s commit %r: a 7-40 digit hex sha, or %r, never a guess" % (name, c, NOT_RECORDED))
@@ -1566,6 +2308,8 @@ def render_page(p, pages, nav, body, has_mermaid, stamp):
             esc(href), esc(p.front["normative"])))
     if p.front["status"] == "in-progress":
         o.append('<p class="badge">In progress: not on main yet</p>')
+    if p.front["build"] == "interptest":
+        o.append('<p class="badge">Registered only in the <code>interptest</code> build; not running in the stack</p>')
     o += ["<article>", '<h1 class="page-title">%s</h1>' % esc(p.front["title"]), body, "</article>"]
     bl = backlinks(p, pages)
     if bl:
@@ -1608,7 +2352,7 @@ def build(root, sha, date, registry=None):
         problems.append("stamp sha %r is not a 7-40 digit lower-case hex commit" % sha)
     if not DATE_RE.match(date or ""):
         problems.append("stamp date %r is not YYYY-MM-DD" % date)
-    facts = Facts(root, registry or Unwired())
+    facts = Facts(root, registry or GoRegistry(root))
     problems += facts.problems
     pages, pp = load_pages(root)
     problems += pp
@@ -1856,10 +2600,15 @@ def main(argv=None):
     ap.add_argument("--date", default=os.environ.get("HANDBOOK_DATE", ""),
                     help="date of that commit, YYYY-MM-DD (default $HANDBOOK_DATE, else the commit's date)")
     ap.add_argument("--check", action="store_true", help="fail when the committed handbook is stale")
+    ap.add_argument("--capture-migrations", action="store_true",
+                    help="rewrite %s from git history (needs origin/main), then build" % MIGRATION_HISTORY)
     args = ap.parse_args(argv)
     root = os.path.abspath(args.root)
     git = Git(root)
     try:
+        if args.capture_migrations:
+            n = capture_migrations(root, git)
+            print("handbook: captured the history of %d migrations" % n)
         if args.check:
             problems = check(root, git)
             for p in problems:

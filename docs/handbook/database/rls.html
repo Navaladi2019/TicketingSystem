@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Row-level security - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li class="current"><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Row-level security</span></nav>
+<article>
+<h1 class="page-title">Row-level security</h1>
+<p>Every table runs under <code>ENABLE</code> and <code>FORCE ROW LEVEL SECURITY</code>, so its
+policies apply to the owner as well. Almost every policy is the same tenant
+predicate, so it is written once below, and the per-table table only names the
+policies that use it.</p>
+<p>The catalogue gate (<code>internal/db/catalog</code>, run at the end of every migrator
+run) enforces the rules this page shows. It fails when a policy is <code>FOR ALL</code>
+or <code>TO PUBLIC</code>, when a policy name is used on two tables, or when a policy is
+not exactly the tenant predicate and is not one of the pinned exceptions
+below. An exception that differs from its pinned text by one character also
+fails the gate.</p>
+<p>The <code>audit_log</code> policies are built when the migrator runs, from
+<code>db/audited-tables.yaml</code> (ADR-004 R12), so no migration file holds them. They
+appear here because this page reads a migrated database's catalogue
+(<code>schema.json</code>), not the migration SQL. A partition has no policies of its
+own: a query through the parent uses the parent's, and the <code>DEFAULT</code>
+partition, queried directly, admits no runtime role.</p>
+<p>The tenant predicate, written once (<code>catalog.TenantPred</code>, <code>internal/db/catalog/policy.go</code>), on the tenant key column <code>&lt;col&gt;</code> (<code>id</code> for <code>tenants</code>, <code>tenant_id</code> everywhere else):</p>
+<pre><code class="language-sql">(&lt;col&gt; = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Area</th>
+<th>RLS enabled</th>
+<th>RLS forced</th>
+<th>Tenant key</th>
+<th>Policies with exactly the tenant predicate</th>
+<th>Other policies</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>acl_versions_insert</code> INSERT (nava_app, nava_worker), <code>acl_versions_select</code> SELECT (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>audit_chain_head_select</code> SELECT (nava_app, nava_worker), <code>audit_chain_head_update</code> UPDATE (nava_app, nava_worker)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>audit_log_insert</code> INSERT (nava_erasure), <code>audit_log_select</code> SELECT (nava_audit_reader, nava_erasure, nava_worker), <code>audit_log_update</code> UPDATE (nava_erasure, nava_worker), <code>audit_log_writer_insert</code> INSERT (nava_app, nava_worker), <code>audit_log_writer_select</code> SELECT (nava_app, nava_worker)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>audit_log_default</code></td>
+<td><a href="../database/audit.html">audit</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td>parent's (<code>audit_log</code>)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>cascade_start</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>cascade_start_insert</code> INSERT (nava_app, nava_worker), <code>cascade_start_select</code> SELECT (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>entity_definition_versions_insert</code> INSERT (nava_app), <code>entity_definition_versions_select</code> SELECT (nava_app, nava_audit_reader, nava_worker)</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td><a href="../database/entity-definitions.html">entity-definitions</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>entity_definitions_insert</code> INSERT (nava_app), <code>entity_definitions_select</code> SELECT (nava_app, nava_worker), <code>entity_definitions_update</code> UPDATE (nava_app)</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>group_members</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>group_members_delete</code> DELETE (nava_groupsync), <code>group_members_insert</code> INSERT (nava_groupsync), <code>group_members_select</code> SELECT (nava_app, nava_groupsync)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>groups_insert</code> INSERT (nava_groupsync), <code>groups_select</code> SELECT (nava_app, nava_groupsync), <code>groups_update</code> UPDATE (nava_groupsync)</td>
+<td>4</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td><a href="../database/idempotency.html">idempotency</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>idempotency_insert</code> INSERT (nava_app), <code>idempotency_select</code> SELECT (nava_app), <code>idempotency_update</code> UPDATE (nava_app)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>org_units</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>org_units_delete</code> DELETE (nava_groupsync), <code>org_units_insert</code> INSERT (nava_groupsync), <code>org_units_select</code> SELECT (nava_app, nava_groupsync), <code>org_units_update</code> UPDATE (nava_groupsync)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><a href="../database/outbox.html">outbox</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>outbox_insert</code> INSERT (nava_app, nava_worker), <code>outbox_select</code> SELECT (nava_app, nava_worker)</td>
+<td>5</td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>pending_invite_consume</code> UPDATE (nava_groupsync), <code>pending_invite_select</code> SELECT (nava_groupsync, nava_onboard)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>principals</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>principals_insert</code> INSERT (nava_groupsync), <code>principals_select</code> SELECT (nava_app, nava_groupsync), <code>principals_update</code> UPDATE (nava_groupsync)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>record_counters</code></td>
+<td><a href="../database/numbering.html">numbering</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>record_counters_insert</code> INSERT (nava_app, nava_worker), <code>record_counters_select</code> SELECT (nava_app, nava_worker), <code>record_counters_update</code> UPDATE (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>record_shares</code></td>
+<td><a href="../database/acl.html">acl</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>record_shares_insert</code> INSERT (nava_app, nava_worker), <code>record_shares_select</code> SELECT (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>record_write_keys</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>record_write_keys_insert</code> INSERT (nava_app, nava_worker), <code>record_write_keys_select</code> SELECT (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>records</code></td>
+<td><a href="../database/records.html">records</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>records_insert</code> INSERT (nava_app, nava_worker), <code>records_select</code> SELECT (nava_app, nava_worker), <code>records_update</code> UPDATE (nava_app, nava_worker)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>tenant_admin_group_select</code> SELECT (nava_app, nava_groupsync, nava_worker)</td>
+<td>3</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>tenant_auditor_group_select</code> SELECT (nava_app, nava_groupsync, nava_worker), <code>tenant_auditor_group_select_onboard</code> SELECT (nava_onboard)</td>
+<td>3</td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>email_domain_onboard_select</code> SELECT (nava_onboard), <code>email_domain_select</code> SELECT (nava_app)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><a href="../database/identity.html">identity</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td>none</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td><a href="../database/tenancy.html">tenancy</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>id</code></td>
+<td><code>tenants_onboard_select</code> SELECT (nava_onboard), <code>tenants_tenant</code> SELECT (nava_app)</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><a href="../database/workflow-state.html">workflow-state</a></td>
+<td>true</td>
+<td>true</td>
+<td><code>tenant_id</code></td>
+<td><code>workflow_ref_insert</code> INSERT (nava_app, nava_worker), <code>workflow_ref_select</code> SELECT (nava_app, nava_worker), <code>workflow_ref_update</code> UPDATE (nava_worker)</td>
+<td>2</td>
+</tr>
+</tbody>
+</table>
+<h3 id="policies-that-differ-from-the-tenant-predicate">Policies that differ from the tenant predicate</h3>
+<p><code>allow-list</code>: no tenant test at all (<code>catalog.AllowList</code>, ADR-001 A.3). <code>pinned</code>: the tenant predicate and one more condition (<code>catalog.PinnedTenantPolicies</code>). The catalogue gate fails the migrator run when any of them differs from its pinned text.</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Policy</th>
+<th>Kind</th>
+<th>Type</th>
+<th>Command</th>
+<th>Roles</th>
+<th>Using</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><code>audit_chain_head_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(next_seal_at &lt; (now() - &#x27;00:10:00&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td><code>idempotency_purge</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_purge</code></td>
+<td><code>(expires_at &lt; now())</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>idempotency_keys</code></td>
+<td><code>idempotency_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(expires_at &lt; now())</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><code>outbox_purge</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_purge</code></td>
+<td><code>((dispatched_at &lt; (now() - &#x27;7 days&#x27;::interval)) OR (dead_at &lt; (now() - &#x27;30 days&#x27;::interval)))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><code>outbox_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>((dispatched_at &lt; (now() - &#x27;7 days&#x27;::interval)) OR (dead_at &lt; (now() - &#x27;30 days&#x27;::interval)))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><code>outbox_relay_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_relay</code></td>
+<td><code>true</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><code>outbox_relay_update</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>UPDATE</td>
+<td><code>nava_relay</code></td>
+<td><code>((dispatched_at IS NULL) AND (dead_at IS NULL))</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><code>binding_lookup</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_app</code>, <code>nava_groupsync</code></td>
+<td><code>true</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_identity_binding</code></td>
+<td><code>binding_onboard</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>(tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text)))</code></td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><code>workflow_ref_purge</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_purge</code></td>
+<td><code>(closed_at &lt; (now() - &#x27;30 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_ref</code></td>
+<td><code>workflow_ref_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(closed_at &lt; (now() - &#x27;30 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_chain_head</code></td>
+<td><code>audit_chain_head_onboard_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td><code>audit_log_onboard_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>audit_log</code></td>
+<td><code>audit_log_onboard_select</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_versions</code></td>
+<td><code>entity_definition_versions_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>entity_definitions</code></td>
+<td><code>entity_definitions_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>groups_insert_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>groups_insert_onboard_auditors</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (path = ((&#x27;/t/&#x27;::text || (tenant_id)::text) || &#x27;/auditors&#x27;::text)) AND (tenant_id IN ( SELECT t.id    FROM tenants t   WHERE (t.state = &#x27;active&#x27;::text))) AND (NOT (EXISTS ( SELECT 1    FROM tenant_auditor_group p   WHERE (p.tenant_id = groups.tenant_id)))))</code></td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>groups_select_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>groups_select_onboard_auditors</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (path = ((&#x27;/t/&#x27;::text || (tenant_id)::text) || &#x27;/auditors&#x27;::text)) AND (tenant_id IN ( SELECT t.id    FROM tenants t   WHERE (t.state = &#x27;active&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td><code>outbox_onboard_seal_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))) AND (kind = &#x27;audit.seal&#x27;::text))</code></td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td><code>pending_invite_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>pending_invite</code></td>
+<td><code>pending_invite_reinvite</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>UPDATE</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><code>tenant_admin_group_delete_tombstoned</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_groupsync</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (EXISTS ( SELECT 1    FROM groups g   WHERE ((g.tenant_id = tenant_admin_group.tenant_id) AND (g.id = tenant_admin_group.group_id) AND (g.deleted_at IS NOT NULL)))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><code>tenant_admin_group_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>tenant_admin_group</code></td>
+<td><code>tenant_admin_group_select_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><code>tenant_auditor_group_delete_tombstoned</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_groupsync</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (EXISTS ( SELECT 1    FROM groups g   WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NOT NULL)))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><code>tenant_auditor_group_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>tenant_auditor_group</code></td>
+<td><code>tenant_auditor_group_insert_active</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT t.id    FROM tenants t   WHERE (t.state = &#x27;active&#x27;::text))) AND (EXISTS ( SELECT 1    FROM groups g   WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NULL)))))</code></td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td><code>email_domain_onboard</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>tenant_email_domain</code></td>
+<td><code>email_domain_release</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td><code>tenants_activate</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>UPDATE</td>
+<td><code>nava_onboard</code></td>
+<td><code>((id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (state = &#x27;provisioning&#x27;::text))</code></td>
+<td><code>((id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (state = &#x27;active&#x27;::text))</code></td>
+</tr>
+<tr>
+<td><code>tenants</code></td>
+<td><code>tenants_onboard_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (state = &#x27;provisioning&#x27;::text))</code></td>
+</tr>
+</tbody>
+</table>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

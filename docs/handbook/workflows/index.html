@@ -19,11 +19,11 @@
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
 <ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
-<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
-<ul></ul></div>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
-<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
 <ul></ul></div>
 <div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
@@ -38,7 +38,42 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../workflows/index.html">workflows</a> / <span>Workflows</span></nav>
 <article>
 <h1 class="page-title">Workflows</h1>
-<p>TODO: the durable workflows and their activities.</p>
+<p>Durable work runs on Temporal, and it is entered only through the transactional outbox (ADR-001 I6). There are exactly two workflow kinds on <code>main</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Build</th>
+<th>Runs in the stack</th>
+<th>Page</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit.seal</code></td>
+<td>production</td>
+<td>yes</td>
+<td><a href="../workflows/audit-seal.html">Audit sealer</a></td>
+</tr>
+<tr>
+<td><code>nava.interpreter</code></td>
+<td><code>interptest</code> only</td>
+<td>no</td>
+<td><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></td>
+</tr>
+</tbody>
+</table>
+<p>Start with <a href="../workflows/outbox-relay-worker.html">the durable path</a>: how a row becomes a workflow start or signal, the relay's outcomes, the idempotency keys and the <code>workerguard</code> interceptor every workflow runs behind.</p>
+<p>Onboarding, group sync and purge are batch jobs, not workflows: they import no Temporal package. Onboarding appears on the durable path page only as the producer of a tenant's first <code>audit.seal</code> row.</p>
+<h2 id="how-the-names-are-checked">How the names are checked</h2>
+<p>The build parses the names from the Go source (<code>GoRegistry</code> in <code>docs/handbook/build/build.py</code>):</p>
+<ul>
+<li><code>workflows:</code> must be a kind in the closed list at <code>internal/outbox/outbox.go:244</code>, and every kind must be registered by a <code>RegisterWorkflow</code> function.</li>
+<li><code>activities:</code> must be a name registered by <code>(*seal.Activities).Register</code>, <code>(*interp.Activities).Register</code> or <code>(*workerguard.Activities).Register</code>.</li>
+<li>Every <code>.Register(w)</code> and <code>RegisterWorkflow(w)</code> call in <code>cmd/nava-worker</code> must go through one of those five functions, so a registration added in the worker cannot bypass the parsed names.</li>
+<li>A page in this section that names workflows also says which build registers them (<code>build: production</code> or <code>build: interptest</code>). The build cannot see that, because <code>package main</code> decides it; a reviewer checks it against <code>cmd/nava-worker</code>.</li>
+</ul>
+<p>The build fails if the parser finds no kind or no registration, so it cannot pass silently. Timeouts and retry policies are quoted by hand, with the <code>file:line</code> of each in the page's <code>sources:</code>; the build checks that each file has those lines, and the reviewer checks what they say against the footer sha.</p>
 </article>
 <footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
 </main>

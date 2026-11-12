@@ -30,7 +30,7 @@ sh docs/acceptance/guide/tools/seed.sh   # two demo tenants and one group sync (
 |---|---|
 | Stop, keep data | `docker compose --profile operator stop` |
 | Stop and delete every volume (tenants, users, workflows, telemetry) | `task stack:down` |
-| Full reset for the acceptance guide | `sh docs/acceptance/guide/tools/tunnels.sh down`, `docker compose down -v`, `docker compose up --wait`, then `seed.sh` and `tunnels.sh up` again |
+| Full reset | `sh docs/acceptance/guide/tools/tunnels.sh down`, `task stack:down`, `task stack:up`, `docker compose up --wait`, then `seed.sh` and `tunnels.sh up` again |
 | Re-seed only | `sh docs/acceptance/guide/tools/seed.sh` |
 
 ## What runs

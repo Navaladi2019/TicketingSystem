@@ -1,2 +1,15 @@
-# area -> table names, for gen:tables and gen:er. Every name must be in schema.json.
-{}
+# area -> table names, for gen:tables, gen:er, gen:rls and gen:areas.
+# Every table in schema.json is in exactly one area; the build fails otherwise
+# (TICK-729), so a new table cannot land without a home in the handbook.
+# Each area has a page, docs/handbook/src/database/<area>.md.
+tenancy: [tenants]
+identity: [principals, groups, group_members, org_units, tenant_identity_binding, tenant_email_domain,
+           pending_invite, tenant_admin_group, tenant_auditor_group]
+entity-definitions: [entity_definitions, entity_definition_versions]
+records: [records, record_write_keys]
+acl: [acl_versions, record_shares]
+audit: [audit_log, audit_log_default, audit_chain_head]
+outbox: [outbox]
+workflow-state: [workflow_ref, cascade_start]
+idempotency: [idempotency_keys]
+numbering: [record_counters]

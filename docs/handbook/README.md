@@ -44,13 +44,14 @@ reference that does not resolve (the error names the page and the reference).
 title: "Audit log"
 section: stories
 status: delivered                 # delivered | in-progress
-sources: [docs/adr/ADR-004-audit-log.md, internal/audit/...]  # files this page was checked against; must exist
+sources: [docs/adr/ADR-004-audit-log.md, internal/audit/..., internal/relay/dispatch.go:29]  # files (or file:line) this page was checked against; must exist
 adrs: [ADR-004, ADR-004-E7]       # ADR, amendment or erratum IDs under docs/adr
 stories: [S14]                    # ids in src/stories/stories.yaml
 operations: [listAuditEntries]    # operationIds in api/openapi.bundled.yaml
 tables: [audit_log]               # tables in src/database/schema.json
-workflows: [OutboxDispatch]       # needs the registry hook (TICK-727)
-activities: [SomeActivity]        # same
+workflows: [audit.seal]           # kinds in internal/outbox/outbox.go (parsed, TICK-727)
+activities: [audit.seal.Seal]     # names the seal, interp and workerguard Register functions register
+build: production                 # workflows pages: production | interptest (which build registers it)
 tests: [TestChainSeals]           # Test, Benchmark, Fuzz or Example functions in any _test.go file (or dir.Name)
 packages: [internal/audit]        # directories
 invariants: [I1, I6]              # rows of the ADR-001 section 1 table
@@ -62,8 +63,16 @@ normative: docs/adr/ADR-004-audit-log.md  # adds the "Summary. The normative tex
 Every other page that names the same table, workflow, story, ADR, operation or
 invariant is listed at the foot of the page ("Also named by").
 
-`workflows:` and `activities:` fail until TICK-727 wires the registry
-(`Unwired` in `docs/handbook/build/build.py`); until then do not use them.
+`workflows:` and `activities:` resolve against `GoRegistry` in
+`docs/handbook/build/build.py`, which parses the kind list in
+`internal/outbox/outbox.go` and the `Register` functions of `seal`, `interp`
+and `workerguard` with the standard library, and checks that every
+`.Register(w)` / `RegisterWorkflow(w)` call in `cmd/nava-worker` goes through
+one of those functions. It fails the build when it finds
+nothing, so a parser that drifted from the code cannot pass. A `sources:`
+entry may name lines (`path:12`, `path:12-20,31`; quote a comma list inside
+`[...]` or use a block list); the build checks the file
+has them, and the reviewer checks what they say against the footer sha.
 
 ## Diagrams
 
@@ -90,7 +99,11 @@ the content by hand.
 | `<!-- gen:operations ids=a,b -->` | those operationIds | same |
 | `<!-- gen:tables area=audit -->` | columns, indexes and policies of the area's tables | `src/database/schema.json`, `src/database/areas.yaml` |
 | `<!-- gen:er area=audit -->` | a Mermaid `erDiagram` of the area | same |
-| `<!-- gen:migrations -->` | every migration with its first comment line | `db/migrations` |
+| `<!-- gen:migrations -->` | every migration: summary, the story, tasks and PR that added it, `NOT VALID`/`VALIDATE` pairs, `CREATE INDEX CONCURRENTLY` and drops | `db/migrations`, `src/database/migration-history.json` |
+| `<!-- gen:areas -->` | every area with its tables | `src/database/areas.yaml` |
+| `<!-- gen:rls -->` | the tenant predicate once, each table's RLS flags, and every policy that differs from the predicate | `src/database/schema.json` |
+| `<!-- gen:grants -->` | every role, its attributes and its grants | `db/grants.yaml`, `db/audited-tables.yaml` |
+| `<!-- gen:audited -->` | every table, audited or exempt with its reason | `db/audited-tables.yaml` |
 | `<!-- gen:adr-index -->` | every ADR, amendment and erratum with status and date | `docs/adr` |
 | `<!-- gen:budgets -->` | each budget with its owner; the numbers stay in the source | `docs/budgets.md` |
 
@@ -105,7 +118,18 @@ format (`version: 1`) is documented in `src/database/schema.md`. Until it
 lands, the stub `{"version": 1, "tables": []}` is accepted. Tables are named
 by their bare name (schema `public` only). Any `version` other than 1 fails
 the build; unknown keys are ignored. `src/database/areas.yaml` maps an area
-to its table names.
+to its table names. Every table in `schema.json` must be in exactly one area,
+and each area has a page `src/database/<area>.md`; the build fails on a table
+in no area or in two (TICK-729). `gen:tables` links each index to the
+`docs/data/*.md` design notes that name it.
+
+`src/database/migration-history.json` records, for each migration, the
+commit that first added it to `main` (`git log origin/main --first-parent
+--diff-filter=A`): its date, PR number, story and task ids. No branch or
+author name is kept. The build reads only this file, never git, and fails
+when it lists different files from `db/migrations`. After a migration merges
+to `main`, refresh it with `python -I docs/handbook/build/build.py
+--capture-migrations` (needs `origin/main`) and commit it.
 
 ## Content security policy
 

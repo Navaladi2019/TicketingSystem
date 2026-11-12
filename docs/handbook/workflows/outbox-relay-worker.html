@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outbox, relay and worker: the durable path - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li class="current"><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../workflows/index.html">workflows</a> / <span>Outbox, relay and worker: the durable path</span></nav>
+<article>
+<h1 class="page-title">Outbox, relay and worker: the durable path</h1>
+<p>Every Temporal workflow on <code>main</code> is started or signalled from one place: an <code>outbox</code> row written in the same tenant transaction as the change that caused it (I6). <code>nava-relay</code> is the only process that turns a row into a Temporal call, and <code>nava-worker</code> runs the workflow behind the <code>workerguard</code> interceptor. <code>nava-core</code> never starts a workflow; it talks to Temporal only for its readiness probe.</p>
+<p>There are exactly two workflow kinds, both listed in <code>internal/outbox/outbox.go</code>. Each has one entry point that may enqueue its start (<code>outbox.go:244</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Start goes through</th>
+<th>Registered in</th>
+<th>Page</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit.seal</code></td>
+<td><code>outbox.EnqueueSeal</code></td>
+<td>production build, runs in the stack</td>
+<td><a href="../workflows/audit-seal.html">Audit sealer</a></td>
+</tr>
+<tr>
+<td><code>nava.interpreter</code></td>
+<td><code>outbox.EnqueueStart</code>, under a <code>cascade.Claim</code></td>
+<td><code>interptest</code> build only</td>
+<td><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-path">The path</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
+    autonumber
+    participant P as Producer (tenant tx)
+    participant DB as PostgreSQL outbox
+    participant R as nava-relay
+    participant T as Temporal (nava-tq)
+    participant W as nava-worker + workerguard
+    P-&gt;&gt;DB: INSERT outbox row, ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+    Note over P,DB: same transaction as the change, tenant from the locked row
+    loop every 500 ms when idle, at once after a claim
+        R-&gt;&gt;DB: Claim heads, at most 2 rows per tenant, scan cap 200, lease 30 s
+        DB--&gt;&gt;R: claimed rows
+        alt target_key not kind:uuid, or payload not references only
+            R-&gt;&gt;DB: MarkDead, no Temporal call
+        else dispatch deadline (lease / 2) passed
+            R-&gt;&gt;DB: Backoff, no Temporal call
+        else start row
+            R-&gt;&gt;T: ExecuteWorkflow id t:{tenant}:{kind}:{outbox id}, REJECT_DUPLICATE, header nava-tenant
+        else signal row
+            R-&gt;&gt;T: SignalWorkflow id from target_key, signal name = kind, arg Delivery
+        end
+        T--&gt;&gt;R: ok, AlreadyStarted, NotFound or other error
+        R-&gt;&gt;DB: classify, then MarkDispatched, MarkDead or Backoff (settle timeout 5 s)
+    end
+    T-&gt;&gt;W: workflow task on nava-tq
+    W-&gt;&gt;W: guard checks nava-tenant header against the workflow id tenant
+    W-&gt;&gt;T: activities, each with the tenant header, run in InTenantTx
+</pre></div></figure>
+<h2 id="producers">Producers</h2>
+<table>
+<thead>
+<tr>
+<th>Producer</th>
+<th>Writes</th>
+<th>Through</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Record write pipeline <code>EventSink</code> (<strong>EventSink contract; not wired on <code>main</code> (<code>NoopSink</code>), S11b in progress</strong>)</td>
+<td><code>nava.interpreter</code> start</td>
+<td><code>cascade.ClaimStart</code> claims the start key, then <code>outbox.EnqueueStart</code>; a repeat claim enqueues nothing and writes <code>AuditSuppressed</code> (A5-4)</td>
+<td><code>internal/records/pipeline/pipeline.go:212-227</code>, <code>internal/records/cascade/cascade.go:117</code>, <code>internal/outbox/outbox.go:204</code></td>
+</tr>
+<tr>
+<td>Interpreter signals from a record write (<strong>EventSink contract; not wired on <code>main</code> (<code>NoopSink</code>), S11b in progress</strong>)</td>
+<td>signal to an open <code>nava.interpreter</code></td>
+<td><code>outbox.EnqueueAtVersion</code> at the version the write gave the record</td>
+<td><code>internal/records/pipeline/pipeline.go:217</code></td>
+</tr>
+<tr>
+<td>Sealer A1 (<code>audit.seal.Reschedule</code>)</td>
+<td>next <code>audit.seal</code> start</td>
+<td><code>outbox.EnqueueSeal</code> with <code>WithDelay</code> (10 s with pending work, else the stored interval, up to 300 s)</td>
+<td><code>internal/audit/seal/seal.go:140</code>, <code>internal/outbox/outbox.go:338</code></td>
+</tr>
+<tr>
+<td><code>chain:reseed</code></td>
+<td>a new <code>audit.seal</code> lineage</td>
+<td><code>outbox.EnqueueReseed</code>, its own dedupe key</td>
+<td><code>internal/audit/reseed/reseed.go:72</code></td>
+</tr>
+<tr>
+<td>Onboarding (<code>nava-onboard</code>)</td>
+<td>the tenant's first <code>audit.seal</code> start</td>
+<td>a plain <code>INSERT</code> with the same column list as <code>EnqueueSeal</code></td>
+<td><code>internal/onboard/store.go:255-266</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Onboarding writes the row directly.</strong> <code>nava_onboard</code> has INSERT only, so <code>outbox.EnqueueSeal</code>, which locks the head and reads back, is not usable. The row is the same row, written with a plain <code>INSERT</code>, no <code>RETURNING</code> and no conflict clause. The head insert is the idempotency record: if the head already exists, nothing else is written. <code>TestSealInsertMatchesOutbox</code> keeps the column lists equal.</p>
+<p><strong>On <code>main</code> no production sink starts the interpreter yet.</strong> <code>nava-core</code> builds the pipeline with <code>pipeline.NoopSink{}</code> (<code>internal/server/api.go:111</code>); S11b replaces it (P3-42) and is in progress on its story branch. Today only <code>cmd/demo-outbox</code> and <code>cmd/demo-interpreter</code> call <code>EnqueueStart</code> (<code>cmd/demo-interpreter/main.go:221</code>, <code>cmd/demo-outbox/main.go:290</code>), and they are also the only callers of <code>EnqueueAtVersion</code> (<code>cmd/demo-interpreter/main.go:192</code>, <code>cmd/demo-outbox/main.go:293</code>).</p>
+<h2 id="workflow-id-and-start-options">Workflow ID and start options</h2>
+<ul>
+<li><strong>Workflow ID</strong> <code>t:&lt;tenant_id&gt;:&lt;target_key&gt;</code>, where a start row's <code>target_key</code> is <code>&lt;kind&gt;:&lt;its own outbox id&gt;</code> (<code>dispatch.go:336-348</code>). The relay accepts only a <code>target_key</code> of <code>&lt;kind&gt;:&lt;canonical uuid&gt;</code> with a kind matching <code>^[a-z][a-z0-9._-]{0,99}$</code>, so the ID carries no free text and no PII. Proof: <code>TestWorkflowID</code>, <code>TestInvalidTargetKeyIsDead</code>.</li>
+<li><strong>Start options</strong> (<code>dispatch.go:319-328</code>): <code>WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE</code> and <code>WorkflowExecutionErrorWhenAlreadyStarted: true</code>, task queue <code>relay.TaskQueue</code>. Proof: <code>TestStartRequest</code>.</li>
+<li><strong>Search attribute</strong> <code>NavaTenantId</code> is set from the outbox row's tenant, never from the payload. It is for visibility queries only. The tenant is bound by the workflow ID and the <code>nava-tenant</code> header, which the client propagator sets from <code>workerguard.ContextWithTenant</code> (<code>dispatch.go:239</code>).</li>
+<li><strong>One queue, <code>nava-tq</code>.</strong> <code>relay.TaskQueue = &quot;nava-tq&quot;</code> (<code>internal/relay/dispatch.go:29</code>) and the worker polls the same queue (<code>cmd/nava-worker/main.go:45</code>). It is the only queue on the Temporal Authorizer's allow-list.</li>
+</ul>
+<h2 id="outcomes-classify-dispatchgo354-370">Outcomes (<code>classify</code>, <code>dispatch.go:354-370</code>)</h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Outcome</th>
+<th>Row becomes</th>
+<th>Proof</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Call succeeded</td>
+<td><code>dispatched</code></td>
+<td>dispatched</td>
+<td><code>TestStartRequest</code>, <code>TestSignalRequest</code></td>
+</tr>
+<tr>
+<td>Start returned <code>WorkflowExecutionAlreadyStarted</code></td>
+<td><code>already_started</code>, counted as dispatched: a redelivered start starts nothing</td>
+<td>dispatched</td>
+<td><code>TestStartAlreadyStartedIsDispatched</code></td>
+</tr>
+<tr>
+<td>Signal returned <code>NotFound</code> (also what Temporal returns for a completed workflow)</td>
+<td><code>target_missing</code>, terminal at once, alert metric <code>outbox_relay_signal_target_missing</code></td>
+<td>dead</td>
+<td><code>TestSignalTargetMissingIsDeadWithAlert</code></td>
+</tr>
+<tr>
+<td>Any other error</td>
+<td><code>backoff</code>, cause is fixed text plus the gRPC code, never the error message</td>
+<td>pending, retried</td>
+<td><code>TestEveryDispatchErrorBacksOffWithACleanCause</code></td>
+</tr>
+<tr>
+<td>Backoff on a row older than <code>MaxRedeliveryAge</code></td>
+<td><code>dead</code></td>
+<td>dead</td>
+<td><code>TestBackoffDeadIsCounted</code></td>
+</tr>
+</tbody>
+</table>
+<p>Two cases are settled <strong>without a send</strong> (<code>dispatch.go:222-233</code>):</p>
+<ul>
+<li><strong>Invalid target</strong>: <code>target_key</code> or <code>kind</code> not in the one form above → <code>MarkDead</code> with <code>relay: target_key is not &lt;kind&gt;:&lt;uuid&gt;</code>. Proof: <code>TestInvalidTargetKeyIsDead</code>.</li>
+<li><strong>Invalid payload</strong>: the payload is not references only (<code>outbox.ValidatePayload</code>, CI-7), for example a row written around <code>Enqueue*</code> → <code>MarkDead</code>, alert metric <code>outbox_relay_payload_refused</code>. It never reaches Temporal. Proof: <code>TestRecordDataPayloadIsRefusedBeforeDispatch</code>; the database check refusing such an insert: <code>TestPayloadCheckRefusesDirectInsert</code>.</li>
+</ul>
+<p>A row reached after its dispatch deadline is backed off without a call, so a late call can never overtake the successor that took over its lease (<code>TestDeadlineBacksOff</code>). A settle that finds its lease taken is <code>lease_lost</code> and writes nothing (<code>TestRedeliveredStartAfterSettleIsLeaseLost</code>).</p>
+<h2 id="timing-quoted-by-hand-checked-against-the-footer-sha">Timing (quoted by hand; checked against the footer sha)</h2>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Code</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Poll interval when a poll claimed nothing</td>
+<td>500 ms</td>
+<td><code>cmd/nava-relay/main.go:51</code></td>
+</tr>
+<tr>
+<td>Rows claimed per tenant per poll</td>
+<td>2 (<code>PerTenant</code>)</td>
+<td><code>internal/relay/relay.go:33</code></td>
+</tr>
+<tr>
+<td>Pending rows scanned per tenant per poll</td>
+<td>200 (<code>ScanCap</code>)</td>
+<td><code>internal/relay/relay.go:35</code></td>
+</tr>
+<tr>
+<td>Lease</td>
+<td>30 s</td>
+<td><code>internal/relay/relay.go:115</code></td>
+</tr>
+<tr>
+<td>Dispatch deadline</td>
+<td>lease / 2 from the start of the poll</td>
+<td><code>internal/relay/dispatch.go:188</code></td>
+</tr>
+<tr>
+<td>Rows dispatched at once per poll</td>
+<td>8</td>
+<td><code>internal/relay/dispatch.go:124</code></td>
+</tr>
+<tr>
+<td>Settle timeout (runs even during shutdown)</td>
+<td>5 s</td>
+<td><code>internal/relay/dispatch.go:83</code></td>
+</tr>
+<tr>
+<td>Backoff</td>
+<td>1 s, doubled per attempt, capped at 5 min</td>
+<td><code>internal/relay/relay.go:118,121</code></td>
+</tr>
+<tr>
+<td>Max redelivery age, then dead</td>
+<td>24 h</td>
+<td><code>internal/relay/relay.go:39</code></td>
+</tr>
+<tr>
+<td>Applied-signal dedupe window in the workflow (must exceed the redelivery age)</td>
+<td>48 h</td>
+<td><code>internal/workerguard/dedupe.go:13</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="idempotency-keys">Idempotency keys</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Key</th>
+<th>Where it is enforced</th>
+<th>Proof</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Producer write</td>
+<td><code>dedupe_key</code>, <code>UNIQUE (tenant_id, dedupe_key)</code>, insert <code>ON CONFLICT DO NOTHING</code></td>
+<td><code>internal/outbox/outbox.go:139-143</code></td>
+<td><code>TestCI10_DuplicateDedupeKeyWritesOneRow</code></td>
+</tr>
+<tr>
+<td>Start</td>
+<td>the workflow ID, with <code>REJECT_DUPLICATE</code></td>
+<td><code>dispatch.go:319-328</code></td>
+<td><code>TestStartAlreadyStartedIsDispatched</code></td>
+</tr>
+<tr>
+<td>Signal</td>
+<td>the outbox ID, carried in <code>Delivery.OutboxID</code> and applied once by <code>AppliedSignals.TryApply</code> in the workflow (I7)</td>
+<td><code>internal/workerguard/dedupe.go:31</code></td>
+<td><code>TestSignalAppliedOnceAcrossContinueAsNew</code>, <code>TestAppliedSignalsWindow</code></td>
+</tr>
+<tr>
+<td>Activities</td>
+<td>each activity is idempotent on its own key; see the workflow pages</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-workerguard-interceptor">The <code>workerguard</code> interceptor</h2>
+<p><code>cmd/nava-worker</code> installs the guard on the worker, and <code>relay</code> builds its client with <code>workerguard.ConfigureClient</code>, so the <code>nava-tenant</code> header travels with every start, signal and activity.</p>
+<ul>
+<li><strong>Start</strong>: a missing <code>nava-tenant</code> header, or one that differs from the workflow ID's tenant, fails the workflow non-retryably (<code>guard.go:154-160</code>). Proof: <code>TestStartGuard</code>.</li>
+<li><strong>Signal</strong>: from another tenant, or with no header, it is dropped and the workflow keeps running (<code>guard.go:191-198</code>). Proof: <code>TestSignalGuard</code>.</li>
+<li><strong>Activity</strong>: a missing or different header fails it non-retryably; otherwise the tenant is put on the context for <code>InTenantTx</code> (<code>guard.go:604</code>). Proof: <code>TestActivityGuard</code>.</li>
+<li><strong>Arguments and results</strong>: every activity, child and continue-as-new argument must be references only (CI-7), and a result that is not fails. Proof: <code>TestContinueAsNewArgsGuard</code>.</li>
+<li><strong>Continue-as-new, checked twice.</strong> <code>NewContinueAsNewError</code> checks the header and input when the command is built (<code>guard.go:352-366</code>). <code>ContinueAsNewError</code> is plain data, so workflow code could change it afterwards; <code>ExecuteWorkflow</code> checks it again on the way out, and the input must be one the first check saw (<code>guard.go:161-178</code>). Proof: <code>TestAdversarialContinueAsNewInputRewrittenAfterGuard</code>, <code>TestAdversarialContinueAsNewHeaderRewrittenAfterGuard</code>.</li>
+<li><strong><code>nava.workflow_ref.Close</code></strong> (<code>workflowref.go:34</code>, registered at <code>workflowref.go:52-54</code>): a workflow whose start row has a <code>workflow_ref</code> row calls it last. On <code>main</code> that is <code>nava.interpreter</code>, whose start row's <code>workflow_ref</code> is written by <code>EnqueueStart</code> (<code>outbox.go:528-531</code>). <code>audit.seal</code> has no <code>workflow_ref</code> row (<code>outbox.go:318-319</code>) and never calls it. It finds its <code>workflow_ref</code> row from the workflow ID, never from an argument, runs in <code>InTenantTx</code> with the header tenant and keeps the first <code>closed_at</code>, so a retry is a no-op. Start-to-close 30 s, SDK default retries (<code>workflowref.go:105-110</code>). Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>, <code>TestWorkflowRefCloseIsTenantScoped</code>, <code>TestWorkflowRefCloseWithWrongHeaderTouchesNothing</code>.</li>
+</ul>
+<h2 id="versioning">Versioning</h2>
+<p>Neither workflow calls <code>workflow.GetVersion</code> today. Every row a producer on <code>main</code> writes carries <code>kind_version</code> 1 (the seal producers fix it; the demo producers pass 1), and the relay passes <code>kind_version</code> to the workflow in <code>outbox.Delivery</code>; no workflow branches on it yet. A later code change to the interpreter follows ADR-003. Details and proofs are on each workflow page.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table audit_chain_head</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
+<h3>Table cascade_start</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Table outbox</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Table workflow_ref</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Workflow audit.seal</h3><ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
+<h3>Workflow nava.interpreter</h3><ul><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>ADR ADR-001-A2</h3><ul><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
+<h3>ADR ADR-001-A5</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>ADR ADR-001-A6</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
+<h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
+<h3>Invariant I2</h3><ul><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Invariant I6</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Invariant I7</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Invariant I9</h3><ul><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

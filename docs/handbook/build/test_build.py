@@ -94,6 +94,103 @@ SCHEMA = """{"version":1,"tables":[
  {"name":"tenants","kind":"table","columns":[{"name":"id","type":"uuid","nullable":false,"default":""}],"primary_key":["id"]}]}"""
 
 
+# The Go files GoRegistry reads, in the shape of the real ones (TICK-727).
+GO_FIXTURE = {
+    "internal/outbox/outbox.go": """package outbox
+
+const InterpreterKind = "nava.interpreter"
+
+// SealKind is the sealer.
+const SealKind = "audit.seal"
+
+func notOwnEntryPointStart(e Entry) error {
+	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
+		_ = k
+	}
+	return nil
+}
+""",
+    "internal/workerguard/directive.go": """package workerguard
+
+const DirectiveActivity = "nava.interpreter.NextStep"
+
+const DirectiveWorkflow = "nava.interpreter"
+""",
+    "internal/workerguard/workflowref.go": """package workerguard
+
+const CloseWorkflowRefActivity = "nava.workflow_ref.Close"
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.CloseWorkflowRef, activity.RegisterOptions{Name: CloseWorkflowRefActivity})
+}
+""",
+    "internal/audit/seal/workflow.go": """package seal
+
+const WorkflowType = outbox.SealKind
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})
+}
+""",
+    "internal/audit/seal/activities.go": """package seal
+
+const (
+	RescheduleActivity = outbox.SealKind + ".Reschedule"
+	SealActivity       = outbox.SealKind + ".Seal"
+)
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.Reschedule, activity.RegisterOptions{Name: RescheduleActivity})
+	r.RegisterActivityWithOptions(a.Seal, activity.RegisterOptions{Name: SealActivity})
+}
+""",
+    "internal/workflow/interp/interp.go": """package interp
+
+const WorkflowType = workerguard.DirectiveWorkflow
+
+const (
+	NextStepActivity  = workerguard.DirectiveActivity
+	ApplyStepActivity = "nava.interpreter.ApplyStep" // a comment
+)
+""",
+    "internal/workflow/interp/workflow.go": """package interp
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})
+}
+""",
+    "cmd/nava-worker/main.go": """package main
+
+func run() {
+	w := worker.New(c, taskQueue, opts)
+	(&workerguard.Activities{Pool: pool}).Register(w)
+	registerSealer(w, &seal.Activities{Pool: pool}, true)
+}
+
+func registerSealer(w worker.Registry, acts *seal.Activities, workflows bool) {
+	if workflows {
+		seal.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+""",
+    "cmd/nava-worker/interp.go": """package main
+
+func registerInterpreter(w worker.Registry, acts *interp.Activities) {
+	interp.RegisterWorkflow(w)
+	acts.Register(w)
+}
+""",
+    "internal/workflow/interp/activities.go": """package interp
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.NextStep, activity.RegisterOptions{Name: NextStepActivity})
+	r.RegisterActivityWithOptions(a.ApplyStep, activity.RegisterOptions{Name: ApplyStepActivity})
+}
+""",
+}
+
+
 def write(root, rel, content):
     p = os.path.join(root, *rel.split("/"))
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -132,6 +229,11 @@ def new_fixture():
     write(root, "docs/acceptance/guide/bruno/S14/folder.bru", "meta {}")
     write(root, "docs/handbook/src/database/schema.json", SCHEMA)
     write(root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default, tenants]\n")
+    for rel, text in GO_FIXTURE.items():
+        write(root, rel, text)
+    write(root, "docs/handbook/src/database/migration-history.json",
+          '{"version": 1, "migrations": [{"file": "00001_init.sql", "on_main": true, "commit": "abc1234",'
+          ' "date": "2026-10-18", "pr": "17", "story": "S1", "tickets": ["TICK-64"]}]}\n')
     page(root, "index.md", "Home", "home", body="Welcome.")
     return root
 
@@ -201,6 +303,27 @@ class TestYAML(unittest.TestCase):
     def test_duplicate_key_is_an_error(self):
         with self.assertRaises(ValueError):
             build.parse_yaml("a: 1\na: 2\n")
+        with self.assertRaises(ValueError):
+            build.parse_yaml("a: { b: 1, b: 2 }\n")
+
+    def test_flow_maps_continued_lists_quoted_keys_and_folded_scalars(self):
+        # The shapes db/grants.yaml and db/audited-tables.yaml use (TICK-729).
+        doc = build.parse_yaml(
+            "roles:\n  r:\n    tables:\n      t: { SELECT: [a, b], INSERT: [] }\n"
+            "      u:\n        UPDATE: [x, y,\n                 z]\n"
+            "    functions:\n      \"public.f(jsonb)\": [EXECUTE]\n"
+            "ex:\n  e:\n    reason: >-\n      one line\n      and two\n")
+        r = doc["roles"]["r"]
+        self.assertEqual(r["tables"]["t"], {"SELECT": ["a", "b"], "INSERT": []})
+        self.assertEqual(r["tables"]["u"], {"UPDATE": ["x", "y", "z"]})
+        self.assertEqual(r["functions"], {"public.f(jsonb)": ["EXECUTE"]})
+        self.assertEqual(doc["ex"]["e"]["reason"], "one line and two")
+
+    def test_real_manifests_parse(self):
+        g = build.parse_yaml(build.read_text(os.path.join(build.ROOT, "db", "grants.yaml")))
+        self.assertIn("UPDATE", g["roles"]["nava_app"]["tables"]["records"])
+        a = build.parse_yaml(build.read_text(os.path.join(build.ROOT, "db", "audited-tables.yaml")))
+        self.assertIn("records", a["audited"])
 
 
 class TestFrontMatter(Base):
@@ -274,6 +397,11 @@ class TestReferences(Base):
             (good + "unassigned:\n  - path: docs/evidence/e.md\n", "needs a reason"),
             (good + "unassigned:\n  - path: docs/evidence/gone.md\n    reason: r\n", "does not exist"),
             (good + "extra: 1\n", "the only top-level keys"),
+            (good.replace("2026-11-01", "2026-13-45"), "needs an ISO date"),
+            (good.replace("evidence: [docs/evidence/e.md]", "evidence:\n      - x: 1"),"evidence must be a list of repo paths"),
+            (head + "    status: planned\n    date: 2026-13-45\n", "date '2026-13-45' is not an ISO date"),
+            (good.replace("bruno: S14", "bruno: [a/b]"), "bruno 'a/b' is not a folder name"),
+            (good + "unassigned: nope\n", "unassigned must be a list"),
         ]
         for text, want in cases:
             with self.subTest(want):
@@ -310,11 +438,83 @@ class TestReferences(Base):
         self.assertIn('Summary. The normative text is the linked <a href="../../../docs/adr/ADR-004-audit-log.md">', h)
 
     def test_wired_registry(self):
-        page(self.root, "workflows/a.md", "A", "workflows", front="workflows: [OutboxDispatch]\nactivities: [Send]\n")
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [OutboxDispatch]\nactivities: [Send]\n")
         self.build(registry=FakeRegistry(["OutboxDispatch"], ["Send"]))
         with self.assertRaises(build.BuildError) as cm:
             self.build(registry=FakeRegistry([], ["Send"]))
         self.assertIn("OutboxDispatch", str(cm.exception))
+
+    def test_go_registry_reads_kinds_and_activities(self):
+        r = build.GoRegistry(self.root)
+        r.load()
+        self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal"})
+        self.assertEqual(r.workflows(), ["audit.seal", "nava.interpreter"])
+        self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "nava.interpreter.ApplyStep",
+                                          "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
+
+    def test_go_registry_resolves_front_matter(self):
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [audit.seal]\nactivities: [audit.seal.Seal]\n")
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="build: production\nworkflows: [audit.sealer]\nactivities: [audit.seal.Sealed]\n")
+        self.fails("workflows 'audit.sealer' is not in the registry", "activities 'audit.seal.Sealed' is not in the registry")
+
+    def test_go_registry_fails_when_it_finds_nothing(self):
+        write(self.root, "internal/outbox/outbox.go", "package outbox\n\nconst SealKind = \"audit.seal\"\n")
+        self.fails("no {Kind, \"Enqueue...\"} rows found")
+
+    def test_go_registry_fails_when_outbox_is_missing(self):
+        os.remove(os.path.join(self.root, "internal", "outbox", "outbox.go"))
+        self.fails("internal/outbox/outbox.go is missing")
+
+    def test_go_registry_fails_on_an_unreadable_register_function(self):
+        write(self.root, "internal/workerguard/workflowref.go",
+              "package workerguard\n\nfunc (a *Activities) Register(r worker.ActivityRegistry) {\n"
+              "\tr.RegisterActivity(a.CloseWorkflowRef)\n}\n")
+        self.fails("registers nothing the parser can read")
+        os.remove(os.path.join(self.root, "internal", "workerguard", "workflowref.go"))
+        self.fails("internal/workerguard has no func (a *Activities) Register(...) function")
+
+    def test_go_registry_fails_on_an_unresolved_name(self):
+        write(self.root, "internal/workflow/interp/interp.go", "package interp\n\nconst WorkflowType = workerguard.DirectiveWorkflow\n")
+        self.fails("internal/workflow/interp has no constant NextStepActivity")
+
+    def test_go_registry_fails_when_kinds_and_workflows_drift(self):
+        write(self.root, "internal/audit/seal/workflow.go",
+              "package seal\n\nconst WorkflowType = \"audit.sealer\"\n\nfunc RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(Workflow, workflow.RegisterOptions{Name: WorkflowType})\n}\n")
+        self.fails("workflow type 'audit.sealer' is registered but is not a kind",
+                   "kind 'audit.seal' is registered by no RegisterWorkflow")
+
+    def test_sources_with_lines(self):
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front='sources: [internal/audit/seal/workflow.go:3, "internal/outbox/outbox.go:1-3,5"]\n')
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="sources:\n  - internal/outbox/outbox.go:1-3,5\n")
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/audit/seal/workflow.go:99]\n")
+        self.fails("names line 99, but internal/audit/seal/workflow.go has")
+        page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/nope.go:1]\n")
+        self.fails("sources 'internal/nope.go' does not exist")
+
+    def test_go_registry_fails_on_a_worker_registration_it_does_not_parse(self):
+        write(self.root, "cmd/nava-worker/extra.go",
+              "package main\n\nfunc registerPurge(w worker.Registry) {\n\tpurge.RegisterWorkflow(w)\n"
+              "\t(&purge.Activities{Pool: pool}).Register(w)\n\tthing.Register(w)\n}\n")
+        self.fails("cmd/nava-worker/extra.go:4: purge.RegisterWorkflow(...) is not one of the Register functions",
+                   "cmd/nava-worker/extra.go:5: (&purge.Activities{Pool: pool}).Register(...) is not one of",
+                   "cmd/nava-worker/extra.go:6: thing.Register(...): cannot tell the receiver's type")
+
+    def test_build_front_matter(self):
+        page(self.root, "workflows/a.md", "A", "workflows", front="build: staging\n")
+        self.fails("build 'staging' is not production or interptest")
+        page(self.root, "workflows/a.md", "A", "workflows", front="workflows: [audit.seal]\n")
+        self.fails("says which build registers them")
+        page(self.root, "workflows/a.md", "A", "workflows", front="build: interptest\nworkflows: [nava.interpreter]\n")
+        self.assertIn("Registered only in the <code>interptest</code> build", self.html("workflows/a.html"))
 
     def test_schema_version_is_checked(self):
         write(self.root, "docs/handbook/src/database/schema.json", '{"version": 2, "tables": []}')
@@ -447,9 +647,82 @@ class TestGen(Base):
         m = out["database/m.html"].decode()
         self.assertIn("00001_init.sql", m)
         self.assertIn("First migration.", m)
+        self.assertIn("S1, TICK-64, PR #17 (2026-10-18)", m)
         b = out["benchmarks/b.html"].decode()
         for want in ("History length", "Record history", "Principal"):
             self.assertIn(want, b)
+
+    def test_a_table_in_no_area_fails(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml", "audit: [audit_log, audit_log_default]\n")
+        self.fails("table tenants (schema.json) is in no area")
+
+    def test_a_table_in_two_areas_fails(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml",
+              "audit: [audit_log, audit_log_default, tenants]\ntenancy: [tenants]\n")
+        self.fails("table tenants is in area audit and area tenancy")
+
+    def test_migration_history_must_match_the_files(self):
+        page(self.root, "database/m.md", "M", "database", body="<!-- gen:migrations -->")
+        write(self.root, "db/migrations/20261112000000_new.sql", "-- New.\n-- +goose Up\nSELECT 1;\n")
+        self.fails("migration-history.json is stale", "20261112000000_new.sql", "--capture-migrations")
+        os.remove(os.path.join(self.root, "docs/handbook/src/database/migration-history.json"))
+        self.fails("migration-history.json is missing")
+
+    def test_migration_facts(self):
+        nv = ("-- Adds it.\n-- +goose Up\nALTER TABLE t ADD CONSTRAINT t_c CHECK (x) NOT VALID;\n"
+              "-- +goose Down\nALTER TABLE t DROP CONSTRAINT t_c;\n")
+        self.assertEqual(build.migration_facts(nv), ({"t_c"}, set(), False, []))  # Down is not history
+        val = "-- +goose Up\nALTER TABLE t VALIDATE CONSTRAINT t_c;\n"
+        self.assertEqual(build.migration_facts(val)[1], {"t_c"})
+        rebuild = ("-- +goose NO TRANSACTION\n-- +goose Up\nDROP INDEX CONCURRENTLY IF EXISTS i;\n"
+                   "CREATE INDEX CONCURRENTLY i ON t (a);\nDROP POLICY p ON t;\n")
+        self.assertEqual(build.migration_facts(rebuild)[2:], (True, [("policy", "p")]))
+        self.assertEqual(build.migration_summary("-- T09 (TICK-64): the tables. More.\n-- +goose Up\n"),
+                         "T09 (TICK-64): the tables.")
+
+    def test_policy_classes(self):
+        pred = build.tenant_pred("tenant_id")
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": pred, "check": ""}), "canonical")
+        self.assertEqual(build.policy_class("t", {"command": "UPDATE", "using": pred, "check": pred}), "canonical")
+        self.assertEqual(build.policy_class("t", {"command": "INSERT", "using": "", "check": "(" + pred + " AND x)"}), "pinned")
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": "true", "check": ""}), "allow-list")
+        # A RESTRICTIVE policy is never folded into the canonical list.
+        self.assertEqual(build.policy_class("t", {"command": "SELECT", "using": pred, "check": "", "permissive": False}),
+                         "pinned")
+        self.assertEqual(build.policy_class("tenants", {"command": "SELECT", "using": build.tenant_pred("id"), "check": ""}),
+                         "canonical")
+
+    def test_rls_grants_audited_and_areas_blocks(self):
+        write(self.root, "db/grants.yaml", "roles:\n  nava_app:\n    attributes: [LOGIN]\n    pgbouncer_login: true\n"
+                                           "    tables:\n      audit_log: { SELECT: [id], INSERT: [] }\n")
+        write(self.root, "db/audited-tables.yaml", "audited: {}\nexempt:\n  audit_log:\n    reason: \"The log.\"\n")
+        page(self.root, "database/audit.md", "Audit", "database", body="x")
+        page(self.root, "database/rls.md", "RLS", "database", body="<!-- gen:rls -->")
+        page(self.root, "database/roles-and-grants.md", "Grants", "database",
+             body="<!-- gen:grants -->\n\n<!-- gen:audited -->\n\n<!-- gen:areas -->")
+        out = self.build()
+        rls = out["database/rls.html"].decode()
+        self.assertIn("app.tenant_id", rls)
+        self.assertIn("deny_other", rls)                     # RESTRICTIVE: listed as differing
+        self.assertIn("<strong>RESTRICTIVE</strong>", rls)
+        g = out["database/roles-and-grants.html"].decode()
+        for want in ("nava_app", "LOGIN", "The log.", 'href="../database/audit.html"'):
+            self.assertIn(want, g)
+        page(self.root, "database/audit.md", "Audit", "database", body="<!-- gen:tables area=audit -->")
+        a = self.html("database/audit.html")
+        self.assertIn("exempt from the audit log: The log", a)
+        self.assertIn("nava_app SELECT (id)", a)
+
+    def test_er_stubs_cross_area_targets(self):
+        write(self.root, "docs/handbook/src/database/areas.yaml",
+              "audit: [audit_log, audit_log_default]\ntenancy: [tenants]\n")
+        page(self.root, "database/tenancy.md", "Tenancy", "database", body="x")
+        page(self.root, "database/audit.md", "Audit", "database", body="<!-- gen:er area=audit -->")
+        h = self.html("database/audit.html")
+        self.assertIn("tenants {\n        stub other_area", h)
+        self.assertIn('<a href="../database/tenancy.html">tenancy</a>', h)
+        self.assertIn("Partitions are left out of the diagram", h)
+        self.assertNotIn("audit_log_default {", h)
 
     def test_gen_line_in_a_code_fence_is_literal(self):
         page(self.root, "system/a.md", "A", "system", body="```\n<!-- gen:operations tag=nope -->\n```")
