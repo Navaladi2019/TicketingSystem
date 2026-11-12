@@ -9,9 +9,8 @@ status: delivered
 
 `docs/handbook/src/database/schema.json` describes the platform database
 schema as a freshly migrated database has it. The handbook build
-(`docs/handbook/build/build.py`) and the coverage test read this file. They never parse the
-migration SQL and never connect to a database, so `task handbook`, `task lint`
-and `task test` stay database-free (TICK-718 D-HB-9, TICK-733).
+(`docs/handbook/build/build.py`) reads this file. It never parses the
+migration SQL and never connects to a database (TICK-718 D-HB-9, TICK-733).
 
 This page is the contract between the writer (TICK-733) and the handbook
 reader (TICK-719), as the Technical Lead decided on TICK-733.
@@ -110,7 +109,7 @@ handbook side.
 
 The file holds no DSN, host, port, role password, `pg_hba.conf` address or
 local path. Version 1 has no key that could carry one. `schema_json.py`
-refuses to write a file that matches any of its leak patterns, and the
-handbook sensitivity gate (TICK-735) scans the file too. A future version
+refuses to write a file that matches any of its leak patterns, and HB-12's
+manual sensitivity sweep covers the file. A future version
 that adds a free-text key, such as comments or owners, needs a new
 sensitivity review first.
