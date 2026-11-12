@@ -37,7 +37,16 @@ func TestConcurrentFirstCreatesOfATypeAllSucceed(t *testing.T) {
 		rounds  = 15
 	)
 	e := migrated(t)
-	e.alloc = allocPool(t, appDSN(t, e.platform))
+	dsn := appDSN(t, e.platform)
+	// Every create holds an API pool connection while barrierRunner holds
+	// its allocation until all of them wait, so the API pool must fit all
+	// the creates: pgxpool's default width, max(4, NumCPU), is 4 on a
+	// 4-vCPU runner, and the creates past 4 would wait at BEGIN for a
+	// barrier that never opens.
+	cfg := serverPoolConfig(t, dsn)
+	cfg.MaxConns = creates
+	e.app = newPool(t, cfg)
+	e.alloc = allocPool(t, dsn)
 	for _, mode := range []string{"gaps", "gapless"} {
 		t.Run(mode, func(t *testing.T) {
 			for round := range rounds {
