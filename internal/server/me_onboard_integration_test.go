@@ -440,14 +440,47 @@ func TestGetMeDatabaseDownIs500(t *testing.T) {
 	dead.Close() // the identity store loses its database
 	rec := v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "a-admin", "tenant-a", "org-a"), "", "")
 	wantStatus(t, rec, http.StatusInternalServerError, problem.InternalError)
-	// Drop `instance` (a random hex request id that may contain "5432").
-	var body map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	if leaked, err := leaksCause(rec.Body.Bytes()); err != nil {
 		t.Fatalf("not a problem: %v: %s", err, rec.Body)
-	}
-	delete(body, "instance")
-	if b, _ := json.Marshal(body); strings.Contains(string(b), "pgstore") || strings.Contains(string(b), "5432") {
+	} else if leaked {
 		t.Errorf("500 body leaks the cause: %s", rec.Body)
+	}
+}
+
+// leaksCause reports whether a problem body exposes a connection detail in
+// its human-readable fields. Only `detail` and `title` are checked: `instance`
+// is a random hex request id that can contain "5432" by chance.
+func leaksCause(body []byte) (bool, error) {
+	var p struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		return false, err
+	}
+	for _, s := range []string{p.Title, p.Detail} {
+		if strings.Contains(s, "pgstore") || strings.Contains(s, "5432") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func TestLeaksCause(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"5432 in instance is ignored": {`{"title":"Internal error","detail":"try again","instance":"req-bdf5432265"}`, false},
+		"5432 in detail leaks":        {`{"title":"Internal error","detail":"dial tcp db:5432","instance":"req-1"}`, true},
+		"5432 in title leaks":         {`{"title":"db:5432 down","detail":"try again","instance":"req-1"}`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := leaksCause([]byte(tc.body))
+			if err != nil || got != tc.want {
+				t.Errorf("leaksCause = %v, %v; want %v", got, err, tc.want)
+			}
+		})
 	}
 }
 
