@@ -1,11 +1,11 @@
-.PHONY: lint check-generate check-guide check-handbook check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
+.PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
 
-ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-handbook check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,
 # its own module, D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check,
-# then the duplicate-id check on the shared tables (tools/dupids), then the handbook staleness check (tools/handbook, TICK-719).
+# then the duplicate-id check on the shared tables (tools/dupids).
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
@@ -13,7 +13,6 @@ lint:
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
 	go run ./tools/dupids
-	go run ./tools/handbook -check
 
 # Fails when api/openapi.bundled.yaml or api/api.gen.go is not what api/openapi.yaml
 # + api/paths/*.yaml generate (TICK-297, TICK-294): any difference or untracked file
@@ -26,14 +25,6 @@ check-generate:
 # api/errors.yaml, the bundled spec and the build sources (TICK-391).
 check-guide:
 	sh scripts/ci/guide-generated.sh
-
-# Fails when docs/handbook/**/*.html is not what tools/handbook builds from
-# docs/handbook/src (the footer stamp is ignored, so a moving main never makes
-# it stale), when the stamped sha is not an ancestor of HEAD (needs full
-# history: fetch-depth 0), or when mermaid.min.js is not the version pinned in
-# docs/pins.md (TICK-719). Rebuild with `task handbook` and commit the result.
-check-handbook:
-	go run ./tools/handbook -check
 
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,

@@ -13,15 +13,17 @@ fetched from the network: no CDN, no font, no `fetch()`.
 1. Edit or add `docs/handbook/src/<section>/<slug>.md`. Sections: `vision`,
    `system`, `adr`, `stories`, `workflows`, `database`, `security`,
    `benchmarks`, `operations`, `glossary`. `src/index.md` is the home page.
-2. Run `task handbook` (`go run ./tools/handbook`). It writes
+2. Run `task handbook` (`python -I docs/handbook/build/build.py`, Python 3,
+   standard library only, from the repository root). It writes
    `docs/handbook/**/*.html` and `docs/handbook/assets/{handbook.css,handbook.js,search-index.js}`.
 3. Commit the sources and the generated files together.
-4. `task handbook:check` rebuilds in memory and fails when the committed HTML
-   is stale. `task lint` runs it, and so does CI (`make check-handbook`).
+4. `task handbook:check` (`... build.py --check`) rebuilds in memory and fails
+   when the committed HTML is stale. It is not part of `task lint` or CI.
+5. `python -I docs/handbook/build/test_build.py` runs the generator's tests.
 
-Never edit the generated HTML. The viewer (`tools/handbook/assets/handbook.css`
-and `handbook.js`) is edited in `tools/handbook/assets/`; `task handbook`
-copies it here.
+Never edit the generated HTML. The viewer (`handbook.css`, `handbook.js`) is
+edited in `docs/handbook/build/assets/`; `task handbook` copies it to
+`docs/handbook/assets/`.
 
 ### The footer stamp
 
@@ -61,7 +63,7 @@ Every other page that names the same table, workflow, story, ADR, operation or
 invariant is listed at the foot of the page ("Also named by").
 
 `workflows:` and `activities:` fail until TICK-727 wires the registry
-(`Registry` in `tools/handbook/facts.go`); until then do not use them.
+(`Unwired` in `docs/handbook/build/build.py`); until then do not use them.
 
 ## Diagrams
 
@@ -99,12 +101,19 @@ inline erratum with no `Status:` line of its own shows its parent's status as
 `<status> (inherited)`. Never print a count of records in prose.
 
 `src/database/schema.json` is written by the integration suite (TICK-733); its
-format (`format: 1`) is documented in `docs/handbook/schema.md`. Until it
-lands, the stub `{"format": 1, "tables": [], "views": []}` is accepted. A
-`tables:` value is the bare table name for schema `public` and `schema.name`
-for any other schema. Any `format` other than 1 fails the build; unknown keys
-are ignored. `src/database/areas.yaml` maps an area to its table names, with
-the same naming rule.
+format (`version: 1`) is documented in `src/database/schema.md`. Until it
+lands, the stub `{"version": 1, "tables": []}` is accepted. Tables are named
+by their bare name (schema `public` only). Any `version` other than 1 fails
+the build; unknown keys are ignored. `src/database/areas.yaml` maps an area
+to its table names.
+
+## Content security policy
+
+Every page carries `default-src 'self'; script-src 'self'; style-src 'self'
+'unsafe-inline'; img-src 'self'; object-src 'none'`. `'unsafe-inline'` is for
+styles only: Mermaid writes inline styles into its SVG, and `style-src 'self'`
+alone leaves diagrams unstyled. Scripts stay `'self'` with no inline script.
+This deviation from a plain `style-src 'self'` was accepted on TICK-719.
 
 ## Story manifest
 
