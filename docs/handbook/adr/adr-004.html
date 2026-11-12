@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-004: one audit log, sealed by a per-tenant hash chain - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li class="current"><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../adr/index.html">adr</a> / <span>ADR-004: one audit log, sealed by a per-tenant hash chain</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-004-audit-log.md"><code>docs/adr/ADR-004-audit-log.md</code></a>.</p>
+<article>
+<h1 class="page-title">ADR-004: one audit log, sealed by a per-tenant hash chain</h1>
+<p>Status on <code>main</code>: <strong>ACCEPTED</strong>, 2026-11-02, by the Solution Architect after all three reviewers approved in round 2 (no dissent recorded). Normative text: <a href="../../../docs/adr/ADR-004-audit-log.md">ADR-004-audit-log.md</a>; explainer: <a href="../../../docs/adr/ADR-004-explained.html">ADR-004-explained.html</a>. Supporting material: <a href="../../../docs/adr/ADR-004/rfc">rfc/</a>, <a href="../../../docs/adr/ADR-004/spikes">spikes/</a>. Amendment and errata: <a href="../adr/adr-004-a1.html">A1</a>, <a href="../adr/adr-004-e1.html">E1</a>, <a href="../adr/adr-004-e2.html">E2</a>, <a href="../adr/adr-004-e3.html">E3</a>, <a href="../adr/adr-004-e4.html">E4</a>, <a href="../adr/adr-004-e5.html">E5</a>, <a href="../adr/adr-004-e6.html">E6</a>, <a href="../adr/adr-004-e7.html">E7</a>, <a href="../adr/adr-004-e8.html">E8</a>.</p>
+<p><em>Each section names the ADR heading it paraphrases.</em></p>
+<h2 id="problem">Problem</h2>
+<p><em>Paraphrases: "Decision", "Consequences".</em> The product needs one history of record changes and configuration changes that a buyer can export and check for tampering, under any filter, without trusting the operator's word.</p>
+<h2 id="decision">Decision</h2>
+<p><em>Paraphrases: "Decision" 1 to 6.</em></p>
+<ul>
+<li><strong>One log.</strong> A single append-only table, <code>audit_log</code>, with three domains: <code>record</code>, <code>config</code> and <code>audit</code> (exports, erasures, reseeds). One writer (<code>audit.Append</code>, inside the caller's transaction), one reader and one export.</li>
+<li><strong>The database checks the same-transaction rule.</strong> Every audited table gets a deferred constraint trigger. At COMMIT it requires an entry for the same tenant, transaction and subject. A raw write that skips <code>audit.Append</code> fails.</li>
+<li><strong>Tamper evidence.</strong> A per-tenant hash chain, <code>entry_hash = SHA-256(prev_hash ‖ envelope_sha256)</code>, ordered by <code>seq</code>. A self-rescheduling sealer assigns <code>seq</code> asynchronously; writers never wait on it.</li>
+<li><strong>Exports verify offline under any filter.</strong> Entries a filter excludes appear as hash-only stubs, and the range is anchored one entry before the window. The verifier ships as <code>nava audit verify &lt;file&gt;</code>.</li>
+<li><strong>Erasure</strong> is one of exactly two transitions allowed on a written row, and only the <code>nava_erasure</code> role may make it. The chain covers a salted diff hash, so it still verifies after erasure.</li>
+<li><strong>S8's published versions are backfilled</strong> into the log by two migrations; they are not exposed through a view.</li>
+</ul>
+<h2 id="rules-that-matter-most">Rules that matter most</h2>
+<p><em>Paraphrases: "Rules", R1 to R28.</em></p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>What the ADR fixes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content (R1 to R4)</td>
+<td>The envelope columns, closed vocabularies for <code>action</code>, <code>source</code> and <code>subject_type</code>, versioned configuration with content hashes, and how AI and change-set actions are attributed.</td>
+</tr>
+<tr>
+<td>Secrets and masks (R5 to R8)</td>
+<td>One diff walker. A secret at an <code>x-nava-secret</code> or <code>writeOnly</code> path is rejected at write time. Masks are applied at read time. Reading needs the standalone <code>audit.read</code> or <code>audit.export</code> permission.</td>
+</tr>
+<tr>
+<td>Isolation and immutability (R9 to R12)</td>
+<td><code>FORCE</code> row-level security, no DELETE grant for any role, INSERT asserted (never rewritten) by trigger, exactly two UPDATE transitions (seal, erase), writer grants generated from <code>db/audited-tables.yaml</code>.</td>
+</tr>
+<tr>
+<td>Chain and sealer (R13 to R18)</td>
+<td>The hash definition and golden vectors, one <code>audit_chain_head</code> row per tenant, <code>seq</code> rules, the self-rescheduling sealer, and <code>chain:reseed</code> (409 <code>chain_alive</code> unless the chain looks dead for 10 minutes).</td>
+</tr>
+<tr>
+<td>Export (R19 to R22)</td>
+<td>One export per tenant at a time, the anchored range, paging, JSONL and CSV formats with formula-prefix protection.</td>
+</tr>
+<tr>
+<td>Erasure (R23, R24)</td>
+<td>The erase step for Epic 30 and the verifier outcomes for erased entries (<code>tampered</code> or <code>pending</code> unless a chained erase entry names them).</td>
+</tr>
+<tr>
+<td>Backfill and storage (R25 to R28)</td>
+<td>The order of migrations A and B, the access path for the backfill, lock order, and the partitioned key shape.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="operations">Operations</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Method and path</th>
+<th>Summary</th>
+<th>Responses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>listAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries</code></td>
+<td>The tenant's audit timeline</td>
+<td>200, 400, 401, 403, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>exportAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries:export</code></td>
+<td>Download a verifiable JSONL export of the audit log</td>
+<td>200, 400, 401, 403, 409, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>reseedAuditChain</code></td>
+<td><code>POST /api/v1/audit/chain:reseed</code></td>
+<td>Restart a dead audit seal lineage</td>
+<td>200, 400, 401, 403, 404, 409, 429, 500, 501</td>
+</tr>
+</tbody>
+</table>
+<h2 id="options-that-lost">Options that lost</h2>
+<p><em>Paraphrases: "Rejected options".</em> Separate record and configuration logs; a view over S8 versions instead of a backfill; chaining inside the writer's transaction; a shared seal key per minute (writers queued 3.9 to 4.0 s in two spikes); one seal start per transaction; an eternal per-tenant workflow; triggers that write the audit rows (they cannot know the actor or AI decision); <code>jsonb</code> diffs (the stored bytes would no longer match their hash); a single <code>REPEATABLE READ</code> export snapshot; external anchoring in the first milestone; a dedicated sealer role.</p>
+<h2 id="consequences">Consequences</h2>
+<p><em>Paraphrases: "Consequences".</em> Each configuration epic registers its subject types and manifest rows. Entries carry <code>sealed: false</code> until the sealer ships. Sealing roughly doubles heap WAL on <code>audit_log</code>. The sealer needs an outbox producer entry point not tied to a record.</p>
+<h2 id="accepted-risks">Accepted risks</h2>
+<p><em>Paraphrases: "Accepted risks".</em></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Risk</th>
+<th>Revisit trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R-A1</td>
+<td>A consistent whole-chain rewrite by the owner is detected only against an export the tenant already holds. External anchoring was deferred.</td>
+<td>A regulated buyer asks for external attestation.</td>
+</tr>
+<tr>
+<td>R-A2</td>
+<td>Sealing lag: about 10 s when the tenant is active, up to 300 s after idle.</td>
+<td>The <code>audit_unsealed_oldest_seconds</code> alert fires in production.</td>
+</tr>
+<tr>
+<td>R-A4</td>
+<td>Commit-trigger, sealing-WAL and deferred-queue costs were unmeasured when accepted (spike S1).</td>
+<td>The S1 result.</td>
+</tr>
+<tr>
+<td>R-A5</td>
+<td>Idle-tenant seal starts add Temporal load.</td>
+<td>Starts above 10% of Temporal capacity.</td>
+</tr>
+<tr>
+<td>R-A6</td>
+<td>Migration B holds ACCESS EXCLUSIVE locks across its transaction.</td>
+<td>S8 volume at planning.</td>
+</tr>
+<tr>
+<td>(R8)</td>
+<td>A compromised worker credential can seal or insert for any tenant. Already accepted in ADR-001.</td>
+<td>The ADR-001 R8 trigger.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="acceptance-tests">Acceptance tests</h2>
+<p><em>Paraphrases: "Acceptance tests", CI-A1 to CI-A16.</em> They prove, among other things: no entry survives a rollback; a raw write to an audited table fails at COMMIT; read, export and reseed never cross tenants; export verification passes under every filter and fails on an edited byte, a deleted row or a deleted first entry; erasure verifies; the backfill leaves one entry per S8 version; a killed sealer is recovered by the next run.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table audit_chain_head</h3><ul><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li></ul>
+<h3>Table audit_log</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul>
+<h3>ADR ADR-004-A1</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li></ul>
+<h3>ADR ADR-004-E1</h3><ul><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li></ul>
+<h3>ADR ADR-004-E2</h3><ul><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li></ul>
+<h3>ADR ADR-004-E3</h3><ul><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li></ul>
+<h3>ADR ADR-004-E4</h3><ul><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li></ul>
+<h3>ADR ADR-004-E5</h3><ul><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li></ul>
+<h3>ADR ADR-004-E6</h3><ul><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li></ul>
+<h3>ADR ADR-004-E7</h3><ul><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li></ul>
+<h3>ADR ADR-004-E8</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
