@@ -1,0 +1,722 @@
+{
+  "version": 1,
+  "migrations": [
+    {
+      "file": "00001_global_revokes.sql",
+      "on_main": true,
+      "commit": "f2a711c7",
+      "date": "2026-10-18",
+      "pr": "17",
+      "story": "",
+      "tickets": []
+    },
+    {
+      "file": "00002_platform_tables.sql",
+      "on_main": true,
+      "commit": "ad492372",
+      "date": "2026-10-24",
+      "pr": "44",
+      "story": "",
+      "tickets": [
+        "TICK-64"
+      ]
+    },
+    {
+      "file": "00003_identity_tables.sql",
+      "on_main": true,
+      "commit": "58f41d44",
+      "date": "2026-10-25",
+      "pr": "88",
+      "story": "",
+      "tickets": [
+        "TICK-69"
+      ]
+    },
+    {
+      "file": "00004_tenant_email_domain.sql",
+      "on_main": true,
+      "commit": "b7422830",
+      "date": "2026-10-26",
+      "pr": "115",
+      "story": "",
+      "tickets": [
+        "TICK-194"
+      ]
+    },
+    {
+      "file": "00005_purge_indexes.sql",
+      "on_main": true,
+      "commit": "842d2243",
+      "date": "2026-10-26",
+      "pr": "128",
+      "story": "",
+      "tickets": [
+        "TICK-146"
+      ]
+    },
+    {
+      "file": "00006_pending_invite.sql",
+      "on_main": true,
+      "commit": "75069c73",
+      "date": "2026-10-28",
+      "pr": "215",
+      "story": "",
+      "tickets": [
+        "TICK-46",
+        "TICK-254"
+      ]
+    },
+    {
+      "file": "00007_email_domain_release.sql",
+      "on_main": true,
+      "commit": "75069c73",
+      "date": "2026-10-28",
+      "pr": "215",
+      "story": "",
+      "tickets": [
+        "TICK-46",
+        "TICK-280"
+      ]
+    },
+    {
+      "file": "00008_outbox_payload_references.sql",
+      "on_main": true,
+      "commit": "c3671e5e",
+      "date": "2026-10-28",
+      "pr": "223",
+      "story": "S7",
+      "tickets": [
+        "TICK-49"
+      ]
+    },
+    {
+      "file": "00009_outbox_payload_keys.sql",
+      "on_main": true,
+      "commit": "c3671e5e",
+      "date": "2026-10-28",
+      "pr": "223",
+      "story": "S7",
+      "tickets": [
+        "TICK-49"
+      ]
+    },
+    {
+      "file": "00010_principal_tombstone.sql",
+      "on_main": true,
+      "commit": "4392c26c",
+      "date": "2026-10-28",
+      "pr": "221",
+      "story": "S5",
+      "tickets": [
+        "TICK-47"
+      ]
+    },
+    {
+      "file": "00011_principal_tombstone_validate.sql",
+      "on_main": true,
+      "commit": "4392c26c",
+      "date": "2026-10-28",
+      "pr": "221",
+      "story": "S5",
+      "tickets": [
+        "TICK-47"
+      ]
+    },
+    {
+      "file": "00012_drop_principals_delete_policy.sql",
+      "on_main": true,
+      "commit": "4392c26c",
+      "date": "2026-10-28",
+      "pr": "221",
+      "story": "S5",
+      "tickets": [
+        "TICK-47"
+      ]
+    },
+    {
+      "file": "20261028175712_idempotency_lease.sql",
+      "on_main": true,
+      "commit": "2cc0f219",
+      "date": "2026-10-29",
+      "pr": "266",
+      "story": "",
+      "tickets": [
+        "TICK-48"
+      ]
+    },
+    {
+      "file": "20261031150000_entity_definitions.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-340"
+      ]
+    },
+    {
+      "file": "20261031160000_tenant_admin_group.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-342"
+      ]
+    },
+    {
+      "file": "20261101120000_tenant_admin_group_onboard_select.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-373"
+      ]
+    },
+    {
+      "file": "20261101130000_entity_versions_published_by_check.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-383"
+      ]
+    },
+    {
+      "file": "20261101130100_entity_versions_published_by_validate.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-383"
+      ]
+    },
+    {
+      "file": "20261101180000_entity_definition_versions_jsonb_check.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-378"
+      ]
+    },
+    {
+      "file": "20261101180100_entity_definition_versions_jsonb_check_validate.sql",
+      "on_main": true,
+      "commit": "fd4dbe8d",
+      "date": "2026-11-01",
+      "pr": "300",
+      "story": "",
+      "tickets": [
+        "TICK-333",
+        "TICK-378"
+      ]
+    },
+    {
+      "file": "20261101190000_records_pipeline.sql",
+      "on_main": true,
+      "commit": "4287346d",
+      "date": "2026-11-02",
+      "pr": "390",
+      "story": "S9",
+      "tickets": [
+        "TICK-335",
+        "TICK-353"
+      ]
+    },
+    {
+      "file": "20261102100000_cascade_start.sql",
+      "on_main": true,
+      "commit": "4287346d",
+      "date": "2026-11-02",
+      "pr": "390",
+      "story": "S9",
+      "tickets": [
+        "TICK-88",
+        "TICK-335"
+      ]
+    },
+    {
+      "file": "20261102120000_idempotency_response_headers.sql",
+      "on_main": true,
+      "commit": "4287346d",
+      "date": "2026-11-02",
+      "pr": "390",
+      "story": "S9",
+      "tickets": [
+        "TICK-335",
+        "TICK-412"
+      ]
+    },
+    {
+      "file": "20261102120100_idempotency_response_headers_validate.sql",
+      "on_main": true,
+      "commit": "4287346d",
+      "date": "2026-11-02",
+      "pr": "390",
+      "story": "S9",
+      "tickets": [
+        "TICK-335",
+        "TICK-412"
+      ]
+    },
+    {
+      "file": "20261102130000_audit_log_v0.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-427"
+      ]
+    },
+    {
+      "file": "20261102130100_tenant_auditor_group.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-434"
+      ]
+    },
+    {
+      "file": "20261102233600_audit_log.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-450"
+      ]
+    },
+    {
+      "file": "20261103100000_audit_commit_check.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-428"
+      ]
+    },
+    {
+      "file": "20261103120000_audit_backfill_s8.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-433"
+      ]
+    },
+    {
+      "file": "20261103150000_audit_commit_check_custom_plan.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-508"
+      ]
+    },
+    {
+      "file": "20261104013400_groups_tombstone.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-534"
+      ]
+    },
+    {
+      "file": "20261104013500_groups_tombstone_validate.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-534"
+      ]
+    },
+    {
+      "file": "20261104043000_groups_contract.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-538"
+      ]
+    },
+    {
+      "file": "20261104043100_groups_contract_validate.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-538"
+      ]
+    },
+    {
+      "file": "20261104100000_drop_audit_log_v0.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-435"
+      ]
+    },
+    {
+      "file": "20261104110000_records_audit_commit_check.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-530"
+      ]
+    },
+    {
+      "file": "20261104133000_audit_reader_policies.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-558"
+      ]
+    },
+    {
+      "file": "20261104191200_auditor_group_active_tenant.sql",
+      "on_main": true,
+      "commit": "21106dfe",
+      "date": "2026-11-05",
+      "pr": "471",
+      "story": "",
+      "tickets": [
+        "TICK-419",
+        "TICK-568"
+      ]
+    },
+    {
+      "file": "20261105100000_onboard_seal_start.sql",
+      "on_main": true,
+      "commit": "f3c0ba22",
+      "date": "2026-11-08",
+      "pr": "505",
+      "story": "",
+      "tickets": [
+        "TICK-420",
+        "TICK-441"
+      ]
+    },
+    {
+      "file": "20261107053707_audit_migration_b.sql",
+      "on_main": true,
+      "commit": "f3c0ba22",
+      "date": "2026-11-08",
+      "pr": "505",
+      "story": "",
+      "tickets": [
+        "TICK-420",
+        "TICK-442"
+      ]
+    },
+    {
+      "file": "20261107100000_audit_chain_head_dead_lineage.sql",
+      "on_main": true,
+      "commit": "f3c0ba22",
+      "date": "2026-11-08",
+      "pr": "505",
+      "story": "",
+      "tickets": [
+        "TICK-420",
+        "TICK-590"
+      ]
+    },
+    {
+      "file": "20261108120000_record_write_keys_actor.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336"
+      ]
+    },
+    {
+      "file": "20261108120100_record_write_keys_actor_key.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336"
+      ]
+    },
+    {
+      "file": "20261108124249_acl_tables.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-615"
+      ]
+    },
+    {
+      "file": "20261108184658_record_shares_typed_principals.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-625"
+      ]
+    },
+    {
+      "file": "20261109100000_acl_versions_shape_check.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-629"
+      ]
+    },
+    {
+      "file": "20261109100100_acl_versions_shape_check_validate.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-629"
+      ]
+    },
+    {
+      "file": "20261109120000_acl_versions_audit_commit_check.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-620"
+      ]
+    },
+    {
+      "file": "20261109130000_audit_log_subject_acl_policy.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-620"
+      ]
+    },
+    {
+      "file": "20261109130100_audit_log_subject_acl_policy_validate.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-620"
+      ]
+    },
+    {
+      "file": "20261109140000_records_list_updated.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140100_records_list_created.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140200_records_list_state.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140300_records_list_group.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140400_records_list_requester.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140500_records_list_assignee.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140600_drop_records_s9_list_indexes.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261109140700_platform_database_jit_off.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-640"
+      ]
+    },
+    {
+      "file": "20261110040000_entity_definitions_numbering_mode.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-659"
+      ]
+    },
+    {
+      "file": "20261110040100_entity_definitions_numbering_mode_validate.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-659"
+      ]
+    },
+    {
+      "file": "20261110100000_records_list_group_state.sql",
+      "on_main": true,
+      "commit": "0e79d828",
+      "date": "2026-11-11",
+      "pr": "579",
+      "story": "",
+      "tickets": [
+        "TICK-336",
+        "TICK-656"
+      ]
+    }
+  ]
+}
