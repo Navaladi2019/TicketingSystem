@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-12: PLAN-007 drafted: ADR-006 lands as S21 then S22 after S17 and S11b; S18 waits for S22](decisions/2026-11-12-plan-007-adr-006.md)
 - [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)
 - [2026-11-10: the `filter[state]=new` miss reopens the list-shape work as one index task](decisions/2026-11-10-state-filter-index.md)
 - [2026-11-10: PLAN-006 drafted: ADR-005 lands in Milestone 2 as S17, S18, S19 after S10; M3 one release after the expand](decisions/2026-11-10-plan-006-adr-005.md)
