@@ -158,11 +158,13 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <tr><td>A number that shows a branch keeps showing it even if that field is later hidden from some users; numbers already sent in emails cannot be recalled.</td><td>Low</td><td>A tenant asks to recall numbers.</td></tr>
 <tr><td>A per-branch counter tells anyone who can see one record roughly how many records that branch had this period (within the same tenant only).</td><td>Low</td><td>A tenant treats that as confidential.</td></tr>
 <tr><td>4 extra database connections per server.</td><td>Info</td><td>More than ~10 servers.</td></tr>
+<tr><td>During the rollout of the counter-key change, a server still on the old version can fail to save the first ticket of a record type if another first ticket of that type is saved at the same instant (erratum E1). The user can save again; no number is duplicated.</td><td>Low</td><td>The rollout takes longer than one deploy cycle.</td></tr>
 </tbody></table>
 <p>No risk crosses tenants: every counter and format row belongs to one tenant and the database itself refuses access across tenants.</p>
 
 <h2>6. Moving from today, safely</h2>
 <p>The counter table gets a new column and a new key. To avoid breaking record creation during a rollout, the change happens in four steps: add the column, build the new index in the background, deploy code that uses it, then switch the key. Custom formats stay switched off until the last step is done. Existing types keep the empty scope, so <code>INC0000042</code> is followed by <code>INC0000043</code>; a test pins exactly that.</p>
+<p><strong>Correction (erratum E1, 2026-11-11):</strong> "old and new versions run side by side" holds for record types that already have a counter. Between the second and last steps, the first ticket of a brand-new type can fail if two are saved at the same instant; the new version retries once, and old versions carry a small accepted risk until the last step. See <code>ADR-005-E1-explained.html</code>.</p>
 
 <h2>7. Evidence</h2>
 <ul>
