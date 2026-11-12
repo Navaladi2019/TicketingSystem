@@ -265,9 +265,13 @@ func workflowDefinition(t *testing.T, e env, fs ...tenantFixture) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
 	for _, f := range fs {
-		mustExec(t, e.super, `INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
-			SELECT $1, $2, $3, d.id, 1, $4
-			FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $5`,
+		// The audit entry is the one the commit check wants (P3-41b); Publish
+		// is not used because the fixture needs a bare definition with no version.
+		mustExec(t, e.super, `WITH w AS (INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+				SELECT $1, $2, $3, d.id, 1, $4
+				FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $5 RETURNING tenant_id, id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source, content_sha256)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'workflow_definition', id, 'system', 'system', sha256(''::bytea) FROM w`,
 			f.id, id, "wf_"+strings.ReplaceAll(id.String(), "-", ""), f.principal.PrincipalID, entityKey)
 	}
 	return id

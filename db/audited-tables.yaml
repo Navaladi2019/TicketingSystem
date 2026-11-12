@@ -78,20 +78,21 @@ audited:
     subject_id_column: record_id
     attached: false
   # P3-40 (TICK-709): workflow definitions and their immutable versions.
-  # Not attached yet: nothing writes them until P3-41's publish route, which
-  # writes its entry in the same transaction and attaches the trigger.
+  # Attached by P3-41b (TICK-737, 20261112180000): the publish route
+  # (workflowdefs.Store.Publish, P3-41) writes its entry in the same
+  # transaction.
   workflow_definitions:
     writer_roles: [nava_app]
     audited_columns: [current_version, updated_at]
     subject_type: workflow_definition
     subject_id_column: id
-    attached: false
+    attached: true
   workflow_definition_versions:
     writer_roles: [nava_app]
     audited_columns: []
     subject_type: workflow_definition
     subject_id_column: definition_id
-    attached: false
+    attached: true
 
 exempt:
   audit_log:

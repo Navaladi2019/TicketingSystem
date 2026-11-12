@@ -32,22 +32,47 @@ const (
 	wfSignal = "0e000000-0000-4000-8000-0000000000f6"
 	wfBody   = `{"format": "v1", "trigger": {"on": "record.created", "entity": "ticket"}}`
 
-	// insertWorkflowDefinition: tenant $1, id $2, key $3; the entity type and
-	// the creator are seedEntityTypes' (id = the tenant id).
-	insertWorkflowDefinition = `INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+	// insertWorkflowDefinitionBare: tenant $1, id $2, key $3; the entity type
+	// and the creator are seedEntityTypes' (id = the tenant id). It writes no
+	// audit entry, so it commits only where the commit check is absent or
+	// refused (P3-41b); insertWorkflowDefinition is the one that commits.
+	insertWorkflowDefinitionBare = `INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
 		VALUES ($1, $2, $3, $1, 1, $1)`
-	// insertWorkflowVersion: tenant $1, id $2, definition $3, version $4,
+	insertWorkflowDefinition = `WITH r AS (` + insertWorkflowDefinitionBare + ` RETURNING tenant_id, id) ` + workflowDefinitionEntry
+	// insertWorkflowVersionBare: tenant $1, id $2, definition $3, version $4,
 	// body $5, body_sha256 $6, trigger entity $7, publisher $8.
-	insertWorkflowVersion = `INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256,
+	insertWorkflowVersionBare = `INSERT INTO workflow_definition_versions (tenant_id, id, definition_id, version, body, body_sha256,
 		step_ids, trigger_on, trigger_entity_definition_id, published_by)
 		VALUES ($1, $2, $3, $4, $5::json, $6, '{"start": "0e000000-0000-4000-8000-0000000000aa"}', 'record.created', $7, $8)`
-	insertWorkflowCause = `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth)
+	insertWorkflowVersion = `WITH r AS (` + insertWorkflowVersionBare + ` RETURNING tenant_id, definition_id, version) ` + workflowVersionEntry
+	insertWorkflowCause   = `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth)
 		VALUES ($1, $2, $3, $4, $5)`
+)
+
+// workflowDefinitionEntry and workflowVersionEntry write the audit entry of
+// each row of the CTE r, so the fixture's COMMIT passes the commit check the
+// two tables have since P3-41b (the shape of aclEntry). A definition's entry
+// has no version_after and a version's carries its number, so a transaction
+// that writes both keeps R2's (subject, version_after) key unique. Fixtures
+// that can go through workflowdefs.Store.Publish do; these are for the tests
+// that need a raw row.
+const (
+	workflowDefinitionEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+			actor_system, source, content_sha256)
+		SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'workflow_definition', id,
+			'system', 'system', sha256('workflow_definition') FROM r`
+	workflowVersionEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+			version_after, actor_system, source, content_sha256)
+		SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'workflow_definition', definition_id,
+			version, 'system', 'system', sha256('workflow_definition_version') FROM r`
 )
 
 const (
 	workflowTablesMigration = "20261111123300_workflow_definitions.sql"
 	waitingColumnMigration  = "20261111123350_workflow_ref_record_changed_signal.sql"
+	// definitionAuditMigration attaches the commit check to the two definition
+	// tables (P3-41b).
+	definitionAuditMigration = "20261112180000_workflow_definitions_audit_commit_check.sql"
 )
 
 // workflowTables are the tables workflowTablesMigration creates.
@@ -57,8 +82,21 @@ var workflowTables = []string{"workflow_definitions", "workflow_definition_versi
 // before P3-40: without the three tables when fsys lacks
 // workflowTablesMigration, and without nava_worker's UPDATE of
 // workflow_ref.record_changed_signal_id when it lacks waitingColumnMigration.
-// beforeNumberingMode calls it, so every older-schema run gets it.
+// beforeNumberingMode calls it, so every older-schema run gets it. A run that
+// has the tables but stops before definitionAuditMigration sees the two
+// definition tables as not attached, as the manifest said before P3-41b.
 func beforeWorkflowTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, definitionAuditMigration); err != nil {
+		am := *a
+		am.Audited = maps.Clone(a.Audited)
+		for _, tbl := range workflowTables {
+			if e, ok := am.Audited[tbl]; ok {
+				e.Attached = false
+				am.Audited[tbl] = e
+			}
+		}
+		a = &am
+	}
 	_, errTables := fs.Stat(fsys, workflowTablesMigration)
 	_, errColumn := fs.Stat(fsys, waitingColumnMigration)
 	if errTables == nil && errColumn == nil {

@@ -148,6 +148,7 @@ func seedSQL() (string, error) {
 	return fmt.Sprintf(`BEGIN;
 ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
+ALTER TABLE workflow_definitions DISABLE TRIGGER workflow_definitions_audit_commit_check;
 INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
 VALUES ('%[1]s', '%[2]s', '%[3]s', 'Demo note', '%[4]s', 1) ON CONFLICT DO NOTHING;
 INSERT INTO entity_definition_versions
@@ -158,6 +159,7 @@ INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, curr
 VALUES ('%[1]s', '%[10]s', 'demo_start', '%[2]s', 1, NULL) ON CONFLICT DO NOTHING;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
+ALTER TABLE workflow_definitions ENABLE TRIGGER workflow_definitions_audit_commit_check;
 COMMIT;
 `, tenantA, entityDefID, entityKey, entityPrefix, entityVersionID, entitySchema, hex.EncodeToString(sum[:]),
 		fixed, states, definition), nil
