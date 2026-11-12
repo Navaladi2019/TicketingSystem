@@ -68,7 +68,8 @@ invariant is listed at the foot of the page ("Also named by").
 `internal/outbox/outbox.go` and the `Register` functions of `seal`, `interp`
 and `workerguard` with the standard library. It fails the build when it finds
 nothing, so a parser that drifted from the code cannot pass. A `sources:`
-entry may name lines (`path:12`, `path:12-20,31`); the build checks the file
+entry may name lines (`path:12`, `path:12-20,31`; quote a comma list inside
+`[...]` or use a block list); the build checks the file
 has them, and the reviewer checks what they say against the footer sha.
 
 ## Diagrams

@@ -403,7 +403,10 @@ class TestReferences(Base):
 
     def test_sources_with_lines(self):
         page(self.root, "workflows/a.md", "A", "workflows",
-             front="sources: [internal/audit/seal/workflow.go:3, internal/outbox/outbox.go:1-3,5]\n")
+             front='sources: [internal/audit/seal/workflow.go:3, "internal/outbox/outbox.go:1-3,5"]\n')
+        self.build()
+        page(self.root, "workflows/a.md", "A", "workflows",
+             front="sources:\n  - internal/outbox/outbox.go:1-3,5\n")
         self.build()
         page(self.root, "workflows/a.md", "A", "workflows", front="sources: [internal/audit/seal/workflow.go:99]\n")
         self.fails("names line 99, but internal/audit/seal/workflow.go has")
