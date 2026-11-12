@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viewer sample - Nava handbook</title>
+<title>prometheus - Nava handbook</title>
 <link rel="stylesheet" href="../assets/handbook.css">
 </head>
 <body data-root="../">
@@ -15,7 +15,7 @@
 <div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
 <ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
-<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li class="current"><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li class="current"><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
 <ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
@@ -35,26 +35,55 @@
 </nav>
 </aside>
 <main>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Viewer sample</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>prometheus</span></nav>
 <article>
-<h1 class="page-title">Viewer sample</h1>
-<p>The viewer gives every diagram zoom, pan, reset and full screen. Authors write nothing extra. Remove this page when real diagrams exist.</p>
-<h2 id="mermaid">Mermaid</h2>
-<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
-  client[Client] --&gt; core[nava-core]
-  core --&gt; db[(PostgreSQL)]
-  core --&gt; outbox[Outbox]
-  outbox --&gt; relay[Relay] --&gt; temporal[Temporal]
-</pre></div></figure>
-<h2 id="excalidraw">Excalidraw</h2>
-<figure class="diagram" data-kind="excalidraw"><div class="dz-wrap"><img class="dz-img" src="../diagrams/sample.excalidraw.svg" alt="Client calls nava-core"></div></figure>
-<h2 id="search-target">Search target</h2>
-<p>The word flamingo appears only on this page, so search can be checked.</p>
+<h1 class="page-title">prometheus</h1>
+<p>Local metrics and alert rules. Local development only, in the <code>operator</code> profile; no Alertmanager, so a firing alert shows on its Alerts page.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Image</td>
+<td><code>prom/prometheus:v3.7.3</code></td>
+</tr>
+<tr>
+<td>Networks</td>
+<td><code>internal</code>, <code>operator</code></td>
+</tr>
+<tr>
+<td>Listener</td>
+<td><code>:9091</code></td>
+</tr>
+<tr>
+<td>Host port</td>
+<td><code>127.0.0.1:9091</code> (<code>PROMETHEUS_PORT</code>)</td>
+</tr>
+<tr>
+<td>Scrapes</td>
+<td><code>/metrics</code> on <code>:9090</code> of nava-core, nava-worker, nava-relay, nava-groupsync, nava-purge and nava-onboard, every 15 s; one-shot jobs are not scraped</td>
+</tr>
+<tr>
+<td>DB role</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Introduced by</td>
+<td>TICK-330</td>
+</tr>
+</tbody>
+</table>
+<h2 id="boundary-it-enforces">Boundary it enforces</h2>
+<p>No ADR-001 section 1 invariant. It reads the admin listeners over <code>internal</code>, so they never need publishing: <code>TestComposePublishesNoAdminPort</code>.</p>
+<p><a href="../system/index.html">Back to the system map</a></p>
 </article>
 <footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
-<script src="../assets/mermaid.min.js"></script>
 <script src="../assets/handbook.js"></script>
 </body>
 </html>
