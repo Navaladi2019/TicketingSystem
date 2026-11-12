@@ -1,0 +1,221 @@
+# Story manifest (contract C-HB-1, schema extended by TICK-725).
+#
+# stories: one entry per story.
+#   id, issue (TICK-nn), title, status (delivered | in-progress | planned)
+#   verdict + date (ISO): required when delivered. verdict normalised to READY
+#     from the kit's result or the story's ACCEPTED comment; date from the kit's
+#     verified line, else the commit that recorded the run. verdict_comment is
+#     link text only.
+#   bruno: folder names under docs/acceptance/guide/bruno/ (list; a bare string is accepted)
+#   evidence: repo paths, at least one when delivered. Committed files only,
+#     never a GitHub Actions run URL.
+# unassigned: cross-cutting folders and kits that belong to no single story,
+#   each {path, reason}.
+#
+# Status was re-checked on 2026-11-12 against the issue and origin/main:
+# delivered = issue done and its story branch merged to main; in-progress =
+# story branch exists and is not on main; planned = no branch yet.
+stories:
+  - id: S1
+    issue: TICK-43
+    title: Local stack starts healthy and CI gates every PR
+    status: delivered
+    verdict: READY
+    date: 2026-10-25
+    verdict_comment: "Acceptance kit s1-platform-foundation.md"
+    bruno: [S1]
+    evidence:
+      - docs/acceptance/s1-platform-foundation.md
+      - docs/acceptance/regression-milestone-1-evidence/s1-platform-foundation.md
+  - id: S2
+    issue: TICK-44
+    title: A query without the right tenant returns nothing
+    status: delivered
+    verdict: READY
+    date: 2026-10-26
+    verdict_comment: "Acceptance kit s2-tenant-isolation.md"
+    bruno: [S2]
+    evidence:
+      - docs/acceptance/s2-tenant-isolation.md
+      - docs/acceptance/regression-milestone-1-evidence/s2-tenant-isolation.md
+  - id: S3
+    issue: TICK-45
+    title: A tenant user signs in and is scoped to their tenant only
+    status: delivered
+    verdict: READY
+    date: 2026-10-27
+    verdict_comment: "Acceptance kit s3-tenant-signin.md"
+    bruno: [S3]
+    evidence:
+      - docs/acceptance/s3-tenant-signin.md
+      - docs/acceptance/s3-tenant-signin/transcript.txt
+  - id: S4
+    issue: TICK-46
+    title: An operator onboards a tenant and its admin signs in
+    status: delivered
+    verdict: READY
+    date: 2026-10-28
+    verdict_comment: "Acceptance kit operator-onboards-tenant.md"
+    bruno: [S4]
+    evidence:
+      - docs/acceptance/operator-onboards-tenant.md
+      - docs/acceptance/regression-milestone-1-evidence/rerun-76350ef/s4-operator-onboards-tenant.md
+  - id: S5
+    issue: TICK-47
+    title: Group changes and deprovisioning take effect within 10 minutes
+    status: delivered
+    verdict: READY
+    date: 2026-10-27
+    verdict_comment: "Acceptance kit s5-group-changes-within-10-minutes.md"
+    bruno: [S5]
+    evidence:
+      - docs/acceptance/s5-group-changes-within-10-minutes.md
+      - docs/acceptance/s5-evidence/ci5-report.md
+  - id: S6
+    issue: TICK-48
+    title: API ground rules on the first endpoints
+    status: delivered
+    verdict: READY
+    date: 2026-10-29
+    verdict_comment: "Acceptance kit s6-api-ground-rules.md"
+    bruno: [S6]
+    evidence:
+      - docs/acceptance/s6-api-ground-rules.md
+      - docs/acceptance/s6-api-ground-rules/transcript.txt
+  - id: S7
+    issue: TICK-49
+    title: A committed outbox row runs exactly one tenant-scoped workflow
+    status: delivered
+    verdict: READY
+    date: 2026-10-27
+    verdict_comment: "Acceptance kit outbox-row-runs-one-workflow.md"
+    bruno: [S7]
+    evidence:
+      - docs/acceptance/outbox-row-runs-one-workflow.md
+  - id: S8
+    issue: TICK-333
+    title: A tenant admin publishes an incident type and reads every version
+    status: delivered
+    verdict: READY
+    date: 2026-11-01
+    verdict_comment: "Acceptance kit s8-entity-types.md"
+    bruno: [S8]
+    evidence:
+      - docs/acceptance/s8-entity-types.md
+  - id: S9
+    issue: TICK-335
+    title: An agent logs an incident, updates it, sees its history; a stale update is refused
+    status: delivered
+    verdict: READY
+    date: 2026-11-02
+    verdict_comment: "Acceptance kit s9-records.md"
+    bruno: [S9]
+    evidence:
+      - docs/acceptance/s9-records.md
+      - docs/acceptance/s9-evidence
+  - id: S10
+    issue: TICK-336
+    title: A service-desk agent sees only their group's incidents; masked fields stay hidden
+    status: delivered
+    verdict: READY
+    date: 2026-11-11
+    verdict_comment: "Acceptance kit s10-access.md"
+    bruno: [S10]
+    evidence:
+      - docs/acceptance/s10-access.md
+      - docs/acceptance/s10-evidence/s10-fresh-stack-run.txt
+  - id: S11a
+    issue: TICK-334
+    title: "The workflow interpreter runs a definition on Temporal (scope: interpreter only; S11b, records starting workflows, is in progress)"
+    status: delivered
+    verdict: READY
+    date: 2026-11-01
+    verdict_comment: "Acceptance kit s11a-workflow-interpreter.md"
+    evidence:
+      - docs/acceptance/s11a-workflow-interpreter.md
+      - docs/acceptance/s11a-workflow-interpreter/run.log
+  - id: S13
+    issue: TICK-418
+    title: An auditor verifies an audit export offline, and any tampering is detected
+    status: delivered
+    verdict: READY
+    date: 2026-11-02
+    verdict_comment: "TICK-418 VERDICT: ACCEPTED"
+    evidence:
+      - docs/acceptance/S13/README.md
+  - id: S14
+    issue: TICK-419
+    title: Every record and entity-type change lands in one audit log
+    status: delivered
+    verdict: READY
+    date: 2026-11-04
+    verdict_comment: "Acceptance kit S14/README.md"
+    bruno: [S14, S14A]
+    evidence:
+      - docs/acceptance/S14/README.md
+      - docs/acceptance/S14/evidence/run-summary.json
+  - id: S15
+    issue: TICK-420
+    title: Each tenant's audit entries are sealed into a hash chain
+    status: delivered
+    verdict: READY
+    date: 2026-11-07
+    verdict_comment: "Acceptance kit S15/README.md"
+    bruno: [S15, S15I, S15K]
+    evidence:
+      - docs/acceptance/S15/README.md
+      - docs/acceptance/S15/evidence/ac1-seal-latency.txt
+      - docs/acceptance/S15/evidence/run-summary.json
+  - id: S16
+    issue: TICK-421
+    title: An auditor exports a filtered audit log and proves it complete
+    status: delivered
+    verdict: READY
+    date: 2026-11-08
+    verdict_comment: "Acceptance kit S16/README.md"
+    bruno: [S16]
+    evidence:
+      - docs/acceptance/S16/README.md
+  - id: S11b
+    issue: TICK-337
+    title: Creating an incident starts a workflow that waits (story branch TICK-337/workflows-on-records)
+    status: in-progress
+  - id: S17
+    issue: TICK-664
+    title: Record numbers keep counting while the counter table moves (story branch TICK-664/counter-scope-key)
+    status: in-progress
+  - id: S12
+    issue: TICK-338
+    title: Agents comment, write internal work notes, and link records
+    status: planned
+  - id: S18
+    issue: TICK-669
+    title: A tenant admin defines a number format and links it to a ticket type
+    status: planned
+  - id: S19
+    issue: TICK-678
+    title: A record number can carry a branch or other enum code
+    status: planned
+  - id: S20
+    issue: TICK-684
+    title: A plugin authors number formats through the public API (parked)
+    status: planned
+unassigned:
+  - path: docs/acceptance/guide/bruno/X1
+    reason: API suite for getMe, spans S2 to S6; not one story
+  - path: docs/acceptance/guide/bruno/X2
+    reason: API suite for onboardTenant, spans S4, S6 and S8
+  - path: docs/acceptance/guide/bruno/X3
+    reason: API suite for every admin listener, spans S1 and the services
+  - path: docs/acceptance/guide/bruno/X4
+    reason: API suite for entity types, spans S8 and S14
+  - path: docs/acceptance/guide/bruno/X5
+    reason: API suite for records, spans S9, S10 and S14
+  - path: docs/acceptance/guide/bruno/Z
+    reason: expired-token check that runs last, across every story
+  - path: docs/acceptance/guide/acceptance-run.md
+    reason: the recorded Bruno run over the whole stack (S1 to S8 and the API suite), not one story
+  - path: docs/acceptance/regression-milestone-1.md
+    reason: regression of milestone 1 (S1 to S8) on main, not one story
+  - path: docs/acceptance/acceptance-runs-tick287-329.md
+    reason: the earlier Postman run over the whole stack, superseded by the Bruno run
