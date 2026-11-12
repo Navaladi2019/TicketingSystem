@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Core: record numbering (gaps and gapless) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li class="current"><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Core: record numbering (gaps and gapless)</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-005-record-numbering.md"><code>docs/adr/ADR-005-record-numbering.md</code></a>.</p>
+<article>
+<h1 class="page-title">Core: record numbering (gaps and gapless)</h1>
+<h2 id="purpose">Purpose</h2>
+<p>Every record gets a human number, <code>&lt;prefix&gt;&lt;7 digits&gt;</code> (<code>INC0000001</code>), unique
+and increasing per tenant and entity type. Numbers come from one
+<code>record_counters</code> upsert; there is no sequence (ADR-001 I8). A type's
+<code>numbering_mode</code> picks where the upsert runs:</p>
+<ul>
+<li><code>gaps</code> (default, ADR-005 L2s): in a transaction of its own on the allocator
+pool, committed before the record is inserted. The counter row is locked for
+one round trip. A create that fails after its number leaves a **gap by
+design**.</li>
+<li><code>gapless</code> (ADR-005 L1): last in the create's own write batch, so a rollback
+gives the number back, at the cost of holding the counter lock until the
+create commits.</li>
+</ul>
+<p>The decision and its rules are in the normative ADR-005 and the numbering
+section of
+<a href="../../../docs/architecture/record-write-pipeline.md">record-write-pipeline.md</a>.</p>
+<h2 id="entry-point">Entry point</h2>
+<ul>
+<li><code>write.create</code> in <code>internal/records/pipeline/pipeline.go</code> reads
+<code>Compiled.NumberingMode()</code> and calls <code>write.allocate</code> (<code>alloc.go</code>) for a
+<code>gaps</code> type.</li>
+<li><code>PoolRunner.Allocate</code> -&gt; <code>tenancy.AllocTx</code> -&gt; <code>store.QueueAllocate</code>
+(<code>internal/records/store/numbering.go</code>).</li>
+<li><code>gapless</code>: <code>store.QueueInsertNumbered</code> in <code>write.writeCreate</code> (<code>batch.go</code>).</li>
+<li>Mode change: <code>entitytypes.Store.SetNumberingMode</code>.</li>
+<li>Pool wiring: <code>cmd/nava-core/allocator.go</code> (<code>NAVA_ALLOCATOR_DATABASE_URL</code>).</li>
+</ul>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
+    participant C as write.create (API pool tx)
+    participant A as PoolRunner.Allocate
+    participant T as tenancy.AllocTx (allocator pool)
+    participant P as PostgreSQL
+    C-&gt;&gt;C: masks, defaults, validate, state, CanWrite, unique, group
+    alt numbering_mode = gaps
+        C-&gt;&gt;A: allocate(createTx, definition), bounded by AllocTimeout
+        A-&gt;&gt;T: tenant = TenantOf(createTx)
+        T-&gt;&gt;P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;&lt;br/&gt;record_counters upsert RETURNING next - 1, now(); COMMIT
+        T--&gt;&gt;C: Allocation (tenant, type, scope &#x27;&#x27;, epoch 0, n, instant)
+        C-&gt;&gt;C: check allocation is this create&#x27;s; created_at = instant
+        C-&gt;&gt;P: INSERT record with FormatNumber(prefix, n), audit, COMMIT
+        Note over C,P: failure after the allocation: n is a gap
+    else numbering_mode = gapless
+        C-&gt;&gt;P: write batch: record_counters upsert + INSERT record, audit, COMMIT
+        Note over C,P: rollback gives n back
+    end
+</pre></div></figure>
+<h2 id="steps">Steps</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Where</th>
+<th>Invariant</th>
+<th>Proving test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Take the number only after the replay check, validation, the write check and the unique and group checks</td>
+<td><code>write.create</code></td>
+<td>I4: a refused, invalid or replayed create never moves the counter</td>
+<td><code>TestRefusedCreatesLeaveTheCounter</code>, <code>TestCreateReplayTakesNoNumber</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>gaps</code>: allocate in its own transaction on the allocator pool; tenant from the create's transaction, never a parameter</td>
+<td><code>write.allocate</code>, <code>PoolRunner.Allocate</code>, <code>tenancy.AllocTx</code>, <code>store.QueueAllocate</code></td>
+<td>ADR-005 A1, A2, A4</td>
+<td><code>TestCreateTakesItsNumberInATransactionOfItsOwn</code>, <code>TestAllocationTransactionIsTenantScoped</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Check the allocation names this create's tenant, type, scope <code>&#x27;&#x27;</code> and epoch 0; store its <code>now()</code> as <code>created_at</code></td>
+<td><code>write.allocate</code></td>
+<td>ADR-005 A2, A7</td>
+<td><code>TestCreateChecksTheAllocation</code>, <code>TestAllocationIsTheCreatesAndDatesTheRecord</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Give up past the allocation timeout with <code>ErrRetryable</code>; record acquire and total time</td>
+<td><code>PoolRunner.Allocate</code>, <code>AllocMetrics</code></td>
+<td>ADR-005 A5, A8</td>
+<td><code>TestAllocationTimeoutIsRetryableAndMeasured</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>The allocator pool is separate from the API pool and logs in as <code>nava_app</code> only</td>
+<td><code>tenancy.AllocPoolConfig</code>, <code>tenancy.CheckAllocatorRole</code></td>
+<td>ADR-005 A3; I3</td>
+<td><code>TestAllocatorPoolDoesNotStarveThePool</code>, <code>TestAllocatorPoolRefusesABypassRLSRole</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>A failure after the allocation commits leaves a gap; numbers are never reused</td>
+<td><code>gaps_integration_test.go</code></td>
+<td>Gaps by design</td>
+<td><code>TestRolledBackCreateLeavesAGap</code>, <code>TestCreateRollsBackAtEveryStage</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>gapless</code>: upsert last in the write batch; rollback returns the number</td>
+<td><code>store.QueueInsertNumbered</code></td>
+<td>ADR-005 L1</td>
+<td><code>TestRolledBackCreateNumberIsReused</code>, <code>TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>A mode change applies to creates that start after it; both modes upsert the same row</td>
+<td><code>entitytypes.Store.SetNumberingMode</code></td>
+<td>No number used twice</td>
+<td><code>TestModeSwitchNeverReusesANumber</code>, <code>TestNumberingModesDoNotInterfere</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Format <code>&lt;prefix&gt;&lt;7 digits&gt;</code>, growing past 7; lists sort on <code>created_at</code></td>
+<td><code>store.FormatNumber</code></td>
+<td>Unique per tenant and type</td>
+<td><code>TestFormatNumber</code>, <code>TestNumbersPerTenantAndType</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="errors">Errors</h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>HTTP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ErrRetryable</code> (allocation past its timeout)</td>
+<td><code>503 retry_later</code>, nothing committed but possibly the number (a gap)</td>
+</tr>
+<tr>
+<td>allocation not this create's (tenant, type, scope, epoch)</td>
+<td><code>500 internal_error</code> (a bug, never expected)</td>
+</tr>
+<tr>
+<td><code>entitytypes.ErrInvalidNumberingMode</code></td>
+<td>refused before anything is written</td>
+</tr>
+</tbody>
+</table>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>Metrics: <code>nava_numbering_alloc_acquire_seconds</code>,
+<code>nava_numbering_alloc_seconds</code>, <code>nava_numbering_alloc_timeouts</code>.</li>
+<li>Measured create latency under both modes: <a href="../benchmarks/index.html">benchmarks page</a>.</li>
+</ul>
+<h2 id="links">Links</h2>
+<ul>
+<li>Table <code>record_counters</code>: <a href="../database/index.html">database section</a>.</li>
+<li>The allocator transaction: <a href="../system/core-tenancy.html">core-tenancy</a>.</li>
+<li>The surrounding write: <a href="../system/core-write-pipeline.html">core-write-pipeline</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table entity_definitions</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li></ul>
+<h3>Table record_counters</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table records</h3><ul><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Invariant I4</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li></ul>
+<h3>Invariant I8</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
