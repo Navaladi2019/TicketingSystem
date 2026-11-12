@@ -1,0 +1,404 @@
+--- EXPLAIN filter=lt_40 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=161187.65..161187.77 rows=50 width=1647) (actual time=1713.358..1713.380 rows=50 loops=1)
+   Buffers: shared hit=694443, temp read=579 written=1313
+   I/O Timings: temp read=1.297 write=11.330
+   ->  Sort  (cost=161187.65..161189.68 rows=812 width=1647) (actual time=1689.781..1689.796 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 193kB
+         Buffers: shared hit=694443, temp read=579 written=1313
+         I/O Timings: temp read=1.297 write=11.330
+         ->  Result  (cost=1072.63..161160.67 rows=812 width=1647) (actual time=179.248..1683.607 rows=2415 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=694437, temp read=579 written=1313
+               I/O Timings: temp read=1.297 write=11.330
+               ->  Nested Loop  (cost=1072.63..161160.67 rows=812 width=1647) (actual time=179.222..1682.046 rows=2415 loops=1)
+                     Buffers: shared hit=694437, temp read=579 written=1313
+                     I/O Timings: temp read=1.297 write=11.330
+                     ->  HashAggregate  (cost=1072.19..1234.96 rows=16277 width=32) (actual time=174.203..283.785 rows=159743 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 5  Memory Usage: 8241kB  Disk Usage: 7104kB
+                           Buffers: shared hit=55462, temp read=579 written=1313
+                           I/O Timings: temp read=1.297 write=11.330
+                           ->  Index Only Scan using rfv_num on record_field_values v  (cost=0.42..990.05 rows=16428 width=32) (actual time=0.118..55.887 rows=159743 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid) AND (value_num < '4000'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=55462
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..9.90 rows=1 width=1647) (actual time=0.008..0.008 rows=0 loops=159743)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=638975
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.108..0.109 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=439
+ Planning Time: 2.899 ms
+ JIT:
+   Functions: 29
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 3.460 ms, Inlining 0.000 ms, Optimization 1.776 ms, Emission 25.069 ms, Total 30.305 ms
+ Execution Time: 1753.623 ms
+(42 rows)
+
+--- EXPLAIN filter=lt_40 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1001.02..8217.17 rows=50 width=1647) (actual time=35.556..43.861 rows=50 loops=1)
+   Buffers: shared hit=1440
+   ->  Gather Merge  (cost=1001.02..1179542.84 rows=8166 width=1647) (actual time=35.554..43.847 rows=50 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=1440
+         ->  Result  (cost=0.99..1177600.26 rows=3402 width=1647) (actual time=0.156..2.765 rows=29 loops=3)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=1440
+               ->  Nested Loop Semi Join  (cost=0.99..1177600.26 rows=3402 width=1647) (actual time=0.138..2.733 rows=29 loops=3)
+                     Buffers: shared hit=1440
+                     ->  Parallel Index Scan using records_tenant_updated on records r  (cost=0.42..815593.35 rows=165409 width=1647) (actual time=0.043..0.693 rows=80 loops=3)
+                           Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                           Buffers: shared hit=243
+                     ->  Index Scan using record_field_values_pkey on record_field_values v  (cost=0.56..2.18 rows=1 width=32) (actual time=0.025..0.025 rows=0 loops=239)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (record_id = r.id) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid))
+                           Filter: (value_num < '4000'::double precision)
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=1197
+ Planning Time: 0.423 ms
+ Execution Time: 43.919 ms
+(21 rows)
+
+--- EXPLAIN filter=lt_2 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=9400.59..9400.68 rows=37 width=1647) (actual time=71.666..71.690 rows=50 loops=1)
+   Buffers: shared hit=34260
+   ->  Sort  (cost=9400.59..9400.68 rows=37 width=1647) (actual time=71.663..71.681 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 191kB
+         Buffers: shared hit=34260
+         ->  Result  (cost=53.43..9399.63 rows=37 width=1647) (actual time=5.493..71.351 rows=115 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=34260
+               ->  Nested Loop  (cost=53.43..9399.63 rows=37 width=1647) (actual time=5.485..71.248 rows=115 loops=1)
+                     Buffers: shared hit=34260
+                     ->  HashAggregate  (cost=52.99..60.47 rows=748 width=32) (actual time=5.340..8.885 rows=7872 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 1169kB
+                           Buffers: shared hit=2769
+                           ->  Index Only Scan using rfv_num on record_field_values v  (cost=0.42..49.25 rows=748 width=32) (actual time=0.033..2.032 rows=7872 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid) AND (value_num < '200'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=2769
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..12.49 rows=1 width=1647) (actual time=0.007..0.007 rows=0 loops=7872)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=31491
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.010..0.011 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning Time: 0.637 ms
+ Execution Time: 71.786 ms
+(31 rows)
+
+--- EXPLAIN filter=lt_2 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=6185.46..6185.58 rows=50 width=1647) (actual time=73.477..73.501 rows=50 loops=1)
+   Buffers: shared hit=34257
+   ->  Sort  (cost=6185.46..6186.39 rows=372 width=1647) (actual time=73.475..73.491 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 187kB
+         Buffers: shared hit=34257
+         ->  Result  (cost=53.43..6173.10 rows=372 width=1647) (actual time=6.003..66.847 rows=7872 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=34257
+               ->  Nested Loop  (cost=53.43..6173.10 rows=372 width=1647) (actual time=5.994..64.617 rows=7872 loops=1)
+                     Buffers: shared hit=34257
+                     ->  HashAggregate  (cost=52.99..60.47 rows=748 width=32) (actual time=5.950..8.913 rows=7872 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 1169kB
+                           Buffers: shared hit=2769
+                           ->  Index Only Scan using rfv_num on record_field_values v  (cost=0.42..49.25 rows=748 width=32) (actual time=0.030..2.290 rows=7872 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid) AND (value_num < '200'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=2769
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..8.17 rows=1 width=1647) (actual time=0.006..0.006 rows=1 loops=7872)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Buffers: shared hit=31488
+ Planning Time: 0.473 ms
+ Execution Time: 73.592 ms
+(24 rows)
+
+--- EXPLAIN filter=lt_025 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1332.87..1332.88 rows=5 width=1647) (actual time=8.004..8.013 rows=14 loops=1)
+   Buffers: shared hit=4378
+   ->  Sort  (cost=1332.87..1332.88 rows=5 width=1647) (actual time=8.002..8.007 rows=14 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 53kB
+         Buffers: shared hit=4378
+         ->  Result  (cost=7.72..1332.81 rows=5 width=1647) (actual time=1.239..7.960 rows=14 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=4378
+               ->  Nested Loop  (cost=7.72..1332.81 rows=5 width=1647) (actual time=1.233..7.942 rows=14 loops=1)
+                     Buffers: shared hit=4378
+                     ->  HashAggregate  (cost=7.29..8.32 rows=104 width=32) (actual time=0.784..1.036 rows=1006 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 209kB
+                           Buffers: shared hit=351
+                           ->  Index Only Scan using rfv_num on record_field_values v  (cost=0.42..6.76 rows=104 width=32) (actual time=0.040..0.308 rows=1006 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid) AND (value_num < '25'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=351
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..12.73 rows=1 width=1647) (actual time=0.007..0.007 rows=0 loops=1006)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=4027
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.010..0.012 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning Time: 0.666 ms
+ Execution Time: 8.138 ms
+(31 rows)
+
+--- EXPLAIN filter=lt_025 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=885.14..885.26 rows=50 width=1647) (actual time=13.225..13.245 rows=50 loops=1)
+   Buffers: shared hit=4375
+   ->  Sort  (cost=885.14..885.27 rows=52 width=1647) (actual time=13.223..13.237 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 195kB
+         Buffers: shared hit=4375
+         ->  Result  (cost=7.72..883.66 rows=52 width=1647) (actual time=0.754..12.054 rows=1006 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=4375
+               ->  Nested Loop  (cost=7.72..883.66 rows=52 width=1647) (actual time=0.744..11.685 rows=1006 loops=1)
+                     Buffers: shared hit=4375
+                     ->  HashAggregate  (cost=7.29..8.32 rows=104 width=32) (actual time=0.717..1.111 rows=1006 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 209kB
+                           Buffers: shared hit=351
+                           ->  Index Only Scan using rfv_num on record_field_values v  (cost=0.42..6.76 rows=104 width=32) (actual time=0.030..0.290 rows=1006 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '0b2a7b66-ac7c-54d5-4529-0dfa80030e02'::uuid) AND (value_num < '25'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=351
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..8.41 rows=1 width=1647) (actual time=0.010..0.010 rows=1 loops=1006)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Buffers: shared hit=4024
+ Planning Time: 0.467 ms
+ Execution Time: 13.339 ms
+(24 rows)
+
+--- EXPLAIN filter=ts_40 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=155718.59..155718.71 rows=50 width=1647) (actual time=1725.523..1725.548 rows=50 loops=1)
+   Buffers: shared hit=694351, temp read=578 written=1310
+   I/O Timings: temp read=2.644 write=43.710
+   ->  Sort  (cost=155718.59..155720.53 rows=779 width=1647) (actual time=1705.094..1705.114 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 185kB
+         Buffers: shared hit=694351, temp read=578 written=1310
+         I/O Timings: temp read=2.644 write=43.710
+         ->  Result  (cost=1081.84..155692.71 rows=779 width=1647) (actual time=251.313..1698.995 rows=2443 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=694351, temp read=578 written=1310
+               I/O Timings: temp read=2.644 write=43.710
+               ->  Nested Loop  (cost=1081.84..155692.71 rows=779 width=1647) (actual time=251.276..1697.121 rows=2443 loops=1)
+                     Buffers: shared hit=694351, temp read=578 written=1310
+                     I/O Timings: temp read=2.644 write=43.710
+                     ->  HashAggregate  (cost=1081.40..1237.67 rows=15627 width=32) (actual time=251.195..386.158 rows=159740 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 5  Memory Usage: 8241kB  Disk Usage: 7104kB
+                           Buffers: shared hit=55388, temp read=578 written=1310
+                           I/O Timings: temp read=2.644 write=43.710
+                           ->  Index Only Scan using rfv_ts on record_field_values v  (cost=0.42..1002.57 rows=15766 width=32) (actual time=0.057..76.300 rows=159740 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '36f76ae9-c5d1-fa86-da00-787155fc6996'::uuid) AND (value_ts >= '2025-01-01 00:00:00+00'::timestamp with time zone) AND (value_ts < '2025-01-28 18:40:00+00'::timestamp with time zone))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=55388
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..9.95 rows=1 width=1647) (actual time=0.008..0.008 rows=0 loops=159740)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=638963
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.047..0.051 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 1.024 ms
+ JIT:
+   Functions: 29
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 2.911 ms, Inlining 0.000 ms, Optimization 1.543 ms, Emission 23.197 ms, Total 27.651 ms
+ Execution Time: 1730.317 ms
+(42 rows)
+
+--- EXPLAIN filter=ts_40 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1001.02..8522.50 rows=50 width=1647) (actual time=42.163..54.821 rows=50 loops=1)
+   Buffers: shared hit=1070
+   ->  Gather Merge  (cost=1001.02..1179918.39 rows=7837 width=1647) (actual time=42.157..54.795 rows=50 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=1070
+         ->  Result  (cost=0.99..1178013.78 rows=3265 width=1647) (actual time=0.271..6.069 rows=25 loops=3)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=1070
+               ->  Nested Loop Semi Join  (cost=0.99..1178013.78 rows=3265 width=1647) (actual time=0.255..6.031 rows=25 loops=3)
+                     Buffers: shared hit=1070
+                     ->  Parallel Index Scan using records_tenant_updated on records r  (cost=0.42..815593.35 rows=165409 width=1647) (actual time=0.079..1.732 rows=59 loops=3)
+                           Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                           Buffers: shared hit=183
+                     ->  Index Scan using record_field_values_pkey on record_field_values v  (cost=0.56..2.18 rows=1 width=32) (actual time=0.070..0.070 rows=0 loops=177)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (record_id = r.id) AND (field_id = '36f76ae9-c5d1-fa86-da00-787155fc6996'::uuid))
+                           Filter: ((value_ts >= '2025-01-01 00:00:00+00'::timestamp with time zone) AND (value_ts < '2025-01-28 18:40:00+00'::timestamp with time zone))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=887
+ Planning Time: 0.833 ms
+ Execution Time: 54.958 ms
+(21 rows)
+
+--- EXPLAIN filter=ts_2 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=9368.01..9368.10 rows=37 width=1647) (actual time=82.852..82.876 rows=50 loops=1)
+   Buffers: shared hit=34661
+   ->  Sort  (cost=9368.01..9368.10 rows=37 width=1647) (actual time=82.849..82.866 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 191kB
+         Buffers: shared hit=34661
+         ->  Result  (cost=55.21..9367.05 rows=37 width=1647) (actual time=5.610..82.029 rows=140 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=34661
+               ->  Nested Loop  (cost=55.21..9367.05 rows=37 width=1647) (actual time=5.601..81.916 rows=140 loops=1)
+                     Buffers: shared hit=34661
+                     ->  HashAggregate  (cost=54.77..62.23 rows=745 width=32) (actual time=5.441..9.097 rows=7963 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 1169kB
+                           Buffers: shared hit=2806
+                           ->  Index Only Scan using rfv_ts on record_field_values v  (cost=0.42..51.05 rows=745 width=32) (actual time=0.042..2.093 rows=7963 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '36f76ae9-c5d1-fa86-da00-787155fc6996'::uuid) AND (value_ts >= '2025-01-01 00:00:00+00'::timestamp with time zone) AND (value_ts < '2025-01-02 09:20:00+00'::timestamp with time zone))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=2806
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..12.50 rows=1 width=1647) (actual time=0.009..0.009 rows=0 loops=7963)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=31855
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.015..0.016 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning Time: 0.683 ms
+ Execution Time: 83.099 ms
+(31 rows)
+
+--- EXPLAIN filter=ts_2 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=6165.77..6165.90 rows=50 width=1647) (actual time=108.171..108.203 rows=50 loops=1)
+   Buffers: shared hit=34658
+   ->  Sort  (cost=6165.77..6166.70 rows=370 width=1647) (actual time=108.169..108.191 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 197kB
+         Buffers: shared hit=34658
+         ->  Result  (cost=55.21..6153.48 rows=370 width=1647) (actual time=5.991..98.751 rows=7963 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=34658
+               ->  Nested Loop  (cost=55.21..6153.48 rows=370 width=1647) (actual time=5.978..96.076 rows=7963 loops=1)
+                     Buffers: shared hit=34658
+                     ->  HashAggregate  (cost=54.77..62.23 rows=745 width=32) (actual time=5.938..10.622 rows=7963 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 1169kB
+                           Buffers: shared hit=2806
+                           ->  Index Only Scan using rfv_ts on record_field_values v  (cost=0.42..51.05 rows=745 width=32) (actual time=0.035..2.344 rows=7963 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '36f76ae9-c5d1-fa86-da00-787155fc6996'::uuid) AND (value_ts >= '2025-01-01 00:00:00+00'::timestamp with time zone) AND (value_ts < '2025-01-02 09:20:00+00'::timestamp with time zone))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=2806
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..8.18 rows=1 width=1647) (actual time=0.010..0.010 rows=1 loops=7963)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Buffers: shared hit=31852
+ Planning Time: 0.499 ms
+ Execution Time: 108.316 ms
+(24 rows)
+
+--- EXPLAIN filter=eq_2 acl=acl mode=list tenant=large (actor 1, custom plan)
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=100340.86..100340.98 rows=50 width=1647) (actual time=138.893..138.925 rows=50 loops=1)
+   Buffers: shared hit=32180
+   ->  Sort  (cost=100340.86..100342.01 rows=461 width=1647) (actual time=104.712..104.733 rows=50 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 173kB
+         Buffers: shared hit=32180
+         ->  Result  (cost=625.65..100325.54 rows=461 width=1647) (actual time=10.415..103.775 rows=117 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=32180
+               ->  Nested Loop  (cost=625.65..100325.54 rows=461 width=1647) (actual time=10.372..103.597 rows=117 loops=1)
+                     Buffers: shared hit=32180
+                     ->  HashAggregate  (cost=625.21..718.05 rows=9284 width=32) (actual time=8.467..13.395 rows=8024 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 1169kB
+                           Buffers: shared hit=81
+                           ->  Index Only Scan Backward using rfv_text on record_field_values v  (cost=0.56..578.55 rows=9333 width=32) (actual time=0.072..2.982 rows=8024 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '6ebc2357-117b-ffb4-935f-c4127575a7b2'::uuid) AND (value_text = 'b2'::text))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=81
+                     ->  Index Scan using records_pkey on records r  (cost=0.42..10.79 rows=1 width=1647) (actual time=0.011..0.011 rows=0 loops=8024)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (id = v.record_id))
+                           Filter: ((state <> 'closed'::text) AND ((requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid) OR (assignment_group_id = ANY ('{969c31f2-d8fe-635a-5a2d-95d39e4e7489,2f067c2d-b39a-c447-6bd8-6f26d53e8105,e43d6642-9bbe-05be-b6a6-8d3a87bf4141}'::uuid[])) OR (hashed SubPlan 2)))
+                           Rows Removed by Filter: 1
+                           Buffers: shared hit=32099
+                           SubPlan 2
+                             ->  Index Only Scan using record_shares_pkey on record_shares s  (cost=0.29..4.31 rows=1 width=32) (actual time=0.086..0.090 rows=4 loops=1)
+                                   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (principal_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                   Heap Fetches: 0
+                                   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 1.623 ms
+ JIT:
+   Functions: 27
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 3.151 ms, Inlining 0.000 ms, Optimization 1.554 ms, Emission 33.297 ms, Total 38.002 ms
+ Execution Time: 142.006 ms
+(37 rows)
+
+--- EXPLAIN filter=eq_2 acl=none mode=list tenant=large (actor 1, custom plan)
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.99..12683.46 rows=50 width=1647) (actual time=0.569..23.401 rows=50 loops=1)
+   Buffers: shared hit=14301
+   ->  Result  (cost=0.99..1176679.87 rows=4639 width=1647) (actual time=0.567..23.372 rows=50 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+         Buffers: shared hit=14301
+         ->  Nested Loop Semi Join  (cost=0.99..1176679.87 rows=4639 width=1647) (actual time=0.559..23.319 rows=50 loops=1)
+               Buffers: shared hit=14301
+               ->  Index Scan using records_tenant_updated on records r  (cost=0.42..817909.07 rows=396981 width=1647) (actual time=0.027..7.299 rows=2854 loops=1)
+                     Index Cond: (tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=2856
+               ->  Index Only Scan using rfv_text on record_field_values v  (cost=0.56..0.89 rows=1 width=32) (actual time=0.005..0.005 rows=0 loops=2854)
+                     Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (field_id = '6ebc2357-117b-ffb4-935f-c4127575a7b2'::uuid) AND (value_text = 'b2'::text) AND (record_id = r.id))
+                     Heap Fetches: 0
+                     Buffers: shared hit=11445
+ Planning Time: 0.649 ms
+ Execution Time: 23.476 ms
+(16 rows)
+

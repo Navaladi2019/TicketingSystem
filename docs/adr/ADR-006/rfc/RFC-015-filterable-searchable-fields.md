@@ -2,7 +2,7 @@
 type: rfc
 id: RFC-015
 title: Filterable and searchable tenant fields — typed index table, late-flag backfill, free-text search, external store
-status: REVISED (rev 1)
+status: CLOSED (rev 1, final) — decided by ADR-006; search de-scoped to RFC-016
 date: 2026-11-11
 issue: TICK-714
 amends: PLAN-003 (sort and range on data fields), 2026-11-09 D25 decision (data-filter deferral)
