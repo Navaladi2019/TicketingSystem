@@ -368,6 +368,10 @@ jobs:
       # TICK-391: lib/nava.js REGISTERED, the pages and the kit zip.
       - name: Acceptance guide matches build.py
         run: make check-guide
+      # TICK-719: docs/handbook/**/*.html is current, its stamp is an ancestor
+      # of HEAD (this job has fetch-depth: 0), mermaid.min.js matches the pin.
+      - name: Handbook matches its sources
+        run: make check-handbook
       # The list is tools/ci/cisteps/required.yaml (TICK-297).
       - name: ci.yml keeps every required step
         run: make check-ci-steps
