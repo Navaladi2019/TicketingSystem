@@ -142,7 +142,7 @@ update, since the upsert's UPDATE changes `next` only, which no index covers.
 | From | Back to | How |
 |---|---|---|
 | R1 binary | R0 binary | Redeploy R0. Safe: the old PK still exists and R0's upsert arbitrates on it. Leave M1/M2 in place. |
-| M1/M2 schema | pre-M1 schema | Only after no R1 replica serves: `goose down-to 20261111122959`. Drops both indexes, then the columns (and the CHECK with them). |
+| M1/M2 schema | pre-M1 schema | Only after no R1 replica serves: `goose down-to 20261112192959`. Drops both indexes, then the columns (and the CHECK with them). |
 | R2 / M3 | anything earlier | **Not possible.** |
 
 **M3 is the point of no return.** After M3 the primary key is
