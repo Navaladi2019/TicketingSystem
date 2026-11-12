@@ -1,0 +1,4 @@
+# Story manifest (contract C-HB-1). One entry per story:
+#   id, issue, title, status (delivered | in-progress | planned),
+#   verdict_comment (link text only), bruno, evidence (repo paths)
+stories: []
