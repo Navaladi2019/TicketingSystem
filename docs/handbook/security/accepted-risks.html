@@ -283,7 +283,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>⚪ Info†</td>
 <td>No tenant self-administration of Keycloak in M1; the platform API does it.</td>
 <td>Accepted</td>
-<td>CTO / nava</td>
+<td>CTO / the human owner</td>
 <td>Epic 26 scoping</td>
 <td><a href="../../../docs/adr/ADR-001-platform-blueprint.md#5-residuals-accepted-by-nava-2026-10-15">ADR-001 §5</a></td>
 </tr>
@@ -542,7 +542,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <tr>
 <td>AR-TICK-388-01 (RS-1)</td>
 <td>⚪ Info</td>
-<td>"Agents never merge a PR that touches <code>internal/workflow/testdata/retired-histories.json</code>" is enforced by process only (the "MergePr" label), not by GitHub: agent PRs and the owner's come from the same <code>Navaladi2019</code> account, so CI can't tell them apart.</td>
+<td>"Agents never merge a PR that touches <code>internal/workflow/testdata/retired-histories.json</code>" is enforced by process only (the "MergePr" label), not by GitHub: agent PRs and the human owner's come from the same GitHub account, so CI can't tell them apart.</td>
 <td>Accepted (ADR-003, 2026-11-01)</td>
 <td>CTO</td>
 <td>Agents get their own GitHub identity; then CODEOWNERS plus "require review from code owners" on the manifest</td>
@@ -777,7 +777,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>AR-S10-02 (create latency on production storage)</td>
 <td>🟡 Low</td>
 <td>P3-36 measured 8-client same-type record create at p95 42.1 to 47.2 ms against 50 ms. That is a 2.8 ms margin on the small tenant, measured on the reference machine's WSL2 virtual disk (Docker Desktop on Windows), idle, without PgBouncer or HTTP transport. The same build read 52 to 90 ms on that disk when other work shared the machine. Production storage may flush WAL more slowly or less steadily, and a burst of creates on one type in one tenant could then miss 50 ms. Latency only: no data loss and no cross-tenant effect.</td>
-<td>Accepted (CTO, 2026-11-10; vknavaladi chose option A, 2026-11-11)</td>
+<td>Accepted (CTO, 2026-11-10; the human owner chose option A, 2026-11-11)</td>
 <td>Technical Architect</td>
 <td>The go-live benchmark on production storage misses 50 ms p95 for 8-client creates; then the CTO decides between the commit path (group commit, <code>commit_delay</code>) and the target</td>
 <td><a href="../../../docs/quality/acl-perf-800k.md#final-verdict-p3-36">P3-36 final verdict</a>; TICK-621</td>
@@ -786,7 +786,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>AR-TICK-563-01 (unlabelled PR merge)</td>
 <td>🟡 Low</td>
 <td>A pull request without the <code>ci:run</code> label runs only <code>changes</code>, <code>lint</code> and <code>story-branches</code>; its skipped <code>unit</code>, <code>integration</code>, <code>stack</code> and <code>coverage</code> jobs count as passed required checks, so it can merge into <code>main</code> untested. Since TICK-638 this no longer covers pull requests into a <code>TICK-*</code> story branch: they run every job and <code>full-suite</code> fails on a skipped one. The push to <code>main</code> then runs the jobs its diff needs, fast tier, and the daily full run on <code>main</code> runs every job (TICK-652); <code>main-red</code> opens a P0 on either.</td>
-<td>Accepted (vknavaladi, TICK-563, 2026-11-04)</td>
+<td>Accepted (the human owner, TICK-563, 2026-11-04)</td>
 <td>Quality, Testing &amp; CI Advisor</td>
 <td>A red <code>main</code> that a task PR without the label would have caught: then make a missing <code>ci:run</code> fail a check on pull requests into <code>main</code></td>
 <td><a href="../../../docs/delivery/decisions/2026-11-04-ci-run-label.md">Decision log 2026-11-04</a></td>
