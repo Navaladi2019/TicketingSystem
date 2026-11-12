@@ -183,13 +183,12 @@ func TestWorkflowDefinitionInvalidBodiesAre422AndNameTheStep(t *testing.T) {
 		name, body, pointer string
 		absent              string // a value the problem must not echo
 	}{
-		{"a step id", strings.Replace(valid, `"key": "wait", `, `"key": "wait", "id": "00000000-0000-4000-8000-0000000000aa", `, 1), "/steps/wait", "0000000000aa"},
-		{"a signal id", strings.Replace(wfBodyWithSignal(), `"name": "go"`, `"name": "go", "id": "00000000-0000-4000-8000-0000000000bb"`, 1), "/steps/gate", "0000000000bb"},
+		{"a step id", strings.Replace(valid, `"key": "wait", `, `"key": "wait", "id": "00000000-0000-4000-8000-0000000000aa", `, 1), "/steps/wait/id", "0000000000aa"},
+		{"a signal id", strings.Replace(wfBodyWithSignal(), `"name": "go"`, `"name": "go", "id": "00000000-0000-4000-8000-0000000000bb"`, 1), "/steps/gate/id", "0000000000bb"},
 		{"a top-level step_ids", strings.Replace(valid, `"start"`, `"step_ids": {"wait": "00000000-0000-4000-8000-0000000000cc"}, "start"`, 1), "", "0000000000cc"},
 		{"an unknown entity", wfBody("no_such_type", "short_description"), "/trigger/entity", "no_such_type"},
 		{"a set on a field the schema lacks", wfBody("incident", "no_such_field"), "/steps/mark/set/no_such_field", ""},
-		{"a field reference as a duration", strings.Replace(valid, `"PT1H"`, `"/secret_duration"`, 1), "/steps/wait", "secret_duration"},
-		{"not json", `{"format":`, "", ""},
+		{"a field reference as a duration", strings.Replace(valid, `"PT1H"`, `"/secret_duration"`, 1), "/steps/wait/duration", "secret_duration"},
 		{"an empty object", `{}`, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -219,6 +218,25 @@ func TestWorkflowDefinitionInvalidBodiesAre422AndNameTheStep(t *testing.T) {
 	}
 	if rec := e.do(t, http.MethodGet, "/api/v1/workflow-definitions/Bad-Key", "admin-a", "", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("get with a malformed key = %d, want 404", rec.Code)
+	}
+}
+
+// A body that is not JSON never reaches the handler: the contract validator
+// answers 400 validation_failed at /body, not the 422 of a definition that
+// parses but is not publishable.
+// covers: publishWorkflowDefinitionVersion 400
+func TestWorkflowDefinitionBodyThatIsNotJSONIs400(t *testing.T) {
+	e := newWFEnv(t)
+	code, b := e.wfPublish(t, "admin-a", "bad_one", "notjson-1", `{"format":`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d: %s", code, b)
+	}
+	var p etProblem
+	if err := json.Unmarshal(b, &p); err != nil || p.Code != problem.ValidationFailed {
+		t.Fatalf("problem = %+v, %v: %s", p, err, b)
+	}
+	if !slices.Contains(pointers(p), "/body") {
+		t.Errorf("pointers %v lack /body", pointers(p))
 	}
 }
 
