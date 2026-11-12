@@ -338,13 +338,21 @@ func newPipeline(e env, sink pipeline.EventSink) *pipeline.Pipeline {
 	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, sink, e.runner(), pipeline.SystemClock{})
 }
 
+// noLatencyBudget is the allocation timeout of the tests that check what a
+// create does, not how fast it allocates: a loaded CI host must not fail them
+// on the production 200 ms (ADR-005 A5; TICK-778, where 50 concurrent creates
+// through PgBouncer timed out on a cold pool).
+// TestAllocationTimeoutIsRetryableAndMeasured sets its own, short timeout,
+// and the starvation controls run on the production default.
+const noLatencyBudget = 5 * time.Second
+
 // runner is the pipeline's TxRunner: a PoolRunner on the allocator pool, or
-// on app when e has none.
+// on app when e has none, with the noLatencyBudget allocation timeout.
 func (e env) runner() pipeline.PoolRunner {
 	if e.alloc != nil {
-		return pipeline.PoolRunner{Pool: e.alloc}
+		return pipeline.PoolRunner{Pool: e.alloc, AllocTimeout: noLatencyBudget}
 	}
-	return pipeline.PoolRunner{Pool: e.app}
+	return pipeline.PoolRunner{Pool: e.app, AllocTimeout: noLatencyBudget}
 }
 
 // write runs one Write in its own committed tenant transaction.

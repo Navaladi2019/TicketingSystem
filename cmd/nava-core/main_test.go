@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 )
 
 // syncBuffer is a bytes.Buffer safe for the server goroutine and the test.
@@ -280,5 +281,44 @@ func TestRecoveredTurnsPanicIntoError(t *testing.T) {
 	want := errors.New("plain")
 	if got := recovered(func() error { return want }); !errors.Is(got, want) {
 		t.Errorf("recovered = %v, want fn's own error passed through", got)
+	}
+}
+
+// TICK-778 (S17): the first allocation after a restart went over the 200 ms
+// budget (ADR-005 A5) because the allocator pool had no connection yet. A
+// freshly started nava-core must not report ready until its allocator pool
+// holds a live connection. Here the API database answers (its probe is
+// stubbed) and the allocator pool's server refuses: /readyz must stay 503.
+func TestRunNotReadyUntilTheAllocatorPoolIsWarm(t *testing.T) {
+	prev := healthPostgres
+	t.Cleanup(func() { healthPostgres = prev })
+	healthPostgres = func(context.Context, string) (health.Check, func(), error) {
+		return health.Check{Name: "postgres", Critical: true, Probe: func(context.Context) error { return nil }}, func() {}, nil
+	}
+	public, admin := freeAddr(t), freeAddr(t)
+	start := runWith(map[string]string{
+		"NAVA_HTTP_ADDR": public, "NAVA_ADMIN_ADDR": admin,
+		"NAVA_DATABASE_URL":           "postgres://nava_app:pw@127.0.0.1:1/nava?sslmode=disable",
+		"NAVA_ALLOCATOR_DATABASE_URL": "postgres://nava_app:pw@127.0.0.1:1/nava_alloc?sslmode=disable",
+		"NAVA_OIDC_ISSUERS":           "http://127.0.0.1:1/realms/nava",
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	var out syncBuffer
+	done := make(chan error, 1)
+	go func() { done <- start(ctx, &out) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(20 * time.Second):
+			t.Error("run did not return after cancel")
+		}
+	})
+
+	// Several monitor rounds (1 s apart): ready in any of them is the bug.
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if code := get(t, "http://"+admin+"/readyz"); code == http.StatusOK {
+			t.Fatalf("/readyz = 200 with a cold allocator pool, want 503 until it holds a connection:\n%s", out.String())
+		}
 	}
 }

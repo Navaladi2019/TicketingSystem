@@ -44,7 +44,7 @@ func TestNewMonitorFailures(t *testing.T) {
 		{"bad temporal tls", tel, config.Dependencies{DatabaseURL: validDSN, TemporalTLS: config.TemporalTLS{CertFile: "missing.pem", KeyFile: "missing.key"}}, "temporal TLS"},
 	}
 	for _, tt := range tests {
-		mon, closeFn, err := newMonitor(t.Context(), log, tt.tel, config.Config{Deps: tt.deps})
+		mon, closeFn, err := newMonitor(t.Context(), log, tt.tel, config.Config{Deps: tt.deps}, nil)
 		if err == nil || mon != nil || closeFn != nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: mon=%v err=%v", tt.name, mon, err)
 		}
@@ -63,7 +63,7 @@ func fmtErr(err error) string {
 
 func TestNewMonitorBuildsWithUnconfiguredDependencies(t *testing.T) {
 	t.Parallel()
-	mon, closeFn, err := newMonitor(t.Context(), slog.New(slog.DiscardHandler), newTel(t), config.Config{})
+	mon, closeFn, err := newMonitor(t.Context(), slog.New(slog.DiscardHandler), newTel(t), config.Config{}, nil)
 	if err != nil || mon == nil || closeFn == nil {
 		t.Fatalf("mon=%v err=%v", mon, err)
 	}
@@ -143,7 +143,7 @@ func TestNewMonitorConstructorFailuresCloseWhatWasOpened(t *testing.T) {
 			return health.Check{}, nil, boom
 		}
 		t.Cleanup(func() { healthTemporal = orig })
-		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg); !errors.Is(err, boom) || mon != nil || closeFn != nil {
+		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg, nil); !errors.Is(err, boom) || mon != nil || closeFn != nil {
 			t.Fatalf("mon=%v err=%v", mon, err)
 		}
 	})
@@ -153,7 +153,7 @@ func TestNewMonitorConstructorFailuresCloseWhatWasOpened(t *testing.T) {
 			return nil, boom
 		}
 		t.Cleanup(func() { newOutboundClient = orig })
-		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg); !errors.Is(err, boom) || mon != nil || closeFn != nil {
+		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg, nil); !errors.Is(err, boom) || mon != nil || closeFn != nil {
 			t.Fatalf("mon=%v err=%v", mon, err)
 		}
 		if _, _, pool, closeFn, err := newResolver(t.Context(), log, tel, config.Config{Deps: config.Dependencies{
@@ -168,7 +168,7 @@ func TestNewMonitorConstructorFailuresCloseWhatWasOpened(t *testing.T) {
 			return nil, boom
 		}
 		t.Cleanup(func() { newHealthMonitor = orig })
-		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg); !errors.Is(err, boom) || mon != nil || closeFn != nil {
+		if mon, closeFn, err := newMonitor(t.Context(), log, tel, cfg, nil); !errors.Is(err, boom) || mon != nil || closeFn != nil {
 			t.Fatalf("mon=%v err=%v", mon, err)
 		}
 	})
