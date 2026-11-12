@@ -1,0 +1,31 @@
+# S2: record_search_terms (D12), 400k type, 3 searchable fields (title, summary 12 words, notes 40 words),
+# 19,851,854 term rows. 30 s per run, 8 clients. EXPLAIN is single-client, actor 1. (scratch/field-index-rls/s2_load.sh)
+EXPLAIN q1_common acl  Execution Time: 0.781 ms
+filter=q1_common acl=acl mode=list tenant=large tps=970.041626 failed=0 tx=29054 p50_ms=6.41 p95_ms=17.47 p99_ms=32.48 max_ms=82.42
+EXPLAIN q1_common none  Execution Time: 0.190 ms
+filter=q1_common acl=none mode=list tenant=large tps=1105.173693 failed=0 tx=33102 p50_ms=5.45 p95_ms=16.50 p99_ms=32.97 max_ms=79.95
+EXPLAIN q1_5pct acl  Execution Time: 771.446 ms
+filter=q1_5pct acl=acl mode=list tenant=large tps=17.897969 failed=0 tx=541 p50_ms=397.00 p95_ms=712.75 p99_ms=940.65 max_ms=1155.94
+EXPLAIN q1_5pct none  Execution Time: 84.068 ms
+filter=q1_5pct acl=none mode=list tenant=large tps=72.267896 failed=0 tx=2169 p50_ms=102.96 p95_ms=221.07 p99_ms=303.36 max_ms=438.60
+EXPLAIN q1_05pct acl  Execution Time: 62.728 ms
+filter=q1_05pct acl=acl mode=list tenant=large tps=150.389723 failed=0 tx=4504 p50_ms=47.40 p95_ms=94.55 p99_ms=124.87 max_ms=163.75
+EXPLAIN q1_05pct none  Execution Time: 47.403 ms
+filter=q1_05pct acl=none mode=list tenant=large tps=138.239966 failed=0 tx=4140 p50_ms=50.85 p95_ms=107.58 p99_ms=152.82 max_ms=226.98
+EXPLAIN q1_005pct acl  Execution Time: 6.422 ms
+filter=q1_005pct acl=acl mode=list tenant=large tps=656.183115 failed=0 tx=19656 p50_ms=10.21 p95_ms=23.25 p99_ms=32.53 max_ms=78.25
+EXPLAIN q1_005pct none  Execution Time: 3.280 ms
+filter=q1_005pct acl=none mode=list tenant=large tps=473.269965 failed=0 tx=14171 p50_ms=15.12 p95_ms=30.65 p99_ms=39.41 max_ms=63.53
+EXPLAIN q2 acl  Execution Time: 1091.949 ms
+filter=q2 acl=acl mode=list tenant=large tps=12.832894 failed=0 tx=387 p50_ms=524.87 p95_ms=1160.66 p99_ms=1405.23 max_ms=1479.30
+EXPLAIN q2 none  Execution Time: 147.499 ms
+filter=q2 acl=none mode=list tenant=large tps=29.820544 failed=0 tx=897 p50_ms=230.51 p95_ms=528.12 p99_ms=644.03 max_ms=728.16
+EXPLAIN q3 acl  Execution Time: 141.154 ms
+filter=q3 acl=acl mode=list tenant=large tps=78.975823 failed=0 tx=2362 p50_ms=88.07 p95_ms=194.03 p99_ms=246.23 max_ms=294.68
+EXPLAIN q3 none  Execution Time: 141.920 ms
+filter=q3 acl=none mode=list tenant=large tps=30.461071 failed=0 tx=916 p50_ms=237.69 p95_ms=417.57 p99_ms=548.68 max_ms=655.65
+EXPLAIN qp acl  Execution Time: 1070.225 ms
+filter=qp acl=acl mode=list tenant=large tps=8.707648 failed=0 tx=266 p50_ms=851.84 p95_ms=1370.84 p99_ms=1629.52 max_ms=1796.83
+EXPLAIN qp none  Execution Time: 494.176 ms
+filter=qp acl=none mode=list tenant=large tps=8.619560 failed=0 tx=263 p50_ms=870.57 p95_ms=1290.47 p99_ms=1486.08 max_ms=1705.57
+# Estimates (EXPLAIN, ACL form): q1_5pct est 17,270 vs actual 20,664 term rows; qp est 33,925 vs 50,972.
