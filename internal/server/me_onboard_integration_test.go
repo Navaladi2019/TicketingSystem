@@ -440,7 +440,13 @@ func TestGetMeDatabaseDownIs500(t *testing.T) {
 	dead.Close() // the identity store loses its database
 	rec := v.call(t, http.MethodGet, "/api/v1/me", v.tenantToken(t, "a-admin", "tenant-a", "org-a"), "", "")
 	wantStatus(t, rec, http.StatusInternalServerError, problem.InternalError)
-	if strings.Contains(rec.Body.String(), "pgstore") || strings.Contains(rec.Body.String(), "5432") {
+	// Drop `instance` (a random hex request id that may contain "5432").
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("not a problem: %v: %s", err, rec.Body)
+	}
+	delete(body, "instance")
+	if b, _ := json.Marshal(body); strings.Contains(string(b), "pgstore") || strings.Contains(string(b), "5432") {
 		t.Errorf("500 body leaks the cause: %s", rec.Body)
 	}
 }
