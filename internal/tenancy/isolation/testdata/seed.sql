@@ -232,8 +232,15 @@ INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_ki
 -- tenant A's has one, under the same version numbers, so a lookup by key or
 -- version alone would find tenant B's rows. Tenant B's triage is
 -- 0d…9d2, the definition of its seeded cascade claim; tenant A's is 0d…9d3.
+-- Tenant A also holds a definition under tenant B's triage id 0d…9d2 (key
+-- shared_claim, never published), so the cascade case can claim, in tenant
+-- A, the very (origin, record, definition) key tenant B has claimed:
+-- cascade_start's (tenant_id, definition_id) foreign key checks every claim
+-- (TICK-755). The definition only tenant B holds is escalate, 0b…12b9.
 INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d3', 'triage',
+        '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000003a1'),
+    ('0a000000-0000-4000-8000-00000000000a', '0d000000-0000-4000-8000-0000000009d2', 'shared_claim',
         '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000003a1'),
     ('0b000000-0000-4000-8000-00000000000b', '0d000000-0000-4000-8000-0000000009d2', 'triage',
         '0b000000-0000-4000-8000-0000000006b1', 2, '0b000000-0000-4000-8000-0000000003b1'),
