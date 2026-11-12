@@ -137,8 +137,22 @@ func (w Writer) Write(ctx context.Context, tenantID, recordID, _, cause uuid.UUI
 	if err != nil {
 		return fmt.Errorf("%w: %w", interp.ErrForbidden, err)
 	}
+	actor := identity.Principal{TenantID: tenantID}
 	err = workerguard.InTenantTx(ctx, w.Pool, func(tx pgx.Tx) error {
 		causation, err := workerguard.ResolveCause(ctx, tx, cause)
+		if errors.Is(err, workerguard.ErrStaleCause) {
+			// The cause went stale: a newer delivery reached the run. If this
+			// step's write already committed (its completion was lost and
+			// Temporal retried), the earlier result stands and nothing is
+			// written; otherwise the stale cause is refused as before.
+			replayed, rerr := pipeline.Replayed(ctx, tx, actor, recordID, idempotencyKey)
+			if rerr != nil {
+				return rerr
+			}
+			if replayed {
+				return nil
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -152,7 +166,7 @@ func (w Writer) Write(ctx context.Context, tenantID, recordID, _, cause uuid.UUI
 			RecordID:        recordID,
 			ExpectedVersion: version,
 			Data:            set,
-			Actor:           identity.Principal{TenantID: tenantID},
+			Actor:           actor,
 			Source:          pipeline.SourceWorkflow,
 			Causation:       causation,
 			IdempotencyKey:  idempotencyKey,

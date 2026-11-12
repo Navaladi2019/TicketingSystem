@@ -37,13 +37,15 @@ ADR-005 §10 (`docs/adr/ADR-005-record-numbering.md` on `main`). A `gaps` type (
 
 ## Worker pipeline pool
 
-The records pipeline's `TxRunner` opens a second pooled connection while the write's transaction still holds one (it writes the `cascade_too_deep` / `cascade_rejected` audit entry so it survives the write's rollback). On the worker's own pool, a burst of workflow writes could hold every connection and wait for a second one (TICK-88 security review, availability). `nava-worker` therefore gives the pipeline's `TxRunner` **its own pool**, `pipelineMaxConns = 4` (`cmd/nava-worker/main.go`), the same width as nava-core's allocator pool. Its transactions are one short audit INSERT, so 4 connections serve a burst; a caller beyond them waits on that pool only.
+The records pipeline's `TxRunner` opens a second pooled connection while the write's transaction still holds one (it writes the `cascade_too_deep` / `cascade_rejected` audit entry so it survives the write's rollback). If both came from one pool, or from pools wider than the server pool behind them, a burst of workflow writes could hold every connection inside an open transaction and wait for one more (TICK-88 security review, availability; TICK-712 review, PgBouncer).
+
+`nava-worker` therefore fixes both widths in code, whatever `pool_max_conns` says, and caps its PgBouncer server pool to their sum:
 
 | Budget | Limit | Baseline | Source | Owner |
 |---|---|---|---|---|
-| Worker pipeline pool (`nava_worker`, own client-side pool) | At most 4 client connections, and a write never waits on the worker pool for it | `TestWorkflowWriteBurstDoesNotExhaustThePool` (`internal/workflow/recordports`, integration): a burst of depth-exceeding writes, 4-wide pipeline pool, every write gets its `cascade_too_deep` entry and the pool recovers | S11b P3-43 (TICK-712) | Principal Software Engineer |
+| Worker pools vs. `nava_worker` PgBouncer pool | `workerMaxConns` (10) + `pipelineMaxConns` (4) + readiness probe (1) = **15 ≤ `[users] nava_worker pool_size` = 15**. Asserted by `TestWorkerPoolsFitPgBouncer` (`deploy/compose/connbudget_test.go`), which reads both constants from `cmd/nava-worker/main.go` | A write holds one main-pool connection and needs one pipeline-pool connection for its audit entry, so at most 10 + 4 server connections are in use and the probe's 1 is never starved. `TestWorkflowWriteBurstDoesNotExhaustThePool` (`internal/records/pipeline`, integration) runs 24 depth-exceeding writes against a 4-wide main pool and a 4-wide pipeline pool: every write gets its `cascade_too_deep` entry and the pools recover (it connects to PostgreSQL directly; the PgBouncer bound is the test above) | S11b P3-43 (TICK-712) | Principal Software Engineer |
 
-Through PgBouncer both worker pools are one (database entry, role) server pool, `nava_worker`'s 20 (`pool_size`), so the table below does not change. The client-side width bounds how many of them the pipeline can hold; connecting to PostgreSQL directly, the worker can hold up to its pool width plus 4.
+Capping `nava_worker` at 15 (it was `default_pool_size`, 20) lowers the connection budget below by 5.
 
 ## Connection sizing
 
@@ -56,7 +58,7 @@ With R nava-core replicas behind one PgBouncer:
 ```
   (main 20 + allocator 4) × R            nava/nava_app (default_pool_size) + nava_alloc/nava_app (ADR-005 A5)
 + 5                                      nava/nava_audit_reader, per PgBouncer instance (ADR-004-A1 A1-8)
-+ 53                                     workers: nava_worker 20, nava_relay 20, nava_onboard 8, nava_purge 3, nava_groupsync 2
++ 48                                     workers: nava_worker 15, nava_relay 20, nava_onboard 8, nava_purge 3, nava_groupsync 2
 + 2                                      pgbouncer_auth, the auth_query lookup, 1 per database entry
 + 20                                     Keycloak (KC_DB_POOL_MAX_SIZE)
 + 120                                    Temporal: 4 services in one process × (20 default store + 10 visibility)
@@ -64,11 +66,11 @@ With R nava-core replicas behind one PgBouncer:
 ≤ max_connections 250 − superuser_reserved_connections 3 = 247
 ```
 
-At R = 1 (compose) the total is **226**, 21 under the limit. Each further replica adds 24, so a second replica needs `max_connections` raised too: R replicas need `max_connections ≥ 226 + 24 × (R − 1) + 3`. Raise `default_pool_size` (or give the `nava` entry a `pool_size`) to `20 × R` and `nava_alloc`'s `pool_size` to `4 × R` with it.
+At R = 1 (compose) the total is **221**, 26 under the limit. Each further replica adds 24, so a second replica needs `max_connections` raised too: R replicas need `max_connections ≥ 221 + 24 × (R − 1) + 3`. Raise `default_pool_size` (or give the `nava` entry a `pool_size`) to `20 × R` and `nava_alloc`'s `pool_size` to `4 × R` with it.
 
 - The main pool's server side is shared: today one PgBouncer gives `nava_app` 20 server connections for every nava-core replica and nava-onboard's `nava_app` pools together.
 - The allocator has its own entry, `nava_alloc`, so open creates holding every `nava` server connection cannot starve it (TICK-657).
-- The worker and relay roles keep `default_pool_size` because their client pools use pgxpool's default width, `max(4, CPUs)`. The purge, onboard and groupsync caps match their clients' `MaxConns`, so the caps never make a client wait.
-- Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 226.
+- The relay role keeps `default_pool_size` because its client pool uses pgxpool's default width, `max(4, CPUs)`. The worker role is capped at 15 (main pool 10, pipeline pool 4, probe 1; see "Worker pipeline pool"). The purge, onboard and groupsync caps match their clients' `MaxConns`, so the caps never make a client wait.
+- Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 221.
 - Trigger to revisit (AR-TICK-653-04): more than about 10 API replicas, or connection pressure on PostgreSQL. At that point the allocator alone is 40 server connections.
 - CI's integration pooler (`scripts/ci/pgbouncer/pooled.ini`) mirrors this with `nava_alloc` `pool_size=4` against a 5-connection `nava` pool. `isolation.ini` and `noprep.ini` have no allocator entry because neither suite allocates numbers.

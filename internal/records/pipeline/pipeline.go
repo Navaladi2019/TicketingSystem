@@ -1110,3 +1110,30 @@ func deepCopy(m map[string]any) map[string]any {
 	out, _ := store.DecodeObject(b) // and decodes back
 	return out
 }
+
+// Replayed reports whether actor already has a committed update of recordID
+// under idempotency key: a read-only lookup of record_write_keys in tx, which
+// must come from tenancy.InTenantTx of actor's tenant. It writes nothing and
+// takes no part in a write; a caller whose own check refused a replayed
+// command (the workflow writer, whose causation went stale after the write
+// committed) uses it to answer with the earlier result instead. A key that
+// names another actor's write, a create or another record is not a replay.
+func Replayed(ctx context.Context, tx pgx.Tx, actor identity.Principal, recordID uuid.UUID, key string) (bool, error) {
+	if key == "" || recordID == uuid.Nil {
+		return false, nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return false, fmt.Errorf("pipeline: %w", err)
+	}
+	if actor.TenantID != tenant {
+		return false, authz.ErrForbidden
+	}
+	var k *store.WriteKey
+	b := &pgx.Batch{}
+	store.QueueWriteKeyByKey(b, tenant, optional(actor.PrincipalID), key, &k)
+	if err := tx.SendBatch(ctx, b).Close(); err != nil {
+		return false, fmt.Errorf("pipeline: read write key: %w", err)
+	}
+	return k != nil && k.Action == OpUpdate.String() && k.RecordID == recordID, nil
+}

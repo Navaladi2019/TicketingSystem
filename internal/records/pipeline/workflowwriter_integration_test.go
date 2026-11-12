@@ -477,3 +477,85 @@ func TestWaitTracker_SetBlocksBehindAnInFlightWrite(t *testing.T) {
 		t.Errorf("run waits on a stale version")
 	}
 }
+
+// A replay whose cause has gone stale returns the earlier result (TICK-712
+// review, round 1): the step's write committed, its completion was lost, a
+// newer delivery reached the run, and Temporal retried with the same key and
+// the old cause. Nothing is written again. A new key under the stale cause is
+// still refused.
+func TestWorkflowWriter_ReplayWithAStaleCauseReturnsTheEarlierResult(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	w := newWorker(t, e)
+	r := mustCreate(t, e, newPipeline(e, nil), f, map[string]any{"title": "printer"})
+	run, _ := openRun(t, e, f, r.RecordID, false)
+	c1 := seedCauseRow(t, e, f.id, run, uuid.New(), 1, time.Now().Add(-time.Minute))
+	apply := func(cause uuid.UUID, key string, set map[string]any) error {
+		return asRun(t, f.id, run, func(ctx context.Context) error {
+			return w.writer.Write(ctx, f.id, r.RecordID, uuid.New(), cause, key, set)
+		})
+	}
+	if err := apply(c1, "K", map[string]any{"status": "closed"}); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	version, entries := versionOf(t, e, r.RecordID), len(historyOf(t, e, f.id, r.RecordID))
+
+	// A newer delivery reaches the run: C1 is now stale.
+	seedCauseRow(t, e, f.id, run, uuid.New(), 2, time.Now())
+	if err := apply(c1, "K", map[string]any{"status": "closed"}); err != nil {
+		t.Fatalf("replay under a stale cause: %v, want the earlier result (nil)", err)
+	}
+	if got := versionOf(t, e, r.RecordID); got != version {
+		t.Errorf("record at version %d after the replay, want %d", got, version)
+	}
+	if got := len(historyOf(t, e, f.id, r.RecordID)); got != entries {
+		t.Errorf("%d history entries after the replay, want %d", got, entries)
+	}
+
+	// Not a replay: another key, or the same key on another record.
+	if err := apply(c1, "K2", map[string]any{"summary": "new"}); !errors.Is(err, interp.ErrForbidden) {
+		t.Errorf("a new key under a stale cause: %v, want ErrForbidden", err)
+	}
+	r2 := mustCreate(t, e, newPipeline(e, nil), f, map[string]any{"title": "scanner"})
+	err := asRun(t, f.id, run, func(ctx context.Context) error {
+		return w.writer.Write(ctx, f.id, r2.RecordID, uuid.New(), c1, "K", map[string]any{"summary": "other record"})
+	})
+	if !errors.Is(err, interp.ErrForbidden) {
+		t.Errorf("key K naming another record under a stale cause: %v, want ErrForbidden", err)
+	}
+	if got := versionOf(t, e, r2.RecordID); got != r2.Version {
+		t.Errorf("the other record moved to version %d", got)
+	}
+}
+
+// The other branch of the amendment: the wait commits first, then a write, and
+// the run is signalled. The wait is set through the real tracker at the
+// version the real reader returned; the write's sink then finds the waiter.
+func TestWaitTracker_WaitCommitsFirstThenAWriteSignalsTheRun(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	w := newWorker(t, e)
+	p := newPipeline(e, eventsink.Sink{})
+	r := mustCreate(t, e, p, f, map[string]any{"title": "printer"})
+	run, _ := openRun(t, e, f, r.RecordID, false)
+	signal := uuid.New()
+
+	if err := asRun(t, f.id, run, func(ctx context.Context) error {
+		_, version, err := w.reader.Read(ctx, f.id, r.RecordID)
+		if err != nil {
+			return err
+		}
+		return w.waits.SetRecordChangedWait(ctx, f.id, r.RecordID, &signal, version)
+	}); err != nil {
+		t.Fatalf("walk then wait: %v", err)
+	}
+	if n := len(signalsTo(t, e, f.id, run)); n != 0 {
+		t.Fatalf("%d signals before any write, want 0", n)
+	}
+	if _, err := write(context.Background(), e, p, f.id, updateCmd(f, r.RecordID, r.Version, map[string]any{"summary": "later"})); err != nil {
+		t.Fatal(err)
+	}
+	if got := signalsTo(t, e, f.id, run); len(got) != 1 {
+		t.Fatalf("%d signals to the waiting run after the write, want 1", len(got))
+	}
+}
