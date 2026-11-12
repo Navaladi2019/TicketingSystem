@@ -405,11 +405,9 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 		cfg.MaxConns = size
 		return env{super: base.super, app: newPool(t, cfg), platform: base.platform}
 	}
-	// The type's first create runs alone, so the concurrent runs below test
-	// starvation, not the first insert of the counter row, which races
-	// between M2 and M3 (TestConcurrentFirstCreatesOfATypeAllSucceed).
-	// TODO(TODO-S17-01): P6-02 (TICK-666) may drop this warm-up with the skip.
-	mustCreate(t, base, newPipeline(base, nil), f, map[string]any{"title": "first"})
+	// No warm-up: the first run's creates race the first insert of the
+	// counter row while both unique indexes exist (M2 to M3), which R1's one
+	// retry absorbs (ADR-005-E1, TICK-666).
 	const direct = 4
 	t.Run("direct, allocator pool", func(t *testing.T) {
 		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))
@@ -428,7 +426,7 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 		shared := allocPool(t, bounced.app.Config().ConnString())
 		allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool))
 	})
-	if got := numbers(t, base, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 1+2*direct+2*serverPool)) {
-		t.Fatalf("numbers = %v, want INC0000001 (the warm-up) and INC0000002..%d from the allocator pool runs only", got, 1+2*direct+2*serverPool)
+	if got := numbers(t, base, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 2*direct+2*serverPool)) {
+		t.Fatalf("numbers = %v, want INC0000001..%d from the allocator pool runs only", got, 2*direct+2*serverPool)
 	}
 }

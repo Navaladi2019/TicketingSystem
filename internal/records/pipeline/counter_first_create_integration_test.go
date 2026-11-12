@@ -7,7 +7,9 @@
 // only, so two concurrent FIRST upserts of one type can fail with 23505 on
 // the other index (scratch/tick-665/README.md: 15,533 R0 and 19,829 R1
 // failures in 160,000 first upserts). The fix is R1's allocation retrying
-// once on that 23505 (TICK-666, P6-02).
+// once on that 23505 (TICK-666, P6-02). It is also the guard on the
+// isolation level: at REPEATABLE READ the same race raises 40001, which is
+// not retried (ADR-005-E1).
 
 package pipeline_test
 
@@ -30,9 +32,6 @@ import (
 // type (allocation last inside each create's transaction). Each round is a
 // fresh tenant, so every round races the first insert of its counter row.
 func TestConcurrentFirstCreatesOfATypeAllSucceed(t *testing.T) {
-	// TODO(TODO-S17-01): P6-02 (TICK-666) adds the retry and removes this skip.
-	t.Skip("TICK-666 (P6-02): R1 retries the counter upsert once on 23505 on record_counters_pkey or record_counters_scoped_key; until then concurrent first creates race between M2 and M3")
-
 	const (
 		creates = 8
 		rounds  = 15

@@ -77,6 +77,8 @@ func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uu
 		})
 	}
 	info, err := alloc()
+	// TODO(TODO-S17-02): remove this retry (and the gapless savepoint) with
+	// M3 (S18/R2): with one unique index left, store.CounterRace never fires.
 	if store.CounterRace(err) {
 		r.Metrics.retried(ctx, metadata.NumberingGaps)
 		var again tenancy.AllocInfo

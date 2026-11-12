@@ -252,6 +252,8 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	// it, the batch is sent once more and its upsert, seeing the winner's
 	// committed row (READ COMMITTED), takes the UPDATE arm. Once, and for
 	// no other error.
+	// TODO(TODO-S17-02): remove this retry (and the gapless savepoint) with
+	// M3 (S18/R2): with one unique index left, store.CounterRace never fires.
 	if gapless && store.CounterRace(err) {
 		w.p.allocMetrics().retried(ctx, metadata.NumberingGapless)
 		if err = store.RetryNumbered(ctx, w.tx); err != nil {

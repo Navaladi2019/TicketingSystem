@@ -84,7 +84,11 @@ const (
 // counter the loser can fail with 23505 on the other index, after the
 // winner committed. Retried once, the upsert sees the winner's row and takes
 // the UPDATE arm (READ COMMITTED). It is never another error, and never a
-// violation of another table's index.
+// violation of another table's index. Correct at READ COMMITTED only: at
+// REPEATABLE READ the race raises 40001, which is deliberately not matched.
+//
+// TODO(TODO-S17-02): remove with M3 (S18/R2), with the numberSavepoint and
+// both retry sites: after M3 this can never match.
 func CounterRace(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505" && pe.TableName == "record_counters" &&

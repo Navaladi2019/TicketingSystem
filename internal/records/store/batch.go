@@ -317,6 +317,8 @@ type Numbered struct {
 // numberSavepoint is the savepoint QueueInsertNumbered opens before its
 // upsert, so the create can retry the upsert once after CounterRace
 // (RetryNumbered) instead of losing its transaction.
+//
+// TODO(TODO-S17-02): remove with M3 (S18/R2), with CounterRace.
 const numberSavepoint = "nava_number"
 
 // QueueInsertNumbered queues a `gapless` type's numbering and insert (ADR-005
