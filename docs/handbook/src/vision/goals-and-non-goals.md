@@ -26,7 +26,6 @@ ADR-001 and its reading guide list what is deliberately left out, because each i
 - Tenant self-service administration of the identity provider (residual R3); the platform API does it.
 - GraphQL. It arrives later, as a read surface over the same authorization layer.
 - Encrypting workflow histories per tenant (residual R1). Workflow payloads carry references only.
-- Shared database topology (decision G7) is not a goal in itself; it is a decision that can change without weakening isolation.
 
 ## Planned, not on `main`
 

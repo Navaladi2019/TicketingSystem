@@ -45,7 +45,7 @@
 <li><strong>Tenant wall.</strong> The row-level-security rule set that makes a query without a tenant return nothing. <a href="../vision/tenant-wall.html">I1</a>.</li>
 <li><strong>Row-level security (RLS) and FORCE RLS.</strong> A PostgreSQL feature that adds an invisible "only this tenant's rows" filter to every query. <code>FORCE</code> applies it even to the table's owner. <a href="../vision/tenant-wall.html">I1</a>.</li>
 <li><strong>Principal.</strong> The authenticated caller of an API request, a user or a service, resolved from a verified token inside one tenant. <a href="../vision/tenant-source.html">I2</a>.</li>
-<li><strong>Group.</strong> A set of principals in one tenant, synchronised from the identity provider, used by access rules. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
+<li><strong>Group.</strong> A set of principals in one tenant, changed only through the platform API (tenants cannot administer Keycloak in Milestone 1, residual R3) and mirrored from Keycloak into the platform's identity tables by the group sync (<code>internal/groupsync</code>); used by access rules. <a href="../vision/one-authorization-layer.html">I5</a>.</li>
 <li><strong>Identity port and adapter.</strong> The core-owned interface to the identity provider and the single package that talks to Keycloak. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
 <li><strong>Platform-verified source.</strong> A tenant value that comes from a validated token via the identity binding table, or from a row the platform wrote. <a href="../vision/tenant-source.html">I2</a>.</li>
 </ul>
@@ -84,7 +84,7 @@
 <h2 id="process-words">Process words</h2>
 <ul>
 <li><strong>Invariant.</strong> A rule that must always hold; changing one needs a new signed ADR. <a href="../vision/invariants.html">The nine invariants</a>.</li>
-<li><strong>Decision (D and G numbers).</strong> A choice recorded in ADR-001, such as D26 or G7, that is not an invariant. <a href="../vision/goals-and-non-goals.html">Goals and non-goals</a>.</li>
+<li><strong>Decision (D and G numbers).</strong> D numbers are decisions in ADR-001 section 2; G numbers are the TICK-2 gaps it closes (G7 is recorded as a decision). <a href="../vision/goals-and-non-goals.html">Goals and non-goals</a>.</li>
 <li><strong>Goal and non-goal.</strong> What Milestone 1 sets out to do, and what it deliberately leaves out. <a href="../vision/goals-and-non-goals.html">Goals and non-goals</a>.</li>
 <li><strong>Configuration, not code.</strong> Tenant changes are data, never new code or schema changes. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>
 <li><strong>Advisory AI.</strong> AI may suggest, and change data only above a recorded confidence threshold. <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>.</li>

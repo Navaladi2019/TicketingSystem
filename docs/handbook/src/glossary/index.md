@@ -14,7 +14,7 @@ Terms used across the handbook, including every term that appears in a vision-se
 - **Tenant wall.** The row-level-security rule set that makes a query without a tenant return nothing. [I1](../vision/tenant-wall.md).
 - **Row-level security (RLS) and FORCE RLS.** A PostgreSQL feature that adds an invisible "only this tenant's rows" filter to every query. `FORCE` applies it even to the table's owner. [I1](../vision/tenant-wall.md).
 - **Principal.** The authenticated caller of an API request, a user or a service, resolved from a verified token inside one tenant. [I2](../vision/tenant-source.md).
-- **Group.** A set of principals in one tenant, synchronised from the identity provider, used by access rules. [I5](../vision/one-authorization-layer.md).
+- **Group.** A set of principals in one tenant, changed only through the platform API (tenants cannot administer Keycloak in Milestone 1, residual R3) and mirrored from Keycloak into the platform's identity tables by the group sync (`internal/groupsync`); used by access rules. [I5](../vision/one-authorization-layer.md).
 - **Identity port and adapter.** The core-owned interface to the identity provider and the single package that talks to Keycloak. [I8](../vision/contracts-configuration-advisory-ai.md).
 - **Platform-verified source.** A tenant value that comes from a validated token via the identity binding table, or from a row the platform wrote. [I2](../vision/tenant-source.md).
 
@@ -53,7 +53,7 @@ Terms used across the handbook, including every term that appears in a vision-se
 ## Process words
 
 - **Invariant.** A rule that must always hold; changing one needs a new signed ADR. [The nine invariants](../vision/invariants.md).
-- **Decision (D and G numbers).** A choice recorded in ADR-001, such as D26 or G7, that is not an invariant. [Goals and non-goals](../vision/goals-and-non-goals.md).
+- **Decision (D and G numbers).** D numbers are decisions in ADR-001 section 2; G numbers are the TICK-2 gaps it closes (G7 is recorded as a decision). [Goals and non-goals](../vision/goals-and-non-goals.md).
 - **Goal and non-goal.** What Milestone 1 sets out to do, and what it deliberately leaves out. [Goals and non-goals](../vision/goals-and-non-goals.md).
 - **Configuration, not code.** Tenant changes are data, never new code or schema changes. [I8](../vision/contracts-configuration-advisory-ai.md).
 - **Advisory AI.** AI may suggest, and change data only above a recorded confidence threshold. [I8](../vision/contracts-configuration-advisory-ai.md).
