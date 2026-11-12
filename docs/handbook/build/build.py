@@ -69,33 +69,79 @@ def _unquote(s):
     return s
 
 
-def _split_flow(inner):
-    items, cur, quote = [], [], None
+def _split_top(inner):
+    """Split a flow collection's inside on top-level commas (outside quotes and brackets)."""
+    items, cur, quote, depth = [], [], None, 0
     for ch in inner:
         if quote:
             cur.append(ch)
             if ch == quote:
                 quote = None
-        elif ch in "\"'":
+            continue
+        if ch in "\"'":
             quote = ch
-            cur.append(ch)
-        elif ch == ",":
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
             items.append("".join(cur))
             cur = []
-        else:
-            cur.append(ch)
+            continue
+        cur.append(ch)
     if "".join(cur).strip():
         items.append("".join(cur))
-    return [_unquote(x) for x in items]
+    return items
+
+
+def _split_flow(inner):
+    return [_scalar(x) for x in _split_top(inner)]
+
+
+def _flow_map(inner):
+    out = {}
+    for item in _split_top(inner):
+        key, sep, rest = _split_key(item.strip())
+        if not sep:
+            raise ValueError("not a key: value pair in a flow mapping: " + item.strip())
+        if key in out:
+            raise ValueError("duplicate key " + key)
+        out[key] = _scalar(rest) if rest.strip() else ""
+    return out
+
+
+def _split_key(text):
+    """key, ':', rest; the key may be double- or single-quoted."""
+    if text[:1] in "\"'":
+        end = text.find(text[0], 1)
+        if end > 0 and text[end + 1:end + 2] == ":":
+            return _unquote(text[:end + 1]), ":", text[end + 2:]
+    key, sep, rest = text.partition(":")
+    return _unquote(key), sep, rest
 
 
 def _scalar(v):
     v = v.strip()
     if v.startswith("[") and v.endswith("]"):
         return _split_flow(v[1:-1])
-    if v == "{}":
-        return {}
+    if v.startswith("{") and v.endswith("}"):
+        return _flow_map(v[1:-1])
     return _unquote(v)
+
+
+def _depth(s):
+    d, quote = 0, None
+    for ch in s:
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "[{":
+            d += 1
+        elif ch in "]}":
+            d -= 1
+    return d
 
 
 def parse_yaml(text):
@@ -105,8 +151,13 @@ def parse_yaml(text):
     lines = []
     for raw in text.replace("\r\n", "\n").split("\n"):
         s = _strip_comment(raw)
-        if s.strip():
-            lines.append((len(s) - len(s.lstrip(" ")), s.strip()))
+        if not s.strip():
+            continue
+        if lines and _depth(lines[-1][1]) > 0:
+            # a flow collection continued on the next line
+            lines[-1] = (lines[-1][0], lines[-1][1] + " " + s.strip())
+            continue
+        lines.append((len(s) - len(s.lstrip(" ")), s.strip()))
     if not lines or [l[1] for l in lines] == ["{}"]:
         return {}
     value, pos = _block(lines, 0, lines[0][0])
@@ -125,15 +176,21 @@ def _mapping(lines, pos, indent):
     out = {}
     while pos < len(lines) and lines[pos][0] == indent and not lines[pos][1].startswith("- "):
         text = lines[pos][1]
-        key, sep, rest = text.partition(":")
+        key, sep, rest = _split_key(text)
         if not sep:
             raise ValueError("not a key: value line: " + text)
-        key = _unquote(key)
         if key in out:
             raise ValueError("duplicate key " + key)
         rest = rest.strip()
         pos += 1
-        if rest:
+        if rest in (">", ">-", "|", "|-"):
+            # a block scalar: folded (>) joins its lines with spaces, literal (|) with newlines
+            body = []
+            while pos < len(lines) and lines[pos][0] > indent:
+                body.append(lines[pos][1])
+                pos += 1
+            out[key] = (" " if rest[0] == ">" else "\n").join(body)
+        elif rest:
             out[key] = _scalar(rest)
         elif pos < len(lines) and (lines[pos][0] > indent or
                                    (lines[pos][0] == indent and lines[pos][1].startswith("- "))):
@@ -295,11 +352,15 @@ class Facts:
         self.operations, self.op_list = {}, []
         self.tables, self.table_list = {}, []
         self.areas = {}
+        self.area_of = {}
+        self.grants, self.audited = None, None
+        self.data_notes = {}
         self.invariants = {}
         self.tests = set()
         self.problems = []
         for load in (self.load_adrs, self.load_stories, self.load_operations,
-                     self.load_schema, self.load_invariants, self.load_tests):
+                     self.load_schema, self.load_db_manifests, self.load_data_notes,
+                     self.load_invariants, self.load_tests):
             try:
                 load()
             except (OSError, ValueError) as e:
@@ -474,8 +535,45 @@ class Facts:
             for n in names:
                 if n not in self.tables:
                     errs.append("areas.yaml: area %s names table %r, which is not in schema.json" % (a, n))
+                elif n in self.area_of:
+                    errs.append("areas.yaml: table %s is in area %s and area %s; a table belongs to exactly one"
+                                % (n, self.area_of[n], a))
+                else:
+                    self.area_of[n] = a
+        # TICK-729: a new table cannot drift into the schema without an area.
+        for t in self.table_list:
+            if t["name"] not in self.area_of:
+                errs.append("areas.yaml: table %s (schema.json) is in no area; add it to "
+                            "docs/handbook/src/database/areas.yaml" % t["name"])
         if errs:
             raise ValueError("\n".join(sorted(errs)))
+
+    def load_db_manifests(self):
+        """db/grants.yaml and db/audited-tables.yaml, when the repository has them."""
+        for attr, rel in (("grants", "db/grants.yaml"), ("audited", "db/audited-tables.yaml")):
+            p = self.path(*rel.split("/"))
+            if not os.path.exists(p):
+                continue
+            try:
+                setattr(self, attr, parse_yaml(read_text(p)))
+            except ValueError as e:
+                raise ValueError("%s: %s" % (rel, e))
+
+    def load_data_notes(self):
+        """docs/data/*.md: index name -> the design notes that name it."""
+        d = self.path("docs", "data")
+        if not os.path.isdir(d):
+            return
+        texts = {}
+        for name in sorted(os.listdir(d)):
+            if name.endswith(".md"):
+                texts["docs/data/" + name] = read_text(os.path.join(d, name))
+        for t in self.table_list:
+            for i in t.get("indexes", []):
+                pat = re.compile(r"(?<![\w])" + re.escape(i["name"]) + r"(?![\w])")
+                hits = [rel for rel, text in texts.items() if pat.search(text)]
+                if hits:
+                    self.data_notes[i["name"]] = hits
 
     def load_invariants(self):
         text = read_text(self.path("docs", "adr", "ADR-001-platform-blueprint.md"))
@@ -663,7 +761,8 @@ def expand_gen(f, body):
 
 def gen_block(f, kind, args):
     allow = {"operations": ("tag", "ids"), "tables": ("area",), "er": ("area",),
-             "migrations": (), "adr-index": (), "budgets": ()}
+             "migrations": (), "adr-index": (), "budgets": (),
+             "areas": (), "rls": (), "grants": (), "audited": ()}
     if kind not in allow:
         raise ValueError("unknown block kind")
     for k in args:
@@ -677,6 +776,14 @@ def gen_block(f, kind, args):
         return gen_er(f, args.get("area", ""))
     if kind == "migrations":
         return gen_migrations(f)
+    if kind == "areas":
+        return gen_areas(f)
+    if kind == "rls":
+        return gen_rls(f)
+    if kind == "grants":
+        return gen_grants(f)
+    if kind == "audited":
+        return gen_audited(f)
     if kind == "adr-index":
         return gen_adr_index(f)
     return gen_budgets(f)
@@ -725,8 +832,77 @@ def code_or_dash(s):
     return "-" if not str(s).strip() else "`%s`" % cell(s).replace("`", "'")
 
 
+def mm_type(t):
+    return re.sub(r"[^A-Za-z0-9_]", "_", t).strip("_") or "type"
+
+
+def tenant_pred(col):
+    """The deparsed tenant predicate; must equal catalog.TenantPred (internal/db/catalog/policy.go)."""
+    return "(" + col + " = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+
+
+def tenant_key(table):
+    return "id" if table == "tenants" else "tenant_id"
+
+
+def policy_class(table, p):
+    """canonical: exactly the tenant predicate on every clause its command uses (catalog.testsTenant).
+    pinned: the tenant predicate plus a further condition (catalog.PinnedTenantPolicies).
+    allow-list: no tenant test at all (catalog.AllowList)."""
+    want = tenant_pred(tenant_key(table))
+    cmd, using, check = p.get("command", ""), p.get("using", ""), p.get("check", "")
+    if p.get("permissive", True):
+        if cmd in ("SELECT", "DELETE") and using == want and check == "":
+            return "canonical"
+        if cmd == "INSERT" and using == "" and check == want:
+            return "canonical"
+        if cmd == "UPDATE" and using == want and check == want:
+            return "canonical"
+    if want in using or want in check:
+        return "pinned"
+    return "allow-list"
+
+
+def area_link(f, table, here):
+    a = f.area_of.get(table, "")
+    if not a or a == here:
+        return "`%s`" % table
+    return "`%s` ([%s](%s.md))" % (table, a, a)
+
+
+def grants_by_table(f):
+    """table -> [(role, privilege, columns)] from db/grants.yaml."""
+    out = {}
+    roles = (f.grants or {}).get("roles", {}) or {}
+    for role in sorted(roles):
+        for table, privs in sorted(((roles[role] or {}).get("tables", {}) or {}).items()):
+            for priv in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+                if priv in (privs or {}):
+                    out.setdefault(table, []).append((role, priv, privs[priv] or []))
+    return out
+
+
+def audit_status(f, table):
+    if not f.audited:
+        return ""
+    if table in (f.audited.get("audited") or {}):
+        a = f.audited["audited"][table]
+        return "audited (subject `%s`, writers %s)" % (cell(a.get("subject_type", "")), md_list(a.get("writer_roles", [])))
+    if table in (f.audited.get("exempt") or {}):
+        return "exempt from the audit log: %s" % cell((f.audited["exempt"][table] or {}).get("reason", "")).rstrip(".")
+    return ""
+
+
+def notes_for(f, index):
+    links = []
+    for rel in f.data_notes.get(index, []):
+        links.append("[%s](../../../%s)" % (rel.rsplit("/", 1)[-1][:-3], rel[len("docs/"):]))
+    return ", ".join(links) if links else "-"
+
+
 def gen_tables(f, area):
     out = []
+    by_table = grants_by_table(f)
     for t in area_tables(f, area):
         out.append("#### `%s`\n" % t["name"])
         kind = t.get("kind", "")
@@ -741,64 +917,375 @@ def gen_tables(f, area):
         out.append("Kind: %s. Row-level security: enabled %s, forced %s. Primary key: %s.%s\n" % (
             cell(kind), str(bool(rls.get("enabled"))).lower(), str(bool(rls.get("forced"))).lower(),
             md_list(t.get("primary_key", [])), part))
+        status = audit_status(f, t["name"])
+        if status:
+            out.append("Audit: %s.\n" % status)
         out.append("| Column | Type | Null | Default |\n|---|---|---|---|")
         for c in t.get("columns", []):
             out.append("| `%s` | `%s` | %s | %s |" % (c["name"], cell(c["type"]), "yes" if c.get("nullable") else "no",
                                                       code_or_dash(c.get("default", ""))))
         out.append("")
+        if t.get("foreign_keys"):
+            out.append("| Foreign key | Columns | References | On delete |\n|---|---|---|---|")
+            for fk in t["foreign_keys"]:
+                out.append("| `%s` | %s | %s (%s) | %s |" % (fk["name"], md_list(fk.get("columns", [])),
+                                                           area_link(f, fk["ref_table"], area),
+                                                           md_list(fk.get("ref_columns", [])), cell(fk.get("on_delete", ""))))
+            out.append("")
         if t.get("indexes"):
-            out.append("| Index | Method | Columns | Include | Predicate |\n|---|---|---|---|---|")
+            out.append("| Index | Method | Columns | Include | Predicate | Design note |\n|---|---|---|---|---|---|")
             for i in t["indexes"]:
                 name = "`%s`%s" % (i["name"], " (unique)" if i.get("unique") else "")
                 inc = md_list(i["include"]) if i.get("include") else "-"
-                out.append("| %s | %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
-                                                          inc, code_or_dash(i.get("predicate", ""))))
+                out.append("| %s | %s | %s | %s | %s | %s |" % (name, cell(i.get("method", "")), md_list(i.get("columns", [])),
+                                                               inc, code_or_dash(i.get("predicate", "")), notes_for(f, i["name"])))
             out.append("")
-        if t.get("policies"):
-            out.append("| Policy | Type | Command | Roles | Using | Check |\n|---|---|---|---|---|---|")
-            for p in t["policies"]:
+        pols = t.get("policies", [])
+        canon = [p for p in pols if policy_class(t["name"], p) == "canonical"]
+        other = [p for p in pols if policy_class(t["name"], p) != "canonical"]
+        if canon:
+            out.append("Policies with exactly the tenant predicate on `%s` ([RLS](rls.md)): %s.\n" % (
+                tenant_key(t["name"]), ", ".join("`%s` (%s, %s)" % (p["name"], p.get("command", ""), ", ".join(p.get("roles", [])))
+                                               for p in canon)))
+        if other:
+            out.append("| Policy | Kind | Type | Command | Roles | Using | Check |\n|---|---|---|---|---|---|---|")
+            for p in other:
                 # A RESTRICTIVE policy narrows what the permissive ones grant, so it must stand out.
                 ptype = "permissive" if p.get("permissive", True) else "**RESTRICTIVE**"
-                out.append("| `%s` | %s | %s | %s | %s | %s |" % (p["name"], ptype, cell(p.get("command", "")),
-                                                                  md_list(p.get("roles", [])),
-                                                              code_or_dash(p.get("using", "")),
-                                                              code_or_dash(p.get("check", ""))))
+                out.append("| `%s` | %s | %s | %s | %s | %s | %s |" % (
+                    p["name"], policy_class(t["name"], p), ptype, cell(p.get("command", "")), md_list(p.get("roles", [])),
+                    code_or_dash(p.get("using", "")), code_or_dash(p.get("check", ""))))
             out.append("")
+        if not pols and t.get("kind") == "partition":
+            out.append("A partition has no policies of its own: a query through `%s` uses the parent's.\n" % t["partition_of"])
+        grants = by_table.get(t["name"], [])
+        if grants:
+            out.append("Grants (`db/grants.yaml`, [roles and grants](roles-and-grants.md)): %s.\n" % "; ".join(
+                "%s %s%s" % (role, priv, " (" + ", ".join(cols) + ")" if cols else "") for role, priv, cols in grants))
     return "\n".join(out) + "\n"
 
 
 def gen_er(f, area):
-    tables = area_tables(f, area)
+    tables = [t for t in area_tables(f, area) if t.get("kind") != "partition"]
     names = {t["name"] for t in tables}
     out = ["```mermaid", "erDiagram"]
+    stubs = {}
     for t in tables:
         out.append("    %s {" % t["name"])
         pk = set(t.get("primary_key", []))
+        fkcols = {c for fk in t.get("foreign_keys", []) for c in fk.get("columns", [])}
         for c in t.get("columns", []):
-            typ = re.sub(r"[ (),\"]", "_", c["type"])
-            out.append("        %s %s%s" % (typ, c["name"], " PK" if c["name"] in pk else ""))
+            keys = ",".join(k for k, on in (("PK", c["name"] in pk), ("FK", c["name"] in fkcols)) if on)
+            out.append("        %s %s%s" % (mm_type(c["type"]), c["name"], " " + keys if keys else ""))
         out.append("    }")
+    rels = set()
     for t in tables:
         for fk in t.get("foreign_keys", []):
-            if fk["ref_table"] in names:
-                out.append('    %s }o--|| %s : "%s"' % (t["name"], fk["ref_table"], ",".join(fk["columns"])))
+            ref = fk["ref_table"]
+            if ref not in names:
+                stubs[ref] = f.area_of.get(ref, "")
+            label = ",".join(fk["columns"])
+            cols = {c["name"]: c for c in t.get("columns", [])}
+            # A nullable referencing column means the row may point at nothing: zero or one.
+            optional = any(cols.get(c, {}).get("nullable") for c in fk["columns"])
+            rel = '    %s }o--%s %s : "%s"' % (t["name"], "o|" if optional else "||", ref, label)
+            if rel not in rels:
+                rels.add(rel)
+                out.append(rel)
+    for ref in sorted(stubs):
+        # A cross-area target is a stub: its name only, its columns are on its own page.
+        out.append("    %s {" % ref)
+        out.append("        stub other_area")
+        out.append("    }")
     out.append("```")
+    if stubs:
+        out.append("")
+        out.append("Stub entities (`stub other_area`) belong to another area: %s." % ", ".join(
+            "`%s` on [%s](%s.md)" % (r, a, a) if a else "`%s`" % r for r, a in sorted(stubs.items())))
+    parts = [t["name"] for t in area_tables(f, area) if t.get("kind") == "partition"]
+    if parts:
+        out.append("")
+        out.append("Partitions are left out of the diagram: %s." % md_list(parts))
     return "\n".join(out) + "\n"
 
 
-def gen_migrations(f):
-    d = f.path("db", "migrations")
-    rows = ["| Migration | Purpose |", "|---|---|"]
-    for name in sorted(os.listdir(d)):
-        if not name.endswith(".sql"):
-            continue
-        first = ""
-        for line in read_text(os.path.join(d, name)).split("\n"):
-            if line.startswith("--") and "+goose" not in line:
-                first = line[2:].strip()
-                break
-        rows.append("| `%s` | %s |" % (name, cell(first)))
+def gen_areas(f):
+    rows = ["| Area | Tables |", "|---|---|"]
+    for a in f.areas:
+        rows.append("| [%s](%s.md) | %s |" % (a, a, md_list(f.areas[a])))
     return "\n".join(rows) + "\n"
+
+
+def gen_rls(f):
+    if not f.table_list:
+        raise ValueError("schema.json has no tables")
+    out = ["The tenant predicate, written once (`catalog.TenantPred`, `internal/db/catalog/policy.go`), "
+           "on the tenant key column `<col>` (`id` for `tenants`, `tenant_id` everywhere else):", "",
+           "```sql", tenant_pred("<col>"), "```", "",
+           "| Table | Area | RLS enabled | RLS forced | Tenant key | Policies with exactly the tenant predicate | Other policies |",
+           "|---|---|---|---|---|---|---|"]
+    others = []
+    for t in f.table_list:
+        rls = t.get("rls", {})
+        pols = t.get("policies", [])
+        canon = [p for p in pols if policy_class(t["name"], p) == "canonical"]
+        other = [p for p in pols if policy_class(t["name"], p) != "canonical"]
+        others += [(t["name"], p) for p in other]
+        if t.get("kind") == "partition":
+            canon_txt = "parent's (`%s`)" % t["partition_of"]
+        else:
+            canon_txt = ", ".join("`%s` %s (%s)" % (p["name"], p.get("command", ""), ", ".join(p.get("roles", [])))
+                                  for p in canon) or "none"
+        out.append("| `%s` | [%s](%s.md) | %s | %s | `%s` | %s | %d |" % (
+            t["name"], f.area_of.get(t["name"], "-"), f.area_of.get(t["name"], "index"),
+            str(bool(rls.get("enabled"))).lower(), str(bool(rls.get("forced"))).lower(),
+            tenant_key(t["name"]), canon_txt, len(other)))
+    out += ["", "### Policies that differ from the tenant predicate", "",
+            "`allow-list`: no tenant test at all (`catalog.AllowList`, ADR-001 A.3). "
+            "`pinned`: the tenant predicate and one more condition (`catalog.PinnedTenantPolicies`). "
+            "The catalogue gate fails the migrator run when any of them differs from its pinned text.", "",
+            "| Table | Policy | Kind | Type | Command | Roles | Using | Check |", "|---|---|---|---|---|---|---|---|"]
+    for table, p in sorted(others, key=lambda x: (policy_class(x[0], x[1]), x[0], x[1]["name"])):
+        ptype = "permissive" if p.get("permissive", True) else "**RESTRICTIVE**"
+        out.append("| `%s` | `%s` | %s | %s | %s | %s | %s | %s |" % (
+            table, p["name"], policy_class(table, p), ptype, cell(p.get("command", "")), md_list(p.get("roles", [])),
+            code_or_dash(p.get("using", "")), code_or_dash(p.get("check", ""))))
+    return "\n".join(out) + "\n"
+
+
+def gen_grants(f):
+    if not f.grants:
+        raise ValueError("db/grants.yaml is missing")
+    g = f.grants
+    roles = g.get("roles", {}) or {}
+    out = ["| Role | Attributes | PgBouncer login | Platform database | Schemas | Settings |",
+           "|---|---|---|---|---|---|"]
+    for r in sorted(roles):
+        v = roles[r] or {}
+        sch = "; ".join("%s: %s" % (k, ", ".join(x)) for k, x in sorted((v.get("schemas") or {}).items()))
+        sets = "; ".join("`%s = %s`" % (k, x) for k, x in sorted((v.get("settings") or {}).items()))
+        out.append("| `%s` | %s | %s | %s | %s | %s |" % (
+            r, ", ".join(v.get("attributes", [])) or "-", "yes" if v.get("pgbouncer_login") == "true" else "no",
+            ", ".join(v.get("database", [])) or "-", cell(sch) or "-", sets or "-"))
+    out.append("")
+    writers = {}
+    for table, a in sorted(((f.audited or {}).get("audited") or {}).items()):
+        for r in a.get("writer_roles", []):
+            writers.setdefault(r, []).append(table)
+    for r in sorted(roles):
+        v = roles[r] or {}
+        tables, funcs = v.get("tables") or {}, v.get("functions") or {}
+        if not tables and not funcs and r not in writers:
+            continue
+        out.append("#### `%s`\n" % r)
+        if tables:
+            out.append("| Table | Area | SELECT | INSERT | UPDATE | DELETE |\n|---|---|---|---|---|---|")
+            for t in sorted(tables):
+                privs = tables[t] or {}
+
+                def show(priv):
+                    if priv not in privs:
+                        return "-"
+                    return "all columns" if not privs[priv] else md_list(privs[priv])
+                a = f.area_of.get(t, "")
+                out.append("| `%s` | %s | %s | %s | %s | %s |" % (t, "[%s](%s.md)" % (a, a) if a else "-",
+                                                               show("SELECT"), show("INSERT"), show("UPDATE"), show("DELETE")))
+            out.append("")
+        if funcs:
+            out.append("Functions: %s.\n" % ", ".join("`%s` (%s)" % (k, ", ".join(x)) for k, x in sorted(funcs.items())))
+        if r in writers:
+            out.append("Writes audited tables %s, so `nava-db migrate` also grants it INSERT on the R10 `audit_log` columns "
+                       "and SELECT on the commit-check columns, generated from `db/audited-tables.yaml`.\n" % md_list(writers[r]))
+    ex = g.get("infrastructure_exceptions") or {}
+    if ex:
+        out.append("#### Infrastructure exceptions\n")
+        out.append("| Name | Object | Security definer | Granted to | Reason |\n|---|---|---|---|---|")
+        for k in sorted(ex):
+            v = ex[k] or {}
+            out.append("| `%s` | `%s` | %s | %s | %s |" % (k, cell(v.get("function", "")), v.get("security_definer", "false"),
+                                                        md_list(v.get("granted_to", [])), cell(v.get("reason", ""))))
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def gen_audited(f):
+    if not f.audited:
+        raise ValueError("db/audited-tables.yaml is missing")
+    out = ["| Table | Status | Writer roles or reason | Subject type | Trigger attached |", "|---|---|---|---|---|"]
+    for t, a in sorted((f.audited.get("audited") or {}).items()):
+        out.append("| `%s` | audited | %s | `%s` | %s |" % (t, md_list(a.get("writer_roles", [])),
+                                                        cell(a.get("subject_type", "")), a.get("attached", "false")))
+    for t, a in sorted((f.audited.get("exempt") or {}).items()):
+        out.append("| `%s` | exempt | %s | - | - |" % (t, cell((a or {}).get("reason", ""))))
+    return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------ migration history
+# The history is captured from git once (`build.py --capture-migrations`) into a
+# committed file, so a build needs no git history and gives the same output on any clone.
+
+MIGRATION_HISTORY = HANDBOOK + "/src/database/migration-history.json"
+SQL_COMMENT = re.compile(r"--[^\n]*")
+
+
+def migration_files(f_or_root):
+    root = f_or_root.root if hasattr(f_or_root, "root") else f_or_root
+    d = os.path.join(root, "db", "migrations")
+    return sorted(n for n in os.listdir(d) if n.endswith(".sql"))
+
+
+def migration_summary(text):
+    """The header comment's first sentence."""
+    words = []
+    for line in text.split("\n"):
+        if not line.startswith("--") or "+goose" in line:
+            if words:
+                break
+            continue
+        body = line[2:].strip()
+        if not body:
+            if words:
+                break
+            continue
+        words.append(body)
+    para = " ".join(words)
+    m = re.search(r"^(.+?\.)(\s|$)", para)
+    first = m.group(1) if m else para
+    return first if len(first) <= 240 else first[:237].rstrip() + "..."
+
+
+def migration_up(text):
+    """The Up section's SQL with comments removed (a Down section is not history)."""
+    up = re.split(r"(?m)^--\s*\+goose\s+Down\b", text)[0]
+    return SQL_COMMENT.sub("", up)
+
+
+CREATED = re.compile(r"(?i)\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?|"
+                     r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?|CREATE\s+POLICY\s+|ADD\s+CONSTRAINT\s+|"
+                     r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+|CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+)(?:public\.)?(\w+)")
+DROPPED = re.compile(r"(?i)\bDROP\s+(TABLE|INDEX|POLICY|CONSTRAINT|COLUMN|FUNCTION|TRIGGER)\s+(?:CONCURRENTLY\s+)?"
+                     r"(?:IF\s+EXISTS\s+)?(?:public\.)?(\w+)")
+
+
+def migration_facts(text):
+    """(constraints added NOT VALID, constraints validated,
+    builds an index CONCURRENTLY, [(kind, name)] dropped)."""
+    code = migration_up(text)
+    created = {m.group(1).lower() for m in CREATED.finditer(code)}
+    not_valid = set()
+    for stmt in code.split(";"):
+        if re.search(r"(?i)\bNOT\s+VALID\b", stmt):
+            not_valid |= {m.lower() for m in re.findall(r"(?i)\bADD\s+CONSTRAINT\s+(\w+)", stmt)}
+    validated = {m.lower() for m in re.findall(r"(?i)\bVALIDATE\s+CONSTRAINT\s+(\w+)", code)}
+    concurrently = bool(re.search(r"(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b", code))
+    drops = []
+    for m in DROPPED.finditer(code):
+        item = (m.group(1).lower(), m.group(2).lower())
+        # DROP and CREATE of one name in one file is a rebuild (an invalid concurrent index), not a drop.
+        if item[1] not in created and item not in drops:
+            drops.append(item)
+    return not_valid, validated, concurrently, drops
+
+
+def gen_migrations(f):
+    p = f.path(*MIGRATION_HISTORY.split("/"))
+    if not os.path.exists(p):
+        raise ValueError("%s is missing; run `python -I docs/handbook/build/build.py --capture-migrations`" % MIGRATION_HISTORY)
+    try:
+        hist = json.loads(read_text(p))
+    except ValueError as e:
+        raise ValueError("%s: %s" % (MIGRATION_HISTORY, e))
+    if hist.get("version") != 1:
+        raise ValueError("%s: version %r, this generator reads version 1" % (MIGRATION_HISTORY, hist.get("version")))
+    by_file = {m["file"]: m for m in hist.get("migrations", [])}
+    files = migration_files(f)
+    missing = [n for n in files if n not in by_file]
+    extra = [n for n in by_file if n not in files]
+    if missing or extra:
+        raise ValueError("%s is stale (not captured: %s; no longer in db/migrations: %s); run "
+                         "`python -I docs/handbook/build/build.py --capture-migrations`"
+                         % (MIGRATION_HISTORY, ", ".join(missing) or "none", ", ".join(extra) or "none"))
+    texts = {n: read_text(f.path("db", "migrations", n)) for n in files}
+    facts = {n: migration_facts(texts[n]) for n in files}
+    version = {n: n.split("_", 1)[0] for n in files}
+    added_in, validated_in = {}, {}
+    for n in files:
+        for c in facts[n][0]:
+            added_in.setdefault(c, n)
+        for c in facts[n][1]:
+            validated_in.setdefault(c, n)
+    rows = ["| Version | File | Summary | Introduced by | Online steps and drops |", "|---|---|---|---|---|"]
+    for n in files:
+        m = by_file[n]
+        nv, val, conc, drops = facts[n]
+        marks = []
+        for c in sorted(nv):
+            later = validated_in.get(c)
+            if later == n:
+                marks.append("`%s` NOT VALID, validated in the same file" % c)
+            else:
+                marks.append("`%s` NOT VALID%s" % (c, ", validated in `%s`" % version[later] if later else ""))
+        for c in sorted(val - nv):
+            first = added_in.get(c)
+            marks.append("VALIDATE `%s`%s" % (c, " (added in `%s`)" % version[first] if first else ""))
+        if conc:
+            marks.append("CREATE INDEX CONCURRENTLY")
+        for kind, name in drops:
+            marks.append("drops %s `%s`" % (kind, name))
+        if not m.get("on_main", True):
+            who = "in progress (not on main)"
+        else:
+            bits = [m["story"]] if m.get("story") else []
+            bits += m.get("tickets", [])
+            if m.get("pr"):
+                bits.append("PR #%s" % m["pr"])
+            who = ", ".join(bits) or "-"
+            if m.get("date"):
+                who += " (%s)" % m["date"]
+        rows.append("| `%s` | `%s` | %s | %s | %s |" % (version[n], n, cell(migration_summary(texts[n])) or "-",
+                                                       cell(who), "; ".join(marks) or "-"))
+    return "\n".join(rows) + "\n"
+
+
+def _git_out(root, *args):
+    r = subprocess.run(["git"] + list(args), cwd=root, capture_output=True, check=True)
+    return r.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
+
+
+def _added(root, rev, first_parent):
+    """file -> (short sha, date, subject) of the commit on rev's history that added it (oldest wins)."""
+    args = ["log", rev, "--diff-filter=A", "--name-only", "--format=@@%h|%cs|%s"]
+    if first_parent:
+        args.insert(2, "--first-parent")
+    out, cur = {}, None
+    for line in _git_out(root, *(args + ["--", "db/migrations"])).split("\n"):
+        if line.startswith("@@"):
+            cur = tuple(line[2:].split("|", 2))
+        elif line.strip().endswith(".sql") and cur:
+            out[line.strip().rsplit("/", 1)[-1]] = cur   # git log is newest first: the oldest add wins
+    return out
+
+
+def capture_migrations(root, git=None):
+    """Write MIGRATION_HISTORY from `git log --diff-filter=A` on origin/main. Branch and author names are not kept."""
+    merged = _added(root, "origin/main", True)
+    authored = _added(root, "origin/main", False)
+    rows = []
+    for n in migration_files(root):
+        if n not in merged:
+            rows.append({"file": n, "on_main": False})
+            continue
+        sha, date, subject = merged[n]
+        inner = authored.get(n, merged[n])[2]
+        pr = re.search(r"#(\d+)", subject)
+        story = re.search(r"\b(S\d{1,2})\b", subject)
+        tickets = sorted(set(re.findall(r"\bTICK-\d+\b", subject + " " + inner)), key=lambda x: int(x[5:]))
+        rows.append({"file": n, "on_main": True, "commit": sha, "date": date, "pr": pr.group(1) if pr else "",
+                     "story": story.group(1) if story else "", "tickets": tickets})
+    data = json.dumps({"version": 1, "migrations": rows}, indent=2, ensure_ascii=False) + "\n"
+    with open(os.path.join(root, *MIGRATION_HISTORY.split("/")), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(data)
+    return len(rows)
 
 
 def gen_adr_index(f):
@@ -1643,10 +2130,15 @@ def main(argv=None):
     ap.add_argument("--date", default=os.environ.get("HANDBOOK_DATE", ""),
                     help="date of that commit, YYYY-MM-DD (default $HANDBOOK_DATE, else the commit's date)")
     ap.add_argument("--check", action="store_true", help="fail when the committed handbook is stale")
+    ap.add_argument("--capture-migrations", action="store_true",
+                    help="rewrite %s from git history (needs origin/main), then build" % MIGRATION_HISTORY)
     args = ap.parse_args(argv)
     root = os.path.abspath(args.root)
     git = Git(root)
     try:
+        if args.capture_migrations:
+            n = capture_migrations(root, git)
+            print("handbook: captured the history of %d migrations" % n)
         if args.check:
             problems = check(root, git)
             for p in problems:

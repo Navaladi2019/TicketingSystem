@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access control and masks - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/viewer-sample.html">Viewer sample</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li class="current"><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Access control and masks</span></nav>
+<article>
+<h1 class="page-title">Access control and masks</h1>
+<p>Authorization runs inside the query (ADR-001 I5), from two insert-only
+tables:</p>
+<ul>
+<li><strong><code>acl_versions</code></strong>: one immutable row per published ACL version of an
+entity type. <code>rules</code> and <code>masks</code> are JSON documents, each checked by a
+<code>CHECK</code> that calls the <code>acl_*_valid</code> functions. <strong>There is no mask table.</strong>
+Field masks are the <code>masks</code> document of the ACL version, read together with
+its rules.</li>
+<li><strong><code>record_shares</code></strong>: per-record shares to a principal or a group. Each of
+the two typed columns has its own foreign key, so a share cannot name a
+principal or group that does not exist.</li>
+</ul>
+<p>Neither table is updated or deleted; a new ACL is a new version. Publishing
+an ACL is audited under its own subject type, <code>acl_policy</code>.</p>
+<h2 id="diagram">Diagram</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
+    acl_versions {
+        uuid tenant_id PK,FK
+        uuid entity_definition_id PK,FK
+        integer version PK
+        jsonb rules
+        jsonb masks
+        uuid published_by FK
+        timestamp_with_time_zone published_at
+    }
+    record_shares {
+        uuid tenant_id PK,FK
+        uuid record_id PK,FK
+        text principal_kind PK
+        uuid granted_by FK
+        timestamp_with_time_zone granted_at
+        uuid user_id FK
+        uuid group_id FK
+        uuid principal_id PK
+    }
+    acl_versions }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
+    acl_versions }o--o| principals : &quot;tenant_id,published_by&quot;
+    record_shares }o--o| principals : &quot;tenant_id,granted_by&quot;
+    record_shares }o--o| groups : &quot;tenant_id,group_id&quot;
+    record_shares }o--|| records : &quot;tenant_id,record_id&quot;
+    record_shares }o--o| principals : &quot;tenant_id,user_id&quot;
+    entity_definitions {
+        stub other_area
+    }
+    groups {
+        stub other_area
+    }
+    principals {
+        stub other_area
+    }
+    records {
+        stub other_area
+    }
+</pre></div></figure>
+<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>, <code>groups</code> on <a href="../database/identity.html">identity</a>, <code>principals</code> on <a href="../database/identity.html">identity</a>, <code>records</code> on <a href="../database/records.html">records</a>.</p>
+<h2 id="tables">Tables</h2>
+<h4 id="aclversions"><code>acl_versions</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>, <code>version</code>.</p>
+<p>Audit: audited (subject <code>acl_policy</code>, writers <code>nava_app</code>, <code>nava_worker</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>rules</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>masks</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>published_by</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>published_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions_entity_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>acl_versions_published_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>published_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>acl_versions_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>version</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/acl-tables.md">acl-tables</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>acl_versions_insert</code> (INSERT, nava_app, nava_worker), <code>acl_versions_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT; nava_worker INSERT.</p>
+<h4 id="recordshares"><code>record_shares</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>record_id</code>, <code>principal_kind</code>, <code>principal_id</code>.</p>
+<p>Audit: audited (subject <code>record</code>, writers <code>nava_app</code>, <code>nava_worker</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>principal_kind</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>granted_by</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>granted_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>group_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>principal_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td><code>COALESCE(user_id, group_id)</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>record_shares_granted_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>granted_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>record_shares_group_fkey</code></td>
+<td><code>tenant_id</code>, <code>group_id</code></td>
+<td><code>groups</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>record_shares_record_fkey</code></td>
+<td><code>tenant_id</code>, <code>record_id</code></td>
+<td><code>records</code> (<a href="../database/records.html">records</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>record_shares_user_fkey</code></td>
+<td><code>tenant_id</code>, <code>user_id</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>record_shares_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>record_id</code>, <code>principal_kind</code>, <code>principal_id</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/acl-tables.md">acl-tables</a>, <a href="../../../docs/data/records-list-bench.md">records-list-bench</a></td>
+</tr>
+<tr>
+<td><code>record_shares_principal</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>principal_id</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/acl-tables.md">acl-tables</a>, <a href="../../../docs/data/records-list-count.md">records-list-count</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>record_shares_insert</code> (INSERT, nava_app, nava_worker), <code>record_shares_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT; nava_worker INSERT.</p>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>ADR ADR-001</h3><ul><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 0e79d828a3e0 (2026-11-11)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
