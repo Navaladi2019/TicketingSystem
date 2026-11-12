@@ -53,11 +53,11 @@
 <ul>
 <li><strong>Database role and least privilege.</strong> One narrow database account per system actor; none is a superuser, owns objects or bypasses RLS. <a href="../vision/least-privilege-roles.html">I3</a>.</li>
 <li><strong>Grant manifest.</strong> The single file listing every permission of every role; CI compares the live database with it. <a href="../vision/least-privilege-roles.html">I3</a>.</li>
-<li><strong>Migrator.</strong> The one-shot job that owns the schema and runs migrations. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Migrator.</strong> The one-shot job that owns the schema and runs migrations. <a href="../database/migrations.html">Database</a>.</li>
 </ul>
 <h2 id="records-and-writes">Records and writes</h2>
 <ul>
-<li><strong>Entity definition and entity definition version.</strong> A tenant's JSON Schema description of a kind of record, and one published, immutable version of it. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Entity definition and entity definition version.</strong> A tenant's JSON Schema description of a kind of record, and one published, immutable version of it. <a href="../database/entity-definitions.html">Database</a>.</li>
 <li><strong>Record.</strong> One stored item of an entity type, with a <code>version</code> used for optimistic concurrency. <a href="../vision/one-write-pipeline.html">I4</a>.</li>
 <li><strong>Write pipeline.</strong> The single path every write takes: authorisation, defaults, schema validation, checks, commit with audit. <a href="../vision/one-write-pipeline.html">I4</a>.</li>
 <li><strong>Optimistic concurrency.</strong> An update names the version it expects; a stale one is a typed conflict (HTTP 412 with <code>If-Match</code>). <a href="../vision/one-write-pipeline.html">I4</a>.</li>
@@ -70,9 +70,9 @@
 </ul>
 <h2 id="audit">Audit</h2>
 <ul>
-<li><strong>Audit log.</strong> The per-tenant record of every change, written in the same transaction as the change. <a href="../database/index.html">Database</a>.</li>
-<li><strong>Seal.</strong> The sequence number and hash assigned to an audit entry by the asynchronous sealer. <a href="../database/index.html">Database</a>.</li>
-<li><strong>Chain head.</strong> The latest sealed entry of a tenant's audit hash chain; each new seal hashes the previous one. <a href="../database/index.html">Database</a>.</li>
+<li><strong>Audit log.</strong> The per-tenant record of every change, written in the same transaction as the change. <a href="../database/audit.html">Database</a>.</li>
+<li><strong>Seal.</strong> The sequence number and hash assigned to an audit entry by the asynchronous sealer. <a href="../database/audit.html">Database</a>.</li>
+<li><strong>Chain head.</strong> The latest sealed entry of a tenant's audit hash chain; each new seal hashes the previous one. <a href="../database/audit.html">Database</a>.</li>
 </ul>
 <h2 id="workflows">Workflows</h2>
 <ul>

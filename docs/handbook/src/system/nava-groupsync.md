@@ -18,7 +18,7 @@ Mirrors each tenant's users, groups, memberships and org units under `/t/<tenant
 | Host port | none (tunnel 19092) |
 | DB role | `nava_groupsync` through PgBouncer |
 | Talks to | keycloak (Admin API read, client `nava-groupsync`); pgbouncer; otel-collector |
-| Introduced by | PLAN-001 T25 (TICK-234) |
+| Introduced by | PLAN-001 T21b (TICK-234) |
 
 ## Boundary it enforces
 

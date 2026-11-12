@@ -124,6 +124,788 @@
 </tr>
 </tbody>
 </table>
+<h2 id="tables">Tables</h2>
+<h4 id="auditchainhead"><code>audit_chain_head</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>.</p>
+<p>Audit: exempt from the audit log: Chain state (R14). A seal is visible in the sealed entries; reseed and export write their own audit entries (R17, R19).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td><code>bigint</code></td>
+<td>no</td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>seq</code></td>
+<td><code>bigint</code></td>
+<td>no</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>entry_hash</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td><code>&#x27;\x0000000000000000000000000000000000000000000000000000000000000000&#x27;::bytea</code></td>
+</tr>
+<tr>
+<td><code>next_seal_outbox_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>next_seal_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>seal_interval_s</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>export_lease_until</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>audit_chain_head_select</code> (SELECT, nava_app, nava_worker), <code>audit_chain_head_update</code> (UPDATE, nava_app, nava_worker).</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Kind</th>
+<th>Type</th>
+<th>Command</th>
+<th>Roles</th>
+<th>Using</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_chain_head_onboard_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>audit_chain_head_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(next_seal_at &lt; (now() - &#x27;00:10:00&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app UPDATE (export_lease_until, next_seal_outbox_id, next_seal_at); nava_onboard INSERT (tenant_id, id, next_seal_outbox_id, next_seal_at); nava_purge SELECT (tenant_id, next_seal_at); nava_worker SELECT; nava_worker UPDATE (version, seq, entry_hash, next_seal_outbox_id, next_seal_at, seal_interval_s).</p>
+<h4 id="auditlog"><code>audit_log</code></h4>
+<p>Kind: partitioned. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>occurred_at</code>, <code>id</code>. Partitioned by <code>RANGE (occurred_at)</code>.</p>
+<p>Audit: exempt from the audit log: The audit log itself (ADR-004 decision 1); R10 and R11 guard its writes.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>occurred_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>txid</code></td>
+<td><code>xid8</code></td>
+<td>no</td>
+<td><code>pg_current_xact_id()</code></td>
+</tr>
+<tr>
+<td><code>domain</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>subject_type</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>subject_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version_before</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version_after</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>actor_principal_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>actor_system</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>source_ref</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>change_set_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_depth</code></td>
+<td><code>smallint</code></td>
+<td>no</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>request_id</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>backfilled</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>content_sha256</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_sha256</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_truncated</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>diff</code></td>
+<td><code>json</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_salt</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>seq</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>prev_hash</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entry_hash</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>sealed_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>erased_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>erasure_ref</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log_actor_principal_fkey</code></td>
+<td><code>tenant_id</code>, <code>actor_principal_id</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>audit_log_entity_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>audit_log_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log_change_set</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>change_set_id</code></td>
+<td>-</td>
+<td><code>change_set_id IS NOT NULL</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_commit_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>txid</code>, <code>subject_type</code>, <code>subject_id</code>, <code>version_after</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_seq</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>seq</code></td>
+<td>-</td>
+<td><code>seq IS NOT NULL</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_subject</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>subject_type</code>, <code>subject_id</code>, <code>occurred_at</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/record-write-keys-per-principal.md">record-write-keys-per-principal</a></td>
+</tr>
+<tr>
+<td><code>audit_log_tenant_time</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_unsealed</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td><code>sealed_at IS NULL</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>audit_log_insert</code> (INSERT, nava_erasure), <code>audit_log_select</code> (SELECT, nava_audit_reader, nava_erasure, nava_worker), <code>audit_log_update</code> (UPDATE, nava_erasure, nava_worker), <code>audit_log_writer_insert</code> (INSERT, nava_app, nava_worker), <code>audit_log_writer_select</code> (SELECT, nava_app, nava_worker).</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Kind</th>
+<th>Type</th>
+<th>Command</th>
+<th>Roles</th>
+<th>Using</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log_onboard_insert</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>INSERT</td>
+<td><code>nava_onboard</code></td>
+<td>-</td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+</tr>
+<tr>
+<td><code>audit_log_onboard_select</code></td>
+<td>pinned</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_onboard</code></td>
+<td><code>((tenant_id = (NULLIF(current_setting(&#x27;app.tenant_id&#x27;::text, true), &#x27;&#x27;::text))::uuid) AND (tenant_id IN ( SELECT tenants.id    FROM tenants   WHERE (tenants.state = &#x27;provisioning&#x27;::text))))</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT (tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, seq, sealed_at, erased_at); nava_audit_reader SELECT (tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref); nava_erasure SELECT (tenant_id, occurred_at, id, subject_type, subject_id, erased_at, erasure_ref); nava_erasure INSERT (tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256, diff_truncated, diff, diff_salt); nava_erasure UPDATE (diff, diff_salt, erased_at, erasure_ref); nava_worker SELECT (tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref); nava_worker UPDATE (seq, prev_hash, entry_hash, sealed_at).</p>
+<h4 id="auditlogdefault"><code>audit_log_default</code></h4>
+<p>Kind: partition of audit_log. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>occurred_at</code>, <code>id</code>. Partition bound: <code>DEFAULT</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>occurred_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>txid</code></td>
+<td><code>xid8</code></td>
+<td>no</td>
+<td><code>pg_current_xact_id()</code></td>
+</tr>
+<tr>
+<td><code>domain</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>subject_type</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>subject_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version_before</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version_after</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>actor_principal_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>actor_system</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>source_ref</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>change_set_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_depth</code></td>
+<td><code>smallint</code></td>
+<td>no</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>request_id</code></td>
+<td><code>text</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>backfilled</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>content_sha256</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_sha256</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_truncated</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>diff</code></td>
+<td><code>json</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>diff_salt</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>seq</code></td>
+<td><code>bigint</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>prev_hash</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entry_hash</code></td>
+<td><code>bytea</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>sealed_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>erased_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>erasure_ref</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log_actor_principal_fkey</code></td>
+<td><code>tenant_id</code>, <code>actor_principal_id</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>audit_log_entity_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>audit_log_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit_log_default_change_set</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>change_set_id</code></td>
+<td>-</td>
+<td><code>change_set_id IS NOT NULL</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_default_commit_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>txid</code>, <code>subject_type</code>, <code>subject_id</code>, <code>version_after</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/audit-log.md">audit-log</a></td>
+</tr>
+<tr>
+<td><code>audit_log_default_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_default_seq</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>seq</code></td>
+<td>-</td>
+<td><code>seq IS NOT NULL</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_default_subject</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>subject_type</code>, <code>subject_id</code>, <code>occurred_at</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/audit-log.md">audit-log</a></td>
+</tr>
+<tr>
+<td><code>audit_log_default_tenant_time</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>audit_log_default_unsealed</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>occurred_at</code>, <code>id</code></td>
+<td>-</td>
+<td><code>sealed_at IS NULL</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>A partition has no policies of its own: a query through <code>audit_log</code> uses the parent's.</p>
 <h2 id="options-that-lost">Options that lost</h2>
 <p><em>Paraphrases: "Rejected options".</em> Separate record and configuration logs; a view over S8 versions instead of a backfill; chaining inside the writer's transaction; a shared seal key per minute (writers queued 3.9 to 4.0 s in two spikes); one seal start per transaction; an eternal per-tenant workflow; triggers that write the audit rows (they cannot know the actor or AI decision); <code>jsonb</code> diffs (the stored bytes would no longer match their hash); a single <code>REPEATABLE READ</code> export snapshot; external anchoring in the first milestone; a dedicated sealer role.</p>
 <h2 id="consequences">Consequences</h2>

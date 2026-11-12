@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestIdempotencyKeyReplays`, `TestIdempote
 
 ## Read next
 
-Enforcement detail: [Workflows](../workflows/index.md) and [Security](../security/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Outbox, relay and worker](../workflows/outbox-relay-worker.md) and [Opaque tokens](../security/06-opaque-tokens.md). All nine invariants: [the invariants page](invariants.md).

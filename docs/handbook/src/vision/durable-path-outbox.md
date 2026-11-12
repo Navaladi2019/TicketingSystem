@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestDemoOutboxTwiceWithOneKeyIsOneWorkflo
 
 ## Read next
 
-Enforcement detail: [Workflows](../workflows/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Outbox, relay and worker](../workflows/outbox-relay-worker.md). All nine invariants: [the invariants page](invariants.md).

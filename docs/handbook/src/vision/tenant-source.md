@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestCI5`, `TestClaimsForIgnoresClientTena
 
 ## Read next
 
-Enforcement detail: [Security](../security/index.md) and [Workflows](../workflows/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Tenant resolution](../security/02-tenant-resolution.md) and [Outbox, relay and worker](../workflows/outbox-relay-worker.md). All nine invariants: [the invariants page](invariants.md).

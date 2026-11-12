@@ -18,7 +18,7 @@ The operator onboarding API, `POST /api/v1/operator/tenants`, in its own process
 | Host port | none: `docker compose exec`, or tunnel 18082 (API) and 19091 (admin) |
 | DB roles | `nava_app` (token checks, registry reads) and `nava_onboard` (onboarding writes), both through PgBouncer |
 | Talks to | keycloak (organisation and admin group, Admin API); pgbouncer; otel-collector |
-| Introduced by | PLAN-001 T21 (TICK-234) |
+| Introduced by | PLAN-001 T21b (TICK-234) |
 
 Being unpublished means the tenant ingress (nava-core's port) cannot reach it.
 

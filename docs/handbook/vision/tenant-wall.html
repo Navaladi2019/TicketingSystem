@@ -47,7 +47,7 @@
 <p>ADR-001 Annex B CI-1 (catalogue checks) and CI-2 (no tenant set gives zero rows or an error, for every runtime role and every tenant table).</p>
 <p>Tests that prove it, by Go test name: <code>TestCI2EveryRoleEveryTenantTable</code>, <code>TestT11TenantTablesFailClosed</code>, <code>TestT09PolicyAllowList</code>.</p>
 <h2 id="read-next">Read next</h2>
-<p>Enforcement detail: <a href="../database/index.html">Database</a>. All nine invariants: <a href="../vision/invariants.html">the invariants page</a>.</p>
+<p>Enforcement detail: <a href="../database/rls.html">Row-level security</a>. All nine invariants: <a href="../vision/invariants.html">the invariants page</a>.</p>
 <h2 id="note">Note</h2>
 <p>The shared database and shared tables are <strong>decision G7</strong>, not an invariant: topology is a performance and deployment choice. I1 and I3 are what keep tenants apart, whatever the topology.</p>
 </article>

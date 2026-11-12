@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestContract`, `TestCompileNumberingMode`
 
 ## Read next
 
-Enforcement detail: [Security](../security/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Identity boundary](../security/07-identity-boundary.md) and [Numbering](../database/numbering.md). All nine invariants: [the invariants page](invariants.md).
