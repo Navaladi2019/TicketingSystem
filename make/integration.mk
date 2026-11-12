@@ -1,4 +1,4 @@
-.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget test-self-hosted-cleanup
+.PHONY: test-integration test-integration-cleanup reap-integration bench-relay isolation test-ci-isolated-down test-commit-check-budget test-self-hosted-cleanup schema-snapshot
 
 ci-integration: test-integration test-ci-isolated-down test-integration-cleanup test-self-hosted-cleanup
 
@@ -18,6 +18,13 @@ ISOLATION ?= 1
 test-integration:
 	NAVA_IT_COVERAGE=coverage-integration.out sh scripts/ci/test-integration.sh $(ARGS)
 	$(if $(ARGS),@echo "isolation suite skipped (ARGS set); run make isolation",$(if $(filter 0,$(ISOLATION)),@echo "isolation suite skipped (ISOLATION=0: a fast CI run); run make isolation",sh scripts/ci/isolation.sh))
+
+# TICK-733 (D-HB-9): rewrite docs/handbook/src/database/schema.json, the
+# schema snapshot the handbook reads, from a freshly migrated throwaway
+# cluster. TestSchemaSnapshot fails in test-integration until the file is
+# current; commit the rewrite with the migration that changed it. Needs Docker.
+schema-snapshot:
+	NAVA_SCHEMA_SNAPSHOT_UPDATE=1 sh scripts/ci/test-integration.sh -run '^TestSchemaSnapshot$$'
 
 # test-integration.sh leaves no container or network behind after a run with
 # go test arguments or a TERM part way (TICK-185). Its own ci.yml step and in

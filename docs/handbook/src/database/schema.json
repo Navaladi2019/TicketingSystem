@@ -1,0 +1,4749 @@
+{
+  "format": 1,
+  "postgres": "16",
+  "migration": "20261110100000",
+  "tables": [
+    {
+      "schema": "public",
+      "name": "acl_versions",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "rules",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "masks",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "published_by",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "acl_versions_entity_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, entity_definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "acl_versions_masks_check",
+          "type": "check",
+          "columns": [
+            "masks"
+          ],
+          "definition": "CHECK (acl_masks_valid(masks))"
+        },
+        {
+          "name": "acl_versions_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "version"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, entity_definition_id, version)"
+        },
+        {
+          "name": "acl_versions_published_by_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "published_by"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, published_by) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "acl_versions_rules_check",
+          "type": "check",
+          "columns": [
+            "rules"
+          ],
+          "definition": "CHECK (acl_rules_valid(rules))"
+        },
+        {
+          "name": "acl_versions_version_check",
+          "type": "check",
+          "columns": [
+            "version"
+          ],
+          "definition": "CHECK (version >= 1)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "acl_versions_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "version"
+          ],
+          "definition": "CREATE UNIQUE INDEX acl_versions_pkey ON public.acl_versions USING btree (tenant_id, entity_definition_id, version)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "acl_versions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "acl_versions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "audit_chain_head",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "bigint",
+          "not_null": true,
+          "default": "1"
+        },
+        {
+          "name": "seq",
+          "type": "bigint",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "entry_hash",
+          "type": "bytea",
+          "not_null": true,
+          "default": "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea"
+        },
+        {
+          "name": "next_seal_outbox_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "next_seal_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "seal_interval_s",
+          "type": "integer",
+          "not_null": true,
+          "default": "10"
+        },
+        {
+          "name": "export_lease_until",
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_chain_head_entry_hash_check",
+          "type": "check",
+          "columns": [
+            "entry_hash"
+          ],
+          "definition": "CHECK (octet_length(entry_hash) = 32)"
+        },
+        {
+          "name": "audit_chain_head_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id)"
+        },
+        {
+          "name": "audit_chain_head_seal_interval_check",
+          "type": "check",
+          "columns": [
+            "seal_interval_s"
+          ],
+          "definition": "CHECK (seal_interval_s >= 10 AND seal_interval_s <= 300)"
+        },
+        {
+          "name": "audit_chain_head_seq_check",
+          "type": "check",
+          "columns": [
+            "seq"
+          ],
+          "definition": "CHECK (seq >= 0)"
+        },
+        {
+          "name": "audit_chain_head_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        },
+        {
+          "name": "audit_chain_head_version_check",
+          "type": "check",
+          "columns": [
+            "version"
+          ],
+          "definition": "CHECK (version >= 1)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "audit_chain_head_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX audit_chain_head_pkey ON public.audit_chain_head USING btree (tenant_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "audit_chain_head_onboard_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "audit_chain_head_purge_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(next_seal_at < (now() - '00:10:00'::interval))"
+        },
+        {
+          "name": "audit_chain_head_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_chain_head_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "audit_log",
+      "kind": "partitioned",
+      "partition_key": "RANGE (occurred_at)",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "txid",
+          "type": "xid8",
+          "not_null": true,
+          "default": "pg_current_xact_id()"
+        },
+        {
+          "name": "domain",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "action",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "subject_type",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "subject_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "version_before",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "version_after",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "actor_principal_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "actor_system",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "source",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "source_ref",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "change_set_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_depth",
+          "type": "smallint",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "request_id",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "backfilled",
+          "type": "boolean",
+          "not_null": true,
+          "default": "false"
+        },
+        {
+          "name": "content_sha256",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "diff_sha256",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "diff_truncated",
+          "type": "boolean",
+          "not_null": true,
+          "default": "false"
+        },
+        {
+          "name": "diff",
+          "type": "json",
+          "not_null": false
+        },
+        {
+          "name": "diff_salt",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "seq",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "prev_hash",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "entry_hash",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "sealed_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "erased_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "erasure_ref",
+          "type": "uuid",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_log_action_check",
+          "type": "check",
+          "columns": [
+            "action"
+          ],
+          "definition": "CHECK (action = ANY (ARRAY['create'::text, 'update'::text, 'publish'::text, 'enable'::text, 'disable'::text, 'delete'::text, 'promote'::text, 'rollback'::text, 'state_change'::text, 'export'::text, 'erase'::text, 'reseed'::text, 'cascade_cycle'::text, 'cascade_too_deep'::text]))"
+        },
+        {
+          "name": "audit_log_actor_check",
+          "type": "check",
+          "columns": [
+            "actor_principal_id",
+            "actor_system"
+          ],
+          "definition": "CHECK ((actor_principal_id IS NULL) <> (actor_system IS NULL))"
+        },
+        {
+          "name": "audit_log_actor_principal_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "actor_principal_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, actor_principal_id) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "audit_log_causation_depth_check",
+          "type": "check",
+          "columns": [
+            "causation_depth"
+          ],
+          "definition": "CHECK (causation_depth >= 0)"
+        },
+        {
+          "name": "audit_log_commit_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "occurred_at",
+            "txid",
+            "subject_type",
+            "subject_id",
+            "version_after"
+          ],
+          "definition": "UNIQUE NULLS NOT DISTINCT (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)"
+        },
+        {
+          "name": "audit_log_config_content_check",
+          "type": "check",
+          "columns": [
+            "domain",
+            "action",
+            "content_sha256"
+          ],
+          "definition": "CHECK (domain <> 'config'::text OR action = 'delete'::text OR content_sha256 IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_diff_salt_length_check",
+          "type": "check",
+          "columns": [
+            "diff_salt"
+          ],
+          "definition": "CHECK (octet_length(diff_salt) = 16)"
+        },
+        {
+          "name": "audit_log_diff_salt_pair_check",
+          "type": "check",
+          "columns": [
+            "diff",
+            "diff_salt"
+          ],
+          "definition": "CHECK ((diff IS NULL) = (diff_salt IS NULL))"
+        },
+        {
+          "name": "audit_log_diff_size_check",
+          "type": "check",
+          "columns": [
+            "diff"
+          ],
+          "definition": "CHECK (octet_length(diff::text) <= 65536)"
+        },
+        {
+          "name": "audit_log_digest_length_check",
+          "type": "check",
+          "columns": [
+            "content_sha256",
+            "diff_sha256",
+            "prev_hash",
+            "entry_hash"
+          ],
+          "definition": "CHECK (octet_length(content_sha256) = 32 AND octet_length(diff_sha256) = 32 AND octet_length(prev_hash) = 32 AND octet_length(entry_hash) = 32)"
+        },
+        {
+          "name": "audit_log_domain_check",
+          "type": "check",
+          "columns": [
+            "domain"
+          ],
+          "definition": "CHECK (domain = ANY (ARRAY['record'::text, 'config'::text, 'audit'::text]))"
+        },
+        {
+          "name": "audit_log_entity_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, entity_definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "audit_log_erased_has_no_diff_check",
+          "type": "check",
+          "columns": [
+            "erased_at",
+            "diff"
+          ],
+          "definition": "CHECK (erased_at IS NULL OR diff IS NULL)"
+        },
+        {
+          "name": "audit_log_erasure_all_or_none_check",
+          "type": "check",
+          "columns": [
+            "erased_at",
+            "erasure_ref"
+          ],
+          "definition": "CHECK ((erased_at IS NULL) = (erasure_ref IS NULL))"
+        },
+        {
+          "name": "audit_log_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, occurred_at, id)"
+        },
+        {
+          "name": "audit_log_seal_all_or_none_check",
+          "type": "check",
+          "columns": [
+            "seq",
+            "prev_hash",
+            "entry_hash",
+            "sealed_at"
+          ],
+          "definition": "CHECK ((seq IS NULL) = (prev_hash IS NULL) AND (seq IS NULL) = (entry_hash IS NULL) AND (seq IS NULL) = (sealed_at IS NULL))"
+        },
+        {
+          "name": "audit_log_seq_check",
+          "type": "check",
+          "columns": [
+            "seq"
+          ],
+          "definition": "CHECK (seq >= 1)"
+        },
+        {
+          "name": "audit_log_source_check",
+          "type": "check",
+          "columns": [
+            "source"
+          ],
+          "definition": "CHECK (source = ANY (ARRAY['user'::text, 'ai'::text, 'change_set'::text, 'onboarding'::text, 'plugin'::text, 'rule'::text, 'workflow'::text, 'function'::text, 'system'::text]))"
+        },
+        {
+          "name": "audit_log_subject_type_check",
+          "type": "check",
+          "columns": [
+            "subject_type"
+          ],
+          "definition": "CHECK (subject_type = ANY (ARRAY['record'::text, 'cascade_key'::text, 'entity_definition'::text, 'acl_policy'::text, 'audit_export'::text, 'audit_chain'::text, 'erasure_request'::text]))"
+        },
+        {
+          "name": "audit_log_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        },
+        {
+          "name": "audit_log_text_nonempty_check",
+          "type": "check",
+          "columns": [
+            "domain",
+            "action",
+            "subject_type",
+            "actor_system",
+            "source",
+            "source_ref",
+            "request_id"
+          ],
+          "definition": "CHECK (domain <> ''::text AND action <> ''::text AND subject_type <> ''::text AND actor_system <> ''::text AND source <> ''::text AND source_ref <> ''::text AND request_id <> ''::text)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "audit_log_change_set",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "change_set_id"
+          ],
+          "predicate": "change_set_id IS NOT NULL",
+          "definition": "CREATE INDEX audit_log_change_set ON ONLY public.audit_log USING btree (tenant_id, change_set_id) WHERE (change_set_id IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_commit_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "txid",
+            "subject_type",
+            "subject_id",
+            "version_after"
+          ],
+          "definition": "CREATE UNIQUE INDEX audit_log_commit_key ON ONLY public.audit_log USING btree (tenant_id, occurred_at, txid, subject_type, subject_id, version_after) NULLS NOT DISTINCT"
+        },
+        {
+          "name": "audit_log_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX audit_log_pkey ON ONLY public.audit_log USING btree (tenant_id, occurred_at, id)"
+        },
+        {
+          "name": "audit_log_seq",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "seq"
+          ],
+          "predicate": "seq IS NOT NULL",
+          "definition": "CREATE INDEX audit_log_seq ON ONLY public.audit_log USING btree (tenant_id, seq) WHERE (seq IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_subject",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "subject_type",
+            "subject_id",
+            "occurred_at"
+          ],
+          "definition": "CREATE INDEX audit_log_subject ON ONLY public.audit_log USING btree (tenant_id, subject_type, subject_id, occurred_at DESC)"
+        },
+        {
+          "name": "audit_log_tenant_time",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX audit_log_tenant_time ON ONLY public.audit_log USING btree (tenant_id, occurred_at DESC, id DESC)"
+        },
+        {
+          "name": "audit_log_unsealed",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "predicate": "sealed_at IS NULL",
+          "definition": "CREATE INDEX audit_log_unsealed ON ONLY public.audit_log USING btree (tenant_id, occurred_at, id) WHERE (sealed_at IS NULL)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "audit_log_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_erasure"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_log_onboard_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "audit_log_onboard_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "audit_log_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_audit_reader",
+            "nava_erasure",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_log_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_erasure",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_log_writer_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_log_writer_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "audit_log_default",
+      "kind": "partition",
+      "partition_of": "audit_log",
+      "partition_bound": "DEFAULT",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "txid",
+          "type": "xid8",
+          "not_null": true,
+          "default": "pg_current_xact_id()"
+        },
+        {
+          "name": "domain",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "action",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "subject_type",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "subject_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "version_before",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "version_after",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "actor_principal_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "actor_system",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "source",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "source_ref",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "change_set_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_depth",
+          "type": "smallint",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "request_id",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "backfilled",
+          "type": "boolean",
+          "not_null": true,
+          "default": "false"
+        },
+        {
+          "name": "content_sha256",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "diff_sha256",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "diff_truncated",
+          "type": "boolean",
+          "not_null": true,
+          "default": "false"
+        },
+        {
+          "name": "diff",
+          "type": "json",
+          "not_null": false
+        },
+        {
+          "name": "diff_salt",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "seq",
+          "type": "bigint",
+          "not_null": false
+        },
+        {
+          "name": "prev_hash",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "entry_hash",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "sealed_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "erased_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "erasure_ref",
+          "type": "uuid",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_log_action_check",
+          "type": "check",
+          "columns": [
+            "action"
+          ],
+          "definition": "CHECK (action = ANY (ARRAY['create'::text, 'update'::text, 'publish'::text, 'enable'::text, 'disable'::text, 'delete'::text, 'promote'::text, 'rollback'::text, 'state_change'::text, 'export'::text, 'erase'::text, 'reseed'::text, 'cascade_cycle'::text, 'cascade_too_deep'::text]))"
+        },
+        {
+          "name": "audit_log_actor_check",
+          "type": "check",
+          "columns": [
+            "actor_principal_id",
+            "actor_system"
+          ],
+          "definition": "CHECK ((actor_principal_id IS NULL) <> (actor_system IS NULL))"
+        },
+        {
+          "name": "audit_log_actor_principal_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "actor_principal_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, actor_principal_id) REFERENCES principals(tenant_id, id)",
+          "inherited": true
+        },
+        {
+          "name": "audit_log_causation_depth_check",
+          "type": "check",
+          "columns": [
+            "causation_depth"
+          ],
+          "definition": "CHECK (causation_depth >= 0)"
+        },
+        {
+          "name": "audit_log_config_content_check",
+          "type": "check",
+          "columns": [
+            "domain",
+            "action",
+            "content_sha256"
+          ],
+          "definition": "CHECK (domain <> 'config'::text OR action = 'delete'::text OR content_sha256 IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_default_commit_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "occurred_at",
+            "txid",
+            "subject_type",
+            "subject_id",
+            "version_after"
+          ],
+          "definition": "UNIQUE NULLS NOT DISTINCT (tenant_id, occurred_at, txid, subject_type, subject_id, version_after)",
+          "inherited": true
+        },
+        {
+          "name": "audit_log_default_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, occurred_at, id)",
+          "inherited": true
+        },
+        {
+          "name": "audit_log_diff_salt_length_check",
+          "type": "check",
+          "columns": [
+            "diff_salt"
+          ],
+          "definition": "CHECK (octet_length(diff_salt) = 16)"
+        },
+        {
+          "name": "audit_log_diff_salt_pair_check",
+          "type": "check",
+          "columns": [
+            "diff",
+            "diff_salt"
+          ],
+          "definition": "CHECK ((diff IS NULL) = (diff_salt IS NULL))"
+        },
+        {
+          "name": "audit_log_diff_size_check",
+          "type": "check",
+          "columns": [
+            "diff"
+          ],
+          "definition": "CHECK (octet_length(diff::text) <= 65536)"
+        },
+        {
+          "name": "audit_log_digest_length_check",
+          "type": "check",
+          "columns": [
+            "content_sha256",
+            "diff_sha256",
+            "prev_hash",
+            "entry_hash"
+          ],
+          "definition": "CHECK (octet_length(content_sha256) = 32 AND octet_length(diff_sha256) = 32 AND octet_length(prev_hash) = 32 AND octet_length(entry_hash) = 32)"
+        },
+        {
+          "name": "audit_log_domain_check",
+          "type": "check",
+          "columns": [
+            "domain"
+          ],
+          "definition": "CHECK (domain = ANY (ARRAY['record'::text, 'config'::text, 'audit'::text]))"
+        },
+        {
+          "name": "audit_log_entity_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, entity_definition_id) REFERENCES entity_definitions(tenant_id, id)",
+          "inherited": true
+        },
+        {
+          "name": "audit_log_erased_has_no_diff_check",
+          "type": "check",
+          "columns": [
+            "erased_at",
+            "diff"
+          ],
+          "definition": "CHECK (erased_at IS NULL OR diff IS NULL)"
+        },
+        {
+          "name": "audit_log_erasure_all_or_none_check",
+          "type": "check",
+          "columns": [
+            "erased_at",
+            "erasure_ref"
+          ],
+          "definition": "CHECK ((erased_at IS NULL) = (erasure_ref IS NULL))"
+        },
+        {
+          "name": "audit_log_seal_all_or_none_check",
+          "type": "check",
+          "columns": [
+            "seq",
+            "prev_hash",
+            "entry_hash",
+            "sealed_at"
+          ],
+          "definition": "CHECK ((seq IS NULL) = (prev_hash IS NULL) AND (seq IS NULL) = (entry_hash IS NULL) AND (seq IS NULL) = (sealed_at IS NULL))"
+        },
+        {
+          "name": "audit_log_seq_check",
+          "type": "check",
+          "columns": [
+            "seq"
+          ],
+          "definition": "CHECK (seq >= 1)"
+        },
+        {
+          "name": "audit_log_source_check",
+          "type": "check",
+          "columns": [
+            "source"
+          ],
+          "definition": "CHECK (source = ANY (ARRAY['user'::text, 'ai'::text, 'change_set'::text, 'onboarding'::text, 'plugin'::text, 'rule'::text, 'workflow'::text, 'function'::text, 'system'::text]))"
+        },
+        {
+          "name": "audit_log_subject_type_check",
+          "type": "check",
+          "columns": [
+            "subject_type"
+          ],
+          "definition": "CHECK (subject_type = ANY (ARRAY['record'::text, 'cascade_key'::text, 'entity_definition'::text, 'acl_policy'::text, 'audit_export'::text, 'audit_chain'::text, 'erasure_request'::text]))"
+        },
+        {
+          "name": "audit_log_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)",
+          "inherited": true
+        },
+        {
+          "name": "audit_log_text_nonempty_check",
+          "type": "check",
+          "columns": [
+            "domain",
+            "action",
+            "subject_type",
+            "actor_system",
+            "source",
+            "source_ref",
+            "request_id"
+          ],
+          "definition": "CHECK (domain <> ''::text AND action <> ''::text AND subject_type <> ''::text AND actor_system <> ''::text AND source <> ''::text AND source_ref <> ''::text AND request_id <> ''::text)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "audit_log_default_change_set",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "change_set_id"
+          ],
+          "predicate": "change_set_id IS NOT NULL",
+          "definition": "CREATE INDEX audit_log_default_change_set ON public.audit_log_default USING btree (tenant_id, change_set_id) WHERE (change_set_id IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_default_commit_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "txid",
+            "subject_type",
+            "subject_id",
+            "version_after"
+          ],
+          "definition": "CREATE UNIQUE INDEX audit_log_default_commit_key ON public.audit_log_default USING btree (tenant_id, occurred_at, txid, subject_type, subject_id, version_after) NULLS NOT DISTINCT"
+        },
+        {
+          "name": "audit_log_default_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX audit_log_default_pkey ON public.audit_log_default USING btree (tenant_id, occurred_at, id)"
+        },
+        {
+          "name": "audit_log_default_seq",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "seq"
+          ],
+          "predicate": "seq IS NOT NULL",
+          "definition": "CREATE INDEX audit_log_default_seq ON public.audit_log_default USING btree (tenant_id, seq) WHERE (seq IS NOT NULL)"
+        },
+        {
+          "name": "audit_log_default_subject",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "subject_type",
+            "subject_id",
+            "occurred_at"
+          ],
+          "definition": "CREATE INDEX audit_log_default_subject ON public.audit_log_default USING btree (tenant_id, subject_type, subject_id, occurred_at DESC)"
+        },
+        {
+          "name": "audit_log_default_tenant_time",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX audit_log_default_tenant_time ON public.audit_log_default USING btree (tenant_id, occurred_at DESC, id DESC)"
+        },
+        {
+          "name": "audit_log_default_unsealed",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "occurred_at",
+            "id"
+          ],
+          "predicate": "sealed_at IS NULL",
+          "definition": "CREATE INDEX audit_log_default_unsealed ON public.audit_log_default USING btree (tenant_id, occurred_at, id) WHERE (sealed_at IS NULL)"
+        }
+      ],
+      "policies": []
+    },
+    {
+      "schema": "public",
+      "name": "cascade_start",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "causation_origin_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "definition_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "outbox_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "cascade_start_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "causation_origin_id",
+            "record_id",
+            "definition_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, causation_origin_id, record_id, definition_id)"
+        },
+        {
+          "name": "cascade_start_record_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "references": {
+            "table": "records",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, record_id) REFERENCES records(tenant_id, id)"
+        },
+        {
+          "name": "cascade_start_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "cascade_start_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "causation_origin_id",
+            "record_id",
+            "definition_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX cascade_start_pkey ON public.cascade_start USING btree (tenant_id, causation_origin_id, record_id, definition_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "cascade_start_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "cascade_start_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "entity_definition_versions",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "definition_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "schema",
+          "type": "json",
+          "not_null": true
+        },
+        {
+          "name": "schema_sha256",
+          "type": "bytea",
+          "not_null": true
+        },
+        {
+          "name": "fixed_columns",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "states",
+          "type": "jsonb",
+          "not_null": true
+        },
+        {
+          "name": "compat",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "published_by",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "entity_definition_versions_compat_check",
+          "type": "check",
+          "columns": [
+            "compat"
+          ],
+          "definition": "CHECK (compat = ANY (ARRAY['initial'::text, 'compatible'::text, 'needs_backfill'::text]))"
+        },
+        {
+          "name": "entity_definition_versions_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "entity_definition_versions_fixed_columns_check",
+          "type": "check",
+          "columns": [
+            "fixed_columns"
+          ],
+          "definition": "CHECK (jsonb_typeof(fixed_columns) = 'object'::text)"
+        },
+        {
+          "name": "entity_definition_versions_id_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "UNIQUE (tenant_id, id)"
+        },
+        {
+          "name": "entity_definition_versions_initial_check",
+          "type": "check",
+          "columns": [
+            "version",
+            "compat"
+          ],
+          "definition": "CHECK ((version = 1) = (compat = 'initial'::text))"
+        },
+        {
+          "name": "entity_definition_versions_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "definition_id",
+            "version"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, definition_id, version)"
+        },
+        {
+          "name": "entity_definition_versions_published_by_check",
+          "type": "check",
+          "columns": [
+            "published_by",
+            "version"
+          ],
+          "definition": "CHECK (published_by IS NOT NULL OR version = 1)"
+        },
+        {
+          "name": "entity_definition_versions_published_by_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "published_by"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, published_by) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "entity_definition_versions_schema_sha256_check",
+          "type": "check",
+          "columns": [
+            "schema_sha256",
+            "schema"
+          ],
+          "definition": "CHECK (schema_sha256 = sha256(convert_to(schema::text, 'UTF8'::name)))"
+        },
+        {
+          "name": "entity_definition_versions_states_check",
+          "type": "check",
+          "columns": [
+            "states"
+          ],
+          "definition": "CHECK (jsonb_typeof(states) = 'object'::text)"
+        },
+        {
+          "name": "entity_definition_versions_version_check",
+          "type": "check",
+          "columns": [
+            "version"
+          ],
+          "definition": "CHECK (version >= 1)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "entity_definition_versions_id_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX entity_definition_versions_id_key ON public.entity_definition_versions USING btree (tenant_id, id)"
+        },
+        {
+          "name": "entity_definition_versions_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "definition_id",
+            "version"
+          ],
+          "definition": "CREATE UNIQUE INDEX entity_definition_versions_pkey ON public.entity_definition_versions USING btree (tenant_id, definition_id, version)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "entity_definition_versions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "entity_definition_versions_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "entity_definition_versions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_audit_reader",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "entity_definitions",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "key",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "number_prefix",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "current_version",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "numbering_mode",
+          "type": "text",
+          "not_null": true,
+          "default": "'gaps'::text"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "entity_definitions_current_version_check",
+          "type": "check",
+          "columns": [
+            "current_version"
+          ],
+          "definition": "CHECK (current_version >= 1)"
+        },
+        {
+          "name": "entity_definitions_key_check",
+          "type": "check",
+          "columns": [
+            "key"
+          ],
+          "definition": "CHECK (key ~ '^[a-z][a-z0-9_]{1,40}$'::text)"
+        },
+        {
+          "name": "entity_definitions_key_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "key"
+          ],
+          "definition": "UNIQUE (tenant_id, key)"
+        },
+        {
+          "name": "entity_definitions_number_prefix_check",
+          "type": "check",
+          "columns": [
+            "number_prefix"
+          ],
+          "definition": "CHECK (number_prefix ~ '^[A-Z]{2,6}$'::text)"
+        },
+        {
+          "name": "entity_definitions_number_prefix_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "number_prefix"
+          ],
+          "definition": "UNIQUE (tenant_id, number_prefix)"
+        },
+        {
+          "name": "entity_definitions_numbering_mode_check",
+          "type": "check",
+          "columns": [
+            "numbering_mode"
+          ],
+          "definition": "CHECK (numbering_mode = ANY (ARRAY['gaps'::text, 'gapless'::text]))"
+        },
+        {
+          "name": "entity_definitions_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        },
+        {
+          "name": "entity_definitions_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "entity_definitions_key_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "key"
+          ],
+          "definition": "CREATE UNIQUE INDEX entity_definitions_key_key ON public.entity_definitions USING btree (tenant_id, key)"
+        },
+        {
+          "name": "entity_definitions_number_prefix_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "number_prefix"
+          ],
+          "definition": "CREATE UNIQUE INDEX entity_definitions_number_prefix_key ON public.entity_definitions USING btree (tenant_id, number_prefix)"
+        },
+        {
+          "name": "entity_definitions_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX entity_definitions_pkey ON public.entity_definitions USING btree (tenant_id, id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "entity_definitions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "entity_definitions_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "entity_definitions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "entity_definitions_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "group_members",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "group_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "principal_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "live",
+          "type": "boolean",
+          "not_null": true,
+          "default": "true"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "group_members_group_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "group_id"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, group_id) REFERENCES groups(tenant_id, id) ON DELETE CASCADE"
+        },
+        {
+          "name": "group_members_group_live_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "group_id",
+            "live"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id",
+              "live"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, group_id, live) REFERENCES groups(tenant_id, id, live)"
+        },
+        {
+          "name": "group_members_live_check",
+          "type": "check",
+          "columns": [
+            "live"
+          ],
+          "definition": "CHECK (live)"
+        },
+        {
+          "name": "group_members_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "group_id",
+            "principal_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, group_id, principal_id)"
+        },
+        {
+          "name": "group_members_principal_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "principal_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, principal_id) REFERENCES principals(tenant_id, id) ON DELETE CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "group_members_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "group_id",
+            "principal_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX group_members_pkey ON public.group_members USING btree (tenant_id, group_id, principal_id)"
+        },
+        {
+          "name": "group_members_principal",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "principal_id"
+          ],
+          "definition": "CREATE INDEX group_members_principal ON public.group_members USING btree (tenant_id, principal_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "group_members_delete",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "group_members_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "group_members_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "groups",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "keycloak_group_id",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "path",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "live",
+          "type": "boolean",
+          "not_null": false,
+          "generated": "(deleted_at IS NULL)"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "groups_keycloak_group_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "keycloak_group_id"
+          ],
+          "definition": "UNIQUE (tenant_id, keycloak_group_id)"
+        },
+        {
+          "name": "groups_live_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "id",
+            "live"
+          ],
+          "definition": "UNIQUE (tenant_id, id, live)"
+        },
+        {
+          "name": "groups_path_check",
+          "type": "check",
+          "columns": [
+            "path",
+            "tenant_id"
+          ],
+          "definition": "CHECK (starts_with(path, ('/t/'::text || tenant_id::text) || '/'::text))"
+        },
+        {
+          "name": "groups_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        },
+        {
+          "name": "groups_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "groups_keycloak_group_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "keycloak_group_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX groups_keycloak_group_key ON public.groups USING btree (tenant_id, keycloak_group_id)"
+        },
+        {
+          "name": "groups_live_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "id",
+            "live"
+          ],
+          "definition": "CREATE UNIQUE INDEX groups_live_key ON public.groups USING btree (tenant_id, id, live)"
+        },
+        {
+          "name": "groups_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX groups_pkey ON public.groups USING btree (tenant_id, id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "groups_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "groups_insert_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "groups_insert_onboard_auditors",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (path = (('/t/'::text || (tenant_id)::text) || '/auditors'::text)) AND (tenant_id IN ( SELECT t.id\n   FROM tenants t\n  WHERE (t.state = 'active'::text))) AND (NOT (EXISTS ( SELECT 1\n   FROM tenant_auditor_group p\n  WHERE (p.tenant_id = groups.tenant_id)))))"
+        },
+        {
+          "name": "groups_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "groups_select_onboard",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "groups_select_onboard_auditors",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (path = (('/t/'::text || (tenant_id)::text) || '/auditors'::text)) AND (tenant_id IN ( SELECT t.id\n   FROM tenants t\n  WHERE (t.state = 'active'::text))))"
+        },
+        {
+          "name": "groups_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "idempotency_keys",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "principal_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "key",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "request_hash",
+          "type": "bytea",
+          "not_null": true
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "not_null": true,
+          "default": "'in_flight'::text"
+        },
+        {
+          "name": "response_status",
+          "type": "smallint",
+          "not_null": false
+        },
+        {
+          "name": "response_body",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "lease_until",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "(now() + '00:01:00'::interval)"
+        },
+        {
+          "name": "response_headers",
+          "type": "jsonb",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "idempotency_keys_completed_check",
+          "type": "check",
+          "columns": [
+            "state",
+            "response_status"
+          ],
+          "definition": "CHECK ((state = 'completed'::text) = (response_status IS NOT NULL))"
+        },
+        {
+          "name": "idempotency_keys_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "principal_id",
+            "key"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, principal_id, key)"
+        },
+        {
+          "name": "idempotency_keys_response_headers_check",
+          "type": "check",
+          "columns": [
+            "response_headers"
+          ],
+          "definition": "CHECK (response_headers IS NULL OR jsonb_typeof(response_headers) = 'object'::text)"
+        },
+        {
+          "name": "idempotency_keys_state_check",
+          "type": "check",
+          "columns": [
+            "state"
+          ],
+          "definition": "CHECK (state = ANY (ARRAY['in_flight'::text, 'completed'::text]))"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idempotency_keys_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "principal_id",
+            "key"
+          ],
+          "definition": "CREATE UNIQUE INDEX idempotency_keys_pkey ON public.idempotency_keys USING btree (tenant_id, principal_id, key)"
+        },
+        {
+          "name": "idempotency_keys_purge_expires",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "expires_at"
+          ],
+          "definition": "CREATE INDEX idempotency_keys_purge_expires ON public.idempotency_keys USING btree (expires_at)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "idempotency_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "idempotency_purge",
+          "command": "DELETE",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(expires_at < now())"
+        },
+        {
+          "name": "idempotency_purge_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(expires_at < now())"
+        },
+        {
+          "name": "idempotency_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "idempotency_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "org_units",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "parent_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "keycloak_group_id",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "not_null": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "org_units_keycloak_group_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "keycloak_group_id"
+          ],
+          "definition": "UNIQUE (tenant_id, keycloak_group_id)"
+        },
+        {
+          "name": "org_units_parent_check",
+          "type": "check",
+          "columns": [
+            "parent_id",
+            "id"
+          ],
+          "definition": "CHECK (parent_id <> id)"
+        },
+        {
+          "name": "org_units_parent_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "parent_id"
+          ],
+          "references": {
+            "table": "org_units",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, parent_id) REFERENCES org_units(tenant_id, id)"
+        },
+        {
+          "name": "org_units_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        },
+        {
+          "name": "org_units_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "org_units_keycloak_group_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "keycloak_group_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX org_units_keycloak_group_key ON public.org_units USING btree (tenant_id, keycloak_group_id)"
+        },
+        {
+          "name": "org_units_parent",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "parent_id"
+          ],
+          "definition": "CREATE INDEX org_units_parent ON public.org_units USING btree (tenant_id, parent_id)"
+        },
+        {
+          "name": "org_units_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX org_units_pkey ON public.org_units USING btree (tenant_id, id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "org_units_delete",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "org_units_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "org_units_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "org_units_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "outbox",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "kind_version",
+          "type": "smallint",
+          "not_null": true,
+          "default": "1"
+        },
+        {
+          "name": "dedupe_key",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "target_key",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "target_seq",
+          "type": "bigint",
+          "not_null": true
+        },
+        {
+          "name": "causation_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_depth",
+          "type": "smallint",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "payload",
+          "type": "jsonb",
+          "not_null": true,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "trace_context",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "available_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "attempts",
+          "type": "integer",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "dispatched_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "dead_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "outbox_attempts_check",
+          "type": "check",
+          "columns": [
+            "attempts"
+          ],
+          "definition": "CHECK (attempts >= 0)"
+        },
+        {
+          "name": "outbox_causation_depth_check",
+          "type": "check",
+          "columns": [
+            "causation_depth"
+          ],
+          "definition": "CHECK (causation_depth >= 0)"
+        },
+        {
+          "name": "outbox_dedupe_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "dedupe_key"
+          ],
+          "definition": "UNIQUE (tenant_id, dedupe_key)"
+        },
+        {
+          "name": "outbox_payload_check",
+          "type": "check",
+          "columns": [
+            "payload"
+          ],
+          "definition": "CHECK (\nCASE\n    WHEN jsonb_typeof(payload) = 'object'::text THEN NOT jsonb_path_exists(payload, 'strict $.keyvalue()?(!(@.\"key\" like_regex \"^[a-z][a-z0-9_]{0,31}$\") || !(@.\"value\".type() == \"string\" && @.\"value\" like_regex \"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\" || @.\"value\".type() == \"array\" && !(exists (@.\"value\"[*]?(!(@.type() == \"string\" && @ like_regex \"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$\"))))))'::jsonpath)\n    ELSE false\nEND)"
+        },
+        {
+          "name": "outbox_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "outbox_dedupe_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "dedupe_key"
+          ],
+          "definition": "CREATE UNIQUE INDEX outbox_dedupe_key ON public.outbox USING btree (tenant_id, dedupe_key)"
+        },
+        {
+          "name": "outbox_pending_available",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "available_at"
+          ],
+          "predicate": "dispatched_at IS NULL AND dead_at IS NULL",
+          "definition": "CREATE INDEX outbox_pending_available ON public.outbox USING btree (tenant_id, available_at) WHERE ((dispatched_at IS NULL) AND (dead_at IS NULL))"
+        },
+        {
+          "name": "outbox_pending_target",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "target_key",
+            "target_seq"
+          ],
+          "predicate": "dispatched_at IS NULL AND dead_at IS NULL",
+          "definition": "CREATE INDEX outbox_pending_target ON public.outbox USING btree (tenant_id, target_key, target_seq) WHERE ((dispatched_at IS NULL) AND (dead_at IS NULL))"
+        },
+        {
+          "name": "outbox_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX outbox_pkey ON public.outbox USING btree (tenant_id, id)"
+        },
+        {
+          "name": "outbox_purge_dead",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "dead_at"
+          ],
+          "predicate": "dead_at IS NOT NULL",
+          "definition": "CREATE INDEX outbox_purge_dead ON public.outbox USING btree (dead_at) WHERE (dead_at IS NOT NULL)"
+        },
+        {
+          "name": "outbox_purge_dispatched",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "dispatched_at"
+          ],
+          "predicate": "dispatched_at IS NOT NULL",
+          "definition": "CREATE INDEX outbox_purge_dispatched ON public.outbox USING btree (dispatched_at) WHERE (dispatched_at IS NOT NULL)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "outbox_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "outbox_onboard_seal_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))) AND (kind = 'audit.seal'::text))"
+        },
+        {
+          "name": "outbox_purge",
+          "command": "DELETE",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "((dispatched_at < (now() - '7 days'::interval)) OR (dead_at < (now() - '30 days'::interval)))"
+        },
+        {
+          "name": "outbox_purge_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "((dispatched_at < (now() - '7 days'::interval)) OR (dead_at < (now() - '30 days'::interval)))"
+        },
+        {
+          "name": "outbox_relay_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_relay"
+          ],
+          "permissive": true,
+          "using": "true"
+        },
+        {
+          "name": "outbox_relay_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_relay"
+          ],
+          "permissive": true,
+          "using": "((dispatched_at IS NULL) AND (dead_at IS NULL))",
+          "with_check": "true"
+        },
+        {
+          "name": "outbox_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "pending_invite",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "consumed_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pending_invite_email_check",
+          "type": "check",
+          "columns": [
+            "email"
+          ],
+          "definition": "CHECK (email = lower(btrim(email)) AND strpos(email, '@'::text) > 0)"
+        },
+        {
+          "name": "pending_invite_expires_check",
+          "type": "check",
+          "columns": [
+            "expires_at",
+            "created_at"
+          ],
+          "definition": "CHECK (expires_at > created_at)"
+        },
+        {
+          "name": "pending_invite_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "email"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, email)"
+        },
+        {
+          "name": "pending_invite_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "pending_invite_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "email"
+          ],
+          "definition": "CREATE UNIQUE INDEX pending_invite_pkey ON public.pending_invite USING btree (tenant_id, email)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "pending_invite_consume",
+          "command": "UPDATE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "pending_invite_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "pending_invite_reinvite",
+          "command": "UPDATE",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))",
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "pending_invite_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_groupsync",
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "principals",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "keycloak_user_id",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "not_null": true
+        },
+        {
+          "name": "federated_links",
+          "type": "jsonb",
+          "not_null": false
+        },
+        {
+          "name": "synced_at",
+          "type": "timestamp with time zone",
+          "not_null": true
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "principals_federated_links_check",
+          "type": "check",
+          "columns": [
+            "federated_links"
+          ],
+          "definition": "CHECK (jsonb_typeof(federated_links) = 'array'::text AND NOT jsonb_path_exists(federated_links, '$[*]?(!(exists (@.\"identityProvider\")) || @.\"identityProvider\".type() != \"string\")'::jsonpath))"
+        },
+        {
+          "name": "principals_keycloak_user_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "keycloak_user_id"
+          ],
+          "definition": "UNIQUE (tenant_id, keycloak_user_id)"
+        },
+        {
+          "name": "principals_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        },
+        {
+          "name": "principals_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        },
+        {
+          "name": "principals_tombstone_check",
+          "type": "check",
+          "columns": [
+            "deleted_at",
+            "enabled"
+          ],
+          "definition": "CHECK (deleted_at IS NULL OR NOT enabled)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "principals_keycloak_user_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "keycloak_user_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX principals_keycloak_user_key ON public.principals USING btree (tenant_id, keycloak_user_id)"
+        },
+        {
+          "name": "principals_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX principals_pkey ON public.principals USING btree (tenant_id, id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "principals_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "principals_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "principals_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "record_counters",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "next",
+          "type": "bigint",
+          "not_null": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "record_counters_entity_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, entity_definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "record_counters_next_check",
+          "type": "check",
+          "columns": [
+            "next"
+          ],
+          "definition": "CHECK (next >= 2)"
+        },
+        {
+          "name": "record_counters_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, entity_definition_id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "record_counters_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "record_counters_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_counters_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_counters_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "record_shares",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "principal_kind",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "granted_by",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "granted_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "group_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "principal_id",
+          "type": "uuid",
+          "not_null": true,
+          "generated": "COALESCE(user_id, group_id)"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "record_shares_granted_by_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "granted_by"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, granted_by) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "record_shares_group_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "group_id"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, group_id) REFERENCES groups(tenant_id, id)"
+        },
+        {
+          "name": "record_shares_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "record_id",
+            "principal_kind",
+            "principal_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, record_id, principal_kind, principal_id)"
+        },
+        {
+          "name": "record_shares_principal_check",
+          "type": "check",
+          "columns": [
+            "principal_kind",
+            "user_id",
+            "group_id"
+          ],
+          "definition": "CHECK (principal_kind = 'user'::text AND user_id IS NOT NULL AND group_id IS NULL OR principal_kind = 'group'::text AND group_id IS NOT NULL AND user_id IS NULL)"
+        },
+        {
+          "name": "record_shares_record_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "references": {
+            "table": "records",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, record_id) REFERENCES records(tenant_id, id)"
+        },
+        {
+          "name": "record_shares_user_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "user_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, user_id) REFERENCES principals(tenant_id, id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "record_shares_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "record_id",
+            "principal_kind",
+            "principal_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX record_shares_pkey ON public.record_shares USING btree (tenant_id, record_id, principal_kind, principal_id)"
+        },
+        {
+          "name": "record_shares_principal",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "principal_id"
+          ],
+          "definition": "CREATE INDEX record_shares_principal ON public.record_shares USING btree (tenant_id, principal_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "record_shares_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_shares_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "record_write_keys",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "idempotency_key",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "definition_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "action",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "number",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "bigint",
+          "not_null": true
+        },
+        {
+          "name": "schema_version",
+          "type": "integer",
+          "not_null": true
+        },
+        {
+          "name": "audit_entry_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "actor_principal_id",
+          "type": "uuid",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "record_write_keys_action_check",
+          "type": "check",
+          "columns": [
+            "action"
+          ],
+          "definition": "CHECK (action = ANY (ARRAY['create'::text, 'update'::text]))"
+        },
+        {
+          "name": "record_write_keys_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "record_write_keys_idempotency_key_check",
+          "type": "check",
+          "columns": [
+            "idempotency_key"
+          ],
+          "definition": "CHECK (idempotency_key <> ''::text)"
+        },
+        {
+          "name": "record_write_keys_record_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "references": {
+            "table": "records",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, record_id) REFERENCES records(tenant_id, id)"
+        },
+        {
+          "name": "record_write_keys_schema_version_check",
+          "type": "check",
+          "columns": [
+            "schema_version"
+          ],
+          "definition": "CHECK (schema_version >= 1)"
+        },
+        {
+          "name": "record_write_keys_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        },
+        {
+          "name": "record_write_keys_version_check",
+          "type": "check",
+          "columns": [
+            "version"
+          ],
+          "definition": "CHECK (version >= 0)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "record_write_keys_actor_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "idempotency_key",
+            "actor_principal_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX record_write_keys_actor_key ON public.record_write_keys USING btree (tenant_id, idempotency_key, actor_principal_id) NULLS NOT DISTINCT"
+        }
+      ],
+      "policies": [
+        {
+          "name": "record_write_keys_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_write_keys_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "records",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "bigint",
+          "not_null": true,
+          "default": "0"
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "schema_version",
+          "type": "integer",
+          "not_null": false
+        },
+        {
+          "name": "number",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "not_null": false
+        },
+        {
+          "name": "requester_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "assignee_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "assignment_group_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "data",
+          "type": "jsonb",
+          "not_null": true,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "causation_origin_id",
+          "type": "uuid",
+          "not_null": false
+        },
+        {
+          "name": "causation_depth",
+          "type": "smallint",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "records_assignee_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "assignee_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, assignee_id) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "records_assignment_group_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "assignment_group_id"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, assignment_group_id) REFERENCES groups(tenant_id, id) ON DELETE RESTRICT"
+        },
+        {
+          "name": "records_causation_depth_check",
+          "type": "check",
+          "columns": [
+            "causation_depth"
+          ],
+          "definition": "CHECK (causation_depth >= 0)"
+        },
+        {
+          "name": "records_created_by_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "created_by"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, created_by) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "records_entity_definition_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "references": {
+            "table": "entity_definitions",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, entity_definition_id) REFERENCES entity_definitions(tenant_id, id)"
+        },
+        {
+          "name": "records_number_key",
+          "type": "unique",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "number"
+          ],
+          "definition": "UNIQUE (tenant_id, entity_definition_id, number)"
+        },
+        {
+          "name": "records_pipeline_all_or_none_check",
+          "type": "check",
+          "columns": [
+            "entity_definition_id",
+            "schema_version",
+            "number",
+            "state"
+          ],
+          "definition": "CHECK ((entity_definition_id IS NULL) = (schema_version IS NULL) AND (entity_definition_id IS NULL) = (number IS NULL) AND (entity_definition_id IS NULL) = (state IS NULL))"
+        },
+        {
+          "name": "records_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, id)"
+        },
+        {
+          "name": "records_requester_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "requester_id"
+          ],
+          "references": {
+            "table": "principals",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, requester_id) REFERENCES principals(tenant_id, id)"
+        },
+        {
+          "name": "records_schema_version_check",
+          "type": "check",
+          "columns": [
+            "schema_version"
+          ],
+          "definition": "CHECK (schema_version >= 1)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "records_list_assignee",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "assignee_id",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_assignee ON public.records USING btree (tenant_id, entity_definition_id, assignee_id DESC, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_created",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "created_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_created ON public.records USING btree (tenant_id, entity_definition_id, created_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_group",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "assignment_group_id",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_group ON public.records USING btree (tenant_id, entity_definition_id, assignment_group_id DESC, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_group_state",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "assignment_group_id",
+            "state",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_group_state ON public.records USING btree (tenant_id, entity_definition_id, assignment_group_id DESC, state DESC, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_requester",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "requester_id",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_requester ON public.records USING btree (tenant_id, entity_definition_id, requester_id DESC, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_state",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "state",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_state ON public.records USING btree (tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_list_updated",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "updated_at",
+            "id"
+          ],
+          "definition": "CREATE INDEX records_list_updated ON public.records USING btree (tenant_id, entity_definition_id, updated_at DESC, id DESC)"
+        },
+        {
+          "name": "records_number_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "entity_definition_id",
+            "number"
+          ],
+          "definition": "CREATE UNIQUE INDEX records_number_key ON public.records USING btree (tenant_id, entity_definition_id, number)"
+        },
+        {
+          "name": "records_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX records_pkey ON public.records USING btree (tenant_id, id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "records_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "records_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "records_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "tenant_admin_group",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "group_id",
+          "type": "uuid",
+          "not_null": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenant_admin_group_group_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "group_id"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, group_id) REFERENCES groups(tenant_id, id) ON DELETE CASCADE"
+        },
+        {
+          "name": "tenant_admin_group_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_admin_group_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenant_admin_group_pkey ON public.tenant_admin_group USING btree (tenant_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "tenant_admin_group_delete_tombstoned",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_admin_group.tenant_id) AND (g.id = tenant_admin_group.group_id) AND (g.deleted_at IS NOT NULL)))))"
+        },
+        {
+          "name": "tenant_admin_group_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "tenant_admin_group_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "tenant_admin_group_select_onboard",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "tenant_auditor_group",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "group_id",
+          "type": "uuid",
+          "not_null": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenant_auditor_group_group_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "group_id"
+          ],
+          "references": {
+            "table": "groups",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, group_id) REFERENCES groups(tenant_id, id) ON DELETE CASCADE"
+        },
+        {
+          "name": "tenant_auditor_group_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_auditor_group_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenant_auditor_group_pkey ON public.tenant_auditor_group USING btree (tenant_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "tenant_auditor_group_delete_tombstoned",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NOT NULL)))))"
+        },
+        {
+          "name": "tenant_auditor_group_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "tenant_auditor_group_insert_active",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT t.id\n   FROM tenants t\n  WHERE (t.state = 'active'::text))) AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NULL)))))"
+        },
+        {
+          "name": "tenant_auditor_group_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "tenant_auditor_group_select_onboard",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "tenant_email_domain",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "domain",
+          "type": "text",
+          "not_null": true
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenant_email_domain_domain_check",
+          "type": "check",
+          "columns": [
+            "domain"
+          ],
+          "definition": "CHECK (octet_length(domain) <= 253 AND domain ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text)"
+        },
+        {
+          "name": "tenant_email_domain_pkey",
+          "type": "primary_key",
+          "columns": [
+            "domain"
+          ],
+          "definition": "PRIMARY KEY (domain) INCLUDE (tenant_id)"
+        },
+        {
+          "name": "tenant_email_domain_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_email_domain_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "domain"
+          ],
+          "include": [
+            "tenant_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenant_email_domain_pkey ON public.tenant_email_domain USING btree (domain) INCLUDE (tenant_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "email_domain_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "email_domain_onboard_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "email_domain_release",
+          "command": "DELETE",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text))))"
+        },
+        {
+          "name": "email_domain_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "tenant_identity_binding",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "issuer",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "org_id",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "idp_aliases",
+          "type": "text[]",
+          "not_null": true,
+          "default": "'{}'::text[]"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenant_identity_binding_issuer_org_key",
+          "type": "unique",
+          "columns": [
+            "issuer",
+            "org_id"
+          ],
+          "definition": "UNIQUE (issuer, org_id)"
+        },
+        {
+          "name": "tenant_identity_binding_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "issuer",
+            "org_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, issuer, org_id)"
+        },
+        {
+          "name": "tenant_identity_binding_tenant_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id"
+          ],
+          "references": {
+            "table": "tenants",
+            "columns": [
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_identity_binding_issuer_org_key",
+          "method": "btree",
+          "unique": true,
+          "primary": false,
+          "keys": [
+            "issuer",
+            "org_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenant_identity_binding_issuer_org_key ON public.tenant_identity_binding USING btree (issuer, org_id)"
+        },
+        {
+          "name": "tenant_identity_binding_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "issuer",
+            "org_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenant_identity_binding_pkey ON public.tenant_identity_binding USING btree (tenant_id, issuer, org_id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "binding_lookup",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "true"
+        },
+        {
+          "name": "binding_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "tenants",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "onboarding_request_hash",
+          "type": "bytea",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenants_pkey",
+          "type": "primary_key",
+          "columns": [
+            "id"
+          ],
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "tenants_state_check",
+          "type": "check",
+          "columns": [
+            "state"
+          ],
+          "definition": "CHECK (state = ANY (ARRAY['provisioning'::text, 'active'::text]))"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenants_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "id"
+          ],
+          "definition": "CREATE UNIQUE INDEX tenants_pkey ON public.tenants USING btree (id)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "tenants_activate",
+          "command": "UPDATE",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (state = 'provisioning'::text))",
+          "with_check": "((id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (state = 'active'::text))"
+        },
+        {
+          "name": "tenants_onboard_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "with_check": "((id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (state = 'provisioning'::text))"
+        },
+        {
+          "name": "tenants_onboard_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "tenants_tenant",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "workflow_ref",
+      "kind": "table",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "outbox_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "not_null": true
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now()"
+        },
+        {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "not_null": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "workflow_ref_pkey",
+          "type": "primary_key",
+          "columns": [
+            "tenant_id",
+            "outbox_id"
+          ],
+          "definition": "PRIMARY KEY (tenant_id, outbox_id)"
+        },
+        {
+          "name": "workflow_ref_record_fkey",
+          "type": "foreign_key",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "references": {
+            "table": "records",
+            "columns": [
+              "tenant_id",
+              "id"
+            ]
+          },
+          "definition": "FOREIGN KEY (tenant_id, record_id) REFERENCES records(tenant_id, id)"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "workflow_ref_pkey",
+          "method": "btree",
+          "unique": true,
+          "primary": true,
+          "keys": [
+            "tenant_id",
+            "outbox_id"
+          ],
+          "definition": "CREATE UNIQUE INDEX workflow_ref_pkey ON public.workflow_ref USING btree (tenant_id, outbox_id)"
+        },
+        {
+          "name": "workflow_ref_purge_closed",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "closed_at"
+          ],
+          "predicate": "closed_at IS NOT NULL",
+          "definition": "CREATE INDEX workflow_ref_purge_closed ON public.workflow_ref USING btree (closed_at) WHERE (closed_at IS NOT NULL)"
+        },
+        {
+          "name": "workflow_ref_record",
+          "method": "btree",
+          "unique": false,
+          "primary": false,
+          "keys": [
+            "tenant_id",
+            "record_id",
+            "kind",
+            "created_at"
+          ],
+          "definition": "CREATE INDEX workflow_ref_record ON public.workflow_ref USING btree (tenant_id, record_id, kind, created_at DESC)"
+        }
+      ],
+      "policies": [
+        {
+          "name": "workflow_ref_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "workflow_ref_purge",
+          "command": "DELETE",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(closed_at < (now() - '30 days'::interval))"
+        },
+        {
+          "name": "workflow_ref_purge_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(closed_at < (now() - '30 days'::interval))"
+        },
+        {
+          "name": "workflow_ref_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "workflow_ref_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "with_check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    }
+  ],
+  "views": []
+}
