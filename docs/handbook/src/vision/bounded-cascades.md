@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestCI10_DepthBeyondLimitRejectedAndAudit
 
 ## Read next
 
-Enforcement detail: [Workflows](../workflows/index.md) and [Database](../database/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Interpreter](../workflows/nava-interpreter.md) and [Workflow state](../database/workflow-state.md). All nine invariants: [the invariants page](invariants.md).

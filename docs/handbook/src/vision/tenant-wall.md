@@ -27,7 +27,7 @@ Tests that prove it, by Go test name: `TestCI2EveryRoleEveryTenantTable`, `TestT
 
 ## Read next
 
-Enforcement detail: [Database](../database/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Row-level security](../database/rls.md). All nine invariants: [the invariants page](invariants.md).
 
 ## Note
 

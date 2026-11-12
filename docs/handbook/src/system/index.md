@@ -107,13 +107,13 @@ No platform process joins `temporal-backplane`, so the server's internode and me
 | [temporal-ui](temporal-ui.md) | operator profile | `:8080` | none (tunnel 18233) | none | PLAN-001 T28 |
 | [otel-collector](otel-collector.md) | backing | `:4318`, `:4317`, `:13133` health | none | none | PLAN-001 T02 (TICK-51) |
 | [openobserve](openobserve.md) | operator profile | `:5080` | `127.0.0.1:5080` | none | TICK-634 |
-| [prometheus](prometheus.md) | operator profile | `:9091` | `127.0.0.1:9091` | none | TICK-330 |
+| [prometheus](prometheus.md) | operator profile | `:9091` | `127.0.0.1:9091` | none | commit `4a9f3788` (names no ticket) |
 | [nava-core](nava-core.md) | platform | `:8080` public, `:9090` admin | `127.0.0.1:18080` | `nava_app`, `nava_audit_reader` | PLAN-001 T02 (TICK-51) |
 | [nava-worker](nava-worker.md) | platform | `:9090` admin | none | `nava_worker` | PLAN-001 T31b (TICK-159) |
 | [nava-relay](nava-relay.md) | platform | `:9090` admin | none | `nava_relay` | PLAN-001 T30b (TICK-85) |
 | [nava-purge](nava-purge.md) | platform | `:9090` admin | none | `nava_purge` | PLAN-001 T13 (TICK-143) |
-| [nava-onboard](nava-onboard.md) | platform | `:8081` operator API, `:9090` admin | none | `nava_app`, `nava_onboard` | PLAN-001 T21 (TICK-234) |
-| [nava-groupsync](nava-groupsync.md) | platform | `:9090` admin | none | `nava_groupsync` | PLAN-001 T25 (TICK-234) |
+| [nava-onboard](nava-onboard.md) | platform | `:8081` operator API, `:9090` admin | none | `nava_app`, `nava_onboard` | PLAN-001 T21b (TICK-234) |
+| [nava-groupsync](nava-groupsync.md) | platform | `:9090` admin | none | `nava_groupsync` | PLAN-001 T21b (TICK-234) |
 
 "Introduced by" names the work that first added the service to the compose file. The story manifest does not list these yet, so they are named in prose here, not linked.
 

@@ -16,7 +16,7 @@ Local metrics and alert rules. Local development only, in the `operator` profile
 | Host port | `127.0.0.1:9091` (`PROMETHEUS_PORT`) |
 | Scrapes | `/metrics` on `:9090` of nava-core, nava-worker, nava-relay, nava-groupsync, nava-purge and nava-onboard, every 15 s; one-shot jobs are not scraped |
 | DB role | none |
-| Introduced by | TICK-330 |
+| Introduced by | commit `4a9f3788` (names no ticket) |
 
 ## Boundary it enforces
 

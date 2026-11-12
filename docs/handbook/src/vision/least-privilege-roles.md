@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestD28NoSuperuserOrBypassRLS`, `TestMani
 
 ## Read next
 
-Enforcement detail: [Database](../database/index.md) and [Security](../security/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Roles and grants](../database/roles-and-grants.md) and [Database floor](../security/04-database.md). All nine invariants: [the invariants page](invariants.md).

@@ -1162,7 +1162,7 @@ def area_link(f, table, here):
     a = f.area_of.get(table, "")
     if not a or a == here:
         return "`%s`" % table
-    return "`%s` ([%s](%s.md))" % (table, a, a)
+    return "`%s` ([%s](../database/%s.md))" % (table, a, a)
 
 
 def grants_by_table(f):
@@ -1239,7 +1239,7 @@ def gen_tables(f, area):
         canon = [p for p in pols if policy_class(t["name"], p) == "canonical"]
         other = [p for p in pols if policy_class(t["name"], p) != "canonical"]
         if canon:
-            out.append("Policies with exactly the tenant predicate on `%s` ([RLS](rls.md)): %s.\n" % (
+            out.append("Policies with exactly the tenant predicate on `%s` ([RLS](../database/rls.md)): %s.\n" % (
                 tenant_key(t["name"]), ", ".join("`%s` (%s, %s)" % (p["name"], p.get("command", ""), ", ".join(p.get("roles", [])))
                                                for p in canon)))
         if other:
@@ -1255,7 +1255,7 @@ def gen_tables(f, area):
             out.append("A partition has no policies of its own: a query through `%s` uses the parent's.\n" % t["partition_of"])
         grants = by_table.get(t["name"], [])
         if grants:
-            out.append("Grants (`db/grants.yaml`, [roles and grants](roles-and-grants.md)): %s.\n" % "; ".join(
+            out.append("Grants (`db/grants.yaml`, [roles and grants](../database/roles-and-grants.md)): %s.\n" % "; ".join(
                 "%s %s%s" % (role, priv, " (" + ", ".join(cols) + ")" if cols else "") for role, priv, cols in grants))
     return "\n".join(out) + "\n"
 

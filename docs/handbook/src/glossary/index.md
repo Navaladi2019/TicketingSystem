@@ -22,11 +22,11 @@ Terms used across the handbook, including every term that appears in a vision-se
 
 - **Database role and least privilege.** One narrow database account per system actor; none is a superuser, owns objects or bypasses RLS. [I3](../vision/least-privilege-roles.md).
 - **Grant manifest.** The single file listing every permission of every role; CI compares the live database with it. [I3](../vision/least-privilege-roles.md).
-- **Migrator.** The one-shot job that owns the schema and runs migrations. [Database](../database/index.md).
+- **Migrator.** The one-shot job that owns the schema and runs migrations. [Database](../database/migrations.md).
 
 ## Records and writes
 
-- **Entity definition and entity definition version.** A tenant's JSON Schema description of a kind of record, and one published, immutable version of it. [Database](../database/index.md).
+- **Entity definition and entity definition version.** A tenant's JSON Schema description of a kind of record, and one published, immutable version of it. [Database](../database/entity-definitions.md).
 - **Record.** One stored item of an entity type, with a `version` used for optimistic concurrency. [I4](../vision/one-write-pipeline.md).
 - **Write pipeline.** The single path every write takes: authorisation, defaults, schema validation, checks, commit with audit. [I4](../vision/one-write-pipeline.md).
 - **Optimistic concurrency.** An update names the version it expects; a stale one is a typed conflict (HTTP 412 with `If-Match`). [I4](../vision/one-write-pipeline.md).
@@ -39,9 +39,9 @@ Terms used across the handbook, including every term that appears in a vision-se
 
 ## Audit
 
-- **Audit log.** The per-tenant record of every change, written in the same transaction as the change. [Database](../database/index.md).
-- **Seal.** The sequence number and hash assigned to an audit entry by the asynchronous sealer. [Database](../database/index.md).
-- **Chain head.** The latest sealed entry of a tenant's audit hash chain; each new seal hashes the previous one. [Database](../database/index.md).
+- **Audit log.** The per-tenant record of every change, written in the same transaction as the change. [Database](../database/audit.md).
+- **Seal.** The sequence number and hash assigned to an audit entry by the asynchronous sealer. [Database](../database/audit.md).
+- **Chain head.** The latest sealed entry of a tenant's audit hash chain; each new seal hashes the previous one. [Database](../database/audit.md).
 
 ## Workflows
 

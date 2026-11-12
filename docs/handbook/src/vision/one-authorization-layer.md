@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestI5Agreement`, `TestCompileReadAgreesW
 
 ## Read next
 
-Enforcement detail: [Security](../security/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [ACL and masks on reads](../security/09-acl-masks-read.md). All nine invariants: [the invariants page](invariants.md).

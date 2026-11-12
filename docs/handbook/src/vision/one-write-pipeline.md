@@ -27,4 +27,4 @@ Tests that prove it, by Go test name: `TestEveryWriteBumpsVersionOnce`, `TestIfM
 
 ## Read next
 
-Enforcement detail: [Security](../security/index.md) and [Database](../database/index.md). All nine invariants: [the invariants page](invariants.md).
+Enforcement detail: [Tenant transaction](../security/03-transaction.md) and [Records](../database/records.md). All nine invariants: [the invariants page](invariants.md).
