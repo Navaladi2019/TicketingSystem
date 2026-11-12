@@ -79,6 +79,11 @@ on Windows 11, 16 vCPU, 20.8 GB VM memory, default settings. 200 tenants,
 | B: `VALIDATE` the CHECK | SHARE UPDATE EXCLUSIVE on `group_members` | 171 ms |
 | B: `VALIDATE` the FK | SHARE UPDATE EXCLUSIVE on `group_members`, ROW SHARE on `groups` | 742 ms |
 
+**Erratum (TICK-715).** As `nava_migrator` under FORCE RLS, migration B's FK
+`VALIDATE` checked no rows (the 742 ms above was measured as a superuser).
+`20261112100000` re-checks the key for real; see
+[`fk-validate-force-rls.md`](fk-validate-force-rls.md).
+
 Migration A blocks reads of `groups` for about 0.2 s at this scale. It sets
 `lock_timeout = '5s'`, so it fails and is re-run rather than queueing reads
 behind a long sync transaction. Migration B blocks neither reads nor writes.

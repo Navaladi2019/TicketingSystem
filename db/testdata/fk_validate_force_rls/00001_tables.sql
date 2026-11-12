@@ -1,0 +1,12 @@
+-- TICK-715 guard fixture: two FORCE-RLS tables and an FK added NOT VALID.
+
+-- +goose Up
+
+CREATE TABLE parent (id uuid PRIMARY KEY);
+CREATE TABLE child (id uuid PRIMARY KEY, parent_id uuid);
+ALTER TABLE parent ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parent FORCE ROW LEVEL SECURITY;
+ALTER TABLE child ENABLE ROW LEVEL SECURITY;
+ALTER TABLE child FORCE ROW LEVEL SECURITY;
+ALTER TABLE child
+    ADD CONSTRAINT child_parent_fkey FOREIGN KEY (parent_id) REFERENCES parent (id) NOT VALID;

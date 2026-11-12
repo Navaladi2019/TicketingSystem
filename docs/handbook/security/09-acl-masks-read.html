@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9. ACL and field masks on the read side - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<div class="nav-section"><a class="nav-title" href="../vision/index.html">vision</a>
+<ul><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../system/index.html">system</a>
+<ul><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
+<ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
+<ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
+<ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/schema.html">Schema snapshot (schema.json)</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../security/index.html">security</a>
+<ul><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li class="current"><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted-risk register</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../benchmarks/index.html">benchmarks</a>
+<ul></ul></div>
+<div class="nav-section"><a class="nav-title" href="../operations/index.html">operations</a>
+<ul><li><a href="../operations/listeners.html">Unpublished listeners</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li></ul></div>
+<div class="nav-section"><a class="nav-title" href="../glossary/index.html">glossary</a>
+<ul></ul></div>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../security/index.html">security</a> / <span>9. ACL and field masks on the read side</span></nav>
+<article>
+<h1 class="page-title">9. ACL and field masks on the read side</h1>
+<h2 id="boundary">Boundary</h2>
+<p>A user of the right tenant whom the record ACL does not admit, or who may not
+read a masked field, learns nothing about that record or field through any
+read surface: get, list (filter, sort, total, cursor), history, the access
+explainer, or an error response. A record they cannot see answers exactly like
+a record that does not exist.</p>
+<h2 id="enforcement-point">Enforcement point</h2>
+<p><code>internal/authz</code> is the one authorization layer (ADR-001 I5), evaluated inside
+the query and in the caller's tenant transaction:</p>
+<ul>
+<li><strong>Rows.</strong> <code>CompileRead</code> turns the tenant's published policy into the
+<code>WHERE</code> of the record query, with the share <code>EXISTS</code> matched on <code>tenant_id</code>
+and the <code>(kind, id)</code> pair. <code>canRead</code> maps a hidden record to the
+missing-record 404, before <code>If-Match</code>, so there is no 403 or 412 oracle.</li>
+<li><strong>Fields.</strong> <code>authz.Shape</code> drops masked fields from every response body,
+including history <code>before</code> and <code>after</code> (<code>changed</code> is computed after
+shaping).</li>
+<li><strong>Queries.</strong> <code>checkPlan</code> (<code>authz.CheckQueryFields</code>) refuses a filter or sort
+on a masked field with a 400 <strong>before any SQL runs</strong>, so neither the result,
+the total nor the timing depends on the hidden value.</li>
+<li><strong>Explainer.</strong> Requires the tenant admin first, runs in the caller's tenant,
+and lists only masked fields the admin can read.</li>
+<li><strong>Subjects.</strong> <code>authz.NotInTenant</code> refuses another tenant's group or user in a
+policy or mask, with the same 422 as an unknown id.</li>
+</ul>
+<p>How the ACL is compiled and how masks apply are on
+<a href="../system/core-acl.html">Core: ACL</a> and <a href="../system/core-masks.html">Core: field masks</a>.</p>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
+    participant D as Desk agent (tenant A, not admitted to cost)
+    participant API as nava-core
+    participant Z as authz
+    participant PG as PostgreSQL (nava_app, RLS)
+    D-&gt;&gt;API: GET /api/v1/records/incident?filter[cost]=600
+    API-&gt;&gt;Z: checkPlan(filter, sort)
+    Z--&gt;&gt;API: cost is masked for this caller
+    API--&gt;&gt;D: 400, no page, no total, no SQL run
+    D-&gt;&gt;API: GET /api/v1/records/incident/{admin-only record}
+    API-&gt;&gt;PG: CompileRead WHERE (policy, tenant A)
+    PG--&gt;&gt;API: no row
+    API--&gt;&gt;D: 404, byte-identical to a random id
+</pre></div></figure>
+<h2 id="proving-tests">Proving tests</h2>
+<p>The S10 attack rows (P3-37) are registered isolation paths under CI-8, run by
+<code>TestRegisteredPaths</code> through the real handler as <code>nava_app</code> via PgBouncer;
+each row and its red mutation is in
+<a href="../../../docs/security/s10-acl-attacks.md#rows">s10-acl-attacks.md</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Filter, sort, default sort on a masked field: 400 before SQL</td>
+<td><code>TestMaskedFieldInFilterIsRefusedBeforeSQL</code>, <code>TestMaskedFieldInSortIsRefusedBeforeSQL</code>, <code>TestMaskedFieldInDefaultSortIsRefusedBeforeSQL</code>, <code>TestCheckMaskFields</code></td>
+</tr>
+<tr>
+<td>A masked sort key never enters a cursor</td>
+<td><code>TestListRecordsMaskedSortKeyInCursor</code></td>
+</tr>
+<tr>
+<td>List and get bodies are shaped</td>
+<td><code>TestListRecordsItemsAreShaped</code>, <code>TestShapeDropsMaskedFieldsAndNeverMutates</code></td>
+</tr>
+<tr>
+<td>History of a change to a masked field only</td>
+<td><code>TestHistoryOfAMaskedOnlyChange</code></td>
+</tr>
+<tr>
+<td>PATCH is no oracle for a masked value</td>
+<td><code>TestPatchIsNoOracleForAMaskedField</code></td>
+</tr>
+<tr>
+<td>GET, history and PATCH (no, <code>*</code>, stale and current <code>If-Match</code>) on a record the ACL denies answer exactly like a missing record, and the refused PATCH writes nothing</td>
+<td><code>TestUnreadableRecordIsTheMissingRecord</code> (the admin's GET of the same record is the control)</td>
+</tr>
+<tr>
+<td>An unreadable match is in neither the page nor <code>total</code></td>
+<td><code>TestListRecordsHidesUnreadableFromPageAndTotal</code></td>
+</tr>
+<tr>
+<td>A unique-violation 409 caused by an unreadable record names no id or number of it and carries no <code>Location</code> or <code>ETag</code></td>
+<td><code>TestUniqueViolationDoesNotIdentifyAnUnreadableRecord</code></td>
+</tr>
+<tr>
+<td>The not-found body itself is fixed and has no <code>instance</code> (supporting, not the proof above)</td>
+<td><code>TestNotFoundBodyIsIdenticalAndHasNoInstance</code></td>
+</tr>
+<tr>
+<td>Another tenant's records and groups in a list</td>
+<td><code>TestListRecordsCrossTenant</code>, <code>TestListRecordsFilterOnAnotherTenantsGroup</code></td>
+</tr>
+<tr>
+<td>Explainer lists only what the admin may read, and matches enforcement</td>
+<td><code>TestExplainNeverListsAFieldTheAdminCannotRead</code>, <code>TestExplainMatchesTheEnforcementOnState</code>, <code>TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead</code>, <code>TestRequireTenantAdminTxNeverReadsGroupsOrPaths</code></td>
+</tr>
+<tr>
+<td>Every mask on a field must admit; row-dependent mask subjects never match</td>
+<td><code>TestEveryMaskOnAFieldMustAdmit</code>, <code>TestRowDependentMaskSubjectsNeverMatch</code></td>
+</tr>
+<tr>
+<td>Masks on audit entries</td>
+<td><code>TestAuditEntriesMaskFieldsHiddenFromTheReader</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="fixture-that-turns-it-red">Fixture that turns it red</h2>
+<p>Each S10 row was shown red by a named mutation: <code>checkPlan</code> returning nil
+gives 200 on a masked filter; <code>canRead</code> answering 403 fails the oracle check;
+no shaping puts <code>cost</code> into history <code>after</code>; the explainer's <code>Readable</code> filter
+dropped names a field the admin cannot read. Row 7 (share forgery) needs both
+the tenant predicate dropped <strong>and</strong> RLS off on <code>record_shares</code> to go red,
+which shows the two layers are independent.</p>
+<h2 id="accepted-risks">Accepted risks</h2>
+<p>Errors and logs are part of the read side: AR-006 (a recovered panic value is
+logged as is) and AR-010 (<code>error.type</code> export shape) apply here.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Sev</th>
+<th>Risk</th>
+<th>Status</th>
+<th>Owner</th>
+<th>Revisit trigger / proposed fix</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AR-006</td>
+<td>🟠 Medium†</td>
+<td>A recovered panic value is logged as is; a panic message built from input can log client data.</td>
+<td>Accepted (untracked)</td>
+<td>Technical Lead†</td>
+<td>Give it a TODO row, or redact the panic value in recovery</td>
+<td><a href="../../../docs/architecture/observability-notes.md#27-known-gaps">observability-notes §2.7</a></td>
+</tr>
+<tr>
+<td>AR-010</td>
+<td>🟡 Low</td>
+<td><code>boundedToken</code> accepts a bare UUID or single word, so a library writing a bare id as <code>error.type</code> would export it. None does today.</td>
+<td>Accepted</td>
+<td>Technical Lead†</td>
+<td>A library on the path writes ids into <code>error.type</code>; then restrict to known type and code shapes</td>
+<td><a href="../../../docs/architecture/tenant-transactions.html#risks">tenant-transactions.html §4</a>, <a href="../../../internal/platform/telemetry/filter.go#L83"><code>filter.go:83</code></a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-01 (numbers issued before a mask)</td>
+<td>🟡 Low</td>
+<td>A number format with a <code>{field:…}</code> token prints the field's code into every number. If that field is masked later, numbers already issued keep showing it in audit rows, outbox events, sent emails and external references; they cannot be recalled. New numbers stop carrying it because a mask on a referenced field must be published together with a format that drops it.</td>
+<td>Accepted (ADR-005, 2026-11-10; Security round 1 on RFC-014)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A tenant asks to recall issued numbers, or a regulated tenant masks a field already used in numbers</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §3.4, §8</a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-02 (per-scope volume)</td>
+<td>🟡 Low</td>
+<td>A per-scope counter (for example per branch and month) reveals the number of records in that scope to anyone who can read one record in it. Within the tenant only; the per-type counter already does the same per type.</td>
+<td>Accepted (ADR-005, 2026-11-10)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A tenant treats per-scope volume as confidential</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §8</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../security/06-opaque-tokens.html">Opaque tokens</a>, for cursors.</li>
+<li><a href="../database/acl.html">ACL tables</a>.</li>
+</ul>
+</article>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table record_shares</h3><ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table records</h3><ul><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Story S10</h3><ul><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 41275106ee61 (2026-11-12)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
