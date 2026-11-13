@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -37,8 +38,8 @@ const pingPongEntity = "ci10g_pingpong"
 // pingPongPublisher is tenant A's seeded principal (testdata/seed.sql).
 const pingPongPublisher = "0a000000-0000-4000-8000-0000000003a1"
 
-// pingPongSchema is a schema the pipeline compiles: a title and a free
-// summary the writes change.
+// pingPongSchema is a schema the pipeline compiles: a title, a state
+// (status, the fixed state column) and a free summary the writes change.
 const pingPongSchema = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -46,9 +47,25 @@ const pingPongSchema = `{
   "required": ["title"],
   "properties": {
     "title": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["open"]},
     "summary": {"type": "string"}
   }
 }`
+
+// pingPongDefinition is pingPongEntity's version 1.
+func pingPongDefinition() metadata.Definition {
+	return metadata.Definition{Key: pingPongEntity, NumberPrefix: "CTG", Schema: json.RawMessage(pingPongSchema),
+		FixedColumns: map[string]string{"status": metadata.ColumnState},
+		States:       metadata.StateModel{Initial: "open", States: []string{"open"}}}
+}
+
+// TestPingPongDefinitionCompiles: the CI-10 (g) row's entity type is one the
+// pipeline compiles, checked without a database.
+func TestPingPongDefinitionCompiles(t *testing.T) {
+	if _, err := metadata.Compile(pingPongDefinition()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // createPingPongType creates pingPongEntity at version 1 in tenant A, as
 // nava_app through entitytypes.Store, as an admin's publish does.
@@ -61,8 +78,7 @@ func createPingPongType(ctx context.Context, cl Cluster, tenant uuid.UUID) error
 	return tenancy.InTenantTx(ctx, pool, tenant, func(tx pgx.Tx) error {
 		_, err := (entitytypes.Store{}).Create(ctx, tx, tenant, entitytypes.NewInput{
 			Name: "CI-10 (g)", PublishedBy: uuid.MustParse(pingPongPublisher),
-			Definition: metadata.Definition{Key: pingPongEntity, NumberPrefix: "CTG", Schema: json.RawMessage(pingPongSchema),
-				States: metadata.StateModel{Initial: "open", States: []string{"open"}}},
+			Definition: pingPongDefinition(),
 		})
 		return err
 	})
