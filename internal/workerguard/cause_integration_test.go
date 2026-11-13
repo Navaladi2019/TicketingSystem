@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -294,5 +295,46 @@ func TestCauseTrackerReturnsOnlyTheRunsNewestRow(t *testing.T) {
 	}
 	if _, err := c.newestCause(context.Background(), xID, tenantA); err == nil {
 		t.Error("looked up with no verified tenant")
+	}
+}
+
+// TICK-785: causeSQL's newest-cause check is index-backed. Planned as
+// nava_worker under RLS with sequential and bitmap scans priced out, the
+// EXISTS probe must be a range scan of workflow_cause_ref_newest
+// (tenant_id, ref_outbox_id, created_at, outbox_id), not a walk of every
+// cause row of the tenant through workflow_cause_pkey. Evidence at 2.1M rows:
+// docs/data/workflow-definitions.md.
+func TestCauseSQLNewestCheckUsesIndex(t *testing.T) {
+	conn, pool := migrated(t)
+	_, ref := seedRef(t, conn, tenantA, outbox.InterpreterKind)
+	cause := seedCause(t, conn, tenantA, ref, uuid.New(), 0)
+	ctx := ContextWithTenant(context.Background(), tenantA)
+	var plan string
+	err := InTenantTx(ctx, pool, func(tx pgx.Tx) error {
+		for _, s := range []string{"SET LOCAL enable_seqscan = off", "SET LOCAL enable_bitmapscan = off"} {
+			if _, err := tx.Exec(ctx, s); err != nil {
+				return err
+			}
+		}
+		rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+causeSQL, tenantA, cause)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				return err
+			}
+			plan += line + "\n"
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatalf("EXPLAIN causeSQL: %v", err)
+	}
+	t.Logf("causeSQL plan:\n%s", plan)
+	if !strings.Contains(plan, "workflow_cause_ref_newest on workflow_cause n") {
+		t.Errorf("the newest-cause probe does not use workflow_cause_ref_newest:\n%s", plan)
 	}
 }
