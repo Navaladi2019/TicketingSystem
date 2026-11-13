@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TICK-782 (20261113090000_groups_select_worker.sql): nava_worker reads
+// TICK-782 (20261113190000_groups_select_worker.sql): nava_worker reads
 // groups (tenant_id, id, deleted_at) under groups_select, so the record
 // store's update-path read (recordSelect's LEFT JOIN groups for the
 // assignment group's tombstone) runs as the worker.
