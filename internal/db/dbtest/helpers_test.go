@@ -200,12 +200,16 @@ func migrateAll(t *testing.T, m *grants.Manifest) migrate.Result {
 }
 
 // migrateFS runs the migrator, as nava_migrator, with fsys and
-// db/global-tables.yaml.
+// db/global-tables.yaml. When fsys stops short of today's migrations, m and
+// the audited manifest lose the tables and columns fsys has not created yet
+// (beforeACLTables), so a test that migrates to an earlier version can still
+// apply the grants.
 func migrateFS(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, error) {
 	t.Helper()
 	log, _ := newLog()
-	return migrate.Run(context.Background(), roleConfig(t, m.Owner(), m.PlatformDatabase),
-		fsys, m, auditedManifest(t), globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
+	gm, am := beforeACLTables(fsys, m, auditedManifest(t))
+	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),
+		fsys, gm, am, globalTables(t), log, migrate.Options{LockRetrySeconds: 1})
 }
 
 // migrateOnlyFS applies the pending migrations in fsys as nava_migrator and
