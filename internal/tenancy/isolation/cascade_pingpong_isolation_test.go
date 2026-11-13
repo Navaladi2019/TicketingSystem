@@ -212,17 +212,21 @@ func cascadePingPong(ctx context.Context, cl Cluster) error {
 		writer, other = other, writer
 	}
 
-	var writes, stored int64
+	// The refused write commits nothing but its cascade_too_deep entry, which
+	// carries the same causation; the 8 writes are the other entries.
+	var writes, refused, stored int64
 	if err := g.tx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND subject_id = $2
-				AND source = 'workflow' AND causation_id = $3),
-			(SELECT version FROM records WHERE tenant_id = $1 AND id = $2)`, g.tenant, r, origin).Scan(&writes, &stored)
+		return tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action <> 'cascade_too_deep'),
+				count(*) FILTER (WHERE action = 'cascade_too_deep'),
+				(SELECT version FROM records WHERE tenant_id = $1 AND id = $2)
+			FROM audit_log WHERE tenant_id = $1 AND subject_id = $2 AND source = 'workflow' AND causation_id = $3`,
+			g.tenant, r, origin).Scan(&writes, &refused, &stored)
 	}); err != nil {
 		return err
 	}
-	if writes != int64(limit) || stored != version {
-		return fmt.Errorf("record R has %d workflow writes under the origin at version %d; want exactly %d at %d (the refused write changed nothing)",
-			writes, stored, limit, version)
+	if writes != int64(limit) || refused != 1 || stored != version {
+		return fmt.Errorf("record R has %d workflow writes and %d cascade_too_deep entries under the origin at version %d; want exactly %d and 1 at %d (the refused write changed nothing)",
+			writes, refused, stored, limit, version)
 	}
 	return nil
 }
