@@ -69,20 +69,7 @@ exit status 1
 <p>An audit entry is written in the same transaction as the change, so there is no change without an entry. A background workflow (<code>audit.seal</code>, the one workflow running on <code>main</code>) later chains new entries: each <code>entry_hash</code> is SHA-256 of the previous hash and the entry's content. The verifier recomputes every hash from the export alone, checks the chain starts at the anchor and ends at the trailer's <code>head_hash</code>, and that the counts match. An entry not yet sealed is listed as <code>unsealed</code> and is outside the proof until the next seal. Details: <a href="../database/audit.html">audit</a>, <a href="../workflows/audit-seal.html">audit sealer</a>, the format in <code>docs/api/audit-export-v1.md</code>.</p>
 <h2 id="not-built-yet">Not built yet</h2>
 <ul>
-<li><p><strong>The seeded demo tenants have no audit chain.</strong> <code>seed.sh</code> writes tenants A and B directly, so they have no <code>audit_chain_head</code>, and the export answers <code>500 internal_error</code> ("the tenant has no audit chain head" in the server log). A tenant created by onboarding (step 1) has one. To run this step on tenant A, create its head and first seal row as onboarding does, then wait about a minute:</p>
-<pre><code class="language-sh">A=00000000-0000-4000-8000-0000000000a1
-docker compose exec -T postgres sh -c &#x27;PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava&#x27; &lt;&lt;SQL
-BEGIN;
-SELECT set_config(&#x27;app.tenant_id&#x27;,&#x27;$A&#x27;,true);
-WITH ids AS (SELECT gen_random_uuid() hid, gen_random_uuid() sid),
-h AS (INSERT INTO audit_chain_head (tenant_id,id,next_seal_outbox_id,next_seal_at)
-      SELECT &#x27;$A&#x27;,hid,sid,now() FROM ids RETURNING 1)
-INSERT INTO outbox (id,tenant_id,kind,kind_version,dedupe_key,target_key,target_seq,causation_id,causation_depth,payload)
-SELECT sid,&#x27;$A&#x27;,&#x27;audit.seal&#x27;,1,&#x27;audit.seal:1&#x27;,&#x27;audit.seal:&#x27;||sid,1,sid,0,&#x27;{}&#x27; FROM ids;
-COMMIT;
-SQL
-</code></pre></li>
-<li><p>No audit screen, and no scheduled export. The Bruno collection has no request for the export.</p></li>
+<li>No audit screen, and no scheduled export. The Bruno collection has no request for the export.</li>
 </ul>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../tour/09-create-and-work-with-records.html">&larr; 9. Create and work with records</a><a class="next" href="../database/tenancy.html">Tenancy &rarr;</a></nav>
@@ -95,7 +82,7 @@ SQL
 <h3>Operation listAuditEntries</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li></ul>
 <h3>Operation reseedAuditChain</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 36b61535b6b2 (2026-11-13)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 21d0e250c91a (2026-11-13)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>
