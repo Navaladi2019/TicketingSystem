@@ -212,6 +212,10 @@ roles:
       workflow_definitions: { SELECT: [] }
       workflow_definition_versions: { SELECT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
+      # TICK-782 (20261113190000): records/store's recordSelect joins the
+      # assignment group for its tombstone; groups_select's tenant predicate
+      # reads tenant_id. Never path or keycloak_group_id.
+      groups: { SELECT: [tenant_id, id, deleted_at] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role.
     functions:
