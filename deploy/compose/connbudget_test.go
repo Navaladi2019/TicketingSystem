@@ -32,6 +32,7 @@ const (
 	pgbouncerINI    = "pgbouncer/pgbouncer.ini"
 	temporalConfig  = "temporal/config/compose.yaml"
 	allocatorGo     = "../../cmd/nava-core/allocator.go"
+	workerMainGo    = "../../cmd/nava-worker/main.go"
 	// PostgreSQL's default superuser_reserved_connections; db-roles, the
 	// only superuser login, uses it.
 	defaultSuperuserReserved = 3
@@ -221,6 +222,44 @@ func allocatorMaxConns(t *testing.T) int {
 	}
 	n, _ := strconv.Atoi(string(m[1]))
 	return n
+}
+
+// workerConst reads `name = N` from the const block of cmd/nava-worker/main.go.
+func workerConst(t *testing.T, name string) int {
+	t.Helper()
+	b, err := os.ReadFile(workerMainGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s+` + name + `\s*= (\d+)$`).FindSubmatch(b)
+	if m == nil {
+		t.Fatalf("%s: no `%s = N` constant", workerMainGo, name)
+	}
+	n, _ := strconv.Atoi(string(m[1]))
+	return n
+}
+
+// healthProbeConns is the worker's readiness probe (health.Postgres): one
+// connection of its own on the same role.
+const healthProbeConns = 1
+
+// TestWorkerPoolsFitPgBouncer (TICK-712 review): through PgBouncer the
+// worker's pools share nava_worker's server pool. The main pool, the record
+// pipeline's own pool and the readiness probe must all fit in it, or a burst
+// of writes holds every server connection in an open transaction while their
+// audit transactions wait for one.
+func TestWorkerPoolsFitPgBouncer(t *testing.T) {
+	t.Parallel()
+	pgb := parsePgBouncerINI(t, pgbouncerINI)
+	worker, pipe := workerConst(t, "workerMaxConns"), workerConst(t, "pipelineMaxConns")
+	got := pgb.serverPool("nava", "nava_worker")
+	if need := worker + pipe + healthProbeConns; need > got {
+		t.Errorf("worker pool %d + pipeline pool %d + probe %d = %d > PgBouncer nava/nava_worker pool_size %d",
+			worker, pipe, healthProbeConns, need, got)
+	}
+	if _, ok := pgb.UserPoolSize["nava_worker"]; !ok {
+		t.Error("[users] nava_worker has no pool_size: the worker would fall back to default_pool_size")
+	}
 }
 
 type budgetLine struct {

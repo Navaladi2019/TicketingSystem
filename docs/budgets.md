@@ -35,6 +35,18 @@ ADR-005 §10 (`docs/adr/ADR-005-record-numbering.md` on `main`). A `gaps` type (
 | Create, 8 clients, `gaps` type | Request p95, 8 clients creating one type in one tenant, same harness and gates | **≤ 50 ms** p95, kept strictly (option A, vknavaladi, 2026-11-11 02:45 UTC). Applies to `gaps` types only | **Met** (result of record): agent / admin / small tenant **42.4 / 42.1 / 47.2 ms**; small tenant by only 2.8 ms. Commit `9975568b`, 2026-11-11 ~03:2x UTC, idle reference machine (Docker Desktop on Windows, WSL2 virtual disk, `postgres:16.10`; no PgBouncer, no HTTP transport), every gate passed (transport floor, host-speed probe, storage probe, container allow-list), each row on its first attempt. The margin holds for an idle machine; production storage is accepted risk `AR-S10-02` (Technical Architect). Superseded history: the `25aedcf0` re-run (2026-11-10) read 50.0 to 90.0 ms with every attempt host-invalid on the old storage gate | `docs/quality/acl-perf-800k.md#final-verdict-p3-36` and `#create-re-run-on-the-idle-machine-option-a-2026-11-11-032x-utc-every-valid-row-meets`; raw report `docs/quality/acl-perf-800k/final-2026-11-11-idle-machine.md` (TICK-621, PR #544 `da4058af`); ADR-005 §2.1 | Quality, Testing & CI Advisor |
 | **Waiver: create, 8 clients, `gapless` type (L1)** | Request p95, 8 clients creating one `gapless` type in one tenant, same harness | **≤ 213.7 ms** p95. The 50 ms 8-client target is waived for `gapless` types only: their creates queue on the type's counter row by design (ADR-005 §2.1) | **213.7 ms**, final re-run at `25aedcf0`, one attempt, reported only; counter wait p50 / p95 42.0 / 188.6 ms. Earlier runs the same day: 189.0, 383.0 and 228.7 ms | `docs/quality/acl-perf-800k.md` (PR #544, `1ede2364`); ADR-005 §2.1 (L1 waiver) | Postgres & Data Modeling Specialist |
 
+## Worker pipeline pool
+
+The records pipeline's `TxRunner` opens a second pooled connection while the write's transaction still holds one (it writes the `cascade_too_deep` / `cascade_rejected` audit entry so it survives the write's rollback). If both came from one pool, or from pools wider than the server pool behind them, a burst of workflow writes could hold every connection inside an open transaction and wait for one more (TICK-88 security review, availability; TICK-712 review, PgBouncer).
+
+`nava-worker` therefore fixes both widths in code, whatever `pool_max_conns` says, and caps its PgBouncer server pool to their sum:
+
+| Budget | Limit | Baseline | Source | Owner |
+|---|---|---|---|---|
+| Worker pools vs. `nava_worker` PgBouncer pool | `workerMaxConns` (10) + `pipelineMaxConns` (4) + readiness probe (1) = **15 ≤ `[users] nava_worker pool_size` = 15**. Asserted by `TestWorkerPoolsFitPgBouncer` (`deploy/compose/connbudget_test.go`), which reads both constants from `cmd/nava-worker/main.go` | A write holds one main-pool connection and needs one pipeline-pool connection for its audit entry, so at most 10 + 4 server connections are in use and the probe's 1 is never starved. `TestWorkflowWriteBurstDoesNotExhaustThePool` (`internal/records/pipeline`, integration) runs 24 depth-exceeding writes against a 4-wide main pool and a 4-wide pipeline pool: every write gets its `cascade_too_deep` entry and the pools recover (it connects to PostgreSQL directly; the PgBouncer bound is the test above) | S11b P3-43 (TICK-712) | Principal Software Engineer |
+
+Capping `nava_worker` at 15 (it was `default_pool_size`, 20) lowers the connection budget below by 5.
+
 ## Connection sizing
 
 Every server connection the compose stack can open to its one PostgreSQL, counted at its configured ceiling, fits in `max_connections` minus `superuser_reserved_connections`. `TestConnectionBudgetFits` (`deploy/compose/connbudget_test.go`) recomputes the sum from `compose.yaml`, `deploy/compose/pgbouncer/pgbouncer.ini`, the Temporal config and `cmd/nava-core/allocator.go`, and fails when it no longer fits. `TestAllocatorPoolSizing` checks that the `nava_alloc` pool is `allocatorMaxConns × nava-core replicas`.
@@ -46,7 +58,7 @@ With R nava-core replicas behind one PgBouncer:
 ```
   (main 20 + allocator 4) × R            nava/nava_app (default_pool_size) + nava_alloc/nava_app (ADR-005 A5)
 + 5                                      nava/nava_audit_reader, per PgBouncer instance (ADR-004-A1 A1-8)
-+ 53                                     workers: nava_worker 20, nava_relay 20, nava_onboard 8, nava_purge 3, nava_groupsync 2
++ 48                                     workers: nava_worker 15, nava_relay 20, nava_onboard 8, nava_purge 3, nava_groupsync 2
 + 2                                      pgbouncer_auth, the auth_query lookup, 1 per database entry
 + 20                                     Keycloak (KC_DB_POOL_MAX_SIZE)
 + 120                                    Temporal: 4 services in one process × (20 default store + 10 visibility)
@@ -54,11 +66,11 @@ With R nava-core replicas behind one PgBouncer:
 ≤ max_connections 250 − superuser_reserved_connections 3 = 247
 ```
 
-At R = 1 (compose) the total is **226**, 21 under the limit. Each further replica adds 24, so a second replica needs `max_connections` raised too: R replicas need `max_connections ≥ 226 + 24 × (R − 1) + 3`. Raise `default_pool_size` (or give the `nava` entry a `pool_size`) to `20 × R` and `nava_alloc`'s `pool_size` to `4 × R` with it.
+At R = 1 (compose) the total is **221**, 26 under the limit. Each further replica adds 24, so a second replica needs `max_connections` raised too: R replicas need `max_connections ≥ 221 + 24 × (R − 1) + 3`. Raise `default_pool_size` (or give the `nava` entry a `pool_size`) to `20 × R` and `nava_alloc`'s `pool_size` to `4 × R` with it.
 
 - The main pool's server side is shared: today one PgBouncer gives `nava_app` 20 server connections for every nava-core replica and nava-onboard's `nava_app` pools together.
 - The allocator has its own entry, `nava_alloc`, so open creates holding every `nava` server connection cannot starve it (TICK-657).
-- The worker and relay roles keep `default_pool_size` because their client pools use pgxpool's default width, `max(4, CPUs)`. The purge, onboard and groupsync caps match their clients' `MaxConns`, so the caps never make a client wait.
-- Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 226.
+- The relay role keeps `default_pool_size` because its client pool uses pgxpool's default width, `max(4, CPUs)`. The worker role is capped at 15 (main pool 10, pipeline pool 4, probe 1; see "Worker pipeline pool"). The purge, onboard and groupsync caps match their clients' `MaxConns`, so the caps never make a client wait.
+- Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 221.
 - Trigger to revisit (AR-TICK-653-04): more than about 10 API replicas, or connection pressure on PostgreSQL. At that point the allocator alone is 40 server connections.
 - CI's integration pooler (`scripts/ci/pgbouncer/pooled.ini`) mirrors this with `nava_alloc` `pool_size=4` against a 5-connection `nava` pool. `isolation.ini` and `noprep.ini` have no allocator entry because neither suite allocates numbers.

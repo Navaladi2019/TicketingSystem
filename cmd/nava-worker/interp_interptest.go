@@ -28,7 +28,7 @@ const (
 // interpreterActivities is the S11a fakes over FixtureDirEnv (P3-22a): the
 // fixture store, the file records and the counting writer. The
 // pause-after-commit hook is on when interp.PauseDirEnv is set.
-func interpreterActivities(lookup config.LookupFunc, _ *pgxpool.Pool, _ bool) (*interp.Activities, error) {
+func interpreterActivities(lookup config.LookupFunc, _, _ *pgxpool.Pool, _ bool) (*interp.Activities, error) {
 	dir, err := absDir(lookup, FixtureDirEnv, "")
 	if err != nil {
 		return nil, err

@@ -45,6 +45,24 @@ const (
 	taskQueue = "nava-tq"
 )
 
+// workerMaxConns is the width of the worker's main pool, always explicit:
+// pgxpool's default, max(4, NumCPU), ignores container CPU limits, and a pool
+// wider than PgBouncer's nava_worker server pool lets every server connection
+// sit inside an open write transaction while its audit transaction waits for
+// one (TICK-88, one layer down).
+// pipelineMaxConns is the width of the record pipeline's own pool: its
+// TxRunner opens a second connection while the write's transaction holds one
+// of the main pool's, and runs one short audit INSERT (cascade_too_deep,
+// cascade_rejected) per transaction. Plus one for the readiness probe
+// (health.Postgres), the three must fit nava_worker's PgBouncer pool_size
+// (deploy/compose/pgbouncer/pgbouncer.ini; TestWorkerPoolsFitPgBouncer,
+// docs/budgets.md "Worker pipeline pool"). Neither follows pool_max_conns in
+// the connection string.
+const (
+	workerMaxConns   = 10
+	pipelineMaxConns = 4
+)
+
 // service names the binary on the logs it exports.
 const service = "nava-worker"
 
@@ -158,6 +176,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		// The error quotes the connection string, which is a credential.
 		return nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
 	}
+	poolCfg.MaxConns = workerMaxConns
 	pool, err := db.NewPool(ctx, poolCfg, tel)
 	if err != nil {
 		c.Close()
@@ -169,9 +188,19 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		pool.Close()
 		return nil, nil, nil, err
 	}
-	closeAll := func() { closePG(); pool.Close(); c.Close() }
+	// The record pipeline's own pool (see interpreterActivities).
+	pipeCfg := poolCfg.Copy()
+	pipeCfg.MaxConns = pipelineMaxConns
+	pipePool, err := db.NewPool(ctx, pipeCfg, tel)
+	if err != nil {
+		closePG()
+		pool.Close()
+		c.Close()
+		return nil, nil, nil, err
+	}
+	closeAll := func() { closePG(); pipePool.Close(); pool.Close(); c.Close() }
 
-	acts, err := interpreterActivities(lookup, pool, workflows)
+	acts, err := interpreterActivities(lookup, pool, pipePool, workflows)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, err
