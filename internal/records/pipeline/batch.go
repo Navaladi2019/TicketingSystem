@@ -244,27 +244,7 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	if err != nil {
 		return Result{}, err
 	}
-	err = w.tx.SendBatch(ctx, b).Close()
-	// While both unique indexes of record_counters exist (ADR-005 M2 to
-	// M3), a type's first create can lose the race for its counter row with
-	// 23505 on the index the upsert does not name (ADR-005-E1). The batch
-	// then ran nothing past the upsert; rolled back to the savepoint before
-	// it, the batch is sent once more and its upsert, seeing the winner's
-	// committed row (READ COMMITTED), takes the UPDATE arm. Once, and for
-	// no other error.
-	// TODO(TODO-S17-02): remove this retry (and the gapless savepoint) with
-	// M3 (S18/R2): with one unique index left, store.CounterRace never fires.
-	if gapless && store.CounterRace(err) {
-		w.p.allocMetrics().retried(ctx, metadata.NumberingGapless)
-		if err = store.RetryNumbered(ctx, w.tx); err != nil {
-			return Result{}, fmt.Errorf("pipeline: %w", err)
-		}
-		if b, err = queue(); err != nil {
-			return Result{}, err
-		}
-		err = w.tx.SendBatch(ctx, b).Close()
-	}
-	if err != nil {
+	if err := w.tx.SendBatch(ctx, b).Close(); err != nil {
 		var m *mappedErr
 		switch {
 		case errors.Is(err, store.ErrDuplicateKey):

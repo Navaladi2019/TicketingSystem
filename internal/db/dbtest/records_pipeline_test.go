@@ -26,9 +26,10 @@ const (
 	insertRecord = `INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state,
 		requester_id, assignee_id, assignment_group_id, created_by)
 		VALUES ($1, $2, $3, 1, $4, 'new', $5, $6, $7, $8)`
-	// nextNumber is the D-3-9 upsert: tenant $1, type $2.
-	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
-		ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1
+	// nextNumber is the D-3-9 upsert of the default scope, on the key M3
+	// (TICK-670) made the primary key: tenant $1, type $2.
+	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)
+		ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1
 		RETURNING next - 1`
 )
 

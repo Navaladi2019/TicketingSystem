@@ -13,6 +13,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 // S17 P6-01 (TICK-665), ADR-005 §4.1 and §4.2 steps M1 and M2:
@@ -24,11 +25,17 @@ const (
 	scopeColumnsMigration = "20261112193000_record_counters_scope_columns.sql"
 	scopedKeyMigration    = "20261112193200_record_counters_scoped_key.sql"
 	periodEndMigration    = "20261112193300_record_counters_period_end.sql"
+	// m3Migration is S18's M3 (TICK-670). The S17 tests here run on the
+	// schema before it: the expand window M1/M2 opened and M3 closes.
+	m3Migration = "20261113034010_record_counters_pkey_scope_key.sql"
 	// scopeColumnsBefore is the version just before M1.
 	scopeColumnsBefore = 20261112192959
 
-	// takeNumberR0 is today's (R0) upsert: tenant $1, type $2.
-	takeNumberR0 = nextNumber
+	// takeNumberR0 is the pre-S17 (R0) upsert: tenant $1, type $2. After M3
+	// it fails with 42P10: no unique constraint matches its target.
+	takeNumberR0 = `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
+		ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1
+		RETURNING next - 1`
 	// takeNumberR1 is R1's upsert, still writing the default scope: tenant
 	// $1, type $2.
 	takeNumberR1 = `INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)
@@ -50,6 +57,17 @@ const (
 		FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 		WHERE a.attrelid = 'record_counters'::regclass AND a.attnum > 0 AND NOT a.attisdropped`
 )
+
+// migratedBeforeM3 is a fresh cluster with every migration before M3 and the
+// grants applied: the R1 schema, both unique indexes in place.
+func migratedBeforeM3(t *testing.T) *grants.Manifest {
+	t.Helper()
+	m := freshCluster(t)
+	if _, err := migrateFS(t, m, migrationsBefore(t, m3Migration)); err != nil {
+		t.Fatalf("migrate to before %s: %v", m3Migration, err)
+	}
+	return m
+}
 
 // takeIn runs a numbering upsert in a tenant transaction and returns the
 // number it took.
@@ -76,7 +94,8 @@ func TestP601CounterScopeMigration(t *testing.T) {
 	exec(t, super, "UPDATE record_counters SET next = 43 WHERE tenant_id = $1", tenantA)
 	fileBefore := queryString(t, super, `SELECT pg_relation_filenode('record_counters')::text`)
 
-	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
+	beforeM3 := migrationsBefore(t, m3Migration)
+	if _, err := migrateFS(t, m, beforeM3); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -114,7 +133,7 @@ func TestP601CounterScopeMigration(t *testing.T) {
 	}
 
 	sqlDB := openSQL(t, roleConfig(t, m.Owner(), m.PlatformDatabase))
-	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, db.Migrations(),
+	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, beforeM3,
 		goose.WithAllowOutofOrder(true), goose.WithDisableGlobalRegistry(true))
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +164,7 @@ func TestP601CounterScopeMigration(t *testing.T) {
 // and advance the same next, as nava_app and nava_worker; a non-empty
 // scope_key for a type that already has a row fails on the old primary key.
 func TestP601CounterScopeExpandWindow(t *testing.T) {
-	migratedPlatform(t)
+	migratedBeforeM3(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
 	seedPipeline(t, super, tenantA)
@@ -233,7 +252,7 @@ func TestP601CounterScopeKeyLength(t *testing.T) {
 // re-run drops it and builds a valid one. A re-run over a valid index keeps it
 // (the same relation), so a serving R1 never loses its arbiter.
 func TestP601CounterScopeIndexRepair(t *testing.T) {
-	m := migratedCluster(t)
+	m := migratedBeforeM3(t)
 	super := superNava(t)
 	sqlDB := openSQL(t, roleConfig(t, m.Owner(), m.PlatformDatabase))
 	rerun := func(name string) {

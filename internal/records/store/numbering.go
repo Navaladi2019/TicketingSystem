@@ -2,13 +2,11 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // NextNumber takes the next record number of the tenant's entity type in
@@ -34,8 +32,8 @@ func NextNumber(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID uui
 
 // nextNumberSQL takes the next number of a (tenant, type, scope) counter
 // (ADR-005 §4.2, R1): the first call inserts next = 2 and returns 1, every
-// later one adds one. Its arbiter is the 3-column key; until M3 (S18) the
-// old 2-column primary key still exists beside it, see CounterRace.
+// later one adds one. Its arbiter is record_counters_pkey, the 3-column key
+// since M3 (TICK-670) and the table's only unique index.
 const nextNumberSQL = `
 INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, $3, 2)
 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1
@@ -67,30 +65,4 @@ func QueueAllocate(b *pgx.Batch, tenantID, entityDefinitionID uuid.UUID, scopeKe
 		}
 		return nil
 	})
-}
-
-// The unique indexes of record_counters while ADR-005's expand window is
-// open (after M2, before M3): the old primary key (tenant_id,
-// entity_definition_id) and the 3-column key nextNumberSQL names.
-const (
-	counterPKey      = "record_counters_pkey"
-	counterScopedKey = "record_counters_scoped_key"
-)
-
-// CounterRace reports whether err is the first-create race of the expand
-// window (ADR-005-E1, TICK-665): a unique violation on the record_counters
-// unique index that is not the upsert's arbiter. ON CONFLICT absorbs
-// conflicts on its arbiter only, so of two concurrent first upserts of a
-// counter the loser can fail with 23505 on the other index, after the
-// winner committed. Retried once, the upsert sees the winner's row and takes
-// the UPDATE arm (READ COMMITTED). It is never another error, and never a
-// violation of another table's index. Correct at READ COMMITTED only: at
-// REPEATABLE READ the race raises 40001, which is deliberately not matched.
-//
-// TODO(TODO-S17-02): remove with M3 (S18/R2), with the numberSavepoint and
-// both retry sites: after M3 this can never match.
-func CounterRace(err error) bool {
-	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "23505" && pe.TableName == "record_counters" &&
-		(pe.ConstraintName == counterPKey || pe.ConstraintName == counterScopedKey)
 }

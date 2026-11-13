@@ -8,7 +8,6 @@ package store
 // the batch, wrapped as the unbatched function wraps it.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -314,16 +313,9 @@ type Numbered struct {
 	CreatedAt, UpdatedAt time.Time
 }
 
-// numberSavepoint is the savepoint QueueInsertNumbered opens before its
-// upsert, so the create can retry the upsert once after CounterRace
-// (RetryNumbered) instead of losing its transaction.
-//
-// TODO(TODO-S17-02): remove with M3 (S18/R2), with CounterRace.
-const numberSavepoint = "nava_number"
-
 // QueueInsertNumbered queues a `gapless` type's numbering and insert (ADR-005
 // L1, D-3-9; the TICK-648 layout), the first statements of the create's
-// write batch: a savepoint, then the record_counters upsert of the type's
+// write batch: the record_counters upsert of the type's
 // counter in format's scope, which locks the counter row until the
 // transaction ends, then the INSERT of r, whose number PostgreSQL renders
 // from the counter value the upsert left, as format.SQL under prefix.
@@ -332,8 +324,6 @@ const numberSavepoint = "nava_number"
 // rollback after this gives the number back (no gap). It upserts the same
 // row as QueueAllocate, the `gaps` path, so a type whose mode changes
 // carries on from its counter and no number is used twice (ADR-005 §2.1.1).
-// The savepoint is a statement in the same round trip; it stays open until
-// the transaction ends.
 func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numbering.Compiled, fixed map[string]string, dst *Numbered) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
@@ -353,7 +343,6 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 	}
 	numberSQL := "(SELECT " + render + ` FROM record_counters c
     WHERE c.tenant_id = $1 AND c.entity_definition_id = $4 AND c.scope_key = $16::text)`
-	b.Queue("SAVEPOINT " + numberSavepoint)
 	b.Queue(nextNumberSQL, r.TenantID, r.EntityDefinitionID, format.ScopeKey()).QueryRow(func(row pgx.Row) error {
 		if err := row.Scan(&dst.N); err != nil {
 			return fmt.Errorf("records/store: take record number: %w", err)
@@ -377,15 +366,5 @@ RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(f
 		dst.Payload = json.RawMessage(payload)
 		return nil
 	})
-	return nil
-}
-
-// RetryNumbered rolls tx back to the savepoint QueueInsertNumbered opened,
-// after its batch failed with CounterRace, so the caller can send the
-// create's write batch once more. Everything the failed batch did is undone.
-func RetryNumbered(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT "+numberSavepoint); err != nil {
-		return fmt.Errorf("records/store: roll back to the numbering savepoint: %w", err)
-	}
 	return nil
 }

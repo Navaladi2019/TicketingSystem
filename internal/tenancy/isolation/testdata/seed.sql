@@ -204,6 +204,12 @@ INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 5);
+-- A non-empty scope beside each tenant's '' row of the same type (M3,
+-- TICK-670): the same scope in both tenants, so a lookup by type and scope
+-- alone would find both.
+INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 'e1|d:202611', 4),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 'e1|d:202611', 9);
 
 -- ACLs and shares (P3-30, TICK-615). Tenant B's ticket has two ACL versions,
 -- tenant A's one, under the same version numbers, so a lookup by version alone

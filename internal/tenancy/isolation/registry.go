@@ -470,6 +470,14 @@ func Paths() []Path {
 			"INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)", TenantA, EntityDefinitionB1),
 		sql("record_counters: move tenant B's counters", "nava_worker", Denied,
 			"UPDATE record_counters SET next = next + 1 WHERE tenant_id = $1", TenantB),
+		// ADR-005 §5, after M3 (TICK-670): a counter of a non-empty scope
+		// beside the type's '' row (testdata/seed.sql seeds one per tenant).
+		sql("record_counters: take a number from tenant B's counter at a non-empty scope", "nava_app", Denied,
+			`INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, 'e1|d:202611', 2)
+			 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`,
+			TenantB, EntityDefinitionB1),
+		sql("record_counters: start a scoped counter in tenant A for tenant B's type", "nava_worker", Denied,
+			"INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, 'e1|d:202611', 2)", TenantA, EntityDefinitionB1),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
