@@ -20,15 +20,31 @@ import (
 // FixtureDirEnv. Only an interptest build reads them; the production image is
 // built without the tag and never links the fakes
 // (TestProductionBuildLinksNoFakes).
+//
+// PortsEnv=db swaps the fakes for the production ports (productionActivities:
+// the database DefinitionStore and the real records pipeline through
+// recordports), keeping the pause-after-commit hook: the P3-44 crash case
+// (TICK-713) kills this worker after the real pipeline.Write committed. Any
+// other value but empty is refused, so a typo cannot fall back to the fakes.
 const (
 	FixtureDirEnv = "NAVA_INTERPTEST_FIXTURE_DIR"
 	WritesDirEnv  = "NAVA_INTERPTEST_WRITES_DIR"
+	PortsEnv      = "NAVA_INTERPTEST_PORTS"
 )
 
 // interpreterActivities is the S11a fakes over FixtureDirEnv (P3-22a): the
-// fixture store, the file records and the counting writer. The
-// pause-after-commit hook is on when interp.PauseDirEnv is set.
-func interpreterActivities(lookup config.LookupFunc, _, _ *pgxpool.Pool, _ bool) (*interp.Activities, error) {
+// fixture store, the file records and the counting writer; with PortsEnv=db,
+// the production ports instead. The pause-after-commit hook is on when
+// interp.PauseDirEnv is set, with either.
+func interpreterActivities(lookup config.LookupFunc, pool, pipePool *pgxpool.Pool, _ bool) (*interp.Activities, error) {
+	ports, set := lookup(PortsEnv)
+	switch {
+	case !set || ports == "":
+	case ports == "db":
+		return productionActivities(pool, pipePool)
+	default:
+		return nil, errors.New("config: " + PortsEnv + " is empty (the fakes) or db (the production ports)")
+	}
 	dir, err := absDir(lookup, FixtureDirEnv, "")
 	if err != nil {
 		return nil, err

@@ -1,0 +1,66 @@
+meta {
+  name: S11b.18 AC1: the admin publishes the demo definition: 201
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s11b_demo/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-demo-v1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1M",
+        "next": "triage"
+      },
+      {
+        "key": "triage",
+        "type": "update_record",
+        "set": {
+          "state": "in_progress"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('current, entity incident, an id per step', () => {
+    expect(b.current).to.eql(true);
+    expect(b.entity).to.eql('incident');
+    expect(Object.keys(b.step_ids).sort()).to.eql(['done', 'triage', 'wait']);
+  });
+  bru.setVar('s11b_demo_v1', String(b.version));
+  bru.setVar('s11b_demo_v1_id', b.version_id);
+  console.log('S11b.18 demo version', b.version, b.version_id);
+}
+
+docs {
+  `s11b_demo`: on `record.created` of an incident, wait 1 minute (`PT1M`), then `update_record` `state=in_progress`. The first pass on a stack makes it version 1; a later pass publishes the next version of the same key, so only one demo version is current at a time.
+}

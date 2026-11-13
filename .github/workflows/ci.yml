@@ -753,6 +753,16 @@ jobs:
           path: docs/acceptance/guide/reports/S10.*
           if-no-files-found: warn
           retention-days: 14
+      # Written by the s11b_workflows case (TICK-713): the S11b story kit's Bruno reports, the
+      # evidence of the fresh-stack run. Same content and the same warn as the S10 report.
+      - name: S11b workflows report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s11b-workflows-report
+          path: docs/acceptance/guide/reports/S11b.*
+          if-no-files-found: warn
+          retention-days: 14
       - name: Logs on failure (stack)
         if: always() && (steps.up.outcome == 'failure' || steps.cases-stack.outcome == 'failure')
         run: make stack-logs

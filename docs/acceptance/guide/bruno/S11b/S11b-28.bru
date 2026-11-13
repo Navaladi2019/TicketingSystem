@@ -1,0 +1,29 @@
+meta {
+  name: S11b.28 AC4: Bob's incident is still new after tenant A's runs wrote
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_b1}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('state new, version 1, priority 3', () => {
+    expect(N.json().state).to.eql('new');
+    expect(N.json().version).to.eql(1);
+    expect(N.json().data.priority).to.eql(3);
+  });
+}
+
+docs {
+  Created before S11b.19's run fired and read after it wrote, so a tenant A workflow that had started for it would have written by now.
+}

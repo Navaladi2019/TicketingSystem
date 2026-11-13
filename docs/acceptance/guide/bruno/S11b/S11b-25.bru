@@ -1,0 +1,35 @@
+meta {
+  name: S11b.25 AC2: its history shows the write with source workflow
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_i1}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('two rows: the workflow write, then the create', () => {
+    expect(items).to.have.length(2);
+    expect(items[0].source).to.eql('workflow');
+    expect(items[1].action).to.eql('create');
+    expect(items[1].source).to.eql('user');
+  });
+  test('the workflow write changed the state to in_progress, nothing else', () => {
+    expect(items[0].changed).to.eql(['/data/state']);
+    expect(items[0].after.state).to.eql('in_progress');
+  });
+}
+
+docs {
+  Two rows, newest first: the workflow's write (`source: workflow`, the state change) and Alice's create (`source: user`).
+}
