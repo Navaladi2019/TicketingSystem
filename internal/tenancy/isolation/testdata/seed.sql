@@ -230,6 +230,40 @@ INSERT INTO record_shares (tenant_id, record_id, user_id, group_id, principal_ki
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000000b2', NULL, '0b000000-0000-4000-8000-0000000004b1', 'group',
         '0b000000-0000-4000-8000-0000000003b1');
 
+-- Number formats and epochs (P6-06, TICK-671). The format key and the
+-- epochs' literal heads and compiled hashes repeat across tenants on purpose:
+-- a lookup by key, hash or head alone would find both tenants' rows. Tenant
+-- B's second ticket version pins its format, so a lookup of the types that
+-- link a format id would find tenant B's link without isolation. No commit
+-- check is attached to these tables yet (db/audited-tables.yaml).
+INSERT INTO number_formats (tenant_id, id, key, current_version) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000012a1', 'monthly', 1),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b1', 'monthly', 2),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b2', 'daily', 1);
+
+INSERT INTO number_format_versions (tenant_id, format_id, version, document, compiled, compiled_sha256, created_by) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000012a1', 1,
+        '{"template": "{prefix}-{yyyy}{MM}{seq:4}", "overflow": "refuse"}', '{"head": "-"}', sha256('monthly'::bytea),
+        '0a000000-0000-4000-8000-0000000003a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b1', 1,
+        '{"template": "{prefix}-{yyyy}{MM}{seq:4}", "overflow": "refuse"}', '{"head": "-"}', sha256('monthly'::bytea),
+        '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b1', 2,
+        '{"template": "{prefix}-{yyyy}{MM}{seq:5}", "overflow": "refuse"}', '{"head": "-"}', sha256('monthly5'::bytea),
+        '0b000000-0000-4000-8000-0000000003b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000012b2', 1,
+        '{"template": "{prefix}-{yyyy}{MM}{dd}{seq:2}", "overflow": "refuse"}', '{"head": "-"}', sha256('daily'::bytea),
+        '0b000000-0000-4000-8000-0000000003b1');
+
+INSERT INTO numbering_epochs (tenant_id, entity_definition_id, epoch, compiled_sha256, literal_head) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, sha256('monthly'::bytea), 'TCK-'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 1, sha256('monthly'::bytea), 'TCK-'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, sha256('monthly5'::bytea), 'TCK-');
+
+UPDATE entity_definition_versions
+SET number_format_id = '0b000000-0000-4000-8000-0000000012b1', number_format_version = 2, number_compiled = '{"head": "-"}'
+WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000007b2';
+
 -- Back on before the seed commits (see the DISABLE above the records rows).
 ALTER TABLE records ENABLE TRIGGER records_audit_commit_check;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;

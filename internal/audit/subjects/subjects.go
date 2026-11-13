@@ -31,6 +31,10 @@ const (
 	// the ACL chain never shares a (subject, version) key with the entity
 	// type's schema versions (contract amendment A3).
 	ACLPolicy Type = "acl_policy"
+	// NumberFormat is a number format and its published versions (S18,
+	// P6-06, ADR-005 §3.7 C12; domain config): subject_id is the format id,
+	// version_before and version_after are format versions.
+	NumberFormat Type = "number_format"
 	// AuditExport is one export of the log (R19; domain audit).
 	AuditExport Type = "audit_export"
 	// AuditChain is a tenant's chain head, the subject of chain:reseed (R17;
@@ -48,6 +52,7 @@ func All() []Type {
 		CascadeKey,
 		EntityDefinition,
 		ACLPolicy,
+		NumberFormat,
 		AuditExport,
 		AuditChain,
 		ErasureRequest,

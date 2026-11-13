@@ -77,6 +77,32 @@ audited:
     subject_type: record
     subject_id_column: record_id
     attached: false
+  # P6-06 (TICK-671, ADR-005 §3.2, §3.7 C12): a format publish is audited
+  # under its own subject, number_format, keyed by the format id. Not
+  # attached yet: nothing writes these tables until the format publish route,
+  # and the task that adds it writes its audit entry and attaches the
+  # trigger with it. The columns are every column nava_app may UPDATE.
+  number_formats:
+    writer_roles: [nava_app]
+    audited_columns: [current_version, updated_at]
+    subject_type: number_format
+    subject_id_column: id
+    attached: false
+  number_format_versions:
+    writer_roles: [nava_app]
+    audited_columns: []
+    subject_type: number_format
+    subject_id_column: format_id
+    attached: false
+  # P6-06: an epoch is taken inside the entity definition publish (C10), so
+  # it is that type's configuration change, under its entity_definition
+  # entry. Insert-only; attached with the publish path that writes it.
+  numbering_epochs:
+    writer_roles: [nava_app]
+    audited_columns: []
+    subject_type: entity_definition
+    subject_id_column: entity_definition_id
+    attached: false
 
 exempt:
   audit_log:
