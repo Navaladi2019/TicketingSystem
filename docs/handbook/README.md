@@ -25,6 +25,15 @@ Never edit the generated HTML. The viewer (`handbook.css`, `handbook.js`) is
 edited in `docs/handbook/build/assets/`; `task handbook` copies it to
 `docs/handbook/assets/`.
 
+### The sidebar
+
+`docs/handbook/src/nav.yaml` sets the sidebar order and the previous/next
+links. Groups (`group:`) collapse; `page:` is a path under `src/`; `label:`
+is the sidebar text (default: the page title); `children:` nests pages. Every
+page appears exactly once: a page missing from the file, listed twice or not
+found fails the build. Keep story and ticket IDs out of labels. New page
+without a place yet: add it to `nav.yaml` in the same change.
+
 ### The footer stamp
 
 Every page ends with `Content generated against main @ <sha> (<date>)`. The

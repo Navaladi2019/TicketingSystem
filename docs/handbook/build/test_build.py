@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -243,10 +244,25 @@ def pin(root):
     write(root, "docs/pins.md", "| `mermaid` (`docs/handbook/assets/mermaid.min.js`) | 12.3.0, sha256 `%s` | x | y |\n" % digest)
 
 
+_real_load_nav = build.load_nav
+
+
+def _flat_nav(root, pages):
+    """Fixtures that do not test the sidebar get one group holding every page."""
+    path = os.path.join(root, "docs", "handbook", "src", "nav.yaml")
+    if not os.path.exists(path) or open(path, encoding="utf-8").read().startswith("# auto"):
+        body = "".join("    - page: %s\n" % p.src_rel() for p in pages)
+        write(root, "docs/handbook/src/nav.yaml", "# auto\n- group: All\n  pages:\n" + body)
+    return _real_load_nav(root, pages)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.root = new_fixture()
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        patcher = mock.patch.object(build, "load_nav", _flat_nav)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def build(self, sha=SHA, date=DATE, registry=None):
         return build.build(self.root, sha, date, registry)
@@ -894,6 +910,61 @@ class TestMarkdown(Base):
                      "Content-Security-Policy", "WIP"):
             self.assertIn(want, h)
         self.assertNotIn("crumbs", out["index.html"].decode())
+
+
+class TestNav(Base):
+    NAV = ("- group: Start\n  pages:\n    - page: index.md\n      label: Welcome\n"
+           "- group: Deep\n  pages:\n    - page: system/a.md\n      children:\n"
+           "        - page: system/b.md\n          label: Bee\n")
+
+    def setUp(self):
+        super().setUp()
+        page(self.root, "system/a.md", "Alpha", "system")
+        page(self.root, "system/b.md", "Beta", "system")
+        write(self.root, "docs/handbook/src/nav.yaml", self.NAV)
+
+    def test_order_is_the_file_order_and_labels_apply(self):
+        h = self.html("index.html")
+        self.assertLess(h.index("Welcome"), h.index(">Alpha<"))
+        self.assertLess(h.index(">Alpha<"), h.index(">Bee<"))
+        self.assertNotIn(">Beta<", h.split("<main>")[0])
+
+    def test_current_group_and_page_are_open_and_marked(self):
+        side = self.html("system/b.html").split("<main>")[0]
+        self.assertEqual(side.count('<details class="nav-group" open>'), 1)
+        self.assertIn('<li class="current"><a href="../system/b.html" aria-current="page">Bee</a>', side)
+        self.assertIn('<details open><summary><a href="../system/a.html">Alpha', side)
+        home = self.html("index.html").split("<main>")[0]
+        self.assertIn('<details class="nav-group" open><summary>Start', home)
+        self.assertIn('<details class="nav-group"><summary>Deep', home)
+
+    def test_previous_next_follow_the_sidebar(self):
+        out = self.build()
+        self.assertIn('class="next" href="system/a.html">Alpha &rarr;', out["index.html"].decode())
+        b = out["system/b.html"].decode()
+        self.assertIn('class="prev" href="../system/a.html">&larr; Alpha', b)
+        self.assertNotIn('class="next"', b)
+
+    def test_page_without_a_place_fails(self):
+        page(self.root, "system/c.md", "Gamma", "system")
+        self.fails("system/c.md has no place in the sidebar")
+
+    def test_unknown_duplicate_and_bad_entries_fail(self):
+        write(self.root, "docs/handbook/src/nav.yaml", self.NAV + "- group: More\n  pages:\n"
+              "    - page: system/b.md\n    - page: nope.md\n    - label: x\n")
+        self.fails("system/b.md is listed more than once", "nope.md is not a handbook page", "needs a page")
+
+    def test_missing_nav_file_fails(self):
+        os.remove(os.path.join(self.root, "docs", "handbook", "src", "nav.yaml"))
+        with mock.patch.object(build, "load_nav", _real_load_nav):
+            self.fails("nav.yaml")
+
+    def test_real_sidebar_order(self):
+        out = build.build(build.ROOT, SHA, DATE)
+        side = out["index.html"].decode().split("<main>")[0]
+        names = re.findall(r"<summary>([^<]+)</summary>", side)[:5]
+        self.assertEqual(names, ["Start here", "Concepts", "How it works", "Reference", "Operations"])
+        self.assertNotRegex(side, r">S\d+[a-z]?:|TICK-")
 
 
 class TestSearch(Base):
