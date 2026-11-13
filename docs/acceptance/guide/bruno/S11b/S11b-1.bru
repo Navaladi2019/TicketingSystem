@@ -28,7 +28,7 @@ tests {
   const c = N.jwt(tok.access_token);
   bru.setVar('admin_a_token_exp', String(c.exp));
   test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
-  bru.setVar('s11b_run', Math.random().toString(16).slice(2, 10));
+  bru.setVar('s11b_run', bru.getEnvVar('s11b_run_id') || Math.random().toString(16).slice(2, 10));
   bru.setVar('s11b_key', 'wf_' + bru.getVar('s11b_run'));
 }
 

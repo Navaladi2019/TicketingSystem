@@ -1,0 +1,50 @@
+meta {
+  name: S11b.30 Retire the demo: publish a version that waits a day and writes nothing: 201
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s11b_demo/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-demo-retire
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT24H",
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('current', () => expect(N.json().current).to.eql(true));
+}
+
+docs {
+  Clean-up, not a criterion: tenant A's incidents created by later folders on this stack start a run that waits 24 hours and ends, and are not written a minute later. Runs already started keep their version.
+}
