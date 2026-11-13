@@ -2,7 +2,7 @@
 
 TICK-709, S11b (TICK-337). The shapes are the S11b interface contract (D-3-29,
 `docs/delivery/decisions/2026-11-11-d-3-29-s11b-interface-contract.md`).
-Migrations: `db/migrations/20261113123300` to `20261113123400`.
+Migrations: `db/migrations/20261113123300` to `20261113123400`, and `20261113200000` (`workflow_cause_ref_newest`, TICK-785).
 
 ## Model
 
@@ -45,6 +45,7 @@ erDiagram
         uuid ref_outbox_id
         uuid causation_origin_id
         smallint causation_depth "CHECK >= 0"
+        timestamptz created_at "index (tenant_id, ref_outbox_id, created_at, outbox_id)"
     }
     workflow_ref {
         uuid tenant_id PK
@@ -91,6 +92,30 @@ Storage at this shape:
 - `workflow_ref_waiting` is 856 KiB for 50,000 waiting rows. `workflow_ref` itself is 223 MiB, its PK 129 MiB, and `workflow_ref_record` 63 MiB.
 
 **Write cost of `workflow_ref_waiting`.** `closed_at` and `record_changed_signal_id` are in its predicate. Any UPDATE that changes either one is therefore no longer HOT. That covers every `CloseWorkflowRef` and every set or clear of the waiting state, and each such update writes new entries in `workflow_ref_pkey` and `workflow_ref_record` as well as the partial index. At this shape, (2) gains 0.006 ms per write. The index pays off only for a record with many refs inside the 30-day purge window. The contract specifies it, so it ships. Dropping it is a single `DROP INDEX CONCURRENTLY` if P3-42's load shows the HOT loss matters more.
+
+## Newest-cause check (TICK-785)
+
+`causeSQL` (`internal/workerguard/cause.go`) reads one cause row by primary key, and an `EXISTS` asks whether the same run has a later row by `(created_at, outbox_id)`. Before this change, no index served that `EXISTS`, so it read every cause row of the tenant. `workflow_cause_ref_newest (tenant_id, ref_outbox_id, created_at, outbox_id)` turns it into one index-only range probe of the run's own rows. `tenant_id` leads, and the row comparison is an index condition.
+
+Run with `sh scratch/tick785-workflow-cause-newest/run.sh` (raw output is in `scratch/tick785-workflow-cause-newest/out.txt`).
+
+- **Hardware:** postgres:16.10 in Docker Desktop (16 vCPU, 24.5 GiB VM) on an Intel i7-1260P with 39.7 GB RAM; warm cache, no parallel workers, JIT off.
+- **Data:** 2,100,000 rows: 1,000 tenants × 200 runs × 10 causes, plus one heavy tenant with 2,000 runs × 50 causes (100,000 rows). The query is planned as a non-owner role under FORCE RLS with `force_custom_plan`, as `nava_worker` runs it.
+
+| Probe (heavy tenant) | Without the index | With the index |
+| --- | --- | --- |
+| Newest cause (`newer = false`, the hot path) | 19.0 ms, 2,076 buffers. A bitmap scan of `workflow_cause_pkey` on `tenant_id`, then 100,000 rows removed by filter. | 0.05 ms, 8 buffers. An index-only scan of `workflow_cause_ref_newest`, 0 heap fetches. |
+| Stale cause (`newer = true`, a replayed delivery) | 7.0 ms, 796 buffers. The same bitmap scan, stopping at the first newer row. | 0.07 ms, 9 buffers. |
+
+The cost without the index grows linearly with the tenant's cause history. With the index, the cost depends only on how many causes the run has.
+
+**Cost:**
+
+- **Storage:** 155 MB at 2.1M rows, against 219 MB for the heap and 131 MB for the PK. That is about 74 bytes per row, because three uuids and a timestamptz is a wide key.
+- **Writes:** each delivery that resumes a run inserts one cause row, which now carries one more index entry. The insert-only workload has no UPDATEs, so no HOT loss. 100,000 inserts in one transaction took 504 / 595 ms without the index and 913 / 993 ms with it, measured warm and alternating. That is about 4 µs more per cause row, against the 7 to 19 ms the read cost before.
+- **Build:** 4.8 s at 2.1M rows, `CONCURRENTLY`, so it takes no lock that blocks writes.
+
+The index cannot replace the PK. `ResolveCause` reads its row by `(tenant_id, outbox_id)`, and the PK enforces uniqueness. The table has no purge yet (see above), so this index grows with the table until that task lands.
 
 ## FORCE RLS makes a bare `VALIDATE CONSTRAINT` of a foreign key vacuous
 
