@@ -1,7 +1,7 @@
 # Product vision
 
-Status: draft for the product owner's confirmation (TICK-787). Product direction
-is the product owner's decision; this page records it and adds nothing of its own.
+Status: confirmed by the product owner on 2026-11-13 (TICK-787). Product
+direction is the product owner's decision; this page records it.
 
 ## What it is
 
