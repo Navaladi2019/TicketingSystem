@@ -2,7 +2,6 @@
 # group: a collapsible heading. page: path under docs/handbook/src. label: the
 # sidebar text (defaults to the page title). children: pages nested under it.
 # Every page appears exactly once. Story and ticket IDs belong on the page.
-# "Product tour" goes between "Start here" and "Concepts" when its pages land.
 - group: "Start here"
   pages:
     - page: index.md
@@ -11,6 +10,30 @@
       label: "What the product is"
     - page: vision/goals-and-non-goals.md
       label: "Goals and non-goals"
+- group: "Product tour"
+  pages:
+    - page: tour/index.md
+      label: "Tour at a glance"
+    - page: tour/01-onboard-a-tenant.md
+      label: "1. Onboard a tenant"
+    - page: tour/02-sign-in.md
+      label: "2. Sign in"
+    - page: tour/03-create-groups.md
+      label: "3. Create groups"
+    - page: tour/04-add-users-to-groups.md
+      label: "4. Add users to groups"
+    - page: tour/05-organisation-units.md
+      label: "5. Organisation units (not built)"
+    - page: tour/06-create-an-entity-type.md
+      label: "6. Create an entity type"
+    - page: tour/07-access-rules-and-masks.md
+      label: "7. Access rules and masks"
+    - page: tour/08-workflows.md
+      label: "8. Workflows (not built)"
+    - page: tour/09-create-and-work-with-records.md
+      label: "9. Create and work with records"
+    - page: tour/10-audit.md
+      label: "10. Audit"
 - group: "Concepts"
   pages:
     - page: database/tenancy.md

@@ -962,8 +962,8 @@ class TestNav(Base):
     def test_real_sidebar_order(self):
         out = build.build(build.ROOT, SHA, DATE)
         side = out["index.html"].decode().split("<main>")[0]
-        names = re.findall(r"<summary>([^<]+)</summary>", side)[:5]
-        self.assertEqual(names, ["Start here", "Concepts", "How it works", "Reference", "Operations"])
+        names = re.findall(r"<summary>([^<]+)</summary>", side)[:6]
+        self.assertEqual(names, ["Start here", "Product tour", "Concepts", "How it works", "Reference", "Operations"])
         self.assertNotRegex(side, r">S\d+[a-z]?:|TICK-")
 
 
