@@ -21,8 +21,8 @@ import (
 // waiting state (S11b contract, D-3-29).
 
 const (
-	cascadeDefinitionMigration = "20261112123330_cascade_start_definition_fkey.sql"
-	cascadeValidateMigration   = "20261112123340_cascade_start_definition_fkey_validate.sql"
+	cascadeDefinitionMigration = "20261113123330_cascade_start_definition_fkey.sql"
+	cascadeValidateMigration   = "20261113123340_cascade_start_definition_fkey_validate.sql"
 
 	wfDefA   = "0e000000-0000-4000-8000-0000000000f1" // tenant A's definition
 	wfDefB   = "0e000000-0000-4000-8000-0000000000f2" // tenant B's definition
@@ -72,11 +72,11 @@ const (
 )
 
 const (
-	workflowTablesMigration = "20261112123300_workflow_definitions.sql"
-	waitingColumnMigration  = "20261112123350_workflow_ref_record_changed_signal.sql"
+	workflowTablesMigration = "20261113123300_workflow_definitions.sql"
+	waitingColumnMigration  = "20261113123350_workflow_ref_record_changed_signal.sql"
 	// definitionAuditMigration attaches the commit check to the two definition
 	// tables (P3-41b).
-	definitionAuditMigration = "20261112180000_workflow_definitions_audit_commit_check.sql"
+	definitionAuditMigration = "20261113180000_workflow_definitions_audit_commit_check.sql"
 )
 
 // workflowTables are the tables workflowTablesMigration creates.
@@ -384,13 +384,13 @@ func TestP340WorkflowRefWaitingState(t *testing.T) {
 // Acceptance: the cascade_start foreign-key pair applies on a database that
 // already holds claims. The claims were written before any definition table
 // existed, so their definitions are seeded once the table exists (the
-// recovery 20261112123330's header names) and VALIDATE succeeds. A claim on a
+// recovery 20261113123330's header names) and VALIDATE succeeds. A claim on a
 // definition nobody holds stops the validate migration, which records no
 // version; afterwards a claim naming a missing definition, or another
 // tenant's, is refused.
 func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	m := freshCluster(t)
-	if err := migrateOnlyFS(t, m, migrationsBefore(t, "20261112123300_workflow_definitions.sql")); err != nil {
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, "20261113123300_workflow_definitions.sql")); err != nil {
 		t.Fatalf("migrate to before P3-40: %v", err)
 	}
 	super := superNava(t)
@@ -423,7 +423,7 @@ func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cascade_start_definition_fkey") {
 		t.Fatalf("validate over a claim on another tenant's definition: %v, want a violation of cascade_start_definition_fkey", err)
 	}
-	if n := queryString(t, super, "SELECT count(*)::text FROM goose_db_version WHERE version_id = 20261112123340"); n != "0" {
+	if n := queryString(t, super, "SELECT count(*)::text FROM goose_db_version WHERE version_id = 20261113123340"); n != "0" {
 		t.Fatalf("failed validate recorded %s version rows", n)
 	}
 	noMigratorPolicies(t, super, "after the failed validate")
@@ -450,7 +450,7 @@ func TestP340CascadeStartDefinitionKeyOverExistingClaims(t *testing.T) {
 	}
 }
 
-// noMigratorPolicies is the Security reviewer's guard on 20261112123340
+// noMigratorPolicies is the Security reviewer's guard on 20261113123340
 // (TICK-709): the SELECT USING (true) policies it gives nava_migrator to
 // validate cascade_start_definition_fkey must not outlive its transaction,
 // whether VALIDATE fails (rollback) or succeeds (dropped before commit). A
