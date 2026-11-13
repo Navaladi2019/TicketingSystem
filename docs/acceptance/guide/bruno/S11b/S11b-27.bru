@@ -1,0 +1,24 @@
+meta {
+  name: S11b.27 AC3: the first incident still has priority 3 after v2's run wrote
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_i1}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('version 2, priority 3: no second write from v2', () => {
+    expect(N.json().version).to.eql(2);
+    expect(N.json().data.priority).to.eql(3);
+  });
+}

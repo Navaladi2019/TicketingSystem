@@ -1,0 +1,29 @@
+meta {
+  name: S11b.22 AC2: the first incident is still new while its run waits
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_i1}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('state new, version 1', () => {
+    expect(N.json().state).to.eql('new');
+    expect(N.json().version).to.eql(1);
+  });
+  test('read within the minute', () => expect(Date.now() - Number(bru.getVar('s11b_i1_at'))).to.be.below(55 * 1000));
+}
+
+docs {
+  Less than a minute after S11b.19: nothing has written it yet.
+}

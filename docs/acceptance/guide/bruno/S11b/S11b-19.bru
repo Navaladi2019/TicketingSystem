@@ -1,0 +1,44 @@
+meta {
+  name: S11b.19 AC2: Alice creates an incident: 201, state new
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-i1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S11b {{s11b_run}} one",
+      "priority": 3
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1, state new, priority 3', () => {
+    expect(b.version).to.eql(1);
+    expect(b.state).to.eql('new');
+    expect(b.data.priority).to.eql(3);
+  });
+  bru.setVar('s11b_i1', b.id);
+  bru.setVar('s11b_i1_at', String(Date.now()));
+  console.log('S11b.19 created', b.number, b.id);
+}
+
+docs {
+  The pipeline's event sink starts the demo's current version (S11b.18) for it. The clock of AC2 starts here.
+}

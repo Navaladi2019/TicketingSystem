@@ -617,6 +617,50 @@ PAGES = [
                   "The automated versions run in CI: `TestInterpreterStartedByTheRelayCompletes` and `TestInterpreterCrossTenantIsNotFound` (stack `worker` case), `TestInterpreterCrashAppliesOnce` (stack `interpreter` case), and the version-pinning tests in `internal/workflow/interp/pinning_test.go`."],
         "bruno": ["No Bruno folder: the story has no HTTP route. Everything runs through the `make demo-interpreter-*` targets and the Temporal UI."],
     },
+    # ------------------------------------------------------------------ S11b
+    {
+        "id": "s11b", "short": "S11b", "title": "Workflows on records: a published definition updates an incident a minute after it is created",
+        "blurb": "The admin publishes a definition; a minute after Alice creates an incident it is in_progress, written by the workflow; v2 never changes a v1 run; tenant B starts nothing.",
+        "story": "Story S11b, TICK-337 (story branch `TICK-337/workflows-on-records`, not on `main` yet). Kit: P3-44, TICK-713.",
+        "what": [
+            "A tenant admin publishes a workflow definition through the API. Creating a record of the definition's entity type starts it (the record pipeline's event sink enqueues the start in the write's transaction; `nava-relay` starts `nava.interpreter`). The run waits on its timer, then writes the record through the same pipeline as any user, with `source=workflow` in the history. Runs stay on the version they started with, and one tenant's records never start another tenant's workflows.",
+            ("note", "Unlike S11a, the stack's own `nava-worker` runs the interpreter here with the database-backed definition store and the real record pipeline: no fakes, no worker swap."),
+        ],
+        "flows": [{
+            "title": "The demo definition on one incident",
+            "lanes": ["Admin", "Alice", "nava-core", "nava-relay", "Temporal", "nava-worker"],
+            "msgs": [
+                ("Admin", "nava-core", "POST /workflow-definitions/s11b_demo/versions", "req"),
+                ("Alice", "nava-core", "POST /records/incident", "req"),
+                ("nava-core", "nava-relay", "outbox start row (same transaction)", "note"),
+                ("nava-relay", "Temporal", "start nava.interpreter", "req"),
+                ("Temporal", "nava-worker", "NextStep: wait PT1M", "req"),
+                ("Temporal", "Temporal", "timer fires after 1 minute", "note"),
+                ("Temporal", "nava-worker", "ApplyStep: state=in_progress via pipeline.Write", "req"),
+                ("nava-worker", "nava-core", "history: source workflow", "ok"),
+            ],
+        }],
+        "steps": [
+            {"do": "Check out the story branch, start a fresh stack (Prerequisites 1 and 2) and seed it.", "where": "Git Bash",
+             "pre": "git checkout TICK-337/workflows-on-records\ndocker compose down -v && docker compose build && docker compose up --wait\nsh docs/acceptance/guide/tools/seed.sh",
+             "expect": "Every service ends `Healthy`; the seed prints `seed: tenants A and B` and finishes without an error.",
+             "fail": "A service stays unhealthy: Troubleshooting."},
+            {"do": "Criteria 1 to 4 in one go: run the Bruno folder **S11b workflow definitions** (Runner, or headless). It takes about 75 s: the demo waits a real minute.", "where": "Git Bash",
+             "pre": "sh docs/acceptance/guide/tools/api-test.sh S11b",
+             "expect": "`api-test: PASS`. S11b.18 publishes `s11b_demo` (criterion 1). S11b.24 logs `in_progress after` 60 to 75 s and S11b.25 shows the newest history row with `source: workflow` (criterion 2). S11b.21 publishes v2 while the first run waits; S11b.24 and S11b.27 keep priority 3 (v1), while S11b.26 shows the incident created after v2 with priority 1 (criterion 3). S11b.28 and S11b.29 show Bob's tenant B incident still `new`, with only its create in the history (criterion 4).",
+             "fail": "S11b.24 times out after 180 s: `docker compose logs nava-relay nava-worker` and the start row's `last_error` (`SELECT kind, last_error, dead_at FROM outbox ORDER BY id DESC LIMIT 5`)."},
+            {"do": "Optional, by hand in Bruno: open S11b.19, send it, wait a minute and send S11b.24. Then open the incident's history (S11b.25).", "where": "Bruno",
+             "expect": "Before the minute the incident is `new`; after it, `in_progress` at version 2, and the history's newest row has `source: workflow` and `changed: [\"/data/state\"]`.",
+             "fail": "The state never changes: see the previous step's check."},
+            {"do": "The crash case and the cascade bound are CI checks: read the `stack` job of the latest `ci` run on the story branch, and the isolation report artifact of its `integration` job.", "where": "Browser",
+             "expect": "The `interpreter` case passes `TestInterpreterCrashRealPipelineAppliesOnce`: the worker is SIGKILLed after the real `pipeline.Write` committed, restarted, and the incident has one `source=workflow` entry, one idempotency key and version 2. `isolation-report.md` lists **CI-10** as full, with the row `cascade: (g) …` PASS.",
+             "fail": "Any of them red: the story is not ready."},
+            {"do": "Clean up.", "where": "Git Bash", "pre": "docker compose down -v", "expect": "-", "fail": "-"},
+        ],
+        "extra": [("h3", "Not repeated here"),
+                  "Publish validation, permissions and idempotency of the definition API (S11b.1 to S11b.16); signals between runs and the depth limit (CI-10 (g), `TestCI10_G_SignalPingPongBetweenTwoRunsStopsAtDepth9` and the isolation report row); the stack case `s11b_workflows` checks the database behind each criterion (start rows, the version each run started on, no tenant B start)."],
+        "bruno": [BRUNO_HOW, "Folder **S11b workflow definitions**: S11b.1–S11b.30 (S11b.17–S11b.30 are the story criteria). Needs `tools/seed.sh`. It runs again on the same stack: each pass publishes the next two versions of `s11b_demo`, then retires it (S11b.30, a 24 h timer that writes nothing)."],
+    },
 ]
 
 PREREQ = ("Prerequisites", "Do these once per fresh stack, from a clone of `main`. About 10 minutes, most of it the first image build.", [
