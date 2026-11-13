@@ -1,6 +1,6 @@
 # record_counters scope_key: expand, deploy, contract (runbook)
 
-S17 P6-01 (TICK-665). Design: ADR-005 §4.1 and §4.2
+S17 P6-01 (TICK-665) and S18 P6-05 (TICK-670, M3). Design: ADR-005 §4.1 and §4.2
 (`docs/adr/ADR-005-record-numbering.md`). Evidence:
 `docs/adr/ADR-005/spikes/postgres/counter-scope/`.
 
@@ -14,7 +14,7 @@ erDiagram
     record_counters {
         uuid tenant_id PK "leads every key (RLS, FORCE)"
         uuid entity_definition_id PK "FK (tenant_id, id)"
-        text scope_key "R1: NOT NULL DEFAULT '', CHECK length <= 128; PK after M3"
+        text scope_key PK "NOT NULL DEFAULT '', CHECK length <= 128; in the PK since M3"
         bigint next "the only column nava_app may UPDATE"
         timestamptz period_end "R1: NULL; set by the INSERT arm only"
     }
@@ -26,7 +26,7 @@ erDiagram
 |---|---|---|---|---|
 | R0 | today | PK `(tenant_id, entity_definition_id)` | `(tenant_id, entity_definition_id)` | `record_counters_pkey` |
 | R1 | S17 (this story) | M1 + M2: columns, CHECK, `record_counters_scoped_key`, `record_counters_period_end`; old PK kept | `(tenant_id, entity_definition_id, scope_key)`, writes `''` only | `record_counters_scoped_key` |
-| R2 | S18 | M3: PK becomes `(tenant_id, entity_definition_id, scope_key)`, still named `record_counters_pkey` | 3-column | `record_counters_pkey` |
+| R2 | S18 | M3: PK becomes `(tenant_id, entity_definition_id, scope_key)`, still named `record_counters_pkey`; non-empty `scope_key` rows can exist | 3-column, no first-create retry | `record_counters_pkey` |
 
 Order: apply M1 and M2 (the migrate job runs before the R1 rollout), roll out
 R1 to every API and worker replica, then and only then run M3 with R2.
@@ -97,14 +97,18 @@ sequenceDiagram
   sends nothing extra. The rollback and the resend cost one or two round
   trips, on the race only.
 - Every retry is counted in `nava_numbering_first_create_retries{mode}`.
-- **Temporary.** After M3 there is one unique index and the predicate can
-  never fire: the retry and the savepoint go with M3 (S18/R2),
-  `TODO-S17-02`.
-- Tests: `TestConcurrentFirstCreatesOfATypeAllSucceed` (pinned),
-  `TestP602FirstCreateRaceIsRetriedOnce`,
-  `TestP602FirstCreateRaceIsRetriedNoMoreThanOnce`,
+- **Temporary, and gone in R2.** After M3 there is one unique index and the
+  predicate can never fire. R2 (TICK-670) removed the retry, `CounterRace`,
+  the `gapless` savepoint and `nava_numbering_first_create_retries`
+  (`TODO-S17-02`). An R1 replica still serving after M3 keeps its retry,
+  which simply never fires.
+- Tests in R1: `TestP602FirstCreateRaceIsRetriedOnce` and
+  `TestP602FirstCreateRaceIsRetriedNoMoreThanOnce` (removed in R2 with the
+  retry). Kept: `TestConcurrentFirstCreatesOfATypeAllSucceed` (pinned),
   `TestP602ConcurrentFirstCreatesAllSucceed`,
-  `TestAllocatorPoolDoesNotStarveThePool`.
+  `TestAllocatorPoolDoesNotStarveThePool`; added in R2:
+  `TestP605FirstCreateWaitsForTheWinner`,
+  `TestP605OtherScopeDoesNotBlockTheDefault`.
 
 **Grants, RLS, audit:** unchanged. `nava_app` and `nava_worker` have
 table-level INSERT (the INSERT arm sets `scope_key` and `period_end`) and
@@ -143,7 +147,8 @@ update, since the upsert's UPDATE changes `next` only, which no index covers.
 |---|---|---|
 | R1 binary | R0 binary | Redeploy R0. Safe: the old PK still exists and R0's upsert arbitrates on it. Leave M1/M2 in place. R0 has no retry, so while M1/M2 are in place it keeps the first-create race (AR-S17-01): expect occasional 23505 failures on `record_counters_scoped_key` on a type's first create until R1 is redeployed or M1/M2 are rolled back (the indexes dropped). |
 | M1/M2 schema | pre-M1 schema | Only after no R1 replica serves: `goose down-to 20261112192959`. Drops both indexes, then the columns (and the CHECK with them). |
-| R2 / M3 | anything earlier | **Not possible.** |
+| M3 schema | M1/M2 schema (2-column key) | Only while every `scope_key` is `''`: `goose down-to 20261113034009`. Both unique indexes are back, so the E1 first-create race returns; R1 retries it, R2 does not (its retry was removed), so run M3 again soon or serve R1. The Down takes ACCESS EXCLUSIVE, refuses with `55000` "M3 down refused: record_counters holds rows with a non-empty scope_key" otherwise, and leaves the table unchanged. Once S18 has published a format with a period or field, there is no way back. |
+| R2 binary | R0 binary | **Not possible** after M3: R0's `ON CONFLICT` fails with `42P10`. |
 
 **M3 is the point of no return.** After M3 the primary key is
 `(tenant_id, entity_definition_id, scope_key)` and no 2-column unique
@@ -153,10 +158,91 @@ the ON CONFLICT specification" (measured in the spike). R0 can never be
 deployed again after M3. Run M3 only when every API and worker replica runs
 R1; once non-default scopes exist, the M1/M2 Down cannot run either.
 
-## M3 (S18, for reference)
+## M3 (S18, release R2): the point of no return
 
-`SET LOCAL lock_timeout = '2s'`; drop `record_counters_pkey`;
-`ALTER TABLE record_counters ADD CONSTRAINT record_counters_pkey PRIMARY KEY
-USING INDEX record_counters_scoped_key` (renames the index to
-`record_counters_pkey`, which S18's publish gate reads); retry up to 5 times
-with backoff. Measured 1.6 ms at 20k rows.
+`db/migrations/20261113034010_record_counters_pkey_scope_key.sql`, TICK-670.
+
+**Run it only when** every API and worker replica runs R1 or later (the
+precondition of release R2). The migrate job runs it before the R2 rollout,
+like every migration.
+
+```sql
+SET LOCAL lock_timeout = '2s';
+ALTER TABLE record_counters
+    DROP CONSTRAINT record_counters_pkey,
+    ADD CONSTRAINT record_counters_pkey PRIMARY KEY USING INDEX record_counters_scoped_key;
+```
+
+- `ADD PRIMARY KEY USING INDEX` renames `record_counters_scoped_key` to
+  `record_counters_pkey`: no build and no scan (the index is unique and valid,
+  its columns `NOT NULL`). The FK `record_counters_entity_definition_fkey` is
+  untouched. Measured 1.6 ms at 20k rows (ADR-005 spike). Filenode unchanged
+  (`TestP605CounterKeyContract`).
+- **Lock and retry.** The ALTER needs ACCESS EXCLUSIVE. Each attempt waits at
+  most 2 s (`lock_timeout`), then the `DO` block retries up to 5 times after
+  0.2, 0.4, 0.8, 1.6 and 3.2 s, each attempt in a subtransaction that releases
+  what it took. So it holds no lock while it waits and gives up after about
+  18 s. Measured: a conflicting lock held for 3 s, M3 succeeds after one retry
+  (`TestP605M3RetriesALockAndSucceeds`); a lock held past every attempt, M3
+  fails after 18.2 s with `55006` "M3: no ACCESS EXCLUSIVE lock on
+  record_counters after 6 attempts", the table is unchanged and no version row
+  is written (`TestP605M3GivesUpCleanly`). Re-run the migrate job when the
+  long transaction holding the table is gone.
+- **Why the retry is in the `DO` block, not the migrator.** The migrator
+  retries any `55P03` 10 times (TICK-579) with its own 5 s session
+  `lock_timeout`. ADR-005 fixes M3 at 2 s and 5 retries, so the migration
+  owns them, and it raises `55006` when it gives up, which the migrator does
+  not retry: one owner, no multiplied attempts.
+- **Preconditions it checks.** If `record_counters_pkey` already covers
+  `scope_key`, it does nothing (safe to re-run). If
+  `record_counters_scoped_key` is missing or INVALID, it fails with `55000`;
+  re-run the migrate job so M2 repairs it.
+- **Do not re-run M2 by hand after M3.** Its index name is free again, so it
+  would build a second unique index on the same columns: correct, but one
+  more btree entry per counter row. The migrator never re-runs a recorded
+  migration. If it happens: `DROP INDEX CONCURRENTLY record_counters_scoped_key`.
+
+### How to tell whether M3 has run
+
+The same catalog check as S18's publish gate (ADR-005 §4.2): does
+`record_counters_pkey` cover `scope_key`?
+
+```sql
+SELECT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.conrelid = 'record_counters'::regclass
+      AND c.conname = 'record_counters_pkey'
+      AND a.attname = 'scope_key');
+```
+
+`true`: M3 has run, R0 can never serve again, and the publish gate opens
+within its 60 s cache TTL. `false`: M3 has not run (or was rolled back), and
+non-default formats stay refused with `numbering_templates_unavailable`.
+`goose_db_version` holding `20261113034010` says the same.
+
+### After M3
+
+| Statement | Result |
+|---|---|
+| R1/R2 `ON CONFLICT (tenant_id, entity_definition_id, scope_key)` | succeeds, arbiter `record_counters_pkey` |
+| R0 `ON CONFLICT (tenant_id, entity_definition_id)` | `42P10`: no unique or exclusion constraint matches |
+| a row with a non-empty `scope_key` beside the type's `''` row | succeeds (pinned test 3, second half) |
+| tenant A takes from tenant B's counter at a non-empty scope | `42501` (RLS), isolation registry row |
+| `nava_worker` starts a tenant A row on tenant B's type with a scope | `23503` (composite FK), isolation registry row |
+
+```mermaid
+erDiagram
+    entity_definitions ||--o{ record_counters : "numbers records of, per scope"
+    record_counters {
+        uuid tenant_id PK "record_counters_pkey (1)"
+        uuid entity_definition_id PK "record_counters_pkey (2), FK (tenant_id, id)"
+        text scope_key PK "record_counters_pkey (3); '' = default format"
+        bigint next
+        timestamptz period_end "record_counters_period_end (partial)"
+    }
+```
+
+Write amplification after M3: one unique btree instead of two, so one index
+entry fewer per new counter row; the upsert's UPDATE arm still changes `next`
+only and stays HOT.

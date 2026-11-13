@@ -71,8 +71,9 @@ section of
 <li>Mode change: <code>entitytypes.Store.SetNumberingMode</code>.</li>
 <li>Format: <code>write.format</code> returns <code>numbering.Default()</code>; its <code>ScopeKey()</code> is the
 upsert's third key.</li>
-<li>First-create race: <code>store.CounterRace</code>, retried once in <code>PoolRunner.Allocate</code>
-and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
+<li>First creates of a counter: since M3 (S18, TICK-670) the 3-column key is
+the only unique index, so they serialise on it with no retry (ADR-005-E1's
+race, and S17's retry for it, are gone).</li>
 <li>Pool wiring: <code>cmd/nava-core/allocator.go</code> (<code>NAVA_ALLOCATOR_DATABASE_URL</code>).</li>
 </ul>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
@@ -85,15 +86,12 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
         C-&gt;&gt;A: allocate(createTx, definition), bounded by AllocTimeout
         A-&gt;&gt;T: tenant = TenantOf(createTx)
         T-&gt;&gt;P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;&lt;br/&gt;record_counters upsert RETURNING next - 1, now(); COMMIT
-        T--&gt;&gt;C: Allocation (tenant, type, scope &#x27;&#x27;, epoch 0, n, instant)&lt;br/&gt;one retry on 23505 on the other unique index (E1)
+        T--&gt;&gt;C: Allocation (tenant, type, scope &#x27;&#x27;, epoch 0, n, instant)
         C-&gt;&gt;C: check allocation is this create&#x27;s; created_at = instant
         C-&gt;&gt;P: INSERT record with format.RenderAt(prefix, instant, n), audit, COMMIT
         Note over C,P: failure after the allocation: n is a gap
     else numbering_mode = gapless
-        C-&gt;&gt;P: write batch: SAVEPOINT, record_counters upsert + INSERT record, audit, COMMIT
-        opt 23505 on the other unique index (E1)
-            C-&gt;&gt;P: ROLLBACK TO SAVEPOINT, send the whole batch once more
-        end
+        C-&gt;&gt;P: write batch: record_counters upsert + INSERT record, audit, COMMIT
         Note over C,P: rollback gives n back
     end
 </pre></div></figure>
@@ -174,10 +172,10 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 </tr>
 <tr>
 <td>10</td>
-<td>Upsert on the 3-column key. The first create of a type can lose a race on the other unique index (<code>23505</code>), so retry once: in a fresh allocation (<code>gaps</code>), or after <code>ROLLBACK TO SAVEPOINT</code> with the whole batch re-sent (<code>gapless</code>). Removed with M3</td>
-<td><code>PoolRunner.Allocate</code>, <code>store.CounterRace</code></td>
-<td>ADR-005-E1 (E1-1); READ COMMITTED only</td>
-<td><code>TestP602FirstCreateRaceIsRetriedOnce</code>, <code>TestP602FirstCreateRaceIsRetriedNoMoreThanOnce</code>, <code>TestP602ConcurrentFirstCreatesAllSucceed</code>, <code>TestConcurrentFirstCreatesOfATypeAllSucceed</code></td>
+<td>Upsert on the 3-column key, <code>record_counters_pkey</code> since M3 and the only unique index: concurrent first creates of a counter wait on it and take the UPDATE arm, with no retry</td>
+<td><code>store.QueueAllocate</code>, <code>store.QueueInsertNumbered</code></td>
+<td>ADR-005 §4.2 M3; READ COMMITTED only (ADR-005-E1)</td>
+<td><code>TestP605FirstCreateWaitsForTheWinner</code>, <code>TestP605OtherScopeDoesNotBlockTheDefault</code>, <code>TestP602ConcurrentFirstCreatesAllSucceed</code>, <code>TestConcurrentFirstCreatesOfATypeAllSucceed</code></td>
 </tr>
 <tr>
 <td>11</td>
@@ -198,14 +196,6 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 </thead>
 <tbody>
 <tr>
-<td>a second <code>23505</code> on the counter after the one retry, <code>gaps</code></td>
-<td><code>500 internal_error</code>, nothing committed but possibly the number (a gap)</td>
-</tr>
-<tr>
-<td>a second <code>23505</code> on the counter after the one retry, <code>gapless</code></td>
-<td><code>500 internal_error</code>, the create rolls back and gives the number back: no gap (<code>batch.go:257</code>)</td>
-</tr>
-<tr>
 <td><code>ErrRetryable</code> (allocation past its timeout)</td>
 <td><code>503 retry_later</code>, nothing committed but possibly the number (a gap)</td>
 </tr>
@@ -222,9 +212,8 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 <h2 id="notes">Notes</h2>
 <ul>
 <li>Metrics: <code>nava_numbering_alloc_acquire_seconds</code>,
-<code>nava_numbering_alloc_seconds</code>, <code>nava_numbering_alloc_timeouts</code>, and
-<code>nava_numbering_first_create_retries</code> (first-create races retried, with a
-<code>mode</code> attribute: <code>gaps</code> or <code>gapless</code>; no tenant or type attribute).</li>
+<code>nava_numbering_alloc_seconds</code> and <code>nava_numbering_alloc_timeouts</code>.
+<code>nava_numbering_first_create_retries</code> (S17) was removed with M3.</li>
 <li>Story: <a href="../stories/s17.html">S17</a>.</li>
 <li>Measured create latency under both modes: <a href="../benchmarks/index.html">benchmarks page</a>.</li>
 </ul>
@@ -248,7 +237,7 @@ and, for <code>gapless</code>, after a savepoint in the batch (ADR-005-E1).</li>
 <h3>Invariant I4</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li></ul>
 <h3>Invariant I8</h3><ul><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ cd6f08cec8f6 (2026-11-13)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ ac253bada1b0 (2026-11-13)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>

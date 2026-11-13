@@ -10,7 +10,7 @@ adrs: [ADR-005, ADR-005-E1, ADR-001]
 invariants: [I4, I8]
 operations: [createRecord]
 tables: [record_counters, entity_definitions, records]
-tests: [TestRefusedCreatesLeaveTheCounter, TestCreateReplayTakesNoNumber, TestCreateTakesItsNumberInATransactionOfItsOwn, TestRolledBackCreateLeavesAGap, TestCreateRollsBackAtEveryStage, TestAllocationIsTheCreatesAndDatesTheRecord, TestAllocationTransactionIsTenantScoped, TestCreateChecksTheAllocation, TestAllocationTimeoutIsRetryableAndMeasured, TestAllocatorPoolDoesNotStarveThePool, TestAllocatorPoolRefusesABypassRLSRole, TestRolledBackCreateNumberIsReused, TestModeSwitchNeverReusesANumber, TestNumberingModesDoNotInterfere, TestNumbersPerTenantAndType, TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer, TestRenderDefault, TestCompileDefaultIsEpochZeroWithEmptyScope, TestP602CreateContinuesTheTwoColumnCounter, TestP602FirstCreateRaceIsRetriedOnce, TestP602FirstCreateRaceIsRetriedNoMoreThanOnce, TestP602ConcurrentFirstCreatesAllSucceed, TestConcurrentFirstCreatesOfATypeAllSucceed]
+tests: [TestRefusedCreatesLeaveTheCounter, TestCreateReplayTakesNoNumber, TestCreateTakesItsNumberInATransactionOfItsOwn, TestRolledBackCreateLeavesAGap, TestCreateRollsBackAtEveryStage, TestAllocationIsTheCreatesAndDatesTheRecord, TestAllocationTransactionIsTenantScoped, TestCreateChecksTheAllocation, TestAllocationTimeoutIsRetryableAndMeasured, TestAllocatorPoolDoesNotStarveThePool, TestAllocatorPoolRefusesABypassRLSRole, TestRolledBackCreateNumberIsReused, TestModeSwitchNeverReusesANumber, TestNumberingModesDoNotInterfere, TestNumbersPerTenantAndType, TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer, TestRenderDefault, TestCompileDefaultIsEpochZeroWithEmptyScope, TestP602CreateContinuesTheTwoColumnCounter, TestP605FirstCreateWaitsForTheWinner, TestP605OtherScopeDoesNotBlockTheDefault, TestP602ConcurrentFirstCreatesAllSucceed, TestConcurrentFirstCreatesOfATypeAllSucceed]
 ---
 
 ## Purpose
@@ -47,8 +47,9 @@ section of
 - Mode change: `entitytypes.Store.SetNumberingMode`.
 - Format: `write.format` returns `numbering.Default()`; its `ScopeKey()` is the
   upsert's third key.
-- First-create race: `store.CounterRace`, retried once in `PoolRunner.Allocate`
-  and, for `gapless`, after a savepoint in the batch (ADR-005-E1).
+- First creates of a counter: since M3 (S18, TICK-670) the 3-column key is
+  the only unique index, so they serialise on it with no retry (ADR-005-E1's
+  race, and S17's retry for it, are gone).
 - Pool wiring: `cmd/nava-core/allocator.go` (`NAVA_ALLOCATOR_DATABASE_URL`).
 
 ```mermaid
@@ -62,15 +63,12 @@ sequenceDiagram
         C->>A: allocate(createTx, definition), bounded by AllocTimeout
         A->>T: tenant = TenantOf(createTx)
         T->>P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;<br/>record_counters upsert RETURNING next - 1, now(); COMMIT
-        T-->>C: Allocation (tenant, type, scope '', epoch 0, n, instant)<br/>one retry on 23505 on the other unique index (E1)
+        T-->>C: Allocation (tenant, type, scope '', epoch 0, n, instant)
         C->>C: check allocation is this create's; created_at = instant
         C->>P: INSERT record with format.RenderAt(prefix, instant, n), audit, COMMIT
         Note over C,P: failure after the allocation: n is a gap
     else numbering_mode = gapless
-        C->>P: write batch: SAVEPOINT, record_counters upsert + INSERT record, audit, COMMIT
-        opt 23505 on the other unique index (E1)
-            C->>P: ROLLBACK TO SAVEPOINT, send the whole batch once more
-        end
+        C->>P: write batch: record_counters upsert + INSERT record, audit, COMMIT
         Note over C,P: rollback gives n back
     end
 ```
@@ -88,15 +86,13 @@ sequenceDiagram
 | 7 | `gapless`: upsert last in the write batch; rollback returns the number | `store.QueueInsertNumbered` | ADR-005 L1 | `TestRolledBackCreateNumberIsReused`, `TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer` |
 | 8 | A mode change applies to creates that start after it; both modes upsert the same row | `entitytypes.Store.SetNumberingMode` | No number used twice | `TestModeSwitchNeverReusesANumber`, `TestNumberingModesDoNotInterfere` |
 | 9 | Render `<prefix><7 digits>`, growing past 7; lists sort on `created_at` | `numbering.Compiled.RenderAt` | Unique per tenant and type | `TestRenderDefault`, `TestNumbersPerTenantAndType` |
-| 10 | Upsert on the 3-column key. The first create of a type can lose a race on the other unique index (`23505`), so retry once: in a fresh allocation (`gaps`), or after `ROLLBACK TO SAVEPOINT` with the whole batch re-sent (`gapless`). Removed with M3 | `PoolRunner.Allocate`, `store.CounterRace` | ADR-005-E1 (E1-1); READ COMMITTED only | `TestP602FirstCreateRaceIsRetriedOnce`, `TestP602FirstCreateRaceIsRetriedNoMoreThanOnce`, `TestP602ConcurrentFirstCreatesAllSucceed`, `TestConcurrentFirstCreatesOfATypeAllSucceed` |
+| 10 | Upsert on the 3-column key, `record_counters_pkey` since M3 and the only unique index: concurrent first creates of a counter wait on it and take the UPDATE arm, with no retry | `store.QueueAllocate`, `store.QueueInsertNumbered` | ADR-005 §4.2 M3; READ COMMITTED only (ADR-005-E1) | `TestP605FirstCreateWaitsForTheWinner`, `TestP605OtherScopeDoesNotBlockTheDefault`, `TestP602ConcurrentFirstCreatesAllSucceed`, `TestConcurrentFirstCreatesOfATypeAllSucceed` |
 | 11 | The default format keeps the old counter (epoch 0, scope `''`); a counter row written by the pre-S17 build is continued | `numbering.Default`, `store.NextNumber` | No existing number moves | `TestCompileDefaultIsEpochZeroWithEmptyScope`, `TestP602CreateContinuesTheTwoColumnCounter` |
 
 ## Errors
 
 | Error | HTTP |
 |---|---|
-| a second `23505` on the counter after the one retry, `gaps` | `500 internal_error`, nothing committed but possibly the number (a gap) |
-| a second `23505` on the counter after the one retry, `gapless` | `500 internal_error`, the create rolls back and gives the number back: no gap (`batch.go:257`) |
 | `ErrRetryable` (allocation past its timeout) | `503 retry_later`, nothing committed but possibly the number (a gap) |
 | allocation not this create's (tenant, type, scope, epoch) | `500 internal_error` (a bug, never expected) |
 | `entitytypes.ErrInvalidNumberingMode` | refused before anything is written |
@@ -104,9 +100,8 @@ sequenceDiagram
 ## Notes
 
 - Metrics: `nava_numbering_alloc_acquire_seconds`,
-  `nava_numbering_alloc_seconds`, `nava_numbering_alloc_timeouts`, and
-  `nava_numbering_first_create_retries` (first-create races retried, with a
-  `mode` attribute: `gaps` or `gapless`; no tenant or type attribute).
+  `nava_numbering_alloc_seconds` and `nava_numbering_alloc_timeouts`.
+  `nava_numbering_first_create_retries` (S17) was removed with M3.
 - Story: [S17](../stories/s17.md).
 - Measured create latency under both modes: [benchmarks page](../benchmarks/index.md).
 

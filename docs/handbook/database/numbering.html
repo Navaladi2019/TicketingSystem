@@ -38,10 +38,12 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Numbering</span></nav>
 <article>
 <h1 class="page-title">Numbering</h1>
-<p><code>record_counters</code> holds one row per <code>(tenant_id, entity_definition_id, scope_key)</code>: the next record number of that type in that scope. Today every
-row has the default scope <code>&#x27;&#x27;</code>, so there is still one counter per type. A
-record takes its number with one upsert, <code>INSERT ... ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next</code>, so <code>next</code> is the only
-column a role may update; the insert arm sets <code>scope_key</code> and <code>period_end</code>.</p>
+<p><code>record_counters</code> holds one row per <code>(tenant_id, entity_definition_id, scope_key)</code>: the next record number of that type in that scope, keyed by
+<code>record_counters_pkey</code> on those three columns since M3 (S18). The default
+scope <code>&#x27;&#x27;</code> is the counter of the default format; S18's number formats add
+scopes beside it. A record takes its number with one upsert, <code>INSERT ... ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next</code>, so
+<code>next</code> is the only column a role may update; the insert arm sets <code>scope_key</code>
+and <code>period_end</code>.</p>
 <p>The type's <code>numbering_mode</code> (ADR-005) decides when the number is taken. A
 <code>gaps</code> type takes it in its own short transaction before the create, so a
 failed create leaves a gap. A <code>gapless</code> type takes it inside the create
@@ -63,10 +65,22 @@ and a rollout with mixed binaries works for existing counters.</li>
 <li>A type's first create can lose a race for its counter row with <code>23505</code> on
 the index the upsert does not name (ADR-005-E1). R1 retries once. The
 pre-S17 build has no retry (accepted risk AR-S17-01).</li>
-<li><strong>M3 is the point of no return.</strong> After it the pre-S17 build can never be
-deployed again, and there is no rollback past it. Rolling back the S17
-schema before M3 is <code>goose down-to 20261112192959</code>, only once no R1 replica
-serves.</li>
+<li>Rolling back the S17 schema before M3 is <code>goose down-to 20261112192959</code>,
+only once no R1 replica serves.</li>
+</ul>
+<h2 id="primary-key-on-the-scope-s18-release-r2-m3">Primary key on the scope (S18, release R2: M3)</h2>
+<ul>
+<li><strong>M3</strong> (<code>20261113034010</code>) drops the 2-column key and promotes
+<code>record_counters_scoped_key</code> with <code>ADD PRIMARY KEY USING INDEX</code>, so the key
+keeps the name <code>record_counters_pkey</code> and covers <code>scope_key</code>. No build, no
+scan. It waits at most 2 s for its lock and retries up to 5 times with
+backoff (about 18 s at most), then fails with the table unchanged.</li>
+<li>From here a type can have rows of several scopes. There is one unique
+index, so first creates of a counter just wait on it: the E1 race and R1's
+retry are gone.</li>
+<li><strong>M3 is the point of no return.</strong> The pre-S17 build's <code>ON CONFLICT (tenant_id, entity_definition_id)</code> fails with <code>42P10</code>, so it can never be
+deployed again. Its Down restores the 2-column key only while every
+<code>scope_key</code> is <code>&#x27;&#x27;</code>, and refuses otherwise.</li>
 </ul>
 <h2 id="diagram">Diagram</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
@@ -194,7 +208,7 @@ serves.</li>
 <h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
 <h3>ADR ADR-005-E1</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ cd6f08cec8f6 (2026-11-13)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ ac253bada1b0 (2026-11-13)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>

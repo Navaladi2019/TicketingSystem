@@ -1,18 +1,17 @@
 //go:build integration
 
 // TICK-666 (PLAN-006 P6-02, ADR-005 §4.2 "Deploy" row): both allocation
-// paths take their number with R1's 3-column upsert, scope '' for the
-// default format, and continue the counter R0's 2-column upsert left. While
-// both unique indexes of record_counters exist (M2 to M3), a first create
-// that loses the race for its counter row with 23505 on the index its
-// upsert does not name is retried once (ADR-005-E1, TICK-665 decision A):
-// in a fresh AllocTx for `gaps`, behind a savepoint for `gapless`.
+// paths take their number with the 3-column upsert, scope '' for the default
+// format, and continue the counter R0's 2-column upsert left. Since M3
+// (TICK-670) the 3-column key is record_counters' only unique index, so two
+// first creates of a counter serialise on it and the second takes the UPDATE
+// arm: the expand window's first-create race (ADR-005-E1) and its one retry
+// are gone.
 
 package pipeline_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -20,10 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"go.opentelemetry.io/otel/attribute"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -40,40 +35,10 @@ var numberingModes = []struct {
 	{metadata.NumberingGapless, func() metadata.Definition { return gaplessDefinition(definition(schemaV1)) }},
 }
 
-// retryPipeline is a pipeline whose runner records its metrics on a manual
-// reader and whose allocations may wait out a held lock (noLatencyBudget).
-func retryPipeline(t *testing.T, e env) (*pipeline.Pipeline, *sdkmetric.ManualReader) {
-	t.Helper()
-	reader := sdkmetric.NewManualReader()
-	m, err := pipeline.NewAllocMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := e.runner()
-	runner.AllocTimeout, runner.Metrics = noLatencyBudget, m
-	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, runner, pipeline.SystemClock{}), reader
-}
-
-// retries is nava_numbering_first_create_retries by mode.
-func retries(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
-	t.Helper()
-	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]int64{}
-	for _, sm := range rm.ScopeMetrics {
-		for _, mt := range sm.Metrics {
-			if mt.Name != "nava_numbering_first_create_retries" {
-				continue
-			}
-			for _, dp := range mt.Data.(metricdata.Sum[int64]).DataPoints {
-				mode, _ := dp.Attributes.Value(attribute.Key("mode"))
-				got[mode.AsString()] += dp.Value
-			}
-		}
-	}
-	return got
+// racePipeline is a pipeline whose allocations may wait out a held lock
+// (noLatencyBudget).
+func racePipeline(e env) *pipeline.Pipeline {
+	return pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, e.runner(), pipeline.SystemClock{})
 }
 
 // counterRows is the tenant's record_counters rows of the incident type, as
@@ -111,18 +76,13 @@ func TestP602CreateContinuesTheTwoColumnCounter(t *testing.T) {
 			f := seedTenantWith(t, e, m.def())
 			def := *definitionID(t, e, f.id)
 			ctx := context.Background()
-			// R0, the pre-S17 statement, 42 times: the counter has handed out
-			// 1..42.
-			inTx(t, e, f.id, func(tx pgx.Tx) error {
-				for range 42 {
-					if _, err := tx.Exec(ctx, `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
-ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`, f.id, def); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			if got := mustCreate(t, e, newPipeline(e, nil), f, map[string]any{"title": "after R1"}); got.Number != "INC0000043" {
+			// The row R0's 2-column upsert left after handing out 1..42: no
+			// scope_key in its INSERT, so the default scope ''. R0's
+			// statement itself fails since M3 (42P10, TestP605CounterKeyContract).
+			if _, err := e.super.Exec(ctx, `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 43)`, f.id, def); err != nil {
+				t.Fatal(err)
+			}
+			if got := mustCreate(t, e, newPipeline(e, nil), f, map[string]any{"title": "after R0"}); got.Number != "INC0000043" {
 				t.Fatalf("first R1 create = %s, want INC0000043", got.Number)
 			}
 			if got := counterRows(t, e, f); !slices.Equal(got, []string{`""=44`}) {
@@ -154,9 +114,7 @@ func holderTx(t *testing.T, e env) pgx.Tx {
 
 // holdCounter opens a superuser transaction that inserts the incident type's
 // counter row of f with scope scope and next, and returns it uncommitted. A
-// create's R1 upsert of scope ” passes its arbiter (no (t, d, ”) row),
-// then waits on this row in record_counters_pkey: the expand window's race,
-// with the winner held.
+// create's upsert of the same scope waits on it in record_counters_pkey.
 func holdCounter(t *testing.T, e env, f tenantFixture, scope string, next int) pgx.Tx {
 	t.Helper()
 	ctx := context.Background()
@@ -178,29 +136,26 @@ func createAsync(e env, p *pipeline.Pipeline, f tenantFixture, title string) <-c
 	return done
 }
 
-// AC (TICK-665 decision A): a first create that loses the race on
-// record_counters_pkey is retried once and takes the UPDATE arm of the
-// winner's row. The winner's row is made deterministic: inserted under
-// another scope, so the create's upsert passes its arbiter and waits on the
-// pkey, then moved to scope ” and committed, so the retry finds it.
-func TestP602FirstCreateRaceIsRetriedOnce(t *testing.T) {
+// AC (TICK-670, M3): a first create that meets another first insert of
+// its counter, still uncommitted, waits on the key and, once the winner
+// commits, takes the UPDATE arm of the winner's row: no 23505, no retry.
+// Before M3 the same race on the other unique index failed with 23505
+// (ADR-005-E1).
+func TestP605FirstCreateWaitsForTheWinner(t *testing.T) {
 	e := migrated(t)
 	for _, m := range numberingModes {
 		t.Run(string(m.mode), func(t *testing.T) {
 			f := seedTenantWith(t, e, m.def())
-			p, reader := retryPipeline(t, e)
+			p := racePipeline(e)
 			ctx := context.Background()
-			holder := holdCounter(t, e, f, "held", 43)
+			holder := holdCounter(t, e, f, "", 43)
 			done := createAsync(e, p, f, "loser")
 			waitForLockWait(t, e)
-			if _, err := holder.Exec(ctx, `UPDATE record_counters SET scope_key = '' WHERE tenant_id = $1`, f.id); err != nil {
-				t.Fatal(err)
-			}
 			if err := holder.Commit(ctx); err != nil {
 				t.Fatal(err)
 			}
 			if err := <-done; err != nil {
-				t.Fatalf("create after the race: %v, want it retried onto the winner's row", err)
+				t.Fatalf("create after the race: %v, want the UPDATE arm of the winner's row", err)
 			}
 			if got := numbers(t, e, f.id, entityKey); !slices.Equal(got, []string{"INC0000043"}) {
 				t.Fatalf("numbers = %v, want INC0000043 from the winner's counter", got)
@@ -208,58 +163,35 @@ func TestP602FirstCreateRaceIsRetriedOnce(t *testing.T) {
 			if got := counterRows(t, e, f); !slices.Equal(got, []string{`""=44`}) {
 				t.Fatalf("counter rows = %v, want one row, scope '', next 44", got)
 			}
-			if got := retries(t, reader); got[string(m.mode)] != 1 || len(got) != 1 {
-				t.Fatalf("retries = %v, want 1 for %s only", got, m.mode)
-			}
-			// Further creates take the UPDATE arm with no retry.
-			if got := mustCreate(t, e, p, f, map[string]any{"title": "next"}); got.Number != "INC0000044" {
-				t.Fatalf("next create = %s, want INC0000044", got.Number)
-			}
-			if got := retries(t, reader); got[string(m.mode)] != 1 {
-				t.Fatalf("retries after an uncontended create = %v, want still 1", got)
-			}
 		})
 	}
 }
 
-// AC: the retry runs no more than once. When the second attempt meets the
-// same violation (here a committed row of another scope on the old pkey,
-// which no retry can get past before M3), the create fails with that 23505
-// and takes no number.
-func TestP602FirstCreateRaceIsRetriedNoMoreThanOnce(t *testing.T) {
+// AC (TICK-670, M3): another scope's row of the same type no longer blocks
+// the default scope. Before M3 it held the 2-column key, and the create
+// failed with 23505 on record_counters_pkey.
+func TestP605OtherScopeDoesNotBlockTheDefault(t *testing.T) {
 	e := migrated(t)
 	for _, m := range numberingModes {
 		t.Run(string(m.mode), func(t *testing.T) {
 			f := seedTenantWith(t, e, m.def())
-			p, reader := retryPipeline(t, e)
-			ctx := context.Background()
-			holder := holdCounter(t, e, f, "held", 7)
-			done := createAsync(e, p, f, "loser")
-			waitForLockWait(t, e)
-			if err := holder.Commit(ctx); err != nil {
+			if _, err := e.super.Exec(context.Background(), `INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, 'held', 7)`,
+				f.id, *definitionID(t, e, f.id)); err != nil {
 				t.Fatal(err)
 			}
-			err := <-done
-			var pe *pgconn.PgError
-			if !errors.As(err, &pe) || pe.Code != "23505" || pe.ConstraintName != "record_counters_pkey" {
-				t.Fatalf("create = %v, want 23505 on record_counters_pkey after one retry", err)
+			if got := mustCreate(t, e, racePipeline(e), f, map[string]any{"title": "default"}); got.Number != "INC0000001" {
+				t.Fatalf("create = %s, want INC0000001 from a new default-scope counter", got.Number)
 			}
-			if got := retries(t, reader); got[string(m.mode)] != 1 || len(got) != 1 {
-				t.Fatalf("retries = %v, want exactly 1 for %s", got, m.mode)
-			}
-			if got := numbers(t, e, f.id, entityKey); len(got) != 0 {
-				t.Fatalf("numbers = %v, want none", got)
-			}
-			if got := counterRows(t, e, f); !slices.Equal(got, []string{`"held"=7`}) {
-				t.Fatalf("counter rows = %v, want only the held row", got)
+			if got := counterRows(t, e, f); !slices.Equal(got, []string{`""=2`, `"held"=7`}) {
+				t.Fatalf("counter rows = %v, want the new default row and the untouched held row", got)
 			}
 		})
 	}
 }
 
-// AC: concurrent first creates of a type, released together while both
-// unique indexes exist, all succeed with unique numbers 1..n, on both
-// paths. LOCK TABLE ... SHARE holds every create's upsert until all of them
+// AC: concurrent first creates of a type, released together, all succeed
+// with unique numbers 1..n, on both paths, with no retry (one unique index
+// since M3). LOCK TABLE ... SHARE holds every create's upsert until all of them
 // wait on it, then lets them race the first insert at once. Whether a round
 // actually races is up to the scheduler; the retry count is logged.
 func TestP602ConcurrentFirstCreatesAllSucceed(t *testing.T) {
@@ -267,7 +199,7 @@ func TestP602ConcurrentFirstCreatesAllSucceed(t *testing.T) {
 	const creators, rounds = 8, 4
 	for _, m := range numberingModes {
 		t.Run(string(m.mode), func(t *testing.T) {
-			p, reader := retryPipeline(t, e)
+			p := racePipeline(e)
 			ctx := context.Background()
 			for round := range rounds {
 				f := seedTenantWith(t, e, m.def())
@@ -300,7 +232,6 @@ func TestP602ConcurrentFirstCreatesAllSucceed(t *testing.T) {
 					t.Fatalf("round %d numbers = %v, want INC0000001..%d", round, got, creators)
 				}
 			}
-			t.Logf("%s: %d first-create retries over %d rounds of %d", m.mode, retries(t, reader)[string(m.mode)], rounds, creators)
 		})
 	}
 }
