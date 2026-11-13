@@ -196,6 +196,12 @@ func TestWorkflowWriter_PipelineRejectionsMapToPortErrors(t *testing.T) {
 	r := mustCreate(t, e, newPipeline(e, nil), f, map[string]any{"title": "printer"})
 	run, _ := openRun(t, e, f, r.RecordID, false)
 	cause := seedCauseRow(t, e, f.id, run, uuid.New(), 0, time.Now())
+	// Setup: a legal write moves the record to closed, so {"status": "open"}
+	// below is a transition the model does not allow (open -> closed only).
+	closed, err := write(context.Background(), e, newPipeline(e, nil), f.id, updateCmd(f, r.RecordID, r.Version, map[string]any{"status": "closed"}))
+	if err != nil {
+		t.Fatalf("setup write to closed: %v", err)
+	}
 	for name, c := range map[string]struct {
 		set  map[string]any
 		want error
@@ -213,8 +219,8 @@ func TestWorkflowWriter_PipelineRejectionsMapToPortErrors(t *testing.T) {
 			}
 		})
 	}
-	if got := versionOf(t, e, r.RecordID); got != r.Version {
-		t.Errorf("record at version %d after refused writes, want %d", got, r.Version)
+	if got := versionOf(t, e, r.RecordID); got != closed.Version {
+		t.Errorf("record at version %d after refused writes, want %d (the version after the setup write)", got, closed.Version)
 	}
 }
 
