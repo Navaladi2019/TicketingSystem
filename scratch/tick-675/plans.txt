@@ -1,0 +1,182 @@
+=== before: no partial index
+  rows   | expired | heap  
+---------+---------+-------
+ 1000000 |  462790 | 81 MB
+(1 row)
+
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=10.497..10.501 rows=0 loops=1)
+   Buffers: shared hit=5046
+   ->  Nested Loop (actual time=2.503..9.693 rows=1000 loops=1)
+         Buffers: shared hit=4023
+         ->  HashAggregate (actual time=2.459..2.837 rows=1000 loops=1)
+               Group Key: "ANY_subquery".tenant_id, "ANY_subquery".entity_definition_id, "ANY_subquery".scope_key
+               Batches: 1  Memory Usage: 321kB
+               Buffers: shared hit=23
+               ->  Subquery Scan on "ANY_subquery" (actual time=0.026..1.881 rows=1000 loops=1)
+                     Buffers: shared hit=23
+                     ->  Limit (actual time=0.016..1.363 rows=1000 loops=1)
+                           Buffers: shared hit=23
+                           ->  Seq Scan on record_counters record_counters_1 (actual time=0.015..1.207 rows=1000 loops=1)
+                                 Filter: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                 Rows Removed by Filter: 1181
+                                 Buffers: shared hit=23
+         ->  Index Scan using record_counters_pkey on record_counters (actual time=0.006..0.006 rows=1 loops=1000)
+               Index Cond: ((tenant_id = "ANY_subquery".tenant_id) AND (entity_definition_id = "ANY_subquery".entity_definition_id) AND (scope_key = "ANY_subquery".scope_key))
+               Filter: (period_end < (now() - '2 days'::interval))
+               Buffers: shared hit=4000
+ Planning:
+   Buffers: shared hit=116 read=2
+ Planning Time: 1.038 ms
+ Execution Time: 10.785 ms
+(24 rows)
+
+=== after: record_counters_period_end
+ index_size 
+------------
+ 3472 kB
+(1 row)
+
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=17.101..17.105 rows=0 loops=1)
+   Buffers: shared hit=5046
+   ->  Nested Loop (actual time=3.392..15.812 rows=1000 loops=1)
+         Buffers: shared hit=4023
+         ->  HashAggregate (actual time=3.340..4.076 rows=1000 loops=1)
+               Group Key: "ANY_subquery".tenant_id, "ANY_subquery".entity_definition_id, "ANY_subquery".scope_key
+               Batches: 1  Memory Usage: 321kB
+               Buffers: shared hit=23
+               ->  Subquery Scan on "ANY_subquery" (actual time=0.035..2.470 rows=1000 loops=1)
+                     Buffers: shared hit=23
+                     ->  Limit (actual time=0.025..1.811 rows=1000 loops=1)
+                           Buffers: shared hit=23
+                           ->  Seq Scan on record_counters record_counters_1 (actual time=0.023..1.582 rows=1000 loops=1)
+                                 Filter: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                 Rows Removed by Filter: 1181
+                                 Buffers: shared hit=23
+         ->  Index Scan using record_counters_pkey on record_counters (actual time=0.010..0.010 rows=1 loops=1000)
+               Index Cond: ((tenant_id = "ANY_subquery".tenant_id) AND (entity_definition_id = "ANY_subquery".entity_definition_id) AND (scope_key = "ANY_subquery".scope_key))
+               Filter: (period_end < (now() - '2 days'::interval))
+               Buffers: shared hit=4000
+ Planning:
+   Buffers: shared hit=37
+ Planning Time: 1.077 ms
+ Execution Time: 17.260 ms
+(24 rows)
+
+=== steady state: everything expired already purged (the empty last batch)
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=0.042..0.044 rows=0 loops=1)
+   Buffers: shared hit=2
+   ->  Nested Loop Semi Join (actual time=0.040..0.041 rows=0 loops=1)
+         Join Filter: (("ANY_subquery".tenant_id = record_counters.tenant_id) AND ("ANY_subquery".entity_definition_id = record_counters.entity_definition_id) AND ("ANY_subquery".scope_key = record_counters.scope_key))
+         Buffers: shared hit=2
+         ->  Index Scan using record_counters_period_end on record_counters (actual time=0.038..0.039 rows=0 loops=1)
+               Index Cond: (period_end < (now() - '2 days'::interval))
+               Buffers: shared hit=2
+         ->  Subquery Scan on "ANY_subquery" (never executed)
+               ->  Limit (never executed)
+                     ->  Index Scan using record_counters_period_end on record_counters record_counters_1 (never executed)
+                           Index Cond: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+ Planning:
+   Buffers: shared hit=34
+ Planning Time: 1.492 ms
+ Execution Time: 0.183 ms
+(16 rows)
+
+=== steady state, hourly: 1,500 rows just crossed the grace (sparse), with the index
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=7.264..7.270 rows=0 loops=1)
+   Buffers: shared hit=4275
+   ->  Hash Semi Join (actual time=3.500..6.352 rows=1000 loops=1)
+         Hash Cond: ((record_counters.tenant_id = "ANY_subquery".tenant_id) AND (record_counters.entity_definition_id = "ANY_subquery".entity_definition_id) AND (record_counters.scope_key = "ANY_subquery".scope_key))
+         Buffers: shared hit=2338
+         ->  Bitmap Heap Scan on record_counters (actual time=0.449..2.559 rows=1500 loops=1)
+               Recheck Cond: (period_end < (now() - '2 days'::interval))
+               Heap Blocks: exact=1393
+               Buffers: shared hit=1397
+               ->  Bitmap Index Scan on record_counters_period_end (actual time=0.193..0.194 rows=1500 loops=1)
+                     Index Cond: (period_end < (now() - '2 days'::interval))
+                     Buffers: shared hit=4
+         ->  Hash (actual time=3.039..3.042 rows=1000 loops=1)
+               Buckets: 1024  Batches: 1  Memory Usage: 142kB
+               Buffers: shared hit=941
+               ->  Subquery Scan on "ANY_subquery" (actual time=0.416..2.634 rows=1000 loops=1)
+                     Buffers: shared hit=941
+                     ->  Limit (actual time=0.410..2.250 rows=1000 loops=1)
+                           Buffers: shared hit=941
+                           ->  Bitmap Heap Scan on record_counters record_counters_1 (actual time=0.408..2.130 rows=1000 loops=1)
+                                 Recheck Cond: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                 Heap Blocks: exact=937
+                                 Buffers: shared hit=941
+                                 ->  Bitmap Index Scan on record_counters_period_end (actual time=0.173..0.174 rows=1500 loops=1)
+                                       Index Cond: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                       Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=38
+ Planning Time: 0.504 ms
+ Execution Time: 7.341 ms
+(30 rows)
+
+=== same, without the index
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=127.730..127.734 rows=0 loops=1)
+   Buffers: shared hit=11974
+   ->  Nested Loop (actual time=120.148..127.017 rows=1000 loops=1)
+         Buffers: shared hit=10974
+         ->  HashAggregate (actual time=120.108..120.487 rows=1000 loops=1)
+               Group Key: "ANY_subquery".tenant_id, "ANY_subquery".entity_definition_id, "ANY_subquery".scope_key
+               Batches: 1  Memory Usage: 321kB
+               Buffers: shared hit=6974
+               ->  Subquery Scan on "ANY_subquery" (actual time=0.147..118.939 rows=1000 loops=1)
+                     Buffers: shared hit=6974
+                     ->  Limit (actual time=0.141..118.094 rows=1000 loops=1)
+                           Buffers: shared hit=6974
+                           ->  Seq Scan on record_counters record_counters_1 (actual time=0.140..117.844 rows=1000 loops=1)
+                                 Filter: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                 Rows Removed by Filter: 358225
+                                 Buffers: shared hit=6974
+         ->  Index Scan using record_counters_pkey on record_counters (actual time=0.006..0.006 rows=1 loops=1000)
+               Index Cond: ((tenant_id = "ANY_subquery".tenant_id) AND (entity_definition_id = "ANY_subquery".entity_definition_id) AND (scope_key = "ANY_subquery".scope_key))
+               Filter: (period_end < (now() - '2 days'::interval))
+               Buffers: shared hit=4000
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.444 ms
+ Execution Time: 127.814 ms
+(24 rows)
+
+=== empty last batch, without the index
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Delete on record_counters (actual time=218.396..218.400 rows=0 loops=1)
+   Buffers: shared hit=10429
+   ->  Nested Loop (actual time=218.394..218.397 rows=0 loops=1)
+         Buffers: shared hit=10429
+         ->  HashAggregate (actual time=218.392..218.394 rows=0 loops=1)
+               Group Key: "ANY_subquery".tenant_id, "ANY_subquery".entity_definition_id, "ANY_subquery".scope_key
+               Batches: 1  Memory Usage: 24kB
+               Buffers: shared hit=10429
+               ->  Subquery Scan on "ANY_subquery" (actual time=218.355..218.357 rows=0 loops=1)
+                     Buffers: shared hit=10429
+                     ->  Limit (actual time=218.353..218.354 rows=0 loops=1)
+                           Buffers: shared hit=10429
+                           ->  Seq Scan on record_counters record_counters_1 (actual time=218.351..218.351 rows=0 loops=1)
+                                 Filter: ((period_end < (now() - '2 days'::interval)) AND (period_end < (now() - '2 days'::interval)))
+                                 Rows Removed by Filter: 535710
+                                 Buffers: shared hit=10429
+         ->  Index Scan using record_counters_pkey on record_counters (never executed)
+               Index Cond: ((tenant_id = "ANY_subquery".tenant_id) AND (entity_definition_id = "ANY_subquery".entity_definition_id) AND (scope_key = "ANY_subquery".scope_key))
+               Filter: (period_end < (now() - '2 days'::interval))
+ Planning:
+   Buffers: shared hit=31
+ Planning Time: 0.452 ms
+ Execution Time: 218.473 ms
+(23 rows)
+
+PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
