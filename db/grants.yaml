@@ -121,6 +121,11 @@ roles:
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
+      # Number formats (P6-06, TICK-671, ADR-005 §3.7 C9): key is set once,
+      # publishing moves current_version. Versions and epochs are insert-only.
+      number_formats: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
+      number_format_versions: { SELECT: [], INSERT: [] }
+      numbering_epochs: { SELECT: [], INSERT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role.
     functions:
@@ -197,6 +202,10 @@ roles:
       tenant_auditor_group: { SELECT: [] }
       entity_definitions: { SELECT: [] }
       entity_definition_versions: { SELECT: [] }
+      # P6-06 (TICK-671, C9): reads only.
+      number_formats: { SELECT: [] }
+      number_format_versions: { SELECT: [] }
+      numbering_epochs: { SELECT: [] }
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the

@@ -505,5 +505,6 @@ func Paths() []Path {
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)
 	paths = append(paths, aclAttackPaths()...)
+	paths = append(paths, numberFormatPaths()...)
 	return append(paths, boundaryPaths()...)
 }

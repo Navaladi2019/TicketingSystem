@@ -1,0 +1,154 @@
+postgres:16.10; host MINGW64_NT-10.0-26300 x86_64; Docker VM 16 CPUs, 26260873216 bytes
+Timing is off.
+SET
+DROP ROLE
+CREATE ROLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+INSERT 0 100000
+INSERT 0 20000
+INSERT 0 60000
+INSERT 0 200000
+INSERT 0 500000
+VACUUM
+== migration 20261113100100 / 100200 on the filled entity_definition_versions (500,000 rows)
+Timing is on.
+ALTER TABLE
+Time: 51.709 ms
+ALTER TABLE
+Time: 2.937 ms
+ALTER TABLE
+Time: 79.553 ms
+Timing is off.
+UPDATE 100000
+VACUUM
+DO
+          relname           | n_live_tup |  heap   | indexes 
+----------------------------+------------+---------+---------
+ entity_definition_versions |     500000 | 52 MB   | 43 MB
+ entity_definitions         |     100000 | 6712 kB | 11 MB
+ number_format_versions     |      60000 | 21 MB   | 3696 kB
+ number_formats             |      20000 | 1864 kB | 2480 kB
+ numbering_epochs           |     200000 | 22 MB   | 37 MB
+(5 rows)
+
+SET
+              set_config              
+--------------------------------------
+ 00000000-0000-4000-8000-000000001234
+(1 row)
+
+== (a) format by key (admin GET, publish)
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using number_formats_key_key on number_formats (actual time=0.038..0.040 rows=1 loops=1)
+   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'fmt_7'::text))
+   Buffers: shared hit=2 read=1
+ Planning:
+   Buffers: shared hit=17
+ Planning Time: 0.330 ms
+ Execution Time: 0.068 ms
+(7 rows)
+
+== (b) a pinned version by key and version (link validation at definition publish)
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual time=0.054..0.058 rows=1 loops=1)
+   Buffers: shared hit=7
+   ->  Index Scan using number_formats_key_key on number_formats f (actual time=0.028..0.030 rows=1 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'fmt_7'::text))
+         Buffers: shared hit=3
+   ->  Index Scan using number_format_versions_pkey on number_format_versions v (actual time=0.020..0.021 rows=1 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (format_id = f.id) AND (version = 3))
+         Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=28 read=1
+ Planning Time: 0.621 ms
+ Execution Time: 0.109 ms
+(12 rows)
+
+== (c) every epoch of a type (disjointness check, C10)
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual time=0.078..0.082 rows=2 loops=1)
+   Buffers: shared hit=1 read=8
+   ->  Index Scan using entity_definitions_tenant_id_key_key on entity_definitions d (actual time=0.036..0.036 rows=1 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'type_9'::text))
+         Buffers: shared read=4
+   ->  Index Scan using numbering_epochs_compiled_sha256_key on numbering_epochs e (actual time=0.040..0.042 rows=2 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (entity_definition_id = d.id))
+         Buffers: shared hit=1 read=4
+ Planning:
+   Buffers: shared hit=44
+ Planning Time: 0.352 ms
+ Execution Time: 0.099 ms
+(12 rows)
+
+== (d) the epoch of one compiled template (re-adopt)
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual time=0.022..0.023 rows=0 loops=1)
+   Join Filter: (e.entity_definition_id = d.id)
+   Buffers: shared hit=3 read=2
+   ->  Index Scan using numbering_epochs_compiled_sha256_key on numbering_epochs e (actual time=0.022..0.022 rows=0 loops=1)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (compiled_sha256 = '\x2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881'::bytea))
+         Buffers: shared hit=3 read=2
+   ->  Index Scan using entity_definitions_tenant_id_key_key on entity_definitions d (never executed)
+         Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'type_9'::text))
+ Planning Time: 0.178 ms
+ Execution Time: 0.039 ms
+(10 rows)
+
+== (e) types whose versions pin a format ("re-publish linked types"); no index on the link
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Unique (actual time=0.604..0.610 rows=9 loops=1)
+   Buffers: shared hit=259
+   ->  Sort (actual time=0.602..0.605 rows=9 loops=1)
+         Sort Key: v.definition_id
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=259
+         ->  Nested Loop (actual time=0.484..0.593 rows=9 loops=1)
+               Join Filter: (f.id = v.number_format_id)
+               Rows Removed by Join Filter: 241
+               Buffers: shared hit=259
+               ->  Index Scan using number_formats_key_key on number_formats f (actual time=0.017..0.019 rows=1 loops=1)
+                     Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'fmt_7'::text))
+                     Buffers: shared hit=3
+               ->  Bitmap Heap Scan on entity_definition_versions v (actual time=0.074..0.540 rows=250 loops=1)
+                     Recheck Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                     Heap Blocks: exact=250
+                     Buffers: shared hit=256
+                     ->  Bitmap Index Scan on entity_definition_versions_pkey (actual time=0.038..0.039 rows=250 loops=1)
+                           Index Cond: (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)
+                           Buffers: shared hit=6
+ Planning:
+   Buffers: shared hit=15
+ Planning Time: 0.232 ms
+ Execution Time: 0.646 ms
+(24 rows)
+
+== (f) a pinned definition-version insert: FK probe of number_format_versions_pkey
+BEGIN
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on entity_definition_versions (actual time=0.183..0.184 rows=0 loops=1)
+   Buffers: shared hit=15
+   ->  Nested Loop (actual time=0.058..0.061 rows=1 loops=1)
+         Buffers: shared hit=7
+         ->  Index Scan using entity_definitions_tenant_id_key_key on entity_definitions d (actual time=0.039..0.040 rows=1 loops=1)
+               Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'type_9'::text))
+               Buffers: shared hit=4
+         ->  Index Scan using number_formats_key_key on number_formats f (actual time=0.013..0.014 rows=1 loops=1)
+               Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (key = 'fmt_7'::text))
+               Buffers: shared hit=3
+ Planning Time: 0.300 ms
+ Trigger for constraint entity_definition_versions_number_format_fkey: time=0.256 calls=1
+ Execution Time: 0.516 ms
+(13 rows)
+
+ROLLBACK
+RESET

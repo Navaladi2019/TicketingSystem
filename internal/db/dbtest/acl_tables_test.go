@@ -243,6 +243,7 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)
 	_, errCheck := fs.Stat(fsys, aclShapeCheckMigration)
