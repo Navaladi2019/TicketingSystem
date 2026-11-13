@@ -4,6 +4,7 @@ package isolation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -28,8 +30,43 @@ import (
 // cascade_paths.go registers calls it through pingPonger.
 func (c cluster) CascadePingPong(ctx context.Context) error { return cascadePingPong(ctx, c) }
 
-// pingPongEntity is tenant A's seeded pipeline type (testdata/seed.sql).
-const pingPongEntity = "ticket"
+// pingPongEntity is the entity type the check creates in tenant A (the
+// seed's ticket type has a schema the pipeline does not compile).
+const pingPongEntity = "ci10g_pingpong"
+
+// pingPongPublisher is tenant A's seeded principal (testdata/seed.sql).
+const pingPongPublisher = "0a000000-0000-4000-8000-0000000003a1"
+
+// pingPongSchema is a schema the pipeline compiles: a title and a free
+// summary the writes change.
+const pingPongSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "summary": {"type": "string"}
+  }
+}`
+
+// createPingPongType creates pingPongEntity at version 1 in tenant A, as
+// nava_app through entitytypes.Store, as an admin's publish does.
+func createPingPongType(ctx context.Context, cl Cluster, tenant uuid.UUID) error {
+	pool, err := cl.Pool("nava_app")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return tenancy.InTenantTx(ctx, pool, tenant, func(tx pgx.Tx) error {
+		_, err := (entitytypes.Store{}).Create(ctx, tx, tenant, entitytypes.NewInput{
+			Name: "CI-10 (g)", PublishedBy: uuid.MustParse(pingPongPublisher),
+			Definition: metadata.Definition{Key: pingPongEntity, NumberPrefix: "CTG", Schema: json.RawMessage(pingPongSchema),
+				States: metadata.StateModel{Initial: "open", States: []string{"open"}}},
+		})
+		return err
+	})
+}
 
 // cascadePingPong is ADR-001 CI-10 (g) (A5-7, CTO ruling on TICK-88,
 // 2026-11-01; named PASS row per PLAN-003 D-3-16 and P3-44, TICK-713): runs X
@@ -43,8 +80,8 @@ const pingPongEntity = "ticket"
 // CascadeDepthLimit+1 (9) must be refused with outbox.ErrCascadeTooDeep, and
 // R must have exactly CascadeDepthLimit (8) workflow writes under the origin.
 //
-// R is a new tenant A record, created by a system writer, so no seeded row
-// changes; the two runs' workflow_ref rows are closed at the end. Each write
+// R is a new tenant A record of a type the check creates, written by a system
+// writer, so no seeded row changes; the two runs' workflow_ref rows are closed at the end. Each write
 // commits in its own transaction, as on the worker: the refused write's
 // cascade_too_deep audit entry is written on the pipeline's own pool.
 func cascadePingPong(ctx context.Context, cl Cluster) error {
@@ -63,9 +100,12 @@ func cascadePingPong(ctx context.Context, cl Cluster) error {
 			pipeline.PoolRunner{Pool: pipePool}, pipeline.SystemClock{})}
 	actor := identity.Principal{TenantID: g.tenant}
 	run := uuid.NewString()[:8]
+	if err := createPingPongType(ctx, cl, g.tenant); err != nil {
+		return fmt.Errorf("create the %s type: %w", pingPongEntity, err)
+	}
 
 	created, err := g.write(ctx, pipeline.Command{Op: pipeline.OpCreate, EntityKey: pingPongEntity,
-		Data: map[string]any{"note": "ci10g " + run}, Actor: actor, Source: pipeline.SourceSystem})
+		Data: map[string]any{"title": "ci10g " + run}, Actor: actor, Source: pipeline.SourceSystem})
 	if err != nil {
 		return fmt.Errorf("create R: %w", err)
 	}
@@ -92,7 +132,7 @@ func cascadePingPong(ctx context.Context, cl Cluster) error {
 
 	// A person's edit stands in as the depth-0 write that signals both runs.
 	res, err := g.write(ctx, pipeline.Command{Op: pipeline.OpUpdate, EntityKey: pingPongEntity, RecordID: r,
-		ExpectedVersion: created.Version, Data: map[string]any{"note": "depth 0"}, Actor: actor, Source: pipeline.SourceSystem})
+		ExpectedVersion: created.Version, Data: map[string]any{"summary": "depth 0"}, Actor: actor, Source: pipeline.SourceSystem})
 	if err != nil {
 		return fmt.Errorf("the depth-0 write: %w", err)
 	}
@@ -123,7 +163,7 @@ func cascadePingPong(ctx context.Context, cl Cluster) error {
 			return err
 		}
 		res, err := g.write(ctx, pipeline.Command{Op: pipeline.OpUpdate, EntityKey: pingPongEntity, RecordID: r,
-			ExpectedVersion: version, Data: map[string]any{"note": fmt.Sprintf("depth %d", depth)}, Actor: actor,
+			ExpectedVersion: version, Data: map[string]any{"summary": fmt.Sprintf("depth %d", depth)}, Actor: actor,
 			Source: pipeline.SourceWorkflow, Causation: outbox.Causation{OriginID: c.origin, Depth: c.depth + 1},
 			IdempotencyKey: fmt.Sprintf("iso-ci10g:%s:%d", run, depth), WorkflowRef: writer})
 		if depth == limit+1 {
