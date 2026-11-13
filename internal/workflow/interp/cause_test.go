@@ -30,13 +30,18 @@ func TestSignalNameIsTheOutboxInterpreterSignalKind(t *testing.T) {
 type waits struct {
 	mu    sync.Mutex
 	calls []*uuid.UUID
-	err   error
+	// versions and records are the record version and id each call named.
+	versions []int64
+	records  []uuid.UUID
+	err      error
 }
 
-func (w *waits) SetRecordChangedWait(_ context.Context, _ uuid.UUID, signal *uuid.UUID) error {
+func (w *waits) SetRecordChangedWait(_ context.Context, _, record uuid.UUID, signal *uuid.UUID, version int64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.calls = append(w.calls, signal)
+	w.versions = append(w.versions, version)
+	w.records = append(w.records, record)
 	return w.err
 }
 
@@ -85,6 +90,11 @@ func TestNextStepRecordsTheRecordChangedWait(t *testing.T) {
 			if len(w.calls) != 1 {
 				t.Fatalf("%d SetRecordChangedWait calls, want 1", len(w.calls))
 			}
+			// The wait is conditional on the version the walk read (staticRecords
+			// reads version 1), on the record the run is about.
+			if w.versions[0] != 1 || w.records[0] != ref.RecordID {
+				t.Errorf("wait named record %s version %d, want %s version 1", w.records[0], w.versions[0], ref.RecordID)
+			}
 			got := w.calls[0]
 			if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
 				t.Errorf("wait %v, want %v", got, c.want)
@@ -104,6 +114,32 @@ func TestNextStepRecordsTheRecordChangedWait(t *testing.T) {
 	if _, err := env.ExecuteActivity(interp.NextStepActivity, ref); err == nil {
 		t.Fatal("NextStep succeeded when the wait could not be recorded")
 	}
+}
+
+// ApplyStep hands the writer StepRef.Cause, the only causation input.
+func TestApplyStepPassesTheCauseToTheWriter(t *testing.T) {
+	v, f := fixtureVersion(t)
+	cw := &causeWriter{}
+	a := &interp.Activities{Definitions: versionStore{v}, Records: staticRecords{"priority": "high"}, Writer: cw}
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestActivityEnvironment()
+	env.SetWorkerOptions(worker.Options{BackgroundActivityContext: tenantCtx()})
+	env.RegisterActivityWithOptions(a.ApplyStep, activity.RegisterOptions{Name: interp.ApplyStepActivity})
+	cause := uuid.New()
+	ref := interp.StepRef{DefinitionVersionID: uuid.New(), RecordID: uuid.New(), Step: f.id(t, "mark_approved"), Cause: cause}
+	if _, err := env.ExecuteActivity(interp.ApplyStepActivity, ref); err != nil {
+		t.Fatal(err)
+	}
+	if cw.cause != cause {
+		t.Errorf("Write got cause %s, want %s", cw.cause, cause)
+	}
+}
+
+type causeWriter struct{ cause uuid.UUID }
+
+func (w *causeWriter) Write(_ context.Context, _, _, _, cause uuid.UUID, _ string, _ map[string]any) error {
+	w.cause = cause
+	return nil
 }
 
 // StepRef.Cause is the start delivery's outbox id until a signal resumes the

@@ -124,12 +124,12 @@ func (a *Activities) NextStep(ctx context.Context, ref StepRef) (workerguard.Dir
 	if err != nil {
 		return workerguard.Directive{}, err
 	}
-	d, err := a.nextStep(ctx, tenant, l, ref)
+	d, version, err := a.nextStep(ctx, tenant, l, ref)
 	if err != nil {
 		return workerguard.Directive{}, err
 	}
 	if a.Waits != nil {
-		if err := a.Waits.SetRecordChangedWait(ctx, tenant, l.recordChangedWait(d)); err != nil {
+		if err := a.Waits.SetRecordChangedWait(ctx, tenant, ref.RecordID, l.recordChangedWait(d), version); err != nil {
 			return workerguard.Directive{}, err
 		}
 	}
@@ -150,26 +150,26 @@ func (l *loaded) recordChangedWait(d workerguard.Directive) *uuid.UUID {
 }
 
 // nextStep is NextStep's walk.
-func (a *Activities) nextStep(ctx context.Context, tenant uuid.UUID, l *loaded, ref StepRef) (workerguard.Directive, error) {
+func (a *Activities) nextStep(ctx context.Context, tenant uuid.UUID, l *loaded, ref StepRef) (workerguard.Directive, int64, error) {
 	if ref.Signal != nil {
 		if k, ok := l.keyOf[*ref.Signal]; !ok || len(k) <= len(def.SignalKeyPrefix) || k[:len(def.SignalKeyPrefix)] != def.SignalKeyPrefix {
-			return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectNotFound)
+			return workerguard.Directive{}, 0, workerguard.Rejected(workerguard.RejectNotFound)
 		}
 	}
 	// The record is read on every call, so a record the tenant does not have
 	// fails at once, not at the first condition.
-	record, err := a.Records.Read(ctx, tenant, ref.RecordID)
+	record, version, err := a.Records.Read(ctx, tenant, ref.RecordID)
 	if err != nil {
-		return workerguard.Directive{}, rejection(err)
+		return workerguard.Directive{}, 0, rejection(err)
 	}
 	key, ok := l.stepKey(ref.Step)
 	if !ok {
-		return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectNotFound)
+		return workerguard.Directive{}, 0, workerguard.Rejected(workerguard.RejectNotFound)
 	}
 	for range def.MaxSteps + 1 {
 		s, ok := l.Definition.Step(key)
 		if !ok {
-			return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectNotFound)
+			return workerguard.Directive{}, 0, workerguard.Rejected(workerguard.RejectNotFound)
 		}
 		switch s.Type {
 		case def.TypeCondition:
@@ -188,12 +188,13 @@ func (a *Activities) nextStep(ctx context.Context, tenant uuid.UUID, l *loaded, 
 			}
 			continue
 		case def.TypeTimer, def.TypeWaitSignal, def.TypeUpdateRecord, def.TypeEnd:
-			return l.directive(s)
+			d, err := l.directive(s)
+			return d, version, err
 		}
-		return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectStep)
+		return workerguard.Directive{}, 0, workerguard.Rejected(workerguard.RejectStep)
 	}
 	// Unreachable for a definition Parse accepted.
-	return workerguard.Directive{}, workerguard.Rejected(workerguard.RejectStep)
+	return workerguard.Directive{}, 0, workerguard.Rejected(workerguard.RejectStep)
 }
 
 // directive builds the Directive for an action step. Every value comes from
@@ -253,7 +254,7 @@ func (a *Activities) ApplyStep(ctx context.Context, ref StepRef) error {
 		return workerguard.Rejected(workerguard.RejectStep)
 	}
 	idem := IdempotencyKey(activity.GetInfo(ctx).WorkflowExecution.ID, ref.Step)
-	if err := a.Writer.Write(ctx, tenant, ref.RecordID, ref.Step, idem, set); err != nil {
+	if err := a.Writer.Write(ctx, tenant, ref.RecordID, ref.Step, ref.Cause, idem, set); err != nil {
 		return rejection(err)
 	}
 	afterCommit(ctx, idem)

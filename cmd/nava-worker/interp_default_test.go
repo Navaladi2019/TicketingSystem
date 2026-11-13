@@ -3,21 +3,20 @@
 package main
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
 
-// TestProductionBuildWiresTheDatabaseDefinitionStore: the production worker
-// registers the interpreter with the database DefinitionStore, and its
-// record ports refuse until P3-43 (they never read or write anything).
-func TestProductionBuildWiresTheDatabaseDefinitionStore(t *testing.T) {
-	pool := &pgxpool.Pool{}
-	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool, true)
+// TestProductionBuildWiresTheDatabasePorts: the production worker registers
+// the interpreter with the database DefinitionStore and the P3-43 record
+// ports over the worker's pool, and the pipeline on a pool of its own.
+func TestProductionBuildWiresTheDatabasePorts(t *testing.T) {
+	pool, pipePool := &pgxpool.Pool{}, &pgxpool.Pool{}
+	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool, pipePool, true)
 	if err != nil || acts == nil {
 		t.Fatalf("interpreterActivities = (%v, %v), want the interpreter's ports", acts, err)
 	}
@@ -25,11 +24,11 @@ func TestProductionBuildWiresTheDatabaseDefinitionStore(t *testing.T) {
 	if !ok || r.Pool != pool {
 		t.Errorf("Definitions = %T, want workflowdefs.Reader over the worker's pool", acts.Definitions)
 	}
-	if _, err := acts.Records.Read(t.Context(), uuid.New(), uuid.New()); !errors.Is(err, errNoRecordPorts) {
-		t.Errorf("Records.Read = %v, want errNoRecordPorts", err)
+	if rr, ok := acts.Records.(recordports.Reader); !ok || rr.Pool != pool {
+		t.Errorf("Records = %T, want recordports.Reader over the worker's pool", acts.Records)
 	}
-	if err := acts.Writer.Write(t.Context(), uuid.New(), uuid.New(), uuid.New(), "k", nil); !errors.Is(err, errNoRecordPorts) {
-		t.Errorf("Writer.Write = %v, want errNoRecordPorts", err)
+	if w, ok := acts.Writer.(recordports.Writer); !ok || w.Pool != pool || w.Pipeline == nil {
+		t.Fatalf("Writer = %T, want recordports.Writer over the worker's pool with a pipeline", acts.Writer)
 	}
 	reg := &recordingRegistry{}
 	registerInterpreter(reg, acts)
@@ -39,7 +38,7 @@ func TestProductionBuildWiresTheDatabaseDefinitionStore(t *testing.T) {
 }
 
 func TestProductionBuildInterpreterNeedsAPool(t *testing.T) {
-	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil, true); err == nil {
+	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil, nil, true); err == nil {
 		t.Error("interpreterActivities with no pool returned no error")
 	}
 }
@@ -49,7 +48,7 @@ func TestProductionBuildInterpreterNeedsAPool(t *testing.T) {
 // without a pool.
 func TestProductionBuildWithWorkflowsOffRegistersNoInterpreter(t *testing.T) {
 	for _, pool := range []*pgxpool.Pool{nil, {}} {
-		acts, err := interpreterActivities(func(string) (string, bool) { return "", false }, pool, false)
+		acts, err := interpreterActivities(func(string) (string, bool) { return "", false }, pool, pool, false)
 		if err != nil || acts != nil {
 			t.Fatalf("interpreterActivities(workflows off) = (%v, %v), want (nil, nil)", acts, err)
 		}
