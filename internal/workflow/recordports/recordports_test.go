@@ -25,7 +25,7 @@ func TestMapError(t *testing.T) {
 		"no record":          {errNoRecord, interp.ErrNotFound},
 		"forbidden":          {authz.ErrForbidden, interp.ErrForbidden},
 		"too deep":           {fmt.Errorf("x: %w", outbox.ErrCascadeTooDeep), interp.ErrForbidden},
-		"stale cause":        {workerguard.ErrStaleCause, interp.ErrForbidden},
+		"stale cause":        {workerguard.ErrStaleCause, interp.ErrStaleCause},
 		"foreign cause":      {workerguard.ErrForeignCause, interp.ErrForbidden},
 		"missing cause":      {workerguard.ErrCauseNotFound, interp.ErrForbidden},
 		"transition":         {&pipeline.ErrIllegalTransition{}, interp.ErrIllegalTransition},

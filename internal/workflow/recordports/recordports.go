@@ -127,8 +127,9 @@ var _ interp.RecordWriter = Writer{}
 // idempotencyKey, as source=workflow. Causation comes only from the
 // workflow_cause row cause names (workerguard.ResolveCause); the run's ref
 // comes from the workflow id. A cause that is missing, another run's or
-// older than the run's newest fails closed as interp.ErrForbidden; it never
-// falls back to depth 0.
+// older than the run's newest fails closed as interp.ErrForbidden (a stale
+// one as interp.ErrStaleCause, which wraps it, so ApplyStep can retry with
+// the run's newest cause); it never falls back to depth 0.
 func (w Writer) Write(ctx context.Context, tenantID, recordID, _, cause uuid.UUID, idempotencyKey string, set map[string]any) error {
 	if err := verified(ctx, tenantID); err != nil {
 		return err
@@ -195,8 +196,10 @@ func mapError(err error) error {
 		return fmt.Errorf("%w: record", interp.ErrNotFound)
 	case errors.Is(err, pipeline.ErrRetryable), errors.Is(err, pipeline.ErrVersionConflict):
 		return err
+	case errors.Is(err, workerguard.ErrStaleCause):
+		return interp.ErrStaleCause
 	case errors.Is(err, workerguard.ErrCauseNotFound), errors.Is(err, workerguard.ErrForeignCause),
-		errors.Is(err, workerguard.ErrStaleCause), errors.Is(err, outbox.ErrCascadeTooDeep),
+		errors.Is(err, outbox.ErrCascadeTooDeep),
 		errors.Is(err, authz.ErrForbidden), errors.As(err, &notWritable):
 		return fmt.Errorf("%w: refused", interp.ErrForbidden)
 	case errors.As(err, &transition):

@@ -115,8 +115,9 @@ const setWaitSQL = `UPDATE workflow_ref SET record_changed_signal_id = $3
 WHERE tenant_id = $1 AND outbox_id = $2 AND kind = $4 AND closed_at IS NULL`
 
 // ErrRecordMoved means the record changed after the walk read it, so the
-// run's record_changed wait was not set. It is retryable: NextStep fails the
-// attempt and the retry re-walks against the new version.
+// run's record_changed wait was not set. NextStep re-walks against the new
+// version a bounded number of times within the attempt (TICK-784), and only
+// then fails it, retryably.
 var ErrRecordMoved = errors.New("workerguard: record changed since the walk read it")
 
 // recordVersionSQL locks the record against a concurrent write (a write holds
@@ -199,4 +200,57 @@ func RunRef(ctx context.Context) (uuid.UUID, error) {
 		return uuid.Nil, ErrForeignCause
 	}
 	return ref, nil
+}
+
+// newestCauseSQL reads the outbox id of the run's newest workflow_cause row,
+// in the order causeSQL's newer test uses (created_at, then outbox_id). The
+// tenant predicate is explicit as well as RLS's (TICK-480).
+const newestCauseSQL = `SELECT outbox_id FROM workflow_cause
+WHERE tenant_id = $1 AND ref_outbox_id = $2
+ORDER BY created_at DESC, outbox_id DESC
+LIMIT 1`
+
+// CauseTracker is interp.CauseSource over workflow_cause (TICK-784). The run
+// is the calling one, found from the activity's workflow id as ResolveCause
+// finds it; the tenant is the activity's verified one.
+type CauseTracker struct {
+	Pool *pgxpool.Pool
+}
+
+// NewestCause returns the outbox id of the calling run's newest
+// workflow_cause row, read under RLS. It is a reference only: the writer
+// resolves it again with ResolveCause, which applies every check. tenantID
+// must be the activity's verified tenant. A run with no row of its own is
+// ErrCauseNotFound; a workflow that is not this tenant's interpreter run is
+// ErrForeignCause. It must run inside an activity.
+func (c CauseTracker) NewestCause(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error) {
+	return c.newestCause(ctx, activity.GetInfo(ctx).WorkflowExecution.ID, tenantID)
+}
+
+func (c CauseTracker) newestCause(ctx context.Context, workflowID string, tenantID uuid.UUID) (uuid.UUID, error) {
+	tenant, ok := TenantFromContext(ctx)
+	if !ok {
+		return uuid.Nil, tenancy.ErrNoTenant
+	}
+	if tenant != tenantID {
+		return uuid.Nil, ErrForeignCause
+	}
+	kind, ref, err := startRef(workflowID)
+	if err != nil || kind != outbox.InterpreterKind {
+		return uuid.Nil, ErrForeignCause
+	}
+	if wfTenant, err := TenantOf(workflowID); err != nil || wfTenant != tenant {
+		return uuid.Nil, ErrForeignCause
+	}
+	var newest uuid.UUID
+	err = InTenantTx(ctx, c.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, newestCauseSQL, tenant, ref).Scan(&newest)
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, ErrCauseNotFound
+	case err != nil:
+		return uuid.Nil, fmt.Errorf("workerguard: read newest workflow cause: %w", err)
+	}
+	return newest, nil
 }

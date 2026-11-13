@@ -81,6 +81,27 @@ flowchart LR
 - **Stack cases** (`internal/workerstack/interp_test.go`, in the serial `worker` case): each test starts `nava-worker-interptest`, writes a `nava.interpreter` start row (`target_key nava.interpreter:<outbox id>`, decision 2026-11-01) its claimed `cascade_start` key and its `workflow_ref` as `cascade.ClaimStart` and `outbox.EnqueueStart` would (ADR-001 A5-6, TICK-416), on a record that carries a causation origin, and reads the result as `nava-core`. One case runs to the end step and checks that `workflow_ref` is closed. The other checks that tenant B's version or record is not found for tenant A. `t.Cleanup` removes the container and waits until compose lists none.
 - **Queue sharing.** The rule (TICK-453): every worker that polls a task queue registers the same workflow types. The always-on `nava-worker` registers `audit.seal` on `nava-tq`, so every case that brings its own workflow worker there takes it out first. The `temporalstack` package (`sdk` and `demo_outbox`, whose test bodies are registered as `nava.interpreter` since TICK-374) swaps it in its `TestMain` for `nava-worker-activities` (`compose.test.yaml`, profile `activityonly`): the same image with `NAVA_WORKER_WORKFLOWS=off`, which still runs the service activities the bodies schedule (`nava.workflow_ref.Close`) and polls no workflow task. The interpreter cases stop it in `startInterpWorker`, since `nava-worker-interptest` runs those activities itself. `TestTemporalstackKeepsTheServiceActivities` (`tools/ci/stackcases`) fails if the swap is lost. Those cases are all serial, so none overlaps another. `TestWorkerServiceSealsThroughTheGuard` (`worker` case) is the one that keeps `nava-worker` up: it starts no worker of its own, and the relay starts `audit.seal`. This covers CI and `make stack-tests`. It does not cover `make stack-test-worker` run by hand beside another suite. Two checks assert it (TICK-374): `TestInterpreterQueueOrdering` (`tools/ci/stackcases`, in `task test`) fails if a case header makes a `temporalstack` or `workerstack` case parallel. The test-body workers (`startPlatformWorker` in `temporalstack`) fail a test that would start a body while `nava-worker-interptest` is running. A hand-run `make stack-test-sdk` after an interpreter case has started is therefore caught; one started first is not. The always-on `nava-worker` polls activity tasks on `nava-tq` and does not register `NextStep`/`ApplyStep`. An attempt it took would fail as `ActivityNotRegisteredError` (retryable), spend one of the 10 attempts and add up to a minute of backoff. So each interpreter case stops it before `nava-worker-interptest` starts. Its `t.Cleanup` (registered before the stop, run on failure too) starts it again with `up --no-deps --wait`, so it is healthy before the next test and `demo_outbox`. While the case runs, `nava-worker-interptest` is the only `nava-tq` poller.
 
+## Re-walks inside one attempt (TICK-784)
+
+Two races used to fail a step, or use up `ActivityMaxAttempts`, when a retry within the same attempt is enough:
+
+- **Stale cause.** A newer `workflow_cause` row reached the run while `ApplyStep` ran under the older `StepRef.Cause`. `recordports.Writer` still refuses it (`interp.ErrStaleCause`, an `ErrForbidden`), unless the key already committed (a replay, TICK-712). `ApplyStep` then asks `Causes` (`workerguard.CauseTracker`) for the run's newest row and writes again with that id, up to `MaxStaleCauseRetries` times. The id is a reference only: the writer resolves it again with `ResolveCause`, so the write takes the newest row's origin and depth + 1. The lookup reads only the calling run's rows (the ref comes from the workflow id) of the guard's tenant, under RLS. With no row of its own, or no row newer than the one refused, the refusal stands, and the depth never falls back to 0. The workflow's own `ref.Cause` is unchanged, so later steps repeat the lookup.
+- **Record moved.** `WaitTracker` refuses a wait when the record left the version the walk read (`workerguard.ErrRecordMoved`). `NextStep` walks again against the new version up to `MaxRecordMovedRewalks` times, and only then fails the attempt, retryably.
+
+```mermaid
+sequenceDiagram
+  participant A as ApplyStep
+  participant W as recordports.Writer
+  participant C as CauseTracker
+  A->>W: Write(cause = StepRef.Cause)
+  W-->>A: ErrStaleCause (key not committed)
+  A->>C: NewestCause (run from workflow id, tenant from guard)
+  C-->>A: newest outbox id
+  A->>W: Write(cause = newest)
+  W->>W: ResolveCause: own run, newest row, depth + 1
+  W-->>A: ok
+```
+
 ## Version pinning and crash tests (P3-24)
 
 - **Pinning** (`internal/workflow/interp/pinning_test.go`, `testsuite`): `testdata/pinned-v1` and `pinned-v2` differ only in the `update_record` value after a 5 s timer, with one step-id map. v2 is published into the fixture store while the v1 run waits on the timer: the v1 run writes v1's value, also when it continues as new at that point, and a new run on v2 writes v2's.

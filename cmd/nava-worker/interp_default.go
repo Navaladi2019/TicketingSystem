@@ -43,5 +43,6 @@ func interpreterActivities(_ config.LookupFunc, pool, pipePool *pgxpool.Pool, wo
 		Records:     recordports.Reader{Pool: pool},
 		Writer:      recordports.NewWriter(pool, pipePool),
 		Waits:       workerguard.WaitTracker{Pool: pool},
+		Causes:      workerguard.CauseTracker{Pool: pool},
 	}, nil
 }

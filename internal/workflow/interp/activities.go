@@ -25,7 +25,22 @@ type Activities struct {
 	// Waits records the record_changed wait (D-3-29). Nil records nothing:
 	// the run is then never signalled about its record.
 	Waits WaitTracker
+	// Causes finds the run's newest cause when a write's cause went stale
+	// mid-step (TICK-784). Nil leaves a stale cause refused, as ErrForbidden.
+	Causes CauseSource
 }
+
+// Re-walk bounds (TICK-784). Each is the number of extra tries inside one
+// activity attempt, so a record or a run that moves faster than the activity
+// backoff does not use up ActivityMaxAttempts.
+const (
+	// MaxRecordMovedRewalks is how many times NextStep re-walks when the
+	// record moved between the walk's read and the wait (ErrRecordMoved).
+	MaxRecordMovedRewalks = 5
+	// MaxStaleCauseRetries is how many times ApplyStep retries a write with
+	// the run's newest cause after it was refused as ErrStaleCause.
+	MaxStaleCauseRetries = 3
+)
 
 // Register adds the activities to r under their fixed names.
 func (a *Activities) Register(r worker.ActivityRegistry) {
@@ -117,23 +132,35 @@ func (l *loaded) id(key string) (*uuid.UUID, error) {
 //
 // Before it returns a Directive it records the run's record_changed wait
 // through Waits: the RecordChangedSignal id when the Directive is a
-// wait_signal on it, nil for any other Directive (D-3-29). A failure to
-// record it fails the attempt, which is retried.
+// wait_signal on it, nil for any other Directive (D-3-29). When the record
+// moved after the walk read it (workerguard.ErrRecordMoved), NextStep walks
+// again against the new version, up to MaxRecordMovedRewalks times, and then
+// fails the attempt retryably (TICK-784). Any other failure to record the
+// wait fails the attempt, which is retried.
 func (a *Activities) NextStep(ctx context.Context, ref StepRef) (workerguard.Directive, error) {
 	tenant, l, err := a.load(ctx, ref)
 	if err != nil {
 		return workerguard.Directive{}, err
 	}
-	d, version, err := a.nextStep(ctx, tenant, l, ref)
-	if err != nil {
-		return workerguard.Directive{}, err
-	}
-	if a.Waits != nil {
-		if err := a.Waits.SetRecordChangedWait(ctx, tenant, ref.RecordID, l.recordChangedWait(d), version); err != nil {
+	for walk := 0; ; walk++ {
+		d, version, err := a.nextStep(ctx, tenant, l, ref)
+		if err != nil {
+			return workerguard.Directive{}, err
+		}
+		if a.Waits == nil {
+			return d, nil
+		}
+		err = a.Waits.SetRecordChangedWait(ctx, tenant, ref.RecordID, l.recordChangedWait(d), version)
+		if err == nil {
+			return d, nil
+		}
+		if !errors.Is(err, workerguard.ErrRecordMoved) || walk >= MaxRecordMovedRewalks {
+			return workerguard.Directive{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return workerguard.Directive{}, err
 		}
 	}
-	return d, nil
 }
 
 // recordChangedWait is the signal id d waits on if it is the version's
@@ -254,12 +281,52 @@ func (a *Activities) ApplyStep(ctx context.Context, ref StepRef) error {
 		return workerguard.Rejected(workerguard.RejectStep)
 	}
 	idem := IdempotencyKey(activity.GetInfo(ctx).WorkflowExecution.ID, ref.Step)
-	if err := a.Writer.Write(ctx, tenant, ref.RecordID, ref.Step, ref.Cause, idem, set); err != nil {
+	if err := a.write(ctx, tenant, ref, idem, set); err != nil {
 		return rejection(err)
 	}
 	afterCommit(ctx, idem)
 	return nil
 }
+
+// write calls Writer.Write with ref.Cause. If a newer delivery reached the
+// run mid-step, so the cause is stale and the key never committed
+// (ErrStaleCause), it asks Causes for the run's newest cause and writes with
+// that, up to MaxStaleCauseRetries times (TICK-784). The newest cause is a
+// reference only: the writer resolves it again and applies every check, so
+// it is never another run's or tenant's, and never depth 0 by fallback. With
+// no Causes, no row of the run's own, or no row newer than the one refused,
+// the refusal stands (ErrForbidden). If the newest cause keeps moving past
+// MaxStaleCauseRetries the attempt fails retryably, and the retry looks the
+// newest cause up again.
+func (a *Activities) write(ctx context.Context, tenant uuid.UUID, ref StepRef, idem string, set map[string]any) error {
+	cause := ref.Cause
+	for try := 0; ; try++ {
+		err := a.Writer.Write(ctx, tenant, ref.RecordID, ref.Step, cause, idem, set)
+		if !errors.Is(err, ErrStaleCause) || a.Causes == nil {
+			return err
+		}
+		if try >= MaxStaleCauseRetries {
+			return errStaleCauseRetries
+		}
+		newest, nerr := a.Causes.NewestCause(ctx, tenant)
+		if nerr != nil {
+			if errors.Is(nerr, workerguard.ErrCauseNotFound) || errors.Is(nerr, workerguard.ErrForeignCause) {
+				return err
+			}
+			return nerr
+		}
+		if newest == cause {
+			// No newer row than the one refused: nothing to retry with.
+			return err
+		}
+		cause = newest
+	}
+}
+
+// errStaleCauseRetries: the run's newest cause kept moving through every
+// retry. A plain error, so the attempt is retried (the guard withholds its
+// text).
+var errStaleCauseRetries = errors.New("interp: the run's newest cause kept moving")
 
 // decodeSet decodes the step's literals, keeping numbers exact.
 func decodeSet(raw map[string]json.RawMessage) (map[string]any, error) {

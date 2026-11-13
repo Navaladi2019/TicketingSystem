@@ -23,6 +23,7 @@ package interp
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -116,7 +117,22 @@ var (
 	ErrValidation        = errors.New("interp: record write failed validation")
 	ErrIllegalTransition = errors.New("interp: record write is an illegal transition")
 	ErrForbidden         = errors.New("interp: record write is forbidden")
+	// ErrStaleCause is the ErrForbidden of a write whose cause is not the
+	// run's newest workflow_cause row and whose key never committed: a newer
+	// delivery reached the run mid-step. ApplyStep retries it with the run's
+	// newest cause (CauseSource); errors.Is(err, ErrForbidden) holds.
+	ErrStaleCause = fmt.Errorf("%w: cause is older than the run's newest", ErrForbidden)
 )
+
+// CauseSource returns the outbox id of the calling run's newest
+// workflow_cause row (TICK-784). The run is the one the workflow id names,
+// never an argument; tenantID must be the activity's verified tenant. The id
+// is a reference only: RecordWriter resolves it again under RLS and refuses
+// it unless it is this run's newest row. The real adapter is
+// workerguard.CauseTracker.
+type CauseSource interface {
+	NewestCause(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error)
+}
 
 // WaitTracker records, for the run the activity belongs to, the
 // record_changed signal id it waits on, or nil when it waits on none
