@@ -11,10 +11,17 @@ body { margin:0; display:flex; min-height:100vh; font:16px/1.55 system-ui, -appl
 #hb-results li a:hover, #hb-results li a:focus { background:var(--side); }
 #hb-results small { color:var(--muted); display:block; }
 .hb-none { padding:6px 8px; }
-.nav-title { display:block; margin-top:12px; font-weight:600; text-transform:capitalize; color:var(--fg); text-decoration:none; }
-.nav-section ul { list-style:none; margin:2px 0 0; padding-left:12px; }
-.nav-section li.current a { font-weight:600; color:var(--accent); }
-.nav-section a { text-decoration:none; color:var(--muted); }
+.nav-group { margin-top:8px; }
+.nav-group > summary { font-weight:700; text-transform:uppercase; letter-spacing:.04em; font-size:.8rem; color:var(--fg); cursor:pointer; padding:4px 0; }
+.sidebar ul { list-style:none; margin:2px 0 0; padding-left:10px; }
+.sidebar li { margin:1px 0; font-size:.92rem; }
+.sidebar li > details > summary { cursor:pointer; }
+.sidebar li > details > summary a { display:inline; }
+.sidebar li.current > a, .sidebar li.current > details > summary a { font-weight:600; color:var(--accent); }
+.sidebar li.current > a { background:#ddf4ff; border-radius:4px; padding:0 4px; margin-left:-4px; }
+.sidebar nav a { text-decoration:none; color:var(--muted); }
+.pager { display:flex; justify-content:space-between; gap:16px; margin:32px 0 0; padding-top:12px; border-top:1px solid var(--line); }
+.pager a { color:var(--accent); text-decoration:none; }
 main { flex:1; min-width:0; max-width:1000px; padding:24px 40px; }
 .crumbs { color:var(--muted); font-size:.9rem; margin-bottom:8px; }
 .crumbs a { color:var(--accent); text-decoration:none; text-transform:capitalize; }
