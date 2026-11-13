@@ -78,7 +78,7 @@ audited:
     subject_id_column: record_id
     attached: false
   # P3-40 (TICK-709): workflow definitions and their immutable versions.
-  # Attached by P3-41b (TICK-737, 20261112180000): the publish route
+  # Attached by P3-41b (TICK-737, 20261113180000): the publish route
   # (workflowdefs.Store.Publish, P3-41) writes its entry in the same
   # transaction.
   workflow_definitions:
