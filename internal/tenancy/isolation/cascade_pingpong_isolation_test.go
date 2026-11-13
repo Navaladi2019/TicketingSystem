@@ -21,12 +21,12 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
-// cascadePingPong lives in a test file: D-3-6 (internal/records
-// TestRecordWritersOnlyInPipeline) lets only the named packages import the
-// records pipeline outside tests. The suite runs only under the integration
-// tag (make isolation), so this file sets the CI-10 (g) path's check, which
-// cascade_paths.go registers, before any path runs.
-func init() { pingPongCheck = cascadePingPong }
+// CascadePingPong runs CI-10 (g) on the suite's cluster. It lives in a test
+// file: D-3-6 (internal/records TestRecordWritersOnlyInPipeline) lets only
+// the named packages import the records pipeline outside tests, and the
+// suite runs only under the integration tag (make isolation). The path that
+// cascade_paths.go registers calls it through pingPonger.
+func (c cluster) CascadePingPong(ctx context.Context) error { return cascadePingPong(ctx, c) }
 
 // pingPongEntity is tenant A's seeded pipeline type (testdata/seed.sql).
 const pingPongEntity = "ticket"

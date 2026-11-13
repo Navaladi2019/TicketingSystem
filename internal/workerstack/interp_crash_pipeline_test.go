@@ -110,7 +110,9 @@ func (a *stackAPI) call(method, path, token string, header map[string]string, bo
 		}
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(a.t.Context(), method, a.core+path, rd)
+	// Not t.Context(): the cleanup's retiring publish runs after it is
+	// cancelled. The client's 30 s timeout bounds every call.
+	req, err := http.NewRequestWithContext(context.Background(), method, a.core+path, rd)
 	if err != nil {
 		a.t.Fatal(err)
 	}

@@ -58,18 +58,22 @@ func cascadePaths() []Path {
 			Role: "nava_worker", DB: cascadeNoCollision},
 		{Name: "cascade: (g) two runs signalling each other on one record stop at depth 9 (ErrCascadeTooDeep, 8 writes)", Case: "CI-10",
 			Role: "nava_worker", DB: func(ctx context.Context, cl Cluster) error {
-				if pingPongCheck == nil {
-					return errors.New("the CI-10 (g) check is not linked: cascade_pingpong_isolation_test.go runs only under the integration tag")
+				pp, ok := cl.(pingPonger)
+				if !ok {
+					return errors.New("the CI-10 (g) check is not linked: cascade_pingpong_isolation_test.go builds only under the integration tag")
 				}
-				return pingPongCheck(ctx, cl)
+				return pp.CascadePingPong(ctx)
 			}},
 	}
 }
 
-// pingPongCheck is CI-10 (g)'s check, cascadePingPong: it drives the real
-// records pipeline, which only a test file may import here (D-3-6), so
-// cascade_pingpong_isolation_test.go sets it.
-var pingPongCheck func(context.Context, Cluster) error
+// pingPonger is the suite's Cluster when it can run CI-10 (g)'s check,
+// cascadePingPong: the check drives the real records pipeline, which only a
+// test file may import here (D-3-6), so cascade_pingpong_isolation_test.go
+// gives the suite's cluster the method.
+type pingPonger interface {
+	CascadePingPong(context.Context) error
+}
 
 // cascadeNoCollision claims tenant B's seeded key, by the same uuids, from
 // tenant A through cascade.ClaimStart, which must claim it for tenant A. The
