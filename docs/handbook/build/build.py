@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 HANDBOOK = "docs/handbook"
-SECTIONS = ["vision", "system", "adr", "stories", "workflows", "database",
+SECTIONS = ["vision", "tour", "system", "adr", "stories", "workflows", "database",
             "security", "benchmarks", "operations", "glossary"]
 HOME = "home"
 
