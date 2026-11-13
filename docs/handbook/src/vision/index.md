@@ -9,7 +9,7 @@ status: delivered
 
 ## What it is for
 
-A generic ticket and case platform. It is not an IT service management (ITSM) product. Each tenant, meaning each customer organisation, defines its own record types, the fields on them, who may see and change them, and the workflow each record follows. The platform keeps tenants apart, records every change in an audit log and runs workflows reliably. The tenant decides what a "ticket" is.
+A generic ticket and case platform. It is not an IT service management (ITSM) product. Each tenant, meaning each customer organisation, defines its own record types, the fields on them, who may see and change them, and the workflow each record follows. The platform keeps tenants apart, records every change in an audit log. Running workflows on records is not built yet. The tenant decides what a "ticket" is.
 
 The product direction is the product owner's decision, recorded in [the product vision](../../../product/vision.md). This page follows it and says, for each part, whether it is built.
 
