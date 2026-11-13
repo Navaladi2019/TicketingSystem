@@ -1,6 +1,6 @@
 -- P3-40 (TICK-709): validates cascade_start_definition_fkey in its own
 -- transaction. It fails, and changes nothing, if a claim names a definition
--- its tenant does not hold (see 20261112123330).
+-- its tenant does not hold (see 20261113123330).
 --
 -- FORCE ROW LEVEL SECURITY makes a bare VALIDATE vacuous. When the caller
 -- owns both tables, PostgreSQL validates a foreign key with one SQL anti-join

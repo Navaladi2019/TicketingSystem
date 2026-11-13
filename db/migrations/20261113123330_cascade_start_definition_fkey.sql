@@ -7,13 +7,13 @@
 -- Expand step, as 00010/00011 (TICK-88 Postgres review): ADD CONSTRAINT ...
 -- NOT VALID is a catalogue change under a short SHARE ROW EXCLUSIVE lock on
 -- both tables, with no scan; every new claim is checked from here on.
--- 20261112123340 validates the existing rows in its own transaction (and
+-- 20261113123340 validates the existing rows in its own transaction (and
 -- explains why it cannot be a bare VALIDATE: FORCE RLS makes that vacuous).
 --
 -- Rows claimed before this migration name definitions no table held (the
 -- S10/S11a test sinks and the demo commands invented ids). Validation fails on
 -- any such row in a long-lived database: delete those claims, or seed the
--- definitions they name, before 20261112123340 runs. No shipped environment
+-- definitions they name, before 20261113123340 runs. No shipped environment
 -- has any, since no released build claims a start.
 --
 -- No index on the referencing side: definitions are never deleted or

@@ -28,7 +28,7 @@ import (
 // FORCE-RLS table must run, in a transactional migration, while a
 // "FOR SELECT TO nava_migrator USING (true)" policy exists on each FORCE-RLS
 // table of the pair, and every such policy must be dropped in the same file
-// (the P3-40 pattern, 20261112123340 on the TICK-337 story branch).
+// (the P3-40 pattern, 20261113123340 on the TICK-337 story branch).
 
 // migratorRole owns every platform table (db/grants.yaml owner).
 const migratorRole = "nava_migrator"
