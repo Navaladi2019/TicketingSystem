@@ -72,6 +72,8 @@ func serverPoolConfig(t *testing.T, dsn string) *pgxpool.Config {
 type env struct {
 	super *pgx.Conn // the platform database as superuser, for seeding and reading back
 	app   *pgxpool.Pool
+	// platform is the platform database's name, for rolePool.
+	platform string
 }
 
 // migrated recreates the manifest's roles and databases, runs the real
@@ -118,19 +120,26 @@ func migrated(t *testing.T) env {
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
+	return env{super: conn, app: rolePool(t, m.PlatformDatabase, "nava_app"), platform: m.PlatformDatabase}
+}
+
+// rolePool opens a pool on database as role, in the server's
+// protocol mode.
+func rolePool(t *testing.T, database, role string) *pgxpool.Pool {
+	t.Helper()
 	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pw, _ := testPassword("nava_app")
-	u.User = url.UserPassword("nava_app", pw)
-	u.Path = "/" + m.PlatformDatabase
-	app, err := pgxpool.NewWithConfig(ctx, serverPoolConfig(t, u.String()))
+	pw, _ := testPassword(role)
+	u.User = url.UserPassword(role, pw)
+	u.Path = "/" + database
+	pool, err := pgxpool.NewWithConfig(context.Background(), serverPoolConfig(t, u.String()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(app.Close)
-	return env{super: conn, app: app}
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func mustExec(t *testing.T, conn *pgx.Conn, sql string, args ...any) {
@@ -500,5 +509,66 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 	}
 	if counters != 1 || records != 1 {
 		t.Errorf("tenant A has %d counter rows and %d records, want 1 and 1", counters, records)
+	}
+}
+
+// TestWorkerGetsRecordWithAssignmentGroup is TICK-782: the pipeline's update
+// path reads the record through Get as nava_worker, and recordSelect's LEFT
+// JOIN groups reads the assignment group's tombstone. Without nava_worker's
+// groups grant and groups_select policy, Get fails with 42501.
+func TestWorkerGetsRecordWithAssignmentGroup(t *testing.T) {
+	e := migrated(t)
+	tenant, principal, group := uuid.New(), uuid.New(), uuid.New()
+	mustExec(t, e.super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", tenant)
+	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
+		VALUES ($1, $2, $3, true, now())`, tenant, principal, "kc-"+principal.String())
+	mustExec(t, e.super, `INSERT INTO groups (tenant_id, id, keycloak_group_id, path)
+		VALUES ($1::uuid, $2, 'kc-desk', '/t/' || $1::text || '/desk')`, tenant, group)
+	tx(t, e, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := entitytypes.Store{}.Create(ctx, tx, tenant, entitytypes.NewInput{
+			Name: "asset", PublishedBy: principal, Definition: assetDefinition(),
+		})
+		return err
+	})
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	var rec store.Record
+	tx(t, e, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		def, err := store.DefinitionID(ctx, tx, tenant, "asset")
+		if err != nil {
+			return err
+		}
+		rec = store.Record{TenantID: tenant, ID: uuid.New(), EntityDefinitionID: def, Version: 1, SchemaVersion: 1,
+			Number: store.FormatNumber("AST", 1), CreatedBy: &principal, CreatedAt: now, UpdatedAt: now}
+		if err := rec.Split(map[string]any{"name": "desk", "status": "active"}, assetFixed()); err != nil {
+			return err
+		}
+		rec.AssignmentGroupID = &group
+		if err := store.Insert(ctx, tx, &rec); err != nil {
+			return err
+		}
+		_, err = recordEntry(ctx, tx, &rec, audit.ActionCreate, nil, principal)
+		return err
+	})
+
+	worker := rolePool(t, e.platform, "nava_worker")
+	get := func() *store.Record {
+		t.Helper()
+		var got *store.Record
+		err := tenancy.InTenantTx(context.Background(), worker, tenant, func(tx pgx.Tx) error {
+			var err error
+			got, err = store.Get(context.Background(), tx, tenant, rec.ID)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("nava_worker Get: %v", err)
+		}
+		return got
+	}
+	if got := get(); got.AssignmentGroupID == nil || *got.AssignmentGroupID != group || got.AssignmentGroupRemoved {
+		t.Fatalf("live group: assignment group %v, removed %v; want %s, false", got.AssignmentGroupID, got.AssignmentGroupRemoved, group)
+	}
+	mustExec(t, e.super, "UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", tenant, group)
+	if got := get(); !got.AssignmentGroupRemoved {
+		t.Error("tombstoned group: AssignmentGroupRemoved = false, want true")
 	}
 }
