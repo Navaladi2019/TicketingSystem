@@ -1,6 +1,9 @@
 # TicketingSystem
 
-Multi-tenant ticketing platform (`nava-core`). The platform goal and the
+A generic, embeddable ticket and case platform (`nava-core`): each tenant
+defines its own record types, fields, access rules and workflows. What it is
+for, who uses it and what is built today: [`docs/product/vision.md`](docs/product/vision.md).
+The platform goal and the
 architecture decisions are in
 [`docs/adr/ADR-001-platform-blueprint.md`](docs/adr/ADR-001-platform-blueprint.md);
 contributor and agent instructions are in [`CLAUDE.md`](CLAUDE.md).
