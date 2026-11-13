@@ -3414,7 +3414,7 @@ test('one row, the create, source user; no workflow row', () => {
 });"""),
         req("S11b.30 Retire the demo: publish a version that waits a day and writes nothing: 201", "POST", pub,
             auth="admin_a_token", headers=key("demo-retire"), body=demo_body(None, duration="PT24H"),
-            desc="Clean-up, not a criterion: tenant A's incidents created by later folders on this stack start a run that waits 24 hours and ends, and are not written a minute later. Runs already started keep their version.",
+            desc="Clean-up, not a criterion: tenant A's incidents created by later folders on this stack are not written a minute later. Stack-local side effect: there is no disable/retire endpoint yet, so this version stays current. Every tenant A incident created later on this stack (any folder, and the next S11b pass until S11b.18 publishes again) starts one run that holds an open `workflow_ref` and a Temporal workflow for 24 hours, then ends without writing. Runs already started keep their version. `docker compose down -v` clears it.",
             tests="N.status(201);\ntest('current', () => expect(N.json().current).to.eql(true));"),
     ]
 
