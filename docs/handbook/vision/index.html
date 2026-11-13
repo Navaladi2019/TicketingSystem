@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vision - Nava handbook</title>
+<title>What the product is - Nava handbook</title>
 <link rel="stylesheet" href="../assets/handbook.css">
 </head>
 <body data-root="../">
@@ -16,31 +16,160 @@
 </nav>
 </aside>
 <main>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../vision/index.html">vision</a> / <span>Vision</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../vision/index.html">vision</a> / <span>What the product is</span></nav>
 <article>
-<h1 class="page-title">Vision</h1>
-<h2 id="what-the-product-is">What the product is</h2>
-<p>The platform (<code>nava-core</code>) is a multi-tenant ticketing platform. Many customer organisations, called tenants, share one installation, one database and one set of services. The main risk of that design is one tenant seeing or changing another tenant's data, so the architecture is built around keeping tenants apart. ADR-001 records the ground rules; see <a href="../vision/goals-and-non-goals.html">goals and non-goals</a>.</p>
+<h1 class="page-title">What the product is</h1>
+<h2 id="what-it-is-for">What it is for</h2>
+<p>A generic ticket and case platform. It is not an IT service management (ITSM) product. Each tenant, meaning each customer organisation, defines its own record types, the fields on them, who may see and change them, and the workflow each record follows. The platform keeps tenants apart, records every change in an audit log and runs workflows reliably. The tenant decides what a "ticket" is.</p>
+<p>The product direction is the product owner's decision, recorded in <a href="../../../docs/product/vision.md">the product vision</a>. This page follows it and says, for each part, whether it is built.</p>
+<h2 id="three-example-domains">Three example domains</h2>
+<p>None of these is built into the platform as code. Each is configuration a tenant would publish.</p>
+<table>
+<thead>
+<tr>
+<th>Domain</th>
+<th>A ticket is</th>
+<th>Fields it needs</th>
+<th>Workflow</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IT service management</td>
+<td>An incident (something broke) or a request (someone needs something).</td>
+<td>Summary, priority, affected service, assignment group, resolution notes.</td>
+<td>new, assigned, in progress, resolved, closed. An unresolved high-priority incident is escalated after a set time.</td>
+</tr>
+<tr>
+<td>Loan applications</td>
+<td>One application for credit from one applicant.</td>
+<td>Applicant, amount, term, purpose, income, credit decision. Income and identity documents are visible to underwriters only.</td>
+<td>submitted, documents checked, underwriting, approved or declined, disbursed. A decision above a set amount needs a second approver.</td>
+</tr>
+<tr>
+<td>Visa applications</td>
+<td>One application by one traveller for one visa category.</td>
+<td>Applicant, passport number, nationality, visa category, travel dates, decision. Passport details are hidden from front-desk staff.</td>
+<td>received, biometrics booked, under review, decision, passport returned. A missing document pauses the case until it arrives.</td>
+</tr>
+</tbody>
+</table>
+<p>This table is the intent. What is built is in the next section. The three record types you can load today are in <a href="../../../docs/handbook/examples/README.md">the examples folder</a> and are smaller than the table above.</p>
+<h2 id="intent-and-delivered">Intent and delivered</h2>
+<p>Checked against <code>main</code> on 2026-11-13. "Delivered" means it works on <code>main</code>. Nothing is described as working unless it is in the "Delivered on <code>main</code>" column.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Delivered on <code>main</code></th>
+<th>Not built yet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Generic record types</td>
+<td>A tenant admin publishes versioned record types with their fields; a breaking change is refused. See <a href="../database/entity-definitions.html">entity types</a> and <a href="../stories/s8.html">S8</a>, <a href="../tour/06-create-an-entity-type.html">tour step 6</a>. New tenants start with <code>incident</code>, <code>request</code> and <code>change</code>.</td>
+<td></td>
+</tr>
+<tr>
+<td>Per-type access rules, masks and numbering</td>
+<td>Users see only their group's records, and masked fields stay hidden (<a href="../stories/s10.html">S10</a>, <a href="../tour/07-access-rules-and-masks.html">tour step 7</a>, <a href="../database/acl.html">access rules and masks</a>). Every type numbers its records <code>&lt;prefix&gt;&lt;7 digits&gt;</code> (<a href="../stories/s17.html">S17</a>).</td>
+<td>Tenant-defined number formats (S18, S19, planned).</td>
+</tr>
+<tr>
+<td>ITSM, loan and visa examples</td>
+<td>Three example types, <code>incident</code>, <code>loan_application</code> and <code>visa_application</code>, with a seed script: <a href="../../../docs/handbook/examples/README.md">examples</a>. Each uses only the fields, states, access rules and masks that exist today.</td>
+<td>Documents, approvals, decision rules and typed checks, listed on the examples page.</td>
+</tr>
+<tr>
+<td>Records</td>
+<td>Create, update, history, and a stale update is refused (<a href="../stories/s9.html">S9</a>, <a href="../tour/09-create-and-work-with-records.html">tour step 9</a>, <a href="../database/records.html">records</a>).</td>
+<td>Comments, work notes and links (S12, planned).</td>
+</tr>
+<tr>
+<td>Workflows</td>
+<td></td>
+<td>The engine is built and tested (<a href="../stories/s11a.html">S11a</a>) but switched off in the running product. There is no API to define or start a workflow, and creating a record does not start one (S11b, in progress). See <a href="../tour/08-workflows.html">tour step 8</a>.</td>
+</tr>
+<tr>
+<td>Tenants, groups and users</td>
+<td>An operator onboards a tenant with one API call (<a href="../stories/s4.html">S4</a>, <a href="../tour/01-onboard-a-tenant.html">tour step 1</a>). Groups, users and organisation units arrive as a sync from the identity provider and apply within 10 minutes (<a href="../stories/s5.html">S5</a>, tour steps <a href="../tour/03-create-groups.html">3</a>, <a href="../tour/04-add-users-to-groups.html">4</a> and <a href="../tour/05-organisation-units.html">5</a>).</td>
+<td>A platform API to manage groups and users.</td>
+</tr>
+<tr>
+<td>Tenant isolation</td>
+<td>A query without the right tenant returns nothing (<a href="../stories/s2.html">S2</a>).</td>
+<td></td>
+</tr>
+<tr>
+<td>Audit log and export</td>
+<td>One audit log, hash-chained per tenant, and a filtered export an auditor can verify offline (<a href="../stories/s13.html">S13</a>, <a href="../stories/s16.html">S16</a>, <a href="../tour/10-audit.html">tour step 10</a>, <a href="../database/audit.html">audit</a>).</td>
+<td></td>
+</tr>
+<tr>
+<td>User interface</td>
+<td></td>
+<td>The platform is API only, at <code>/api/v1</code>. The embeddable UI widget is not built.</td>
+</tr>
+<tr>
+<td>Embedding SDK</td>
+<td></td>
+<td>A headless API and SDK. The embedding RFC (TICK-786) comes first.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="embedding">Embedding</h2>
+<p>Other applications will embed the platform in two ways, and both are decided: a ready-made UI widget the host application drops into its own pages, and a headless API and SDK the host builds its own screens on. Neither exists yet. How a host authenticates, themes the widget and scopes it to a tenant is for the embedding RFC (TICK-786).</p>
 <h2 id="who-uses-it">Who uses it</h2>
-<ul>
-<li><strong>Tenant users and applications</strong> call the REST API at <code>/api/v1</code> with a token issued by the identity provider.</li>
-<li><strong>Tenant administrators</strong> publish entity types, set access rules and manage users and groups through the platform API.</li>
-<li><strong>Platform operators</strong> onboard tenants, run migrations and administer the Temporal workflow engine.</li>
-<li><strong>Engineers and the product owner</strong> build and accept the platform; this handbook is for them.</li>
-</ul>
+<table>
+<thead>
+<tr>
+<th>Who</th>
+<th>What they do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tenant end users</td>
+<td>Create, update and view the history of records: agents, underwriters, case officers, applicants.</td>
+</tr>
+<tr>
+<td>Tenant administrators</td>
+<td>Define record types, fields and access rules for their tenant. Defining workflows is not built yet.</td>
+</tr>
+<tr>
+<td>Host applications</td>
+<td>Will embed the platform through the widget or the API and SDK (not built yet).</td>
+</tr>
+<tr>
+<td>Platform operators</td>
+<td>Onboard tenants, run the platform, answer audits.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="read-next">Read next</h2>
 <ul>
 <li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li>
-<li><a href="../vision/invariants.html">The nine invariants</a>, one page each: <a href="../vision/tenant-wall.html">I1</a>, <a href="../vision/tenant-source.html">I2</a>, <a href="../vision/least-privilege-roles.html">I3</a>, <a href="../vision/one-write-pipeline.html">I4</a>, <a href="../vision/one-authorization-layer.html">I5</a>, <a href="../vision/durable-path-outbox.html">I6</a>, <a href="../vision/idempotent-side-effects.html">I7</a>, <a href="../vision/contracts-configuration-advisory-ai.html">I8</a>, <a href="../vision/bounded-cascades.html">I9</a></li>
 <li><a href="../glossary/index.html">Glossary</a></li>
-<li><a href="../../../docs/cto/risks.md">Known technical risks</a>, kept by the CTO outside the handbook</li>
+<li>How the platform keeps tenants apart is in <a href="../vision/invariants.html">the nine invariants</a>, one page each, under "How it works".</li>
+<li><a href="../../../docs/cto/risks.md">Known technical risks</a>, kept by the CTO outside the handbook.</li>
 </ul>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../index.html">&larr; Nava handbook</a><a class="next" href="../vision/goals-and-non-goals.html">Goals and non-goals &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
+<h3>Story S10</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Story S11a</h3><ul><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li></ul>
+<h3>Story S13</h3><ul><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li></ul>
+<h3>Story S16</h3><ul><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li></ul>
+<h3>Story S17</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Story S2</h3><ul><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li></ul>
+<h3>Story S4</h3><ul><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li></ul>
+<h3>Story S5</h3><ul><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li></ul>
+<h3>Story S8</h3><ul><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li></ul>
+<h3>Story S9</h3><ul><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul>
 <h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li><li><a href="../tour/index.html">Product tour at a glance</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 36b61535b6b2 (2026-11-13)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 21d0e250c91a (2026-11-13)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
