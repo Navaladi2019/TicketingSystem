@@ -330,6 +330,22 @@ func Paths() []Path {
 		sql("groups: list tenant B principal's group paths with tenant B's predicate", "nava_app", Denied,
 			"SELECT g.id, g.path FROM group_members gm JOIN groups g ON g.tenant_id = gm.tenant_id AND g.id = gm.group_id WHERE gm.tenant_id = $1 AND gm.principal_id = $2 ORDER BY g.id",
 			TenantB, PrincipalB1),
+		// TICK-782: nava_worker reads groups (tenant_id, id, deleted_at)
+		// under groups_select for records/store's recordSelect, whose LEFT
+		// JOIN reads the assignment group's tombstone. Both tenants hold
+		// kc-group-shared, so a lookup by it alone would find tenant B's row.
+		sql("groups: the worker reads tenant B's group by its full key", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, deleted_at FROM groups WHERE tenant_id = $1 AND id = $2", TenantB, GroupB1),
+		sql("groups: the worker reads tombstones in every tenant", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, id FROM groups WHERE deleted_at IS NULL OR deleted_at IS NOT NULL"),
+		sql("groups: the worker joins tenant B's record to its assignment group", "nava_worker", OwnRowsOnly,
+			`SELECT g.tenant_id, coalesce(g.deleted_at IS NOT NULL, false) FROM records r
+			 JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+			 WHERE r.tenant_id = $1 AND r.id = $2`, TenantB, RecordB1),
+		sql("groups: the worker tombstones tenant B's group", "nava_worker", Denied,
+			"UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", TenantB, GroupB1),
+		sql("groups: the worker reads tenant B's group paths", "nava_worker", Denied,
+			"SELECT tenant_id, path FROM groups WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,
