@@ -4,6 +4,7 @@ package dbtest
 
 import (
 	"context"
+	"io/fs"
 	"slices"
 	"testing"
 
@@ -12,9 +13,30 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/purge"
 )
 
-// S18 P6-10 (TICK-675), ADR-005 §4.3: nava_purge deletes record_counters rows
-// more than 2 days past period_end, under the paired record_counters_purge
-// policies, and nothing else. The plan is in purge_index_test.go.
+const (
+	counterPurgeMigration        = "20261113110000_record_counters_purge.sql"
+	scopeKeyLenValidateMigration = "20261112193100_record_counters_scope_key_len_validate.sql"
+)
+
+// withCounterPurge is fsys plus, when it stops before counterPurgeMigration,
+// that migration and the S17 M1 pair it needs (scope_key and period_end), to
+// be applied out of order as migrateBeforeB applies the dead-lineage policy:
+// the catalogue gate pins record_counters_purge and _purge_select on the
+// ADR-001 A.3 allow-list (internal/db/catalog.AllowList), so a run without
+// them fails the gate, and db/grants.yaml names the columns M1 adds. A run
+// that already has a file keeps it.
+func withCounterPurge(t *testing.T, fsys fs.FS) fs.FS {
+	t.Helper()
+	if _, err := fs.Stat(fsys, counterPurgeMigration); err == nil {
+		return fsys
+	}
+	for _, name := range []string{scopeColumnsMigration, scopeKeyLenValidateMigration, counterPurgeMigration} {
+		if _, err := fs.Stat(fsys, name); err != nil {
+			fsys = withMigrationFrom(t, fsys, name)
+		}
+	}
+	return fsys
+}
 
 // counterPeriod is one seeded counter row: its scope and its period_end as an
 // interval from now() (NULL for a field-only or default-scope row).

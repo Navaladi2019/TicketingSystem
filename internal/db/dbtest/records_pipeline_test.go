@@ -127,9 +127,23 @@ func TestP309RecordNumberFixed(t *testing.T) {
 			"DELETE FROM records WHERE tenant_id = $1",
 			"DELETE FROM record_counters WHERE tenant_id = $1",
 		} {
-			_, err := execIn(conn, tenantA, q, tenantA)
+			n, err := execIn(conn, tenantA, q, tenantA)
+			// P6-10 (TICK-675, ADR-005 §4.3): nava_purge may DELETE from
+			// record_counters, but only through record_counters_purge, which
+			// matches only period rows more than 2 days past period_end. The
+			// pipeline's counter is default scope (period_end NULL), so the
+			// DELETE runs and reaches nothing.
+			if role == "nava_purge" && q == "DELETE FROM record_counters WHERE tenant_id = $1" {
+				if err != nil || n != 0 {
+					t.Errorf("%s: %s: %d rows, err %v; want 0 rows, no error", role, q, n, err)
+				}
+				continue
+			}
 			wantSQLState(t, role+": "+q, err, "42501")
 		}
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM record_counters WHERE tenant_id = '"+tenantA+"'"); got == "0" {
+		t.Error("record_counters lost tenant A's counter")
 	}
 	for _, role := range []string{"nava_app", "nava_worker"} {
 		conn := asRole(t, role)
