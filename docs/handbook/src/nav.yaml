@@ -29,7 +29,7 @@
     - page: tour/07-access-rules-and-masks.md
       label: "7. Access rules and masks"
     - page: tour/08-workflows.md
-      label: "8. Workflows"
+      label: "8. Workflows (not built)"
     - page: tour/09-create-and-work-with-records.md
       label: "9. Create and work with records"
     - page: tour/10-audit.md
@@ -205,7 +205,7 @@
           - page: adr/adr-004-e8.md
             label: "E8: the reader also reads the chain columns"
           - page: adr/adr-004-e9.md
-            label: "E9: a refused create with number_space_exhausted is audited"
+            label: "E9: the audit row for a number_space_exhausted refusal"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:
