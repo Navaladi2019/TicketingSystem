@@ -147,3 +147,23 @@ test("a non-JSON error body still throws NavaProblem", async () => {
   const h = harness([() => new Response("<html>bad gateway</html>", { status: 502 })]);
   await assert.rejects(h.client.records.get("incident", "a"), (e: unknown) => e instanceof NavaProblem && e.status === 502 && e.code === "unknown");
 });
+
+// TICK-828 review (PR #665): getToken must run before every request, not once per client.
+test("each request asks getToken again; the token is not kept between requests", async () => {
+  const h = harness([
+    () => json(200, { items: [rec("a")], next_cursor: "c1", total: 2 }),
+    () => json(200, { items: [rec("b")], next_cursor: null, total: 2 }),
+    () => json(200, rec("a")),
+  ]);
+  for await (const _ of h.client.records.list("incident")) { /* drain */ }
+  await h.client.records.get("incident", "a");
+  assert.equal(h.tokenCalls(), 3);
+  assert.deepEqual(h.calls.map((c) => c.headers.get("Authorization")), ["Bearer tok1", "Bearer tok2", "Bearer tok3"]);
+});
+
+// TICK-828 review (PR #665): the Nava-SDK header must carry the package version, so a version bump cannot leave it stale.
+test("SDK_VERSION equals the version in package.json", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  assert.equal(SDK_VERSION, pkg.version);
+});
