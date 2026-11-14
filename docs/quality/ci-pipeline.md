@@ -19,6 +19,19 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
+In GitHub, the `sdk` job (TICK-827, ADR-007 D10, RFC-017 CI-E10) runs the
+TypeScript SDK in `sdk/ts` on the Node pinned in `sdk/ts/.nvmrc`:
+`make check-sdk-generated` reruns the pinned openapi-typescript over
+`api/openapi.bundled.yaml` (the same commands as `task sdk:gen`) and fails when
+`sdk/ts/src/generated` differs or gains an untracked file, then `make sdk-lint`,
+`make sdk-test` and `make sdk-pack`, whose tarball is the `sdk` artifact
+(nothing is published, D-8-7). `make ci-sdk-changed`
+(`scripts/ci/sdk-changed.sh`) runs it only when `api/`, `sdk/`, `make/sdk.mk`,
+the script or `ci.yml` changed, with the same full-run, lint-only, push and
+story-branch rules as `temporal-server`; `full-suite` accepts a skipped `sdk`
+only when that step said `false`. Locally: `task sdk:gen`, `task sdk:test`,
+`task sdk:build`.
+
 In GitHub, the `temporal-server` job runs the module's tests, then
 `make lint-temporal-server`. Since TICK-641 it runs only when the module, or
 how it is built, tested or linted, changed (see "Published temporal-server
@@ -144,6 +157,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `lint`, `unit` | under 5 min | | | | 10 |
 | `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701) | | | | 15 (was 10) |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
+| `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
 
