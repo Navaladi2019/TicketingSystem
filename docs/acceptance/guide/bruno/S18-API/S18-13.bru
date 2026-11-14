@@ -1,0 +1,20 @@
+meta {
+  name: S18.13 List without a token: 401
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  Every route authenticates first.
+}

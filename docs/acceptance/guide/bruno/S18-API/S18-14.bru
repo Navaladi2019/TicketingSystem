@@ -1,0 +1,24 @@
+meta {
+  name: S18.14 Read the format: 200
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, current version 1', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.json().current_version).to.eql(1);
+  });
+  N.status(200);
+}

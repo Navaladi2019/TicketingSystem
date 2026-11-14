@@ -1,0 +1,36 @@
+meta {
+  name: S18.5 Create the same key again: 409
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-dup
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{s18_fmt}}",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}-{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_exists', 409);
+}
+
+docs {
+  A key is unique per tenant.
+}

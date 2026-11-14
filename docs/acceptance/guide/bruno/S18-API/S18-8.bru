@@ -1,0 +1,31 @@
+meta {
+  name: S18.8 Create without a token: 401
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: tick672-{{s18_run}}-anon
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{s18_fmt}}_a",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}-{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

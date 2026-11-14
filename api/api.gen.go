@@ -375,6 +375,9 @@ type ChainReseed struct {
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
 type CreateEntityTypeRequest = json.RawMessage
 
+// CreateNumberFormatRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+type CreateNumberFormatRequest = json.RawMessage
+
 // CreateRecordRequest Deliberately unconstrained here: the server resolves the entity type first (404), then reads `{data}` and answers 422 `record_invalid`.
 type CreateRecordRequest = json.RawMessage
 
@@ -460,6 +463,43 @@ type Me struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
+// NumberFormatList defines model for NumberFormatList.
+type NumberFormatList struct {
+	Items []NumberFormatSummary `json:"items"`
+
+	// NextCursor Present when more formats follow; pass it as `cursor`.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// NumberFormatSummary defines model for NumberFormatSummary.
+type NumberFormatSummary struct {
+	CreatedAt      time.Time          `json:"created_at"`
+	CurrentVersion int                `json:"current_version"`
+	Id             openapi_types.UUID `json:"id"`
+	Key            string             `json:"key"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
+// NumberFormatVersion defines model for NumberFormatVersion.
+type NumberFormatVersion struct {
+	// Compiled The compiled form (numbering.Compiled) the publish stored.
+	Compiled map[string]interface{} `json:"compiled"`
+
+	// CompiledSha256 Lowercase hex SHA-256 of the compiled template.
+	CompiledSha256 string             `json:"compiled_sha256"`
+	CreatedAt      time.Time          `json:"created_at"`
+	CreatedBy      openapi_types.UUID `json:"created_by"`
+
+	// CurrentVersion The newest version of the format.
+	CurrentVersion int `json:"current_version"`
+
+	// Document The format as published.
+	Document map[string]interface{} `json:"document"`
+	Id       openapi_types.UUID     `json:"id"`
+	Key      string                 `json:"key"`
+	Version  int                    `json:"version"`
+}
+
 // OnboardIdP defines model for OnboardIdP.
 type OnboardIdP struct {
 	// Config Provider settings (endpoints, client id and secret). URLs must be https and resolve to public hosts. validateSignature and syncMode are set by the platform whatever is sent.
@@ -526,6 +566,9 @@ type ProblemNoInstance struct {
 // PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
 type PublishEntityTypeVersionRequest = json.RawMessage
 
+// PublishNumberFormatRequest Deliberately unconstrained here, like CreateNumberFormatRequest.
+type PublishNumberFormatRequest = json.RawMessage
+
 // PutAccessPolicyRequest Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
 type PutAccessPolicyRequest = json.RawMessage
 
@@ -591,6 +634,9 @@ type RecordList struct {
 
 // Entity defines model for Entity.
 type Entity = string
+
+// FormatId defines model for FormatId.
+type FormatId = string
 
 // Key defines model for Key.
 type Key = string
@@ -684,6 +730,29 @@ type PublishEntityTypeVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// ListNumberFormatsParams defines parameters for ListNumberFormats.
+type ListNumberFormatsParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateNumberFormatParams defines parameters for CreateNumberFormat.
+type CreateNumberFormatParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// GetNumberFormatParams defines parameters for GetNumberFormat.
+type GetNumberFormatParams struct {
+	Version *int `form:"version,omitempty" json:"version,omitempty"`
+}
+
+// PublishNumberFormatVersionParams defines parameters for PublishNumberFormatVersion.
+type PublishNumberFormatVersionParams struct {
+	// IfMatch The `ETag` of the version the publish is based on. Optional in the contract only so that its absence is the registered 428.
+	IfMatch        *string `json:"If-Match,omitempty"`
+	IdempotencyKey string  `json:"Idempotency-Key"`
+}
+
 // OnboardTenantParams defines parameters for OnboardTenant.
 type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -722,6 +791,12 @@ type PutEntityTypeAccessJSONRequestBody = PutAccessPolicyRequest
 
 // PublishEntityTypeVersionJSONRequestBody defines body for PublishEntityTypeVersion for application/json ContentType.
 type PublishEntityTypeVersionJSONRequestBody = PublishEntityTypeVersionRequest
+
+// CreateNumberFormatJSONRequestBody defines body for CreateNumberFormat for application/json ContentType.
+type CreateNumberFormatJSONRequestBody = CreateNumberFormatRequest
+
+// PublishNumberFormatVersionJSONRequestBody defines body for PublishNumberFormatVersion for application/json ContentType.
+type PublishNumberFormatVersionJSONRequestBody = PublishNumberFormatRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
@@ -770,6 +845,18 @@ type ServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListNumberFormats List the tenant's number formats
+	// (GET /api/v1/number-formats)
+	ListNumberFormats(w http.ResponseWriter, r *http.Request, params ListNumberFormatsParams)
+	// CreateNumberFormat Create a number format (tenant admin)
+	// (POST /api/v1/number-formats)
+	CreateNumberFormat(w http.ResponseWriter, r *http.Request, params CreateNumberFormatParams)
+	// GetNumberFormat A number format, current or at a version
+	// (GET /api/v1/number-formats/{id})
+	GetNumberFormat(w http.ResponseWriter, r *http.Request, id FormatId, params GetNumberFormatParams)
+	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
+	// (PUT /api/v1/number-formats/{id})
+	PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request, id FormatId, params PublishNumberFormatVersionParams)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
@@ -1483,6 +1570,212 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// ListNumberFormats operation middleware
+func (siw *ServerInterfaceWrapper) ListNumberFormats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNumberFormatsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNumberFormats(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNumberFormat operation middleware
+func (siw *ServerInterfaceWrapper) CreateNumberFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateNumberFormatParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNumberFormat(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetNumberFormat operation middleware
+func (siw *ServerInterfaceWrapper) GetNumberFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetNumberFormatParams
+
+	// ------------- Optional query parameter "version" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "version", r.URL.Query(), &params.Version, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "version"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNumberFormat(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishNumberFormatVersion operation middleware
+func (siw *ServerInterfaceWrapper) PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishNumberFormatVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishNumberFormatVersion(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // OnboardTenant operation middleware
 func (siw *ServerInterfaceWrapper) OnboardTenant(w http.ResponseWriter, r *http.Request) {
 
@@ -1960,6 +2253,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.GetEntityTypeAccess)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.PutEntityTypeAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats", wrapper.ListNumberFormats)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats", wrapper.CreateNumberFormat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.GetNumberFormat)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.PublishNumberFormatVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries:export", wrapper.ExportAuditEntries)
@@ -3489,6 +3786,548 @@ func (response GetMe501ApplicationProblemPlusJSONResponse) VisitGetMeResponse(w 
 	return err
 }
 
+type ListNumberFormatsRequestObject struct {
+	Params ListNumberFormatsParams
+}
+
+type ListNumberFormatsResponseObject interface {
+	VisitListNumberFormatsResponse(w http.ResponseWriter) error
+}
+
+type ListNumberFormats200JSONResponse NumberFormatList
+
+func (response ListNumberFormats200JSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListNumberFormats400ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats401ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats429ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats500ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats501ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormatRequestObject struct {
+	Params CreateNumberFormatParams
+	Body   *CreateNumberFormatJSONRequestBody
+}
+
+type CreateNumberFormatResponseObject interface {
+	VisitCreateNumberFormatResponse(w http.ResponseWriter) error
+}
+
+type CreateNumberFormat201ResponseHeaders struct {
+	ETag string
+}
+
+type CreateNumberFormat201JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers CreateNumberFormat201ResponseHeaders
+}
+
+func (response CreateNumberFormat201JSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateNumberFormat400ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat401ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat403ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat409ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat422ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat422ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat429ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat429ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat500ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat500ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat501ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat501ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormatRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params GetNumberFormatParams
+}
+
+type GetNumberFormatResponseObject interface {
+	VisitGetNumberFormatResponse(w http.ResponseWriter) error
+}
+
+type GetNumberFormat200ResponseHeaders struct {
+	ETag string
+}
+
+type GetNumberFormat200JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers GetNumberFormat200ResponseHeaders
+}
+
+func (response GetNumberFormat200JSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetNumberFormat400ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat401ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetNumberFormat404ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat429ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat500ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat501ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersionRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params PublishNumberFormatVersionParams
+	Body   *PublishNumberFormatVersionJSONRequestBody
+}
+
+type PublishNumberFormatVersionResponseObject interface {
+	VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error
+}
+
+type PublishNumberFormatVersion200ResponseHeaders struct {
+	ETag string
+}
+
+type PublishNumberFormatVersion200JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers PublishNumberFormatVersion200ResponseHeaders
+}
+
+func (response PublishNumberFormatVersion200JSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PublishNumberFormatVersion400ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion401ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion401ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion403ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion403ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response PublishNumberFormatVersion404ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion412ResponseHeaders struct {
+	ETag string
+}
+
+type PublishNumberFormatVersion412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PublishNumberFormatVersion412ResponseHeaders
+}
+
+func (response PublishNumberFormatVersion412ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion422ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion422ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion428ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion428ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion429ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion429ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion500ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion500ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OnboardTenantRequestObject struct {
 	Params OnboardTenantParams
 	Body   *OnboardTenantJSONRequestBody
@@ -4445,6 +5284,18 @@ type StrictServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ListNumberFormats List the tenant's number formats
+	// (GET /api/v1/number-formats)
+	ListNumberFormats(ctx context.Context, request ListNumberFormatsRequestObject) (ListNumberFormatsResponseObject, error)
+	// CreateNumberFormat Create a number format (tenant admin)
+	// (POST /api/v1/number-formats)
+	CreateNumberFormat(ctx context.Context, request CreateNumberFormatRequestObject) (CreateNumberFormatResponseObject, error)
+	// GetNumberFormat A number format, current or at a version
+	// (GET /api/v1/number-formats/{id})
+	GetNumberFormat(ctx context.Context, request GetNumberFormatRequestObject) (GetNumberFormatResponseObject, error)
+	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
+	// (PUT /api/v1/number-formats/{id})
+	PublishNumberFormatVersion(ctx context.Context, request PublishNumberFormatVersionRequestObject) (PublishNumberFormatVersionResponseObject, error)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
@@ -4831,6 +5682,126 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeResponseObject); ok {
 		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListNumberFormats operation middleware
+func (sh *strictHandler) ListNumberFormats(w http.ResponseWriter, r *http.Request, params ListNumberFormatsParams) {
+	var request ListNumberFormatsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListNumberFormats(ctx, request.(ListNumberFormatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListNumberFormats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListNumberFormatsResponseObject); ok {
+		if err := validResponse.VisitListNumberFormatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNumberFormat operation middleware
+func (sh *strictHandler) CreateNumberFormat(w http.ResponseWriter, r *http.Request, params CreateNumberFormatParams) {
+	var request CreateNumberFormatRequestObject
+
+	request.Params = params
+
+	var body CreateNumberFormatJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNumberFormat(ctx, request.(CreateNumberFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNumberFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNumberFormatResponseObject); ok {
+		if err := validResponse.VisitCreateNumberFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetNumberFormat operation middleware
+func (sh *strictHandler) GetNumberFormat(w http.ResponseWriter, r *http.Request, id FormatId, params GetNumberFormatParams) {
+	var request GetNumberFormatRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNumberFormat(ctx, request.(GetNumberFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNumberFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNumberFormatResponseObject); ok {
+		if err := validResponse.VisitGetNumberFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishNumberFormatVersion operation middleware
+func (sh *strictHandler) PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request, id FormatId, params PublishNumberFormatVersionParams) {
+	var request PublishNumberFormatVersionRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body PublishNumberFormatVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishNumberFormatVersion(ctx, request.(PublishNumberFormatVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishNumberFormatVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishNumberFormatVersionResponseObject); ok {
+		if err := validResponse.VisitPublishNumberFormatVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

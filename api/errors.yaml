@@ -144,3 +144,19 @@ codes:
     status: 409
     title: Audit chain is alive
     detail: The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.
+  - code: number_format_exists
+    status: 409
+    title: Number format exists
+    detail: A number format with this key already exists in the tenant.
+  - code: number_format_prefix_required
+    status: 422
+    title: Number format must start with the prefix
+    detail: The template must start with {prefix}, and the token after it must not produce letters. See errors for the field and position.
+  - code: number_format_invalid
+    status: 422
+    title: Invalid number format
+    detail: The number format is not accepted. Nothing was published. See errors for the field and position.
+  - code: numbering_templates_unavailable
+    status: 422
+    title: Numbering templates unavailable
+    detail: Only the default number format can be published until the record counter key has been migrated. Retry once the migration has run.

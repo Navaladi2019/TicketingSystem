@@ -1,0 +1,315 @@
+# Path group /api/v1/number-formats (TICK-672, P6-07; ADR-005 §3.2, §4.2).
+# Shared schemas (Problem) are in ../openapi.yaml.
+paths:
+  /api/v1/number-formats:
+    get:
+      operationId: listNumberFormats
+      summary: List the tenant's number formats
+      description: >
+        Any user of the tenant. Ordered by key, cursor-paged. `limit` defaults
+        to 50 and is at most 200.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of number formats.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatList"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+    post:
+      operationId: createNumberFormat
+      summary: Create a number format (tenant admin)
+      description: >
+        Creates the format and its version 1. Tenant admins only (the right
+        that publishes an entity definition); the check runs before the body
+        is read any further than as well-formed JSON. The body is `{key,
+        document: {template, overflow, time_zone?}}`: `key` matches
+        `^[a-z][a-z0-9_]{1,40}$` and is unique per tenant (409
+        `number_format_exists`), and `document` is validated against the
+        number-format JSON Schema and then compiled. A template that does not
+        start with `{prefix}` or whose next token produces letters answers 422
+        `number_format_prefix_required`; any other refusal of the compiler
+        answers 422 `number_format_invalid`; both carry `errors[].pointer`
+        and, when the error is at a position of the template, the rule
+        `position:<0-based byte offset>`. A format that compiles to anything
+        but the default (`{prefix}{seq:7}`, grow) answers 422
+        `numbering_templates_unavailable` until the counter key has been
+        migrated (M3). The check reads the catalog and is cached per process
+        for 60 seconds. A refused request writes no row and no audit entry.
+        The create writes one audit entry (`subject_type` `number_format`) in
+        the same transaction; actor and source come from the token, never the
+        request. The tenant comes from the token only. `Idempotency-Key` is
+        required.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNumberFormatRequest"
+      responses:
+        "201":
+          description: The format exists, at version 1.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/number-formats/{id}:
+    get:
+      operationId: getNumberFormat
+      summary: A number format, current or at a version
+      description: >
+        Any user of the tenant. Without `version` it is the current version.
+        An unknown id, another tenant's id, a malformed id and a missing
+        version give the same 404, byte for byte, with no `instance`.
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the format's current version, `W/"<current>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+    put:
+      operationId: publishNumberFormatVersion
+      summary: Publish the next version of a number format (tenant admin)
+      description: >
+        Publishes immutable version N+1 from the body `{document}` and makes
+        it current. Tenant admins only, own tenant only. `If-Match` carries
+        the `ETag` the publish is based on (`W/"<current version>"`). Check
+        order: authentication, admin (403), the format (404), `If-Match`
+        missing (428 `if_match_required`), stale (412 `version_conflict`,
+        current `ETag` in the header), then the body (422, as for create,
+        including `numbering_templates_unavailable`). A refused request writes
+        no version and no audit entry. The publish writes one audit entry in
+        the same transaction. `Idempotency-Key` is required.
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: If-Match
+          in: header
+          required: false
+          description: >
+            The `ETag` of the version the publish is based on. Optional in the
+            contract only so that its absence is the registered 428.
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishNumberFormatRequest"
+      responses:
+        "200":
+          description: The published version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "412":
+          description: The `If-Match` version is not the newest; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "428":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+components:
+  parameters:
+    FormatId:
+      name: id
+      in: path
+      required: true
+      description: The number format id. A value that is not a UUID is a 404.
+      schema:
+        type: string
+  schemas:
+    CreateNumberFormatRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server checks every field after
+        the admin check and answers 422 with `errors[].pointer`. Kept as the
+        request bytes (`json.RawMessage`).
+      x-go-type: json.RawMessage
+      properties:
+        key:
+          description: "`^[a-z][a-z0-9_]{1,40}$`, unique per tenant."
+        document:
+          description: "`{template, overflow, time_zone?}`, see the number-format schema."
+    PublishNumberFormatRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here, like CreateNumberFormatRequest.
+      x-go-type: json.RawMessage
+      properties:
+        document:
+          description: "`{template, overflow, time_zone?}`, see the number-format schema."
+    NumberFormatVersion:
+      type: object
+      required: [id, key, version, current_version, document, compiled, compiled_sha256, created_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        version:
+          type: integer
+        current_version:
+          type: integer
+          description: The newest version of the format.
+        document:
+          type: object
+          description: The format as published.
+        compiled:
+          type: object
+          description: The compiled form (numbering.Compiled) the publish stored.
+        compiled_sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the compiled template.
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+    NumberFormatSummary:
+      type: object
+      required: [id, key, current_version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        current_version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NumberFormatList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberFormatSummary"
+        next_cursor:
+          type: string
+          description: Present when more formats follow; pass it as `cursor`.

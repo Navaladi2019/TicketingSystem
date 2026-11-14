@@ -26,6 +26,10 @@ paths:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions~1{n}"
   /api/v1/entity-types/{key}/access:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1access"
+  /api/v1/number-formats:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats"
+  /api/v1/number-formats/{id}:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats~1{id}"
   /api/v1/access/explain:
     $ref: "paths/access.yaml#/paths/~1api~1v1~1access~1explain"
   /api/v1/audit/entries:

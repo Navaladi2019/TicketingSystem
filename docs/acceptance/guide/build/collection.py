@@ -259,7 +259,7 @@ test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{{{key
 """)
 
 
-def problem_req(name, method, url, code, status, *, desc, auth=None, headers=None, body=None, extra="", pre=""):
+def problem_req(name, method, url, code, status, *, desc="", auth=None, headers=None, body=None, extra="", pre=""):
     return req(name, method, url, desc=desc, auth=auth, headers=headers, body=body, pre=pre,
                tests=f"N.problem('{code}', {status});\n{extra}")
 
@@ -3309,7 +3309,112 @@ test('version 1, the text of S17.6', () => {
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S18
+# Number-format admin API (TICK-672, P6-07, ADR-005 §3.2, §4.2): create a
+# format, publish a version, list, read. The story kit (TICK-677) extends this
+# folder; these requests assert every documented status of the four operations.
+def s18_api():
+    nf = "{{core_url}}/api/v1/number-formats"
+    one = nf + "/{{s18_id}}"
+    key = lambda k: {"Idempotency-Key": "tick672-{{s18_run}}-" + k}
+    ok_doc = {"template": "{prefix}-{yyyy}{MM}-{seq:4}", "overflow": "grow"}
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+    return {
+        "dir": "S18-API", "name": "S18 number-format API",
+        "desc": "TICK-672 (P6-07, ADR-005 §3.2, §4.2): the tenant-admin number-format routes. Needs the stack with M3 applied, so a non-default format is accepted. Each request asserts one documented status. Formats are keyed per run, so the folder can run again.",
+        "items": [
+            token("S18.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s18_run', Math.random().toString(16).slice(2, 10));\nbru.setVar('s18_fmt', 'nf_' + bru.getVar('s18_run'));"),
+            token("S18.2 Sign in as Alice (not an admin)", "alice_username", "alice_password", "alice_token"),
+            token("S18.3 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S18.4 Create a format: 201, version 1", "POST", nf, auth="admin_a_token", headers=key("create"),
+                body={"key": "{{s18_fmt}}", "document": ok_doc},
+                desc="`{key, document}`. The document is validated and compiled; the reply has the stored document, the compiled form and its SHA-256.",
+                tests="""
+test('HTTP 201, ETag W/"1", version 1', () => {
+  expect(res.getStatus()).to.eql(201);
+  expect(N.header('ETag')).to.eql('W/"1"');
+  expect(N.json().version).to.eql(1);
+  expect(N.json().key).to.eql(bru.getVar('s18_fmt'));
+  expect(N.json().compiled_sha256).to.match(/^[0-9a-f]{64}$/);
+});
+bru.setVar('s18_id', N.json().id);
+N.status(201);"""),
+            problem_req("S18.5 Create the same key again: 409", "POST", nf, "number_format_exists", 409, auth="admin_a_token", headers=key("dup"),
+                        body={"key": "{{s18_fmt}}", "document": ok_doc}, desc="A key is unique per tenant."),
+            problem_req("S18.6 A template that does not start with {prefix}: 422", "POST", nf, "number_format_prefix_required", 422,
+                        auth="admin_a_token", headers=key("nopfx"),
+                        body={"key": "{{s18_fmt}}_p", "document": {"template": "X{prefix}{seq:4}", "overflow": "grow"}},
+                        desc="`errors[].pointer` is `/document/template`, the rule `position:0`.",
+                        extra="test('names the position', () => expect(N.json().errors[0].rule).to.eql('position:0'));"),
+            problem_req("S18.7 A template with no {seq:N}: 422", "POST", nf, "number_format_invalid", 422,
+                        auth="admin_a_token", headers=key("noseq"),
+                        body={"key": "{{s18_fmt}}_s", "document": {"template": "{prefix}-{yyyy}", "overflow": "grow"}}),
+            problem_req("S18.8 Create without a token: 401", "POST", nf, "invalid_token", 401, headers=key("anon"),
+                        body={"key": "{{s18_fmt}}_a", "document": ok_doc}),
+            problem_req("S18.9 Alice (not an admin) creates: 403", "POST", nf, "forbidden", 403, auth="alice_token", headers=key("alice"),
+                        body={"key": "{{s18_fmt}}_b", "document": ok_doc}, desc="The admin check runs first."),
+            problem_req("S18.10 Create without an Idempotency-Key: 400", "POST", nf, "validation_failed", 400, auth="admin_a_token",
+                        body={"key": "{{s18_fmt}}_c", "document": ok_doc}),
+            req("S18.11 List the formats: 200", "GET", nf, auth="alice_token",
+                desc="Any user of the tenant. Ordered by key.",
+                tests="""
+test('HTTP 200, the format of S18.4 is listed', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().items.map((i) => i.id)).to.include(bru.getVar('s18_id'));
+});
+N.status(200);"""),
+            problem_req("S18.12 List with limit=0: 400", "GET", nf + "?limit=0", "validation_failed", 400, auth="alice_token", desc="`limit` is 1 to 200."),
+            problem_req("S18.13 List without a token: 401", "GET", nf, "invalid_token", 401, desc="Every route authenticates first."),
+            req("S18.14 Read the format: 200", "GET", one, auth="alice_token",
+                tests="""
+test('HTTP 200, current version 1', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().current_version).to.eql(1);
+});
+N.status(200);"""),
+            problem_req("S18.15 Read with version=0: 400", "GET", one + "?version=0", "validation_failed", 400, auth="alice_token", desc="`version` is at least 1."),
+            problem_req("S18.16 Read without a token: 401", "GET", one, "invalid_token", 401, desc="Every route authenticates first."),
+            req("S18.17 Bob reads tenant A's format: 404", "GET", one, auth="bob_token",
+                desc="The same 404 as an unknown id, byte for byte, with no `instance`.", tests=no404),
+            problem_req("S18.18 Publish without If-Match: 428", "PUT", one, "if_match_required", 428, auth="admin_a_token", headers=key("p428"),
+                        body={"document": ok_doc}),
+            problem_req("S18.19 Publish on a stale If-Match: 412", "PUT", one, "version_conflict", 412, auth="admin_a_token",
+                        headers={**key("p412"), "If-Match": 'W/"9"'}, body={"document": ok_doc},
+                        desc="The current `ETag` is in the response header."),
+            problem_req("S18.20 Publish an invalid document: 422", "PUT", one, "number_format_invalid", 422, auth="admin_a_token",
+                        headers={**key("p422"), "If-Match": 'W/"1"'}, body={"document": {"template": "{prefix}", "overflow": "grow"}},
+                        desc="A template with no `{seq:N}`."),
+            req("S18.21 Publish version 2: 200", "PUT", one, auth="admin_a_token", headers={**key("p200"), "If-Match": 'W/"1"'},
+                body={"document": {"template": "{prefix}-{yy}{MM}-{seq:5}", "overflow": "refuse"}},
+                tests="""
+test('HTTP 200, ETag W/"2", version 2 is current', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.header('ETag')).to.eql('W/"2"');
+  expect(N.json().version).to.eql(2);
+  expect(N.json().current_version).to.eql(2);
+});
+N.status(200);"""),
+            problem_req("S18.22 Publish without a token: 401", "PUT", one, "invalid_token", 401, headers={**key("p401"), "If-Match": 'W/"2"'},
+                        body={"document": ok_doc}),
+            problem_req("S18.23 Alice publishes: 403", "PUT", one, "forbidden", 403, auth="alice_token", headers={**key("p403"), "If-Match": 'W/"2"'},
+                        body={"document": ok_doc}, desc="The admin check runs first."),
+            req("S18.24 Publish an unknown id: 404", "PUT", nf + "/00000000-0000-4000-8000-00000000ffff", auth="admin_a_token",
+                headers={**key("p404"), "If-Match": 'W/"1"'}, body={"document": ok_doc}, tests=no404),
+            problem_req("S18.25 Publish without an Idempotency-Key: 400", "PUT", one, "validation_failed", 400, auth="admin_a_token",
+                        headers={"If-Match": 'W/"2"'}, body={"document": ok_doc}),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

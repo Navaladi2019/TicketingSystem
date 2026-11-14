@@ -1,0 +1,24 @@
+meta {
+  name: S18.15 Read with version=0: 400
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}?version=0
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  `version` is at least 1.
+}

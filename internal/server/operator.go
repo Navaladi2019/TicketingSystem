@@ -15,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -70,11 +71,17 @@ type options struct {
 	auditPool *read.Pool
 	// allocPool is the record pipeline's TxRunner pool (WithAllocatorPool).
 	allocPool *pgxpool.Pool
+	// nfGate overrides the number-format publish gate; set by tests only.
+	nfGate *numberformats.Gate
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
 // writes also need it for the Idempotency-Key store.
 func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
+
+// WithNumberFormatGate replaces the number-format publish gate (default: the
+// catalog probe, cached 60 s). Tests inject a probe and a clock.
+func WithNumberFormatGate(g *numberformats.Gate) Option { return func(o *options) { o.nfGate = g } }
 
 // WithAllocatorPool gives the record pipeline's own transactions (a create's
 // number, D-3-9 as amended 2026-11-10; the cascade_rejected audit row) a
