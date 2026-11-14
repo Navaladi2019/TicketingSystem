@@ -236,6 +236,10 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	var v *entitytypes.Version
 	var modeOnly bool
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		// TODO(TODO-S18-01): a definition publish of req.Key (a link, a bump
+		// of the pinned format version, an unpin, a mode change) must pass the
+		// same per-type right as "re-publish linked types" (canPublishType,
+		// ADR-005 §3.7 C11 (5)); today it checks the tenant-admin right only.
 		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
 			return err
 		}
