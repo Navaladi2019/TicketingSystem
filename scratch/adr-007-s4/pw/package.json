@@ -1,0 +1,1 @@
+{ "name": "adr-007-s4-pw", "private": true, "version": "0.0.0", "dependencies": { "playwright": "1.56.1" } }
