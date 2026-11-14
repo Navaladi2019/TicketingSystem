@@ -1,0 +1,7 @@
+Unable to find image 'alpine:3' locally
+3: Pulling from library/alpine
+881fc932939e: Already exists
+Digest: sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+Status: Downloaded newer image for alpine:3
+concurrency=1 n=20000 p50=973.473µs p95=1.457022ms p99=2.025541ms max=5.339705ms
+concurrency=8 n=20000 p50=2.453871ms p95=3.421636ms p99=4.370221ms max=71.175735ms
