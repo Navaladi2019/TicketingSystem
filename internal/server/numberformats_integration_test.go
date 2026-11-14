@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func TestNumberFormatCreateGetList(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Key != "monthly" || v.Version != 1 || v.CurrentVersion != 1 || len(v.CompiledSHA256) != 64 || v.Compiled["Head"] != "{prefix}-" || v.CreatedBy != e.a.admin.PrincipalID {
+	if v.Key != "monthly" || v.Version != 1 || v.CurrentVersion != 1 || len(v.CompiledSHA256) != 64 || v.Compiled["Head"] != "{prefix}-{yyyy}{MM}-" || v.Compiled["Width"] != float64(4) || !reflect.DeepEqual(v.Compiled["ScopeParts"], []any{"{yyyy}", "{MM}"}) || v.CreatedBy != e.a.admin.PrincipalID {
 		t.Errorf("body = %+v", v)
 	}
 	// Audit: one config entry, actor and source from the token.
