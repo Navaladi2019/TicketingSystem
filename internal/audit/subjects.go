@@ -18,6 +18,7 @@ const (
 	SubjectEntityDefinition = subjects.EntityDefinition
 	SubjectACLPolicy        = subjects.ACLPolicy
 	SubjectNumberFormat     = subjects.NumberFormat
+	SubjectTenantSetting    = subjects.TenantSetting
 	SubjectAuditExport      = subjects.AuditExport
 	SubjectAuditChain       = subjects.AuditChain
 	SubjectErasureRequest   = subjects.ErasureRequest

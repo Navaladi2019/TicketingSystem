@@ -35,6 +35,12 @@ const (
 	// P6-06, ADR-005 §3.7 C12; domain config): subject_id is the format id,
 	// version_before and version_after are format versions.
 	NumberFormat Type = "number_format"
+	// TenantSetting is a tenant-level setting such as tenants.time_zone
+	// (S18, TICK-854, ADR-005 §3.6; domain config): subject_id is the tenant
+	// id, version_before and version_after are NULL (settings are not
+	// versioned), and content_sha256 is the SHA-256 of the after document,
+	// e.g. {"time_zone": "Asia/Kolkata"} (R3).
+	TenantSetting Type = "tenant_setting"
 	// AuditExport is one export of the log (R19; domain audit).
 	AuditExport Type = "audit_export"
 	// AuditChain is a tenant's chain head, the subject of chain:reseed (R17;
@@ -53,6 +59,7 @@ func All() []Type {
 		EntityDefinition,
 		ACLPolicy,
 		NumberFormat,
+		TenantSetting,
 		AuditExport,
 		AuditChain,
 		ErasureRequest,
