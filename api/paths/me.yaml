@@ -8,7 +8,7 @@ paths:
       description: The caller as the access token resolved it (T17). The tenant comes only from the token's organization binding; a tenant named in a header, the query or the body is ignored.
       responses:
         "200":
-          description: The caller.
+          description: The caller (TICK-827 CI-E10 probe).
           content:
             application/json:
               schema:
