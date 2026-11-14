@@ -152,6 +152,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-definitions/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The current version of a workflow definition (tenant admin)
+         * @description Tenant admins only. `body` is the stored bytes of the published definition, exactly as sent, and `body_sha256` is their SHA-256 in lowercase hex. `step_ids` maps each step key, and `signal:<name>` for each wait_signal name, to the id assigned at publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`.
+         */
+        get: operations["getWorkflowDefinition"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-definitions/{key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the next version of a workflow definition (tenant admin)
+         * @description Publishes immutable version N+1 and makes it current; the first publish of a key creates the definition as version 1. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is a workflow definition in format `nava.workflow/v1`, stored as the exact request bytes. A client never supplies a step or signal id: the server assigns them, keeps the id of every key the previous version had and draws a new one for each new key. A body that is not a valid definition, that supplies an id, names a trigger entity the tenant lacks, or sets a field the trigger entity's current schema lacks answers 422 `workflow_definition_invalid`, with `errors[].pointer` naming the step by its key and no value echoed. Publishes to one key are serialized, so versions number 1, 2, 3 with no gap or duplicate. A key of another tenant is not visible: the tenant publishes its own definition. `Idempotency-Key` is required.
+         */
+        post: operations["publishWorkflowDefinitionVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/access/explain": {
         parameters: {
             query?: never;
@@ -601,6 +641,28 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description A workflow definition, format `nava.workflow/v1`. Deliberately unconstrained here: the server checks every field after the admin check, and keeps the request bytes so the body is stored byte for byte. */
+        PublishWorkflowDefinitionRequest: Record<string, never>;
+        WorkflowDefinitionVersion: {
+            key: string;
+            /** @description The key of the trigger entity type. */
+            entity: string;
+            version: number;
+            current: boolean;
+            /**
+             * Format: uuid
+             * @description The id a workflow is pinned to.
+             */
+            version_id: string;
+            /** @description The published definition, the stored bytes. */
+            body: Record<string, never>;
+            body_sha256: string;
+            step_ids: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            published_at: string;
+        };
     };
     responses: {
         /** @description An RFC 9457 problem. */
@@ -627,6 +689,8 @@ export interface components {
         Key: string;
         /** @description The entity type key. Its shape is not checked here, a key that cannot exist is a 404. */
         Entity: string;
+        /** @description The definition key, `^[a-z][a-z0-9_]{1,40}$`. A malformed key cannot exist: a read answers 404, a publish 422. */
+        WorkflowDefinitionKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -937,6 +1001,72 @@ export interface operations {
             };
             422: components["responses"]["Problem"];
             428: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+        };
+    };
+    getWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The definition key, `^[a-z][a-z0-9_]{1,40}$`. A malformed key cannot exist: a read answers 404, a publish 422. */
+                key: components["parameters"]["WorkflowDefinitionKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionVersion"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["ProblemNoInstance"];
+            429: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+        };
+    };
+    publishWorkflowDefinitionVersion: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description The definition key, `^[a-z][a-z0-9_]{1,40}$`. A malformed key cannot exist: a read answers 404, a publish 422. */
+                key: components["parameters"]["WorkflowDefinitionKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description The new version, now current. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionVersion"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
             501: components["responses"]["Problem"];
