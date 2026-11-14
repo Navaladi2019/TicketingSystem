@@ -2,39 +2,45 @@
 title: "Workflow interpreter (nava.interpreter)"
 section: workflows
 status: delivered
-build: interptest
+build: production
 workflows: [nava.interpreter]
 activities: [nava.interpreter.NextStep, nava.interpreter.ApplyStep, nava.workflow_ref.Close]
 adrs: [ADR-001, ADR-001-A5, ADR-003]
 invariants: [I2, I6, I7, I9]
-tables: [outbox, workflow_ref, cascade_start, records]
-packages: [internal/workflow/interp, internal/workflow/testdata/histories, cmd/nava-worker]
+tables: [outbox, workflow_ref, workflow_cause, workflow_definitions, workflow_definition_versions, cascade_start, records]
+packages: [internal/workflow/interp, internal/workflow/recordports, internal/workflowdefs, internal/workflow/testdata/histories, cmd/nava-worker]
 sources:
   - docs/architecture/workflow-interpreter.md
   - docs/architecture/workflow-definition.md
+  - docs/architecture/event-sink.md
   - docs/adr/ADR-003-retiring-recorded-histories.md
   - internal/outbox/outbox.go:105
   - internal/outbox/outbox.go:204
-  - internal/workflow/interp/interp.go:36,40-43,49
+  - internal/workflow/interp/interp.go:38,42-45,51
   - internal/workflow/interp/workflow.go:20
   - internal/workflow/interp/workflow.go:27-42
   - internal/workflow/interp/workflow.go:45-47
   - internal/workflow/interp/workflow.go:52-55
-  - internal/workflow/interp/workflow.go:101-160
-  - internal/workflow/interp/workflow.go:184-232
-  - internal/workflow/interp/workflow.go:245-266
+  - internal/workflow/interp/workflow.go:105-170
+  - internal/workflow/interp/workflow.go:194-243
+  - internal/workflow/interp/workflow.go:255-276
   - internal/workerguard/directive.go:41,49,76-77
   - internal/workerguard/dedupe.go:13,31
   - internal/workerguard/workflowref.go:105-110
   - internal/workflow/testdata/retired-histories.json
   - cmd/nava-worker/interp.go:14-20
-  - cmd/nava-worker/interp_default.go:15-17
-  - cmd/nava-worker/main.go:203
+  - cmd/nava-worker/interp_default.go:19-24
+  - cmd/nava-worker/interp_ports.go:29-41
+  - cmd/nava-worker/main.go:236
   - scripts/ci/workflowcheck.sh:13
 tests:
-  - TestProductionBuildRegistersNoInterpreter
+  - TestProductionBuildWiresTheDatabasePorts
+  - TestProductionBuildInterpreterNeedsAPool
+  - TestProductionBuildWithWorkflowsOffRegistersNoInterpreter
   - TestProductionBuildLinksNoFakes
   - TestInterptestBuildWiresTheFakes
+  - TestInterptestBuildProductionPorts
+  - TestInterpreterCrashRealPipelineAppliesOnce
   - TestRegisterInterpreter
   - TestStartInputRefused
   - TestRunRefsRefused
@@ -72,15 +78,19 @@ tests:
   - TestReplayGetVersionKeepsHistoriesGreen
 ---
 
-Registered only in the `interptest` build; not running in the stack.
+Registered in the production build and running in the stack since S11b. `interpreterActivities` (`cmd/nava-worker/interp_default.go:19-24`) returns `productionActivities` (`cmd/nava-worker/interp_ports.go:29-41`):
 
-In a production build `interpreterActivities` returns nil (`cmd/nava-worker/interp_default.go:15-17`), because the interpreter's real definition store, record reader and record writer do not exist yet (P3-41, P3-43, `TODO-TICK-367-01`). `registerInterpreter` then registers nothing (`cmd/nava-worker/interp.go:14-20`), and the worker runs only `audit.seal`. The `interptest` build wires file-backed fakes. Proof: `TestProductionBuildRegistersNoInterpreter`, `TestProductionBuildLinksNoFakes`, `TestInterptestBuildWiresTheFakes`.
+- the definition store is `workflowdefs.Reader`, which reads published versions from `workflow_definition_versions` (P3-41);
+- the record reader and writer are `recordports`. The writer writes through the records pipeline as `source=workflow`, with its `TxRunner` on a separate pipeline pool (P3-43);
+- `workerguard.WaitTracker` and `workerguard.CauseTracker` keep `workflow_ref.record_changed_signal_id` and the run's newest `workflow_cause` row.
 
-The workflow code is on `main`. The producer that would start it from a record write (S11b, P3-42) is **in progress** on its story branch: on `main` the pipeline's sink is `NoopSink`.
+Every port reaches the database through `workerguard.InTenantTx`. With workflows off (the activity-only worker) it returns nil, and `registerInterpreter` (`cmd/nava-worker/interp.go:14-20`) registers nothing. The `interptest` build still wires file-backed fakes for the S11a demos. With `NAVA_INTERPTEST_PORTS=db` it runs the production ports instead, which the crash case uses. Proof: `TestProductionBuildWiresTheDatabasePorts`, `TestProductionBuildInterpreterNeedsAPool`, `TestProductionBuildWithWorkflowsOffRegistersNoInterpreter`, `TestProductionBuildLinksNoFakes`, `TestInterptestBuildWiresTheFakes`, `TestInterptestBuildProductionPorts`, `TestInterpreterCrashRealPipelineAppliesOnce`.
+
+A tenant admin publishes a definition with `publishWorkflowDefinitionVersion`. A record write then starts it through the pipeline's `EventSink` (`internal/records/pipeline/eventsink`, P3-42): see [the durable path](outbox-relay-worker.md#producers). The worker pools are sized in [benchmarks](../benchmarks/index.md) ("Worker pipeline pool").
 
 ## Trigger
 
-A start row of kind `nava.interpreter` (`internal/outbox/outbox.go:105`), written only by `outbox.EnqueueStart` under a claimed `cascade.Claim` (ADR-001 A5-6). The claim is a `cascade_start` row keyed on the record, the definition and the causation origin, so a cascade cycle starts nothing (I9). The relay starts it as `t:<tenant>:nava.interpreter:<outbox id>`.
+A start row of kind `nava.interpreter` (`internal/outbox/outbox.go:105`), written only by `outbox.EnqueueStart` under a claimed `cascade.Claim` (ADR-001 A5-6). In production the one producer is the records pipeline's `EventSink`. It enqueues a start on a write whose entity type and operation match the trigger (`record.created` or `record.updated`) of a published definition's current version. The claim is a `cascade_start` row keyed on the record, the definition and the causation origin, so a cascade cycle starts nothing (I9). The relay starts it as `t:<tenant>:nava.interpreter:<outbox id>`.
 
 The input is `workerguard.RunInput`: the relay's `outbox.Delivery` with payload `{definition_version_id, record_id}` and nothing else (`workflow.go:52-55`). The definition version is pinned at start; the workflow never reads "latest". Any other payload is a non-retryable `RejectInput` (`TestStartInputRefused`).
 
@@ -136,7 +146,7 @@ sequenceDiagram
 ## Signals and idempotency
 
 - **Start**: the workflow ID with `REJECT_DUPLICATE`; the start row's ID is the claim's outbox ID, so one claim is one start.
-- **Signals**: one signal name, `nava.interpreter.signal` (`interp.go:49`). Its argument is the relay's `Delivery`, payload `{"signal": <signal id>}`. A delivery is applied only if it is the signal the current step awaits and its **outbox ID** is new (`AppliedSignals.TryApply`, `workflow.go:193,227`, I7); others are dropped. The applied set covers 48 h, longer than the relay's 24 h redelivery age. Proof: `TestSignalAppliedOnce`, `TestSignalWithoutSignalIDDropped`, `TestSignalAppliedOnceAcrossContinueAsNew`.
+- **Signals**: one signal name, `nava.interpreter.signal` (`interp.go:51`). Its argument is the relay's `Delivery`, payload `{"signal": <signal id>}`. A delivery is applied only if it is the signal the current step awaits and its **outbox ID** is new (`AppliedSignals.TryApply`, `workflow.go:203,237`, I7); others are dropped. The applied set covers 48 h, longer than the relay's 24 h redelivery age. Proof: `TestSignalAppliedOnce`, `TestSignalWithoutSignalIDDropped`, `TestSignalAppliedOnceAcrossContinueAsNew`.
 - **`ApplyStep`**: delivered twice, it writes once. Proof: `TestApplyStepDeliveredTwice`.
 - **`workflow_ref` close**: keeps the first `closed_at`, so a retry is a no-op. Proof: `TestCompletedWorkflowClosesItsWorkflowRef`.
 
@@ -156,7 +166,7 @@ The tenant is never in the input. Activities read it from the guard-verified hea
 
 ## Determinism, continue-as-new and versioning
 
-- **Continue-as-new**: when `GetContinueAsNewSuggested()` is true, only between steps, after `NextStep` returns and before the wait starts (`workflow.go:128-129`). The new run carries the step, the applied-signal set and every delivery not yet acted on (`workflow.go:245-266`); the guard checks that input twice (see [the durable path](outbox-relay-worker.md#the-workerguard-interceptor)). Proof: `TestContinueAsNewResumesAtSameStep`, `TestContinueAsNewWaitsForTheWaitToEnd`, `TestPinnedAcrossContinueAsNew`.
+- **Continue-as-new**: when `GetContinueAsNewSuggested()` is true, only between steps, after `NextStep` returns and before the wait starts (`workflow.go:138`). The new run carries the step, its cause, the applied-signal set and every delivery not yet acted on (`workflow.go:255-276`); the guard checks that input twice (see [the durable path](outbox-relay-worker.md#the-workerguard-interceptor)). Proof: `TestContinueAsNewResumesAtSameStep`, `TestContinueAsNewWaitsForTheWaitToEnd`, `TestPinnedAcrossContinueAsNew`.
 - **Version pinning**: a run keeps the definition version it started with, across continue-as-new. Proof: `TestInFlightRunKeepsItsVersion`.
 - **Replay**: `TestReplayRecordedHistories` replays every committed history in `internal/workflow/testdata/histories/` (`continue-as-new.run1.json` to `run5.json`, `else-default.json`, `signal.json`, `timeout.json`). `TestHistorySetRequired` requires the set, `TestHistoriesAppendOnly` forbids editing or deleting one on `main`, `TestHistoriesHoldReferencesOnly` checks they carry no record data, and `TestReplayCatchesNonDeterminism` proves the gate fails on a changed command sequence. `NextStep` itself is deterministic for the same input (`TestNextStepIsDeterministic`).
 - **`workflowcheck`** runs on `./internal/workflow/...` (`scripts/ci/workflowcheck.sh:13`).

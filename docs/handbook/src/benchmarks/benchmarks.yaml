@@ -209,13 +209,25 @@ rows:
     verdict: "met"
     source: "docs/quality/acl-perf-800k.md#final-re-run-after-tick-647-tick-648-and-tick-644"
 
+  # ---- docs/budgets.md, Worker pipeline pool (S11b P3-43, TICK-712)
+  - group: "Worker pipeline pool"
+    budget: "Worker pools vs. nava_worker PgBouncer pool"
+    budgets_md: "Worker pools vs. `nava_worker` PgBouncer pool"
+    threshold: "workerMaxConns + pipelineMaxConns + readiness probe ≤ [users] nava_worker pool_size (15)"
+    result: "10 + 4 + 1 = 15 (computed from the constants in cmd/nava-worker/main.go, not measured); TestWorkflowWriteBurstDoesNotExhaustThePool: 24 depth-exceeding writes on 4 + 4 pools all get their cascade_too_deep entry"
+    date: "2026-11-13"
+    commit: "634074b9"
+    host: "None: a static sum re-checked by TestWorkerPoolsFitPgBouncer on every test run"
+    verdict: "met"
+    source: "docs/budgets.md#worker-pipeline-pool"
+
   # ---- Budgets outside the budget tables
   - group: "Other budgets"
     budget: "PostgreSQL server connections, compose stack at 1 nava-core replica"
     threshold: "≤ 247 (max_connections 250 minus 3 reserved)"
-    result: "226, summed from the configured ceilings (computed, not measured); each further replica adds 24"
-    date: "2026-11-11"
-    commit: "9975568b"
+    result: "221, summed from the configured ceilings (computed, not measured); each further replica adds 24. Was 226 before S11b capped nava_worker at 15"
+    date: "2026-11-13"
+    commit: "634074b9"
     host: "None: a static sum re-checked by TestConnectionBudgetFits on every test run"
     verdict: "met"
     source: "docs/budgets.md#connection-sizing"

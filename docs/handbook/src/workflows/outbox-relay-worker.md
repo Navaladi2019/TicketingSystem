@@ -13,7 +13,13 @@ sources:
   - docs/architecture/outbox-producer.md
   - docs/architecture/outbox-relay.md
   - docs/architecture/worker-guards.md
-  - internal/outbox/outbox.go:105,110,244
+  - internal/outbox/outbox.go:105,110,300
+  - internal/outbox/outbox.go:233
+  - internal/outbox/outbox.go:280
+  - internal/records/pipeline/eventsink/eventsink.go:102-153
+  - internal/records/pipeline/eventsink/eventsink.go:155-194
+  - internal/server/api.go:113
+  - internal/workflow/recordports/recordports.go:121
   - internal/outbox/outbox.go:139-143
   - internal/outbox/outbox.go:204
   - internal/outbox/outbox.go:338
@@ -73,12 +79,12 @@ tests:
 
 Every Temporal workflow on `main` is started or signalled from one place: an `outbox` row written in the same tenant transaction as the change that caused it (I6). `nava-relay` is the only process that turns a row into a Temporal call, and `nava-worker` runs the workflow behind the `workerguard` interceptor. `nava-core` never starts a workflow; it talks to Temporal only for its readiness probe.
 
-There are exactly two workflow kinds, both listed in `internal/outbox/outbox.go`. Each has one entry point that may enqueue its start (`outbox.go:244`):
+There are exactly two workflow kinds, both listed in `internal/outbox/outbox.go`. Each has one entry point that may enqueue its start (`outbox.go:300`):
 
 | Kind | Start goes through | Registered in | Page |
 |---|---|---|---|
 | `audit.seal` | `outbox.EnqueueSeal` | production build, runs in the stack | [Audit sealer](audit-seal.md) |
-| `nava.interpreter` | `outbox.EnqueueStart`, under a `cascade.Claim` | `interptest` build only | [Workflow interpreter](nava-interpreter.md) |
+| `nava.interpreter` | `outbox.EnqueueStart`, under a `cascade.Claim` | production build, runs in the stack since S11b | [Workflow interpreter](nava-interpreter.md) |
 
 ## The path
 
@@ -116,15 +122,15 @@ sequenceDiagram
 
 | Producer | Writes | Through | Source |
 |---|---|---|---|
-| Record write pipeline `EventSink` (**EventSink contract; not wired on `main` (`NoopSink`), S11b in progress**) | `nava.interpreter` start | `cascade.ClaimStart` claims the start key, then `outbox.EnqueueStart`; a repeat claim enqueues nothing and writes `AuditSuppressed` (A5-4) | `internal/records/pipeline/pipeline.go:212-227`, `internal/records/cascade/cascade.go:117`, `internal/outbox/outbox.go:204` |
-| Interpreter signals from a record write (**EventSink contract; not wired on `main` (`NoopSink`), S11b in progress**) | signal to an open `nava.interpreter` | `outbox.EnqueueAtVersion` at the version the write gave the record | `internal/records/pipeline/pipeline.go:217` |
+| Record write pipeline `EventSink` (`eventsink.Sink`) | `nava.interpreter` start, one per published definition whose current version's trigger matches the write | `cascade.ClaimStart` claims the start key, then `outbox.EnqueueStart`; a repeat claim enqueues nothing and writes `AuditSuppressed` (A5-4) | `internal/records/pipeline/eventsink/eventsink.go:102-153`, `internal/records/cascade/cascade.go:117`, `internal/outbox/outbox.go:233` |
+| Interpreter signals from a record write (`eventsink.Sink`) | `nava.interpreter.signal` to each open run on the record that waits on `record_changed`, never the writing run | `outbox.EnqueueSignal` at the version the write gave the record | `internal/records/pipeline/eventsink/eventsink.go:155-194`, `internal/outbox/outbox.go:280` |
 | Sealer A1 (`audit.seal.Reschedule`) | next `audit.seal` start | `outbox.EnqueueSeal` with `WithDelay` (10 s with pending work, else the stored interval, up to 300 s) | `internal/audit/seal/seal.go:140`, `internal/outbox/outbox.go:338` |
 | `chain:reseed` | a new `audit.seal` lineage | `outbox.EnqueueReseed`, its own dedupe key | `internal/audit/reseed/reseed.go:72` |
 | Onboarding (`nava-onboard`) | the tenant's first `audit.seal` start | a plain `INSERT` with the same column list as `EnqueueSeal` | `internal/onboard/store.go:255-266` |
 
 **Onboarding writes the row directly.** `nava_onboard` has INSERT only, so `outbox.EnqueueSeal`, which locks the head and reads back, is not usable. The row is the same row, written with a plain `INSERT`, no `RETURNING` and no conflict clause. The head insert is the idempotency record: if the head already exists, nothing else is written. `TestSealInsertMatchesOutbox` keeps the column lists equal.
 
-**On `main` no production sink starts the interpreter yet.** `nava-core` builds the pipeline with `pipeline.NoopSink{}` (`internal/server/api.go:111`); S11b replaces it (P3-42) and is in progress on its story branch. Today only `cmd/demo-outbox` and `cmd/demo-interpreter` call `EnqueueStart` (`cmd/demo-interpreter/main.go:221`, `cmd/demo-outbox/main.go:290`), and they are also the only callers of `EnqueueAtVersion` (`cmd/demo-interpreter/main.go:192`, `cmd/demo-outbox/main.go:293`).
+**The production sink is `eventsink.Sink`.** Both pipelines that write records use it: `nava-core`'s (`internal/server/api.go:113`) and the interpreter's `RecordWriter` (`internal/workflow/recordports/recordports.go:121`). So a workflow's own write can start or signal other runs, bounded by I9. `EnqueueStart` and `EnqueueSignal` each write the row's `workflow_cause` row in the same transaction (D-3-29). The interpreter takes a write's causation only from that row, never from its input. Outside production, `cmd/demo-interpreter` and `cmd/demo-outbox` also call `EnqueueStart` (`cmd/demo-interpreter/main.go:233`, `cmd/demo-outbox/main.go:305`). `cmd/demo-interpreter` calls `EnqueueSignal` (`main.go:204`), and `cmd/demo-outbox` calls `EnqueueAtVersion` (`main.go:308`).
 
 ## Workflow ID and start options
 

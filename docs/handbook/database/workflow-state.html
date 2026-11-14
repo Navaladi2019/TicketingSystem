@@ -19,7 +19,7 @@
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
 <ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
-<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
 <ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
@@ -38,28 +38,79 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Workflow state</span></nav>
 <article>
 <h1 class="page-title">Workflow state</h1>
-<p>Two small tables track workflow starts:</p>
+<p>Workflow definitions, and the small tables that track workflow starts:</p>
 <ul>
+<li><strong><code>workflow_definitions</code></strong> and <strong><code>workflow_definition_versions</code></strong> (S11b,
+P3-40): a tenant's published workflow definitions on an entity type. Each
+version is immutable and keeps the exact body bytes (<code>body_sha256</code> is
+checked), the step ids the server assigned (<code>step_ids</code>) and its trigger
+(<code>trigger_on</code> <code>record.created</code> or <code>record.updated</code>, and
+<code>trigger_entity_definition_id</code>). <code>workflow_definitions.current_version</code> is
+the version new runs start on. The records pipeline's event sink finds the
+definitions a write fires through the index
+<code>workflow_definition_versions_trigger</code>. Both tables are audited under the
+<code>workflow_definition</code> subject type.</li>
 <li><strong><code>workflow_ref</code></strong>: one row per start queued in the outbox, linking the
 outbox row to its record. The final activity sets <code>closed_at</code>, and
-<code>nava_purge</code> deletes rows closed more than 30 days ago.</li>
+<code>nava_purge</code> deletes rows closed more than 30 days ago. While a run waits on
+its record's <code>record_changed</code> signal, <code>record_changed_signal_id</code> holds that
+signal's id (S11b). The event sink signals only those runs, found through
+the index <code>workflow_ref_waiting</code>.</li>
+<li><strong><code>workflow_cause</code></strong> (S11b, D-3-29): the causation (origin and depth) of
+each delivered start or signal row, written in the same transaction as the
+outbox row. A workflow's record write takes its causation only from its
+run's newest row (index <code>workflow_cause_ref_newest</code>), never from the
+workflow's input.</li>
 <li><strong><code>cascade_start</code></strong>: the start key of a cascade (ADR-001-A5). A write
 caused by a workflow carries the origin of the chain that caused it. A
 definition starts at most once per <code>(tenant, origin, record)</code>: the start
 claims its row with <code>INSERT ... ON CONFLICT DO NOTHING</code>, so a cycle cannot
-start the same workflow twice. It is insert-only.</li>
+start the same workflow twice. It is insert-only. Since S11b,
+<code>definition_id</code> is a foreign key to <code>workflow_definitions</code>, added <code>NOT VALID</code>
+and validated in a separate migration.</li>
 </ul>
-<p>Both are exempt from the audit log, because the write that queued the start
-is audited.</p>
+<p><code>workflow_ref</code>, <code>workflow_cause</code> and <code>cascade_start</code> are exempt from the audit
+log, because the write that queued the start is audited.</p>
 <h2 id="diagram">Diagram</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
     cascade_start {
         uuid tenant_id PK,FK
         uuid causation_origin_id PK
         uuid record_id PK,FK
-        uuid definition_id PK
+        uuid definition_id PK,FK
         uuid outbox_id
         timestamp_with_time_zone created_at
+    }
+    workflow_cause {
+        uuid tenant_id PK,FK
+        uuid outbox_id PK
+        uuid ref_outbox_id
+        uuid causation_origin_id
+        smallint causation_depth
+        timestamp_with_time_zone created_at
+    }
+    workflow_definition_versions {
+        uuid tenant_id PK,FK
+        uuid id
+        uuid definition_id PK,FK
+        integer version PK
+        json body
+        bytea body_sha256
+        jsonb step_ids
+        text trigger_on
+        uuid trigger_entity_definition_id FK
+        uuid published_by FK
+        timestamp_with_time_zone published_at
+    }
+    workflow_definitions {
+        uuid tenant_id PK,FK
+        uuid id PK
+        text key
+        uuid entity_definition_id FK
+        integer current_version
+        uuid created_by FK
+        timestamp_with_time_zone created_at
+        timestamp_with_time_zone updated_at
     }
     workflow_ref {
         uuid tenant_id PK,FK
@@ -68,10 +119,25 @@ is audited.</p>
         text kind
         timestamp_with_time_zone created_at
         timestamp_with_time_zone closed_at
+        uuid record_changed_signal_id
     }
+    cascade_start }o--|| workflow_definitions : &quot;tenant_id,definition_id&quot;
     cascade_start }o--|| records : &quot;tenant_id,record_id&quot;
     cascade_start }o--|| tenants : &quot;tenant_id&quot;
+    workflow_cause }o--|| tenants : &quot;tenant_id&quot;
+    workflow_definition_versions }o--|| workflow_definitions : &quot;tenant_id,definition_id&quot;
+    workflow_definition_versions }o--o| principals : &quot;tenant_id,published_by&quot;
+    workflow_definition_versions }o--|| entity_definitions : &quot;tenant_id,trigger_entity_definition_id&quot;
+    workflow_definitions }o--o| principals : &quot;tenant_id,created_by&quot;
+    workflow_definitions }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
+    workflow_definitions }o--|| tenants : &quot;tenant_id&quot;
     workflow_ref }o--|| records : &quot;tenant_id,record_id&quot;
+    entity_definitions {
+        stub other_area
+    }
+    principals {
+        stub other_area
+    }
     records {
         stub other_area
     }
@@ -79,7 +145,7 @@ is audited.</p>
         stub other_area
     }
 </pre></div></figure>
-<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>records</code> on <a href="../database/records.html">records</a>, <code>tenants</code> on <a href="../database/tenancy.html">tenancy</a>.</p>
+<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>, <code>principals</code> on <a href="../database/identity.html">identity</a>, <code>records</code> on <a href="../database/records.html">records</a>, <code>tenants</code> on <a href="../database/tenancy.html">tenancy</a>.</p>
 <h2 id="tables">Tables</h2>
 <h4 id="cascadestart"><code>cascade_start</code></h4>
 <p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>causation_origin_id</code>, <code>record_id</code>, <code>definition_id</code>.</p>
@@ -143,6 +209,12 @@ is audited.</p>
 </thead>
 <tbody>
 <tr>
+<td><code>cascade_start_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>definition_id</code></td>
+<td><code>workflow_definitions</code> (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
 <td><code>cascade_start_record_fkey</code></td>
 <td><code>tenant_id</code>, <code>record_id</code></td>
 <td><code>records</code> (<a href="../database/records.html">records</a>) (<code>tenant_id</code>, <code>id</code>)</td>
@@ -180,6 +252,383 @@ is audited.</p>
 </table>
 <p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>cascade_start_insert</code> (INSERT, nava_app, nava_worker), <code>cascade_start_select</code> (SELECT, nava_app, nava_worker).</p>
 <p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT; nava_worker INSERT.</p>
+<h4 id="workflowcause"><code>workflow_cause</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>outbox_id</code>.</p>
+<p>Audit: exempt from the audit log: Durable copy of a delivered outbox row's causation (D-3-29); the write that queued the delivery is audited.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>outbox_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>ref_outbox_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_origin_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>causation_depth</code></td>
+<td><code>smallint</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_cause_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_cause_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>outbox_id</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
+</tr>
+<tr>
+<td><code>workflow_cause_ref_newest</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>ref_outbox_id</code>, <code>created_at</code>, <code>outbox_id</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>workflow_cause_insert</code> (INSERT, nava_app, nava_worker), <code>workflow_cause_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT; nava_worker INSERT.</p>
+<h4 id="workflowdefinitionversions"><code>workflow_definition_versions</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>definition_id</code>, <code>version</code>.</p>
+<p>Audit: audited (subject <code>workflow_definition</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td><code>json</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>body_sha256</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>step_ids</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>trigger_on</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>trigger_entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>published_by</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>published_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_definition_versions_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>definition_id</code></td>
+<td><code>workflow_definitions</code> (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>workflow_definition_versions_published_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>published_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>workflow_definition_versions_trigger_entity_fkey</code></td>
+<td><code>tenant_id</code>, <code>trigger_entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_definition_versions_id_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_definition_versions_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>definition_id</code>, <code>version</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>workflow_definition_versions_trigger</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>trigger_entity_definition_id</code>, <code>trigger_on</code></td>
+<td><code>definition_id</code>, <code>version</code>, <code>id</code></td>
+<td>-</td>
+<td><a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>workflow_definition_versions_insert</code> (INSERT, nava_app), <code>workflow_definition_versions_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT.</p>
+<h4 id="workflowdefinitions"><code>workflow_definitions</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>id</code>.</p>
+<p>Audit: audited (subject <code>workflow_definition</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>key</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>current_version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_by</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_definitions_created_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>created_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>workflow_definitions_entity_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>workflow_definitions_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workflow_definitions_key_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>key</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
+</tr>
+<tr>
+<td><code>workflow_definitions_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>workflow_definitions_insert</code> (INSERT, nava_app), <code>workflow_definitions_select</code> (SELECT, nava_app, nava_worker), <code>workflow_definitions_update</code> (UPDATE, nava_app).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (current_version, updated_at); nava_worker SELECT.</p>
 <h4 id="workflowref"><code>workflow_ref</code></h4>
 <p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>outbox_id</code>.</p>
 <p>Audit: exempt from the audit log: Workflow bookkeeping for a start the audited write queued; holds no record or configuration content.</p>
@@ -229,6 +678,12 @@ is audited.</p>
 <td>yes</td>
 <td>-</td>
 </tr>
+<tr>
+<td><code>record_changed_signal_id</code></td>
+<td><code>uuid</code></td>
+<td>yes</td>
+<td>-</td>
+</tr>
 </tbody>
 </table>
 <table>
@@ -267,7 +722,7 @@ is audited.</p>
 <td><code>tenant_id</code>, <code>outbox_id</code></td>
 <td>-</td>
 <td>-</td>
-<td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/purge-indexes.md">purge-indexes</a></td>
+<td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/purge-indexes.md">purge-indexes</a>, <a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
 </tr>
 <tr>
 <td><code>workflow_ref_purge_closed</code></td>
@@ -283,7 +738,15 @@ is audited.</p>
 <td><code>tenant_id</code>, <code>record_id</code>, <code>kind</code>, <code>created_at</code></td>
 <td>-</td>
 <td>-</td>
-<td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/purge-indexes.md">purge-indexes</a></td>
+<td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/purge-indexes.md">purge-indexes</a>, <a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
+</tr>
+<tr>
+<td><code>workflow_ref_waiting</code></td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>record_id</code></td>
+<td>-</td>
+<td><code>closed_at IS NULL AND record_changed_signal_id IS NOT NULL</code></td>
+<td><a href="../../../docs/data/workflow-definitions.md">workflow-definitions</a></td>
 </tr>
 </tbody>
 </table>
@@ -321,15 +784,19 @@ is audited.</p>
 </tr>
 </tbody>
 </table>
-<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_purge SELECT (tenant_id, outbox_id, closed_at); nava_purge DELETE; nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (closed_at).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_purge SELECT (tenant_id, outbox_id, closed_at); nava_purge DELETE; nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (closed_at, record_changed_signal_id).</p>
 </article>
 <section class="backlinks"><h2>Also named by</h2>
-<h3>Table cascade_start</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
-<h3>Table workflow_ref</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
-<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
-<h3>ADR ADR-001-A5</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Table cascade_start</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Table workflow_cause</h3><ul><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Table workflow_definition_versions</h3><ul><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Table workflow_definitions</h3><ul><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Table workflow_ref</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>Story S11b</h3><ul><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (ParsePolicy, PolicyStore.Publish, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">Vision</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-001-A5</h3><ul><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ f522f97f1f56 (2026-11-12)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 41275106ee61 (2026-11-12)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>
