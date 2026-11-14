@@ -1,0 +1,32 @@
+meta {
+  name: S18T.11 Set the zone back to UTC: 200
+  type: http
+  seq: 11
+}
+
+put {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-tz-{{s18tz_run}}-reset
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "time_zone": "UTC"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, UTC again', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.json().time_zone).to.eql('UTC');
+  });
+  N.status(200);
+}

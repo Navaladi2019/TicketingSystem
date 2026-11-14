@@ -1,0 +1,27 @@
+meta {
+  name: S18T.6 Set without a token: 401
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: tick672-tz-{{s18tz_run}}-anon
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "time_zone": "UTC"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

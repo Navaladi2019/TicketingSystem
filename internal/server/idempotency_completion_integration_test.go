@@ -90,6 +90,9 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			}
 			return e.doIf(t, http.MethodPut, nfPath+"/"+nfID(t, seed.Body.Bytes()), "admin-a", key, `W/"1"`, nfDefault)
 		},
+		"PUT /api/v1/tenant/settings/time-zone": func(key string) *httptest.ResponseRecorder {
+			return e.do(t, http.MethodPut, tzPath, "admin-a", key, `{"time_zone":"Asia/Tokyo"}`)
+		},
 		"POST /api/v1/audit/chain:reseed": func(key string) *httptest.ResponseRecorder {
 			// A tenant with a dead chain head (R17: next_seal_at over 10 minutes late).
 			ctx := t.Context()

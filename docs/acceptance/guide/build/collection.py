@@ -3414,7 +3414,56 @@ N.status(200);"""),
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S18 time zone
+# Tenant time-zone route (TICK-672, P6-07, ADR-005 section 3.6). The story kit
+# (TICK-677) extends this folder.
+def s18_tz():
+    tz = "{{core_url}}/api/v1/tenant/settings/time-zone"
+    key = lambda k: {"Idempotency-Key": "tick672-tz-{{s18tz_run}}-" + k}
+    return {
+        "dir": "S18-TZ", "name": "S18 tenant time zone",
+        "desc": "TICK-672 (P6-07, ADR-005 section 3.6): the tenant-admin route that reads and sets the numbering time zone. Each request asserts one documented status. The folder sets tenant A's zone and sets it back to `UTC`, so it can run again.",
+        "items": [
+            token("S18T.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s18tz_run', Math.random().toString(16).slice(2, 10));"),
+            token("S18T.2 Sign in as Alice (not an admin)", "alice_username", "alice_password", "alice_token"),
+            req("S18T.3 Set the zone: 200", "PUT", tz, auth="admin_a_token", headers=key("set"), body={"time_zone": "Europe/Berlin"},
+                desc="An IANA name. A change affects the scope keys of future allocations only, and is audited as `tenant_setting`.",
+                tests="""
+test('HTTP 200, the zone is in force', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('Europe/Berlin');
+});
+N.status(200);"""),
+            req("S18T.4 Read the zone: 200", "GET", tz, auth="admin_a_token",
+                tests="""
+test('HTTP 200, Europe/Berlin', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('Europe/Berlin');
+});
+N.status(200);"""),
+            problem_req("S18T.5 An unknown zone: 422", "PUT", tz, "invalid_time_zone", 422, auth="admin_a_token", headers=key("bad"),
+                        body={"time_zone": "Mars/Base"}, desc="`errors[].pointer` is `/time_zone`; nothing is written."),
+            problem_req("S18T.6 Set without a token: 401", "PUT", tz, "invalid_token", 401, headers=key("anon"), body={"time_zone": "UTC"}),
+            problem_req("S18T.7 Alice sets the zone: 403", "PUT", tz, "forbidden", 403, auth="alice_token", headers=key("alice"),
+                        body={"time_zone": "UTC"}, desc="The admin check runs first."),
+            problem_req("S18T.8 Set without an Idempotency-Key: 400", "PUT", tz, "validation_failed", 400, auth="admin_a_token",
+                        body={"time_zone": "UTC"}),
+            problem_req("S18T.9 Read without a token: 401", "GET", tz, "invalid_token", 401),
+            problem_req("S18T.10 Alice reads the zone: 403", "GET", tz, "forbidden", 403, auth="alice_token"),
+            req("S18T.11 Set the zone back to UTC: 200", "PUT", tz, auth="admin_a_token", headers=key("reset"), body={"time_zone": "UTC"},
+                tests="""
+test('HTTP 200, UTC again', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('UTC');
+});
+N.status(200);"""),
+        ],
+    }
+
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

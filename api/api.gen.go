@@ -572,6 +572,9 @@ type PublishNumberFormatRequest = json.RawMessage
 // PutAccessPolicyRequest Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
 type PutAccessPolicyRequest = json.RawMessage
 
+// PutTenantTimeZoneRequest Deliberately unconstrained here: the server checks the body after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+type PutTenantTimeZoneRequest = json.RawMessage
+
 // Record defines model for Record.
 type Record struct {
 	// AssignmentGroup The record's assignment group, the value of the property mapped to the `assignment_group_id` fixed column. Absent when the record has none. `removed` is true once the group has been removed from the directory: the record keeps pointing at it and nothing reassigns it (ADR-004-E5 D7).
@@ -630,6 +633,12 @@ type RecordList struct {
 
 	// TotalCapped Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
 	TotalCapped *bool `json:"total_capped,omitempty"`
+}
+
+// TenantTimeZone defines model for TenantTimeZone.
+type TenantTimeZone struct {
+	// TimeZone An IANA time zone name.
+	TimeZone string `json:"time_zone"`
 }
 
 // Entity defines model for Entity.
@@ -783,6 +792,11 @@ type GetRecordHistoryParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// PutTenantTimeZoneParams defines parameters for PutTenantTimeZone.
+type PutTenantTimeZoneParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
@@ -806,6 +820,9 @@ type CreateRecordJSONRequestBody = CreateRecordRequest
 
 // PatchRecordApplicationMergePatchPlusJSONRequestBody defines body for PatchRecord for application/merge-patch+json ContentType.
 type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
+
+// PutTenantTimeZoneJSONRequestBody defines body for PutTenantTimeZone for application/json ContentType.
+type PutTenantTimeZoneJSONRequestBody = PutTenantTimeZoneRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -875,6 +892,12 @@ type ServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entity Entity, id string, params GetRecordHistoryParams)
+	// GetTenantTimeZone Read the tenant's numbering time zone (tenant admin)
+	// (GET /api/v1/tenant/settings/time-zone)
+	GetTenantTimeZone(w http.ResponseWriter, r *http.Request)
+	// PutTenantTimeZone Set the tenant's numbering time zone (tenant admin)
+	// (PUT /api/v1/tenant/settings/time-zone)
+	PutTenantTimeZone(w http.ResponseWriter, r *http.Request, params PutTenantTimeZoneParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2124,6 +2147,65 @@ func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetTenantTimeZone operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantTimeZone(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutTenantTimeZone operation middleware
+func (siw *ServerInterfaceWrapper) PutTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutTenantTimeZoneParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutTenantTimeZone(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2257,6 +2339,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats", wrapper.CreateNumberFormat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.GetNumberFormat)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.PublishNumberFormatVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.GetTenantTimeZone)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.PutTenantTimeZone)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries:export", wrapper.ExportAuditEntries)
@@ -5246,6 +5330,222 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 	return err
 }
 
+type GetTenantTimeZoneRequestObject struct {
+}
+
+type GetTenantTimeZoneResponseObject interface {
+	VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error
+}
+
+type GetTenantTimeZone200JSONResponse TenantTimeZone
+
+func (response GetTenantTimeZone200JSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantTimeZone401ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone403ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone429ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone500ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone501ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZoneRequestObject struct {
+	Params PutTenantTimeZoneParams
+	Body   *PutTenantTimeZoneJSONRequestBody
+}
+
+type PutTenantTimeZoneResponseObject interface {
+	VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error
+}
+
+type PutTenantTimeZone200JSONResponse TenantTimeZone
+
+func (response PutTenantTimeZone200JSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PutTenantTimeZone400ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone401ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone401ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone403ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone403ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone422ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone422ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone429ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone429ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone500ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone500ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone501ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone501ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ExplainAccess Why a user can or cannot read a record (tenant admin)
@@ -5314,6 +5614,12 @@ type StrictServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(ctx context.Context, request GetRecordHistoryRequestObject) (GetRecordHistoryResponseObject, error)
+	// GetTenantTimeZone Read the tenant's numbering time zone (tenant admin)
+	// (GET /api/v1/tenant/settings/time-zone)
+	GetTenantTimeZone(ctx context.Context, request GetTenantTimeZoneRequestObject) (GetTenantTimeZoneResponseObject, error)
+	// PutTenantTimeZone Set the tenant's numbering time zone (tenant admin)
+	// (PUT /api/v1/tenant/settings/time-zone)
+	PutTenantTimeZone(ctx context.Context, request PutTenantTimeZoneRequestObject) (PutTenantTimeZoneResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -5986,6 +6292,63 @@ func (sh *strictHandler) GetRecordHistory(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRecordHistoryResponseObject); ok {
 		if err := validResponse.VisitGetRecordHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantTimeZone operation middleware
+func (sh *strictHandler) GetTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+	var request GetTenantTimeZoneRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantTimeZone(ctx, request.(GetTenantTimeZoneRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantTimeZone")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantTimeZoneResponseObject); ok {
+		if err := validResponse.VisitGetTenantTimeZoneResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutTenantTimeZone operation middleware
+func (sh *strictHandler) PutTenantTimeZone(w http.ResponseWriter, r *http.Request, params PutTenantTimeZoneParams) {
+	var request PutTenantTimeZoneRequestObject
+
+	request.Params = params
+
+	var body PutTenantTimeZoneJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutTenantTimeZone(ctx, request.(PutTenantTimeZoneRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutTenantTimeZone")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutTenantTimeZoneResponseObject); ok {
+		if err := validResponse.VisitPutTenantTimeZoneResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

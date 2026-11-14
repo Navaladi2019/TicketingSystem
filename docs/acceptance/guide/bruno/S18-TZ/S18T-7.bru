@@ -1,0 +1,32 @@
+meta {
+  name: S18T.7 Alice sets the zone: 403
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick672-tz-{{s18tz_run}}-alice
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "time_zone": "UTC"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  The admin check runs first.
+}
