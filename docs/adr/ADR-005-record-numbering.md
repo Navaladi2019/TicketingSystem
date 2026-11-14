@@ -18,6 +18,8 @@ deciders: Solution Architect (author); Technical Architect (rev 1 APPROVE with f
 >
 > **Erratum E1 (ACCEPTED 2026-11-12, TICK-665):** §4.2 "old and new binaries coexist" holds for existing counters only; see [[ADR-005-E1-first-create-race-in-expand-window]].
 >
+> **Erratum E2 (ACCEPTED 2026-11-13, TICK-775):** §3.5 `grow` is also refused when a digit comes directly **before** `{seq:N}`, not only after it; `{prefix}{yy}{seq:3}` and `{prefix}-{yyyy}{MM}{seq:4}` need `refuse`. See [[ADR-005-E2-grow-refused-when-digit-touches-seq]].
+>
 > **Invariants source.** The project description defines no invariants, so this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9 (`main` at `89e0f84d`).
 >
 > Reviewer conditions are written as rules and tagged: **[TA-n]** Technical Architect finding n, **[Sec Cn]** Security condition n (C8 and C11 are **High if missed**), **[PG n]** Postgres item n, **[CTO]** chair ruling.
@@ -152,6 +154,8 @@ A property may appear in a number only if all of these hold, checked at publish 
 
 ### 3.5 Overflow
 Per format, `overflow: grow | refuse`. `grow` is allowed only when the template parses unambiguously (every variable-width token is followed by a literal outside its character set, or ends the number); `{field:br}{seq:3}` is refused. `refuse` fails the create with `number_space_exhausted` (409) naming the type and scope, audited, alerted at 90 % of the width.
+
+> **Erratum E2 (2026-11-13):** the `grow` sentence above is replaced by: *`grow` is allowed only when the number reads unambiguously without the template: no token or literal that renders a digit is directly before or directly after `{seq:N}`, and every other variable-width token is followed by a literal outside its character set or ends the number. `{field:br}{seq:3}` and `{prefix}{yy}{seq:3}` are refused with `number_format_invalid`; use `refuse`.* It is a readability rule; uniqueness across epochs is §3.3's job. Date-then-sequence examples in §3.1 (`{prefix}-{yyyy}{MM}{seq:4}`) need `refuse`. See [[ADR-005-E2-grow-refused-when-digit-touches-seq]].
 
 ### 3.6 Time zone
 A tenant setting `time_zone` (IANA name, default `UTC`), with an optional per-format override. A change affects future scope keys only.

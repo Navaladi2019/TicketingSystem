@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-005 erratum E2 explained: a growing counter may not touch a digit</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-13</span> <span class="src">ADR-005-E2 · issue TICK-775 · amends ADR-005 §3.5 · source: TICK-667 (PR #615), number-format compiler</span>
+
+<h1>A counter that "grows" may not sit directly next to a digit</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) When a ticket-number counter outgrows its digits, a format can either <em>grow</em> (print more digits) or <em>refuse</em> (stop creating tickets of that type until the format is widened).
+(2) The decision record allowed "grow" in some formats where the counter comes right after a date, which makes numbers like <code>INC261000</code> hard to read; the code that was built refuses those formats, which is what its task asked for.
+(3) We keep the code's stricter rule and correct the document, because loosening a rule later is harmless, while tightening it after customers have formats would break them.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>An admin can design a ticket-number format such as <code>VISA-2026110001</code>: a fixed type prefix, a year and month, and a counter of four digits (written <code>{seq:4}</code> in the format). The format also says what happens on the 10,000th ticket of a month, when four digits are no longer enough. That setting is called <em>overflow</em>:</p>
+<dl>
+<dt>grow</dt><dd>the counter just gets a fifth digit: <code>VISA-20261110000</code>.</dd>
+<dt>refuse</dt><dd>creating tickets of that type fails with a clear "number space exhausted" error, and the admin publishes a wider format. An alert fires at 90 % use.</dd>
+</dl>
+<p>"Grow" is only sensible if a person can still see where the counter starts. If a digit sits <strong>directly before</strong> the counter, they cannot:</p>
+
+<figure><svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<text x="10" y="22" font-weight="bold">Format {prefix}{yy}{seq:3} with grow (year then counter, no separator)</text>
+<rect x="10" y="36" width="70" height="30" rx="4" fill="#ddf4ff" stroke="#0969da"/><text x="45" y="56" text-anchor="middle">INC</text>
+<rect x="80" y="36" width="40" height="30" rx="4" fill="#fff8c5" stroke="#9a6700"/><text x="100" y="56" text-anchor="middle">26</text>
+<rect x="120" y="36" width="60" height="30" rx="4" fill="#dafbe1" stroke="#1a7f37"/><text x="150" y="56" text-anchor="middle">999</text>
+<text x="200" y="56">999th ticket of 2026: fine</text>
+<rect x="10" y="80" width="70" height="30" rx="4" fill="#ddf4ff" stroke="#0969da"/><text x="45" y="100" text-anchor="middle">INC</text>
+<rect x="80" y="80" width="170" height="30" rx="4" fill="#ffebe9" stroke="#cf222e"/><text x="165" y="100" text-anchor="middle">261000</text>
+<text x="270" y="100">year 26, ticket 1000? or "year 261", ticket 000?</text>
+<rect x="10" y="130" width="70" height="30" rx="4" fill="#ddf4ff" stroke="#0969da"/><text x="45" y="150" text-anchor="middle">INC</text>
+<rect x="80" y="130" width="40" height="30" rx="4" fill="#fff8c5" stroke="#9a6700"/><text x="100" y="150" text-anchor="middle">26</text>
+<rect x="120" y="130" width="20" height="30" rx="4" fill="#f6f8fa" stroke="#59636e"/><text x="130" y="150" text-anchor="middle">-</text>
+<rect x="140" y="130" width="70" height="30" rx="4" fill="#dafbe1" stroke="#1a7f37"/><text x="175" y="150" text-anchor="middle">1000</text>
+<text x="230" y="150">with a separator, grow stays readable: allowed</text>
+</svg><figcaption>The number is still unique either way; the question is whether a person or another system can read its parts without knowing the format.</figcaption></figure>
+
+<p>The decision record (ADR-005 §3.5) only constrained what comes <em>after</em> the counter. Read literally, it allowed "grow" for <code>{prefix}{yy}{seq:3}</code> and for <code>VISA-2026110001</code>. The format compiler built in TICK-667 refuses both, as that task's acceptance criterion required. Document and code disagreed, and the difference is something an admin sees: an error when publishing a format.</p>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>What it means</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>A. Adopt the code's rule</strong></td><td>No digit directly before <em>or</em> after the counter when growing. Fix the document.</td><td class="good">Chosen</td></tr>
+<tr><td>B. Loosen the code to match the old text</td><td>Only check what comes after the counter.</td><td class="bad">Rejected: allows unreadable numbers and contradicts the task's acceptance criterion</td></tr>
+<tr><td>C. Drop the rule</td><td>It is not needed for uniqueness today, so allow grow everywhere.</td><td class="bad">Rejected: readability, and the "after" half is needed for uniqueness once branch-code tokens arrive (S19)</td></tr>
+</tbody></table>
+<p><strong>Why the strict side wins.</strong> No tenant has published a custom format yet: they stay switched off until the counter migration and the admin API (S18) are done. Loosening a publish rule later never breaks anything that exists. Tightening it later would leave already-published formats invalid. So now is the cheapest moment to be strict.</p>
+
+<h2>3. The decision</h2>
+<blockquote><code>grow</code> is allowed only when the number reads unambiguously without the template: no token or literal that renders a digit is directly before or directly after <code>{seq:N}</code>, and every other variable-width token is followed by a literal outside its character set or ends the number. <code>{field:br}{seq:3}</code> and <code>{prefix}{yy}{seq:3}</code> are refused with <code>number_format_invalid</code>; use <code>refuse</code>.</blockquote>
+<table><thead><tr><th>Format</th><th>grow</th><th>refuse</th></tr></thead><tbody>
+<tr><td><code>{prefix}{seq:7}</code> (today's default, <code>INC0000042</code>)</td><td class="good">allowed</td><td class="good">allowed</td></tr>
+<tr><td><code>{prefix}-{yyyy}-{seq:4}</code> (<code>VISA-2026-0001</code>)</td><td class="good">allowed</td><td class="good">allowed</td></tr>
+<tr><td><code>{prefix}/{yy}/{seq:2}/{MM}</code></td><td class="good">allowed</td><td class="good">allowed</td></tr>
+<tr><td><code>{prefix}-{yyyy}{MM}{seq:4}</code> (<code>VISA-2026110001</code>)</td><td class="bad">refused (new)</td><td class="good">allowed</td></tr>
+<tr><td><code>{prefix}{yy}{seq:3}</code></td><td class="bad">refused (new)</td><td class="good">allowed</td></tr>
+<tr><td><code>{prefix}-{seq:2}{yy}</code> (digit after)</td><td class="bad">refused (as before)</td><td class="good">allowed</td></tr>
+</tbody></table>
+<p>The admin sees error <code>number_format_invalid</code> (HTTP 422) pointing at the counter, with the text "grow needs a non-digit before {seq:N}; use refuse". The admin API task (TICK-672) adds it to the error catalogue.</p>
+
+<h2>4. The fix</h2>
+<p>No code changes: the compiler in PR #615 already implements the chosen rule. This erratum corrects ADR-005 §3.5 (a note in the section and at the top of the ADR), and the ADR-005 summary page points here.</p>
+
+<h2>5. What you are accepting</h2>
+<table><thead><tr><th>Consequence</th><th>Size</th><th>What would make us revisit</th></tr></thead><tbody>
+<tr><td>A "date then counter" format such as <code>VISA-2026110001</code> must use <em>refuse</em>. If a type creates more than 10,000 tickets in one month, further creates of that type fail until an admin publishes a wider format. The 90 % alert warns ahead of time. Adding a separator (<code>VISA-202611-0001</code>) allows grow instead.</td><td>Low (product, not security)</td><td>A tenant asks for date-then-counter numbers that grow.</td></tr>
+</tbody></table>
+<p>No risk to tenant isolation or to uniqueness: the rule only refuses more formats at publish time, and adds nothing to ticket creation.</p>
+
+<h2>6. Evidence</h2>
+<ul>
+<li><strong>Stricter, never looser.</strong> Every format the old text refuses, the code also refuses (Technical Architect review of PR #615).</li>
+<li><strong>Uniqueness does not depend on it today.</strong> A spike rendered 1,259,690 numbers for each of five "digit next to the counter" formats, every counter past its width: <strong>0 clashes</strong>. Rerun on this issue with the same result. <code>docs/adr/ADR-005/spikes/technical-architect/e2-grow-injectivity/</code>.</li>
+<li><strong>Different formats of the same type cannot collide</strong>, checked separately: a property test over about 45,000 format pairs and a fuzz run of 2.87 million cases, both passing; four deliberately broken versions of the check were all caught.</li>
+<li>The code: <code>internal/records/numbering/template.go</code>, function <code>unambiguous()</code>, on PR #615.</li>
+</ul>
+</main></body></html>

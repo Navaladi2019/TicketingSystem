@@ -21,6 +21,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -346,12 +347,12 @@ func (r *numberRunner) InTenantTx(context.Context, uuid.UUID, func(pgx.Tx) error
 // allocInstant is the instant numberRunner's allocations report.
 func allocInstant() time.Time { return time.Date(2026, 11, 10, 23, 59, 59, 0, time.UTC) }
 
-func (r *numberRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID) (pipeline.Allocation, error) {
+func (r *numberRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
 	tenant, err := tenancy.TenantOf(ctx, createTx)
 	if err != nil {
 		return pipeline.Allocation{}, err
 	}
-	a := pipeline.Allocation{Tenant: tenant, Definition: def, Number: r.next, Instant: allocInstant()}
+	a := pipeline.Allocation{Tenant: tenant, Definition: def, ScopeKey: format.ScopeKey(), Epoch: format.Epoch, Number: r.next, Instant: allocInstant()}
 	r.calls = append(r.calls, a)
 	if r.err != nil {
 		return pipeline.Allocation{}, fmt.Errorf("records/store: take record number: %w", r.err)

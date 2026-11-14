@@ -1,0 +1,14 @@
+== schema on the pre-S17 build, before the upgrade (2026-11-12T20:55:21Z)
+     column_name      | data_type | is_nullable | column_default 
+----------------------+-----------+-------------+----------------
+ tenant_id            | uuid      | NO          | 
+ entity_definition_id | uuid      | NO          | 
+ next                 | bigint    | NO          | 
+
+      indexname       |                                                     indexdef                                                     
+----------------------+------------------------------------------------------------------------------------------------------------------
+ record_counters_pkey | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)
+
+ version_id 
+------------
+

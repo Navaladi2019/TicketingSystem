@@ -1,0 +1,1395 @@
+s17: 1. fresh stack on the pre-S17 build (ec863ece)
+wrote development certificates to ../deploy/compose/certs
+ Image nava/keycloak:s17pre Building 
+ Image nava/nava-relay:s17pre Building 
+ Image nava/nava-db:s17pre Building 
+ Image nava/nava-onboard:s17pre Building 
+ Image nava/nava-worker:s17pre Building 
+ Image nava/otel-collector:s17pre Building 
+ Image nava/nava-groupsync:s17pre Building 
+ Image nava/nava-core:s17pre Building 
+ Image nava/nava-purge:s17pre Building 
+ Image nava/nava-db:s17pre Building 
+ Image nava/temporal-server:s17pre Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 6.89kB done
+#1 DONE 0.0s
+
+#2 [otel-collector internal] load build definition from Dockerfile
+#2 transferring dockerfile: 463B 0.0s done
+#2 DONE 0.0s
+
+#3 [nava-core internal] load build definition from Dockerfile
+#3 transferring dockerfile: 478B 0.0s done
+#3 DONE 0.1s
+
+#4 [temporal-server internal] load build definition from Dockerfile
+#4 transferring dockerfile: 1.89kB 0.0s done
+#4 DONE 0.1s
+
+#5 [nava-onboard internal] load build definition from Dockerfile
+#5 transferring dockerfile: 493B 0.0s done
+#5 DONE 0.1s
+
+#6 [db-roles internal] load build definition from Dockerfile
+#6 transferring dockerfile: 552B 0.0s done
+#6 DONE 0.1s
+
+#7 [nava-worker internal] load build definition from Dockerfile
+#7 transferring dockerfile: 766B 0.0s done
+#7 DONE 0.1s
+
+#8 [nava-purge internal] load build definition from Dockerfile
+#8 transferring dockerfile: 471B 0.0s done
+#8 DONE 0.1s
+
+#9 [nava-relay internal] load build definition from Dockerfile
+#9 transferring dockerfile: 471B 0.0s done
+#9 DONE 0.1s
+
+#10 [keycloak internal] load build definition from Dockerfile
+#10 transferring dockerfile: 659B 0.0s done
+#10 DONE 0.1s
+
+#11 [nava-groupsync internal] load build definition from Dockerfile
+#11 transferring dockerfile: 491B 0.0s done
+#11 DONE 0.1s
+
+#12 [nava-groupsync internal] load metadata for docker.io/library/golang:1.26.11-alpine
+#12 ...
+
+#13 [auth] library/golang:pull token for registry-1.docker.io
+#13 DONE 0.0s
+
+#14 [auth] otel/opentelemetry-collector-contrib:pull token for registry-1.docker.io
+#14 DONE 0.0s
+
+#15 [keycloak internal] load metadata for quay.io/keycloak/keycloak:26.8.1
+#15 DONE 0.8s
+
+#16 [keycloak internal] load .dockerignore
+#16 transferring context: 101B 0.0s done
+#16 DONE 0.0s
+
+#17 [keycloak 1/3] FROM quay.io/keycloak/keycloak:26.8.1@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
+#17 DONE 0.0s
+
+#18 [keycloak internal] load build context
+#18 transferring context: 866B 0.1s done
+#18 DONE 0.1s
+
+#19 [keycloak 2/3] COPY deploy/compose/keycloak/quarkus.properties /opt/keycloak/conf/quarkus.properties
+#19 CACHED
+
+#20 [keycloak 3/3] RUN /opt/keycloak/bin/kc.sh build
+#20 CACHED
+
+#21 [keycloak] exporting to image
+#21 exporting layers done
+#21 writing image sha256:81b89751bc83744c8a1fd6b751e387df9bb368252ccd01e8961fd374bea295a4 done
+#21 naming to docker.io/nava/keycloak:s17pre
+#21 naming to docker.io/nava/keycloak:s17pre done
+#21 DONE 0.0s
+
+#22 [keycloak] resolving provenance for metadata file
+#22 DONE 0.0s
+
+#23 [nava-groupsync internal] load metadata for docker.io/library/alpine:3.22.1
+#23 ...
+
+#24 [otel-collector internal] load metadata for docker.io/otel/opentelemetry-collector-contrib:0.139.0
+#24 DONE 1.6s
+
+#25 [temporal-server internal] load metadata for docker.io/library/golang:1.26.11-bookworm
+#25 DONE 1.6s
+
+#26 [auth] library/debian:pull token for registry-1.docker.io
+#26 DONE 0.0s
+
+#12 [nava-groupsync internal] load metadata for docker.io/library/golang:1.26.11-alpine
+#12 DONE 1.8s
+
+#27 [temporal-server internal] load metadata for docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#27 DONE 2.4s
+
+#23 [nava-groupsync internal] load metadata for docker.io/library/alpine:3.22.1
+#23 ...
+
+#28 [temporal-server internal] load .dockerignore
+#28 transferring context: 88B 0.0s done
+#28 DONE 0.0s
+
+#29 [temporal-server build 1/7] FROM docker.io/library/golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+#29 DONE 0.0s
+
+#30 [temporal-server stage-1 1/7] FROM docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#30 DONE 0.0s
+
+#31 [temporal-server internal] load build context
+#31 transferring context: 639.54kB 0.2s done
+#31 DONE 0.2s
+
+#32 [temporal-server build 3/7] COPY go.mod go.sum ./
+#32 CACHED
+
+#33 [temporal-server stage-1 5/7] COPY --from=build /out/schema /etc/temporal/schema
+#33 CACHED
+
+#34 [temporal-server build 4/7] RUN go mod download
+#34 CACHED
+
+#35 [temporal-server build 5/7] RUN go build -trimpath       go.temporal.io/server/temporal       go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql       go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite       go.temporal.io/server/cmd/tools/sql
+#35 CACHED
+
+#36 [temporal-server stage-1 2/7] RUN useradd --system --uid 10001 --no-create-home temporal
+#36 CACHED
+
+#37 [temporal-server stage-1 6/7] COPY scripts/setup-schema.sh /usr/local/bin/setup-schema.sh
+#37 CACHED
+
+#38 [temporal-server stage-1 3/7] COPY --from=build /out/temporal-server /usr/local/bin/temporal-server
+#38 CACHED
+
+#39 [temporal-server build 2/7] WORKDIR /src
+#39 CACHED
+
+#40 [temporal-server build 7/7] RUN go build -trimpath -o /out/temporal-server ./cmd/server  && go build -trimpath -o /out/temporal-sql-tool go.temporal.io/server/cmd/tools/sql  && cp -r "$(go list -m -f '{{.Dir}}' go.temporal.io/server)/schema/postgresql/v12" /out/schema  && chmod -R a+rX /out/schema
+#40 CACHED
+
+#41 [temporal-server stage-1 4/7] COPY --from=build /out/temporal-sql-tool /usr/local/bin/temporal-sql-tool
+#41 CACHED
+
+#42 [temporal-server build 6/7] COPY . .
+#42 CACHED
+
+#43 [temporal-server stage-1 7/7] COPY config /etc/temporal/config
+#43 CACHED
+
+#44 [temporal-server] exporting to image
+#44 exporting layers done
+#44 writing image sha256:d2d9918e36c8cc335e2093b9e1930da9632dc84418e2164af72343dd9c4a7ed0 done
+#44 naming to docker.io/nava/temporal-server:s17pre done
+#44 DONE 0.0s
+
+#45 [temporal-server] resolving provenance for metadata file
+#45 DONE 0.0s
+
+#23 [nava-groupsync internal] load metadata for docker.io/library/alpine:3.22.1
+#23 ...
+
+#46 [auth] library/alpine:pull token for registry-1.docker.io
+#46 DONE 0.0s
+
+#23 [nava-groupsync internal] load metadata for docker.io/library/alpine:3.22.1
+#23 DONE 3.9s
+
+#16 [nava-relay internal] load .dockerignore
+#16 CACHED
+
+#47 [otel-collector stage-1 1/3] FROM docker.io/library/alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+#47 DONE 0.0s
+
+#48 [nava-worker build 1/8] FROM docker.io/library/golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb
+#48 DONE 0.0s
+
+#49 [otel-collector internal] load .dockerignore
+#49 transferring context: 2B done
+#49 DONE 0.0s
+
+#50 [otel-collector collector 1/1] FROM docker.io/otel/opentelemetry-collector-contrib:0.139.0@sha256:faf125d656fa47cea568b2f3b4494efd2525083bc75c1e96038bc23f05cd68fd
+#50 DONE 0.0s
+
+#51 [nava-worker internal] load build context
+#51 ...
+
+#52 [otel-collector internal] load build context
+#52 transferring context: 4.94kB 0.1s done
+#52 DONE 0.1s
+
+#53 [otel-collector stage-1 2/3] COPY --from=collector /otelcol-contrib /otelcol-contrib
+#53 CACHED
+
+#54 [otel-collector stage-1 3/3] COPY config.yaml /etc/otelcol/config.yaml
+#54 CACHED
+
+#55 [otel-collector] exporting to image
+#55 exporting layers done
+#55 writing image sha256:68deeddba1d299249475e1398afdcdc095cfc34d79b6ac1f50f26badbfa23471 done
+#55 naming to docker.io/nava/otel-collector:s17pre done
+#55 DONE 0.0s
+
+#51 [nava-worker internal] load build context
+#51 ...
+
+#56 [otel-collector] resolving provenance for metadata file
+#56 DONE 0.0s
+
+#51 [nava-worker internal] load build context
+#51 transferring context: 6.82MB 5.2s
+#51 transferring context: 7.11MB 5.4s done
+#51 DONE 5.4s
+
+#57 [migrate internal] load build context
+#57 transferring context: 7.06MB 5.4s done
+#57 DONE 5.4s
+
+#58 [migrate build 5/8] COPY cmd ./cmd
+#58 CACHED
+
+#59 [migrate build 6/8] COPY db ./db
+#59 CACHED
+
+#60 [migrate stage-1 2/3] RUN adduser -D -u 10001 nava
+#60 CACHED
+
+#61 [migrate build 7/8] COPY internal ./internal
+#61 CACHED
+
+#62 [migrate build 2/8] WORKDIR /src
+#62 CACHED
+
+#63 [migrate build 4/8] RUN go mod download
+#63 CACHED
+
+#64 [migrate build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#64 CACHED
+
+#65 [migrate build 3/8] COPY go.mod go.sum ./
+#65 CACHED
+
+#66 [migrate stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#66 CACHED
+
+#65 [db-roles build 3/8] COPY go.mod go.sum ./
+#65 CACHED
+
+#61 [db-roles build 7/8] COPY internal ./internal
+#61 CACHED
+
+#58 [db-roles build 5/8] COPY cmd ./cmd
+#58 CACHED
+
+#63 [db-roles build 4/8] RUN go mod download
+#63 CACHED
+
+#64 [db-roles build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#64 CACHED
+
+#59 [db-roles build 6/8] COPY db ./db
+#59 CACHED
+
+#66 [db-roles stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#66 CACHED
+
+#67 [nava-purge build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-purge ./cmd/nava-purge
+#67 CACHED
+
+#68 [nava-purge stage-1 3/3] COPY --from=build /out/nava-purge /usr/local/bin/nava-purge
+#68 CACHED
+
+#69 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#69 CACHED
+
+#70 [nava-core stage-1 3/3] COPY --from=build /out/nava-core /usr/local/bin/nava-core
+#70 CACHED
+
+#71 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#71 CACHED
+
+#72 [nava-worker stage-1 3/3] COPY --from=build /out/nava-worker /usr/local/bin/nava-worker
+#72 CACHED
+
+#73 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#73 CACHED
+
+#74 [nava-relay stage-1 3/3] COPY --from=build /out/nava-relay /usr/local/bin/nava-relay
+#74 CACHED
+
+#75 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#75 CACHED
+
+#76 [nava-groupsync stage-1 3/3] COPY --from=build /out/nava-groupsync /usr/local/bin/nava-groupsync
+#76 CACHED
+
+#77 [nava-worker build 7/8] COPY api ./api
+#77 CACHED
+
+#78 [nava-worker build 6/8] COPY internal ./internal
+#78 CACHED
+
+#79 [nava-worker build 5/8] COPY cmd ./cmd
+#79 CACHED
+
+#80 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#80 CACHED
+
+#60 [nava-worker stage-1 2/3] RUN adduser -D -u 10001 nava
+#60 CACHED
+
+#81 [nava-worker build 3/8] COPY go.mod go.sum ./
+#81 CACHED
+
+#82 [nava-worker build 4/8] RUN go mod download
+#82 CACHED
+
+#62 [nava-worker build 2/8] WORKDIR /src
+#62 CACHED
+
+#83 [nava-onboard stage-1 3/3] COPY --from=build /out/nava-onboard /usr/local/bin/nava-onboard
+#83 CACHED
+
+#84 [nava-worker] exporting to image
+#84 exporting layers done
+#84 writing image sha256:8e3e80405b9db7361e1605f43cc27684382e7035fca4d76623a652bfe444b0de 0.0s done
+#84 naming to docker.io/nava/nava-worker:s17pre 0.0s done
+#84 DONE 0.1s
+
+#85 [migrate] exporting to image
+#85 exporting layers done
+#85 writing image sha256:b34495ac4d2832b2d8763c70e8422e3544b8d5faf7b6e4b04570c49ebf8d113c done
+#85 naming to docker.io/nava/nava-db:s17pre 0.1s done
+#85 DONE 0.1s
+
+#86 [nava-core] exporting to image
+#86 exporting layers done
+#86 writing image sha256:33480b2b7f7ac0ed5af43883da3ccc17c5eff7506375544e5a228819477c51a4 0.0s done
+#86 naming to docker.io/nava/nava-core:s17pre 0.0s done
+#86 DONE 0.2s
+
+#87 [db-roles] exporting to image
+#87 exporting layers done
+#87 writing image sha256:f612b130e2b7152d7958d13efa0b3330bfc6500067db4551f89819afe3741905 done
+#87 naming to docker.io/nava/nava-db:s17pre 0.1s done
+#87 DONE 0.2s
+
+#88 [nava-relay] exporting to image
+#88 exporting layers done
+#88 writing image sha256:076f36d4467b1b4a1f76061de592b8f375ef9c9ccccab8ef3279bdf646a9bf83 0.0s done
+#88 naming to docker.io/nava/nava-relay:s17pre 0.1s done
+#88 DONE 0.2s
+
+#89 [nava-purge] exporting to image
+#89 exporting layers done
+#89 writing image sha256:57ae475c32b58c7d76a9046271b2c9d50709ad840e527d07899c8366371ec9a4 0.0s done
+#89 naming to docker.io/nava/nava-purge:s17pre 0.1s done
+#89 DONE 0.2s
+
+#90 [nava-onboard] exporting to image
+#90 exporting layers done
+#90 writing image sha256:8352899cc879c26e69ff0582eee43dc38fb9f233a86fe2917c51a971c35350d0 0.1s done
+#90 naming to docker.io/nava/nava-onboard:s17pre 0.0s done
+#90 DONE 0.2s
+
+#91 [nava-groupsync] exporting to image
+#91 exporting layers done
+#91 writing image sha256:6ba7bbe60ffb442f1fb07507f2b56068847488cc538ed698244ffc0566089175 0.1s done
+#91 naming to docker.io/nava/nava-groupsync:s17pre 0.0s done
+#91 DONE 0.2s
+
+#92 [nava-worker] resolving provenance for metadata file
+#92 DONE 0.0s
+
+#93 [nava-onboard] resolving provenance for metadata file
+#93 DONE 0.1s
+
+#94 [nava-purge] resolving provenance for metadata file
+#94 DONE 0.2s
+
+#95 [nava-groupsync] resolving provenance for metadata file
+#95 DONE 0.1s
+
+#96 [nava-core] resolving provenance for metadata file
+#96 DONE 0.1s
+
+#97 [migrate] resolving provenance for metadata file
+#97 DONE 0.2s
+
+#98 [db-roles] resolving provenance for metadata file
+#98 DONE 0.0s
+
+#99 [nava-relay] resolving provenance for metadata file
+#99 DONE 0.0s
+ Image nava/nava-db:s17pre Built 
+ Image nava/keycloak:s17pre Built 
+ Image nava/otel-collector:s17pre Built 
+ Image nava/nava-db:s17pre Built 
+ Image nava/temporal-server:s17pre Built 
+ Image nava/nava-purge:s17pre Built 
+ Image nava/nava-groupsync:s17pre Built 
+ Image nava/nava-relay:s17pre Built 
+ Image nava/nava-onboard:s17pre Built 
+ Image nava/nava-core:s17pre Built 
+ Image nava/nava-worker:s17pre Built 
+ Volume nava-s17_pgdata Creating 
+ Network nava-s17_internal Creating 
+ Network nava-s17_default Creating 
+ Volume nava-s17_pgsocket Creating 
+ Volume nava-s17_pgsocket Creating 
+ Network nava-s17_temporal-backplane Creating 
+ Network nava-s17_temporal-backplane Creating 
+ Network nava-s17_internal Creating 
+ Network nava-s17_default Creating 
+ Network nava-s17_operator Creating 
+ Network nava-s17_operator Creating 
+ Volume nava-s17_pgdata Creating 
+ Volume nava-s17_pgsocket Created 
+ Volume nava-s17_pgsocket Created 
+ Volume nava-s17_pgdata Created 
+ Volume nava-s17_pgdata Created 
+ Network nava-s17_temporal-backplane Created 
+ Network nava-s17_temporal-backplane Created 
+ Network nava-s17_internal Created 
+ Network nava-s17_internal Created 
+ Container nava-s17-postgres-1 Creating 
+ Container nava-s17-otel-collector-1 Creating 
+ Network nava-s17_default Created 
+ Network nava-s17_default Created 
+ Network nava-s17_operator Created 
+ Network nava-s17_operator Created 
+ Container nava-s17-otel-collector-1 Created 
+ Container nava-s17-postgres-1 Created 
+ Container nava-s17-db-roles-1 Creating 
+ Container nava-s17-db-roles-1 Created 
+ Container nava-s17-temporal-schema-1 Creating 
+ Container nava-s17-keycloak-1 Creating 
+ Container nava-s17-migrate-1 Creating 
+ Container nava-s17-migrate-1 Created 
+ Container nava-s17-pgbouncer-1 Creating 
+ Container nava-s17-temporal-schema-1 Created 
+ Container nava-s17-temporal-server-1 Creating 
+ Container nava-s17-keycloak-1 Created 
+ Container nava-s17-temporal-server-1 Created 
+ Container nava-s17-temporal-1 Creating 
+ Container nava-s17-pgbouncer-1 Created 
+ Container nava-s17-nava-groupsync-1 Creating 
+ Container nava-s17-nava-onboard-1 Creating 
+ Container nava-s17-nava-purge-1 Creating 
+ Container nava-s17-temporal-1 Created 
+ Container nava-s17-nava-relay-1 Creating 
+ Container nava-s17-nava-core-1 Creating 
+ Container nava-s17-nava-worker-1 Creating 
+ Container nava-s17-nava-onboard-1 Created 
+ Container nava-s17-nava-groupsync-1 Created 
+ Container nava-s17-nava-purge-1 Created 
+ Container nava-s17-nava-relay-1 Created 
+ Container nava-s17-nava-worker-1 Created 
+ Container nava-s17-nava-core-1 Created 
+ Container nava-s17-otel-collector-1 Starting 
+ Container nava-s17-postgres-1 Starting 
+ Container nava-s17-otel-collector-1 Started 
+ Container nava-s17-postgres-1 Started 
+ Container nava-s17-postgres-1 Waiting 
+ Container nava-s17-postgres-1 Healthy 
+ Container nava-s17-db-roles-1 Starting 
+ Container nava-s17-db-roles-1 Started 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-keycloak-1 Starting 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-temporal-schema-1 Starting 
+ Container nava-s17-migrate-1 Starting 
+ Container nava-s17-keycloak-1 Started 
+ Container nava-s17-temporal-schema-1 Started 
+ Container nava-s17-temporal-schema-1 Waiting 
+ Container nava-s17-migrate-1 Started 
+ Container nava-s17-migrate-1 Waiting 
+ Container nava-s17-temporal-schema-1 Exited 
+ Container nava-s17-temporal-server-1 Starting 
+ Container nava-s17-migrate-1 Exited 
+ Container nava-s17-pgbouncer-1 Starting 
+ Container nava-s17-temporal-server-1 Started 
+ Container nava-s17-temporal-server-1 Waiting 
+ Container nava-s17-pgbouncer-1 Started 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-temporal-server-1 Healthy 
+ Container nava-s17-temporal-1 Starting 
+ Container nava-s17-temporal-1 Started 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-nava-purge-1 Starting 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-nava-purge-1 Started 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-relay-1 Starting 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-worker-1 Starting 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-core-1 Starting 
+ Container nava-s17-nava-relay-1 Started 
+ Container nava-s17-nava-worker-1 Started 
+ Container nava-s17-nava-core-1 Started 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-nava-onboard-1 Starting 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-nava-groupsync-1 Starting 
+ Container nava-s17-nava-onboard-1 Started 
+ Container nava-s17-nava-groupsync-1 Started 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-nava-purge-1 Waiting 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-migrate-1 Waiting 
+ Container nava-s17-temporal-schema-1 Waiting 
+ Container nava-s17-nava-groupsync-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-postgres-1 Waiting 
+ Container nava-s17-nava-onboard-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-temporal-server-1 Waiting 
+ Container nava-s17-nava-core-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-nava-relay-1 Waiting 
+ Container nava-s17-nava-worker-1 Waiting 
+ Container nava-s17-nava-worker-1 Healthy 
+ Container nava-s17-migrate-1 Exited 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-temporal-schema-1 Exited 
+ Container nava-s17-postgres-1 Healthy 
+ Container nava-s17-nava-purge-1 Healthy 
+ Container nava-s17-nava-relay-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-temporal-server-1 Healthy 
+ Container nava-s17-nava-core-1 Healthy 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-onboard-1 Healthy 
+ Container nava-s17-nava-groupsync-1 Healthy 
+seed: tenants A and B, issuer http://localhost:18081/realms/nava
+                tenant                | state  |               issuer               
+--------------------------------------+--------+------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | active | http://localhost:18081/realms/nava
+ 00000000-0000-4000-8000-0000000000b1 | active | http://localhost:18081/realms/nava
+(2 rows)
+
+seed: admin@tenant-a.test is in /t/00000000-0000-4000-8000-0000000000a1/admins
+seed: /t/00000000-0000-4000-8000-0000000000b1/admins exists
+seed: one group sync cycle (nava-groupsync --once)
+ Container nava-s17-nava-groupsync-run-6117f2629037 Creating 
+ Container nava-s17-nava-groupsync-run-6117f2629037 Created 
+{"time":"2026-11-12T22:58:52.028581896Z","level":"INFO","msg":"group sync applied","tenant_id":"00000000-0000-4000-8000-0000000000a1","principals_written":3,"principals_tombstoned":0,"groups_written":3,"groups_deleted":0,"org_units_written":3,"org_units_deleted":0,"ignored_outside_subtree":0}
+{"time":"2026-11-12T22:58:52.332481876Z","level":"INFO","msg":"group sync applied","tenant_id":"00000000-0000-4000-8000-0000000000b1","principals_written":1,"principals_tombstoned":0,"groups_written":3,"groups_deleted":0,"org_units_written":3,"org_units_deleted":0,"ignored_outside_subtree":0}
+{"time":"2026-11-12T22:58:52.333202528Z","level":"INFO","msg":"nava-groupsync --once done","tenants":2,"failed":0}
+seed: tenant A's admin group, incident/request/change at version 1 in A and B
+                tenant                |   key    | current_version |                         v1_schema_sha256                         
+--------------------------------------+----------+-----------------+------------------------------------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | change   |               1 | 567cd636405ff3d074fcdf4cc836c1b762826bd3ee2c780ed30439cb9ab65645
+ 00000000-0000-4000-8000-0000000000a1 | incident |               1 | 3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f
+ 00000000-0000-4000-8000-0000000000a1 | request  |               1 | 7cd7c3b885a4b0a9d0ceab2c18f9dd7fad7c588e6c867599ebe6dd1329756906
+ 00000000-0000-4000-8000-0000000000b1 | change   |               1 | 567cd636405ff3d074fcdf4cc836c1b762826bd3ee2c780ed30439cb9ab65645
+ 00000000-0000-4000-8000-0000000000b1 | incident |               1 | 3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f
+ 00000000-0000-4000-8000-0000000000b1 | request  |               1 | 7cd7c3b885a4b0a9d0ceab2c18f9dd7fad7c588e6c867599ebe6dd1329756906
+(6 rows)
+
+seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)
+{"time":"2026-11-12T22:58:54.788191596Z","level":"INFO","msg":"default acl published","tenant_id":"00000000-0000-4000-8000-0000000000a1"}
+{"time":"2026-11-12T22:58:54.795954439Z","level":"INFO","msg":"default acl published","tenant_id":"00000000-0000-4000-8000-0000000000b1"}
+{"time":"2026-11-12T22:58:54.795998263Z","level":"INFO","msg":"default acl reconcile done","published":2,"unchanged":0,"failed":0}
+                tenant                | incident_acl_version | default_acl 
+--------------------------------------+----------------------+-------------
+ 00000000-0000-4000-8000-0000000000a1 |                    1 | t
+ 00000000-0000-4000-8000-0000000000b1 |                    1 | t
+(2 rows)
+
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
+== schema on the pre-S17 build, before the upgrade (2026-11-12T22:58:55Z)
+     column_name      | data_type | is_nullable | column_default 
+----------------------+-----------+-------------+----------------
+ tenant_id            | uuid      | NO          | 
+ entity_definition_id | uuid      | NO          | 
+ next                 | bigint    | NO          | 
+
+      indexname       |                                                     indexdef                                                     
+----------------------+------------------------------------------------------------------------------------------------------------------
+ record_counters_pkey | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)
+
+ version_id 
+------------
+
+s17: 2. tenant A gapless, tenant B gaps, both to INC0000042 (pre-S17 build)
+s17: before the upgrade: A (gapless) last INC0000042, B (gaps) last INC0000042
+== counters on the pre-S17 build, before the upgrade (2026-11-12T22:58:59Z)
+              tenant_id               |   key    | number_prefix | numbering_mode | next | max_number | records 
+--------------------------------------+----------+---------------+----------------+------+------------+---------
+ 00000000-0000-4000-8000-0000000000a1 | incident | INC           | gapless        |   43 | INC0000042 |      42
+ 00000000-0000-4000-8000-0000000000b1 | incident | INC           | gaps           |   43 | INC0000042 |      42
+
+s17: 3. upgrade the same stack to 672a9e66
+ Image nava/nava-relay:dev Building 
+ Image nava/nava-db:dev Building 
+ Image nava/temporal-server:dev Building 
+ Image nava/nava-groupsync:dev Building 
+ Image nava/otel-collector:dev Building 
+ Image nava/nava-db:dev Building 
+ Image nava/nava-core:dev Building 
+ Image nava/nava-purge:dev Building 
+ Image nava/keycloak:dev Building 
+ Image nava/nava-onboard:dev Building 
+ Image nava/nava-worker:dev Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 7.03kB done
+#1 DONE 0.0s
+
+#2 [db-roles internal] load build definition from Dockerfile
+#2 transferring dockerfile: 552B 0.0s done
+#2 DONE 0.0s
+
+#3 [nava-onboard internal] load build definition from Dockerfile
+#3 transferring dockerfile: 493B 0.0s done
+#3 DONE 0.1s
+
+#4 [keycloak internal] load build definition from Dockerfile
+#4 transferring dockerfile: 659B 0.0s done
+#4 DONE 0.1s
+
+#5 [nava-purge internal] load build definition from Dockerfile
+#5 transferring dockerfile: 471B 0.0s done
+#5 DONE 0.1s
+
+#6 [nava-core internal] load build definition from Dockerfile
+#6 transferring dockerfile: 478B 0.0s done
+#6 DONE 0.1s
+
+#7 [temporal-server internal] load build definition from Dockerfile
+#7 transferring dockerfile: 1.89kB 0.0s done
+#7 DONE 0.1s
+
+#8 [keycloak internal] load metadata for quay.io/keycloak/keycloak:26.8.1
+#8 ...
+
+#9 [otel-collector internal] load build definition from Dockerfile
+#9 transferring dockerfile: 463B 0.0s done
+#9 DONE 0.1s
+
+#10 [nava-worker internal] load build definition from Dockerfile
+#10 transferring dockerfile: 766B 0.0s done
+#10 DONE 0.1s
+
+#11 [nava-groupsync internal] load build definition from Dockerfile
+#11 transferring dockerfile: 491B 0.0s done
+#11 DONE 0.1s
+
+#12 [nava-relay internal] load build definition from Dockerfile
+#12 transferring dockerfile: 471B 0.0s done
+#12 DONE 0.2s
+
+#13 [temporal-server internal] load metadata for docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#13 DONE 0.0s
+
+#14 [nava-relay internal] load metadata for docker.io/library/alpine:3.22.1
+#14 ...
+
+#8 [keycloak internal] load metadata for quay.io/keycloak/keycloak:26.8.1
+#8 DONE 0.9s
+
+#15 [keycloak internal] load .dockerignore
+#15 transferring context: 101B 0.1s done
+#15 DONE 0.1s
+
+#16 [keycloak internal] load build context
+#16 DONE 0.0s
+
+#17 [nava-relay internal] load metadata for docker.io/library/golang:1.26.11-alpine
+#17 ...
+
+#18 [keycloak 1/3] FROM quay.io/keycloak/keycloak:26.8.1@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
+#18 DONE 0.0s
+
+#14 [otel-collector internal] load metadata for docker.io/library/alpine:3.22.1
+#14 DONE 1.1s
+
+#17 [nava-worker internal] load metadata for docker.io/library/golang:1.26.11-alpine
+#17 DONE 1.1s
+
+#15 [db-roles internal] load .dockerignore
+#15 transferring context: 101B 0.1s done
+#15 DONE 0.1s
+
+#16 [keycloak internal] load build context
+#16 transferring context: 866B 0.1s done
+#16 DONE 0.1s
+
+#19 [nava-groupsync build 1/8] FROM docker.io/library/golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb
+#19 DONE 0.0s
+
+#20 [nava-groupsync stage-1 1/3] FROM docker.io/library/alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+#20 DONE 0.0s
+
+#21 [temporal-server internal] load metadata for docker.io/library/golang:1.26.11-bookworm
+#21 DONE 1.1s
+
+#22 [keycloak 2/3] COPY deploy/compose/keycloak/quarkus.properties /opt/keycloak/conf/quarkus.properties
+#22 CACHED
+
+#23 [keycloak 3/3] RUN /opt/keycloak/bin/kc.sh build
+#23 CACHED
+
+#24 [keycloak] exporting to image
+#24 exporting layers done
+#24 writing image sha256:81b89751bc83744c8a1fd6b751e387df9bb368252ccd01e8961fd374bea295a4 done
+#24 naming to docker.io/nava/keycloak:dev done
+#24 DONE 0.0s
+
+#25 [temporal-server internal] load .dockerignore
+#25 transferring context: 88B 0.0s done
+#25 DONE 0.1s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#27 [temporal-server build 1/7] FROM docker.io/library/golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+#27 DONE 0.0s
+
+#28 [temporal-server stage-1 1/7] FROM docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#28 DONE 0.0s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#29 [keycloak] resolving provenance for metadata file
+#29 DONE 0.2s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#30 [otel-collector internal] load metadata for docker.io/otel/opentelemetry-collector-contrib:0.139.0
+#30 DONE 2.1s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#20 [otel-collector stage-1 1/3] FROM docker.io/library/alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+#20 DONE 0.0s
+
+#31 [otel-collector internal] load .dockerignore
+#31 transferring context: 2B 0.1s done
+#31 DONE 0.1s
+
+#32 [otel-collector collector 1/1] FROM docker.io/otel/opentelemetry-collector-contrib:0.139.0@sha256:faf125d656fa47cea568b2f3b4494efd2525083bc75c1e96038bc23f05cd68fd
+#32 DONE 0.0s
+
+#33 [temporal-server internal] load build context
+#33 transferring context: 639.54kB 1.0s done
+#33 DONE 1.1s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#34 [temporal-server build 7/7] RUN go build -trimpath -o /out/temporal-server ./cmd/server  && go build -trimpath -o /out/temporal-sql-tool go.temporal.io/server/cmd/tools/sql  && cp -r "$(go list -m -f '{{.Dir}}' go.temporal.io/server)/schema/postgresql/v12" /out/schema  && chmod -R a+rX /out/schema
+#34 CACHED
+
+#35 [temporal-server build 3/7] COPY go.mod go.sum ./
+#35 CACHED
+
+#36 [temporal-server stage-1 6/7] COPY scripts/setup-schema.sh /usr/local/bin/setup-schema.sh
+#36 CACHED
+
+#37 [temporal-server build 5/7] RUN go build -trimpath       go.temporal.io/server/temporal       go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql       go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite       go.temporal.io/server/cmd/tools/sql
+#37 CACHED
+
+#38 [temporal-server build 6/7] COPY . .
+#38 CACHED
+
+#39 [temporal-server build 4/7] RUN go mod download
+#39 CACHED
+
+#40 [temporal-server build 2/7] WORKDIR /src
+#40 CACHED
+
+#41 [temporal-server stage-1 4/7] COPY --from=build /out/temporal-sql-tool /usr/local/bin/temporal-sql-tool
+#41 CACHED
+
+#42 [temporal-server stage-1 5/7] COPY --from=build /out/schema /etc/temporal/schema
+#42 CACHED
+
+#43 [temporal-server stage-1 2/7] RUN useradd --system --uid 10001 --no-create-home temporal
+#43 CACHED
+
+#44 [temporal-server stage-1 3/7] COPY --from=build /out/temporal-server /usr/local/bin/temporal-server
+#44 CACHED
+
+#45 [temporal-server stage-1 7/7] COPY config /etc/temporal/config
+#45 CACHED
+
+#46 [temporal-server] exporting to image
+#46 exporting layers done
+#46 writing image sha256:d2d9918e36c8cc335e2093b9e1930da9632dc84418e2164af72343dd9c4a7ed0 done
+#46 naming to docker.io/nava/temporal-server:dev done
+#46 DONE 0.0s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#47 [otel-collector internal] load build context
+#47 transferring context: 4.94kB 0.2s done
+#47 DONE 0.2s
+
+#48 [otel-collector stage-1 2/3] COPY --from=collector /otelcol-contrib /otelcol-contrib
+#48 CACHED
+
+#49 [otel-collector stage-1 3/3] COPY config.yaml /etc/otelcol/config.yaml
+#49 CACHED
+
+#50 [otel-collector] exporting to image
+#50 exporting layers done
+#50 writing image sha256:68deeddba1d299249475e1398afdcdc095cfc34d79b6ac1f50f26badbfa23471 done
+#50 naming to docker.io/nava/otel-collector:dev done
+#50 DONE 0.0s
+
+#51 [temporal-server] resolving provenance for metadata file
+#51 DONE 0.1s
+
+#26 [nava-core internal] load build context
+#26 ...
+
+#52 [otel-collector] resolving provenance for metadata file
+#52 DONE 0.0s
+
+#26 [nava-core internal] load build context
+#26 transferring context: 5.55MB 6.3s
+#26 transferring context: 7.22MB 8.6s done
+#26 DONE 8.6s
+
+#53 [db-roles internal] load build context
+#53 transferring context: 7.17MB 8.6s done
+#53 DONE 8.6s
+
+#54 [migrate build 2/8] WORKDIR /src
+#54 CACHED
+
+#55 [migrate build 3/8] COPY go.mod go.sum ./
+#55 CACHED
+
+#56 [nava-core build 4/8] RUN go mod download
+#56 CACHED
+
+#57 [nava-core build 5/8] COPY cmd ./cmd
+#57 DONE 0.2s
+
+#58 [nava-groupsync build 4/8] RUN go mod download
+#58 CACHED
+
+#59 [nava-groupsync build 5/8] COPY cmd ./cmd
+#59 CACHED
+
+#60 [nava-groupsync build 3/8] COPY go.mod go.sum ./
+#60 CACHED
+
+#54 [nava-groupsync build 2/8] WORKDIR /src
+#54 CACHED
+
+#61 [nava-groupsync build 6/8] COPY internal ./internal
+#61 DONE 0.9s
+
+#62 [db-roles build 6/8] COPY db ./db
+#62 DONE 1.0s
+
+#63 [nava-purge build 7/8] COPY api ./api
+#63 DONE 0.8s
+
+#64 [nava-purge build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-purge ./cmd/nava-purge
+#64 ...
+
+#65 [migrate build 7/8] COPY internal ./internal
+#65 DONE 1.6s
+
+#66 [db-roles build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#66 ...
+
+#67 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#67 ...
+
+#68 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#68 ...
+
+#69 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#69 ...
+
+#70 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#70 ...
+
+#71 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#71 ...
+
+#66 [migrate build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#66 DONE 164.7s
+
+#67 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#67 ...
+
+#72 [db-roles stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#73 [db-roles stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#73 CACHED
+
+#72 [migrate stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#73 [migrate stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#73 CACHED
+
+#74 [db-roles] exporting to image
+#74 exporting layers done
+#74 writing image sha256:21ec3efaff5658a94f1015cdcd830b74270852eb6a42e398d846ecc687d8fa31 0.1s done
+#74 naming to docker.io/nava/nava-db:dev
+#74 naming to docker.io/nava/nava-db:dev 0.2s done
+#74 DONE 0.4s
+
+#75 [migrate] exporting to image
+#75 exporting layers done
+#75 writing image sha256:26282bbaf4884da65c66872118b62daa58ee6dc07d6cdcd8635f734a50ef4d03 0.2s done
+#75 naming to docker.io/nava/nava-db:dev 0.1s done
+#75 DONE 0.6s
+
+#68 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#68 ...
+
+#76 [db-roles] resolving provenance for metadata file
+#76 DONE 0.1s
+
+#77 [migrate] resolving provenance for metadata file
+#77 DONE 0.0s
+
+#67 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#67 ...
+
+#64 [nava-purge build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-purge ./cmd/nava-purge
+#64 DONE 351.8s
+
+#68 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#68 ...
+
+#69 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#69 DONE 353.1s
+
+#67 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#67 DONE 353.1s
+
+#68 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#68 DONE 353.1s
+
+#72 [nava-purge stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#78 [nava-purge stage-1 3/3] COPY --from=build /out/nava-purge /usr/local/bin/nava-purge
+#78 CACHED
+
+#79 [nava-purge] exporting to image
+#79 exporting layers done
+#79 writing image sha256:57ae475c32b58c7d76a9046271b2c9d50709ad840e527d07899c8366371ec9a4 0.0s done
+#79 naming to docker.io/nava/nava-purge:dev 0.0s done
+#79 DONE 0.1s
+
+#70 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#70 ...
+
+#72 [nava-worker stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#80 [nava-worker stage-1 3/3] COPY --from=build /out/nava-worker /usr/local/bin/nava-worker
+#80 CACHED
+
+#81 [nava-groupsync stage-1 3/3] COPY --from=build /out/nava-groupsync /usr/local/bin/nava-groupsync
+#81 CACHED
+
+#72 [nava-groupsync stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#82 [nava-relay stage-1 3/3] COPY --from=build /out/nava-relay /usr/local/bin/nava-relay
+#82 CACHED
+
+#83 [nava-groupsync] exporting to image
+#83 exporting layers done
+#83 writing image sha256:6ba7bbe60ffb442f1fb07507f2b56068847488cc538ed698244ffc0566089175 done
+#83 naming to docker.io/nava/nava-groupsync:dev 0.0s done
+#83 DONE 0.0s
+
+#84 [nava-purge] resolving provenance for metadata file
+#84 DONE 0.0s
+
+#85 [nava-worker] exporting to image
+#85 exporting layers done
+#85 writing image sha256:8e3e80405b9db7361e1605f43cc27684382e7035fca4d76623a652bfe444b0de 0.0s done
+#85 naming to docker.io/nava/nava-worker:dev 0.0s done
+#85 DONE 0.1s
+
+#86 [nava-relay] exporting to image
+#86 exporting layers done
+#86 writing image sha256:076f36d4467b1b4a1f76061de592b8f375ef9c9ccccab8ef3279bdf646a9bf83 0.0s done
+#86 naming to docker.io/nava/nava-relay:dev 0.0s done
+#86 DONE 0.1s
+
+#70 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#70 ...
+
+#87 [nava-groupsync] resolving provenance for metadata file
+#87 DONE 0.1s
+
+#88 [nava-worker] resolving provenance for metadata file
+#88 DONE 0.1s
+
+#89 [nava-relay] resolving provenance for metadata file
+#89 DONE 0.0s
+
+#70 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#70 DONE 362.4s
+
+#71 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#71 DONE 362.5s
+
+#72 [nava-core stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#90 [nava-core stage-1 3/3] COPY --from=build /out/nava-core /usr/local/bin/nava-core
+#90 ...
+
+#72 [nava-onboard stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#91 [nava-onboard stage-1 3/3] COPY --from=build /out/nava-onboard /usr/local/bin/nava-onboard
+#91 CACHED
+
+#92 [nava-onboard] exporting to image
+#92 exporting layers done
+#92 writing image sha256:6fccab20a4e60a224066e84303cb23d2d6bed350b43c3441634af3a9eea804d7 0.1s done
+#92 naming to docker.io/nava/nava-onboard:dev 0.1s done
+#92 DONE 0.4s
+
+#90 [nava-core stage-1 3/3] COPY --from=build /out/nava-core /usr/local/bin/nava-core
+#90 DONE 1.9s
+
+#93 [nava-core] exporting to image
+#93 ...
+
+#94 [nava-onboard] resolving provenance for metadata file
+#94 DONE 0.2s
+
+#93 [nava-core] exporting to image
+#93 exporting layers 0.8s done
+#93 writing image sha256:40463efcedac0ce377d21577d18e711e77247c895013c27470ee90979da8a2f9 0.0s done
+#93 naming to docker.io/nava/nava-core:dev 0.0s done
+#93 DONE 0.9s
+
+#95 [nava-core] resolving provenance for metadata file
+#95 DONE 0.0s
+ Image nava/temporal-server:dev Built 
+ Image nava/nava-db:dev Built 
+ Image nava/nava-groupsync:dev Built 
+ Image nava/nava-relay:dev Built 
+ Image nava/nava-onboard:dev Built 
+ Image nava/nava-db:dev Built 
+ Image nava/keycloak:dev Built 
+ Image nava/nava-purge:dev Built 
+ Image nava/nava-core:dev Built 
+ Image nava/nava-worker:dev Built 
+ Image nava/otel-collector:dev Built 
+ Container nava-s17-pgbouncer-1 Running 
+ Container nava-s17-postgres-1 Running 
+ Container nava-s17-otel-collector-1 Recreate 
+ Container nava-s17-db-roles-1 Recreate 
+ Container nava-s17-db-roles-1 Recreated 
+ Container nava-s17-migrate-1 Recreate 
+ Container nava-s17-keycloak-1 Recreate 
+ Container nava-s17-temporal-schema-1 Recreate 
+ Container nava-s17-migrate-1 Recreated 
+ Container nava-s17-temporal-schema-1 Recreated 
+ Container nava-s17-temporal-server-1 Recreate 
+ Container nava-s17-otel-collector-1 Recreated 
+ Container nava-s17-nava-purge-1 Recreate 
+ Container nava-s17-nava-purge-1 Recreated 
+ Container nava-s17-temporal-server-1 Recreated 
+ Container nava-s17-temporal-1 Recreate 
+ Container nava-s17-keycloak-1 Recreated 
+ Container nava-s17-nava-groupsync-1 Recreate 
+ Container nava-s17-nava-onboard-1 Recreate 
+ Container nava-s17-nava-groupsync-1 Recreated 
+ Container nava-s17-nava-onboard-1 Recreated 
+ Container nava-s17-temporal-1 Recreated 
+ Container nava-s17-nava-worker-1 Recreate 
+ Container nava-s17-nava-core-1 Recreate 
+ Container nava-s17-nava-relay-1 Recreate 
+ Container nava-s17-nava-relay-1 Recreated 
+ Container nava-s17-nava-worker-1 Recreated 
+ Container nava-s17-nava-core-1 Recreated 
+ Container nava-s17-otel-collector-1 Starting 
+ Container nava-s17-postgres-1 Waiting 
+ Container nava-s17-otel-collector-1 Started 
+ Container nava-s17-postgres-1 Healthy 
+ Container nava-s17-db-roles-1 Starting 
+ Container nava-s17-db-roles-1 Started 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-temporal-schema-1 Starting 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-keycloak-1 Starting 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-migrate-1 Starting 
+ Container nava-s17-temporal-schema-1 Started 
+ Container nava-s17-temporal-schema-1 Waiting 
+ Container nava-s17-temporal-schema-1 Exited 
+ Container nava-s17-temporal-server-1 Starting 
+ Container nava-s17-keycloak-1 Started 
+ Container nava-s17-migrate-1 Started 
+ Container nava-s17-migrate-1 Waiting 
+ Container nava-s17-temporal-server-1 Started 
+ Container nava-s17-temporal-server-1 Waiting 
+ Container nava-s17-migrate-1 Exited 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-nava-purge-1 Starting 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-nava-purge-1 Started 
+ Container nava-s17-temporal-server-1 Healthy 
+ Container nava-s17-temporal-1 Starting 
+ Container nava-s17-temporal-1 Started 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-relay-1 Starting 
+ Container nava-s17-nava-core-1 Starting 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-nava-worker-1 Starting 
+ Container nava-s17-nava-relay-1 Started 
+ Container nava-s17-nava-core-1 Started 
+ Container nava-s17-nava-worker-1 Started 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-nava-onboard-1 Starting 
+ Container nava-s17-nava-groupsync-1 Starting 
+ Container nava-s17-nava-onboard-1 Started 
+ Container nava-s17-nava-groupsync-1 Started 
+ Container nava-s17-nava-relay-1 Waiting 
+ Container nava-s17-db-roles-1 Waiting 
+ Container nava-s17-nava-purge-1 Waiting 
+ Container nava-s17-pgbouncer-1 Waiting 
+ Container nava-s17-keycloak-1 Waiting 
+ Container nava-s17-nava-core-1 Waiting 
+ Container nava-s17-nava-groupsync-1 Waiting 
+ Container nava-s17-nava-worker-1 Waiting 
+ Container nava-s17-temporal-server-1 Waiting 
+ Container nava-s17-temporal-schema-1 Waiting 
+ Container nava-s17-otel-collector-1 Waiting 
+ Container nava-s17-postgres-1 Waiting 
+ Container nava-s17-temporal-1 Waiting 
+ Container nava-s17-nava-onboard-1 Waiting 
+ Container nava-s17-migrate-1 Waiting 
+ Container nava-s17-pgbouncer-1 Healthy 
+ Container nava-s17-keycloak-1 Healthy 
+ Container nava-s17-postgres-1 Healthy 
+ Container nava-s17-db-roles-1 Exited 
+ Container nava-s17-nava-relay-1 Healthy 
+ Container nava-s17-nava-worker-1 Healthy 
+ Container nava-s17-temporal-server-1 Healthy 
+ Container nava-s17-nava-purge-1 Healthy 
+ Container nava-s17-nava-core-1 Healthy 
+ Container nava-s17-migrate-1 Exited 
+ Container nava-s17-otel-collector-1 Healthy 
+ Container nava-s17-temporal-1 Healthy 
+ Container nava-s17-temporal-schema-1 Exited 
+ Container nava-s17-nava-onboard-1 Healthy 
+ Container nava-s17-nava-groupsync-1 Healthy 
+{"time":"2026-11-12T23:05:42.777311829Z","level":"INFO","msg":"migrate done","migrations_applied":4,"policies_created":0,"policies_dropped":0,"grants_granted":0,"grants_revoked":0}
+== schema after the upgrade (M1, M2) (2026-11-12T23:06:09Z)
+     column_name      |        data_type         | is_nullable | column_default 
+----------------------+--------------------------+-------------+----------------
+ tenant_id            | uuid                     | NO          | 
+ entity_definition_id | uuid                     | NO          | 
+ next                 | bigint                   | NO          | 
+ scope_key            | text                     | NO          | ''::text
+ period_end           | timestamp with time zone | YES         | 
+
+         indexname          |                                                             indexdef                                                              
+----------------------------+-----------------------------------------------------------------------------------------------------------------------------------
+ record_counters_period_end | CREATE INDEX record_counters_period_end ON public.record_counters USING btree (period_end) WHERE (period_end IS NOT NULL)
+ record_counters_pkey       | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)
+ record_counters_scoped_key | CREATE UNIQUE INDEX record_counters_scoped_key ON public.record_counters USING btree (tenant_id, entity_definition_id, scope_key)
+
+   version_id   
+----------------
+ 20261112193000
+ 20261112193100
+ 20261112193200
+ 20261112193300
+
+== counters after the upgrade, before any create (2026-11-12T23:06:11Z)
+              tenant_id               |   key    | number_prefix | numbering_mode | scope_key | period_end | next | max_number | records 
+--------------------------------------+----------+---------------+----------------+-----------+------------+------+------------+---------
+ 00000000-0000-4000-8000-0000000000a1 | incident | INC           | gapless        |           |            |   43 | INC0000042 |      42
+ 00000000-0000-4000-8000-0000000000b1 | incident | INC           | gaps           |           |            |   43 | INC0000042 |      42
+
+s17: 4. Bruno folder S17
+S17\S17-1 (200 OK) - 803 ms
+S17 run 1d56cc66
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S17\S17-2 (200 OK) - 222 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S17\S17-3 (200 OK) - 226 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+S17\S17-4 (200 OK) - 22 ms
+Tests
+   ✓ HTTP 200
+   ✓ incident, prefix INC, numbering_mode gapless
+S17\S17-5 (200 OK) - 24 ms
+Tests
+   ✓ HTTP 200
+   ✓ incident, prefix INC, numbering_mode gaps
+S17\S17-6 (201 Created) - 45 ms
+S17.6 tenant A (gapless): INC0000043 01a1d204-89ea-729a-9d6f-614806c79878
+Tests
+   ✓ HTTP 201
+   ✓ number INC0000043
+S17\S17-7 (201 Created) - 32 ms
+S17.7 tenant B (gaps): INC0000043 01a1d204-8a1d-7d7b-9cd8-ee3ac825281c
+Tests
+   ✓ HTTP 201
+   ✓ number INC0000043
+S17\S17-8 (200 OK) - 27 ms
+Tests
+   ✓ HTTP 200
+   ✓ INC0000043, version 1
+S17\S17-9 (200 OK) - 25 ms
+S17 parallel a: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051
+Tests
+   ✓ HTTP 200
+   ✓ 8 creates, each 201
+   ✓ the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051
+   ✓ 8 different numbers
+   ✓ gapless: exactly INC0000044 to INC0000051, no gap
+   ✓ the record read back has its number
+S17\S17-10 (200 OK) - 39 ms
+S17 parallel b: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051
+Tests
+   ✓ HTTP 200
+   ✓ 8 creates, each 201
+   ✓ the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051
+   ✓ 8 different numbers
+   ✓ gaps: every number after INC0000043
+   ✓ gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)
+   ✓ the record read back has its number
+S17\S17-11 (404 Not Found) - 24 ms
+Tests
+   ✓ HTTP 404 problem+json with code not_found and no instance
+   ✓ response names nothing of the other tenant
+S17\S17-12 (404 Not Found) - 32 ms
+Tests
+   ✓ HTTP 404 problem+json with code not_found and no instance
+   ✓ response names nothing of the other tenant
+S17\S17-13 (201 Created) - 22 ms
+Tests
+   ✓ HTTP 201
+   ✓ number INC0000052: the next of tenant A's own series
+S17\S17-14 (201 Created) - 23 ms
+Tests
+   ✓ HTTP 201
+   ✓ number INC0000052: the next of tenant B's own series
+S17\S17-15 (200 OK) - 17 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 1, the text of S17.6
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 15 (15 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │     42/42      │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │      2849      │
+└───────────────┴────────────────┘
+Wrote html results to ./docs/acceptance/guide/reports/S17.html
+Wrote json results to ./docs/acceptance/guide/reports/S17.json
+Wrote junit results to ./docs/acceptance/guide/reports/S17.junit.xml
+api-test: reports in ./docs/acceptance/guide/reports/S17.{junit.xml,html,json}
+api-test: PASS
+s17: 5. database after the run, and the runbook (AC4)
+== counters after the Bruno folder (2026-11-12T23:07:56Z)
+              tenant_id               |   key    | number_prefix | numbering_mode | scope_key | period_end | next | max_number | records 
+--------------------------------------+----------+---------------+----------------+-----------+------------+------+------------+---------
+ 00000000-0000-4000-8000-0000000000a1 | incident | INC           | gapless        |           |            |   53 | INC0000052 |      52
+ 00000000-0000-4000-8000-0000000000b1 | incident | INC           | gaps           |           |            |   53 | INC0000052 |      52
+
+              tenant_id               | numbering_mode | records | distinct_numbers 
+--------------------------------------+----------------+---------+------------------
+ 00000000-0000-4000-8000-0000000000a1 | gapless        |      52 |               52
+ 00000000-0000-4000-8000-0000000000b1 | gaps           |      52 |               52
+
+== docs/data/record-counters-scope-key.md: M3 is a later release, and the pre-S17 build cannot be deployed after it
+32:R1 to every API and worker replica, then and only then run M3 with R2.
+101:  never fire: the retry and the savepoint go with M3 (S18/R2),
+146:| R2 / M3 | anything earlier | **Not possible.** |
+148:**M3 is the point of no return.** After M3 the primary key is
+156:## M3 (S18, for reference)
+evidence: 15 requests, 0 failed tests
+s17: PASS; evidence in docs/acceptance/S17/evidence
+EXIT 0

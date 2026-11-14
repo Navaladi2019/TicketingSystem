@@ -32,6 +32,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/db/roles"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -233,12 +234,12 @@ func TestStatementsOnTheServersPoolMode(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		n, err := store.NextNumber(ctx, tx, tenant, def)
+		n, err := store.NextNumber(ctx, tx, tenant, def, "")
 		if err != nil {
 			return err
 		}
 		rec = store.Record{TenantID: tenant, ID: uuid.New(), EntityDefinitionID: def, Version: 1, SchemaVersion: 1,
-			Number: store.FormatNumber("AST", n), CreatedBy: &principal, CreatedAt: now, UpdatedAt: now}
+			Number: astNumber(t, n), CreatedBy: &principal, CreatedAt: now, UpdatedAt: now}
 		if err := rec.Split(map[string]any{"name": "one", "status": "active", "serial": "SN-1",
 			"tag": json.Number("7"), "owner": principal.String()}, fixed); err != nil {
 			return err
@@ -411,12 +412,12 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		n, err := store.NextNumber(ctx, tx, tenantA, def)
+		n, err := store.NextNumber(ctx, tx, tenantA, def, "")
 		if err != nil {
 			return err
 		}
 		rec = store.Record{TenantID: tenantA, ID: uuid.New(), EntityDefinitionID: def, Version: 1, SchemaVersion: 1,
-			Number: store.FormatNumber("AST", n), CreatedBy: &pa, CreatedAt: now, UpdatedAt: now}
+			Number: astNumber(t, n), CreatedBy: &pa, CreatedAt: now, UpdatedAt: now}
 		if err := rec.Split(map[string]any{"name": "a-secret", "status": "active", "serial": "SN-A"}, fixed); err != nil {
 			return err
 		}
@@ -468,7 +469,7 @@ func TestStatementsStayInTheTransactionsTenant(t *testing.T) {
 			return store.InsertWriteKey(ctx, tx, writeKey(&rec, "forged-key", "update", uuid.New()))
 		},
 		"take a number": func(ctx context.Context, tx pgx.Tx) error {
-			_, err := store.NextNumber(ctx, tx, tenantA, rec.EntityDefinitionID)
+			_, err := store.NextNumber(ctx, tx, tenantA, rec.EntityDefinitionID, "")
 			return err
 		},
 	} {
@@ -538,7 +539,7 @@ func TestWorkerGetsRecordWithAssignmentGroup(t *testing.T) {
 			return err
 		}
 		rec = store.Record{TenantID: tenant, ID: uuid.New(), EntityDefinitionID: def, Version: 1, SchemaVersion: 1,
-			Number: store.FormatNumber("AST", 1), CreatedBy: &principal, CreatedAt: now, UpdatedAt: now}
+			Number: astNumber(t, 1), CreatedBy: &principal, CreatedAt: now, UpdatedAt: now}
 		if err := rec.Split(map[string]any{"name": "desk", "status": "active"}, assetFixed()); err != nil {
 			return err
 		}
@@ -571,4 +572,14 @@ func TestWorkerGetsRecordWithAssignmentGroup(t *testing.T) {
 	if got := get(); !got.AssignmentGroupRemoved {
 		t.Error("tombstoned group: AssignmentGroupRemoved = false, want true")
 	}
+}
+
+// astNumber is counter value n as the default format renders it under AST.
+func astNumber(t *testing.T, n int64) string {
+	t.Helper()
+	s, err := numbering.Default().Render("AST", n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

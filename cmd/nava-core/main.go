@@ -57,7 +57,17 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	// With OTEL_EXPORTER_OTLP_ENDPOINT set, records also go to the Collector.
 	// Unset, log is unchanged.
 	log = logging.WithExport(log, tel.LogHandler("nava-core"), cfg.Log.Level)
-	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg)
+	// The allocator pool comes first: readiness waits for it to hold a
+	// connection (TICK-778).
+	allocPool, err := newAllocatorPool(ctx, tel, cfg)
+	if err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
+	if allocPool != nil {
+		defer allocPool.Close()
+	}
+	mon, closeDeps, err := newMonitor(ctx, log, tel, cfg, allocPool)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err
@@ -69,14 +79,6 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		return err
 	}
 	defer closeResolver()
-	allocPool, err := newAllocatorPool(ctx, tel, cfg)
-	if err != nil {
-		_ = tel.Shutdown(context.WithoutCancel(ctx))
-		return err
-	}
-	if allocPool != nil {
-		defer allocPool.Close()
-	}
 	cursors, err := cursor.NewKeyringFromConfig(cfg.Cursor)
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))

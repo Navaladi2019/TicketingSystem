@@ -1,0 +1,22 @@
+== schema after the upgrade (M1, M2) (2026-11-12T23:06:09Z)
+     column_name      |        data_type         | is_nullable | column_default 
+----------------------+--------------------------+-------------+----------------
+ tenant_id            | uuid                     | NO          | 
+ entity_definition_id | uuid                     | NO          | 
+ next                 | bigint                   | NO          | 
+ scope_key            | text                     | NO          | ''::text
+ period_end           | timestamp with time zone | YES         | 
+
+         indexname          |                                                             indexdef                                                              
+----------------------------+-----------------------------------------------------------------------------------------------------------------------------------
+ record_counters_period_end | CREATE INDEX record_counters_period_end ON public.record_counters USING btree (period_end) WHERE (period_end IS NOT NULL)
+ record_counters_pkey       | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)
+ record_counters_scoped_key | CREATE UNIQUE INDEX record_counters_scoped_key ON public.record_counters USING btree (tenant_id, entity_definition_id, scope_key)
+
+   version_id   
+----------------
+ 20261112193000
+ 20261112193100
+ 20261112193200
+ 20261112193300
+

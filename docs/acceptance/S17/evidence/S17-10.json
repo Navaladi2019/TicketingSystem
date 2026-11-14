@@ -1,0 +1,63 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1d204-8c0f-7460-99b3-7478d0622186",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "created_at": "2026-11-12T23:07:55.79294Z",
+      "data": {
+        "priority": 3,
+        "requester": "8222d761-d4df-4afa-8ad2-152c2165dff0",
+        "short_description": "S17 1d56cc66 b parallel 1",
+        "state": "new"
+      },
+      "id": "01a1d204-8c0f-7460-99b3-7478d0622186",
+      "number": "INC0000044",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T23:07:55.79294Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "8 creates, each 201",
+      "status": "pass"
+    },
+    {
+      "test": "the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051",
+      "status": "pass"
+    },
+    {
+      "test": "8 different numbers",
+      "status": "pass"
+    },
+    {
+      "test": "gaps: every number after INC0000043",
+      "status": "pass"
+    },
+    {
+      "test": "gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)",
+      "status": "pass"
+    },
+    {
+      "test": "the record read back has its number",
+      "status": "pass"
+    }
+  ]
+}

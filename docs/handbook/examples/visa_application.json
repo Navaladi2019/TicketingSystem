@@ -1,0 +1,37 @@
+{
+  "key": "visa_application",
+  "name": "Visa application",
+  "number_prefix": "VISA",
+  "definition": {
+    "fixed_columns": {
+      "state": "state",
+      "requester": "requester_id",
+      "assignee": "assignee_id",
+      "assignment_group": "assignment_group_id"
+    },
+    "states": {
+      "initial": "received",
+      "states": ["received", "documents_check", "decided"],
+      "transitions": [
+        {"from": "received", "to": "documents_check"},
+        {"from": "documents_check", "to": "decided"}
+      ]
+    },
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicant", "visa_type", "state"],
+      "properties": {
+        "applicant": {"type": "string", "title": "Applicant", "minLength": 1, "maxLength": 160},
+        "passport_number": {"type": "string", "title": "Passport number", "maxLength": 20},
+        "visa_type": {"type": "string", "title": "Visa type", "enum": ["tourist", "student", "work", "family"]},
+        "travel_date": {"type": "string", "format": "date", "title": "Travel date"},
+        "state": {"type": "string", "title": "State", "enum": ["received", "documents_check", "decided"], "default": "received"},
+        "requester": {"type": "string", "format": "uuid", "title": "Applicant (user)"},
+        "assignee": {"type": "string", "format": "uuid", "title": "Case officer"},
+        "assignment_group": {"type": "string", "format": "uuid", "title": "Case group"}
+      }
+    }
+  }
+}

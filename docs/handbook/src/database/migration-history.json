@@ -741,6 +741,50 @@
       ]
     },
     {
+      "file": "20261112193000_record_counters_scope_columns.sql",
+      "on_main": true,
+      "commit": "cd6f08ce",
+      "date": "2026-11-13",
+      "pr": "623",
+      "story": "",
+      "tickets": [
+        "TICK-664"
+      ]
+    },
+    {
+      "file": "20261112193100_record_counters_scope_key_len_validate.sql",
+      "on_main": true,
+      "commit": "cd6f08ce",
+      "date": "2026-11-13",
+      "pr": "623",
+      "story": "",
+      "tickets": [
+        "TICK-664"
+      ]
+    },
+    {
+      "file": "20261112193200_record_counters_scoped_key.sql",
+      "on_main": true,
+      "commit": "cd6f08ce",
+      "date": "2026-11-13",
+      "pr": "623",
+      "story": "",
+      "tickets": [
+        "TICK-664"
+      ]
+    },
+    {
+      "file": "20261112193300_record_counters_period_end.sql",
+      "on_main": true,
+      "commit": "cd6f08ce",
+      "date": "2026-11-13",
+      "pr": "623",
+      "story": "",
+      "tickets": [
+        "TICK-664"
+      ]
+    },
+    {
       "file": "20261113123300_workflow_definitions.sql",
       "on_main": false
     },

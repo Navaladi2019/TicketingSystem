@@ -136,7 +136,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <li><strong>Patterns.</strong> Pieces available: the type's prefix, year, month, day, a counter of chosen width, and a value from a fixed list on the record (for example the branch). Patterns are checked when published; anything ambiguous is refused with a clear message.</li>
 <li><strong>Restarts.</strong> A counter restarts for whatever the pattern shows: a pattern with a month restarts monthly; one with a branch keeps a counter per branch.</li>
 <li><strong>Changing a format never rewrites existing numbers.</strong> A changed pattern starts a new counter (a new epoch), and we refuse a new pattern that could ever produce a number an older pattern of the same type already produced. Different types cannot clash, thanks to the prefix rule above.</li>
-<li><strong>Running out.</strong> A format either grows the counter past its width, or refuses the create with a clear "number space exhausted" error. You are alerted at 90 % use.</li>
+<li><strong>Running out.</strong> A format either grows the counter past its width, or refuses the create with a clear "number space exhausted" error. You are alerted at 90 % use. <em>Correction (erratum E2, 2026-11-13):</em> growing is only allowed when no digit sits directly before or after the counter, so the number can be read without knowing its format; a format such as <code>VISA-2026110001</code> (date then counter) must use "refuse". See <code>ADR-005-E2-explained.html</code>.</li>
 </ul>
 
 <h2>4a. Security conditions on formats and plugins</h2>

@@ -1,0 +1,6 @@
+== docs/data/record-counters-scope-key.md: M3 is a later release, and the pre-S17 build cannot be deployed after it
+32:R1 to every API and worker replica, then and only then run M3 with R2.
+101:  never fire: the retry and the savepoint go with M3 (S18/R2),
+146:| R2 / M3 | anything earlier | **Not possible.** |
+148:**M3 is the point of no return.** After M3 the primary key is
+156:## M3 (S18, for reference)

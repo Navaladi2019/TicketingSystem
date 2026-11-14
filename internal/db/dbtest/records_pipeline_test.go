@@ -103,7 +103,9 @@ func TestP309RecordsIndexSet(t *testing.T) {
 	if bad := queryString(t, super, `SELECT coalesce(string_agg(i.indexrelid::regclass::text, ','), '')
 		FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
 		WHERE i.indrelid IN ('records'::regclass, 'record_counters'::regclass)
-		  AND a.attname <> 'tenant_id'`); bad != "" {
+		  AND a.attname <> 'tenant_id'
+		  -- nava_purge's cross-tenant batch DELETE (ADR-005 §4.3, TICK-665), as the 00005 purge indexes.
+		  AND i.indexrelid <> 'record_counters_period_end'::regclass`); bad != "" {
 		t.Fatalf("indexes not led by tenant_id: %s", bad)
 	}
 }

@@ -1,0 +1,265 @@
+{
+  "requests": 15,
+  "tests": 42,
+  "failed": 0,
+  "results": [
+    {
+      "request": "S17-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "tenant_id is 00000000-0000-4000-8000-0000000000a1",
+          "status": "pass"
+        },
+        {
+          "test": "Me has the contract fields",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "incident, prefix INC, numbering_mode gapless",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-5",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "incident, prefix INC, numbering_mode gaps",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-6",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000043",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-7",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000043",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-8",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "INC0000043, version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-9",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "8 creates, each 201",
+          "status": "pass"
+        },
+        {
+          "test": "the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051",
+          "status": "pass"
+        },
+        {
+          "test": "8 different numbers",
+          "status": "pass"
+        },
+        {
+          "test": "gapless: exactly INC0000044 to INC0000051, no gap",
+          "status": "pass"
+        },
+        {
+          "test": "the record read back has its number",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-10",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "8 creates, each 201",
+          "status": "pass"
+        },
+        {
+          "test": "the 8 numbers: INC0000044 INC0000045 INC0000046 INC0000047 INC0000048 INC0000049 INC0000050 INC0000051",
+          "status": "pass"
+        },
+        {
+          "test": "8 different numbers",
+          "status": "pass"
+        },
+        {
+          "test": "gaps: every number after INC0000043",
+          "status": "pass"
+        },
+        {
+          "test": "gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)",
+          "status": "pass"
+        },
+        {
+          "test": "the record read back has its number",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-11",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json with code not_found and no instance",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-12",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json with code not_found and no instance",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-13",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000052: the next of tenant A's own series",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-14",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000052: the next of tenant B's own series",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S17-15",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "version 1, the text of S17.6",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}
