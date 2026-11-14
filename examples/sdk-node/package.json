@@ -1,0 +1,14 @@
+{
+  "name": "nava-sdk-node-example",
+  "private": true,
+  "description": "S25 acceptance kit: a Node 20 project that installs @nava/sdk from the packed tarball (task sdk:build) and lists, reads and creates incidents.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "example": "node list-read-create.mjs",
+    "criteria": "node criteria.mjs"
+  },
+  "dependencies": {
+    "@nava/sdk": "file:../../sdk/ts/nava-sdk-1.0.0-alpha.1.tgz"
+  }
+}

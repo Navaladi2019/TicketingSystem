@@ -1,0 +1,7 @@
+== Node 20: npx -p node@20 node list-read-create.mjs / criteria.mjs (same stack, after the run above)
+node v20.20.2
+created INC0000011 (01a1da72-bb64-7261-b96c-41459adfbe82), version 1
+PASS  C4 every request (create, get, list, update) carries Nava-SDK  (4 requests [GET,PATCH,POST], header ts/1.0.0-alpha.1)
+PASS  C3 a burst past the tenant's bucket throws RateLimited  (63 of 200 limited, 0 other errors)
+PASS  C3 RateLimited exposes a positive retryAfter (seconds) and code rate_limited  (retryAfter 1)
+ALL PASS
