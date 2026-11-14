@@ -66,7 +66,13 @@ func seedNumberFormats(t *testing.T, super *pgx.Conn, tenants ...string) {
 // beforeNumberFormats drops the P6-06 tables from today's grants and audited
 // manifests when fsys stops before 20261113100000, so a test that migrates to
 // an earlier version can still apply them.
+//
+// It also drops tenants.time_zone from every role's tenants column lists when
+// fsys stops before 20261113100300 (TICK-795 grants nava_app SELECT and
+// UPDATE on it); a privilege left with no column is dropped, since an empty
+// list would be a table-level grant.
 func beforeNumberFormats(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m = beforeTenantsTimeZone(fsys, m)
 	if _, err := fs.Stat(fsys, numberFormatTablesMigration); err == nil {
 		return m, a
 	}
@@ -85,6 +91,37 @@ func beforeNumberFormats(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*
 		delete(am.Audited, tbl)
 	}
 	return &gm, &am
+}
+
+// tenantsTimeZoneMigration adds tenants.time_zone (P6-06).
+const tenantsTimeZoneMigration = "20261113100300_tenants_time_zone.sql"
+
+// beforeTenantsTimeZone is m without tenants.time_zone when fsys stops before
+// tenantsTimeZoneMigration; see beforeNumberFormats.
+func beforeTenantsTimeZone(fsys fs.FS, m *grants.Manifest) *grants.Manifest {
+	if _, err := fs.Stat(fsys, tenantsTimeZoneMigration); err == nil {
+		return m
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		if privs, ok := r.Tables["tenants"]; ok {
+			r.Tables = maps.Clone(r.Tables)
+			kept := make(map[string][]string, len(privs))
+			for priv, cols := range privs {
+				if len(cols) == 0 {
+					kept[priv] = cols
+					continue
+				}
+				if cols = slices.DeleteFunc(slices.Clone(cols), func(c string) bool { return c == "time_zone" }); len(cols) > 0 {
+					kept[priv] = cols
+				}
+			}
+			r.Tables["tenants"] = kept
+		}
+		gm.Roles[name] = r
+	}
+	return &gm
 }
 
 // Acceptance (C9): nava_app may SELECT and INSERT all three tables and UPDATE

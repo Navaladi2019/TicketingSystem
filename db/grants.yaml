@@ -59,7 +59,9 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
-      tenants: { SELECT: [id, state] }
+      # TICK-795 (for TICK-672, ADR-005 §3.6): the tenant admin route reads and
+      # sets its own tenant's time_zone; tenants_time_zone_update scopes the row.
+      tenants: { SELECT: [id, state, time_zone], UPDATE: [time_zone] }
       tenant_identity_binding: { SELECT: [tenant_id, issuer, org_id, idp_aliases] } # binding_lookup
       # P3-09 (TICK-353): UPDATE leaves out tenant_id, id and the columns set
       # once at insert (entity_definition_id, number, created_by, created_at),
