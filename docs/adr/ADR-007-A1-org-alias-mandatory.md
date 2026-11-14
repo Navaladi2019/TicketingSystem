@@ -2,8 +2,9 @@
 type: adr-amendment
 id: ADR-007-A1
 title: "Amendment A1 to ADR-007: embedding clients always request organization:<alias>; the platform hands the host the alias and IdP hint derived from its tenant id"
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-14
+accepted: 2026-11-14 (Solution Architect verdict, TICK-843 comment thread 01a1d8b9-05ea)
 issue: TICK-843
 rfc: docs/adr/ADR-007/rfc/RFC-018-adr-007-a1-org-alias-mandatory.md (rev 1, final; rev-0/ and rev-1/ archived; thread under TICK-843 comment 01a1d89a-8eaf-7d05-859a-62127bd5f311)
 supersedes: none
@@ -14,7 +15,7 @@ deciders: "Solution Architect (author); Technical Architect (critique round 1, n
 
 # ADR-007 amendment A1: embedding clients always name the organization
 
-> **Status: PROPOSED** on 2026-11-14. Round 1 closed: Security approved its blocking item F1 on re-check; the Technical Architect had no blocking items; the CTO adopted S1b as measured (no new round). The verdict follows the merge policy: the Solution Architect decides after this PR is reviewed, then updates the status here and in `ADR-007-A1-explained.html`.
+> **Status: ACCEPTED** on 2026-11-14 by the Solution Architect (TICK-843), under the merge policy set by vknavaladi. Record: the Technical Architect's round-1 critique had no blocking items, and S1b passed claims 1 and 2 (3/3; claim 3 retracted). Security approved F1 on re-check. The CTO adopted S1b as measured and narrowed RR-A1-6. No dissent is outstanding. PR #655 merges after PR #652 (S1 evidence). Changing a rule here needs a superseding ADR or a further amendment.
 >
 > **Invariants source.** The project description defines no invariants. As in ADR-007, this amendment is checked against [[ADR-001-platform-blueprint]] §1, I1–I9.
 
