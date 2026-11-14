@@ -1,0 +1,301 @@
+//go:build integration
+
+// SPIKE S1 (TICK-864, RFC-019 F1). Throwaway, never committed.
+//
+// Hypothesis: while tenant A retries refused `gaps` creates at its full rate
+// limit (50 rps sustained, burst 100, one replica) and each refusal writes
+// the R2b audit row on the pipeline's TxRunner (= the 4-connection allocator
+// pool), tenant B's allocations still meet ADR-005 A5.
+// Pass: B's allocation p95 <= 200 ms, 0 B timeouts, and B's p95 <= 1.5x its
+// A-idle baseline.
+package pipeline_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"slices"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
+)
+
+func s1Env(name string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(name)); err == nil {
+		return v
+	}
+	return def
+}
+
+// r2bAppend is the R2b row as RFC-019 rev 0 specifies it, on its own runner
+// transaction. Action is cascade_too_deep only because the Go and SQL action
+// lists do not have number_space_exhausted yet: same table, same columns,
+// same indexes, same Append path, a diff of the same size.
+func r2bAppend(ctx context.Context, r pipeline.TxRunner, tenant, defID, principal uuid.UUID, a pipeline.Allocation, width int) error {
+	after, _ := json.Marshal(map[string]any{"number_space": map[string]any{
+		"epoch": a.Epoch, "scope_key": "e" + strconv.Itoa(a.Epoch) + "|" + a.ScopeKey, "width": width, "counter": a.Number}})
+	diff, err := jsondiff.Diff(json.RawMessage(`{}`), after)
+	if err != nil {
+		return err
+	}
+	return r.InTenantTx(ctx, tenant, func(tx pgx.Tx) error {
+		_, err := audit.Append(ctx, tx, audit.Entry{
+			Domain: audit.DomainRecord, Action: audit.ActionCascadeTooDeep,
+			SubjectType: audit.SubjectEntityDefinition, SubjectID: defID, EntityDefinitionID: &defID,
+			Actor: audit.Actor{PrincipalID: &principal}, Source: audit.SourceUser, Diff: diff,
+		})
+		return err
+	})
+}
+
+func defIDOf(t *testing.T, e env, tenant uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := e.super.QueryRow(context.Background(),
+		`SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, tenant, entityKey).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+type s1Result struct {
+	name                  string
+	bN, bTimeouts, bOther int
+	bP50, bP95, bP99, bMax time.Duration
+	aAttempts, aAudits     int64
+	aTimeouts, aErr        int64
+	aAuditP95              time.Duration
+}
+
+func pct(d []time.Duration, p float64) time.Duration {
+	if len(d) == 0 {
+		return 0
+	}
+	s := slices.Clone(d)
+	slices.Sort(s)
+	i := int(float64(len(s))*p+0.5) - 1
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(s) {
+		i = len(s) - 1
+	}
+	return s[i]
+}
+
+// s1Phase runs B at bRPS for dur while A sends aRPS refused creates (after an
+// initial burst of aBurst). withAudit=false is today's PR #679 (no R2b row).
+func s1Phase(t *testing.T, e env, api *pgxpool.Pool, name string, a, b tenantFixture, aDef, bDef uuid.UUID,
+	bRPS, aRPS, aBurst int, mode int, dur time.Duration) s1Result {
+	withAudit := mode == 1
+	t.Helper()
+	ctx := context.Background()
+	// Production runner: the allocator pool, DefaultAllocTimeout (200 ms).
+	runner := pipeline.PoolRunner{Pool: e.alloc}
+	format := numbering.Default()
+	res := s1Result{name: name}
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Tenant A: open-loop arrivals, each a goroutine, as concurrent HTTP
+	// requests would be (the rate limiter admits, it does not serialise).
+	var aAttempts, aAudits, aTimeouts, aErr atomic.Int64
+	var amu sync.Mutex
+	var auditLat []time.Duration
+	aOne := func() {
+		defer wg.Done()
+		aAttempts.Add(1)
+		var got pipeline.Allocation
+		var allocErr, auditErr error
+		var auditD time.Duration
+		// The refused create's own transaction, on the API pool, open while
+		// the number is taken and the R2b row is written (as in Write).
+		_ = tenancy.InTenantTx(ctx, api, a.id, func(tx pgx.Tx) error {
+			got, allocErr = runner.Allocate(ctx, tx, aDef, format)
+			if allocErr != nil || !withAudit {
+				return errors.New("refused")
+			}
+			st := time.Now()
+			auditErr = r2bAppend(ctx, runner, a.id, aDef, a.principal.PrincipalID, got, 7)
+			auditD = time.Since(st)
+			return errors.New("refused")
+		})
+		if mode == 2 && allocErr == nil {
+			// Option: the caller writes the row after its create transaction
+			// ended, on the API pool (the connection it just released).
+			st := time.Now()
+			auditErr = r2bAppend(ctx, pipeline.PoolRunner{Pool: api}, a.id, aDef, a.principal.PrincipalID, got, 7)
+			auditD = time.Since(st)
+		}
+		err := allocErr
+		if err != nil {
+			if errors.Is(err, pipeline.ErrRetryable) {
+				aTimeouts.Add(1)
+			} else {
+				aErr.Add(1)
+			}
+			return
+		}
+		if mode == 0 {
+			return
+		}
+		if auditErr != nil {
+			aErr.Add(1)
+			return
+		}
+		amu.Lock()
+		auditLat = append(auditLat, auditD)
+		amu.Unlock()
+		aAudits.Add(1)
+	}
+	if aRPS > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range aBurst {
+				wg.Add(1)
+				go aOne()
+			}
+			tk := time.NewTicker(time.Second / time.Duration(aRPS))
+			defer tk.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-tk.C:
+					wg.Add(1)
+					go aOne()
+				}
+			}
+		}()
+	}
+
+	// Tenant B: open-loop arrivals at bRPS, each one allocation, timed as
+	// nava_numbering_alloc_seconds is (acquire included).
+	var bmu sync.Mutex
+	var bLat []time.Duration
+	var bTimeouts, bOther int
+	bOne := func() {
+		defer wg.Done()
+		var d time.Duration
+		var err error
+		_ = tenancy.InTenantTx(ctx, api, b.id, func(tx pgx.Tx) error {
+			st := time.Now()
+			_, err = runner.Allocate(ctx, tx, bDef, format)
+			d = time.Since(st)
+			return errors.New("spike: roll back")
+		})
+		bmu.Lock()
+		defer bmu.Unlock()
+		switch {
+		case err == nil:
+			bLat = append(bLat, d)
+		case errors.Is(err, pipeline.ErrRetryable):
+			bTimeouts++
+		default:
+			bOther++
+			if bOther == 1 {
+				t.Logf("B error: %v", err)
+			}
+		}
+	}
+	tk := time.NewTicker(time.Second / time.Duration(bRPS))
+	deadline := time.After(dur)
+loop:
+	for {
+		select {
+		case <-deadline:
+			break loop
+		case <-tk.C:
+			wg.Add(1)
+			go bOne()
+		}
+	}
+	tk.Stop()
+	close(stop)
+	wg.Wait()
+	res.bN, res.bTimeouts, res.bOther = len(bLat), bTimeouts, bOther
+	res.bP50, res.bP95, res.bP99, res.bMax = pct(bLat, .50), pct(bLat, .95), pct(bLat, .99), pct(bLat, 1)
+	res.aAttempts, res.aAudits, res.aTimeouts, res.aErr = aAttempts.Load(), aAudits.Load(), aTimeouts.Load(), aErr.Load()
+	res.aAuditP95 = pct(auditLat, .95)
+	return res
+}
+
+func TestSpikeS1RefusalFloodOnAllocatorPool(t *testing.T) {
+	e := migrated(t)
+	a, b := seedTenant(t, e), seedTenant(t, e)
+	aDef, bDef := defIDOf(t, e, a.id), defIDOf(t, e, b.id)
+	_ = store.Allocated{}
+	// The API pool at nava-core's size (deploy: default_pool_size 20).
+	cfg := serverPoolConfig(t, appDSN(t, e.platform))
+	cfg.MaxConns = 20
+	api := newPool(t, cfg)
+	dur := time.Duration(s1Env("S1_SECONDS", 30)) * time.Second
+	bRPS := s1Env("S1_B_RPS", 20)
+	t.Logf("allocator pool MaxConns=%d, AllocTimeout=%v, phase=%v, B=%d rps", e.alloc.Config().MaxConns, pipeline.DefaultAllocTimeout, dur, bRPS)
+
+	// Warm the pool and both counter rows.
+	_ = s1Phase(t, e, api, "warmup", a, b, aDef, bDef, bRPS, 20, 0, 1, 3*time.Second)
+
+	phases := []struct {
+		name        string
+		aRPS, burst int
+		audit       int
+	}{
+		{"P0 baseline: A idle", 0, 0, 0},
+		{"P1 A 50rps+burst100, refusal WITHOUT R2b row (PR #679 today)", 50, 100, 0},
+		{"P2 A 50rps+burst100, refusal WITH R2b row (RFC-019)", 50, 100, 1},
+		{"P3 stress 5x: A 250rps+burst500 WITH R2b row", 250, 500, 1},
+		{"P4 stress 20x: A 1000rps+burst1000 WITH R2b row", 1000, 1000, 1},
+		{"P0' baseline again: A idle", 0, 0, 0},
+	}
+	if os.Getenv("S1_PHASES") == "reps" {
+		phases = phases[:1]
+		for i := range s1Env("S1_REPS", 5) {
+			phases = append(phases,
+				struct {
+					name        string
+					aRPS, burst int
+					audit       int
+				}{fmt.Sprintf("rep%d P2 R2b row on ALLOCATOR pool (RFC-019)", i+1), 50, 100, 1},
+				struct {
+					name        string
+					aRPS, burst int
+					audit       int
+				}{fmt.Sprintf("rep%d P2-alt R2b row on API pool after rollback", i+1), 50, 100, 2})
+		}
+	}
+	var out []s1Result
+	for _, p := range phases {
+		var ck0, ck1, ws0, ws1 int64
+		_ = e.super.QueryRow(context.Background(), `SELECT checkpoints_timed + checkpoints_req, (SELECT wal_sync FROM pg_stat_wal) FROM pg_stat_bgwriter`).Scan(&ck0, &ws0)
+		r := s1Phase(t, e, api, p.name, a, b, aDef, bDef, bRPS, p.aRPS, p.burst, p.audit, dur)
+		_ = e.super.QueryRow(context.Background(), `SELECT checkpoints_timed + checkpoints_req, (SELECT wal_sync FROM pg_stat_wal) FROM pg_stat_bgwriter`).Scan(&ck1, &ws1)
+		t.Logf("   checkpoints during phase: %d, wal_sync calls: %d", ck1-ck0, ws1-ws0)
+		out = append(out, r)
+		t.Logf("%-62s | B n=%5d p50=%7.2fms p95=%7.2fms p99=%7.2fms max=%7.2fms timeouts=%d other=%d | A attempts=%6d audits=%6d A-timeouts=%d A-err=%d A-audit-p95=%6.2fms",
+			r.name, r.bN, ms(r.bP50), ms(r.bP95), ms(r.bP99), ms(r.bMax), r.bTimeouts, r.bOther,
+			r.aAttempts, r.aAudits, r.aTimeouts, r.aErr, ms(r.aAuditP95))
+	}
+	var rows int
+	_ = e.super.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND subject_type = 'entity_definition'`, a.id).Scan(&rows)
+	t.Logf("tenant A R2b-shaped rows written: %d", rows)
+	fmt.Println("S1 done")
+}
+
+func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }

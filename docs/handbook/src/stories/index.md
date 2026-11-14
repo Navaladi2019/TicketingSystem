@@ -38,5 +38,6 @@ links the verdict and evidence. The step-by-step kit stays in the
 - [S16: An auditor exports a filtered audit log and proves it complete](s16.md)
 - [S17: Record numbers keep counting while the counter table moves](s17.md)
 - [HB2: A first-time reader learns the product from the handbook](hb2.md)
+- [S25: A developer installs the TypeScript SDK and lists, reads and creates records](s25.md)
 
 S12 and S18 to S20 (planned) have no page: they are not on `main`. The table above lists them apart from the delivered stories.

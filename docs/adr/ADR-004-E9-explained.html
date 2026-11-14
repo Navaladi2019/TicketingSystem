@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E9 explained: auditing a create refused because the number space is full</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--good:#1a7f37;--goodbg:#dafbe1;--bad:#cf222e;--badbg:#ffebe9}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--good:#3fb950;--goodbg:#12261a;--bad:#f85149;--badbg:#2d1214}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+</style></head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-14</span> <span class="src">ADR-004-E9 · issue TICK-864 · RFC-019 (final) · amends ADR-004 R2, adds R2b and CI-A18 · evidence: spike S1, Postgres spike</span>
+
+<h1>Auditing a create that was refused because the number space is full</h1>
+
+<blockquote><strong>In one sentence.</strong> When a record cannot be created because its number format has run out of digits, the platform now writes one audit entry that says which type and which numbering scope is full. That entry is written <em>after</em> the failed create has let go of its database connection, and never on the small connection pool reserved for handing out numbers.</blockquote>
+
+<h2>The problem in plain words</h2>
+<p>Every record gets a number such as <code>INC-202611-0042</code>. An admin can choose a <strong>number format</strong> with a fixed number of digits (the <strong>width</strong>) and the rule <code>overflow: refuse</code>. When the counter no longer fits the width, for example the 10,001st record of the month in a 4-digit format, the create fails with <code>number_space_exhausted</code> (HTTP 409). The numbering decision, ADR-005, says that refusal must be <strong>audited</strong>.</p>
+<p>The <strong>audit log</strong> (ADR-004) accepts only a fixed, <em>closed</em> list of actions, such as <code>create</code>, <code>update</code> and <code>publish</code>, and the database enforces that list. None of them describes "a create that was refused". So the audit entry ADR-005 asks for could not be written. Erratum E1 met the same gap for cascades that go too deep, and E9 fixes this case the same way.</p>
+
+<h2>Three questions we had to answer</h2>
+<table>
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>What is the entry "about"? No record exists.</td><td>The <strong>entity type</strong> (for example "Incident"). The only fix is for an admin to publish a wider format on that type, so the refusals sit in the type's history next to that fix. The platform already knows this kind of subject, so nothing new is added to its vocabulary.</td></tr>
+<tr><td>Is it safe to store the <strong>scope key</strong>? This is the name of the counter that is full, for example <code>e1|d:202611|f:BLR</code>.</td><td>Yes. It holds only short codes the platform builds (a month, a mapped branch code), never typed-in field values. The numbering rules forbid using a field that any reader has masked. It shows no more than every number already issued in that scope. Reviewers checked that audit reads do <em>not</em> mask these entries, so the safety comes from those numbering rules. If codes that point at other records are ever allowed in numbers, the question is reopened.</td></tr>
+<tr><td>A full scope refuses <em>every</em> create. Should we cap the entries?</td><td>No: one entry per refused create, as for cascades. Each entry is a real refused attempt. A cap would need extra state on the busiest row in the create path, or a per-server memory that forgets on restart. A metric and the existing 90 % alert give the signal.</td></tr>
+</table>
+
+<h2>The surprise: where the entry is written matters</h2>
+<p>The platform has two connection pools to the database:</p>
+<ul>
+<li>the <strong>API pool</strong>, 20 connections, used by requests;</li>
+<li>the <strong>allocator pool</strong>, 4 connections shared by all tenants, used only to hand out numbers. Each allocation takes about 2 ms because it does not wait for the disk to confirm (<em>asynchronous commit</em>).</li>
+</ul>
+<p>An audit entry must wait for the disk (<em>synchronous commit</em>), which took about 20 ms. The first revision of the design (rev 1) wrote the entry on the allocator pool. A spike (a short, timed experiment), <strong>S1</strong>, tested it: one tenant hammered a full scope at its full rate limit while a second tenant created records normally.</p>
+
+<figure>
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="13">
+  <text x="20" y="22" font-weight="700" fill="#cf222e">Rev 1 (rejected): the entry on the allocator pool</text>
+  <rect x="20" y="36" width="160" height="44" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="100" y="63" text-anchor="middle" fill="#1f2328">Create (API pool)</text>
+  <rect x="230" y="36" width="190" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="325" y="56" text-anchor="middle" fill="#1f2328">Allocate number</text><text x="325" y="72" text-anchor="middle" fill="#59636e" font-size="11">allocator pool, ~2 ms</text>
+  <rect x="470" y="36" width="210" height="44" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="575" y="56" text-anchor="middle" fill="#1f2328">Audit entry</text><text x="575" y="72" text-anchor="middle" fill="#cf222e" font-size="11">allocator pool, ~20 ms, waits on disk</text>
+  <line x1="180" y1="58" x2="228" y2="58" stroke="#59636e" marker-end="url(#a)"/><line x1="420" y1="58" x2="468" y2="58" stroke="#59636e" marker-end="url(#a)"/>
+  <text x="700" y="52" fill="#cf222e" font-size="12">Other tenants queue</text><text x="700" y="68" fill="#cf222e" font-size="12">for the 4 connections</text>
+  <text x="20" y="150" font-weight="700" fill="#1a7f37">This ADR: the entry on the API pool, after the create ends</text>
+  <rect x="20" y="164" width="160" height="44" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="100" y="191" text-anchor="middle" fill="#1f2328">Create (API pool)</text>
+  <rect x="230" y="164" width="190" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="325" y="184" text-anchor="middle" fill="#1f2328">Allocate number</text><text x="325" y="200" text-anchor="middle" fill="#59636e" font-size="11">allocator pool, ~2 ms</text>
+  <rect x="470" y="164" width="150" height="44" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="545" y="184" text-anchor="middle" fill="#1f2328">Refused, rolls back</text><text x="545" y="200" text-anchor="middle" fill="#59636e" font-size="11">connection released</text>
+  <rect x="660" y="164" width="180" height="44" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="750" y="184" text-anchor="middle" fill="#1f2328">Audit entry</text><text x="750" y="200" text-anchor="middle" fill="#1a7f37" font-size="11">API pool, own transaction</text>
+  <line x1="180" y1="186" x2="228" y2="186" stroke="#59636e" marker-end="url(#a)"/><line x1="420" y1="186" x2="468" y2="186" stroke="#59636e" marker-end="url(#a)"/><line x1="620" y1="186" x2="658" y2="186" stroke="#59636e" marker-end="url(#a)"/>
+  <text x="20" y="250" fill="#59636e">The allocator pool only ever runs ~2 ms allocations. The audit entry asks for an API connection only after the</text>
+  <text x="20" y="268" fill="#59636e">create gave its own back, so it never holds one connection while waiting for another (no hold-and-wait).</text>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+</svg>
+<figcaption>Where the audit entry runs, before and after the CTO's ruling</figcaption>
+</figure>
+
+<h2>The evidence</h2>
+<table>
+<tr><th>Placement</th><th>Reps</th><th>Other tenant's p95 allocation time</th><th>Worst case</th><th>Verdict</th></tr>
+<tr><td>Rev 1: allocator pool</td><td>7</td><td>3 ms in 6 reps; <span class="bad">114 ms (32× baseline)</span> in 1 rep, during a stall (most likely a slow disk flush; inferred), with 12 timeouts for the busy tenant</td><td>16.8–30.6 ms max, even in the passing reps</td><td class="bad">FAIL (the criterion agreed in advance)</td></tr>
+<tr><td>This ADR: API pool, after the create ends</td><td>5</td><td>2.99–3.71 ms (baseline 3.15 ms)</td><td>3.7–6.8 ms max; p99 ≤ 5.11 ms</td><td class="good">PASS, 5 of 5</td></tr>
+</table>
+<p>Test setup: PostgreSQL 16.10 with durable disk settings, the real allocator and audit code from PR #679, 4 allocator connections and 20 API connections. The report and the code are in <code>docs/adr/ADR-004/spikes/technical-architect/rfc-019-s1/</code>.</p>
+<p>A second spike, by the Postgres &amp; Data Modeling Specialist, showed the database change is safe on the partitioned audit table with 1M rows:</p>
+<ul>
+<li>the strong lock is held for about 2 ms;</li>
+<li>the check of existing rows (<code>VALIDATE</code>) takes about 0.2 s per million rows and blocks no reads or writes.</li>
+</ul>
+<p>That spike is in <code>docs/adr/ADR-004/spikes/postgres/rfc-019/</code>.</p>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Outcome</th></tr>
+<tr><td>Entry on the allocator pool, inside the write pipeline (rev 1)</td><td class="bad">Rejected: failed S1</td></tr>
+<tr><td>A new, dedicated small pool just for these audit entries</td><td>Rejected: not measured, and adds a component and a connection-pooler entry</td></tr>
+<tr><td>Entry on the API pool while the create is still open</td><td>Rejected: a request would hold one connection while waiting for another. That is the starvation bug fixed in TICK-657</td></tr>
+<tr><td><strong>Entry on the API pool after the create has ended</strong></td><td class="good">Chosen (CTO tie-break): measured, nothing new to run</td></tr>
+<tr><td>Make the scope the subject, or hash the scope key, or cap the entries</td><td>Rejected: see "Three questions" above</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ul>
+<li><strong>A new action:</strong> <code>number_space_exhausted</code> joins the closed list of audit actions, through a two-step database migration.</li>
+<li><strong>One entry per refused create.</strong> It is about the entity type and records four facts: epoch, scope key, width and the counter value that did not fit. It carries no record data.</li>
+<li><strong>Where the entry is written:</strong> the write pipeline hands the entry back with the refusal. The HTTP handler (<code>internal/server/records.go</code>) writes it in its own transaction, after the create's transaction has ended, for the same tenant as the caller's token. The append is bounded by the request's own deadline and runs on <code>context.WithoutCancel</code> of the request context, so a client that disconnects after the refusal does not drop the entry (one entry per refused attempt, E1 RS-E1-2), and a stalled append never holds an API connection past the request.</li>
+<li><strong>A new budget rule</strong> in <code>docs/budgets.md</code>: no transaction that waits for the disk runs on the allocator pool. The one known exception is the rare "cascade too deep" entry (RS-E9-3).</li>
+</ul>
+
+<h2>The change to make</h2>
+<p>A follow-up task under TICK-674 implements this:</p>
+<ul>
+<li>the entry at both refusal points (default <code>gaps</code> mode, and strict <code>gapless</code> mode);</li>
+<li>the two migrations;</li>
+<li>a metric, <code>records_number_space_exhausted_total</code>;</li>
+<li>nine acceptance tests (CI-A18 a–i). Test (i) proves that no allocator connection ever writes the entry.</li>
+</ul>
+<p>Nothing existing is migrated: these entries are new. TICK-674 itself merges first, without the entry.</p>
+
+<h2>What is being accepted</h2>
+<table>
+<tr><th>#</th><th>Residual risk</th><th>Revisit when</th></tr>
+<tr><td>RS-E9-1</td><td>A client that keeps retrying a full scope writes one entry per attempt until an admin widens the format.</td><td>These entries pass 10 % of a tenant's daily audit volume, or slow the audit seal or the API pool</td></tr>
+<tr><td>RS-E9-2</td><td>If a field is masked later, its code stays visible in earlier refusal entries. Issued numbers behave the same way, and accepted risk AR-TICK-653-01 already covers them; its wording is widened to include these entries.</td><td>A tenant asks to recall numbers, or codes that point at other records are allowed in numbers</td></tr>
+<tr><td>RS-E9-3</td><td>The older "cascade too deep" audit entry (E1) still uses the allocator pool. It is rare, so E1 is not reopened now.</td><td>Cascade refusals are seen at a non-trivial rate</td></tr>
+</table>
+<p>None of these is a tenant-isolation gap. Every entry stays inside the tenant that made the request, and a test checks that.</p>
+
+<h2>Status</h2>
+<p><strong>ACCEPTED</strong> on 2026-11-14. The CTO settled the one contested point, where the entry is written, after spike S1. Three reviews of the new placement approved it:</p>
+<ul>
+<li>the Technical Architect's;</li>
+<li>the Security &amp; Multi-Tenancy Reviewer's, which found no isolation gap;</li>
+<li>the Postgres &amp; Data Modeling Specialist's, on the budget line.</li>
+</ul>
+<p>Next, the CTO creates the plan, and the follow-up task under TICK-674 builds it.</p>
+
+</main></body></html>

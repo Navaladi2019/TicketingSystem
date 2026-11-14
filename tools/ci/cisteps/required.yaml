@@ -99,3 +99,14 @@ steps:
   - job: stack
     artifact: ci5-report
     why: the CI-5 report, uploaded on full runs (the daily run on main, ci:full, a manual run), where the identity_attacks case that writes it runs (TICK-652)
+
+  # The TypeScript SDK (TICK-827, ADR-007 D10, RFC-017 CI-E10).
+  - job: sdk
+    run: make check-sdk-generated
+    why: sdk/ts/src/generated drifts from api/openapi.bundled.yaml and the SDK ships a client for an API that no longer exists (CI-E10)
+  - job: sdk
+    run: make sdk-test
+    why: the SDK's unit and type tests stop running
+  - job: sdk
+    artifact: sdk
+    why: the npm pack tarball, the one SDK deliverable (nothing is published, D-8-7)
