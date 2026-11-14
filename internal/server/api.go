@@ -29,6 +29,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenantsettings"
 )
 
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
@@ -205,6 +206,7 @@ type handlers struct {
 	dataFilterTimeout time.Duration
 	store             entitytypes.Store
 	nfStore           numberformats.Store
+	tsStore           tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
@@ -304,6 +306,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.MaskedField:
 					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
+					return
+				case problem.InvalidTimeZone:
+					h.reg.Write(w, r, problem.InvalidTimeZone, pe.fields...)
 					return
 				case problem.NumberFormatInvalid:
 					h.reg.Write(w, r, problem.NumberFormatInvalid, pe.fields...)

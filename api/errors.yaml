@@ -160,3 +160,7 @@ codes:
     status: 422
     title: Numbering templates unavailable
     detail: Only the default number format can be published until the record counter key has been migrated. Retry once the migration has run.
+  - code: invalid_time_zone
+    status: 422
+    title: Invalid time zone
+    detail: The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.

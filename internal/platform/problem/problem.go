@@ -66,6 +66,7 @@ const (
 	NumberFormatPrefixRequired    Code = "number_format_prefix_required"
 	NumberFormatInvalid           Code = "number_format_invalid"
 	NumberingTemplatesUnavailable Code = "numbering_templates_unavailable"
+	InvalidTimeZone               Code = "invalid_time_zone"
 )
 
 // Codes lists every Code constant.
@@ -76,7 +77,7 @@ func Codes() []Code {
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
-		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable,
+		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
 	}
 }
 

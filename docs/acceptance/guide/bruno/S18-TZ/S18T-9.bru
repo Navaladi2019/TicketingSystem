@@ -1,0 +1,16 @@
+meta {
+  name: S18T.9 Read without a token: 401
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

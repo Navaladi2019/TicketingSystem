@@ -1,0 +1,20 @@
+meta {
+  name: S18T.10 Alice reads the zone: 403
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}

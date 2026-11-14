@@ -51,3 +51,25 @@ func TestParseNumberFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTimeZone(t *testing.T) {
+	t.Parallel()
+	if got, perr := parseTimeZone(json.RawMessage(`{"time_zone":"Europe/Berlin","tenant_id":"forged"}`)); perr != nil || got != "Europe/Berlin" {
+		t.Fatalf("= %q, %v", got, perr)
+	}
+	cases := []struct{ body, pointer, rule string }{
+		{`[]`, "", "type"},
+		{`null`, "", "type"},
+		{`{}`, "/time_zone", "required"},
+		{`{"time_zone":1}`, "/time_zone", "type"},
+		{`{"time_zone":""}`, "/time_zone", "invalid"},
+		{`{"time_zone":"Local"}`, "/time_zone", "invalid"},
+		{`{"time_zone":"Mars/Base"}`, "/time_zone", "invalid"},
+	}
+	for _, c := range cases {
+		_, perr := parseTimeZone(json.RawMessage(c.body))
+		if perr == nil || perr.code != problem.InvalidTimeZone || len(perr.fields) != 1 || perr.fields[0].Pointer != c.pointer || perr.fields[0].Rule != c.rule {
+			t.Errorf("%s = %+v, want %s %s", c.body, perr, c.pointer, c.rule)
+		}
+	}
+}

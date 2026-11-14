@@ -1,0 +1,36 @@
+meta {
+  name: S18T.3 Set the zone: 200
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-tz-{{s18tz_run}}-set
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "time_zone": "Europe/Berlin"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, the zone is in force', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.json().time_zone).to.eql('Europe/Berlin');
+  });
+  N.status(200);
+}
+
+docs {
+  An IANA name. A change affects the scope keys of future allocations only, and is audited as `tenant_setting`.
+}
