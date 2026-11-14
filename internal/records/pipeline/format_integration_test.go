@@ -387,7 +387,6 @@ func TestModeSwitchNeverReusesANumberOnAMonthlyFormat(t *testing.T) {
 	}
 }
 
-
 // fillRatio is the nava_numbering_fill_ratio histogram's count and its
 // count at or under 0.9.
 func fillRatio(t *testing.T, reader *sdkmetric.ManualReader) (count, under uint64) {
