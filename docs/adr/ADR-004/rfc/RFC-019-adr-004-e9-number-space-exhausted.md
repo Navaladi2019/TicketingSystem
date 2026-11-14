@@ -15,7 +15,7 @@ gate: "Spike S1 FAILED for the rev 1 placement; CTO tie-break (comment 01a1db43-
 
 > **CTO tie-break, folded in after rev 1 (comment `01a1db43-638a`).** Spike S1 failed for the rev 1 placement (row on the allocator pool). F1 is blocking, and option 1 is adopted. **The R2b row is written after the refused create's transaction has ended, in a transaction of its own on the caller's (API) pool, and never on the allocator pool.**
 > - `Write` returns the refusal carrying the entry; the caller appends it.
-> - The `DefaultAllocTimeout` bound (F2) is dropped, because the row no longer uses the allocator pool.
+> - The `DefaultAllocTimeout` bound (F2) is replaced by the request's own deadline, and the append runs on `context.WithoutCancel` (CTO correction `01a1db44-4d21`, N1 on PR #680).
 > - CI-A18 (i) is added: no allocator-pool connection writes the row.
 > - `docs/budgets.md` gains the rule "no synchronous-commit transaction runs on the allocator pool", citing S1.
 > - `rejectTooDeep` keeps its current placement; that is accepted residual RS-E9-3.
@@ -78,7 +78,8 @@ No new subject type, envelope column or index.
   - the allocation's `AllocTx`;
   - any allocator-pool connection;
   - a batch shared with another refusal.
-- **No hold-and-wait.** The caller has released its create connection before it asks for the audit connection, so the TICK-657 starvation cannot recur. *(The rev 1 `DefaultAllocTimeout` bound is dropped: the row no longer uses the allocator pool. The audit transaction uses the request context, like every other API-pool write.)*
+- **No hold-and-wait.** The caller has released its create connection before it asks for the audit connection, so the TICK-657 starvation cannot recur. *(The rev 1 `DefaultAllocTimeout` bound is replaced:)*
+- The append is bounded by the request's own deadline and runs on `context.WithoutCancel` of the request context, so a client that disconnects after the refusal does not drop the entry (one entry per refused attempt, E1 RS-E1-2), and a stalled append never holds an API connection past the request.
 - **Two refusal sites, one shape.**
 
   | Site (PR #679) | Mode | `counter` source | Caller transaction state |
@@ -217,7 +218,7 @@ The report and the spike code are archived in `docs/adr/ADR-004/spikes/technical
 |---|---|---|---|
 | RS-E9-1 | A client that retries a refused create writes one row per attempt, until an admin publishes a wider format. Each refusal costs one short synchronous-commit transaction on the API pool. | Technical Lead | Any of: these rows exceed 10 % of a tenant's daily audit volume; a tenant's seal lag (R16) shows them; API-pool acquire waits rise during a refusal burst. |
 | RS-E9-2 | A field masked later still shows its code in earlier refusal rows, because these rows are never field-masked. Covered by AR-TICK-653-01, whose text is widened. | Security & Multi-Tenancy Reviewer | As for AR-TICK-653-01, **or reference-code tokens ship**. |
-| RS-E9-3 | `rejectTooDeep` (`internal/records/pipeline/pipeline.go:549`) still writes `cascade_too_deep` on the allocator pool, the placement S1 failed. E1 is **not** reopened. The row is rare, because cascade depth bounds it, not client retries. The follow-up task may move it under the R2b rule if that costs one line. | Solution Architect | Cascade refusals are observed at a non-trivial rate. |
+| RS-E9-3 | `rejectTooDeep` (`internal/records/pipeline/pipeline.go:617` on the PR #679 head) still writes `cascade_too_deep` on the allocator pool, the placement S1 failed. E1 is **not** reopened. The row is rare, because cascade depth bounds it, not client retries. The follow-up task may move it under the R2b rule if that costs one line. | Solution Architect | Cascade refusals are observed at a non-trivial rate. |
 
 ## Invariants
 

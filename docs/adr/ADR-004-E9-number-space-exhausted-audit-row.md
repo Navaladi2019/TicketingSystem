@@ -2,7 +2,8 @@
 type: adr-erratum
 id: ADR-004-E9
 title: Erratum E9 to ADR-004, the R2 action and row shape for a create refused with number_space_exhausted
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-14
 date: 2026-11-14
 issue: TICK-864
 rfc: docs/adr/ADR-004/rfc/RFC-019-adr-004-e9-number-space-exhausted.md (final, rev 1 with the CTO tie-break folded in; archived with rev-0/ and rev-1/; thread under TICK-864 comment 01a1db27-da9e-7244-93b2-71a762188381)
@@ -14,7 +15,12 @@ deciders: Solution Architect (author, verdict); Technical Architect (round 1 CHA
 
 # ADR-004 erratum E9: the audit row for a create refused with `number_space_exhausted`
 
-> **Status: PROPOSED, 2026-11-14.** This text is RFC-019 rev 1 with the CTO's tie-break on F1 applied (comment `01a1db43-638a`). Before the ACCEPTED verdict, two critiques of the **placement change** are still due: one from the Technical Architect and one from the Security & Multi-Tenancy Reviewer. The tenant source is unchanged, but the call site moves into `internal/server/records.go`.
+> **Status: ACCEPTED, 2026-11-14.** The Solution Architect accepted it on TICK-864 after the placement checks on PR #680:
+> - the Technical Architect approved, conditional on N1 (comment `01a1db4a-5cf6`). N1 is folded in word for word; it is the CTO's ruling `01a1db44-4d21`;
+> - the Security & Multi-Tenancy Reviewer approved and found no isolation gap (comment `01a1db4a-6690`). N1 also closes P3;
+> - the Postgres & Data Modeling Specialist asked for one sentence on `docs/budgets.md`, which is folded in (comment `01a1db4a-6d52`).
+>
+> The contested point, F1, was settled by the CTO tie-break (`01a1db43-638a`, corrected by `01a1db44-4d21`). The Solution Architect did not self-approve a contested design. No human sign-off is required under the current policy.
 >
 > **History.**
 > - Round 1 on rev 0:
@@ -58,6 +64,7 @@ There is no new subject type, no new envelope column and no new index.
 - It is never written on the allocator pool, and never while a create transaction is open.
 - `Write` returns the refusal carrying the entry. The caller (`internal/server/records.go`, or any later create path) appends it with `tenancy.InTenantTx`, using the token's tenant. It then returns the refusal joined with any audit error.
 - The caller has released its create connection before it asks for the audit connection. That rules out hold-and-wait, so the TICK-657 starvation cannot recur.
+- The append is bounded by the request's own deadline and runs on `context.WithoutCancel` of the request context, so a client that disconnects after the refusal does not drop the entry (one entry per refused attempt, E1 RS-E1-2), and a stalled append never holds an API connection past the request.
 
 **One entry per refused create.** Each refused create's entry is appended in its own transaction, which holds exactly that entry. It is never queued on any of these:
 - the create's transaction;
@@ -123,8 +130,8 @@ There is no new subject type, no new envelope column and no new index.
 - **Result: rev 1 failed the agreed criterion in 1 of 7 reps.**
   - In that rep, tenant B's allocation p95 rose to **114 ms, 32× its baseline**.
   - A had 12 timeouts.
-  - The audit-transaction p95 was 170 ms, caused by a WAL-flush stall.
-- **Cause.** A synchronously committed transaction (about 20 ms p95) held connections on a pool tuned for asynchronous commits of about 2 ms.
+  - The audit-transaction p95 was 170 ms, during a stall, most likely a slow WAL flush (inferred: run 2 had no checkpoint counters).
+- **Cause (known from the code).** A synchronously committed transaction (about 20 ms p95) held connections on a pool tuned for asynchronous commits of about 2 ms.
 - **The measured alternative passed 5 of 5 reps.** It writes the row on the API pool after the create rolled back.
   - B's p95 was 2.99–3.71 ms, against a 3.15 ms baseline.
   - B's p99 was ≤ 5.11 ms.
@@ -159,7 +166,7 @@ The audit row costs one short API-pool transaction, taken after the create's con
 |---|---|---|---|
 | RS-E9-1 | A client that retries a refused create writes one row per attempt until an admin publishes a wider format. Each refusal costs one short synchronous-commit API-pool transaction. | Technical Lead | Any one of: these rows exceed 10 % of a tenant's daily audit volume; seal lag (R16) shows them; API-pool acquire waits rise during a refusal burst. |
 | RS-E9-2 | A field masked later still shows its code in earlier refusal rows, because these rows are never field-masked. This is covered by AR-TICK-653-01, whose text is widened. | Security & Multi-Tenancy Reviewer | As for AR-TICK-653-01, **or reference-code tokens ship**. |
-| RS-E9-3 | `rejectTooDeep` (`internal/records/pipeline/pipeline.go:549`) still writes `cascade_too_deep` on the allocator pool, the placement S1 failed. E1 is not reopened: Milestone 1 scope stays narrow, and cascade depth (not client retries) bounds that row. The follow-up task may move it under the R2b placement if that costs one line. | Solution Architect | Cascade refusals are observed at a non-trivial rate. |
+| RS-E9-3 | `rejectTooDeep` (`internal/records/pipeline/pipeline.go:617` on the PR #679 head) still writes `cascade_too_deep` on the allocator pool, the placement S1 failed. E1 is not reopened: Milestone 1 scope stays narrow, and cascade depth (not client retries) bounds that row. The follow-up task may move it under the R2b placement if that costs one line. | Solution Architect | Cascade refusals are observed at a non-trivial rate. |
 
 ## Invariants
 
@@ -189,12 +196,17 @@ The audit row costs one short API-pool transaction, taken after the create's con
 - **[PG 1]** `TestP510bSubjectTypesMirrorRegistry` (`internal/db/dbtest/audit_log_test.go:182`) compares the action CHECK with `audit.Actions()`.
 - **[PG 2]** Migration A's Down raises when `number_space_exhausted` rows exist.
 - Optionally, if it costs one line, `rejectTooDeep` under the same placement.
+- The append runs on `context.WithoutCancel(ctx)`, bounded by the request's deadline (N1).
+- **[Sec P2]** CI-A18 (d) runs through `POST /api/v1/records/{entity}` with tenant A's token, then reads tenant B's log.
+- **[Sec P3]** A test that a request cancelled right after the refusal still writes its R2b row.
+- **[TA, (i)]** CI-A18 (i) also asserts that the row's `txid` differs from the create's `pg_current_xact_id()`, and that the refused request's API connection was released before the append acquired one. For `gapless`, close the allocator pool before the create.
+- **[PG]** A compile-time or test guard for the allocator-pool rule: preferably split the allocator runner from `TxRunner` so `PoolRunner` on `allocPool` has no `InTenantTx`; otherwise a test that counts synchronous commits on `allocPool`. The Postgres & Data Modeling Specialist reviews it.
 
 **This PR:**
 - This file and its `.html` explainer.
 - The RFC archived under `docs/adr/ADR-004/rfc/`, with `rev-0/` and `rev-1/`.
 - The spikes under `docs/adr/ADR-004/spikes/`.
-- The `docs/budgets.md` allocator-pool rule, which the Postgres & Data Modeling Specialist reviews.
+- The `docs/budgets.md` allocator-pool rule, with its `rejectTooDeep` exception; reviewed by the Postgres & Data Modeling Specialist.
 - AR-TICK-653-01 widened in `docs/security/accepted-risks.md`.
 
 **Handbook.** The Technical Lead adds the ADR-004 E9 page and its nav entry (`docs/handbook/src/adr/adr-004-e9.md`, `nav.yaml`).

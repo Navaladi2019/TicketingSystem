@@ -23,7 +23,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 .bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-14</span> <span class="src">ADR-004-E9 · issue TICK-864 · RFC-019 (final) · amends ADR-004 R2, adds R2b and CI-A18 · evidence: spike S1, Postgres spike</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-14</span> <span class="src">ADR-004-E9 · issue TICK-864 · RFC-019 (final) · amends ADR-004 R2, adds R2b and CI-A18 · evidence: spike S1, Postgres spike</span>
 
 <h1>Auditing a create that was refused because the number space is full</h1>
 
@@ -73,7 +73,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <h2>The evidence</h2>
 <table>
 <tr><th>Placement</th><th>Reps</th><th>Other tenant's p95 allocation time</th><th>Worst case</th><th>Verdict</th></tr>
-<tr><td>Rev 1: allocator pool</td><td>7</td><td>3 ms in 6 reps; <span class="bad">114 ms (32× baseline)</span> in 1 rep, during a slow disk flush, with 12 timeouts for the busy tenant</td><td>16.8–30.6 ms max, even in the passing reps</td><td class="bad">FAIL (the criterion agreed in advance)</td></tr>
+<tr><td>Rev 1: allocator pool</td><td>7</td><td>3 ms in 6 reps; <span class="bad">114 ms (32× baseline)</span> in 1 rep, during a stall (most likely a slow disk flush; inferred), with 12 timeouts for the busy tenant</td><td>16.8–30.6 ms max, even in the passing reps</td><td class="bad">FAIL (the criterion agreed in advance)</td></tr>
 <tr><td>This ADR: API pool, after the create ends</td><td>5</td><td>2.99–3.71 ms (baseline 3.15 ms)</td><td>3.7–6.8 ms max; p99 ≤ 5.11 ms</td><td class="good">PASS, 5 of 5</td></tr>
 </table>
 <p>Test setup: PostgreSQL 16.10 with durable disk settings, the real allocator and audit code from PR #679, 4 allocator connections and 20 API connections. The report and the code are in <code>docs/adr/ADR-004/spikes/technical-architect/rfc-019-s1/</code>.</p>
@@ -98,8 +98,8 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <ul>
 <li><strong>A new action:</strong> <code>number_space_exhausted</code> joins the closed list of audit actions, through a two-step database migration.</li>
 <li><strong>One entry per refused create.</strong> It is about the entity type and records four facts: epoch, scope key, width and the counter value that did not fit. It carries no record data.</li>
-<li><strong>Where the entry is written:</strong> the write pipeline hands the entry back with the refusal. The HTTP handler (<code>internal/server/records.go</code>) writes it in its own transaction, after the create's transaction has ended, for the same tenant as the caller's token.</li>
-<li><strong>A new budget rule</strong> in <code>docs/budgets.md</code>: no transaction that waits for the disk runs on the allocator pool.</li>
+<li><strong>Where the entry is written:</strong> the write pipeline hands the entry back with the refusal. The HTTP handler (<code>internal/server/records.go</code>) writes it in its own transaction, after the create's transaction has ended, for the same tenant as the caller's token. The append is bounded by the request's own deadline and runs on <code>context.WithoutCancel</code> of the request context, so a client that disconnects after the refusal does not drop the entry (one entry per refused attempt, E1 RS-E1-2), and a stalled append never holds an API connection past the request.</li>
+<li><strong>A new budget rule</strong> in <code>docs/budgets.md</code>: no transaction that waits for the disk runs on the allocator pool. The one known exception is the rare "cascade too deep" entry (RS-E9-3).</li>
 </ul>
 
 <h2>The change to make</h2>
@@ -121,12 +121,13 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 </table>
 <p>None of these is a tenant-isolation gap. Every entry stays inside the tenant that made the request, and a test checks that.</p>
 
-<h2>What happens next</h2>
-<p>Status is <strong>PROPOSED</strong>. Two reviews of the new placement are still due before the verdict:</p>
+<h2>Status</h2>
+<p><strong>ACCEPTED</strong> on 2026-11-14. The CTO settled the one contested point, where the entry is written, after spike S1. Three reviews of the new placement approved it:</p>
 <ul>
 <li>the Technical Architect's;</li>
-<li>the Security &amp; Multi-Tenancy Reviewer's, because the code that writes the entry moves into the HTTP handler.</li>
+<li>the Security &amp; Multi-Tenancy Reviewer's, which found no isolation gap;</li>
+<li>the Postgres &amp; Data Modeling Specialist's, on the budget line.</li>
 </ul>
-<p>The Postgres &amp; Data Modeling Specialist reviews the new line in <code>docs/budgets.md</code>. After that, the Solution Architect gives the verdict, and the CTO then creates the plan.</p>
+<p>Next, the CTO creates the plan, and the follow-up task under TICK-674 builds it.</p>
 
 </main></body></html>
