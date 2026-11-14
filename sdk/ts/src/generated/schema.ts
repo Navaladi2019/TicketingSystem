@@ -643,7 +643,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The caller. */
+            /** @description The caller (TICK-827 CI-E10 probe). */
             200: {
                 headers: {
                     [name: string]: unknown;
