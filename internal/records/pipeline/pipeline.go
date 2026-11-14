@@ -690,7 +690,9 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		if err != nil {
 			return Result{}, err
 		}
-		rec.Number = store.FormatNumber(w.def.NumberPrefix(), alloc.Number)
+		if rec.Number, err = w.format().Render(w.def.NumberPrefix(), alloc.Number); err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
 		// The record is created at the allocation's instant (A7), so a date
 		// in a number will always match created_at.
 		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant

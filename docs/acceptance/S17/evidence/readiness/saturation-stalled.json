@@ -1,0 +1,9 @@
+{
+  "clients": 40,
+  "seconds": 20,
+  "requests": 2944,
+  "statuses": {
+    "503 retry_later": 1098,
+    "429 rate_limited": 1846
+  }
+}

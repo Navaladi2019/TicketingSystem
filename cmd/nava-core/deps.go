@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
@@ -16,18 +18,22 @@ import (
 //nolint:gochecknoglobals // test seams, replaced only by tests
 var (
 	newOutboundClient = telemetry.NewOutboundClient
+	healthPostgres    = health.Postgres
 	healthTemporal    = health.Temporal
 	newHealthMonitor  = health.NewMonitor
 )
 
 // newMonitor builds the dependency checks behind /healthz and /readyz. The
-// returned func closes the pool and the client the checks use; call it after
-// the monitor has stopped.
-func newMonitor(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config) (*health.Monitor, func(), error) {
-	pg, closePG, err := health.Postgres(ctx, cfg.Deps.DatabaseURL)
+// postgres check also needs a live connection in alloc, the allocator pool,
+// when there is one (withAllocatorWarm, TICK-778). The returned func closes
+// the pool and the client the checks use, not alloc; call it after the
+// monitor has stopped.
+func newMonitor(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, alloc *pgxpool.Pool) (*health.Monitor, func(), error) {
+	pg, closePG, err := healthPostgres(ctx, cfg.Deps.DatabaseURL)
 	if err != nil {
 		return nil, nil, err
 	}
+	pg = withAllocatorWarm(pg, alloc)
 	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
 	if err != nil {
 		closePG()

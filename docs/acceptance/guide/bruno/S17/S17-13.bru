@@ -1,0 +1,38 @@
+meta {
+  name: S17.13 Isolation: tenant B's creates did not move tenant A's counter
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s17-{{s17_run}}-a-after
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S17 {{s17_run}} gapless after tenant B's creates"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const inc = (n) => 'INC' + String(n).padStart(7, '0');
+  const num = (s) => Number(String(s).slice(3));
+  N.status(201);
+  const want = inc(Number(bru.getVar('s17_max_a')) + 1);
+  test(`number ${want}: the next of tenant A's own series`, () => expect(N.json().number).to.eql(want));
+}
+
+docs {
+  Tenant B made 9 creates since S17.6 (S17.7, S17.10). Tenant A's next number is the one after its own last (S17.9), not one after B's.
+}

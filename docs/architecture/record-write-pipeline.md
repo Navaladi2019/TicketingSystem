@@ -122,6 +122,11 @@ flowchart TD
   `nava_numbering_alloc_timeouts`. On the API pool, or on the API pool's
   PgBouncer server pool, creates that hold every connection would starve
   their own allocations (`TestAllocatorPoolDoesNotStarveThePool`).
+  The pool keeps one connection open while idle (`pool_min_conns`
+  overrides it), and the `postgres` readiness check also pings it, so
+  `/readyz` is 200 only while the pool holds a live connection: a cold
+  pool's first allocation, which had to connect, went over the 200 ms
+  budget after a restart (TICK-778).
 
 ```mermaid
 sequenceDiagram

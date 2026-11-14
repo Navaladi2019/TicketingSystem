@@ -1,0 +1,8 @@
+restart at 2026-11-12T23:10:23Z
+ Container nava-s17-pgbouncer-1 Restarting 
+ Container nava-s17-nava-core-1 Restarting 
+ Container nava-s17-nava-core-1 Started 
+ Container nava-s17-pgbouncer-1 Started 
+readyz 200 at 2026-11-12T23:10:39Z
+first create: HTTP 201 INC0000053 in 55 ms (request wall time)
+allocation errors in the nava-core log since the restart: 0

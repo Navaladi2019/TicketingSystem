@@ -1,0 +1,1 @@
+{"time":"2026-11-12T20:55:44.983711787Z","level":"INFO","msg":"migrate done","migrations_applied":4,"policies_created":0,"policies_dropped":0,"grants_granted":0,"grants_revoked":0}

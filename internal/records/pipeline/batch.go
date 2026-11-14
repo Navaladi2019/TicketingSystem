@@ -211,46 +211,75 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 		return Result{}, fmt.Errorf("pipeline: new audit id: %w", err)
 	}
 	fixed := w.def.FixedColumns()
-	b := &pgx.Batch{}
+	format := w.format()
 	var (
 		got      store.Inserted
 		numbered store.Numbered
 	)
-	// A `gapless` type takes its number here, last inside this transaction
-	// (ADR-005 L1, TICK-648): the counter row stays locked until this
-	// transaction ends, and a rollback gives the number back. A `gaps` type
-	// arrives with the number its allocation already committed.
+	// A `gapless` type takes its number here, first in this write batch and
+	// so last inside this transaction (ADR-005 L1, TICK-648): the counter row
+	// stays locked until this transaction ends, and a rollback gives the
+	// number back. A `gaps` type arrives with the number its allocation
+	// already committed.
 	gapless := w.def.NumberingMode() == metadata.NumberingGapless
-	var queueErr error
-	if gapless {
-		queueErr = store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), fixed, &numbered)
-	} else {
-		queueErr = store.QueueInsertRecord(b, rec, fixed, &got)
+	queue := func() (*pgx.Batch, error) {
+		b := &pgx.Batch{}
+		var queueErr error
+		if gapless {
+			queueErr = store.QueueInsertNumbered(b, rec, w.def.NumberPrefix(), format, fixed, &numbered)
+		} else {
+			queueErr = store.QueueInsertRecord(b, rec, fixed, &got)
+		}
+		if queueErr != nil {
+			return nil, fmt.Errorf("pipeline: %w", queueErr)
+		}
+		if w.cmd.IdempotencyKey != "" {
+			// Claimed before the audit entry, so a concurrent duplicate by the
+			// same principal waits on and fails at record_write_keys_actor_key
+			// (D-5-3, TICK-626).
+			store.QueueInsertWriteKey(b, &store.WriteKey{
+				TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
+				Action: w.cmd.Op.String(), RecordID: rec.ID, Version: rec.Version,
+				SchemaVersion: rec.SchemaVersion, AuditEntryID: auditID,
+				ActorPrincipalID: optional(w.cmd.Actor.PrincipalID),
+			})
+		}
+		e := recordEntry{id: auditID, action: audit.ActionCreate, rec: rec, after: after, secretProps: w.def.SecretProperties()}
+		entry, err := recordAuditEntry(ctx, w.cmd, e)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := audit.QueueAppend(ctx, w.tx, b, entry); err != nil {
+			return nil, mapAppendError(err)
+		}
+		wrapLast(b, func(err error) error { return &mappedErr{mapAppendError(err)} })
+		return b, nil
 	}
-	if queueErr != nil {
-		return Result{}, fmt.Errorf("pipeline: %w", queueErr)
-	}
-	if w.cmd.IdempotencyKey != "" {
-		// Claimed before the audit entry, so a concurrent duplicate by the
-		// same principal waits on and fails at record_write_keys_actor_key
-		// (D-5-3, TICK-626).
-		store.QueueInsertWriteKey(b, &store.WriteKey{
-			TenantID: w.tenant, IdempotencyKey: w.cmd.IdempotencyKey, DefinitionID: rec.EntityDefinitionID,
-			Action: w.cmd.Op.String(), RecordID: rec.ID, Version: rec.Version,
-			SchemaVersion: rec.SchemaVersion, AuditEntryID: auditID,
-			ActorPrincipalID: optional(w.cmd.Actor.PrincipalID),
-		})
-	}
-	e := recordEntry{id: auditID, action: audit.ActionCreate, rec: rec, after: after, secretProps: w.def.SecretProperties()}
-	entry, err := recordAuditEntry(ctx, w.cmd, e)
+	b, err := queue()
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := audit.QueueAppend(ctx, w.tx, b, entry); err != nil {
-		return Result{}, mapAppendError(err)
+	err = w.tx.SendBatch(ctx, b).Close()
+	// While both unique indexes of record_counters exist (ADR-005 M2 to
+	// M3), a type's first create can lose the race for its counter row with
+	// 23505 on the index the upsert does not name (ADR-005-E1). The batch
+	// then ran nothing past the upsert; rolled back to the savepoint before
+	// it, the batch is sent once more and its upsert, seeing the winner's
+	// committed row (READ COMMITTED), takes the UPDATE arm. Once, and for
+	// no other error.
+	// TODO(TODO-S17-02): remove this retry (and the gapless savepoint) with
+	// M3 (S18/R2): with one unique index left, store.CounterRace never fires.
+	if gapless && store.CounterRace(err) {
+		w.p.allocMetrics().retried(ctx, metadata.NumberingGapless)
+		if err = store.RetryNumbered(ctx, w.tx); err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		if b, err = queue(); err != nil {
+			return Result{}, err
+		}
+		err = w.tx.SendBatch(ctx, b).Close()
 	}
-	wrapLast(b, func(err error) error { return &mappedErr{mapAppendError(err)} })
-	if err := w.tx.SendBatch(ctx, b).Close(); err != nil {
+	if err != nil {
 		var m *mappedErr
 		switch {
 		case errors.Is(err, store.ErrDuplicateKey):
@@ -261,7 +290,11 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	if gapless {
-		if want := store.FormatNumber(w.def.NumberPrefix(), numbered.N); numbered.Number != want {
+		want, err := format.Render(w.def.NumberPrefix(), numbered.N)
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		if numbered.Number != want {
 			return Result{}, fmt.Errorf("pipeline: stored number %q, want %q", numbered.Number, want)
 		}
 		rec.Number = numbered.Number

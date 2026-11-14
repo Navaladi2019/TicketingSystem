@@ -94,6 +94,7 @@ roles:
       # The A5 start key (P3-12): claimed once, never changed or removed.
       cascade_start: { SELECT: [], INSERT: [] }
       # The one numbering upsert (D-3-9): INSERT ... ON CONFLICT DO UPDATE SET next.
+      # scope_key and period_end (ADR-005, TICK-665) are set by the INSERT arm only; UPDATE stays next.
       record_counters: { SELECT: [], INSERT: [], UPDATE: [next] }
       # INSERT ... RETURNING id and the dedupe-conflict lookup (T29).
       outbox: { SELECT: [tenant_id, id, dedupe_key], INSERT: [] }

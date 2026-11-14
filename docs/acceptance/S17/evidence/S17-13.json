@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "92",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s17-1d56cc66-a-after",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S17 1d56cc66 gapless after tenant B's creates\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-12T23:07:56.099426Z",
+      "data": {
+        "priority": 3,
+        "requester": "c21e6757-aebf-4c74-9097-2a6892c2b088",
+        "short_description": "S17 1d56cc66 gapless after tenant B's creates",
+        "state": "new"
+      },
+      "id": "01a1d204-8d43-7680-a504-3323f9840d29",
+      "number": "INC0000052",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-12T23:07:56.099426Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "number INC0000052: the next of tenant A's own series",
+      "status": "pass"
+    }
+  ]
+}

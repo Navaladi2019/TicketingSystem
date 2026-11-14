@@ -1,0 +1,12 @@
+{
+  "name": "nava-scratch-adr-007-s1",
+  "private": true,
+  "description": "ADR-007 spike S1 browser driver (scratch, not in CI)",
+  "type": "module",
+  "scripts": {
+    "s1": "node s1.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
+}

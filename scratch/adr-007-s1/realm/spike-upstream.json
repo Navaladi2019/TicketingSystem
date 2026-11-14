@@ -1,0 +1,41 @@
+{
+  "realm": "spike-upstream",
+  "enabled": true,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "spike-broker",
+      "name": "S1 scratch: broker client used by realm spike-s1",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-spike-broker-secret",
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:18181/realms/spike-s1/broker/upstream/endpoint"],
+      "webOrigins": []
+    }
+  ],
+  "users": [
+    {
+      "id": "0e000000-0000-4000-8000-000000000001",
+      "username": "one@org-a.test",
+      "email": "one@org-a.test",
+      "emailVerified": true,
+      "firstName": "One",
+      "lastName": "Org",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "dev-only-spike", "temporary": false}]
+    },
+    {
+      "id": "0e000000-0000-4000-8000-000000000002",
+      "username": "multi@org-a.test",
+      "email": "multi@org-a.test",
+      "emailVerified": true,
+      "firstName": "Two",
+      "lastName": "Orgs",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "dev-only-spike", "temporary": false}]
+    }
+  ]
+}

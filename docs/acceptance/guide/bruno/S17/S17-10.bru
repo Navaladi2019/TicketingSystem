@@ -1,0 +1,53 @@
+meta {
+  name: S17.10 AC2: 8 clients create Bob's incidents at once (gaps): unique numbers
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s17_par_b_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+script:pre-request {
+  // 8 creates sent at once (AC2): 8 clients, one request each, no waiting
+  // between them. The results go to a runtime variable for the tests.
+  const N = require('./lib/nava')({ bru });
+  const tok = bru.getVar('bob_token');
+  const run = bru.getVar('s17_run');
+  const send = (i) => N.send({
+    url: N.url('{{core_url}}/api/v1/records/incident'),
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', 'Idempotency-Key': `s17-${run}-b-par-${i}` },
+    data: { data: { short_description: `S17 ${run} b parallel ${i}` } },
+  });
+  const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => send(i + 1)));
+  bru.setVar('s17_par_b', JSON.stringify(rs.map(r => ({ status: r.status, number: r.data && r.data.number, id: r.data && r.data.id }))));
+  bru.setVar('s17_par_b_id', (rs[0].data && rs[0].data.id) || '00000000-0000-4000-8000-000000000000');
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const inc = (n) => 'INC' + String(n).padStart(7, '0');
+  const num = (s) => Number(String(s).slice(3));
+  N.status(200);
+  const rs = JSON.parse(bru.getVar('s17_par_b'));
+  test('8 creates, each 201', () => expect(rs.map(r => r.status)).to.eql([201, 201, 201, 201, 201, 201, 201, 201]));
+  const nums = rs.map(r => num(r.number)).sort((a, b) => a - b);
+  test(`the 8 numbers: ${nums.map(inc).join(' ')}`, () => expect(rs.every(r => /^INC[0-9]{7}$/.test(r.number))).to.eql(true));
+  test('8 different numbers', () => expect(new Set(nums).size).to.eql(8));
+  test('gaps: every number after INC0000043', () => expect(nums.every(n => n > 43)).to.eql(true));
+  test('gaps: no create failed, so no number was skipped either (INC0000044 to INC0000051)', () => expect(nums).to.eql([44, 45, 46, 47, 48, 49, 50, 51]));
+  test('the record read back has its number', () => expect(N.json().number).to.eql(rs[0].number));
+  bru.setVar('s17_max_b', String(Math.max(...nums)));
+  console.log('S17 parallel b:', nums.map(inc).join(' '));
+}
+
+docs {
+  The pre-request script sends 8 `createRecord` requests at the same time as Bob, each with its own Idempotency-Key, and keeps the 8 answers; this request reads the first record back. Tenant B's incident type is `gaps` (L2s, the allocator outside the create transaction): the 8 numbers are unique. A gaps type may skip a number only when a create fails after taking it; none fails here, so they are INC0000044 to INC0000051 too.
+}

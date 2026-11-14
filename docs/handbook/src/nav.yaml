@@ -1,0 +1,275 @@
+# Sidebar order for the handbook. Read top to bottom; nothing is sorted.
+# group: a collapsible heading. page: path under docs/handbook/src. label: the
+# sidebar text (defaults to the page title). children: pages nested under it.
+# Every page appears exactly once. Story and ticket IDs belong on the page.
+- group: "Start here"
+  pages:
+    - page: index.md
+      label: "About this handbook"
+    - page: vision/index.md
+      label: "What the product is"
+    - page: vision/goals-and-non-goals.md
+      label: "Goals and non-goals"
+- group: "Product tour"
+  pages:
+    - page: tour/index.md
+      label: "Tour at a glance"
+    - page: tour/01-onboard-a-tenant.md
+      label: "1. Onboard a tenant"
+    - page: tour/02-sign-in.md
+      label: "2. Sign in"
+    - page: tour/03-create-groups.md
+      label: "3. Create groups"
+    - page: tour/04-add-users-to-groups.md
+      label: "4. Add users to groups"
+    - page: tour/05-organisation-units.md
+      label: "5. Organisation units (not built)"
+    - page: tour/06-create-an-entity-type.md
+      label: "6. Create an entity type"
+    - page: tour/07-access-rules-and-masks.md
+      label: "7. Access rules and masks"
+    - page: tour/08-workflows.md
+      label: "8. Workflows"
+    - page: tour/09-create-and-work-with-records.md
+      label: "9. Create and work with records"
+    - page: tour/10-audit.md
+      label: "10. Audit"
+- group: "Concepts"
+  pages:
+    - page: database/tenancy.md
+      label: "Tenants"
+    - page: database/identity.md
+      label: "Users and groups"
+    - page: database/entity-definitions.md
+      label: "Entity types"
+    - page: database/records.md
+      label: "Records"
+    - page: database/acl.md
+      label: "Access rules and masks"
+    - page: workflows/index.md
+      label: "Workflows"
+    - page: database/audit.md
+      label: "Audit"
+    - page: database/numbering.md
+      label: "Record numbers"
+- group: "How it works"
+  pages:
+    - page: system/index.md
+      label: "System map and components"
+      children:
+          - page: system/core-acl.md
+            label: "Record access rules"
+          - page: system/core-cascades.md
+            label: "Cascade bounds"
+          - page: system/core-masks.md
+            label: "Field masks"
+          - page: system/core-metadata.md
+            label: "Metadata engine"
+          - page: system/core-numbering.md
+            label: "Record numbering"
+          - page: system/core-tenancy.md
+            label: "Tenant transactions"
+          - page: system/keycloak.md
+          - page: system/nava-core.md
+          - page: system/nava-db.md
+          - page: system/nava-groupsync.md
+          - page: system/nava-onboard.md
+          - page: system/nava-purge.md
+          - page: system/nava-relay.md
+          - page: system/nava-worker.md
+          - page: system/openobserve.md
+          - page: system/otel-collector.md
+          - page: system/pgbouncer.md
+          - page: system/postgres.md
+          - page: system/prometheus.md
+          - page: system/temporal-server.md
+          - page: system/temporal-ui.md
+          - page: system/temporal.md
+    - page: system/core-write-pipeline.md
+      label: "The write pipeline"
+    - page: workflows/outbox-relay-worker.md
+      label: "Workflows: outbox, relay, worker"
+    - page: workflows/nava-interpreter.md
+      label: "Workflow interpreter"
+    - page: workflows/audit-seal.md
+      label: "Audit sealer"
+    - page: security/index.md
+      label: "Security and tenant isolation"
+      children:
+          - page: security/01-token.md
+            label: "Token validation"
+          - page: security/02-tenant-resolution.md
+            label: "Tenant resolution"
+          - page: security/03-transaction.md
+            label: "Tenant transaction"
+          - page: security/04-database.md
+            label: "Database: RLS, owner and roles"
+          - page: security/05-temporal.md
+            label: "Temporal: workflow id, worker guard, Authorizer"
+          - page: security/06-opaque-tokens.md
+            label: "Opaque tokens: cursors and idempotency keys"
+          - page: security/07-identity-boundary.md
+            label: "Identity boundary and deprovisioning"
+          - page: security/08-exports-erasure.md
+            label: "Audit export and erasure"
+          - page: security/09-acl-masks-read.md
+            label: "ACL and field masks on the read side"
+          - page: security/10-audit-chain.md
+            label: "Audit chain and offline verify"
+          - page: security/accepted-risks.md
+            label: "Accepted risks"
+    - page: vision/invariants.md
+      label: "The invariants"
+      children:
+          - page: vision/tenant-wall.md
+            label: "I1 Tenant wall"
+          - page: vision/tenant-source.md
+            label: "I2 Tenant source"
+          - page: vision/least-privilege-roles.md
+            label: "I3 Least-privilege roles"
+          - page: vision/one-write-pipeline.md
+            label: "I4 One write pipeline"
+          - page: vision/one-authorization-layer.md
+            label: "I5 One authorization layer"
+          - page: vision/durable-path-outbox.md
+            label: "I6 Durable path"
+          - page: vision/idempotent-side-effects.md
+            label: "I7 Idempotent side effects"
+          - page: vision/contracts-configuration-advisory-ai.md
+            label: "I8 Contracts and configuration"
+          - page: vision/bounded-cascades.md
+            label: "I9 Bounded cascades"
+- group: "Reference"
+  pages:
+    - page: database/index.md
+      label: "Database"
+      children:
+          - page: database/schema.md
+            label: "Schema snapshot"
+          - page: database/rls.md
+            label: "Row-level security"
+          - page: database/roles-and-grants.md
+            label: "Roles and grants"
+          - page: database/migrations.md
+            label: "Migration history"
+          - page: database/idempotency.md
+            label: "Idempotency"
+          - page: database/outbox.md
+            label: "Outbox"
+          - page: database/workflow-state.md
+            label: "Workflow state"
+    - page: adr/index.md
+      label: "Decisions (ADRs)"
+      children:
+      - page: adr/adr-001.md
+        label: "ADR-001 Platform blueprint"
+        children:
+          - page: adr/adr-001-a1.md
+            label: "A1: Temporal server v1.29.7 and the workload allow-list"
+          - page: adr/adr-001-a2.md
+            label: "A2: closing system-workflow and task-queue reach (F2)"
+          - page: adr/adr-001-a5.md
+            label: "A5: a cascade cycle suppresses the re-start"
+          - page: adr/adr-001-a6.md
+            label: "A6: audit roles and start rows not tied to a record"
+          - page: adr/adr-001-e1.md
+            label: "E1: command inspection for continue-as-new"
+          - page: adr/adr-001-e3.md
+            label: "E3: the onboarding role reads its own tenant row"
+      - page: adr/adr-002.md
+        label: "ADR-002 /me shows group paths"
+        children:
+          - page: adr/adr-002-e1.md
+            label: "E1: a line-scoped nolint replaces the api.go exclusion"
+      - page: adr/adr-003.md
+        label: "ADR-003 Retiring interpreter histories"
+      - page: adr/adr-004.md
+        label: "ADR-004 Audit log and hash chain"
+        children:
+          - page: adr/adr-004-a1.md
+            label: "A1: only nava_audit_reader reads the raw diff"
+          - page: adr/adr-004-e1.md
+            label: "E1: cascade audit entries and diff_truncated"
+          - page: adr/adr-004-e2.md
+            label: "E2: verifiability is computed, the trailer must agree"
+          - page: adr/adr-004-e3.md
+            label: "E3: the commit-check probe is planned on every call"
+          - page: adr/adr-004-e4.md
+            label: "E4: commit-check ceilings are report-only in CI"
+          - page: adr/adr-004-e5.md
+            label: "E5: no FK actions on audited tables, no secrets in records"
+          - page: adr/adr-004-e6.md
+            label: "E6: the E4-R1 cue is a per-model 1.2x band"
+          - page: adr/adr-004-e7.md
+            label: "E7: A1 books the 10 s interval when work is pending"
+          - page: adr/adr-004-e8.md
+            label: "E8: the reader also reads the chain columns"
+      - page: adr/adr-005.md
+        label: "ADR-005 Record numbering"
+        children:
+          - page: adr/adr-005-e1.md
+            label: "E1: the first create of a type can fail between M2 and M3"
+          - page: adr/adr-005-e2.md
+            label: "E2: grow is refused when a digit touches {seq:N}"
+      - page: adr/adr-006.md
+        label: "ADR-006 Filterable tenant fields"
+      - page: adr/adr-007.md
+        label: "ADR-007 Embedding widget and SDK"
+        children:
+          - page: adr/adr-007-a1.md
+            label: "A1: embedding clients always name the organization"
+    - page: stories/index.md
+      label: "Stories"
+      children:
+          - page: stories/s1.md
+            label: "Local stack and CI"
+          - page: stories/s2.md
+            label: "Tenant isolation in queries"
+          - page: stories/s3.md
+            label: "Tenant sign-in"
+          - page: stories/s4.md
+            label: "Onboard a tenant"
+          - page: stories/s5.md
+            label: "Group changes and deprovisioning"
+          - page: stories/s6.md
+            label: "API ground rules"
+          - page: stories/s7.md
+            label: "Outbox runs one workflow"
+          - page: stories/s8.md
+            label: "Publish an incident type"
+          - page: stories/s9.md
+            label: "Log and update an incident"
+          - page: stories/s10.md
+            label: "Group-scoped access and masks"
+          - page: stories/s11a.md
+            label: "Workflow interpreter on Temporal"
+          - page: stories/s11b.md
+            label: "Records start workflows"
+          - page: stories/s13.md
+            label: "Verify an audit export offline"
+          - page: stories/s14.md
+            label: "One audit log"
+          - page: stories/s15.md
+            label: "Audit hash chain"
+          - page: stories/s16.md
+            label: "Export and prove the audit log"
+          - page: stories/s17.md
+            label: "Record numbers during counter moves"
+          - page: stories/hb2.md
+            label: "Handbook v2: vision and product tour"
+    - page: benchmarks/index.md
+      label: "Benchmarks and budgets"
+    - page: glossary/index.md
+      label: "Glossary"
+- group: "Operations"
+  pages:
+    - page: operations/index.md
+      label: "Operations overview"
+    - page: operations/local-stack.md
+      label: "Local stack"
+    - page: operations/observability.md
+      label: "Traces, logs and metrics"
+    - page: operations/troubleshooting.md
+      label: "Troubleshooting"
+    - page: operations/listeners.md
+      label: "Unpublished listeners"

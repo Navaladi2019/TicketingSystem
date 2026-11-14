@@ -1,0 +1,38 @@
+meta {
+  name: S17.6 AC1: the first incident after the upgrade on the gapless type is INC0000043
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s17-{{s17_run}}-a43
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S17 {{s17_run}} gapless first after the upgrade"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('number INC0000043', () => expect(b.number).to.eql('INC0000043'));
+  bru.setVar('s17_a43_id', b.id);
+  console.log('S17.6 tenant A (gapless):', b.number, b.id);
+}
+
+docs {
+  admin@tenant-a creates an incident in tenant A. Its counter stood at INC0000042 under the old key; R1's 3-column upsert continues the same row (`scope_key = ''`).
+}

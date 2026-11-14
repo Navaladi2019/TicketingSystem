@@ -1,0 +1,144 @@
+{
+  "realm": "spike-s1",
+  "enabled": true,
+  "sslRequired": "none",
+  "organizationsEnabled": true,
+  "accessTokenLifespan": 300,
+  "defaultSignatureAlgorithm": "RS256",
+  "defaultDefaultClientScopes": ["basic"],
+  "clientScopes": [
+    {
+      "name": "basic",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "sub", "protocol": "openid-connect", "protocolMapper": "oidc-sub-mapper", "consentRequired": false,
+         "config": {"id.token.claim": "true", "access.token.claim": "true", "introspection.token.claim": "true", "userinfo.token.claim": "false"}},
+        {"name": "auth_time", "protocol": "openid-connect", "protocolMapper": "oidc-usersessionmodel-note-mapper", "consentRequired": false,
+         "config": {"id.token.claim": "true", "access.token.claim": "true", "introspection.token.claim": "true", "userinfo.token.claim": "false", "user.session.note": "AUTH_TIME", "claim.name": "auth_time", "jsonType.label": "long"}}
+      ]
+    },
+    {
+      "name": "organization",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "organization", "protocol": "openid-connect", "protocolMapper": "oidc-organization-membership-mapper", "consentRequired": false,
+         "config": {"addOrganizationId": "true", "addOrganizationAttributes": "false", "addOrganizationDomain": "false", "jsonType.label": "JSON", "claim.name": "organization",
+                    "id.token.claim": "false", "access.token.claim": "true", "introspection.token.claim": "true", "userinfo.token.claim": "false", "multivalued": "true"}}
+      ]
+    },
+    {
+      "name": "nava-api-audience",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "nava-api-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "consentRequired": false,
+         "config": {"included.client.audience": "nava-api", "id.token.claim": "false", "access.token.claim": "true", "introspection.token.claim": "true"}}
+      ]
+    },
+    {
+      "name": "nava-idp",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "idp", "protocol": "openid-connect", "protocolMapper": "oidc-usersessionmodel-note-mapper", "consentRequired": false,
+         "config": {"user.session.note": "identity_provider", "claim.name": "idp", "jsonType.label": "String", "id.token.claim": "false", "access.token.claim": "true", "introspection.token.claim": "true", "userinfo.token.claim": "false"}}
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "spike-host",
+      "name": "S1 scratch: browser-only host app (ADR-007 D1)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": ["http://127.0.0.1:18282/callback"],
+      "webOrigins": ["http://127.0.0.1:18282"],
+      "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "http://127.0.0.1:18282/"},
+      "defaultClientScopes": ["basic", "nava-idp", "nava-api-audience"],
+      "optionalClientScopes": ["organization"]
+    },
+    {
+      "clientId": "nava-api",
+      "name": "Tenant API audience (bearer only)",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "fullScopeAllowed": false
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "upstream",
+      "displayName": "S1 upstream IdP",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "linkOnly": false,
+      "config": {
+        "clientId": "spike-broker",
+        "clientSecret": "dev-only-spike-broker-secret",
+        "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18181/realms/spike-upstream/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/spike-upstream/protocol/openid-connect/token",
+        "useJwksUrl": "true",
+        "jwksUrl": "http://localhost:8080/realms/spike-upstream/protocol/openid-connect/certs",
+        "validateSignature": "true",
+        "defaultScope": "openid email profile",
+        "syncMode": "IMPORT"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "0f000000-0000-4000-8000-000000000001",
+      "username": "one@org-a.test",
+      "email": "one@org-a.test",
+      "emailVerified": true,
+      "firstName": "One",
+      "lastName": "Org",
+      "enabled": true,
+      "federatedIdentities": [{"identityProvider": "upstream", "userId": "0e000000-0000-4000-8000-000000000001", "userName": "one@org-a.test"}]
+    },
+    {
+      "id": "0f000000-0000-4000-8000-000000000002",
+      "username": "multi@org-a.test",
+      "email": "multi@org-a.test",
+      "emailVerified": true,
+      "firstName": "Two",
+      "lastName": "Orgs",
+      "enabled": true,
+      "federatedIdentities": [{"identityProvider": "upstream", "userId": "0e000000-0000-4000-8000-000000000002", "userName": "multi@org-a.test"}]
+    }
+  ],
+  "organizations": [
+    {
+      "id": "00000000-0000-4000-8000-0000000005a1",
+      "name": "org-a", "alias": "org-a", "enabled": true,
+      "domains": [{"name": "org-a.test", "verified": true}],
+      "identityProviders": [{"alias": "upstream", "config": {"kc.org.domain": "org-a.test"}}],
+      "members": [{"username": "one@org-a.test"}, {"username": "multi@org-a.test"}]
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000005b1",
+      "name": "org-b", "alias": "org-b", "enabled": true,
+      "domains": [{"name": "org-b.test", "verified": true}],
+      "members": [{"username": "multi@org-a.test"}]
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000005c1",
+      "name": "org-c", "alias": "org-c", "enabled": true,
+      "domains": [{"name": "org-c.test", "verified": true}],
+      "members": []
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-007 amendment A1 explained: host apps always name the organization</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:680px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style>
+</head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-14</span> <span class="src">ADR-007-A1 · issue TICK-843 · RFC-018 rev 1 · amends ADR-007 D1 and D13 · trigger: spike S1 (TICK-806) FAIL · evidence: S1, S1b</span>
+
+<h1>Host apps always say which organization they sign the user in for</h1>
+
+<blockquote><strong>In one sentence.</strong> When another company's application embeds our platform, it must tell our sign-in service which customer (tenant) the user is signing in for, every time. The platform gives it that value, computed from the tenant's own id. Without this, a user who belongs to two customers could not sign in the first time, because the sign-in service had no way to ask them which one.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Tenant and organization</dt><dd>A tenant is one customer of the platform; its data is walled off from every other tenant. In Keycloak (our sign-in service) each tenant is an <em>organization</em> with a short name, its <em>alias</em>, for example <code>t-&lt;tenant id&gt;</code>.</dd>
+<dt>Host app and embedding client</dt><dd>Another application that shows our screens or calls our API for its users (ADR-007). Each one is registered as a Keycloak client; we call it an embedding client.</dd>
+<dt>Token and <code>organization</code> claim</dt><dd>After sign-in, Keycloak hands the app a signed token. Its <code>organization</code> claim says which organization the user signed in for. Our API trusts only that signed value to choose the tenant.</dd>
+<dt><code>Resolve</code></dt><dd>The platform code that checks a token and picks its tenant. It insists on exactly one organization in the token, otherwise it refuses with <code>401 tenant_unresolved</code>. This amendment does not change it.</dd>
+<dt>Brokered sign-in and IdP hint</dt><dd>Customers sign in with their own company login (their identity provider, IdP). Keycloak passes the user on to it ("brokers"). The IdP hint (<code>kc_idp_hint</code>) tells Keycloak which company login to use, so the user is not asked.</dd>
+<dt>Picker</dt><dd>A Keycloak page that asks a user in several organizations to choose one.</dd>
+<dt>Spike</dt><dd>A short, timeboxed experiment against the real software to settle a question of fact.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>ADR-007 allowed a host app to ask for "any organization" and rely on Keycloak's picker for users in more than one. Spike S1 showed this does not work on a user's <strong>first</strong> sign-in through their company login: Keycloak sends the user to the company login before it would show the picker, and when they come back it does not know which organization they meant. The token carried <span class="bad">no organization at all</span>, so our API refused it (3 of 3 runs, in Chrome with third-party cookies blocked and in Safari's engine). Nobody was let into the wrong tenant. The user was simply locked out.</p>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>What the evidence showed</th><th>Outcome</th></tr>
+<tr><td><b>1. The host always names the organization</b></td><td>Worked in S1 for exactly the failing case: a two-organization user, first sign-in, organization named, landed in the right tenant in both browsers.</td><td><span class="good">Chosen</span></td></tr>
+<tr><td>2. Our SDK retries the sign-in after the refusal, so the picker appears</td><td>The picker only appears once a Keycloak session exists; the full retry loop was never tested.</td><td>Rejected: our widget must never run sign-in itself (ADR-007 D7), and it risks redirect loops.</td></tr>
+<tr><td>3. Change Keycloak's sign-in steps to show the picker earlier</td><td>Not tested, and Keycloak's source shows the picker needs a user that does not exist yet on a first sign-in.</td><td>Rejected: cannot work, and it would change sign-in for our own web app too.</td></tr>
+<tr><td>4. Keycloak's "redirect by email domain" setting</td><td>Not tested; it addresses a different problem (being asked for a username).</td><td>Rejected; no spike planned.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ul>
+<li>Every host app sign-in request names the organization (<code>organization:&lt;alias&gt;</code>) and, normally, the company login to use (<code>kc_idp_hint</code>).</li>
+<li>The host gets both values from our API when the customer turns the host app on (<code>GET</code> or <code>PUT /api/v1/embedding-clients/{client_id}</code>). The platform <strong>computes them from the caller's own tenant id</strong> and reads no table, so it cannot hand out another customer's values.</li>
+<li>The new <code>GET</code> is for tenant admins only, answers "not found" identically whether the host app exists or was never enabled by this tenant, and is audited. A <code>PUT</code> that tries to set the two values is refused (<code>400 unknown_field</code>).</li>
+<li>Nothing changes in how the API decides the tenant, in the Keycloak configuration, or in our own web app.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 780 300" xmlns="http://www.w3.org/2000/svg" font-size="13" font-family="Segoe UI,Arial,sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="20" y="20" width="150" height="44" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="40" text-anchor="middle">Customer admin</text><text x="95" y="56" text-anchor="middle" font-size="11">turns host app on</text>
+<rect x="230" y="20" width="170" height="44" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="315" y="40" text-anchor="middle">Our API</text><text x="315" y="56" text-anchor="middle" font-size="11">computes alias + hint</text>
+<line x1="170" y1="42" x2="228" y2="42" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="460" y="20" width="160" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="540" y="40" text-anchor="middle">Host app config</text><text x="540" y="56" text-anchor="middle" font-size="11">stores the pair</text>
+<line x1="400" y1="42" x2="458" y2="42" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="20" y="120" width="150" height="44" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="95" y="140" text-anchor="middle">Host app</text><text x="95" y="156" text-anchor="middle" font-size="11">signs user in</text>
+<rect x="230" y="120" width="170" height="44" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="315" y="140" text-anchor="middle">Keycloak</text><text x="315" y="156" text-anchor="middle" font-size="11">organization + hint</text>
+<line x1="170" y1="142" x2="228" y2="142" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="460" y="120" width="160" height="44" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="540" y="140" text-anchor="middle">Company login</text><text x="540" y="156" text-anchor="middle" font-size="11">no prompt if signed in</text>
+<line x1="400" y1="142" x2="458" y2="142" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="120" y="220" width="250" height="56" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="245" y="242" text-anchor="middle">Member of that customer</text><text x="245" y="260" text-anchor="middle" font-size="11">token names it → right tenant</text>
+<rect x="420" y="220" width="300" height="56" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="570" y="242" text-anchor="middle">Not a member</text><text x="570" y="260" text-anchor="middle" font-size="11">token names no organization → refused (401)</text>
+<line x1="315" y1="164" x2="245" y2="218" stroke="#1a7f37" marker-end="url(#a)"/><line x1="315" y1="164" x2="570" y2="218" stroke="#cf222e" marker-end="url(#a)"/>
+</svg>
+<figcaption>Once, at opt-in, the host receives the pair. Every sign-in sends it. Keycloak only ever puts an organization in the token if the user is really a member.</figcaption>
+</figure>
+
+<h2>What happens when the host names the wrong organization</h2>
+<p>This was the second open question from S1, now settled by Keycloak's source code and a second spike, S1b. In every case <span class="good">no token ever lets the user into a tenant they are not in</span>.</p>
+<table>
+<tr><th>Situation</th><th>What the user sees</th><th>Evidence</th></tr>
+<tr><td>Wrong organization, no company-login hint</td><td>Keycloak's own username/password form, a dead end for a company-login user (residual RR-A1-1)</td><td>S1 (with an existing session) and S1b (without)</td></tr>
+<tr><td>Wrong organization, with the hint</td><td>Sign-in completes, but the token names no organization and our API refuses it (401). The host can show an error.</td><td>S1b, 3/3, for host apps and for our own web app</td></tr>
+<tr><td>Organization that does not exist</td><td>Keycloak sends the host an <code>invalid_scope</code> error at once</td><td>S1b</td></tr>
+<tr><td>A brand-new user signs in for the first time with the wrong organization</td><td>Refused this time; they are still added to their own organization, so the next correct sign-in works</td><td>S1b, 3/3. This disproved a feared risk (RR-A1-5), now withdrawn.</td></tr>
+</table>
+
+<h2>The fix and the rollout</h2>
+<ul>
+<li>No migration. The two computed values and the new <code>GET</code> are added in the story that builds the embedding-client endpoints (TICK-815). The stories S23 and S26 stay parked until this amendment is accepted and the plan (PLAN-008) is updated.</li>
+<li>Tests that previously expected a refusal for a wrong organization are rewritten to the behaviour above (CI-E2, new CI-E14 a–d, CI-E15, CI-E16 a–g). Each also checks the one rule that matters: no token names an organization the user is not in.</li>
+<li>Our two demo customers in the development setup use hand-picked names, not computed ones. They stay as they are. Tests of Keycloak's behaviour keep using them; tests of the computed values and the acceptance kits use customers created through the normal onboarding process, set up by a small script.</li>
+</ul>
+
+<h2>What we are accepting</h2>
+<table>
+<tr><th>#</th><th>Residual risk</th><th>Watch for</th></tr>
+<tr><td>RR-A1-1</td><td>A host that names the wrong organization and sends no hint strands the user on Keycloak's login form.</td><td>First support case from a host</td></tr>
+<tr><td>RR-A1-2</td><td>Our own web app still asks for "any organization"; a user in two customers would be refused on first sign-in. No such user exists today.</td><td>The first user in two customers</td></tr>
+<tr><td>RR-A1-3</td><td>A user can only work in a second customer if that customer also trusts the user's company login (existing behaviour).</td><td>Customers wanting to share users</td></tr>
+<tr><td>RR-A1-4</td><td>Without the hint the user is asked for a username once.</td><td>A host that cannot send the hint</td></tr>
+<tr><td>RR-A1-6</td><td>The demo customers' names do not match the computed ones, so the computed values fail safely for them.</td><td>A test that needs the demo customers as hosts</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<ul>
+<li><b>S1</b> (TICK-806, <code>docs/adr/ADR-007/spikes/s1-host-client-token.md</code>, PR #652): bare "any organization" failed on the first brokered sign-in, 3/3, both browsers. Naming the organization passed. <span class="bad">red</span></li>
+<li><b>S1b</b> (TICK-843, <code>docs/adr/ADR-007/spikes/s1b-hinted-wrong-alias.md</code> and <code>s1b-raw.log</code>): with the hint, a wrong organization gives a token without an organization and a 401, 3/3, for both client types; a first-time user still joins their own organization. <span class="good">green</span> for the behaviour adopted here.</li>
+<li><b>Reviews</b>: Security found that reading the values from a database table could leak another customer's login name; computing them from the tenant id fixed it (approved on re-check). The Technical Architect checked Keycloak 26.8.1's source for every case and ran S1b. The CTO adopted S1b as measured.</li>
+</ul>
+
+<p class="src">Source of record: <code>docs/adr/ADR-007-A1-org-alias-mandatory.md</code>. RFC: <code>docs/adr/ADR-007/rfc/RFC-018-adr-007-a1-org-alias-mandatory.md</code> (rev-0/ and rev-1/ archived).</p>
+</main></body></html>
