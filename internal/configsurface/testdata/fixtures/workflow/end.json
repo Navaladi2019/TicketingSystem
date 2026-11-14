@@ -1,0 +1,8 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "request" },
+  "start": "done",
+  "steps": [
+    { "key": "done", "type": "end" }
+  ]
+}
