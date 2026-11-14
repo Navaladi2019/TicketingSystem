@@ -88,7 +88,7 @@ func TestTenantTimeZoneInvalidWritesNothing(t *testing.T) {
 	e := newETEnv(t)
 	for i, body := range []string{
 		`{"time_zone":"Mars/Base"}`, `{"time_zone":""}`, `{"time_zone":"Local"}`, `{"time_zone":" UTC"}`,
-		`{"time_zone":1}`, `{}`, `[]`, `{"time_zone":"` + strings.Repeat("A", 80) + `"}`,
+		`{"time_zone":1}`, `{}`, `{"time_zone":"` + strings.Repeat("A", 80) + `"}`,
 	} {
 		r := e.do(t, http.MethodPut, tzPath, "admin-a", "bad"+string(rune('a'+i)), body)
 		nfProblem(t, r, 422, "invalid_time_zone")
@@ -101,6 +101,23 @@ func TestTenantTimeZoneInvalidWritesNothing(t *testing.T) {
 	}
 	if n := tzAudit(t, e, e.a.id); n != 0 {
 		t.Errorf("%d audit entries after refusals", n)
+	}
+}
+
+// A body that is not a JSON object never reaches the handler: the contract
+// validator answers 400 validation_failed, and nothing is stored or audited.
+//
+// covers: putTenantTimeZone 400
+func TestTenantTimeZoneNonObjectBodyIsRefusedByTheContract(t *testing.T) {
+	e := newETEnv(t)
+	for i, body := range []string{`[]`, `"UTC"`, `1`} {
+		nfProblem(t, e.do(t, http.MethodPut, tzPath, "admin-a", "arr"+string(rune('a'+i)), body), 400, "validation_failed")
+	}
+	if got := tzOf(t, e, e.a.id); got != "UTC" {
+		t.Errorf("stored %q", got)
+	}
+	if n := tzAudit(t, e, e.a.id); n != 0 {
+		t.Errorf("%d audit entries", n)
 	}
 }
 
