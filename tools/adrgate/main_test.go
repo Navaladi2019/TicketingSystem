@@ -121,6 +121,17 @@ func TestRules(t *testing.T) {
 			[]string{"docs/adr/ADR-004-A2-x.md: CI-1: amendment or erratum has no front-matter date: YYYY-MM-DD"}},
 		{"amendment of ADR-009 needs gate whatever its date", map[string]string{"docs/adr/ADR-009-A1-x.md": adr("2026-11-01", "")},
 			[]string{"docs/adr/ADR-009-A1-x.md: CI-1: no ## Competitive Gate section (ADR-008 D6)"}},
+		// TA review of 307f7c59, finding 1: an ADR-008 amendment is not a second ADR-008.
+		{"ADR-008 amendment with gate", map[string]string{"docs/adr/ADR-008-A1-x.md": adr("2026-11-20", gate)}, nil},
+		{"ADR-008 erratum without gate", map[string]string{"docs/adr/ADR-008-E1-x.md": adr("2026-11-20", "")},
+			[]string{"docs/adr/ADR-008-E1-x.md: CI-1: no ## Competitive Gate section (ADR-008 D6)"}},
+		// Finding 3: only ADR-NNN[-An|-En]-explained.md is an explainer.
+		{"record whose slug ends in explained", map[string]string{"docs/adr/ADR-010-cost-explained.md": adr("2026-11-20", "")},
+			[]string{"docs/adr/ADR-010-cost-explained.md: CI-1: no ## Competitive Gate section (ADR-008 D6)"}},
+		{"amendment explainer is not a record", map[string]string{"docs/adr/ADR-009-A1-explained.md": "# explained\n"}, nil},
+		// Finding 2: an unclosed <!-- hides nothing after it.
+		{"unclosed comment opener in inline code", map[string]string{p9: adr("2026-11-20", "Use `<!--` here.\n\n"+gate+"CP-SF-99\n")},
+			[]string{p9 + ": CI-2: CP-SF-99 is not a row in " + registerPath}},
 		// 3. Keyed on the number, not the status.
 		{"ADR-005 without gate", map[string]string{"docs/adr/ADR-005-x.md": adr("2026-11-20", "")}, nil},
 		{"REJECTED ADR-010 without gate", map[string]string{"docs/adr/ADR-010-x.md": strings.Replace(adr("2026-11-20", ""), "PROPOSED", "REJECTED", 1)},
@@ -297,7 +308,7 @@ func TestFrontMatterAndCitable(t *testing.T) {
 	if strings.Count(out, "\n") != strings.Count(in, "\n") {
 		t.Errorf("line count changed: %q", out)
 	}
-	if strings.Contains(out, "CP-SF-99") || strings.Contains(out, "x") || strings.Contains(out, "z") || !strings.Contains(out, "b ") || !strings.Contains(out, " c") {
+	if strings.Contains(out, "CP-SF-99") || strings.Contains(out, "x") || !strings.Contains(out, "<!-- unclosed\nz") || !strings.Contains(out, "b ") || !strings.Contains(out, " c") {
 		t.Errorf("citable: %q", out)
 	}
 }

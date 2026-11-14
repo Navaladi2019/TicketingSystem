@@ -48,6 +48,9 @@ var (
 	// ADR-NNN-A<n>-<slug>.md and ADR-NNN-E<n>-<slug>.md.
 	recordName    = regexp.MustCompile(`^ADR-(\d{3})-.+\.md$`)
 	amendmentName = regexp.MustCompile(`^ADR-\d{3}-[AE]\d+-.+\.md$`)
+	// Explainers are exactly ADR-NNN[-An|-En]-explained.md: reading guides,
+	// not records, so they need no gate (their citations are still checked).
+	explainerName = regexp.MustCompile(`^ADR-\d{3}(?:-[AE]\d+)?-explained\.md$`)
 	// docs/adr/<any>/rfc/rev-<n>/... are archived RFC revisions.
 	archivedRev = regexp.MustCompile(`^docs/adr/[^/]+/rfc/rev-[^/]+/`)
 
@@ -56,8 +59,10 @@ var (
 	registerID     = regexp.MustCompile(`^\*\*(CP-[^*]+)\*\*$`)
 	isoDate        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 	parenthesised  = regexp.MustCompile(`\([^)]*\)`)
-	comment        = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)`)
-	resultValue    = regexp.MustCompile(`^(?:PASS|N/A)(?:$|[^A-Za-z0-9])`)
+	// An unclosed <!-- (for example in inline code) is text, not a comment,
+	// so it cannot hide the rest of a file.
+	comment     = regexp.MustCompile(`(?s)<!--.*?-->`)
+	resultValue = regexp.MustCompile(`^(?:PASS|N/A)(?:$|[^A-Za-z0-9])`)
 )
 
 func main() {
@@ -174,7 +179,8 @@ func readGateADR(fsys fs.FS) (accepted string, methods map[string]bool, err erro
 	var name string
 	for _, e := range entries {
 		n := e.Name()
-		if strings.HasPrefix(n, fmt.Sprintf("ADR-%03d-", gateADR)) && isRecord(n) {
+		// The base record only: ADR-008 amendments and errata are not it.
+		if strings.HasPrefix(n, fmt.Sprintf("ADR-%03d-", gateADR)) && isRecord(n) && !amendmentName.MatchString(n) {
 			if name != "" {
 				return "", nil, fmt.Errorf("two ADR-%03d records: %s and %s", gateADR, name, n)
 			}
@@ -202,9 +208,9 @@ func readGateADR(fsys fs.FS) (accepted string, methods map[string]bool, err erro
 }
 
 // isRecord reports whether a file name in docs/adr is an ADR, amendment or
-// erratum. Explainers (ADR-NNN-explained.md) are reading guides, not records.
+// erratum, not an explainer.
 func isRecord(name string) bool {
-	return recordName.MatchString(name) && !strings.HasSuffix(name, "-explained.md")
+	return recordName.MatchString(name) && !explainerName.MatchString(name)
 }
 
 // axesMethods parses the Method column of the table under "The axes".
