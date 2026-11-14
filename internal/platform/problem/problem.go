@@ -69,6 +69,7 @@ const (
 	InvalidTimeZone               Code = "invalid_time_zone"
 	NumberFormatOverlap           Code = "number_format_overlap"
 	NumberFormatNotFound          Code = "number_format_not_found"
+	NumberSpaceExhausted          Code = "number_space_exhausted"
 )
 
 // Codes lists every Code constant.
@@ -80,7 +81,7 @@ func Codes() []Code {
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
-		NumberFormatOverlap, NumberFormatNotFound,
+		NumberFormatOverlap, NumberFormatNotFound, NumberSpaceExhausted,
 	}
 }
 

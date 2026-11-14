@@ -46,8 +46,8 @@ func TestRegistryMatchesGoCodes(t *testing.T) {
 			t.Errorf("PLAN-001 first code %q has no Go constant", c)
 		}
 	}
-	if n := len(problem.Codes()); n != 42 {
-		t.Errorf("%d Go codes, want 42; update this test with the registry", n)
+	if n := len(problem.Codes()); n != 43 {
+		t.Errorf("%d Go codes, want 43; update this test with the registry", n)
 	}
 }
 

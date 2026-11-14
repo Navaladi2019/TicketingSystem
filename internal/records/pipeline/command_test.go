@@ -14,6 +14,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
@@ -26,6 +27,10 @@ func (nopDefs) Version(context.Context, pgx.Tx, string, int) (*metadata.Compiled
 
 func (nopDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, int, error) {
 	return nil, 0, entitytypes.ErrNotFound
+}
+
+func (nopDefs) NumberFormat(context.Context, pgx.Tx, string, int) (numbering.Compiled, error) {
+	return numbering.Compiled{}, entitytypes.ErrNotFound
 }
 
 // Every malformed command is refused before the first statement: the nil tx

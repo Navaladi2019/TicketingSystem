@@ -325,6 +325,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.NumberFormatNotFound:
 					h.reg.Write(w, r, problem.NumberFormatNotFound, pe.fields...)
 					return
+				case problem.NumberSpaceExhausted:
+					h.reg.Write(w, r, problem.NumberSpaceExhausted, pe.fields...)
+					return
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
 					return

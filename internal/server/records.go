@@ -395,6 +395,8 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		ve *pipeline.ErrValidation
 		it *pipeline.ErrIllegalTransition
 		uv *pipeline.ErrUniqueViolation
+		ex *pipeline.ErrNumberSpaceExhausted
+		nt *pipeline.ErrNumberTaken
 		pe *problemError
 		pg *pgconn.PgError
 	)
@@ -420,6 +422,16 @@ func (h *handlers) recordError(ctx context.Context, err error, fixed map[string]
 		return &problemError{problem.AssignmentGroupRemoved, columnFields(fixed, metadata.ColumnAssignmentGroupID, groupRemovedRule), err}
 	case errors.As(err, &it):
 		return &problemError{problem.IllegalTransition, []problem.FieldError{invalid("/data/"+escapePointer(stateProp), "transition")}, err}
+	case errors.As(err, &ex):
+		// The type is the request's own; the scope is server-computed
+		// (ADR-005 §3.5).
+		return &problemError{problem.NumberSpaceExhausted, []problem.FieldError{invalid("/entity", "scope:"+ex.ScopeKey)}, err}
+	case errors.As(err, &nt):
+		// A defect (ADR-005 §3.3): a 500, never retried, logged with what
+		// finds the epoch and counter.
+		h.log.ErrorContext(ctx, "record number already on a record", slog.String("entity_type", nt.EntityKey),
+			slog.Int("epoch", nt.Epoch), slog.String("scope_key", nt.ScopeKey))
+		return err
 	case errors.As(err, &uv):
 		return &problemError{problem.UniqueViolation, []problem.FieldError{invalid("/data/"+escapePointer(uv.Field), "unique")}, err}
 	case errors.As(err, &ve):

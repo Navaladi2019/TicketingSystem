@@ -338,8 +338,9 @@ func TestPolicyIsThePredicate(t *testing.T) {
 	}
 }
 
-// AC: promtool test rules, AuditDeadLineage silent at 0 and firing at 1, with
-// the pinned prom/prometheus image (docs/pins.md). Docker is the integration
+// AC: promtool test rules, AuditDeadLineage silent at 0 and firing at 1, and
+// NumberSpaceNearlyExhausted (TICK-674) firing above 90 %, with the pinned
+// prom/prometheus image (docs/pins.md). Docker is the integration
 // job's, as for the PostgreSQL container.
 func TestAlertRules(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -357,7 +358,7 @@ func TestAlertRules(t *testing.T) {
 	dir := filepath.Join(root, "deploy", "compose", "prometheus")
 	cmd := exec.CommandContext(context.Background(), "docker", "run", "--rm", "--network", "none",
 		"--entrypoint", "promtool", "-v", dir+":/p:ro", "-w", "/p/tests",
-		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml")
+		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml", "numbering_test.yml")
 	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

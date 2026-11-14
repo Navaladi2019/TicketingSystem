@@ -109,6 +109,38 @@ flowchart TD
   mode change applies to creates that start after it, and both paths upsert
   the same row, so no number is used twice (ADR-005 §2.1.1,
   `TestModeSwitchNeverReusesANumber`).
+- **Linked number formats (ADR-005 A7, §3.5, §3.6, §4.1; TICK-674).** A
+  create reads its format from the snapshot on the definition version it
+  already read (`entity_definition_versions.number_compiled`, the default
+  when null; `entitytypes.Store.NumberFormat` answers from the prefetched
+  read), never from `number_formats`. For a format with date parts the
+  upsert itself computes the scope key (`e<epoch>|d:<digits>`, one `to_char`
+  per date token) and the INSERT arm's `period_end` from `now() AT TIME ZONE`
+  the format's zone, else the tenant's `time_zone`, read in the same
+  statement under RLS; Go passes the key prefix, the patterns and the period
+  unit (`numbering.Scope`). The UPDATE arm still sets `next` only. The `gaps`
+  path renders the number from the date digits PostgreSQL put in the key
+  (`RenderParts`) and stores the allocation's `now()` as `created_at`; the
+  `gapless` INSERT renders the number in SQL from the same `now()` and
+  stores `now()` as `created_at`. So the number's date and `created_at`
+  agree at midnight too (`TestFormatMidnightDateMatchesCreatedAt`). A format
+  with no date part uses the unchanged default statement with key
+  `e<epoch>`. Statements per create and the counter's hold time are those of
+  TICK-657 on both paths. Under `refuse`, a counter past the width fails the
+  create with `*ErrNumberSpaceExhausted` (409 `number_space_exhausted`, rule
+  `scope:<key>`); a `gapless` refusal rolls back and gives the value back.
+  Every number taken under `refuse` records `nava_numbering_fill_ratio`;
+  `NumberSpaceNearlyExhausted` alerts above 90 %. A `records_number_key`
+  violation is `*ErrNumberTaken`: logged with type, epoch and scope, 500,
+  never retried.
+
+```mermaid
+flowchart LR
+  V[definition version<br/>number_compiled] --> S["numbering.Scope<br/>key prefix, to_char patterns,<br/>period unit, zone"]
+  S --> U["record_counters upsert<br/>now() AT TIME ZONE coalesce(format zone, tenants.time_zone)<br/>INSERT arm: scope_key, period_end<br/>UPDATE arm: next"]
+  U -->|"next - 1, scope_key, now()"| G["gaps: RenderParts(date digits of scope_key)<br/>created_at = now()"]
+  U --> L["gapless: INSERT renders the number in SQL<br/>created_at = now()"]
+```
 - **Allocator pool (ADR-005 A3, A5, A8).** The allocation needs a connection
   while the create's own transaction holds one, so nava-core gives it a pool
   of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`

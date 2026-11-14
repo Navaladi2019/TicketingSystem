@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -101,12 +102,15 @@ type Version struct {
 	PublishedAt  time.Time
 	// NumberFormat is the pinned number format, nil for the default numbering.
 	NumberFormat *FormatRef
+	// NumberCompiled is the compiled snapshot of NumberFormat (the JSON of
+	// numbering.Compiled, with the type's epoch), nil for the default.
+	NumberCompiled json.RawMessage
 }
 
 const versionSelect = `
 SELECT d.key, d.name, d.number_prefix, d.numbering_mode, d.current_version, v.version, v.schema::text,
        v.schema_sha256, v.fixed_columns, v.states, v.compat, v.published_at,
-       v.number_format_id, v.number_format_version
+       v.number_format_id, v.number_format_version, v.number_compiled::text
 FROM entity_definitions d
 JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id`
 
@@ -118,8 +122,9 @@ func scanVersion(row pgx.Row) (*Version, error) {
 		cur    int
 		fmtID  *uuid.UUID
 		fmtVer *int
+		fmtC   *string
 	)
-	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &v.NumberingMode, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt, &fmtID, &fmtVer)
+	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &v.NumberingMode, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt, &fmtID, &fmtVer, &fmtC)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -134,6 +139,9 @@ func scanVersion(row pgx.Row) (*Version, error) {
 	v.Current = cur == v.Version
 	if fmtID != nil && fmtVer != nil {
 		v.NumberFormat = &FormatRef{ID: *fmtID, Version: *fmtVer}
+	}
+	if fmtC != nil {
+		v.NumberCompiled = json.RawMessage(*fmtC)
 	}
 	return &v, nil
 }
@@ -532,6 +540,56 @@ func (s Store) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metad
 	return c, v.Version, nil
 }
 
+// NumberFormat is the compiled number format
+// snapshotted on version of the entity type (ADR-005 §3.1), never read from
+// number_formats. For a version QueueCurrent prefetched in tx (every
+// record write) it answers from that read, with no round trip; otherwise it
+// reads the version row. The snapshot is on the immutable version row, so
+// either way it is the one the definition version was published with.
+func (Store) NumberFormat(ctx context.Context, tx pgx.Tx, entityKey string, version int) (numbering.Compiled, error) {
+	if v, ok := tenancy.Recall(tx, currentKey{entityKey}); ok {
+		c := v.(current) //nolint:forcetypeassert // only QueueCurrent stores under currentKey
+		if c.err == nil && c.version == version {
+			return c.format, c.formatErr
+		}
+	}
+	var text *string
+	err := tx.QueryRow(ctx, `
+SELECT v.number_compiled::text
+FROM entity_definitions d
+JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id
+WHERE d.key = $1 AND v.version = $2`, entityKey, version).Scan(&text)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return numbering.Compiled{}, ErrNotFound
+	}
+	if err != nil {
+		return numbering.Compiled{}, fmt.Errorf("entitytypes: read number format: %w", err)
+	}
+	var raw json.RawMessage
+	if text != nil {
+		raw = json.RawMessage(*text)
+	}
+	return numberFormat(&Version{Key: entityKey, Version: version, NumberCompiled: raw})
+}
+
+// numberFormat decodes v's number format snapshot: numbering.Default() when
+// v links none. A snapshot that does not decode, has no epoch, or is not
+// what the compiler makes of its own template is a defect of the store
+// (numbering.ErrInvalidCompiled), never a default.
+func numberFormat(v *Version) (numbering.Compiled, error) {
+	if v.NumberCompiled == nil {
+		return numbering.Default(), nil
+	}
+	var c numbering.Compiled
+	if err := json.Unmarshal(v.NumberCompiled, &c); err != nil {
+		return numbering.Compiled{}, fmt.Errorf("entitytypes: stored %s v%d number format: %w", v.Key, v.Version, err)
+	}
+	if _, err := c.Scope(); err != nil {
+		return numbering.Compiled{}, fmt.Errorf("entitytypes: stored %s v%d number format: %w", v.Key, v.Version, err)
+	}
+	return c, nil
+}
+
 // currentKey is the tx memo key of an entity type's prefetched current
 // definition; current is what is stored under it.
 type currentKey struct{ key string }
@@ -540,6 +598,9 @@ type current struct {
 	def     *metadata.Compiled
 	version int
 	err     error // what Current returns: ErrNotFound, or a stored row that does not scan or compile
+	// format and formatErr are what NumberFormat of version returns.
+	format    numbering.Compiled
+	formatErr error
 }
 
 // QueueCurrent queues Current's read on b, a batch the caller sends in tx
@@ -564,7 +625,8 @@ func (Store) QueueCurrent(tx pgx.Tx, b *pgx.Batch, entityKey string) {
 				return nil
 			}
 			c, err := compile(v)
-			tenancy.Remember(tx, currentKey{entityKey}, current{def: c, version: v.Version, err: err})
+			f, ferr := numberFormat(v)
+			tenancy.Remember(tx, currentKey{entityKey}, current{def: c, version: v.Version, err: err, format: f, formatErr: ferr})
 			return nil
 		})
 }
