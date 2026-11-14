@@ -3,12 +3,15 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 )
 
@@ -82,5 +85,36 @@ func TestFormatLinkProblemGivesOneBodyForNotFound(t *testing.T) {
 	}
 	if !strings.Contains((&entitytypes.OverlapError{Template: "T"}).Error(), `"T"`) {
 		t.Error("OverlapError does not name the template")
+	}
+}
+
+func TestRepublishRefusalMapsEachFailureToItsCode(t *testing.T) {
+	t.Parallel()
+	var logs strings.Builder
+	h := &handlers{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	p := identity.Principal{TenantID: uuid.New()}
+	for _, tc := range []struct {
+		name string
+		err  error
+		code problem.Code
+	}{
+		{"forbidden", authz.ErrForbidden, problem.Forbidden},
+		{"overlap", &entitytypes.OverlapError{Template: "T"}, problem.NumberFormatOverlap},
+		{"format gone", entitytypes.ErrFormatNotFound, problem.NumberFormatNotFound},
+		{"type moved", &entitytypes.ConflictError{Current: 3}, problem.VersionConflict},
+		{"type deleted", entitytypes.ErrNotFound, problem.VersionConflict},
+		{"unexpected", errors.New("db down: secret detail"), problem.InternalError},
+	} {
+		got := h.refusal(t.Context(), p, republishResult{EntityType: "tx"}, tc.err)
+		if got.Status != "refused" || got.Code != string(tc.code) || got.EntityType != "tx" || got.Version != nil {
+			t.Errorf("%s: %+v, want refused %s", tc.name, got, tc.code)
+		}
+	}
+	if !strings.Contains(logs.String(), "db down") {
+		t.Error("an unexpected failure is not logged")
+	}
+	b, _ := json.Marshal(h.refusal(t.Context(), p, republishResult{EntityType: "tx"}, errors.New("db down: secret detail")))
+	if strings.Contains(string(b), "secret") {
+		t.Errorf("the report leaks the failure: %s", b)
 	}
 }

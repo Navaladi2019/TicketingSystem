@@ -176,31 +176,40 @@ func (h *handlers) republishOne(ctx context.Context, p identity.Principal, key s
 		})
 		return err
 	})
+	if err == nil {
+		res.Status, res.Version = "published", &published.Version
+		return res, true
+	}
+	if errors.Is(err, errNoLongerLinked) {
+		return res, false
+	}
+	return h.refusal(ctx, p, res, err), true
+}
+
+// refusal fills res, the line of a type whose publish failed, from err. A
+// failure that is not a known refusal is logged and reported as internal_error:
+// one type's failure does not hide the others' results, and the detail stays in
+// the log, never in the report.
+func (h *handlers) refusal(ctx context.Context, p identity.Principal, res republishResult, err error) republishResult {
 	var (
 		overlap  *entitytypes.OverlapError
 		conflict *entitytypes.ConflictError
 	)
+	res.Status = "refused"
 	switch {
-	case err == nil:
-		res.Status, res.Version = "published", &published.Version
-		return res, true
-	case errors.Is(err, errNoLongerLinked):
-		return res, false
 	case errors.Is(err, authz.ErrForbidden):
-		res.Status, res.Code = "refused", string(problem.Forbidden)
+		res.Code = string(problem.Forbidden)
 	case errors.As(err, &overlap), errors.Is(err, entitytypes.ErrFormatNotFound):
 		pe := formatLinkProblem(err)
-		res.Status, res.Code, res.Errors = "refused", string(pe.code), pe.fields
+		res.Code, res.Errors = string(pe.code), pe.fields
 	case errors.As(err, &conflict), errors.Is(err, entitytypes.ErrNotFound):
-		res.Status, res.Code = "refused", string(problem.VersionConflict)
+		res.Code = string(problem.VersionConflict)
 	default:
-		// One type's failure does not hide the others' results. The detail
-		// stays in the log, never in the report.
 		h.log.ErrorContext(ctx, "re-publish of a linked entity type failed",
-			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", key), slog.Any("error", err))
-		res.Status, res.Code = "refused", string(problem.InternalError)
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", res.EntityType), slog.Any("error", err))
+		res.Code = string(problem.InternalError)
 	}
-	return res, true
+	return res
 }
 
 var errNoLongerLinked = errors.New("entity type is no longer linked below the target version")

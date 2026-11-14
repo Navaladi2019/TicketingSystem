@@ -91,3 +91,72 @@ func TestMapFormatFKOnlyMapsTheLinkKey(t *testing.T) {
 		t.Errorf("other error: %v", err)
 	}
 }
+
+func TestTakeEpochReportsDatabaseFailuresAndWritesNothingMore(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	c, err := numbering.Compile("{prefix}-{seq:4}", numbering.Grow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, def := uuid.New(), uuid.New()
+	none := fail(pgx.ErrNoRows)
+	rows := func(r *fakeRows) step { return step{query: r} }
+	for _, tc := range []struct {
+		name  string
+		steps []step
+		text  string
+	}{
+		{"epoch lookup fails", []step{fail(errDB)}, "read epoch"},
+		{"epochs query fails", []step{none, {qErr: errDB}}, "read epochs"},
+		{"epoch scan fails", []step{none, rows(&fakeRows{rows: 1, scanErr: errDB})}, "scan epoch"},
+		{"epoch rows fail", []step{none, rows(&fakeRows{err: errDB})}, "read epochs"},
+		{"next epoch fails", []step{none, rows(&fakeRows{}), fail(errDB)}, "next epoch"},
+		{"insert fails", []step{none, rows(&fakeRows{}), found(), execFail(errDB)}, "insert epoch"},
+	} {
+		_, err := takeEpoch(ctx, &fakeTx{t: t, steps: tc.steps}, tenant, def, "INC", c)
+		if !errors.Is(err, errDB) || !strings.Contains(err.Error(), tc.text) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+	got, err := takeEpoch(ctx, &fakeTx{t: t, steps: []step{none, rows(&fakeRows{}), found(), {tag: "INSERT 0 1"}}}, tenant, def, "INC", c)
+	if err != nil {
+		t.Errorf("new epoch: %+v %v", got, err)
+	}
+}
+
+func TestEpochTemplateFallsBackToTheHash(t *testing.T) {
+	t.Parallel()
+	ctx, def := t.Context(), uuid.New()
+	sum := []byte{1, 2, 3}
+	if got := epochTemplate(ctx, &fakeTx{t: t, steps: []step{{qErr: errDB}}}, def, sum); got != "010203" {
+		t.Errorf("query fails: %q", got)
+	}
+	if got := epochTemplate(ctx, &fakeTx{t: t, steps: []step{{query: &fakeRows{}}}}, def, sum); got != "010203" {
+		t.Errorf("no snapshot: %q", got)
+	}
+	// A row that does not scan is skipped.
+	if got := epochTemplate(ctx, &fakeTx{t: t, steps: []step{{query: &fakeRows{rows: 1, scanErr: errDB}}}}, def, sum); got != "010203" {
+		t.Errorf("bad row: %q", got)
+	}
+}
+
+func TestLinkedBelow(t *testing.T) {
+	t.Parallel()
+	ctx, id := t.Context(), uuid.New()
+	for name, tc := range map[string]struct {
+		step step
+		text string
+	}{
+		"query fails": {step{qErr: errDB}, "linked types"},
+		"scan fails":  {step{query: &fakeRows{rows: 1, scanErr: errDB}}, "scan linked type"},
+		"rows fail":   {step{query: &fakeRows{err: errDB}}, "linked types"},
+	} {
+		if _, err := (Store{}).LinkedBelow(ctx, &fakeTx{t: t, steps: []step{tc.step}}, id, 2); !errors.Is(err, errDB) || !strings.Contains(err.Error(), tc.text) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if keys, err := (Store{}).LinkedBelow(ctx, &fakeTx{t: t, steps: []step{{query: &fakeRows{}}}}, id, 2); err != nil || len(keys) != 0 {
+		t.Errorf("none linked: %v %v", keys, err)
+	}
+}

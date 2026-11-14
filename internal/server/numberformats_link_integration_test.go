@@ -573,3 +573,26 @@ func TestRepublishLinkedRefusals(t *testing.T) {
 		t.Errorf("results = %+v", r.Results)
 	}
 }
+
+// The per-type right is the production one here (no seam): a tenant admin
+// republishes, and the endpoint itself refuses a caller who is not one.
+// covers: republishLinkedTypes 200
+func TestRepublishLinkedWithTheProductionTypeCheck(t *testing.T) {
+	open, now := true, time.Now()
+	e := &linkEnv{deny: map[string]bool{}, etEnv: newETEnvWith(t, server.WithNumberFormatGate(nfGate(&open, &now)))}
+	e.createType(t, "incident", "INC")
+	f := e.createFormat(t, "admin-a", "monthly", linkSlash)
+	if rec := e.publish(t, "admin-a", "incident", "", pubBody(ref(f, 1))); rec.Code != http.StatusCreated {
+		t.Fatalf("link = %d: %s", rec.Code, rec.Body)
+	}
+	e.publishFormat(t, f, 1, linkYearly)
+
+	wantProblem(t, e.republish(t, "user-a", f, 2), http.StatusForbidden, problem.Forbidden)
+	got := decodeRepublish(t, e.republish(t, "admin-a", f, 2))
+	if len(got.Results) != 1 || got.Results[0].Status != "published" || got.Results[0].EntityType != "incident" {
+		t.Fatalf("report = %+v", got)
+	}
+	if p := e.pinOf(t, "incident"); p.fmtVer == nil || *p.fmtVer != 2 {
+		t.Errorf("pin = %+v", p)
+	}
+}
