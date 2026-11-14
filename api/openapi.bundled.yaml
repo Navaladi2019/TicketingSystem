@@ -200,7 +200,7 @@ paths:
 
         `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to the new definition version: `{id, version}`, or `null` for the default numbering. It needs `definition`. **A publish without the field keeps the pinned version**; only an explicit value changes it. The publish takes or reuses the type's numbering epoch in its own transaction: a format already used by the type reuses its epoch; a new one is checked against every earlier epoch of the type, epoch 0 included, and answers 422 `number_format_overlap` (`errors[].rule` is `overlap:<the clashing template>`) when it could render a number the type already issued. A format that is not in the tenant, and another tenant's, give the same 422 `number_format_not_found`.
 
-        `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing.
+        `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing. It also applies to a mode-only call (`numbering_mode` without `definition`): a stale one answers 412 and leaves the numbering mode unchanged.
 
       parameters:
         - $ref: "#/components/parameters/Key"
@@ -214,7 +214,7 @@ paths:
         - name: If-Match
           in: header
           required: false
-          description: The `ETag` of the current version the publish is based on. Optional.
+          description: The `ETag` of the current version the publish is based on. Optional. Also checked on a mode-only call.
           schema:
             type: string
       requestBody:

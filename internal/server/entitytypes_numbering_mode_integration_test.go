@@ -154,3 +154,40 @@ func TestNumberingModeRefusedForNonAdminsAndOtherTenants(t *testing.T) {
 		t.Errorf("stored = %q, want gaps", got)
 	}
 }
+
+// covers: publishEntityTypeVersion 201 412
+func TestModeOnlyPublishHonoursIfMatch(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	// Publish version 2 so that W/"1" is stale and W/"2" is current.
+	body := etPublishBody(t, `"description": "a <b>&amp; tag"`, `"description": "changed"`)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-v2", body); rec.Code != http.StatusCreated {
+		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
+	}
+	const modeBody = `{"numbering_mode":"gapless"}`
+
+	// Stale If-Match: 412, and the stored mode is unchanged.
+	rec := e.doIf(t, http.MethodPost, etVersionsPath, "admin-a", "k-stale", `W/"1"`, modeBody)
+	wantProblem(t, rec, http.StatusPreconditionFailed, problem.VersionConflict)
+	if got := etStoredMode(t, e); got != "gaps" {
+		t.Fatalf("stored mode after a stale If-Match = %q, want gaps", got)
+	}
+
+	// Current If-Match: the mode changes.
+	rec = e.doIf(t, http.MethodPost, etVersionsPath, "admin-a", "k-cur", `W/"2"`, modeBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("current If-Match = %d: %s", rec.Code, rec.Body)
+	}
+	if got := etStoredMode(t, e); got != "gapless" {
+		t.Errorf("stored mode = %q, want gapless", got)
+	}
+
+	// No If-Match: still optional.
+	rec = e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-none", `{"numbering_mode":"gaps"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("no If-Match = %d: %s", rec.Code, rec.Body)
+	}
+	if got := etStoredMode(t, e); got != "gaps" {
+		t.Errorf("stored mode = %q, want gaps", got)
+	}
+}
