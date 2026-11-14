@@ -1,14 +1,14 @@
 SET
 BEGIN
 00000000-0000-0000-0000-000000000005
-Result  (cost=0.29..8.31 rows=1 width=85) (actual time=0.100..0.102 rows=1 loops=1)
+Result  (cost=0.29..8.31 rows=1 width=85) (actual time=0.028..0.029 rows=1 loops=1)
   One-Time Filter: ((current_setting('app.tenant_id'::text))::uuid = '00000000-0000-0000-0000-000000000005'::uuid)
   Buffers: shared hit=3
-  ->  Index Scan using embedding_client_tenant_id_client_id_key on embedding_client  (cost=0.29..8.31 rows=1 width=85) (actual time=0.094..0.095 rows=1 loops=1)
+  ->  Index Scan using embedding_client_tenant_id_client_id_key on embedding_client  (cost=0.29..8.31 rows=1 width=85) (actual time=0.023..0.024 rows=1 loops=1)
         Index Cond: ((tenant_id = '00000000-0000-0000-0000-000000000005'::uuid) AND (client_id = 'host-app-3'::text))
         Buffers: shared hit=3
 Planning:
   Buffers: shared hit=98
-Planning Time: 0.392 ms
-Execution Time: 0.138 ms
+Planning Time: 0.266 ms
+Execution Time: 0.060 ms
 COMMIT

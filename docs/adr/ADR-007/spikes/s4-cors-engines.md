@@ -36,15 +36,15 @@ The single indexed lookup (`SELECT allowed_origins, state FROM embedding_client 
 
 | Clients | p50 | **p95** | p99 | max |
 |---|---|---|---|---|
-| 1 | 0.97 ms | **1.46 ms** | 2.03 ms | 5.3 ms |
-| 8 | 2.45 ms | **3.42 ms** | 4.37 ms | 71 ms |
+| 1 | 0.84 ms | **1.52 ms** | 2.06 ms | 3.6 ms |
+| 8 | 2.22 ms | **3.12 ms** | 3.91 ms | 67 ms |
 
-Command: `sh scratch/adr-007-s4/run.sh` (the bench alone: `bench -dsn <nava_app via PgBouncer> -n 20000 -c 8`). Raw: `scratch/adr-007-s4/bench-result.txt`.
+Command: `sh scratch/adr-007-s4/run.sh` (the bench alone: `bench -dsn <nava_app via PgBouncer> -n 20000 -c 8`). Raw: `scratch/adr-007-s4/bench-result.txt`; `run.sh` also captures the plan (`EXPLAIN (ANALYZE, BUFFERS)` as `nava_app`) to `explain.txt`.
 Plan (`explain.txt`): index scan on `embedding_client_tenant_id_client_id_key`, 3 buffer hits, 0.14 ms execution. The rest is the `InTenantTx` BEGIN/set_config/COMMIT round trips.
 
 A first run from the host through Docker Desktop's port forward read p95 39 ms (1 client) and 88 ms (8 clients). That measures the Windows port proxy, not the lookup; it is not the figure of record.
 
-**For P8-08 (`docs/budgets.md`):** measure "D2 client-gate lookup inside `InTenantTx` through PgBouncer, 1,000 tenants x 20 rows". Measured **3.42 ms p95 at 8 clients** (1.46 ms at 1). Suggested limit **≤ 5 ms p95 at 8 clients**; P8-08 owns the final number. The lookup is one extra transaction per embedding request and no cache (D2), so it adds this to the request path.
+**For P8-08 (`docs/budgets.md`):** measure "D2 client-gate lookup inside `InTenantTx` through PgBouncer, 1,000 tenants x 20 rows". Measured **3.12 ms p95 at 8 clients** (1.52 ms at 1). Suggested limit **≤ 5 ms p95 at 8 clients**; P8-08 owns the final number. The lookup is one extra transaction per embedding request and no cache (D2), so it adds this to the request path.
 
 ## Consequences
 
