@@ -2,8 +2,8 @@
 type: plan
 id: PLAN-008
 title: Implementing ADR-007 (embedding the platform in other applications)
-adr: "[[ADR-007-embedding-widget-and-sdk]] (ACCEPTED 2026-11-14, TICK-792; docs PR #644, `main` at `ed069dd5`)"
-issue: TICK-799
+adr: "[[ADR-007-embedding-widget-and-sdk]] (ACCEPTED 2026-11-14, TICK-792; docs PR #644, `main` at `ed069dd5`), amended by [[ADR-007-A1-org-alias-mandatory]] (ACCEPTED 2026-11-14, TICK-843, PR #655)"
+issue: TICK-799 (plan), TICK-851 (amendment A1 update)
 status: PROPOSED
 date: 2026-11-14
 owner: Technical Lead
@@ -28,6 +28,27 @@ owner: Technical Lead
 
 **Second risk:** S23 cannot start before S18 (TICK-669, in progress) and S22 (TICK-740, after S21) merge, because it shares migrations, `db/grants.yaml`, the isolation registry, `api/` and `internal/server` (D-8-1). The SDK and the widget code do not wait for that: S25 starts now and S26's code tasks start when S25 merges. Only the platform-served bundle (TICK-837) and the S26 kit (TICK-838) wait for S23.
 
+## Amendment A1 (TICK-851)
+
+ADR-007-A1 (accepted on TICK-843 after S1 failed): **every embedding client's authorization request names the tenant with `organization:<alias>` and should send `kc_idp_hint` of the same tenant; `GET`/`PUT /api/v1/embedding-clients/{client_id}` hand the host that pair, derived from the resolved tenant id with no table read.** `Resolve`, `realm-nava.json` and `nava-web` do not change. The plan's shape does not change either: no new story, no new overlap, the same critical path. What changes:
+
+| Change | Where |
+|---|---|
+| D1-A1.3 pair in GET/PUT responses; D1-A1.7 GET rules (role gate first, byte-identical 404, audited); PUT refuses the pair with 400 `unknown_field`; CI-E16 a–g | TICK-815 (P8-10), as the amendment places it |
+| Keycloak client created with `organization` as an **optional** scope (the S1/S1b shape), so a host can request `organization:<alias>` | TICK-814 (P8-09) |
+| CI-E2 restated: B's pair → 403 `client_not_enabled`; A's alias with B's hint → claimless → 401 `tenant_unresolved` | TICK-818 (P8-13) |
+| **New:** CI-E14a–d, the E14 invariant, CI-E15 (Keycloak's answers to `organization:<alias>`) in `internal/identitystack/` | **TICK-852 (P8-35, `security`)**, no dependency inside S23 |
+| **New:** kit fixture script, two tenants created through onboarding, printing users and the pair (CTO ruling: the seeds are not renamed) | **TICK-853 (P8-36, `qa`)**, no dependency inside S23 |
+| S23 kit uses the fixture tenants; its PKCE helper takes the D13 response object | TICK-819 (P8-14), now also depends on TICK-852, TICK-853 |
+| S23 AC1 and AC3, S26 AC5 rewritten in the amendment's words; how-to-try uses the fixture tenants | TICK-802, TICK-803 |
+| Sample host always sends the pair; one recorded no-hint run (FAIL-UX); "Signing in" docs in `examples/host-app/` and `sdk/ts/README.md` (RR-A1-1, RR-A1-4) | TICK-838 (P8-33) |
+| Handbook pages name the pair, the E14 answers and the residuals | TICK-820 (S23), TICK-839 (S26) |
+| The amendment's handbook summary page, missing from PR #655 | **TICK-855**, Solution Architect, `todo` |
+
+The Solution Architect's earlier CHANGES on this plan (four task-body edits) are made in the same pass: TICK-822, TICK-823, TICK-824 (integration clients opt in through the tenant PUT with `allowed_origins = []`; a B row for A's integration client stays inert); TICK-814 and TICK-822 (create-or-adopt saga, D-8-17); TICK-814 depends on TICK-806; the cross-origin CI-E9 run moves from TICK-836 to TICK-838.
+
+**Estimate change:** S23 grows from 9–13 to **11–15 agent-days**. TICK-852 (1–2; the browser-flow helpers already exist in `internal/identitystack`) and TICK-853 (1) run in parallel with TICK-810..812, so the critical path grows only by TICK-815's GET rules and CI-E16 (about half a day).
+
 ## Decisions this plan makes
 
 | # | Decision |
@@ -45,6 +66,11 @@ owner: Technical Lead
 | **D-8-11** | **RFC-017 Q2 (operator write path for the registry) is answered in TICK-810** by the Postgres specialist: the existing operator pattern or an allow-listed policy (A.3), stated in the PR and reviewed by the Security reviewer. It does not change any other task. |
 | **D-8-12** | **RR4 (sub-buckets per replica) gets its accepted-risk row `AR-S23-01` in TICK-816**, the task that creates the sub-buckets. RR1–RR3 are already indexed as AR-TICK-792-01..03. |
 | **D-8-13** | **No grooming meeting** (as D-6-12, D-7-11). The acceptance criteria are ADR-007's pinned CI list (CI-E1..E13), its API scenarios and the spike pass conditions, already reviewed by the Technical Architect. The Solution Architect's plan verdict is the check. |
+| **D-8-15** | **CI-E16 lives in TICK-815, not TICK-818**, as the amendment places it: same handler, response type and audit path. TICK-818 keeps the restated CI-E2. The Security reviewer also reviews TICK-815's CI-E16 part. |
+| **D-8-16** | **The GET 404 uses the existing `not_found`.** Unknown `client_id`, retired client, and a registered client the caller's tenant has no row for answer the same bytes (D1-A1.7). `PUT` keeps `embedding_client_not_registered` for an unknown or retired registry client: the registry is global, and a PUT on a registered client creates the caller's row, so it says nothing about another tenant. New code `unknown_field` (400) is added to `api/errors.yaml` by TICK-815. |
+| **D-8-17** | **Keycloak-then-Postgres saga (TICK-814, TICK-822): create-or-adopt, no delete compensation**, with marker attribute `nava.registered=true` (Solution Architect's verdict on this plan). An unmarked existing client is never adopted (409). |
+| **D-8-18** | **CI-E14/E15 (TICK-852) register their own embedding-shape client inside the test** instead of using TICK-814's route, and use the seed tenants (CTO ruling: they test Keycloak, not the derivation). So they have no dependency inside S23 and start with the branch. |
+| **D-8-19** | **D1-A1.1 applies to authorization requests.** Integration clients (S24) use `client_credentials` with the default `organization` scope S2 proved, and their service account is in exactly one org. S24 changes only by the CHANGES edits above. |
 | **D-8-14** | **Before S23 merges, the widget's Playwright job runs same-origin through a dev proxy** (TICK-836); the cross-origin run is added when S23 is in `main`. The kit (TICK-838) is the first end-to-end cross-origin check. |
 
 ## Interface contracts
@@ -90,6 +116,8 @@ flowchart TD
       T815[TICK-815 P8-10 be<br/>tenant PUT]
       T816[TICK-816 P8-11 core<br/>sub-bucket]
       T817[TICK-817 P8-12 core<br/>envelope v2]
+      T852[TICK-852 P8-35 sec<br/>CI-E14, E15 A1]
+      T853[TICK-853 P8-36 qa<br/>kit fixture A1]
       T818[TICK-818 P8-13 sec<br/>attacks]
       T819[TICK-819 P8-14 qa kit]
       T820[TICK-820 P8-15 handbook]
@@ -97,7 +125,7 @@ flowchart TD
       T811 --> T813 & T816 & T817
       T812 --> T813
       T813 & T814 & T815 & T816 --> T818
-      T817 & T818 --> T819 --> T820
+      T817 & T818 & T852 & T853 --> T819 --> T820
     end
 
     subgraph S26 [S26 TICK-803 widget]
@@ -165,6 +193,8 @@ gantt
   P8-05 tables                 :g1, 2026-12-07, 1d
   P8-06 ClientID               :g2, 2026-12-07, 1d
   P8-07 CORS                   :g3, 2026-12-07, 1d
+  P8-35 CI-E14, E15 (A1)      :g12, 2026-12-07, 2d
+  P8-36 kit fixture (A1)       :g13, 2026-12-07, 1d
   P8-08 gate                   :g4, after g1, 2d
   P8-09 operator POST          :g5, after g1, 2d
   P8-10 tenant PUT             :g6, after g1, 2d
@@ -185,7 +215,7 @@ The S23 start date (2026-12-07) is a placeholder: it is "when S18 and S22 have m
 **Estimates** (agent-days; ranges, with what drives them):
 - **Spikes: 1–2 each**, in parallel. S1's browser half (WebKit, third-party cookies blocked) is the uncertain part.
 - **S25: 5–7.** Generator choice and determinism drive it; the hand-written layer is bounded at ~500 lines.
-- **S23: 9–13.** The envelope v2 change (golden vectors, verifier, export) and the Keycloak compensation in the operator POST drive it.
+- **S23: 11–15** (9–13 before amendment A1; TICK-852 and TICK-853 run in parallel). The envelope v2 change (golden vectors, verifier, export) and the Keycloak compensation in the operator POST drive it.
 - **S26: 9–14 — a guess.** The renderer (2–5 days) depends entirely on S3: JSONForms passing is the low end, a hand-written renderer the high end.
 - **S24: 4–7 — a guess** until S2 reports; the fallback adds a `Resolve` branch and its Technical Lead review.
 
@@ -205,6 +235,21 @@ Before releasing each story the Technical Lead re-checks that no other open stor
 | ADR-007 item | Where |
 |---|---|
 | D1 user-present identity, `Resolve` unchanged | S1 TICK-806; TICK-811; operator client creation TICK-814 |
+| A1 D1-A1.1 `organization:<alias>` required; optional scope | TICK-814 (client shape); TICK-819, TICK-838 (hosts always send it) |
+| A1 D1-A1.2 `kc_idp_hint` | TICK-819, TICK-838; no-hint run recorded in TICK-838 |
+| A1 D1-A1.3 pair from `Principal.TenantID`, no table read | TICK-815; CI-E16 f |
+| A1 D1-A1.4, D1-A1.5 expected Keycloak answers | TICK-852 (CI-E14a–d) |
+| A1 D1-A1.6 claimless backstop; helper type requires the pair | TICK-852 (CI-E15); TICK-838 (helper type, docs) |
+| A1 D1-A1.7 GET rules, PUT `unknown_field` | TICK-815 |
+| A1 CI-E2 restated | TICK-818 |
+| A1 CI-E14a–d, E14 invariant, CI-E15 | TICK-852 |
+| A1 CI-E16 a–g | TICK-815 (D-8-15) |
+| A1 fixtures: onboarded tenants, seeds unchanged | TICK-853 |
+| A1 story criteria S23 AC3, S26 AC5 | TICK-802, TICK-803 |
+| A1 RR-A1-1, RR-A1-4 (Technical Lead, host-app docs) | TICK-838, TICK-839 |
+| A1 RR-A1-2, RR-A1-3 (Solution Architect) | no task; triggers in the amendment |
+| A1 RR-A1-6 (seeds not renamed) | TICK-853 uses onboarded tenants; trigger in the amendment |
+| A1 handbook summary page | TICK-855 (Solution Architect) |
 | D2 registry, tenant opt-in, `ClientID`, gate, no cache | TICK-810, TICK-811, TICK-813; D2 budget from S4 TICK-809 |
 | D3 CORS outermost, origin check | TICK-812, TICK-813; S4 TICK-809; attacks TICK-818 |
 | D4 integration principal, fallback | S2 TICK-807; TICK-821, TICK-822, TICK-823 |
@@ -250,6 +295,6 @@ Nothing that enforces an invariant is cut: the client gate, the origin check, th
 On `PLAN VERDICT: APPROVED`:
 1. Release the four spikes (TICK-806..809) to `todo`.
 2. Re-check `ci.yml` / `Taskfile.yml` overlap, cut `TICK-801/typescript-sdk` from `main`, move S25 to `in_progress` and release TICK-826.
-3. S23 stays in `backlog` until S18 and S22 merge into `main` (and S19 if it opened first), then the Technical Lead cuts `TICK-802/embedding-gate` and releases TICK-810, TICK-811 (if S1 passed) and TICK-812 (once S4 has reported).
+3. S23 stays in `backlog` until S18 and S22 merge into `main` (and S19 if it opened first), then the Technical Lead cuts `TICK-802/embedding-gate` and releases TICK-810, TICK-811, TICK-812 (once S4 has reported), TICK-852 and TICK-853. S1's condition is met by amendment A1.
 4. S26 starts when S25 merges; S24 when S23 merges. The delivery sweep releases each task as its `Depends on:` closes.
 5. TICK-805 (ADR-007 handbook page) is already `todo` with the Solution Architect.
