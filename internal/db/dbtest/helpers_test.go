@@ -205,8 +205,11 @@ func migrateAll(t *testing.T, m *grants.Manifest) migrate.Result {
 // not in fsys is left out, so a run that stops at an earlier version applies
 // only grants on objects it has created. With every migration in fsys both
 // manifests are unchanged.
+// A partial fsys also gets the record_counters purge policies, which the
+// catalogue gate pins, out of order (withCounterPurge, TICK-675).
 func migrateFS(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, error) {
 	t.Helper()
+	fsys = withCounterPurge(t, fsys)
 	gm, am := beforeACLTables(fsys, m, auditedManifest(t))
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),

@@ -245,6 +245,12 @@ roles:
       # and R17's column behind audit_chain_head_purge_select, whose USING is
       # R17's predicate: only dead heads, never written.
       audit_chain_head: { SELECT: [tenant_id, next_seal_at] }
+      # P6-10 (TICK-675, ADR-005 §4.3): the key and period_end of period
+      # counters past the 2-day grace, under record_counters_purge_select and
+      # record_counters_purge. Never next. The batch DELETE needs the key, as
+      # outbox and idempotency_keys do; a DELETE by ctid would need SELECT on
+      # the whole table.
+      record_counters: { SELECT: [tenant_id, entity_definition_id, scope_key, period_end], DELETE: [] }
 
   # Creates its own tenant (provisioning), binds it, activates it.
   nava_onboard:

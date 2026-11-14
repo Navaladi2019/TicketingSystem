@@ -17,6 +17,7 @@ measured before and after on the same seed.
 | `outbox_purge_dead` `(dead_at) WHERE dead_at IS NOT NULL` | `dead_at < now() - 30 d` | 40 kB | (same run) |
 | `workflow_ref_purge_closed` `(closed_at) WHERE closed_at IS NOT NULL` | `closed_at < now() - 30 d` | 11 MB | 505–898 ms → 19–20 ms |
 | `idempotency_keys_purge_expires` `(expires_at)` | `expires_at < now()` | 11 MB | 1.4–1.6 s → 0.95–1.15 s |
+| `record_counters_period_end` `(period_end) WHERE period_end IS NOT NULL` (S17, `20261112193300`) | `period_end < now() - 2 d` (P6-10, TICK-675) | 3.4 MB at 500k period rows | sparse batch 127.8 ms → 7.3 ms; empty last batch 218 ms → 0.07 ms ([below](#record_counters-p6-10-tick-675)) |
 
 `outbox` needs both of its indexes. Its predicate is
 `dispatched_at < … OR dead_at < …`, and only a `BitmapOr` of two indexes
@@ -49,6 +50,12 @@ erDiagram
         uuid principal_id PK
         text key PK
         timestamptz expires_at "idempotency_keys_purge_expires"
+    }
+    record_counters {
+        uuid tenant_id PK
+        uuid entity_definition_id PK
+        text scope_key PK
+        timestamptz period_end "record_counters_period_end, partial NOT NULL (P6-10)"
     }
 ```
 
@@ -195,3 +202,90 @@ statement as `nava_purge`, with `enable_seqscan` off, and fails if the plan
 has a Seq Scan or lacks its index. If a statement or policy change leaves a
 predicate that no index serves, this test fails. The test does not measure
 performance; that is what the benchmark above is for.
+
+## record_counters (P6-10, TICK-675)
+
+ADR-005 §4.3 makes the purge of period counters mandatory. A counter row
+whose `period_end` is more than 2 days past is deleted by `nava_purge`, in
+batches of 1,000, through the S17 partial index `record_counters_period_end`.
+This change adds the policies, the grant and the job. It adds no index.
+
+- **Policies** (`20261113110000_record_counters_purge.sql`):
+  `record_counters_purge_select` and `record_counters_purge`, `FOR SELECT`
+  and `FOR DELETE TO nava_purge`, both
+  `USING (period_end < now() - interval '2 days')`. This follows the outbox
+  pattern: purge sees exactly what it may delete. They are entries in the
+  ADR-001 A.3 allow-list (`internal/db/catalog.AllowList`), pinned to that
+  predicate.
+- **What it cannot reach:** open periods, periods inside the 2-day grace, and
+  field-only or default-scope rows. Those rows have a NULL `period_end`, and
+  `NULL < x` is never true.
+- **Grant** (`db/grants.yaml`): SELECT on `tenant_id`,
+  `entity_definition_id`, `scope_key` and `period_end`, plus DELETE. It never
+  gets `next`. The batch deletes by primary key, as the other three tables
+  do. A `DELETE … WHERE ctid = ANY (…)` would avoid the `scope_key` grant,
+  but reading `ctid` needs table-level SELECT, which also exposes `next`
+  (checked on 16.10). `nava_app` and `nava_worker` still have no DELETE.
+- **Statement** (`internal/purge`, `TableRecordCounters`): it has the same
+  shape as the others. It takes no window, because the 2-day grace is fixed
+  in the policy.
+
+### Plans
+
+The plans ran on PostgreSQL 16.10 (`postgres:16.10`) in Docker Desktop on
+the same Windows 11 / i7-1260P host (16 CPUs, 26 GB for the VM),
+with `shared_buffers=1GB` and no parallel workers. The table had 1,000,000
+counter rows across 200 tenants and was 81 MB of heap. 40% were
+default-scope and 10% field-only, both with NULL `period_end`. The other 50%
+were period rows, with `period_end` spread from 400 days ago to 30 days
+ahead. The role was a stand-in for `nava_purge` with the same policies and
+column grants. Each batch was `EXPLAIN (ANALYZE, BUFFERS)` of the
+`purge.go` statement, rolled back. The seed, so the figures can be
+reproduced:
+
+```sql
+INSERT INTO record_counters
+SELECT md5('t' || (g % 200))::uuid, md5('d' || g)::uuid,
+       CASE WHEN g % 10 < 4 THEN '' ELSE 'e1|' || g END,
+       CASE WHEN g % 10 < 5 THEN NULL
+            ELSE now() - ((g::bigint * 7919) % 430 - 30) * interval '1 day' END,
+       2 + g % 50
+FROM generate_series(1, 1000000) g ORDER BY random();
+```
+
+The "hourly" case then set 1,500 random period rows to
+`period_end = now() - interval '2 days 1 hour'` after purging the backlog;
+the "without" rows dropped the index and ran the same statement.
+
+| Case | Without index | With `record_counters_period_end` |
+| --- | --- | --- |
+| Hourly steady state: 1,500 rows just crossed the grace, scattered (full batch) | Seq Scan, 127.8 ms, 11,974 buffers | Bitmap Index Scan → Hash Semi Join, 7.3 ms, 4,275 buffers |
+| Empty last batch (every run ends with one) | Seq Scan, 218.4 ms, 10,429 buffers | Index Scan, 0.07 ms, 2 buffers |
+| Backlog: 462,790 of 1M rows expired (46%) | Seq Scan → pkey Nested Loop, 19.8 ms | same plan (the planner prefers the seq scan at that density), 9.1 ms, 5,044 buffers |
+
+The ADR-005 spike measured 11.6 ms per full batch and 0.63 ms for the empty
+batch at 912k rows. Those figures agree with the table. nava-purge plans each
+batch with its parameters (`QueryExecModeExec`, see above), so it never gets
+the generic plan.
+
+### Cost
+
+The index is S17's, and this change adds none. It is 3.4 MB at 500k period
+rows; B-tree deduplication helps, because `period_end` values are period
+boundaries and so repeat. The counter upsert's UPDATE arm sets only `next`,
+so it stays HOT (99.1% in the ADR-005 spike). The purge adds one DELETE per
+expired row, once per period.
+
+### Guards
+
+- `TestT146PurgeStatementsUseTheirIndexes` requires
+  `record_counters_period_end` in the plan.
+- `TestP610PurgeDeletesExpiredPeriodCountersOnly` covers both tenants.
+  Rows past the grace are deleted. Rows inside the grace, open rows and
+  NULL rows stay.
+- `TestP610PurgeBatchesCounterRows` checks the batching and the empty last
+  batch.
+- `TestP610PurgeRoleReachOnCounters` and the isolation registry's
+  `counterPurgePaths` check that `nava_purge` cannot see, name-delete, read
+  `next` of, or age a kept row, and that `nava_app` and `nava_worker` DELETE
+  are denied.
