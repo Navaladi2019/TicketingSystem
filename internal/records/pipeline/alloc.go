@@ -183,7 +183,7 @@ func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration
 // exhausted is the refusal of a create whose counter value outgrew the
 // format's width in scope (ADR-005 §3.5).
 //
-// TODO(TODO-S18-01): write the refusal's audit row on the runner, outside
+// TODO(TODO-S18-02): write the refusal's audit row on the runner, outside
 // the create transaction, once its audit action is named.
 func (w *write) exhausted(scopeKey string) error {
 	return &ErrNumberSpaceExhausted{EntityKey: w.cmd.EntityKey, ScopeKey: scopeKey, Width: w.format.Width}
