@@ -218,6 +218,8 @@
         children:
           - page: adr/adr-007-a1.md
             label: "A1: embedding clients always name the organization"
+      - page: adr/adr-008.md
+        label: "ADR-008 Competitive Gate in every ADR"
     - page: stories/index.md
       label: "Stories"
       children:
