@@ -113,6 +113,28 @@ tasks:
     cmds:
       - python -I docs/handbook/build/build.py --check
 
+  sdk:gen:
+    desc: Regenerate sdk/ts/src/generated from api/openapi.bundled.yaml with the pinned openapi-typescript (deterministic; TICK-826)
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm run gen
+
+  sdk:test:
+    desc: Type-check (strict) and run the SDK tests, including the type tests
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm test
+
+  sdk:build:
+    desc: Build the SDK (ESM plus type declarations) into sdk/ts/dist and npm pack the tarball; nothing is published (D-8-7)
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm run build
+      - npm pack
+
   check-openapi:
     desc: Fail if the api bundle removes or narrows anything on origin/main (additive-only rule for /api/v1)
     cmds:
