@@ -122,7 +122,7 @@ exempt:
   idempotency_keys:
     reason: "HTTP replay cache; the write it replays is audited."
   tenants:
-    reason: "Tenant lifecycle, written by onboarding. R2 has no tenant subject type; the epic that audits onboarding registers one (I8)."
+    reason: "Tenant lifecycle, written by onboarding, and the tenant time zone nava_app sets (TICK-795). R2 has no tenant subject type; the epic that audits onboarding registers one (I8)."
   tenant_identity_binding:
     reason: "Onboarding's binding to the identity provider. R2 has no subject type for it (I8)."
   tenant_email_domain:
