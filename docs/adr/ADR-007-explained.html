@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-007 explained: embedding the platform in other applications</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-007 PROPOSED</span>
+<span class="src">This companion explains <code>docs/adr/ADR-007-embedding-widget-and-sdk.md</code>. It changes nothing. If this page and the ADR disagree, the ADR wins. The debate is archived in <code>docs/adr/ADR-007/rfc/</code> (RFC-017 rev 0, rev 1 and the Technical Architect's critique).</span></div>
+<table class="front"><tbody>
+<tr><th>Decision</th><td>Other applications embed our records through a <b>ready-made widget</b> and a <b>TypeScript library</b>. Their users sign in through our existing sign-in server, so the rule that decides which customer (tenant) a request belongs to does not change.</td></tr>
+<tr><th>Issue</th><td>TICK-792 (parent TICK-786). The human chose “both a widget and an API/SDK”.</td></tr>
+<tr><th>Status</th><td>PROPOSED, 2026-11-14. Critique round 1 found no blocking problems; all fixes were taken in RFC rev 1.</td></tr>
+<tr><th>Not decided here</th><td>An iframe version of the widget, other SDK languages, GraphQL.</td></tr>
+</tbody></table>
+
+<h2>Words used on this page</h2>
+<dl class="gloss">
+<dt>Host app</dt><dd>Someone else's product (an IT service desk, a loan system, a visa portal) that shows our records inside its own pages or calls us from its servers.</dd>
+<dt>Tenant</dt><dd>One customer organisation on the platform. Its data must never be visible to another tenant.</dd>
+<dt>Keycloak</dt><dd>The sign-in server we already run. Each tenant is one “organization” inside it.</dd>
+<dt>Access token</dt><dd>A short-lived (5 minutes) signed pass that Keycloak issues after sign-in. Our API reads who the user is and which tenant they belong to from it.</dd>
+<dt><code>azp</code></dt><dd>A field inside the token naming the application the user signed in through. Keycloak signs it, so it cannot be forged by the caller.</dd>
+<dt>Web component</dt><dd>A custom HTML tag (here <code>&lt;nava-records&gt;</code>) that a host drops into its page like any other tag.</dd>
+<dt>CORS</dt><dd>The browser rule that decides whether a page on one website may call an API on another. Get it wrong and the widget fails in every browser.</dd>
+<dt>SDK</dt><dd>A code library that wraps our API so a developer does not hand-write HTTP calls.</dd>
+<dt>Audit log</dt><dd>The tamper-evident record of who changed what (ADR-004).</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>The product is meant to be embedded: a loan company should be able to show and create loan applications inside its own portal, without its users opening our app. Two things are needed: a widget for screens, and a library for servers. The hard part is identity. The host app has its own signed-in user; we must turn that user into one of <i>our</i> users in exactly the right tenant, without giving the host app a way to pick the tenant or impersonate people. Our first rule (I2, ADR-001) says the tenant comes only from a source the platform verified, never from anything the caller sends.</p>
+
+<h2>Options considered</h2>
+<table><thead><tr><th>Option</th><th>Result</th><th>Why</th></tr></thead><tbody>
+<tr><td>Host app signs users in through our Keycloak, like any other app</td><td><span class="tag green">Chosen</span></td><td>No new trust path. The token passes the same fail-closed checks that are already tested.</td></tr>
+<tr><td>Swap the host's own login token for ours (“token exchange”)</td><td><span class="tag red">Rejected</span></td><td>A second way to create user tokens, outside the hardened sign-in flow. Revisit if a host's users are in no identity provider the tenant has connected.</td></tr>
+<tr><td>Host's server says “act as user X” in a header</td><td><span class="tag red">Rejected</span></td><td>The caller would choose who acts. One leaked password would act as every user in the tenant.</td></tr>
+<tr><td>Host signs its own user passes and we trust them</td><td><span class="tag red">Rejected</span></td><td>Every host would become an identity authority for our tenants.</td></tr>
+<tr><td>Widget inside an iframe</td><td><span class="tag amber">Not in v1</span></td><td>Browsers now block the cookies an iframe needs to sign in by itself. Revisit if a host has untrusted scripts on its page.</td></tr>
+<tr><td>Hand-written SDKs</td><td><span class="tag red">Rejected</span></td><td>They drift from the API contract. We generate from the contract instead.</td></tr>
+</tbody></table>
+
+<h2>The decision</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Who calls whom">
+<rect x="10" y="20" width="250" height="220" rx="10" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="135" y="44" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">Host app</text>
+<rect x="30" y="60" width="210" height="50" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+<text x="135" y="82" text-anchor="middle" font-size="13" fill="#1f2328">Host page with</text>
+<text x="135" y="99" text-anchor="middle" font-size="13" fill="#1f2328">&lt;nava-records&gt; widget</text>
+<rect x="30" y="170" width="210" height="50" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+<text x="135" y="200" text-anchor="middle" font-size="13" fill="#1f2328">Host server + SDK</text>
+<rect x="320" y="20" width="170" height="60" rx="6" fill="#fff8c5" stroke="#9a6700"/>
+<text x="405" y="46" text-anchor="middle" font-size="13" fill="#1f2328">Keycloak</text>
+<text x="405" y="64" text-anchor="middle" font-size="12" fill="#59636e">one organization per tenant</text>
+<rect x="320" y="150" width="170" height="80" rx="6" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="405" y="178" text-anchor="middle" font-size="13" fill="#1f2328">Our API</text>
+<text x="405" y="196" text-anchor="middle" font-size="12" fill="#59636e">same tenant check</text>
+<text x="405" y="212" text-anchor="middle" font-size="12" fill="#59636e">+ host-app gate</text>
+<rect x="580" y="160" width="160" height="60" rx="6" fill="#f6f8fa" stroke="#59636e"/>
+<text x="660" y="194" text-anchor="middle" font-size="13" fill="#1f2328">Database (tenant wall)</text>
+<line x1="240" y1="75" x2="320" y2="50" stroke="#59636e" stroke-width="2"/>
+<text x="250" y="52" font-size="11" fill="#59636e">sign in</text>
+<line x1="240" y1="95" x2="320" y2="170" stroke="#1a7f37" stroke-width="2"/>
+<text x="262" y="140" font-size="11" fill="#59636e">token</text>
+<line x1="240" y1="195" x2="320" y2="195" stroke="#1a7f37" stroke-width="2"/>
+<line x1="240" y1="185" x2="320" y2="70" stroke="#59636e" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="286" y="118" font-size="11" fill="#59636e">service login</text>
+<line x1="490" y1="190" x2="580" y2="190" stroke="#59636e" stroke-width="2"/>
+</svg>
+<figcaption>Both the widget and the host's server get a normal Keycloak token. Our API checks it exactly as it does today, then checks that the tenant has switched this host app on.</figcaption></figure>
+
+<h3>What happens on every embedded request</h3>
+<figure class="diagram">
+<svg viewBox="0 0 760 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Checks in order">
+<g font-size="12" fill="#1f2328" text-anchor="middle">
+<rect x="5" y="30" width="135" height="60" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="72" y="56">1. Browser rules</text><text x="72" y="74" fill="#59636e">(CORS) on every answer</text>
+<rect x="155" y="30" width="135" height="60" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="222" y="56">2. Token valid,</text><text x="222" y="74" fill="#59636e">tenant from token</text>
+<rect x="305" y="30" width="135" height="60" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="372" y="56">3. Host app switched</text><text x="372" y="74" fill="#59636e">on for this tenant?</text>
+<rect x="455" y="30" width="135" height="60" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="522" y="56">4. Website address</text><text x="522" y="74" fill="#59636e">on the tenant's list?</text>
+<rect x="605" y="30" width="150" height="60" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="680" y="56">5. Rate limit: tenant,</text><text x="680" y="74" fill="#59636e">then host app's share</text>
+</g></svg>
+<figcaption>Steps 3 and 4 can only refuse a request. They never decide which tenant it belongs to; only step 2 does.</figcaption></figure>
+
+<table><thead><tr><th>Area</th><th>What we decided</th></tr></thead><tbody>
+<tr><td>Sign-in</td><td>The host app is registered by our operator as a Keycloak application. Its users are sent to Keycloak and back; if they are already signed in to their company login, they see no prompt.</td></tr>
+<tr><td>Tenant opt-in</td><td>A tenant admin switches each host app on, and lists the website addresses it may run from. Off means refused on the very next request.</td></tr>
+<tr><td>Servers with no user</td><td>A host's server signs in as its own “integration” user, a member of exactly one tenant, with normal permissions. It can never act as someone else.</td></tr>
+<tr><td>Audit</td><td>Every change records “user Y, via host app X” (a new audit field, <code>via_client_id</code>). Older audit entries keep verifying.</td></tr>
+<tr><td>Fair use</td><td>A host app gets at most half of its tenant's request allowance by default, so it cannot crowd out the tenant's own staff.</td></tr>
+<tr><td>Widget v1</td><td>List, view and create records of one type. Forms come from the record type's definition; the server does all validation and hides masked fields. Works under strict browser security settings.</td></tr>
+<tr><td>SDK v1</td><td>TypeScript, generated from our API contract; its version follows the API version. A second language comes with the first customer who needs one.</td></tr>
+</tbody></table>
+
+<h2>What is being accepted (residual risks)</h2>
+<table><thead><tr><th>Risk</th><th>Why it is acceptable</th><th>When we revisit</th></tr></thead><tbody>
+<tr><td><span class="tag amber">Medium</span> Scripts on the host's page can read the user's token.</td><td>The token lasts 5 minutes, works only on our API, only for that host app, from listed websites, and only with the user's own permissions. The host already holds the user's session.</td><td>A host with untrusted third-party scripts on that page: build the iframe version.</td></tr>
+<tr><td><span class="tag green">Low</span> A host server's leaked password acts as its integration user in one tenant.</td><td>One tenant only, least privilege, can be switched off instantly, every action audited.</td><td>Anyone asks for an integration user across tenants (refused).</td></tr>
+<tr><td><span class="tag green">Low</span> Server-to-server calls skip the website-address check.</td><td>The host-app gate and the 5-minute token still apply.</td><td>Evidence of tokens replayed from servers.</td></tr>
+</tbody></table>
+<p>No tenant-isolation gap was found, so nothing needs the human's decision under the merge policy.</p>
+
+<h2>Evidence</h2>
+<ul>
+<li><b>Code read:</b> the tenant resolver (<code>internal/identity/keycloak/keycloak.go</code>) picks the tenant from the token's organization and never reads <code>azp</code>, so adding a refuse-only gate cannot change the tenant (critique F1).</li>
+<li><b>Keycloak 26.8.1 source read:</b> asking for a specific organization only returns ones the user belongs to (F2); service accounts can be added to an organization (F10).</li>
+<li><b>Bugs caught on paper:</b> two rev-0 settings would have broken the widget in every browser (missing CORS header and methods, F5); a rate-limit ordering flaw would have let a host drain its tenant's allowance (F6). Both are fixed in the decision.</li>
+<li><b>Not yet measured:</b> four short experiments (spikes S1&ndash;S4) are the first plan tasks. Each has a fixed pass/fail rule and a pre-decided fallback, listed in the ADR. S1 failing on the token itself would reopen this ADR.</li>
+</ul>
+
+<h2>What gets built</h2>
+<p>In order: the four spikes; the host-app tables and gate; CORS; the rate-limit change; audit envelope v2; the TypeScript SDK; the widget. The Technical Lead's plan (Plan ADR-007) splits this into stories.</p>
+</main></body></html>
