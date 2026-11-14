@@ -90,6 +90,14 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			}
 			return e.doIf(t, http.MethodPut, nfPath+"/"+nfID(t, seed.Body.Bytes()), "admin-a", key, `W/"1"`, nfDefault)
 		},
+		"POST /api/v1/number-formats/{id}/republish-linked": func(key string) *httptest.ResponseRecorder {
+			// Its own format key: the PUT driver seeds nfDefault in the same tenant.
+			seed := e.do(t, http.MethodPost, nfPath, "admin-a", key+"-seed", strings.Replace(nfDefault, `"plain"`, `"republish_seed"`, 1))
+			if seed.Code != http.StatusCreated {
+				t.Fatalf("seed format = %d: %s", seed.Code, seed.Body)
+			}
+			return e.do(t, http.MethodPost, nfPath+"/"+nfID(t, seed.Body.Bytes())+"/republish-linked", "admin-a", key, `{"version":1}`)
+		},
 		"PUT /api/v1/tenant/settings/time-zone": func(key string) *httptest.ResponseRecorder {
 			return e.do(t, http.MethodPut, tzPath, "admin-a", key, `{"time_zone":"Asia/Tokyo"}`)
 		},

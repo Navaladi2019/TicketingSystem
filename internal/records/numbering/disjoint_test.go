@@ -318,3 +318,31 @@ func FuzzDisjoint(f *testing.F) {
 		}
 	})
 }
+
+// DisjointHeads is Disjoint on the stored literal heads: the two agree on
+// every pair of the table's templates.
+func TestDisjointHeadsAgreesWithDisjoint(t *testing.T) {
+	const prefix = "INC"
+	templates := []string{
+		"{prefix}{seq:7}/grow", "{prefix}-{yyyy}{MM}{seq:4}/refuse", "{prefix}{yy}{seq:3}/refuse",
+		"{prefix}2{seq:4}/refuse", "{prefix}-{seq:4}/grow", "{prefix}/{seq:4}/grow", "{prefix}-X{seq:4}/grow", "{prefix}.{yy}{seq:5}/refuse",
+	}
+	var compiled []numbering.Compiled
+	for _, tpl := range templates {
+		i := strings.LastIndex(tpl, "/")
+		c, err := numbering.Compile(tpl[:i], numbering.Overflow(tpl[i+1:]))
+		if err != nil {
+			t.Fatalf("%s: %v", tpl, err)
+		}
+		compiled = append(compiled, c)
+	}
+	for _, a := range compiled {
+		for _, b := range compiled {
+			ha, _ := a.LiteralHead(prefix)
+			hb, _ := b.LiteralHead(prefix)
+			if got, want := numbering.DisjointHeads(ha, hb), numbering.Disjoint(a, b, prefix); got != want {
+				t.Errorf("DisjointHeads(%q, %q) = %v, Disjoint = %v", ha, hb, got, want)
+			}
+		}
+	}
+}

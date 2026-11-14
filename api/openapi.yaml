@@ -30,6 +30,8 @@ paths:
     $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats"
   /api/v1/number-formats/{id}:
     $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats~1{id}"
+  /api/v1/number-formats/{id}/republish-linked:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats~1{id}~1republish-linked"
   /api/v1/tenant/settings/time-zone:
     $ref: "paths/tenant.yaml#/paths/~1api~1v1~1tenant~1settings~1time-zone"
   /api/v1/access/explain:

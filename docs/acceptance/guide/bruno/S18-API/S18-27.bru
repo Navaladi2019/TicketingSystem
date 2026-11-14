@@ -1,0 +1,27 @@
+meta {
+  name: S18.27 Re-publish without a token: 401
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}/republish-linked
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: tick672-{{s18_run}}-rl401
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "version": 2
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

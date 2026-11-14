@@ -226,6 +226,63 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "501":
           $ref: "../openapi.yaml#/components/responses/Problem"
+  /api/v1/number-formats/{id}/republish-linked:
+    post:
+      operationId: republishLinkedTypes
+      summary: Re-publish the entity types linked to an older version of a format (tenant admin)
+      description: >
+        ADR-005 §3.2, §3.7 C13. Body `{version}`: a published version of the
+        format. For each entity type whose current definition version pins an
+        older version of this format, runs one independent definition publish
+        that pins `version` (same schema, fixed columns and states), each in
+        its own transaction, each checked for epoch and disjointness on its
+        own. The response reports, per type, `published` (with the new
+        definition version) or `refused` (with the problem `code` and
+        `errors`): `number_format_overlap`, `forbidden` when the caller may not
+        publish that type, `version_conflict` when the type changed meanwhile.
+        A refusal of one type never undoes another. Nothing runs on a format
+        publish: this is the only fan-out. Tenant admins only; an unknown
+        format, another tenant's and a malformed id give the same 404; a
+        `version` the format does not have answers 422 `number_format_not_found`.
+        `Idempotency-Key` is required.
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepublishLinkedRequest"
+      responses:
+        "200":
+          description: The per-type report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepublishLinkedReport"
+        "400":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "401":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "403":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "404":
+          $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "422":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "429":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "500":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "501":
+          $ref: "../openapi.yaml#/components/responses/Problem"
 components:
   parameters:
     FormatId:
@@ -236,6 +293,47 @@ components:
       schema:
         type: string
   schemas:
+    RepublishLinkedRequest:
+      type: object
+      description: >
+        `{version}`, a published version of the format. Kept as the request
+        bytes (`json.RawMessage`); the server checks it after the admin check.
+      x-go-type: json.RawMessage
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    RepublishLinkedReport:
+      type: object
+      required: [format_id, version, results]
+      properties:
+        format_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            required: [entity_type, status]
+            properties:
+              entity_type:
+                type: string
+                description: The entity type key.
+              status:
+                type: string
+                enum: [published, refused]
+              version:
+                type: integer
+                description: The new definition version, when `published`.
+              code:
+                type: string
+                description: The problem code, when `refused`.
+              errors:
+                type: array
+                items:
+                  $ref: "../openapi.yaml#/components/schemas/FieldError"
     CreateNumberFormatRequest:
       type: object
       description: >

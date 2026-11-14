@@ -1,0 +1,27 @@
+meta {
+  name: S18.31 Re-publish without an Idempotency-Key: 400
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}/republish-linked
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "version": 2
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}

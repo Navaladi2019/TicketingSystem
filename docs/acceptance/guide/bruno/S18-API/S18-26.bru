@@ -1,0 +1,38 @@
+meta {
+  name: S18.26 Re-publish linked types: 200, no type is linked yet
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}/republish-linked
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-rl200
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "version": 2
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, the report names the format and version', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.json().format_id).to.eql(bru.getVar('s18_id'));
+    expect(N.json().version).to.eql(2);
+    expect(N.json().results).to.be.an('array');
+  });
+  N.status(200);
+}
+
+docs {
+  `{version}`: one independent publish per type pinned to an older version of the format, reported per type. No type is linked in this folder, so `results` is empty.
+}

@@ -1898,6 +1898,9 @@ test('version 2, current, compatible', () => {
                         body=pub(breaking=True), desc="The key of X4.30 with a different body."),
             req("X4.32 publishEntityTypeVersion 404: an unknown key", "POST", base + "/no_such_type_x4/versions", auth="admin_a_token",
                 headers={"Idempotency-Key": "{{x4_key7}}"}, body=pub(), desc="404 `not_found` with no `instance`.", tests=no404),
+            problem_req("X4.33 publishEntityTypeVersion 412: a stale If-Match", "POST", base + "/{{x4_type}}/versions", "version_conflict", 412,
+                        auth="admin_a_token", headers={"Idempotency-Key": "tick673-412-{{x4_key4}}", "If-Match": 'W/"1"'}, body=pub(),
+                        desc="`If-Match` is optional; sent, it must name the current version (2 after X4.30). Nothing is written and the current `ETag` is in the header (TICK-673)."),
         ],
     }
 
@@ -3410,6 +3413,28 @@ N.status(200);"""),
                 headers={**key("p404"), "If-Match": 'W/"1"'}, body={"document": ok_doc}, tests=no404),
             problem_req("S18.25 Publish without an Idempotency-Key: 400", "PUT", one, "validation_failed", 400, auth="admin_a_token",
                         headers={"If-Match": 'W/"2"'}, body={"document": ok_doc}),
+            # Re-publish linked types (TICK-673, P6-08, ADR-005 section 3.2, 3.7 C13).
+            req("S18.26 Re-publish linked types: 200, no type is linked yet", "POST", one + "/republish-linked", auth="admin_a_token",
+                headers=key("rl200"), body={"version": 2},
+                desc="`{version}`: one independent publish per type pinned to an older version of the format, reported per type. No type is linked in this folder, so `results` is empty.",
+                tests="""
+test('HTTP 200, the report names the format and version', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().format_id).to.eql(bru.getVar('s18_id'));
+  expect(N.json().version).to.eql(2);
+  expect(N.json().results).to.be.an('array');
+});
+N.status(200);"""),
+            problem_req("S18.27 Re-publish without a token: 401", "POST", one + "/republish-linked", "invalid_token", 401, headers=key("rl401"),
+                        body={"version": 2}),
+            problem_req("S18.28 Alice re-publishes: 403", "POST", one + "/republish-linked", "forbidden", 403, auth="alice_token",
+                        headers=key("rl403"), body={"version": 2}, desc="The admin check runs first."),
+            req("S18.29 Re-publish an unknown format: 404", "POST", nf + "/00000000-0000-4000-8000-00000000ffff/republish-linked",
+                auth="admin_a_token", headers=key("rl404"), body={"version": 2}, tests=no404),
+            problem_req("S18.30 Re-publish a version the format does not have: 422", "POST", one + "/republish-linked",
+                        "number_format_not_found", 422, auth="admin_a_token", headers=key("rl422"), body={"version": 99}),
+            problem_req("S18.31 Re-publish without an Idempotency-Key: 400", "POST", one + "/republish-linked", "validation_failed", 400,
+                        auth="admin_a_token", body={"version": 2}),
         ],
     }
 

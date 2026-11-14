@@ -198,6 +198,10 @@ paths:
       description: >
         Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
 
+        `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to the new definition version: `{id, version}`, or `null` for the default numbering. It needs `definition`. **A publish without the field keeps the pinned version**; only an explicit value changes it. The publish takes or reuses the type's numbering epoch in its own transaction: a format already used by the type reuses its epoch; a new one is checked against every earlier epoch of the type, epoch 0 included, and answers 422 `number_format_overlap` (`errors[].rule` is `overlap:<the clashing template>`) when it could render a number the type already issued. A format that is not in the tenant, and another tenant's, give the same 422 `number_format_not_found`.
+
+        `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing.
+
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: Idempotency-Key
@@ -207,6 +211,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 255
+        - name: If-Match
+          in: header
+          required: false
+          description: The `ETag` of the current version the publish is based on. Optional.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -216,6 +226,12 @@ paths:
       responses:
         "201":
           description: The new version, now current.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -230,6 +246,17 @@ paths:
           $ref: "#/components/responses/ProblemNoInstance"
         "409":
           $ref: "#/components/responses/Problem"
+        "412":
+          description: The `If-Match` version is not the current one; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "422":
           $ref: "#/components/responses/Problem"
         "429":
@@ -569,6 +596,51 @@ paths:
         "422":
           $ref: "#/components/responses/Problem"
         "428":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/number-formats/{id}/republish-linked:
+    post:
+      operationId: republishLinkedTypes
+      summary: Re-publish the entity types linked to an older version of a format (tenant admin)
+      description: >
+        ADR-005 §3.2, §3.7 C13. Body `{version}`: a published version of the format. For each entity type whose current definition version pins an older version of this format, runs one independent definition publish that pins `version` (same schema, fixed columns and states), each in its own transaction, each checked for epoch and disjointness on its own. The response reports, per type, `published` (with the new definition version) or `refused` (with the problem `code` and `errors`): `number_format_overlap`, `forbidden` when the caller may not publish that type, `version_conflict` when the type changed meanwhile. A refusal of one type never undoes another. Nothing runs on a format publish: this is the only fan-out. Tenant admins only; an unknown format, another tenant's and a malformed id give the same 404; a `version` the format does not have answers 422 `number_format_not_found`. `Idempotency-Key` is required.
+
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepublishLinkedRequest"
+      responses:
+        "200":
+          description: The per-type report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepublishLinkedReport"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "422":
           $ref: "#/components/responses/Problem"
         "429":
           $ref: "#/components/responses/Problem"
@@ -1426,6 +1498,10 @@ components:
           description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
+        number_format:
+          description: >
+            `{id, version}` pins a number-format version, `null` returns to the default numbering; absent keeps the pinned version. Needs `definition`.
+
     EntityTypeVersion:
       type: object
       required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
@@ -1459,6 +1535,16 @@ components:
         compat:
           type: string
           enum: [initial, compatible, needs_backfill]
+        number_format:
+          type: [object, "null"]
+          description: The number-format version this version pins; `null` is the default numbering.
+          required: [id, version]
+          properties:
+            id:
+              type: string
+              format: uuid
+            version:
+              type: integer
         published_at:
           type: string
           format: date-time
@@ -1528,6 +1614,47 @@ components:
         path:
           type: string
           pattern: "^/"
+    RepublishLinkedRequest:
+      type: object
+      description: >
+        `{version}`, a published version of the format. Kept as the request bytes (`json.RawMessage`); the server checks it after the admin check.
+
+      x-go-type: json.RawMessage
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    RepublishLinkedReport:
+      type: object
+      required: [format_id, version, results]
+      properties:
+        format_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            required: [entity_type, status]
+            properties:
+              entity_type:
+                type: string
+                description: The entity type key.
+              status:
+                type: string
+                enum: [published, refused]
+              version:
+                type: integer
+                description: The new definition version, when `published`.
+              code:
+                type: string
+                description: The problem code, when `refused`.
+              errors:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FieldError"
     CreateNumberFormatRequest:
       type: object
       description: >

@@ -55,7 +55,15 @@ func Disjoint(a, b Compiled, prefix string) bool {
 	if err != nil {
 		return false
 	}
-	s, l := ca.literalHead(prefix), cb.literalHead(prefix)
+	return DisjointHeads(ca.literalHead(prefix), cb.literalHead(prefix))
+}
+
+// DisjointHeads is Disjoint on two literal heads (LiteralHead), which is
+// what numbering_epochs stores per epoch: a publish compares the new head
+// with the stored heads of the type's other epochs, with no template to
+// recompile. The rule is the one Disjoint documents.
+func DisjointHeads(a, b string) bool {
+	s, l := a, b
 	if len(s) > len(l) {
 		s, l = l, s
 	}

@@ -164,3 +164,11 @@ codes:
     status: 422
     title: Invalid time zone
     detail: The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.
+  - code: number_format_overlap
+    status: 422
+    title: Number format overlaps an earlier numbering of the type
+    detail: This format could render a number that an earlier numbering of the entity type already issued. Nothing was published. See errors for the clashing template.
+  - code: number_format_not_found
+    status: 422
+    title: Number format not found
+    detail: The number format and version do not exist in this tenant. Nothing was published. See errors for the field.
