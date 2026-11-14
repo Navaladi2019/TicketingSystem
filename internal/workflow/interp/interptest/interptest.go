@@ -118,16 +118,17 @@ func (s FixtureStore) Load(_ context.Context, tenant, version uuid.UUID) (*inter
 type FileRecords struct{ Root string }
 
 // Read implements interp.RecordReader.
-func (r FileRecords) Read(_ context.Context, tenant, record uuid.UUID) (map[string]any, error) {
+func (r FileRecords) Read(_ context.Context, tenant, record uuid.UUID) (map[string]any, int64, error) {
 	b, err := readFile(r.Root, recordPath(r.Root, tenant, record))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var m map[string]any
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return m, nil
+	// A file record has no version history: every read is version 1.
+	return m, 1, nil
 }
 
 // Call is one RecordWriter.Write call, as FileWriter records it.
@@ -162,7 +163,7 @@ func appliedName(key string) string {
 }
 
 // Write implements interp.RecordWriter.
-func (w *FileWriter) Write(ctx context.Context, tenant, record, step uuid.UUID, key string, set map[string]any) error {
+func (w *FileWriter) Write(ctx context.Context, tenant, record, step, _ uuid.UUID, key string, set map[string]any) error {
 	c := Call{Key: key, Tenant: tenant, Record: record, Step: step, Set: set}
 	if activity.IsActivity(ctx) {
 		c.Attempt = activity.GetInfo(ctx).Attempt

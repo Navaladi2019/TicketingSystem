@@ -19,7 +19,7 @@ Every step has the same parts. **In plain words** is written for support and bus
 5. **[Organisation units](05-organisation-units.md).** Departments and teams. The platform copies the department tree today but nothing uses it yet. **Not built yet** as a feature.
 6. **[Create an entity type](06-create-an-entity-type.md).** An administrator defines a kind of record, for example a loan application: its fields, its states and its number format. Changing it later creates a new version and keeps the old one. Built.
 7. **[Set access rules and field masks](07-access-rules-and-masks.md).** The administrator decides who may see or change each kind of record and hides sensitive fields, such as income, from most people. A "why can this person see it" check explains any decision. Built.
-8. **[Workflows](08-workflows.md).** Automatic steps that follow a record, such as waiting for an approval. The engine that runs them exists but is not switched on in the running product, so a new record does not start one yet. **Not built yet** as a feature.
+8. **[Workflows](08-workflows.md).** Automatic steps that follow a record, such as waiting for an approval. An administrator publishes a workflow for a record type, and new records start it. Built; there is no builder screen, and approvals are not a feature yet.
 9. **[Create and work with records](09-create-and-work-with-records.md).** People create records, list and filter them, change their state, and see the history. Every record gets a number such as `LOAN0000001`. Built.
 10. **[Audit](10-audit.md).** Every change is written to a log whose entries are chained together. An auditor can download the log and check offline that nothing was altered or removed. Built.
 
@@ -30,7 +30,7 @@ Every step has the same parts. **In plain words** is written for support and bus
 | 1 Onboard a tenant, 2 Sign in, 3 Create groups, 4 Add users to groups | Built |
 | 5 Organisation units | Table filled from the identity system; no API, no screens, no rule uses it |
 | 6 Entity types, 7 Access rules and masks, 9 Records, 10 Audit | Built |
-| 8 Workflows | Engine on `main`, registered only in a test build; nothing starts it from a record write |
+| 8 Workflows | Built: publish a definition through the API, record writes start it; no builder screen, no signal API |
 
 There is no user interface in the product yet: everything in this tour is the REST API, called with `curl` or Bruno.
 

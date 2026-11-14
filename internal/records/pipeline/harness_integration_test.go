@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -255,6 +256,26 @@ type tenantFixture struct {
 }
 
 func (f tenantFixture) system() identity.Principal { return identity.Principal{TenantID: f.id} }
+
+// workflowDefinition creates, as the superuser, one workflow definition with
+// a new id in each tenant of fs, on its entity type entityKey, and returns
+// the id: cascade_start's definition_id references workflow_definitions
+// (P3-40), so every claim names a definition of its own tenant.
+func workflowDefinition(t *testing.T, e env, fs ...tenantFixture) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	for _, f := range fs {
+		// The audit entry is the one the commit check wants (P3-41b); Publish
+		// is not used because the fixture needs a bare definition with no version.
+		mustExec(t, e.super, `WITH w AS (INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+				SELECT $1, $2, $3, d.id, 1, $4
+				FROM entity_definitions d WHERE d.tenant_id = $1 AND d.key = $5 RETURNING tenant_id, id)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source, content_sha256)
+			SELECT tenant_id, gen_random_uuid(), 'config', 'create', 'workflow_definition', id, 'system', 'system', sha256(''::bytea) FROM w`,
+			f.id, id, "wf_"+strings.ReplaceAll(id.String(), "-", ""), f.principal.PrincipalID, entityKey)
+	}
+	return id
+}
 
 func seedTenant(t *testing.T, e env) tenantFixture {
 	t.Helper()

@@ -28,6 +28,8 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline/eventsink"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
 
 // baseURL is oapi-codegen's BaseURL and the validator's Options.Prefix. The
@@ -108,7 +110,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
 		}
 		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
-		h.pipe = pipeline.New(h.acl, h.store, pipeline.NoopSink{}, runner, pipeline.SystemClock{})
+		h.pipe = pipeline.New(h.acl, h.store, eventsink.Sink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
 		api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
@@ -200,6 +202,7 @@ type handlers struct {
 	cursors           *cursor.Keyring
 	dataFilterTimeout time.Duration
 	store             entitytypes.Store
+	workflows         workflowdefs.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the
@@ -270,6 +273,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.SchemaBreakingChange:
 					h.reg.Write(w, r, problem.SchemaBreakingChange, pe.fields...)
+					return
+				case problem.WorkflowDefinitionInvalid:
+					h.reg.Write(w, r, problem.WorkflowDefinitionInvalid, pe.fields...)
 					return
 				case problem.IllegalTransition:
 					h.reg.Write(w, r, problem.IllegalTransition, pe.fields...)

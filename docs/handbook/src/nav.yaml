@@ -204,6 +204,8 @@
             label: "E7: A1 books the 10 s interval when work is pending"
           - page: adr/adr-004-e8.md
             label: "E8: the reader also reads the chain columns"
+          - page: adr/adr-004-e9.md
+            label: "E9: the audit row for a number_space_exhausted refusal"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:
@@ -245,6 +247,8 @@
             label: "Group-scoped access and masks"
           - page: stories/s11a.md
             label: "Workflow interpreter on Temporal"
+          - page: stories/s11b.md
+            label: "Records start workflows"
           - page: stories/s13.md
             label: "Verify an audit export offline"
           - page: stories/s14.md

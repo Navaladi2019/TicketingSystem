@@ -31,6 +31,10 @@ const (
 	// the ACL chain never shares a (subject, version) key with the entity
 	// type's schema versions (contract amendment A3).
 	ACLPolicy Type = "acl_policy"
+	// WorkflowDefinition is a workflow definition and its published
+	// versions (S11b, P3-40; domain config): subject_id is the workflow
+	// definition id, version_before and version_after are its versions.
+	WorkflowDefinition Type = "workflow_definition"
 	// AuditExport is one export of the log (R19; domain audit).
 	AuditExport Type = "audit_export"
 	// AuditChain is a tenant's chain head, the subject of chain:reseed (R17;
@@ -48,6 +52,7 @@ func All() []Type {
 		CascadeKey,
 		EntityDefinition,
 		ACLPolicy,
+		WorkflowDefinition,
 		AuditExport,
 		AuditChain,
 		ErasureRequest,

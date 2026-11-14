@@ -32,6 +32,12 @@ import (
 // rolePool is a pool for role on the platform database.
 func rolePool(t *testing.T, e env, role string) *pgxpool.Pool {
 	t.Helper()
+	return appPool(t, rolePoolDSN(t, e, role))
+}
+
+// rolePoolDSN is role's connection string on the platform database.
+func rolePoolDSN(t *testing.T, e env, role string) string {
+	t.Helper()
 	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +45,7 @@ func rolePool(t *testing.T, e env, role string) *pgxpool.Pool {
 	pw, _ := testPassword(role)
 	u.User = url.UserPassword(role, pw)
 	u.Path = "/" + e.platform
-	return appPool(t, u.String())
+	return u.String()
 }
 
 // isAuditMissing reports whether err is the records commit check refusing a
@@ -309,7 +315,7 @@ func TestCIA17CycleEntries(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
 	ctx := context.Background()
-	d1, d2 := uuid.New(), uuid.New()
+	d1, d2 := workflowDefinition(t, e, f), workflowDefinition(t, e, f)
 	sink := &startSink{defs: []uuid.UUID{d1, d2}}
 	p := newPipeline(e, sink)
 	r, origin := createWithStart(t, e, p, sink, f)
