@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
@@ -29,6 +30,9 @@ func TestProductionBuildWiresTheDatabasePorts(t *testing.T) {
 	}
 	if w, ok := acts.Writer.(recordports.Writer); !ok || w.Pool != pool || w.Pipeline == nil {
 		t.Fatalf("Writer = %T, want recordports.Writer over the worker's pool with a pipeline", acts.Writer)
+	}
+	if c, ok := acts.Causes.(workerguard.CauseTracker); !ok || c.Pool != pool {
+		t.Errorf("Causes = %T, want workerguard.CauseTracker over the worker's pool", acts.Causes)
 	}
 	reg := &recordingRegistry{}
 	registerInterpreter(reg, acts)

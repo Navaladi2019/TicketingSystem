@@ -251,6 +251,53 @@ func TestResolveCauseRefusesAnOlderRow(t *testing.T) {
 	}
 }
 
+// The newest-cause lookup (TICK-784) returns the calling run's newest row of
+// the verified tenant only: never another run's, never another tenant's, and
+// refuses any workflow that is not this tenant's interpreter run.
+func TestCauseTrackerReturnsOnlyTheRunsNewestRow(t *testing.T) {
+	conn, pool := migrated(t)
+	xID, x := seedRef(t, conn, tenantA, outbox.InterpreterKind)
+	_, y := seedRef(t, conn, tenantA, outbox.InterpreterKind)
+	emptyID, _ := seedRef(t, conn, tenantA, outbox.InterpreterKind)
+	_, _ = seedRef(t, conn, tenantB, outbox.InterpreterKind) // seeds tenant B
+	ctx := ContextWithTenant(context.Background(), tenantA)
+	at := func(tenant, ref uuid.UUID, ts string) uuid.UUID {
+		id := uuid.New()
+		mustExec(t, conn, `INSERT INTO workflow_cause (tenant_id, outbox_id, ref_outbox_id, causation_origin_id, causation_depth, created_at)
+			VALUES ($1, $2, $3, $4, 0, $5::timestamptz)`, tenant, id, ref, uuid.New(), ts)
+		return id
+	}
+	_ = at(tenantA, x, "2026-11-01 10:00:00+00")
+	newest := at(tenantA, x, "2026-11-01 11:00:00+00")
+	_ = at(tenantA, y, "2026-11-02 10:00:00+00")
+	_ = at(tenantB, x, "2026-11-03 10:00:00+00") // tenant B, same ref
+
+	c := CauseTracker{Pool: pool}
+	if got, err := c.newestCause(ctx, xID, tenantA); err != nil || got != newest {
+		t.Errorf("newest = %s, %v; want %s", got, err, newest)
+	}
+	for name, tc := range map[string]struct {
+		ctx        context.Context
+		workflowID string
+		tenant     uuid.UUID
+		want       error
+	}{
+		"run with no row":        {ctx, emptyID, tenantA, ErrCauseNotFound},
+		"tenant not the guard's": {ctx, xID, tenantB, ErrForeignCause},
+		"not an interpreter run": {ctx, "t:" + tenantA.String() + ":approval:" + x.String(), tenantA, ErrForeignCause},
+		"workflow of tenant B":   {ctx, "t:" + tenantB.String() + ":" + outbox.InterpreterKind + ":" + x.String(), tenantA, ErrForeignCause},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got, err := c.newestCause(tc.ctx, tc.workflowID, tc.tenant); !errors.Is(err, tc.want) {
+				t.Errorf("newest = %s, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+	if _, err := c.newestCause(context.Background(), xID, tenantA); err == nil {
+		t.Error("looked up with no verified tenant")
+	}
+}
+
 // TICK-785: causeSQL's newest-cause check is index-backed. Planned as
 // nava_worker under RLS with sequential and bitmap scans priced out, the
 // EXISTS probe must be a range scan of workflow_cause_ref_newest

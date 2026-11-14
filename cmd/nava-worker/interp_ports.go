@@ -35,5 +35,6 @@ func productionActivities(pool, pipePool *pgxpool.Pool) (*interp.Activities, err
 		Records:     recordports.Reader{Pool: pool},
 		Writer:      recordports.NewWriter(pool, pipePool),
 		Waits:       workerguard.WaitTracker{Pool: pool},
+		Causes:      workerguard.CauseTracker{Pool: pool},
 	}, nil
 }
