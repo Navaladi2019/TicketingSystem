@@ -27,6 +27,9 @@ steps:
   - job: lint
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
+  - job: lint
+    run: make test-handbook
+    why: docs/handbook/build/build.py, which renders every handbook page and checks its references, changes with no test run (TICK-847)
 
   # Story work that never reaches main (TICK-322, after S6 and the S5
   # post-merge PRs, TICK-286).

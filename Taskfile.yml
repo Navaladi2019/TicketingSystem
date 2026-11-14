@@ -108,6 +108,11 @@ tasks:
     cmds:
       - python -I docs/handbook/build/build.py
 
+  test:handbook:
+    desc: Run the handbook generator's tests (docs/handbook/build/test_build.py), the same as make test-handbook; the page-coverage gate is in task test
+    cmds:
+      - python -I docs/handbook/build/test_build.py
+
   handbook:check:
     desc: Fail when the committed handbook HTML is stale (rebuilt in memory, footer stamp ignored), the stamped sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md
     cmds:
