@@ -239,8 +239,23 @@ counter rows across 200 tenants and was 81 MB of heap. 40% were
 default-scope and 10% field-only, both with NULL `period_end`. The other 50%
 were period rows, with `period_end` spread from 400 days ago to 30 days
 ahead. The role was a stand-in for `nava_purge` with the same policies and
-column grants. Each batch was rolled back. Script:
-`scratch/tick-675/bench.sql`. Output: `scratch/tick-675/plans.txt`.
+column grants. Each batch was `EXPLAIN (ANALYZE, BUFFERS)` of the
+`purge.go` statement, rolled back. The seed, so the figures can be
+reproduced:
+
+```sql
+INSERT INTO record_counters
+SELECT md5('t' || (g % 200))::uuid, md5('d' || g)::uuid,
+       CASE WHEN g % 10 < 4 THEN '' ELSE 'e1|' || g END,
+       CASE WHEN g % 10 < 5 THEN NULL
+            ELSE now() - ((g::bigint * 7919) % 430 - 30) * interval '1 day' END,
+       2 + g % 50
+FROM generate_series(1, 1000000) g ORDER BY random();
+```
+
+The "hourly" case then set 1,500 random period rows to
+`period_end = now() - interval '2 days 1 hour'` after purging the backlog;
+the "without" rows dropped the index and ran the same statement.
 
 | Case | Without index | With `record_counters_period_end` |
 | --- | --- | --- |

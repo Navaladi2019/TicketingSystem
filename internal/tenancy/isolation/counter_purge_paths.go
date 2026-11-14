@@ -29,13 +29,16 @@ func counterPurgeScopes() []counterPurgeScope {
 	}
 }
 
+// counterPurgePath is the CI-9 path the TestCI9FixturesMakePathsFail
+// negative controls for record_counters aim at.
+const counterPurgePath = "nava_purge cannot see or delete open-period, in-grace or field-only counters, and its purge deletes expired ones"
+
 // counterPurgePaths are the ADR-005 §5 rows of P6-10 (TICK-675): the
 // record_counters purge is an ADR-001 A.3 allow-list entry, so nava_purge's
 // reach on the table, and nava_app's lack of DELETE, are registered here.
 func counterPurgePaths() []Path {
 	return []Path{
-		{Name: "nava_purge cannot see or delete open-period, in-grace or field-only counters, and its purge deletes expired ones",
-			Case: "CI-9", Role: "nava_purge", DB: counterPurgeReach},
+		{Name: counterPurgePath, Case: "CI-9", Role: "nava_purge", DB: counterPurgeReach},
 		{Name: "record_counters: nava_app deletes its own tenant's counters", Case: "CI-2", Role: "nava_app",
 			SQL: &SQLCall{Query: "DELETE FROM record_counters WHERE tenant_id = $1", Args: []any{TenantA}, Expect: Denied}},
 		{Name: "record_counters: nava_worker deletes its own tenant's counters", Case: "CI-2", Role: "nava_worker",
