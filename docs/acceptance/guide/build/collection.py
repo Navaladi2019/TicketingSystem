@@ -3158,6 +3158,267 @@ The same lines as S16.6, as RFC 4180 CSV (`docs/api/audit-export-v1.md` section 
     }
 
 
+# --------------------------------------------------------------------------- S11b
+def s11b():
+    base = "{{core_url}}/api/v1/workflow-definitions/{{s11b_key}}"
+    pub = base + "/versions"
+    key = lambda k: {"Idempotency-Key": "tick710-s11b-{{s11b_run}}-" + k}
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+
+    def wf(steps, start="wait", entity="incident"):
+        return {"format": "nava.workflow/v1", "trigger": {"on": "record.created", "entity": entity},
+                "start": start, "steps": steps}
+
+    wait = {"key": "wait", "type": "timer", "duration": "PT1H", "next": "mark"}
+    mark = {"key": "mark", "type": "update_record", "set": {"short_description": "triaged"}, "next": "done"}
+    done = {"key": "done", "type": "end"}
+    v1 = wf([wait, mark, done])
+    v2 = wf([{**wait, "next": "notify"},
+             {"key": "notify", "type": "update_record", "set": {"short_description": "notified"}, "next": "mark"},
+             mark, done])
+    return {
+        "dir": "S11b", "name": "S11b workflow definitions",
+        "desc": "Story S11b, TICK-337, P3-41 (TICK-710). A tenant admin publishes a workflow definition version and reads it back; the server assigns the step ids and keeps them across versions. Needs `tools/seed.sh`. Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice, `agent@tenant-b` is Bob. Tenant B's admin getting the 404 for tenant A's key is asserted in CI (`TestWorkflowDefinitionIsolation`), not here: the seed has no tenant B admin. Runs again on the same stack: every pass uses a new definition key. S11b.17 to S11b.30 (P3-44, TICK-713) are the story criteria: the demo definition `s11b_demo` (on `record.created` of an incident, wait 1 minute, set `state=in_progress`) runs on the stack's nava-worker, so they take about 70 s; S11b.30 retires it again. The stack case `s11b_workflows` runs this folder on a fresh stack and checks the database behind each criterion.",
+        "items": [
+            token("S11b.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s11b_run', bru.getEnvVar('s11b_run_id') || Math.random().toString(16).slice(2, 10));\nbru.setVar('s11b_key', 'wf_' + bru.getVar('s11b_run'));"),
+            token("S11b.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            req("S11b.3 Publish v1: 201, version 1, ids assigned by the server", "POST", pub, auth="admin_a_token",
+                headers=key("v1"), body=v1,
+                desc="The first publish of a key creates the definition. `step_ids` maps every step key to an id the server drew; the body is stored byte for byte (`body_sha256`).",
+                tests="""N.status(201);
+const b = N.json();
+test('version 1, current, entity incident', () => {
+  expect(b.version).to.eql(1);
+  expect(b.current).to.eql(true);
+  expect(b.entity).to.eql('incident');
+});
+test('an id per step key', () => expect(Object.keys(b.step_ids).sort()).to.eql(['done', 'mark', 'wait']));
+bru.setVar('s11b_v1_ids', JSON.stringify(b.step_ids));
+bru.setVar('s11b_v1_id', b.version_id);"""),
+            req("S11b.4 Publish v2 with a new step: unchanged keys keep their id", "POST", pub, auth="admin_a_token",
+                headers=key("v2"), body=v2,
+                desc="Version 2 keeps v1's id for `wait`, `mark` and `done` and draws a new one for `notify`.",
+                tests="""N.status(201);
+const b = N.json();
+const v1 = JSON.parse(bru.getVar('s11b_v1_ids'));
+test('version 2, a new version id', () => {
+  expect(b.version).to.eql(2);
+  expect(b.version_id).to.not.eql(bru.getVar('s11b_v1_id'));
+});
+test('unchanged keys keep their id', () => ['wait', 'mark', 'done'].forEach(k => expect(b.step_ids[k]).to.eql(v1[k])));
+test('the new key has a new id', () => {
+  expect(b.step_ids.notify).to.be.a('string');
+  expect(Object.values(v1)).to.not.include(b.step_ids.notify);
+});"""),
+            req("S11b.5 Read the definition: 200, version 2 current", "GET", base, auth="admin_a_token",
+                tests="""N.status(200);
+const b = N.json();
+test('version 2 is current, with its body and a sha256', () => {
+  expect(b.version).to.eql(2);
+  expect(b.current).to.eql(true);
+  expect(b.body.format).to.eql('nava.workflow/v1');
+  expect(b.body_sha256).to.match(/^[0-9a-f]{64}$/);
+});"""),
+            req("S11b.6 A body that supplies a step id: 422", "POST", pub, auth="admin_a_token", headers=key("id"),
+                body=wf([{**wait, "id": "00000000-0000-4000-8000-000000000001"}, mark, done]),
+                desc="A client never supplies a step id. 422 `workflow_definition_invalid`; the step is named by its key.",
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step is named', () => expect(N.json().errors.map(e => e.pointer).join(' ')).to.include('/steps/wait'));"""),
+            req("S11b.7 An unknown trigger entity: 422", "POST", pub, auth="admin_a_token", headers=key("entity"),
+                body=wf([wait, mark, done], entity="no_such_type"),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the entity is named', () => expect(N.json().errors.map(e => e.pointer)).to.include('/trigger/entity'));"""),
+            req("S11b.8 A set on a field the schema lacks: 422 naming the step", "POST", pub, auth="admin_a_token",
+                headers=key("field"),
+                body=wf([wait, {**mark, "set": {"no_such_field": "x"}}, done]),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step and field are named', () => expect(N.json().errors.map(e => e.pointer)).to.include('/steps/mark/set/no_such_field'));"""),
+            req("S11b.9 A field reference as a duration: 422", "POST", pub, auth="admin_a_token", headers=key("dur"),
+                body=wf([{**wait, "duration": "/due_in"}, mark, done]),
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('the step is named and no value is echoed', () => {
+  expect(N.json().errors.map(e => e.pointer).join(' ')).to.include('/steps/wait');
+  expect(JSON.stringify(N.json())).to.not.include('due_in');
+});"""),
+            req("S11b.10 Alice (not an admin) publishes: 403", "POST", pub, auth="alice_token", headers=key("alice"),
+                body=v1, tests="N.problem('forbidden', 403);"),
+            req("S11b.11 Alice reads the definition: 403", "GET", base, auth="alice_token",
+                tests="N.problem('forbidden', 403);"),
+            req("S11b.12 A key nobody has: 404", "GET", "{{core_url}}/api/v1/workflow-definitions/no_such_workflow",
+                auth="admin_a_token", tests=no404),
+            req("S11b.13 Publish without a token: 401", "POST", pub, headers=key("anon"), body=v1,
+                tests="N.problem('invalid_token', 401);"),
+            req("S11b.14 Read without a token: 401", "GET", base, tests="N.problem('invalid_token', 401);"),
+            req("S11b.15 Publish without an Idempotency-Key: 400", "POST", pub, auth="admin_a_token", body=v1,
+                tests="N.problem('validation_failed', 400);"),
+            req("S11b.16 Reuse an Idempotency-Key with another body: 409", "POST", pub, auth="admin_a_token",
+                headers=key("v1"), body=v2,
+                desc="S11b.3's key with a different body.",
+                tests="N.problem('idempotency_key_reuse', 409);"),
+        ] + s11b_criteria(),
+    }
+
+
+def s11b_criteria():
+    """The S11b story criteria (P3-44, TICK-713) on the running stack."""
+    pub = "{{core_url}}/api/v1/workflow-definitions/s11b_demo/versions"
+    inc = "{{core_url}}/api/v1/records/incident"
+    key = lambda k: {"Idempotency-Key": "tick713-s11b-{{s11b_run}}-" + k}
+
+    def demo_body(set_, duration="PT1M"):
+        if set_ is None:
+            steps = [{"key": "wait", "type": "timer", "duration": duration, "next": "done"},
+                     {"key": "done", "type": "end"}]
+        else:
+            steps = [{"key": "wait", "type": "timer", "duration": duration, "next": "triage"},
+                     {"key": "triage", "type": "update_record", "set": set_, "next": "done"},
+                     {"key": "done", "type": "end"}]
+        return {"format": "nava.workflow/v1", "trigger": {"on": "record.created", "entity": "incident"},
+                "start": "wait", "steps": steps}
+
+    # Polls the record (as the token's user) once a second until its state is
+    # in_progress or 180 s pass; the request itself then reads it once more.
+    def wait_in_progress(rec_var, token_var, since_var):
+        js = """
+const t0 = Date.now();
+for (;;) {
+  const r = await N.send({
+    url: N.url('{{core_url}}/api/v1/records/incident/{{REC}}'),
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + bru.getVar('TOK') },
+  });
+  if ((r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 180 * 1000) break;
+  await bru.sleep(1000);
+}
+bru.setVar('REC_after_s', String(Math.round((Date.now() - Number(bru.getVar('SINCE'))) / 1000)));"""
+        return LOAD_PRE + js.replace("REC", rec_var).replace("TOK", token_var).replace("SINCE", since_var)
+
+    created = """N.status(201);
+const b = N.json();
+test('version 1, state new, priority 3', () => {
+  expect(b.version).to.eql(1);
+  expect(b.state).to.eql('new');
+  expect(b.data.priority).to.eql(3);
+});"""
+    return [
+        token("S11b.17 Sign in as agent@tenant-b (Bob)", "bob_username", "bob_password", "bob_token"),
+        req("S11b.18 AC1: the admin publishes the demo definition: 201", "POST", pub, auth="admin_a_token",
+            headers=key("demo-v1"), body=demo_body({"state": "in_progress"}),
+            desc="`s11b_demo`: on `record.created` of an incident, wait 1 minute (`PT1M`), then `update_record` `state=in_progress`. The first pass on a stack makes it version 1; a later pass publishes the next version of the same key, so only one demo version is current at a time.",
+            tests="""N.status(201);
+const b = N.json();
+test('current, entity incident, an id per step', () => {
+  expect(b.current).to.eql(true);
+  expect(b.entity).to.eql('incident');
+  expect(Object.keys(b.step_ids).sort()).to.eql(['done', 'triage', 'wait']);
+});
+bru.setVar('s11b_demo_v1', String(b.version));
+bru.setVar('s11b_demo_v1_id', b.version_id);
+console.log('S11b.18 demo version', b.version, b.version_id);"""),
+        req("S11b.19 AC2: Alice creates an incident: 201, state new", "POST", inc, auth="alice_token",
+            headers=key("i1"), body={"data": {"short_description": "S11b {{s11b_run}} one", "priority": 3}},
+            desc="The pipeline's event sink starts the demo's current version (S11b.18) for it. The clock of AC2 starts here.",
+            tests=created + "\nbru.setVar('s11b_i1', b.id);\nbru.setVar('s11b_i1_at', String(Date.now()));\nconsole.log('S11b.19 created', b.number, b.id);"),
+        req("S11b.20 AC4: Bob creates an incident in tenant B: 201, state new", "POST", inc, auth="bob_token",
+            headers=key("b1"), body={"data": {"short_description": "S11b {{s11b_run}} tenant B", "priority": 3}},
+            desc="Tenant B has no workflow definition. S11b.28 and S11b.29 read it after tenant A's run has written.",
+            tests=created + "\nbru.setVar('s11b_b1', b.id);\nconsole.log('S11b.20 created', b.number, b.id);"),
+        req("S11b.21 AC3: the admin publishes v2 while the first run waits: 201", "POST", pub, auth="admin_a_token",
+            headers=key("demo-v2"), body=demo_body({"state": "in_progress", "priority": 1}),
+            desc="Version 2 also sets `priority` 1. The run started in S11b.19 is waiting on its timer and stays on the version it started with: it never sets the priority.",
+            tests="""N.status(201);
+const b = N.json();
+test('the next version, current', () => {
+  expect(b.version).to.eql(Number(bru.getVar('s11b_demo_v1')) + 1);
+  expect(b.current).to.eql(true);
+});
+bru.setVar('s11b_demo_v2_id', b.version_id);"""),
+        req("S11b.22 AC2: the first incident is still new while its run waits", "GET", inc + "/{{s11b_i1}}", auth="alice_token",
+            desc="Less than a minute after S11b.19: nothing has written it yet.",
+            tests="""N.status(200);
+test('state new, version 1', () => {
+  expect(N.json().state).to.eql('new');
+  expect(N.json().version).to.eql(1);
+});
+test('read within the minute', () => expect(Date.now() - Number(bru.getVar('s11b_i1_at'))).to.be.below(55 * 1000));"""),
+        req("S11b.23 AC3: Alice creates a second incident, which starts on v2: 201", "POST", inc, auth="alice_token",
+            headers=key("i2"), body={"data": {"short_description": "S11b {{s11b_run}} two", "priority": 3}},
+            desc="The positive control for AC3: a run that starts after S11b.21 runs version 2 and sets priority 1.",
+            tests=created + "\nbru.setVar('s11b_i2', b.id);\nbru.setVar('s11b_i2_at', String(Date.now()));"),
+        req("S11b.24 AC2: about a minute later the first incident is in_progress", "GET", inc + "/{{s11b_i1}}", auth="alice_token",
+            pre=wait_in_progress("s11b_i1", "alice_token", "s11b_i1_at"),
+            desc="Polls once a second, for up to 180 s, until the state is `in_progress`. The demo's run waited its minute, then wrote the record through the pipeline as `source=workflow` (version 2).",
+            tests="""N.status(200);
+const b = N.json();
+const after = Number(bru.getVar('s11b_i1_after_s'));
+test('state in_progress, version 2', () => {
+  expect(b.state).to.eql('in_progress');
+  expect(b.version).to.eql(2);
+});
+test('AC3: priority still 3: the run stayed on v1, which sets no priority', () => expect(b.data.priority).to.eql(3));
+test('about a minute after the create (60 to 180 s)', () => expect(after).to.be.at.least(60).and.at.most(180));
+console.log('S11b.24 in_progress after', after, 's');"""),
+        req("S11b.25 AC2: its history shows the write with source workflow", "GET", inc + "/{{s11b_i1}}/history", auth="alice_token",
+            desc="Two rows, newest first: the workflow's write (`source: workflow`, the state change) and Alice's create (`source: user`).",
+            tests="""N.status(200);
+const items = N.json().items;
+test('two rows: the workflow write, then the create', () => {
+  expect(items).to.have.length(2);
+  expect(items[0].source).to.eql('workflow');
+  expect(items[1].action).to.eql('create');
+  expect(items[1].source).to.eql('user');
+});
+test('the workflow write changed the state to in_progress, nothing else', () => {
+  expect(items[0].changed).to.eql(['/data/state']);
+  expect(items[0].after.state).to.eql('in_progress');
+});"""),
+        req("S11b.26 AC3: the second incident ran v2: in_progress and priority 1", "GET", inc + "/{{s11b_i2}}", auth="alice_token",
+            pre=wait_in_progress("s11b_i2", "alice_token", "s11b_i2_at"),
+            desc="Polls like S11b.24. Version 2 was current when S11b.23 created it, so its run sets priority 1 too.",
+            tests="""N.status(200);
+const b = N.json();
+test('state in_progress, priority 1 (v2), version 2', () => {
+  expect(b.state).to.eql('in_progress');
+  expect(b.data.priority).to.eql(1);
+  expect(b.version).to.eql(2);
+});"""),
+        req("S11b.27 AC3: the first incident still has priority 3 after v2's run wrote", "GET", inc + "/{{s11b_i1}}", auth="alice_token",
+            tests="""N.status(200);
+test('version 2, priority 3: no second write from v2', () => {
+  expect(N.json().version).to.eql(2);
+  expect(N.json().data.priority).to.eql(3);
+});"""),
+        req("S11b.28 AC4: Bob's incident is still new after tenant A's runs wrote", "GET", inc + "/{{s11b_b1}}", auth="bob_token",
+            desc="Created before S11b.19's run fired and read after it wrote, so a tenant A workflow that had started for it would have written by now.",
+            tests="""N.status(200);
+test('state new, version 1, priority 3', () => {
+  expect(N.json().state).to.eql('new');
+  expect(N.json().version).to.eql(1);
+  expect(N.json().data.priority).to.eql(3);
+});"""),
+        req("S11b.29 AC4: Bob's incident history is its create only", "GET", inc + "/{{s11b_b1}}/history", auth="bob_token",
+            tests="""N.status(200);
+const items = N.json().items;
+test('one row, the create, source user; no workflow row', () => {
+  expect(items).to.have.length(1);
+  expect(items[0].action).to.eql('create');
+  expect(items[0].source).to.eql('user');
+});"""),
+        req("S11b.30 Retire the demo: publish a version that waits a day and writes nothing: 201", "POST", pub,
+            auth="admin_a_token", headers=key("demo-retire"), body=demo_body(None, duration="PT24H"),
+            desc="Clean-up, not a criterion: tenant A's incidents created by later folders on this stack are not written a minute later. Stack-local side effect: there is no disable/retire endpoint yet, so this version stays current. Every tenant A incident created later on this stack (any folder, and the next S11b pass until S11b.18 publishes again) starts one run that holds an open `workflow_ref` and a Temporal workflow for 24 hours, then ends without writing. Runs already started keep their version. `docker compose down -v` clears it.",
+            tests="N.status(201);\ntest('current', () => expect(N.json().current).to.eql(true));"),
+    ]
+
+
 # --------------------------------------------------------------------------- S17
 # Story S17 (TICK-664, release R1 of ADR-005), kit TICK-668:
 # docs/acceptance/S17/README.md. docs/acceptance/S17/tools/run-kit.sh brings
@@ -3309,7 +3570,7 @@ test('version 1, the text of S17.6', () => {
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

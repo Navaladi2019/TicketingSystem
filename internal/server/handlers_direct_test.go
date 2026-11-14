@@ -49,6 +49,12 @@ func tenantCalls() []call {
 		{"PublishEntityTypeVersion", func(ctx context.Context, h *handlers) (any, error) {
 			return h.PublishEntityTypeVersion(ctx, api.PublishEntityTypeVersionRequestObject{Key: "incident"})
 		}},
+		{"PublishWorkflowDefinitionVersion", func(ctx context.Context, h *handlers) (any, error) {
+			return h.PublishWorkflowDefinitionVersion(ctx, api.PublishWorkflowDefinitionVersionRequestObject{Key: "triage"})
+		}},
+		{"GetWorkflowDefinition", func(ctx context.Context, h *handlers) (any, error) {
+			return h.GetWorkflowDefinition(ctx, api.GetWorkflowDefinitionRequestObject{Key: "triage"})
+		}},
 		{"CreateRecord", func(ctx context.Context, h *handlers) (any, error) {
 			return h.CreateRecord(ctx, api.CreateRecordRequestObject{Entity: "incident"})
 		}},

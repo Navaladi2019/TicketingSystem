@@ -43,7 +43,7 @@ Story TICK-786. Verdict: **READY** (all tasks merged on `main`). Date: **2026-11
 These gaps are stated on the pages themselves; this story documents them, it does not close them.
 
 - **Organisation units** (tour step 5): the table is filled from the identity system, but there is no API and no rule uses it.
-- **Workflows on records** (tour step 8): the interpreter is on `main` but registered only in a test build; creating a record starts no workflow. That is story S11b.
+- **Workflows on records** (tour step 8): closed later by story [S11b](s11b.md), which runs the interpreter in the production worker and starts it from record writes. Tour step 8 now describes it.
 - **Embedding** (ADR-007): accepted, nothing implemented.
 - **No user interface**: the tour uses the REST API through `curl` and Bruno.
 - **Domain needs** the examples leave out: document attachments, custom number formats per type, masks that depend on the requester, approval rules. See the [examples README](../../../handbook/examples/README.md).

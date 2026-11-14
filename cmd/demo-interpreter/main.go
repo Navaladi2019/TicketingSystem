@@ -17,8 +17,8 @@
 //     and prints the row that holds it.
 //   - signal: a signal row on nava.interpreter.signal, payload {signal:
 //     SIGNAL_ID}, for the newest open interpreter run of RECORD_ID, through
-//     outbox.EnqueueAtVersion at the record's version, under a new depth-0
-//     origin (a person's action).
+//     outbox.EnqueueSignal at the record's version (which also writes its
+//     workflow_cause row), under a new depth-0 origin (a person's action).
 //   - record-id: no database; prints the record id the demo derives from
 //     TENANT_ID and DEDUPE_KEY, so the script can write the record's fixture
 //     file before the start row exists.
@@ -55,6 +55,11 @@ const (
 	// versionSQL reads the record's version; RLS keeps it to the
 	// transaction's tenant.
 	versionSQL = `SELECT version FROM records WHERE id = $1`
+
+	// newestRefSQL is the newest open interpreter run on the record; RLS
+	// keeps it to the transaction's tenant.
+	newestRefSQL = `SELECT outbox_id FROM workflow_ref WHERE record_id = $1 AND kind = $2 AND closed_at IS NULL
+ORDER BY created_at DESC, outbox_id DESC LIMIT 1`
 
 	// claimedSQL finds the start row that holds a key already claimed for
 	// the record's origin; RLS keeps it to the transaction's tenant.
@@ -189,7 +194,14 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		case err != nil:
 			return fmt.Errorf("read record version: %w", err)
 		}
-		id, err = outbox.EnqueueAtVersion(ctx, tx, e, v)
+		var ref uuid.UUID
+		switch err := tx.QueryRow(ctx, newestRefSQL, e.RecordID, interp.WorkflowType).Scan(&ref); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return outbox.ErrNoOpenWorkflow
+		case err != nil:
+			return fmt.Errorf("find the open run: %w", err)
+		}
+		id, err = outbox.EnqueueSignal(ctx, tx, ref, e, v)
 		return err
 	})
 	if err != nil {
