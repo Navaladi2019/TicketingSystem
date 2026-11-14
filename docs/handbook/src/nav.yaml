@@ -250,6 +250,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/hb2.md
+            label: "Handbook v2: vision and product tour"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
