@@ -60,7 +60,10 @@ SQL
 # idempotency record: when the tenant has one, nothing else is written, so a
 # re-run leaves one head and one seal lineage. No ON CONFLICT on the outbox: a
 # seal row with no head would be corruption, and the unique dedupe key fails
-# the script on it.
+# the script on it. The post-check counts only the seal rows this run wrote,
+# never the outbox as a whole: nava-purge deletes a dispatched seal row after 7
+# days (MinOutboxDispatchedRetention), so on an older stack the tenant's
+# audit.seal:1 row is gone and a re-run correctly writes nothing.
 echo "seed: audit chain head and first seal row in A and B"
 dc exec -T postgres sh -c \
   'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
@@ -69,6 +72,8 @@ DECLARE
   tid uuid;
   seal_id uuid;
   n bigint;
+  heads bigint := 0;
+  seals bigint := 0;
 BEGIN
   FOR tid IN SELECT unnest(ARRAY['$A', '$B']::uuid[]) LOOP
     PERFORM set_config('app.tenant_id', tid::text, true);
@@ -78,18 +83,22 @@ BEGIN
     ON CONFLICT DO NOTHING;
     GET DIAGNOSTICS n = ROW_COUNT;
     CONTINUE WHEN n = 0;
+    heads := heads + 1;
     INSERT INTO outbox (id, tenant_id, kind, kind_version, dedupe_key, target_key, target_seq,
         causation_id, causation_depth, payload, trace_context)
     VALUES (seal_id, tid, 'audit.seal', 1, 'audit.seal:1', 'audit.seal:' || seal_id::text, 1,
         seal_id, 0, '{}', NULL);
+    GET DIAGNOSTICS n = ROW_COUNT;
+    seals := seals + n;
   END LOOP;
   PERFORM set_config('app.tenant_id', '', true);
   IF (SELECT count(*) FROM audit_chain_head WHERE tenant_id IN ('$A', '$B')) <> 2 THEN
     RAISE EXCEPTION 'a seeded tenant has no audit chain head';
   END IF;
-  IF (SELECT count(*) FROM outbox WHERE tenant_id IN ('$A', '$B') AND dedupe_key = 'audit.seal:1') <> 2 THEN
-    RAISE EXCEPTION 'a seeded tenant has no first audit.seal row';
+  IF seals <> heads THEN
+    RAISE EXCEPTION 'wrote % audit chain heads but % first audit.seal rows', heads, seals;
   END IF;
+  RAISE NOTICE 'seed: % new audit chain heads, % first audit.seal rows', heads, seals;
 END \$\$;
 SELECT h.tenant_id AS tenant, h.version AS head_version, h.seq AS sealed_seq
   FROM audit_chain_head h WHERE h.tenant_id IN ('$A', '$B') ORDER BY 1;
