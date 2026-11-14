@@ -30,7 +30,7 @@ $ per agent seat per month.
 3. **The vCPU price (P1).** Compute is the largest line at every size (77% at 50 seats and at 500 expected). Doubling P1 moves 50 seats from $9.86 to $17.46.
 4. **Load per seat at 500 seats** (A1 requests per seat, A4 cost of a request). These set the load tier: 8, 16 and 32 vCPU at low, expected and high. A4 from 1 to 4 creates moves 500 seats from $1.42 to $3.82.
 
-Storage, backups, egress and the load balancer together are 6% or less of the total at every size. Data volume does not move the number at these sizes.
+Storage, backups, egress and the load balancer together are 7% or less of the total at every size (the most is 6.3%, at 50 seats and high load). Data volume does not move the number at these sizes.
 
 ## Inputs
 

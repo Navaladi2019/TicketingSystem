@@ -74,12 +74,12 @@ def model(seats, load, prices=P, ha=A8_HA, mix=A4_MIX_COST):
     egress_gib = (seats * req_hour * A2_ACTIVE_HOURS_MONTH
                   * A16_KIB_PER_RESPONSE / KIB_PER_GIB)
     lines = {
-        "compute (vCPU)": vcpu * prices["vcpu_month"],
-        "memory": gib * prices["gib_ram_month"],
-        "block storage": block_gib * prices["block_gib_month"],
-        "backup (object)": object_gib * prices["object_gib_month"],
-        "egress": egress_gib * prices["egress_gib"],
-        "load balancer": prices["lb_month"],
+        "Compute (vCPU)": vcpu * prices["vcpu_month"],
+        "Memory": gib * prices["gib_ram_month"],
+        "Block storage": block_gib * prices["block_gib_month"],
+        "Backup (object)": object_gib * prices["object_gib_month"],
+        "Egress": egress_gib * prices["egress_gib"],
+        "Load balancer": prices["lb_month"],
     }
     total = sum(lines.values())
     return {
@@ -99,7 +99,7 @@ def main():
             r = model(s, l)
             print(f"| {s} | {l} | {r['peak_rps']:.1f} | {r['load_vcpu']:.0f} | {r['vcpu']:.1f} | {r['gib']:.1f} | "
                   f"{r['data_gib']:.1f} | {r['block_gib']:.1f} | {r['object_gib']:.1f} | {r['egress_gib']:.1f} |")
-    print("\n## Cost per month (example prices)\n")
+    print("\n## Cost per month, by line (example prices)\n")
     names = list(model(50, "low")["lines"])
     print("| Seats | Load | " + " | ".join(names) + " | Total $/month | **$/seat/month** |")
     print("|---|---|" + "---|" * len(names) + "---|---|")
@@ -108,7 +108,7 @@ def main():
             r = model(s, l)
             cells = " | ".join(f"{r['lines'][n]:.2f}" for n in names)
             print(f"| {s} | {l} | {cells} | {r['total']:.2f} | **{r['per_seat']:.2f}** |")
-    print("\n## Sensitivity, $/seat/month at expected load\n")
+    print("\n## Sensitivity: $/seat/month at expected load, one input changed\n")
     print("| Change one input | 50 seats | 500 seats |")
     print("|---|---|---|")
     base = {s: model(s, "expected")["per_seat"] for s in (50, 500)}
@@ -117,8 +117,8 @@ def main():
         ("A8 single instance (HA = 1)", dict(ha=1.0)),
         ("A4 mixed request = 4 creates", dict(mix=4.0)),
         ("A4 mixed request = 1 create", dict(mix=1.0)),
-        ("P vCPU price x2", dict(prices={**P, "vcpu_month": P["vcpu_month"] * 2})),
-        ("P all prices x2", dict(prices={k: v * 2 for k, v in P.items()})),
+        ("P1 vCPU price × 2", dict(prices={**P, "vcpu_month": P["vcpu_month"] * 2})),
+        ("All P prices × 2", dict(prices={k: v * 2 for k, v in P.items()})),
     ]
     for name, kw in rows:
         print(f"| {name} | {model(50, 'expected', **kw)['per_seat']:.2f} | {model(500, 'expected', **kw)['per_seat']:.2f} |")
