@@ -264,7 +264,7 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		var err error
 		// The mode is set first, so a publish in the same request reads it.
 		if pr.hasMode {
-			if _, err = h.store.SetNumberingMode(ctx, tx, entitytypes.SetNumberingModeInput{Key: req.Key, Mode: pr.mode, By: p.PrincipalID}); err != nil {
+			if _, err = h.store.SetNumberingMode(ctx, tx, entitytypes.SetNumberingModeInput{Key: req.Key, Mode: pr.mode, By: p.PrincipalID, ExpectedVersion: expected}); err != nil {
 				return err
 			}
 		}

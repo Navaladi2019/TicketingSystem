@@ -414,6 +414,10 @@ type SetNumberingModeInput struct {
 	Mode metadata.NumberingMode
 	// By is the principal making the change; its config entry names them.
 	By uuid.UUID
+	// ExpectedVersion, when not empty, holds the versions the caller based the
+	// change on (its If-Match); the type's current version must be one of
+	// them, else *ConflictError, checked under the row lock.
+	ExpectedVersion []int
 }
 
 // SetNumberingMode sets the entity type's numbering mode (PLAN-003 D-3-9,
@@ -435,16 +439,20 @@ func (Store) SetNumberingMode(ctx context.Context, tx pgx.Tx, in SetNumberingMod
 		return false, ErrInvalidNumberingMode
 	}
 	var (
-		defID uuid.UUID
-		prev  metadata.NumberingMode
+		defID   uuid.UUID
+		prev    metadata.NumberingMode
+		current int
 	)
 	err := tx.QueryRow(ctx, `
-SELECT id, numbering_mode FROM entity_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &prev)
+SELECT id, numbering_mode, current_version FROM entity_definitions WHERE key = $1 FOR UPDATE`, in.Key).Scan(&defID, &prev, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNotFound
 	}
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: lock definition: %w", err)
+	}
+	if len(in.ExpectedVersion) > 0 && !slices.Contains(in.ExpectedVersion, current) {
+		return false, &ConflictError{Current: current}
 	}
 	if prev == in.Mode {
 		return false, nil

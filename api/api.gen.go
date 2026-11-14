@@ -786,7 +786,7 @@ type PutEntityTypeAccessParams struct {
 type PublishEntityTypeVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 
-	// IfMatch The `ETag` of the current version the publish is based on. Optional.
+	// IfMatch The `ETag` of the current version the publish is based on. Optional. Also checked on a mode-only call.
 	IfMatch *string `json:"If-Match,omitempty"`
 }
 
