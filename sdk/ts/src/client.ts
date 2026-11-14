@@ -51,7 +51,7 @@ export function createClient(opts: ClientOptions): NavaClient {
       return baseFetch(req);
     };
     let res = await send(input);
-    if (res.status === 401) res = await send(retry);
+    void retry; // TICK-829 mutation demo: the 401 retry removed. DO NOT MERGE.
     // Throwing here, before openapi-fetch reads the body, keeps the problem body readable.
     if (!res.ok) throw await problemFromResponse(res);
     return res;
