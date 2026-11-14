@@ -32,12 +32,13 @@ owner: Technical Lead
 | **D-9-1** | **Two stories.** S27 (checks) starts now; S28 (timed run) waits for S11b to merge into `main`, because it publishes a workflow through S11b's route and shares the acceptance guide files S11b changes. P9-07 is a docs-only task with no story (branching exception "task with no parent story"). |
 | **D-9-2** | **The gates ride existing CI jobs; `.github/workflows/ci.yml` is not touched.** S11b (open) changes `ci.yml`. CI-1..CI-4 run as `go run ./tools/adrgate` inside `make lint` / `task lint` (the `lint` job, every PR and `main`), next to `tools/docindex -check`. M-X2 is a Go test package, so `make test` (`./...`, the `unit` job) runs it. S27's only shared files are `make/lint.mk` and `Taskfile.yml`'s `lint` task, which no open story changes (checked against `TICK-337/workflows-on-records` and `TICK-669/number-formats` on 2026-11-15). |
 | **D-9-3** | **M-X1a lives in S28's kit, not inside S11b's kit.** RFC-020 AC-2 says "part of the story acceptance kit that ships S11b". S11b's kit (TICK-713) is done and the story is at its final merge; reopening it delays an almost-finished story for a measurement that does not change its code. S28 runs right after S11b merges, on S11b's capability, and is the kit that times it. The intent of AC-2 (nobody claims "hours not weeks" unmeasured) holds. *Solution Architect: say CHANGES if you want it inside S11b instead; S28 then becomes one task under TICK-337.* |
-| **D-9-4** | **CI-2 and CI-4 scope.** They scan `docs/adr/**/*.md` except `docs/adr/_template-adr.md` (placeholders) and archived RFC revisions `docs/adr/*/rfc/rev-*/` (RFC-020 rev 0 cites `M-X1`, split into X1a/X1b by TA B1). Fenced code and HTML comments are not citations. CI-1's in-flight exemption is keyed on the record's `date:` against ADR-008's `accepted:`, read from ADR-008's front matter, as RFC-020 §8 states. |
-| **D-9-5** | **M-X2 shape.** A pinned inventory (`internal/configsurface/testdata/inventory.json`) of step types, trigger events, condition operators, step fields, type-definition keywords, `x-nava-*` extensions and definition fields, each with a fixture that must still parse. Fails on removal, on an unlisted addition, and on a fixture that stops parsing. A removal is legal only with `major` + 1 and `docs/upgrade/v<major>.md` naming the item (D12). **No item is deprecated in v1**, so the "one deprecated item" of X2 is proven with a test-only injected inventory; the first real deprecation replaces it. **No release branches exist**: the suite runs on every `main` push and every `ci:run` PR, which is stricter than AC-1's "release branches". |
+| **D-9-4** | **CI-2 and CI-4 scope.** They scan `docs/adr/**/*.md` except `docs/adr/_template-adr.md` (placeholders) and archived RFC revisions `docs/adr/*/rfc/rev-*/` (RFC-020 rev 0 cites `M-X1`, split into X1a/X1b by TA B1). Fenced code and HTML comments are not citations. A method citation needs a digit (`\bM-X\d[a-z]?\b`), so the placeholders `M-X<n>` and `M-X…` are not citations. **CI-3 grade grammar:** drop parenthesised text, split on `/`; every token is `A`, `B` or `C`. Eleven of the 17 register rows carry mixed grades such as `A / C` or `C (B for the G2 range)`, and they stay valid. CI-1's in-flight exemption is keyed on the record's `date:` against ADR-008's `accepted:`, read from ADR-008's front matter, as RFC-020 §8 states. |
+| **D-9-5** | **M-X2 shape.** A pinned inventory (`internal/configsurface/testdata/inventory.json`) of step types, trigger events, condition operators, step fields, type-definition keywords, `x-nava-*` extensions and definition fields, each with a fixture that must still parse. Fails on removal, on an unlisted addition, and on a fixture that stops parsing. A change that removes an item from **both** the code and the inventory is caught by a base-ref comparison (`internal/configsurface/cmd/compat`, shaped like `check-openapi`), run as a `make lint` / `task lint` line, so the `lint` job checks it on every PR. Standard JSON Schema keywords have no allow-list in `internal/metadata` (unknown keywords are accepted unwalked), so their inventory is hand-curated from the templates and `markedKeywords()`; only `x-nava-*` extensions and the definition's fields are enumerated. A removal is legal only with `major` + 1 and `docs/upgrade/v<major>.md` naming the item (D12). **No item is deprecated in v1**, so the "one deprecated item" of X2 is proven with a test-only injected inventory; the first real deprecation replaces it. **No release branches exist**: the suite runs on every `main` push and every `ci:run` PR, which is stricter than AC-1's "release branches". |
 | **D-9-6** | **No script surface in v1.** `schema.json` has no `script` step. The inventory carries `script: []`, and the unlisted-addition check pulls a future script surface into the inventory the day it lands. |
 | **D-9-7** | **M-X4 is P9-07, owned by the Technical Lead with the CTO reviewing**, as ADR-008 names the owner. It builds the method (inputs, cost per seat at 50 and 500 seats, ranges) and sets no target and no multiplier. Unit prices are a parameter table with an example set: picking an infrastructure vendor is the human's call. |
 | **D-9-8** | **Go, not Python, for CI-1..CI-4.** RFC-020 §8 suggests "a small Python docs check alongside the handbook build", and leaves the implementation to this plan. The handbook build's Python runs only in its own `make test-handbook` step; adding a Python check to the `lint` job would need a `ci.yml` edit (D-9-2). `tools/docindex` is the precedent for a stdlib Go docs check in `lint`. |
-| **D-9-9** | **No grooming meeting** (as D-8-13). The acceptance criteria are RFC-020 §8's pinned checks, already reviewed by the Technical Architect. A fresh-reader Goldfish ran on both stories and all seven tasks (comments on TICK-878 and TICK-879); the Solution Architect's plan verdict is the check. |
+| **D-9-9** | **No grooming meeting** (as D-8-13). The acceptance criteria are RFC-020 §8's pinned checks, already reviewed by the Technical Architect. A fresh-reader Goldfish ran on both stories and all seven tasks (comments on TICK-878 and TICK-879). Its four Blockers are answered in the task bodies: CI-3 grade grammar and the CI-4 regex (D-9-4); the M-X2 base-ref check and the hand-curated keyword list (D-9-5). The Solution Architect's plan verdict is the check. |
+| **D-9-11** | **S28's story verdict does not wait for a human run.** Under the merge policy, the Technical Lead gives the verdict. The X1a number comes from two fresh-agent runs (P9-05, and the Technical Lead's acceptance run) and is labelled `agent proxy`. A human run is invited, and it is added as `human` when it happens. X1a is not called "measured on a person" until then. |
 | **D-9-10** | **The `design-triad` skill update is not a repo task.** ADR-008 asks the skill owner to reference the gate in the critique checklist. Skills live outside the repo; owner: the CTO. Recorded here so it is not lost. |
 
 ## Interface contracts
@@ -45,7 +46,7 @@ owner: Technical Lead
 | # | Contract | Producer → consumers |
 |---|---|---|
 | **C1** | `tools/adrgate`: `adrgate [-dir root]`; exit 0 clean, exit 1 with one line per finding, `path: CI-n: message`. | TICK-880 → TICK-882 (kit quotes the lines), CI `lint` job |
-| **C2** | `internal/configsurface/testdata/inventory.json` schema and the failure strings `removed: <section>/<item>`, `unlisted: <section>/<item>`. | TICK-881 → TICK-882, every later story that changes the configuration surface |
+| **C2** | `internal/configsurface/testdata/inventory.json` schema, the failure strings `removed: <section>/<item>` and `unlisted: <section>/<item>`, and `docs/upgrade/v<major>.md` as the only licence to drop an item. | TICK-881 → TICK-882, every later story that changes the configuration surface |
 | **C3** | `docs/quality/x1a-first-routed-record.md`: one table per run (step, start, end, minutes, help used, blocker), a total, and the run kind (`agent proxy` or `human`). | TICK-884 → TICK-885, ADR-008 handbook page |
 
 ## Task graph
@@ -77,14 +78,14 @@ flowchart TD
 | Task | Role | Outcome | Depends on | Estimate (agent-days) |
 |---|---|---|---|---|
 | TICK-880 P9-01 | `qa` | `task lint` fails on CI-1..CI-4 violations, passes on `main` | none | 0.5–1 |
-| TICK-881 P9-02 | `qa` | `task test` fails on a removed or unlisted step type / keyword | none | 1–2 (guess: depends on how cleanly `internal/metadata` exposes its keyword list) |
+| TICK-881 P9-02 | `qa` | `task test` / `task lint` fail on a removed or unlisted step type / keyword | none | 1.5–2.5 (guess: the fixture per item, and the base-ref command) |
 | TICK-882 P9-03 | `qa` | S27 kit, run end to end | TICK-880, TICK-881 | 0.5 |
 | TICK-883 P9-04 | Technical Lead | S27 handbook pages; build clean | TICK-880..882 | 0.5 |
 | TICK-884 P9-05 | `qa` | Timed kit + one recorded agent-proxy run | S11b merged | 1–2 (guess: onboarding-to-publish path not yet walked end to end) |
-| TICK-885 P9-06 | Technical Lead | S28 handbook pages; build clean | TICK-884, human run | 0.5 |
+| TICK-885 P9-06 | Technical Lead | S28 handbook pages; build clean | TICK-884, acceptance run recorded | 0.5 |
 | TICK-886 P9-07 | Technical Lead (CTO reviews) | Cost-per-seat model | none | 1–2 (guess) |
 
-**Critical path:** TICK-881 → TICK-882 → TICK-883 → S27 acceptance, **3–4 agent-days**. S28 is gated by S11b's merge (TICK-874, currently blocked), then 2–3 agent-days plus the human's timed run.
+**Critical path:** TICK-881 → TICK-882 → TICK-883 → S27 acceptance, **3.5–4.5 agent-days**. S28 is gated by S11b's merge (TICK-874, currently blocked), then 2–3 agent-days including the acceptance run.
 
 ```mermaid
 gantt
@@ -107,7 +108,7 @@ gantt
 
 | Story | Expected files | Overlap |
 |---|---|---|
-| S27 | new `tools/adrgate/`, new `internal/configsurface/`, `make/lint.mk` (`lint:`), `Taskfile.yml` (`lint:`), `docs/acceptance/s27-competitive-gate.md`, handbook | None with S11b or S18 (checked 2026-11-15). Reads, does not edit, `internal/workflow/def/schema.json` and `internal/metadata/`. |
+| S27 | new `tools/adrgate/`, new `internal/configsurface/` (with `cmd/compat`), `make/lint.mk` (`lint:`), `Taskfile.yml` (`lint:`), `docs/acceptance/s27-competitive-gate.md`, handbook | None with S11b or S18 (checked 2026-11-15). Reads, does not edit, `internal/workflow/def/schema.json` and `internal/metadata/`. |
 | S28 | `docs/acceptance/s28-first-routed-record.md`, new `docs/acceptance/guide/bruno/S28/`, the guide registration files, `docs/quality/x1a-first-routed-record.md`, handbook | Shares `docs/acceptance/guide/` build files with S11b: waits for S11b merged (D-9-1). |
 | P9-07 | new `docs/quality/cost-model-x4.md` | None. |
 
@@ -124,7 +125,7 @@ Handbook output and the acceptance-guide build output are regenerated by every s
 | D7 (c) `N/A` on a tenant-visible change | Reviewer judgement; not machine-checkable |
 | D9 measured vs planned | TICK-883, TICK-885 update the ADR-008 handbook page as methods land |
 | D12 additive configuration surface, R6 | TICK-881 (M-X2) |
-| X1a, M-X1a, R4 (half) | TICK-884, TICK-885; human's run at S28 acceptance |
+| X1a, M-X1a, R4 (half) | TICK-884, TICK-885; acceptance run (D-9-11) |
 | X1b, M-X1b | Cut: no pilot yet |
 | X2, M-X2, AC-1 | TICK-881 |
 | X3, M-X3 | Already in the repo (`docs/quality/acl-perf-800k.md`, `docs/budgets.md`); competitor side is CG-SP-1, cut |
