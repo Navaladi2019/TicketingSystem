@@ -129,6 +129,7 @@ flowchart TD
   TICK-657 on both paths. Under `refuse`, a counter past the width fails the
   create with `*ErrNumberSpaceExhausted` (409 `number_space_exhausted`, rule
   `scope:<key>`); a `gapless` refusal rolls back and gives the value back.
+  The refusal is audited (see "The refused-create audit entry" below).
   Every number taken under `refuse` records `nava_numbering_fill_ratio`;
   `NumberSpaceNearlyExhausted` alerts above 90 %. A `records_number_key`
   violation is `*ErrNumberTaken`: logged with type, epoch and scope, 500,
@@ -204,6 +205,56 @@ sequenceDiagram
   `AssignmentGroupRemoved`; the API returns it as
   `assignment_group: {id, removed}`. Nothing clears or reassigns the field.
 
+## The refused-create audit entry (ADR-004-E9, TICK-865)
+
+A create refused with `number_space_exhausted` writes one ADR-004 R2b entry,
+action `number_space_exhausted`. `Write` builds it and writes nothing:
+`*ErrNumberSpaceExhausted` carries it (`Entry`) with `Epoch` and `Counter`
+next to the type, scope and width. The caller appends it.
+
+- **Shape.** Domain `record`, subject `entity_definition`/D (the type, read
+  under RLS in the prefetch), `entity_definition_id` D, versions NULL,
+  `content_sha256` NULL; actor, source, `source_ref`, causation and request
+  id from the refused command. The diff is one `add` of `/number_space`:
+  `{epoch, scope_key, width, counter}`. Never record data, a candidate field
+  value or the idempotency key.
+- **Sites.** `gaps`: after `allocate`, at the `Fits` check
+  (`pipeline.go`), `counter` = the allocated number (already committed).
+  `gapless`: `writeCreate`'s refusal branch (`batch.go`), `counter` =
+  `numbered.N`, given back by the rollback. `InsertAtCommit` is reached only
+  after `Fits`, so it is not a site.
+- **Placement.** `CreateRecord` (`internal/server/records.go`) appends the
+  entry after the create's `tenancy.InTenantTx` has returned and released its
+  connection, in a `tenancy.InTenantTx` of its own on the API pool, under
+  the token's tenant, holding only that entry. Never on the allocator pool
+  (spike S1: a synchronous commit there slowed other tenants' allocations
+  32×) and never while a create transaction is open (hold-and-wait,
+  TICK-657). It runs on `context.WithoutCancel` of the request context,
+  bounded by the request's deadline, or 5 s when the request has none, so a
+  client that disconnects after the refusal does not drop the entry.
+- **Failure.** A failed append answers the refusal joined with the audit
+  error (`errors.Join`), still 409, and logs `audit of a refused record
+  create failed`. The create never commits.
+- **Signals.** `records_number_space_exhausted_total` (no tenant or
+  definition label) counts each refusal; the log line `record create
+  refused: number space exhausted` names the tenant and type, never the
+  scope key.
+
+```mermaid
+sequenceDiagram
+    participant H as CreateRecord
+    participant API as API pool
+    participant A as allocator pool
+    H->>API: InTenantTx (create)
+    API->>A: gaps only: AllocTx (counter n, committed)
+    API-->>H: ErrNumberSpaceExhausted{Entry}; rollback, connection released
+    H->>API: InTenantTx (WithoutCancel, request deadline): audit.Append(Entry), COMMIT
+    H-->>H: 409 number_space_exhausted (joined with any audit error)
+```
+
+`rejectTooDeep` still writes `cascade_too_deep` on the TxRunner (RS-E9-3):
+moving it to this placement needs the caller to append, more than one line.
+
 ## Errors
 
 | Error | Meaning |
@@ -217,6 +268,7 @@ sequenceDiagram
 | `ErrAssignmentGroupRemoved` | `assignment_group_id` set or changed to a group that is not live in the tenant (422 `assignment_group_removed`) |
 | `ErrVersionConflict` | Not at `ExpectedVersion` |
 | `*ErrIdempotencyConflict{Concurrent}` | Key held by another write (409), or a concurrent duplicate: roll back and retry |
+| `*ErrNumberSpaceExhausted` | A `refuse` format's counter outgrew its width (409 `number_space_exhausted`); carries the R2b entry the caller appends |
 
 ## Stubs and later tasks
 

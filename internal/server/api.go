@@ -100,6 +100,12 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			metric.WithUnit("{request}")); err != nil {
 			return nil, err
 		}
+		if h.numberSpaceExhausted, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
+			"records.number_space_exhausted",
+			metric.WithDescription("Record creates refused with number_space_exhausted (ADR-005 §3.5); each writes one audit entry (ADR-004-E9)."),
+			metric.WithUnit("{refusal}")); err != nil {
+			return nil, err
+		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
 		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
 		if err != nil {
@@ -227,6 +233,10 @@ type handlers struct {
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
+	// numberSpaceExhausted counts the creates refused with
+	// number_space_exhausted (records_number_space_exhausted_total, no tenant
+	// or definition label); nil counts nothing.
+	numberSpaceExhausted metric.Int64Counter
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:

@@ -181,12 +181,19 @@ func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration
 }
 
 // exhausted is the refusal of a create whose counter value outgrew the
-// format's width in scope (ADR-005 §3.5).
-//
-// TODO(TODO-S18-02): write the refusal's audit row on the runner, outside
-// the create transaction (TICK-865, after the ADR-004 erratum TICK-864).
-func (w *write) exhausted(scopeKey string) error {
-	return &ErrNumberSpaceExhausted{EntityKey: w.cmd.EntityKey, ScopeKey: scopeKey, Width: w.format.Width}
+// format's width in scope (ADR-005 §3.5), carrying its R2b audit entry
+// (ADR-004-E9). It writes nothing: the caller appends the entry after the
+// create's transaction has ended.
+func (w *write) exhausted(ctx context.Context, scopeKey string, counter int64) error {
+	ex := &ErrNumberSpaceExhausted{
+		EntityKey: w.cmd.EntityKey, ScopeKey: scopeKey, Width: w.format.Width, Epoch: w.format.Epoch, Counter: counter,
+	}
+	entry, err := exhaustedEntry(ctx, w.cmd, w.defID, ex)
+	if err != nil {
+		return errors.Join(ex, err)
+	}
+	ex.Entry = entry
+	return ex
 }
 
 // allocate takes the create's number (ADR-005 L2s) on the runner and checks

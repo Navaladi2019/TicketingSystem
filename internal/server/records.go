@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -172,6 +174,11 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		// in the COMMIT's round trip since the key's row is held.
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitCreateRecordResponse)
 	}, tenancy.BeginInFirstBatch())
+	// The create's transaction has ended and its connection is back in the
+	// pool, so the refusal's audit entry can take one of its own (ADR-004-E9).
+	if ex := (*pipeline.ErrNumberSpaceExhausted)(nil); errors.As(err, &ex) {
+		err = h.auditExhausted(ctx, p.TenantID, ex, err)
+	}
 	if err != nil {
 		if errors.Is(err, idempotency.ErrSettled) {
 			// The middleware answers from the key; this response is dropped.
@@ -185,6 +192,51 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 		return nil, h.recordError(ctx, err, nil, "")
 	}
 	return resp, nil
+}
+
+// exhaustedAuditTimeout bounds the append of a refusal's audit entry when the
+// request has no deadline of its own (ADR-004-E9 N1: a stalled append never
+// holds an API connection past the request).
+const exhaustedAuditTimeout = 5 * time.Second
+
+// auditExhausted appends the R2b entry of a create refused with
+// number_space_exhausted (ADR-004-E9), and returns refused, joined with the
+// audit error if the append failed: a refusal is never a success, and the
+// create never commits.
+//
+// The caller has ended the create's transaction and released its
+// connection, so this never holds two API-pool connections at once (no
+// hold-and-wait, TICK-657). The entry goes in a transaction of its own that
+// holds only it, on the API pool (h.pool), never on the allocator pool
+// (spike S1), under the token's tenant: the tenant Write checked against the
+// create's transaction, so RLS and audit.Append see the same one (I1). It
+// runs on context.WithoutCancel(ctx) bounded by the request's deadline (N1),
+// so a client that disconnects after the refusal does not drop the entry.
+//
+// The log line names the tenant and the type, never the scope key.
+func (h *handlers) auditExhausted(ctx context.Context, tenant uuid.UUID, ex *pipeline.ErrNumberSpaceExhausted, refused error) error {
+	actx := context.WithoutCancel(ctx)
+	if h.numberSpaceExhausted != nil {
+		h.numberSpaceExhausted.Add(actx, 1)
+	}
+	attrs := []any{slog.String("tenant_id", tenant.String()), slog.String("entity_key", ex.EntityKey)}
+	h.log.WarnContext(actx, "record create refused: number space exhausted", attrs...)
+	var cancel context.CancelFunc
+	if deadline, ok := ctx.Deadline(); ok {
+		actx, cancel = context.WithDeadline(actx, deadline)
+	} else {
+		actx, cancel = context.WithTimeout(actx, exhaustedAuditTimeout)
+	}
+	defer cancel()
+	err := tenancy.InTenantTx(actx, h.pool, tenant, func(tx pgx.Tx) error {
+		_, err := audit.Append(actx, tx, ex.Entry)
+		return err
+	})
+	if err != nil {
+		h.log.ErrorContext(actx, "audit of a refused record create failed", append(attrs, slog.Any("error", err))...)
+		return errors.Join(refused, fmt.Errorf("server: audit the refused create: %w", err))
+	}
+	return refused
 }
 
 // settledCreate is CreateRecord's response when the request's key was
