@@ -7,7 +7,7 @@ description: "How to write RFCs, ADRs and PLANs that a reviewer can read in fift
 
 **The reader:** one human reviewer with about fifteen minutes per document, reading it as a rendered HTML page. Every document leads with the recommendation and the decisions the human must make, then the detail that supports them. If a section does not change a decision, cut it.
 
-**Plain-language header first.** Every ADR, amendment and erratum (and every story and bug, see `delivery-planning`) opens with the header from the `readable-issues` skill: what changes, why, what you'll see when it's done, codes used below. No internal codes in it. The Solution Architect runs the comprehension Goldfish (`readable-issues` §3) on the ADR before giving the verdict.
+**Plain-language header first.** Every ADR, amendment and erratum (and every story and bug, see `delivery-planning`) opens with the header from the `readable-issues` skill: what changes, why, what you'll see when it's done, codes used below. No internal codes in it. The Solution Architect runs the comprehension Goldfish (`readable-issues` §3) on the ADR and on the explainer's "In plain words" section before giving the verdict (`design-triad` step 5).
 
 **RFC (the proposal and its debate)**
 1. Summary — 3–6 bullets: what we decide, the main trade-off, what the human must accept.
@@ -19,7 +19,7 @@ description: "How to write RFCs, ADRs and PLANs that a reviewer can read in fift
 
 **ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers, and - for every API operation the ADR adds or changes - an **API test scenarios** list (operation x documented status, invalid input writes nothing, idempotent replay writes once, cross-tenant refused; rule in `testing-ci`). Status stays `PROPOSED` until the Solution Architect's verdict (after the Technical Architect critique and any CTO tie-break); the Solution Architect never sets `ACCEPTED` on a contested design without that verdict. No debate history (it stays in the archived RFC).
 
-**HTML explainer (`ADR-NNN[-A<k>|-E<k>]-explained.html`)** — self-contained, for a decision-maker who has not read the RFC. Its first section, "In plain words", answers the Heilmeier questions (EGM `heilmeier-standard.md`) with no jargon and no internal codes:
+**HTML explainer (`ADR-NNN[-A<k>|-E<k>]-explained.html`)** — self-contained, for a decision-maker who has not read the RFC. Its first section, "In plain words", answers the Heilmeier questions (EGM `heilmeier-standard.md`) with no internal codes; a technical term that cannot be avoided is explained in the same sentence:
 1. **Goal** — what are we trying to do?
 2. **Today** — how is it done now, and what are the limits?
 3. **What's new** — what changes, and why we expect it to work.
