@@ -209,6 +209,8 @@
         children:
           - page: adr/adr-005-e1.md
             label: "E1: the first create of a type can fail between M2 and M3"
+          - page: adr/adr-005-e2.md
+            label: "E2: grow is refused when a digit touches {seq:N}"
       - page: adr/adr-006.md
         label: "ADR-006 Filterable tenant fields"
       - page: adr/adr-007.md
