@@ -69,7 +69,7 @@ owner: Technical Lead
 | CI-2 | full | P3-18: the forged-payload path on `POST /api/v1/records/incident` asserts "refused or stored under tenant A only" with an RLS-bypassing read (TICK-10 carry-forward, CTO D-P10 sign-off); P3-07 for entity types | full |
 | CI-6, CI-7 | full | P3-21 (D9 entry), P3-26 (the one typed `Directive` allowance and its negatives), P3-22a (references-only payloads), P3-23 (R1 walk over every committed history), P3-42 (per-kind key allow-list, AR-041) | full |
 | CI-8 | partial | P3-14 / P3-15 (404, 412 behaviour), TICK-87 = P3-16 (registers both), P3-37 (masked-filter case) | **full after S10** |
-| CI-10 | partial | TICK-88 = P3-12 (audit row, cycle check per the TICK-361 ruling); P3-44 gate under the fallback | **full after S9 (S11b under the D-3-16 fallback)** |
+| CI-10 | partial | TICK-88 = P3-12 (audit row, A5 start key `cascade_start`, cases (a)–(f)); P3-42 case (g), signal ping-pong between two runs stopped at depth 9 (CTO ruling on TICK-88, 2026-11-01) | **full after S11b (A5 (g))** |
 | CI-11 | full | none | full |
 
 ## Decisions this plan makes
@@ -375,7 +375,7 @@ gantt
 | P3-38 | qa | S10 acceptance kit, verified on a fresh stack |
 | P3-40 | postgres-dev | `workflow_definitions` and versions tables, immutable versions, holding the step-id map |
 | P3-41 | backend-dev | Publish route (`workflow_definition_invalid`; admin via `RequireTenantAdminTx`), calls `AssignStepIDs` and stores the map in the immutable version row, refuses a client-supplied step id, checks `update_record.set` against the entity schema; DB `DefinitionStore` |
-| P3-42 | core-dev | `EventSink`: trigger-matched `nava.interpreter` starts (`target_key` per D-3-13), `record.changed` signals only to refs waiting on `record_changed` and never to the run whose own write caused the change, per-kind payload key allow-list in `Enqueue` and the relay; the cycle check if the TICK-361 ruling puts it on starts |
+| P3-42 | core-dev | `EventSink`: trigger-matched `nava.interpreter` starts (`target_key` per D-3-13), `record.changed` signals only to refs waiting on `record_changed` and never to the run whose own write caused the change, per-kind payload key allow-list in `Enqueue` and the relay; the start claim through `cascade.ClaimStart` (A5); `Causation` only from the outbox row the relay delivered, never from workflow input; CI-10 case **(g)** (signal ping-pong between two runs on R, stopped at depth 9) a named PASS, and `Coverage()` flips CI-10 to full |
 | P3-43 | backend-dev | `RecordWriter` adapter through the pipeline (`Source=workflow`, D-3-13 key), `CloseWorkflowRef`; tenant B's records start no tenant A workflow |
 | P3-44 | qa | S11b acceptance kit, verified on a fresh stack. Includes the P3-24 crash case against the real `pipeline.Write`, and, under the D-3-16 fallback, the AC "the CI-10 cycle case is a named PASS in the isolation report" |
 | P3-50 | postgres-dev | `comments` and `record_links` tables |

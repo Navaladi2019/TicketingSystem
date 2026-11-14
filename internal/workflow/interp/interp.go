@@ -23,9 +23,11 @@ package interp
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/def"
 )
@@ -46,19 +48,32 @@ const (
 // (D-3-12). Its argument is the relay's outbox.Delivery, whose payload is
 // {"signal": <signal id>}; the signal id is the "signal:<name>" entry of the
 // version's step-id map.
-const SignalName = "nava.interpreter.signal"
+const SignalName = outbox.InterpreterSignalKind
 
 // StepRef is the one argument of NextStep and ApplyStep. It holds UUIDs only,
 // so the worker guard records it (internal/workerguard/args.go). Step is
 // uuid.Nil for the definition's start step. Signal is set only on the
 // NextStep call that follows a delivered signal, and is omitted otherwise,
 // never null.
+//
+// Cause is the outbox id of the delivery, start or signal, that last
+// resumed the run (D-3-29). It is a reference only: a writer reads the
+// workflow_cause row it names, under RLS, and refuses a row that is not this
+// run's (workerguard.ResolveCause). Nothing trusts a value carried here.
 type StepRef struct {
 	DefinitionVersionID uuid.UUID  `json:"definition_version_id"`
 	RecordID            uuid.UUID  `json:"record_id"`
 	Step                uuid.UUID  `json:"step"`
 	Signal              *uuid.UUID `json:"signal,omitempty"`
+	Cause               uuid.UUID  `json:"cause"`
 }
+
+// RecordChangedSignal is the wait_signal name a run waits on to hear about a
+// change to its record. While NextStep has the run waiting on it, the run's
+// workflow_ref.record_changed_signal_id is that signal's id, and the records
+// pipeline's EventSink signals the run on every write to the record but its
+// own (D-3-14, D-3-29).
+const RecordChangedSignal = "record_changed"
 
 // Version is one published definition version: the parsed definition and
 // the step-id map def.AssignStepIDs assigned at publish (D-3-15).
@@ -74,21 +89,25 @@ type DefinitionStore interface {
 	Load(ctx context.Context, tenantID, versionID uuid.UUID) (*Version, error)
 }
 
-// RecordReader reads a record of tenant as encoding/json decodes it. It
-// returns ErrNotFound when tenant has no such record. Activity side only; the
-// real adapter reads in workerguard.InTenantTx.
+// RecordReader reads a record of tenant as encoding/json decodes it, with the
+// record's version at that read. It returns ErrNotFound when tenant has no
+// such record. NextStep hands the version to WaitTracker, so a wait is never
+// set on a record that changed after the walk read it. Activity side only;
+// the real adapter reads in workerguard.InTenantTx.
 type RecordReader interface {
-	Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[string]any, error)
+	Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[string]any, int64, error)
 }
 
 // RecordWriter applies an update_record step's set to a record of tenant,
 // once per idempotencyKey: a second call with the same key returns the first
 // result and changes nothing (D-3-13). The real adapter writes through the
-// records pipeline as the workflow actor (P3-43). Business rejections wrap
+// records pipeline as the workflow actor (P3-43). cause is StepRef.Cause, the
+// workflow_cause row the adapter takes the write's causation from; it is the
+// only causation input. Business rejections wrap
 // ErrValidation, ErrIllegalTransition or ErrForbidden; a missing record wraps
 // ErrNotFound.
 type RecordWriter interface {
-	Write(ctx context.Context, tenantID, recordID, stepID uuid.UUID, idempotencyKey string, set map[string]any) error
+	Write(ctx context.Context, tenantID, recordID, stepID, cause uuid.UUID, idempotencyKey string, set map[string]any) error
 }
 
 // Port errors. Adapters wrap them; the activities map each to a fixed
@@ -98,7 +117,33 @@ var (
 	ErrValidation        = errors.New("interp: record write failed validation")
 	ErrIllegalTransition = errors.New("interp: record write is an illegal transition")
 	ErrForbidden         = errors.New("interp: record write is forbidden")
+	// ErrStaleCause is the ErrForbidden of a write whose cause is not the
+	// run's newest workflow_cause row and whose key never committed: a newer
+	// delivery reached the run mid-step. ApplyStep retries it with the run's
+	// newest cause (CauseSource); errors.Is(err, ErrForbidden) holds.
+	ErrStaleCause = fmt.Errorf("%w: cause is older than the run's newest", ErrForbidden)
 )
+
+// CauseSource returns the outbox id of the calling run's newest
+// workflow_cause row (TICK-784). The run is the one the workflow id names,
+// never an argument; tenantID must be the activity's verified tenant. The id
+// is a reference only: RecordWriter resolves it again under RLS and refuses
+// it unless it is this run's newest row. The real adapter is
+// workerguard.CauseTracker.
+type CauseSource interface {
+	NewestCause(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error)
+}
+
+// WaitTracker records, for the run the activity belongs to, the
+// record_changed signal id it waits on, or nil when it waits on none
+// (workflow_ref.record_changed_signal_id). The run is the one the workflow id
+// names, never an argument. A non-nil signal is set only if the record is
+// still at version, the one the walk read; otherwise the adapter returns a
+// retryable error and NextStep re-walks. A nil signal clears the wait with no
+// check. The real adapter is workerguard.WaitTracker.
+type WaitTracker interface {
+	SetRecordChangedWait(ctx context.Context, tenantID, recordID uuid.UUID, signal *uuid.UUID, version int64) error
+}
 
 // IdempotencyKey is the key ApplyStep writes a step with (D-3-13). The
 // workflow id stays the same across continue-as-new, so a step keeps its key.

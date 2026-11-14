@@ -26,8 +26,10 @@ const (
 // cascadePaths are ADR-001 CI-10 (f), as amended by A5: the start key
 // (tenant, origin, record, definition) is per tenant. The pipeline cases
 // (a)–(e) are integration tests in internal/records/pipeline (TestCI10_*),
-// against the real pipeline and a test EventSink; (g) needs the interpreter
-// and is P3-42's.
+// against the real pipeline and a test EventSink. (g), the signal ping-pong
+// between two runs on one record stopped at depth 9, is a named row here
+// (cascadePingPong in cascade_pingpong_isolation_test.go, P3-44, TICK-713; PLAN-003 D-3-16) as well as
+// TestCI10_G_SignalPingPongBetweenTwoRunsStopsAtDepth9 there.
 func cascadePaths() []Path {
 	sql := func(name, role string, expect Expect, query string, args ...any) Path {
 		return Path{Name: "cascade_start: " + name, Case: "CI-10", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
@@ -54,7 +56,23 @@ func cascadePaths() []Path {
 			"DELETE FROM cascade_start WHERE tenant_id = $1", TenantB),
 		{Name: "cascade_start: the same origin, record and definition in two tenants never collide", Case: "CI-10",
 			Role: "nava_worker", DB: cascadeNoCollision},
+		{Name: "cascade: (g) two runs signalling each other on one record stop at depth 9 (ErrCascadeTooDeep, 8 writes)", Case: "CI-10",
+			Role: "nava_worker", DB: func(ctx context.Context, cl Cluster) error {
+				pp, ok := cl.(pingPonger)
+				if !ok {
+					return errors.New("the CI-10 (g) check is not linked: cascade_pingpong_isolation_test.go builds only under the integration tag")
+				}
+				return pp.CascadePingPong(ctx)
+			}},
 	}
+}
+
+// pingPonger is the suite's Cluster when it can run CI-10 (g)'s check,
+// cascadePingPong: the check drives the real records pipeline, which only a
+// test file may import here (D-3-6), so cascade_pingpong_isolation_test.go
+// gives the suite's cluster the method.
+type pingPonger interface {
+	CascadePingPong(context.Context) error
 }
 
 // cascadeNoCollision claims tenant B's seeded key, by the same uuids, from

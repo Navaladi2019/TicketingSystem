@@ -1,0 +1,76 @@
+meta {
+  name: S11b.4 Publish v2 with a new step: unchanged keys keep their id
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick710-s11b-{{s11b_run}}-v2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "notify"
+      },
+      {
+        "key": "notify",
+        "type": "update_record",
+        "set": {
+          "short_description": "notified"
+        },
+        "next": "mark"
+      },
+      {
+        "key": "mark",
+        "type": "update_record",
+        "set": {
+          "short_description": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  const v1 = JSON.parse(bru.getVar('s11b_v1_ids'));
+  test('version 2, a new version id', () => {
+    expect(b.version).to.eql(2);
+    expect(b.version_id).to.not.eql(bru.getVar('s11b_v1_id'));
+  });
+  test('unchanged keys keep their id', () => ['wait', 'mark', 'done'].forEach(k => expect(b.step_ids[k]).to.eql(v1[k])));
+  test('the new key has a new id', () => {
+    expect(b.step_ids.notify).to.be.a('string');
+    expect(Object.values(v1)).to.not.include(b.step_ids.notify);
+  });
+}
+
+docs {
+  Version 2 keeps v1's id for `wait`, `mark` and `done` and draws a new one for `notify`.
+}
