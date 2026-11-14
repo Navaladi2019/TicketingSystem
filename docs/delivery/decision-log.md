@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-14: TICK-673 review risks: mode-only If-Match is fixed in S18; the C13 republish-report filter is an accepted risk until per-type rights exist](decisions/2026-11-14-tick-673-review-risks.md)
 - [2026-11-12: product handbook in docs/handbook/ (TICK-718)](decisions/2026-11-12-handbook.md)
 - [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)
 - [2026-11-10: the `filter[state]=new` miss reopens the list-shape work as one index task](decisions/2026-11-10-state-filter-index.md)
