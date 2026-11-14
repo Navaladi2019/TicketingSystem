@@ -518,6 +518,7 @@ func Paths() []Path {
 	paths = append(paths, recordCI8Paths()...)
 	paths = append(paths, cascadePaths()...)
 	paths = append(paths, workflowPaths()...)
+	paths = append(paths, fieldIndexPaths()...)
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)

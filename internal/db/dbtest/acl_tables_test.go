@@ -317,6 +317,7 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 // manifest whose columns exist.
 func beforeNumberingMode(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
 	m, a = beforeWorkflowTables(fsys, m, a)
+	m, a = beforeFieldIndexTables(fsys, m, a)
 	if _, err := fs.Stat(fsys, numberingModeMigration); err == nil {
 		return m, a
 	}
