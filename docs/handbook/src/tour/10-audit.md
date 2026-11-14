@@ -2,7 +2,7 @@
 title: "10. Audit"
 section: tour
 status: delivered
-sources: [docs/api/audit-export-v1.md, docs/acceptance/S14/README.md, docs/acceptance/guide/bruno/S14/S14-3.bru, internal/onboard/store.go]
+sources: [docs/api/audit-export-v1.md, docs/acceptance/guide/tools/seed.sh, docs/acceptance/S14/README.md, docs/acceptance/guide/bruno/S14/S14-3.bru, internal/onboard/store.go]
 adrs: [ADR-001, ADR-004]
 operations: [listAuditEntries, exportAuditEntries, reseedAuditChain]
 tables: [audit_log, audit_chain_head]
@@ -85,21 +85,5 @@ flowchart LR
 An audit entry is written in the same transaction as the change, so there is no change without an entry. A background workflow (`audit.seal`, the one workflow running on `main`) later chains new entries: each `entry_hash` is SHA-256 of the previous hash and the entry's content. The verifier recomputes every hash from the export alone, checks the chain starts at the anchor and ends at the trailer's `head_hash`, and that the counts match. An entry not yet sealed is listed as `unsealed` and is outside the proof until the next seal. Details: [audit](../database/audit.md), [audit sealer](../workflows/audit-seal.md), the format in `docs/api/audit-export-v1.md`.
 
 ## Not built yet
-
-- **The seeded demo tenants have no audit chain.** `seed.sh` writes tenants A and B directly, so they have no `audit_chain_head`, and the export answers `500 internal_error` ("the tenant has no audit chain head" in the server log). A tenant created by onboarding (step 1) has one. To run this step on tenant A, create its head and first seal row as onboarding does, then wait about a minute:
-
-  ```sh
-  A=00000000-0000-4000-8000-0000000000a1
-  docker compose exec -T postgres sh -c 'PGPASSWORD=$(cat /run/pg_superuser_password) psql -q -v ON_ERROR_STOP=1 -U pgadmin -d nava' <<SQL
-  BEGIN;
-  SELECT set_config('app.tenant_id','$A',true);
-  WITH ids AS (SELECT gen_random_uuid() hid, gen_random_uuid() sid),
-  h AS (INSERT INTO audit_chain_head (tenant_id,id,next_seal_outbox_id,next_seal_at)
-        SELECT '$A',hid,sid,now() FROM ids RETURNING 1)
-  INSERT INTO outbox (id,tenant_id,kind,kind_version,dedupe_key,target_key,target_seq,causation_id,causation_depth,payload)
-  SELECT sid,'$A','audit.seal',1,'audit.seal:1','audit.seal:'||sid,1,sid,0,'{}' FROM ids;
-  COMMIT;
-  SQL
-  ```
 
 - No audit screen, and no scheduled export. The Bruno collection has no request for the export.
