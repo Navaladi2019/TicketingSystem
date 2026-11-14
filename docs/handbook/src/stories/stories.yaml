@@ -192,6 +192,18 @@ stories:
       - docs/acceptance/S17/README.md
       - docs/acceptance/S17/evidence/run.log
       - docs/acceptance/S17/evidence/readiness/result.txt
+  - id: HB2
+    issue: TICK-786
+    title: A first-time reader learns the product from the handbook (vision, ten-step tour, readable sidebar)
+    status: delivered
+    verdict: READY
+    date: 2026-11-14
+    verdict_comment: "All seven tasks merged on main (PRs #632, #634, #635, #637, #638, #641, #644); docs-only story, no Bruno kit"
+    evidence:
+      - docs/product/vision.md
+      - docs/handbook/src/tour/index.md
+      - docs/handbook/examples/README.md
+      - docs/handbook/examples/seed-examples.sh
   - id: S12
     issue: TICK-338
     title: Agents comment, write internal work notes, and link records
