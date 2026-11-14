@@ -184,7 +184,7 @@ func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration
 // format's width in scope (ADR-005 §3.5).
 //
 // TODO(TODO-S18-02): write the refusal's audit row on the runner, outside
-// the create transaction, once its audit action is named.
+// the create transaction (TICK-865, after the ADR-004 erratum TICK-864).
 func (w *write) exhausted(scopeKey string) error {
 	return &ErrNumberSpaceExhausted{EntityKey: w.cmd.EntityKey, ScopeKey: scopeKey, Width: w.format.Width}
 }

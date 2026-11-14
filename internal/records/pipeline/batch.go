@@ -408,9 +408,10 @@ func (w *write) writeCreateAtCommit(ctx context.Context, rec *store.Record, afte
 // writeCreate and Write map the same failure of the write batch.
 func (w *write) mapAtCommit(err error) error {
 	var m *mappedErr
+	nt := numberTaken(err, w.cmd.EntityKey, w.format, w.scopeKey, "")
 	switch {
-	case numberTaken(err, w.cmd.EntityKey, w.format, w.scopeKey, "") != nil:
-		err = numberTaken(err, w.cmd.EntityKey, w.format, w.scopeKey, "")
+	case nt != nil:
+		err = nt
 	case errors.Is(err, store.ErrDuplicateKey):
 		err = &ErrIdempotencyConflict{Concurrent: true}
 	case errors.As(err, &m):
