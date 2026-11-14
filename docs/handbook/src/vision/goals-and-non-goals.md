@@ -10,10 +10,10 @@ The goals and non-goals come from [the product vision](../../../product/vision.m
 
 ## Goals
 
-- **Model a new kind of case through configuration alone.** A tenant adds a record type with no code change and no schema change. Delivered for fields, access rules, masks and numbering; see [what the product is](index.md).
+- **Model a new kind of case through configuration alone.** A tenant adds a record type with no code change and no schema change. Delivered for fields, access rules, masks, numbering and workflows; see [what the product is](index.md).
 - **Keep tenants apart.** One tenant can never read or change another tenant's data. The [nine invariants](invariants.md) are the rules that guarantee it.
 - **Audit every change.** An auditor can prove the export is complete and untampered. Delivered: see [audit](../database/audit.md).
-- **Start a workflow exactly once.** A saved change starts its workflow once, even after retries and failures, through a transactional outbox and a relay. The outbox path is delivered; creating a record does not yet start a workflow (S11b, in progress).
+- **Start a workflow exactly once.** A saved change starts its workflow once, even after retries and failures, through a transactional outbox and a relay. Delivered: creating or updating a record starts the workflow its type's published definition names ([S11b](../stories/s11b.md)).
 - **Be embeddable.** Other applications embed the platform through a widget or an API and SDK. Not built yet.
 
 ## Non-goals

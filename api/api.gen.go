@@ -526,6 +526,9 @@ type ProblemNoInstance struct {
 // PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
 type PublishEntityTypeVersionRequest = json.RawMessage
 
+// PublishWorkflowDefinitionRequest A workflow definition, format `nava.workflow/v1`. Deliberately unconstrained here: the server checks every field after the admin check, and keeps the request bytes so the body is stored byte for byte.
+type PublishWorkflowDefinitionRequest = json.RawMessage
+
 // PutAccessPolicyRequest Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
 type PutAccessPolicyRequest = json.RawMessage
 
@@ -589,11 +592,32 @@ type RecordList struct {
 	TotalCapped *bool `json:"total_capped,omitempty"`
 }
 
+// WorkflowDefinitionVersion defines model for WorkflowDefinitionVersion.
+type WorkflowDefinitionVersion struct {
+	// Body The published definition, the stored bytes.
+	Body       map[string]interface{} `json:"body"`
+	BodySha256 string                 `json:"body_sha256"`
+	Current    bool                   `json:"current"`
+
+	// Entity The key of the trigger entity type.
+	Entity      string                        `json:"entity"`
+	Key         string                        `json:"key"`
+	PublishedAt time.Time                     `json:"published_at"`
+	StepIds     map[string]openapi_types.UUID `json:"step_ids"`
+	Version     int                           `json:"version"`
+
+	// VersionId The id a workflow is pinned to.
+	VersionId openapi_types.UUID `json:"version_id"`
+}
+
 // Entity defines model for Entity.
 type Entity = string
 
 // Key defines model for Key.
 type Key = string
+
+// WorkflowDefinitionKey defines model for WorkflowDefinitionKey.
+type WorkflowDefinitionKey = string
 
 // ExplainAccessParams defines parameters for ExplainAccess.
 type ExplainAccessParams struct {
@@ -714,6 +738,11 @@ type GetRecordHistoryParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// PublishWorkflowDefinitionVersionParams defines parameters for PublishWorkflowDefinitionVersion.
+type PublishWorkflowDefinitionVersionParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // CreateEntityTypeJSONRequestBody defines body for CreateEntityType for application/json ContentType.
 type CreateEntityTypeJSONRequestBody = CreateEntityTypeRequest
 
@@ -731,6 +760,9 @@ type CreateRecordJSONRequestBody = CreateRecordRequest
 
 // PatchRecordApplicationMergePatchPlusJSONRequestBody defines body for PatchRecord for application/merge-patch+json ContentType.
 type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
+
+// PublishWorkflowDefinitionVersionJSONRequestBody defines body for PublishWorkflowDefinitionVersion for application/json ContentType.
+type PublishWorkflowDefinitionVersionJSONRequestBody = PublishWorkflowDefinitionRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -788,6 +820,12 @@ type ServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entity Entity, id string, params GetRecordHistoryParams)
+	// GetWorkflowDefinition The current version of a workflow definition (tenant admin)
+	// (GET /api/v1/workflow-definitions/{key})
+	GetWorkflowDefinition(w http.ResponseWriter, r *http.Request, key WorkflowDefinitionKey)
+	// PublishWorkflowDefinitionVersion Publish the next version of a workflow definition (tenant admin)
+	// (POST /api/v1/workflow-definitions/{key}/versions)
+	PublishWorkflowDefinitionVersion(w http.ResponseWriter, r *http.Request, key WorkflowDefinitionKey, params PublishWorkflowDefinitionVersionParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1831,6 +1869,86 @@ func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetWorkflowDefinition operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key WorkflowDefinitionKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkflowDefinition(w, r, key)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishWorkflowDefinitionVersion operation middleware
+func (siw *ServerInterfaceWrapper) PublishWorkflowDefinitionVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key WorkflowDefinitionKey
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishWorkflowDefinitionVersionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishWorkflowDefinitionVersion(w, r, key, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1960,6 +2078,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.GetEntityTypeAccess)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.PutEntityTypeAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/workflow-definitions/{key}", wrapper.GetWorkflowDefinition)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/workflow-definitions/{key}/versions", wrapper.PublishWorkflowDefinitionVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries", wrapper.ListAuditEntries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/audit/entries:export", wrapper.ExportAuditEntries)
@@ -4407,6 +4527,254 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 	return err
 }
 
+type GetWorkflowDefinitionRequestObject struct {
+	Key WorkflowDefinitionKey `json:"key"`
+}
+
+type GetWorkflowDefinitionResponseObject interface {
+	VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error
+}
+
+type GetWorkflowDefinition200JSONResponse WorkflowDefinitionVersion
+
+func (response GetWorkflowDefinition200JSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetWorkflowDefinition401ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetWorkflowDefinition403ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetWorkflowDefinition404ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetWorkflowDefinition429ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetWorkflowDefinition500ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWorkflowDefinition501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetWorkflowDefinition501ApplicationProblemPlusJSONResponse) VisitGetWorkflowDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersionRequestObject struct {
+	Key    WorkflowDefinitionKey `json:"key"`
+	Params PublishWorkflowDefinitionVersionParams
+	Body   *PublishWorkflowDefinitionVersionJSONRequestBody
+}
+
+type PublishWorkflowDefinitionVersionResponseObject interface {
+	VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error
+}
+
+type PublishWorkflowDefinitionVersion201JSONResponse WorkflowDefinitionVersion
+
+func (response PublishWorkflowDefinitionVersion201JSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PublishWorkflowDefinitionVersion400ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion401ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion401ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion403ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion403ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion409ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion409ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion422ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion422ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion429ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion429ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion500ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion500ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishWorkflowDefinitionVersion501ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishWorkflowDefinitionVersion501ApplicationProblemPlusJSONResponse) VisitPublishWorkflowDefinitionVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ExplainAccess Why a user can or cannot read a record (tenant admin)
@@ -4463,6 +4831,12 @@ type StrictServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(ctx context.Context, request GetRecordHistoryRequestObject) (GetRecordHistoryResponseObject, error)
+	// GetWorkflowDefinition The current version of a workflow definition (tenant admin)
+	// (GET /api/v1/workflow-definitions/{key})
+	GetWorkflowDefinition(ctx context.Context, request GetWorkflowDefinitionRequestObject) (GetWorkflowDefinitionResponseObject, error)
+	// PublishWorkflowDefinitionVersion Publish the next version of a workflow definition (tenant admin)
+	// (POST /api/v1/workflow-definitions/{key}/versions)
+	PublishWorkflowDefinitionVersion(ctx context.Context, request PublishWorkflowDefinitionVersionRequestObject) (PublishWorkflowDefinitionVersionResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -5015,6 +5389,66 @@ func (sh *strictHandler) GetRecordHistory(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRecordHistoryResponseObject); ok {
 		if err := validResponse.VisitGetRecordHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWorkflowDefinition operation middleware
+func (sh *strictHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request, key WorkflowDefinitionKey) {
+	var request GetWorkflowDefinitionRequestObject
+
+	request.Key = key
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWorkflowDefinition(ctx, request.(GetWorkflowDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWorkflowDefinition")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWorkflowDefinitionResponseObject); ok {
+		if err := validResponse.VisitGetWorkflowDefinitionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishWorkflowDefinitionVersion operation middleware
+func (sh *strictHandler) PublishWorkflowDefinitionVersion(w http.ResponseWriter, r *http.Request, key WorkflowDefinitionKey, params PublishWorkflowDefinitionVersionParams) {
+	var request PublishWorkflowDefinitionVersionRequestObject
+
+	request.Key = key
+	request.Params = params
+
+	var body PublishWorkflowDefinitionVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishWorkflowDefinitionVersion(ctx, request.(PublishWorkflowDefinitionVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishWorkflowDefinitionVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishWorkflowDefinitionVersionResponseObject); ok {
+		if err := validResponse.VisitPublishWorkflowDefinitionVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

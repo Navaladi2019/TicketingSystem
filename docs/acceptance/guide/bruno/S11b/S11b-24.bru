@@ -1,0 +1,48 @@
+meta {
+  name: S11b.24 AC2: about a minute later the first incident is in_progress
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_i1}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const t0 = Date.now();
+  for (;;) {
+    const r = await N.send({
+      url: N.url('{{core_url}}/api/v1/records/incident/{{s11b_i1}}'),
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('alice_token') },
+    });
+    if ((r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 180 * 1000) break;
+    await bru.sleep(1000);
+  }
+  bru.setVar('s11b_i1_after_s', String(Math.round((Date.now() - Number(bru.getVar('s11b_i1_at'))) / 1000)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  const after = Number(bru.getVar('s11b_i1_after_s'));
+  test('state in_progress, version 2', () => {
+    expect(b.state).to.eql('in_progress');
+    expect(b.version).to.eql(2);
+  });
+  test('AC3: priority still 3: the run stayed on v1, which sets no priority', () => expect(b.data.priority).to.eql(3));
+  test('about a minute after the create (60 to 180 s)', () => expect(after).to.be.at.least(60).and.at.most(180));
+  console.log('S11b.24 in_progress after', after, 's');
+}
+
+docs {
+  Polls once a second, for up to 180 s, until the state is `in_progress`. The demo's run waited its minute, then wrote the record through the pipeline as `source=workflow` (version 2).
+}

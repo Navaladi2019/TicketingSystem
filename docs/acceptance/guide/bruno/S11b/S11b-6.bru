@@ -1,0 +1,59 @@
+meta {
+  name: S11b.6 A body that supplies a step id: 422
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick710-s11b-{{s11b_run}}-id
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "mark",
+        "id": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "key": "mark",
+        "type": "update_record",
+        "set": {
+          "short_description": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('workflow_definition_invalid', 422);
+  test('the step is named', () => expect(N.json().errors.map(e => e.pointer).join(' ')).to.include('/steps/wait'));
+}
+
+docs {
+  A client never supplies a step id. 422 `workflow_definition_invalid`; the step is named by its key.
+}

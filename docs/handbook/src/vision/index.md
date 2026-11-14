@@ -9,7 +9,7 @@ status: delivered
 
 ## What it is for
 
-A generic ticket and case platform. It is not an IT service management (ITSM) product. Each tenant, meaning each customer organisation, defines its own record types, the fields on them, who may see and change them, and the workflow each record follows. The platform keeps tenants apart, records every change in an audit log. Running workflows on records is not built yet. The tenant decides what a "ticket" is.
+A generic ticket and case platform. It is not an IT service management (ITSM) product. Each tenant, meaning each customer organisation, defines its own record types, the fields on them, who may see and change them, and the workflow each record follows. The platform keeps tenants apart, records every change in an audit log, and runs the workflow a tenant publishes for a record type. The tenant decides what a "ticket" is.
 
 The product direction is the product owner's decision, recorded in [the product vision](../../../product/vision.md). This page follows it and says, for each part, whether it is built.
 
@@ -35,7 +35,7 @@ Checked against `main` on 2026-11-13. "Delivered" means it works on `main`. Noth
 | Per-type access rules, masks and numbering | Users see only their group's records, and masked fields stay hidden ([S10](../stories/s10.md), [tour step 7](../tour/07-access-rules-and-masks.md), [access rules and masks](../database/acl.md)). Every type numbers its records `<prefix><7 digits>` ([S17](../stories/s17.md)). | Tenant-defined number formats (S18, S19, planned). |
 | ITSM, loan and visa examples | Three example types, `incident`, `loan_application` and `visa_application`, with a seed script: [examples](../../examples/README.md). Each uses only the fields, states, access rules and masks that exist today. | Documents, approvals, decision rules and typed checks, listed on the examples page. |
 | Records | Create, update, history, and a stale update is refused ([S9](../stories/s9.md), [tour step 9](../tour/09-create-and-work-with-records.md), [records](../database/records.md)). | Comments, work notes and links (S12, planned). |
-| Workflows | | The engine is built and tested ([S11a](../stories/s11a.md)) but switched off in the running product. There is no API to define or start a workflow, and creating a record does not start one (S11b, in progress). See [tour step 8](../tour/08-workflows.md). |
+| Workflows | A tenant admin publishes a versioned workflow definition for a record type; creating or updating a record starts it, and it can wait, branch and update the record through the write pipeline ([S11a](../stories/s11a.md), [S11b](../stories/s11b.md), [tour step 8](../tour/08-workflows.md)). | A workflow builder screen, disabling a definition, and an API to signal a running workflow (approvals). |
 | Tenants, groups and users | An operator onboards a tenant with one API call ([S4](../stories/s4.md), [tour step 1](../tour/01-onboard-a-tenant.md)). Groups, users and organisation units arrive as a sync from the identity provider and apply within 10 minutes ([S5](../stories/s5.md), tour steps [3](../tour/03-create-groups.md), [4](../tour/04-add-users-to-groups.md) and [5](../tour/05-organisation-units.md)). | A platform API to manage groups and users. |
 | Tenant isolation | A query without the right tenant returns nothing ([S2](../stories/s2.md)). | |
 | Audit log and export | One audit log, hash-chained per tenant, and a filtered export an auditor can verify offline ([S13](../stories/s13.md), [S16](../stories/s16.md), [tour step 10](../tour/10-audit.md), [audit](../database/audit.md)). | |
@@ -51,7 +51,7 @@ Other applications will embed the platform in two ways, and both are decided: a 
 | Who | What they do |
 |---|---|
 | Tenant end users | Create, update and view the history of records: agents, underwriters, case officers, applicants. |
-| Tenant administrators | Define record types, fields and access rules for their tenant. Defining workflows is not built yet. |
+| Tenant administrators | Define record types, fields, access rules and workflows for their tenant. |
 | Host applications | Will embed the platform through the widget or the API and SDK (not built yet). |
 | Platform operators | Onboard tenants, run the platform, answer audits. |
 

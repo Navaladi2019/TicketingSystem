@@ -42,6 +42,10 @@ services:
       # and the hook is off (an empty NAVA_INTERPTEST_PAUSE_DIR).
       NAVA_INTERPTEST_WRITES_DIR: ${NAVA_INTERPTEST_WRITES_DIR:-/run/interptest/writes}
       NAVA_INTERPTEST_PAUSE_DIR: ${NAVA_INTERPTEST_PAUSE_DIR:-}
+      # db: the production ports (the database definitions and the real
+      # records pipeline) in place of the fakes, with the pause hook still on:
+      # the S11b crash case (TICK-713, P3-44). Empty: the S11a fakes.
+      NAVA_INTERPTEST_PORTS: ${NAVA_INTERPTEST_PORTS:-}
     volumes:
       - ./deploy/compose/certs/nava-worker.pem:/run/temporal-tls/nava-worker.pem:ro
       - ./deploy/compose/certs/nava-worker.key:/run/temporal-tls/nava-worker.key:ro

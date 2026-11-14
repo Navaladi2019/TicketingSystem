@@ -1,0 +1,90 @@
+ what | defs  | versions |  refs   | waiting 
+------+-------+----------+---------+---------
+ rows | 20000 |    60000 | 2000000 |   50000
+(1 row)
+
+== (1) trigger lookup, BEFORE workflow_definition_versions_trigger
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual time=0.088..0.252 rows=2 loops=1)
+   Buffers: shared hit=39 read=13
+   ->  Bitmap Heap Scan on workflow_definitions d (actual time=0.025..0.056 rows=10 loops=1)
+         Recheck Cond: (tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid)
+         Heap Blocks: exact=10
+         Buffers: shared hit=12
+         ->  Bitmap Index Scan on workflow_definitions_tenant_id_key_key (actual time=0.015..0.015 rows=10 loops=1)
+               Index Cond: (tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid)
+               Buffers: shared hit=2
+   ->  Memoize (actual time=0.018..0.018 rows=0 loops=10)
+         Cache Key: d.id, d.current_version
+         Cache Mode: logical
+         Hits: 0  Misses: 10  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+         Buffers: shared hit=27 read=13
+         ->  Index Scan using workflow_definition_versions_pkey on workflow_definition_versions v (actual time=0.016..0.016 rows=0 loops=10)
+               Index Cond: ((tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid) AND (definition_id = d.id) AND (version = d.current_version))
+               Filter: ((trigger_entity_definition_id = '79cbf4c1-1edc-4d64-a8aa-eaf182b01c88'::uuid) AND (trigger_on = 'record.created'::text))
+               Rows Removed by Filter: 1
+               Buffers: shared hit=27 read=13
+ Planning:
+   Buffers: shared hit=109 read=3
+ Planning Time: 0.992 ms
+ Execution Time: 0.308 ms
+(23 rows)
+
+== (2) waiting refs on a record, BEFORE workflow_ref_waiting
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using workflow_ref_record on workflow_ref (actual time=0.030..0.082 rows=5 loops=1)
+   Index Cond: ((tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid) AND (record_id = '00000000-0000-4000-8000-000000000040'::uuid))
+   Filter: ((closed_at IS NULL) AND (record_changed_signal_id IS NOT NULL))
+   Buffers: shared hit=4 read=4
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.192 ms
+ Execution Time: 0.110 ms
+(8 rows)
+
+== (1) trigger lookup, AFTER
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop (actual time=0.093..0.101 rows=2 loops=1)
+   Buffers: shared hit=11 read=5
+   ->  Index Only Scan using workflow_definition_versions_trigger on workflow_definition_versions v (actual time=0.046..0.050 rows=4 loops=1)
+         Index Cond: ((tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid) AND (trigger_entity_definition_id = '79cbf4c1-1edc-4d64-a8aa-eaf182b01c88'::uuid) AND (trigger_on = 'record.created'::text))
+         Heap Fetches: 0
+         Buffers: shared hit=1 read=3
+   ->  Index Scan using workflow_definitions_pkey on workflow_definitions d (actual time=0.010..0.010 rows=0 loops=4)
+         Index Cond: ((tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid) AND (id = v.definition_id))
+         Filter: (v.version = current_version)
+         Rows Removed by Filter: 0
+         Buffers: shared hit=10 read=2
+ Planning:
+   Buffers: shared hit=27
+ Planning Time: 0.445 ms
+ Execution Time: 0.139 ms
+(15 rows)
+
+== (2) waiting refs on a record, AFTER
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using workflow_ref_waiting on workflow_ref (actual time=0.057..0.072 rows=5 loops=1)
+   Index Cond: ((tenant_id = 'cbe1a02f-3305-4f40-9d31-6910c0a53ac4'::uuid) AND (record_id = '00000000-0000-4000-8000-000000000040'::uuid))
+   Buffers: shared hit=5 read=2
+ Planning:
+   Buffers: shared hit=32
+ Planning Time: 0.457 ms
+ Execution Time: 0.104 ms
+(7 rows)
+
+== sizes
+               relname                |  size   |   bytes   
+--------------------------------------+---------+-----------
+ workflow_definition_versions         | 52 MB   |  54616064
+ workflow_definition_versions_pkey    | 4584 kB |   4694016
+ workflow_definition_versions_trigger | 6664 kB |   6823936
+ workflow_ref                         | 223 MB  | 234119168
+ workflow_ref_pkey                    | 129 MB  | 134889472
+ workflow_ref_record                  | 63 MB   |  66035712
+ workflow_ref_waiting                 | 856 kB  |    876544
+(7 rows)
+
