@@ -1,6 +1,6 @@
 .PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
 
-ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi test-handbook vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,

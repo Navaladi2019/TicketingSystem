@@ -19,7 +19,8 @@ fetched from the network: no CDN, no font, no `fetch()`.
 3. Commit the sources and the generated files together.
 4. `task handbook:check` (`... build.py --check`) rebuilds in memory and fails
    when the committed HTML is stale. It is not part of `task lint` or CI.
-5. `python -I docs/handbook/build/test_build.py` runs the generator's tests.
+5. `python -I docs/handbook/build/test_build.py` (`task test:handbook`, `make test-handbook`) runs the generator's tests; the CI `lint` job runs it (TICK-847).
+6. `task test` fails when a delivered story in `stories.yaml` has no page or no generated HTML, when an ADR, amendment or erratum record under `docs/adr/` has no `src/adr/<id>.md` summary naming it, or when a page names an `operationId` that is not in the bundle (`api/handbook_coverage_test.go`, TICK-847).
 
 Never edit the generated HTML. The viewer (`handbook.css`, `handbook.js`) is
 edited in `docs/handbook/build/assets/`; `task handbook` copies it to
