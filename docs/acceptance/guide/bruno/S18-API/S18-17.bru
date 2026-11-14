@@ -1,0 +1,30 @@
+meta {
+  name: S18.17 Bob reads tenant A's format: 404
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+}
+
+docs {
+  The same 404 as an unknown id, byte for byte, with no `instance`.
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/auth"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -77,7 +78,10 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, nfGate: opts.nfGate}
+	if h.nfGate == nil {
+		h.nfGate = numberformats.NewGate(nil, nil)
+	}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,
 		// no events yet. S11b swaps the sink.
@@ -200,6 +204,9 @@ type handlers struct {
 	cursors           *cursor.Keyring
 	dataFilterTimeout time.Duration
 	store             entitytypes.Store
+	nfStore           numberformats.Store
+	// nfGate refuses a non-default number format until M3 has run.
+	nfGate *numberformats.Gate
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the
@@ -297,6 +304,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.MaskedField:
 					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
+					return
+				case problem.NumberFormatInvalid:
+					h.reg.Write(w, r, problem.NumberFormatInvalid, pe.fields...)
+					return
+				case problem.NumberFormatPrefixRequired:
+					h.reg.Write(w, r, problem.NumberFormatPrefixRequired, pe.fields...)
 					return
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)

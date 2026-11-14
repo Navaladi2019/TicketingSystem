@@ -1,0 +1,36 @@
+meta {
+  name: S18.20 Publish an invalid document: 422
+  type: http
+  seq: 20
+}
+
+put {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-p422
+  If-Match: W/"1"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "document": {
+      "template": "{prefix}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_invalid', 422);
+}
+
+docs {
+  A template with no `{seq:N}`.
+}
