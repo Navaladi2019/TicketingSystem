@@ -248,6 +248,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/s25.md
+            label: "Install the TypeScript SDK"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
@@ -258,6 +260,8 @@
       label: "Operations overview"
     - page: operations/local-stack.md
       label: "Local stack"
+    - page: operations/sdk.md
+      label: "Using the TypeScript SDK"
     - page: operations/observability.md
       label: "Traces, logs and metrics"
     - page: operations/troubleshooting.md
