@@ -215,6 +215,9 @@
         label: "ADR-006 Filterable tenant fields"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
+        children:
+          - page: adr/adr-007-a1.md
+            label: "A1: embedding clients always name the organization"
     - page: stories/index.md
       label: "Stories"
       children:
