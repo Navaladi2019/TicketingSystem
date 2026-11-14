@@ -36,6 +36,12 @@
 #   coverage         merges the unit and integration coverage profiles and
 #                    fails below 95% (make check-coverage, TICK-518). Runs whenever
 #                    unit does; a change that needs unit also runs integration
+#   sdk              the TypeScript SDK (TICK-827, RFC-017 CI-E10): regenerates
+#                    sdk/ts/src/generated from api/openapi.bundled.yaml and
+#                    fails on any drift, then lint, tests and npm pack (the
+#                    tarball is the sdk artifact); only when api/, sdk/ or how
+#                    the job runs changed (make ci-sdk-changed), story-branch
+#                    pull requests included
 # Triggers (TICK-563, for Actions cost; TICK-652, for pull request speed):
 #   event                          jobs                          suites
 #   pull request, no label         changes, lint, story-branches -
@@ -225,6 +231,8 @@ jobs:
       images: ${{ steps.stages.outputs.images }}
       # Whether the temporal-server job runs (TICK-641).
       temporal_server: ${{ steps.tsrv.outputs.temporal_server }}
+      # Whether the sdk job runs (TICK-827).
+      sdk: ${{ steps.sdk.outputs.sdk }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -293,6 +301,17 @@ jobs:
           CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: make ci-temporal-server-changed
+      # TICK-827: the sdk job only when api/, sdk/, make/sdk.mk, its script or
+      # this workflow changed; same inputs and story-branch rule as tsrv above.
+      - name: Does the sdk need its job
+        id: sdk
+        env:
+          BASE: origin/${{ github.base_ref || 'main' }}
+          CI_ALL: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
+          CI_FULL: ${{ env.CI_FULL == 'true' && '1' || '' }}
+          CI_LINT_ONLY: ${{ github.event_name == 'pull_request' && !startsWith(github.base_ref, 'TICK-') && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full') && '1' || '' }}
+          PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: make ci-sdk-changed
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
@@ -710,6 +729,15 @@ jobs:
         id: images
         run: make image-ci
 
+      # TICK-829: the sdk_ts case runs the SDK's integration tests with
+      # node --test --experimental-strip-types, so the Node of sdk/ts/.nvmrc
+      # (22), not the runner's default; same setup as the sdk job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: sdk/ts/.nvmrc
+          cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
+          cache-dependency-path: sdk/ts/package-lock.json
+
       # Phase 1: the platform and Temporal cases.
       - name: Start the stack
         id: up
@@ -894,6 +922,39 @@ jobs:
             coverage.html
           if-no-files-found: error
 
+  sdk:
+    # TICK-827 (PLAN-008 P8-22, ADR-007 D10, RFC-017 CI-E10): the TypeScript
+    # SDK in sdk/ts. Node from sdk/ts/.nvmrc, the toolchain from its
+    # package-lock.json (npm ci in every target). check-sdk-generated reruns
+    # the pinned openapi-typescript over api/openapi.bundled.yaml and fails
+    # when the committed client differs. Nothing is published (D-8-7): the
+    # npm pack tarball is uploaded as the sdk artifact.
+    needs: [runner, changes]
+    if: needs.changes.outputs.sdk == 'true'
+    runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
+    timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 10 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: sdk/ts/.nvmrc
+          cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
+          cache-dependency-path: sdk/ts/package-lock.json
+      - name: Generated client matches the bundle (CI-E10)
+        run: make check-sdk-generated
+      - name: SDK lint
+        run: make sdk-lint
+      - name: SDK tests
+        run: make sdk-test
+      - name: SDK build and npm pack
+        run: make sdk-pack
+      - name: Upload the SDK tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk
+          path: sdk/ts/*.tgz
+          if-no-files-found: error
+
   full-suite:
     # TICK-638: on a pull request into a TICK-* story branch every suite job
     # must run and succeed. GitHub shows a skipped job as passed, so this job
@@ -901,8 +962,9 @@ jobs:
     # check for story-branch pull requests. Same label rule as lint, so a run
     # started by any other label skips it with the rest. TICK-695: a skipped
     # temporal-server passes when the changes job found the module unchanged
-    # (TEMPORAL_SERVER=false).
-    needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
+    # (TEMPORAL_SERVER=false). TICK-827: likewise a skipped sdk when the API
+    # and the SDK did not change (SDK=false).
+    needs: [changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage, sdk]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -911,7 +973,8 @@ jobs:
       - name: Every suite job succeeded
         env:
           TEMPORAL_SERVER: ${{ needs.changes.outputs.temporal_server }}
-          RESULTS: changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} unit=${{ needs.unit.result }} temporal-server=${{ needs.temporal-server.result }} integration=${{ needs.integration.result }} commit-check-budget=${{ needs.commit-check-budget.result }} stack=${{ needs.stack.result }} coverage=${{ needs.coverage.result }}
+          SDK: ${{ needs.changes.outputs.sdk }}
+          RESULTS: changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} unit=${{ needs.unit.result }} temporal-server=${{ needs.temporal-server.result }} integration=${{ needs.integration.result }} commit-check-budget=${{ needs.commit-check-budget.result }} stack=${{ needs.stack.result }} coverage=${{ needs.coverage.result }} sdk=${{ needs.sdk.result }}
         run: make check-full-suite
 
   story-branches:
@@ -983,7 +1046,7 @@ jobs:
     # names the event (EVENT). A skipped job is not a failure; a cancelled run
     # does not fire this. The govulncheck workflow has a main-red job of its
     # own (TICK-641).
-    needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage]
+    needs: [runner, changes, lint, unit, temporal-server, integration, commit-check-budget, stack, coverage, sdk]
     if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event.schedule == '41 2 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 5

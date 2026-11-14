@@ -220,6 +220,17 @@ stories:
     issue: TICK-684
     title: A plugin authors number formats through the public API (parked)
     status: planned
+  - id: S25
+    issue: TICK-801
+    title: A developer installs the TypeScript SDK and lists, reads and creates records
+    status: delivered
+    verdict: READY
+    date: 2026-11-14
+    verdict_comment: "TICK-801 VERDICT: ACCEPTED"
+    evidence:
+      - docs/acceptance/S25/README.md
+      - docs/acceptance/S25/fresh-stack-run.txt
+      - docs/acceptance/S25/node20-run.txt
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story
