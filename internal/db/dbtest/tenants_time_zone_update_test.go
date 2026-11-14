@@ -15,7 +15,10 @@ import (
 // TICK-795 (for TICK-672, ADR-005 §3.6): nava_app sets its own tenant's
 // time_zone and nothing else on tenants.
 
-const tenantsTimeZoneUpdateBefore = 20261113105959
+// tenantsTimeZoneUpdateBefore is the version just before
+// 20261113110100_tenants_time_zone_update_policy.sql (the record_counters
+// purge), so DownTo rolls back only the policy migration.
+const tenantsTimeZoneUpdateBefore = 20261113110000
 
 // Acceptance: the policy is FOR UPDATE TO nava_app with the canonical
 // predicate on id in USING and WITH CHECK, and nava_app may update
