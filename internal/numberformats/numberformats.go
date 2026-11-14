@@ -235,7 +235,7 @@ func insertVersion(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID, versi
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO number_format_versions (tenant_id, format_id, version, document, compiled, compiled_sha256, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7)`, tenantID, id, version, doc, compiled, sum, by); err != nil {
+VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)`, tenantID, id, version, string(doc), string(compiled), sum, by); err != nil {
 		return fmt.Errorf("numberformats: insert version: %w", err)
 	}
 	return nil
