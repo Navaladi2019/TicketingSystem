@@ -10,12 +10,14 @@ package pipeline_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
@@ -63,40 +65,120 @@ func TestAdversarialDatedScopeUsesOnlyTheCreatesTenant(t *testing.T) {
 	}
 }
 
-// A forged tenant on the dated upsert: inside a tenant A create, the
-// allocation batch is queued for tenant B's type and tenant B's id. The
-// tenants read is under A's RLS setting, so B's zone is invisible; and the
-// record_counters INSERT would fail B's WITH CHECK anyway. The allocation
-// must fail and tenant B must have no counter row.
+// A forged tenant on the dated upsert: inside a tenant A create, the counter
+// upsert is queued for tenant B's id and tenant B's type, on both create
+// paths: `gaps` (store.QueueAllocate, in tenancy.AllocTx) and `gapless`
+// (store.QueueInsertNumbered, in the create's own transaction). Two layers
+// stop it, and each subtest pins the failure to one of them, so the other
+// failing first cannot hide its removal:
+//
+//   - the tenant's zone: the format has none, so the upsert reads B's
+//     tenants.time_zone under A's RLS setting, sees no row, has no zone and
+//     writes and returns nothing. The batch fails with pgx.ErrNoRows.
+//     Without the tenants policy it would read B's zone and go on to the
+//     INSERT (SQLSTATE 42501 below), so this subtest fails.
+//   - the format's zone: the format names its zone, so the tenants row is
+//     never read and the INSERT reaches record_counters' policies, which
+//     refuse B's tenant_id with SQLSTATE 42501: the INSERT's WITH CHECK, and
+//     the SELECT policy RETURNING applies to the new row. Without them the
+//     upsert takes B's number, so this subtest fails.
+//
+// Each subtest also asserts the upsert read back no counter value, so on the
+// `gapless` path the records INSERT's own WITH CHECK (42501 as well) cannot
+// pass for the counter's. Either way tenant B has no counter row and no
+// record afterwards.
 func TestAdversarialForgedTenantOnTheDatedUpsertTakesNothing(t *testing.T) {
-	e := migrated(t)
-	a, b := seedTenant(t, e), seedTenant(t, e)
-	setTenantZone(t, e, b, "America/Los_Angeles")
-	defB := *definitionID(t, e, b.id)
-	c, err := numbering.Compile("{prefix}-{yyyy}{MM}-{seq:4}", numbering.Grow)
-	if err != nil {
-		t.Fatal(err)
+	zones := []struct {
+		name, zone string
+		is         func(error) bool
+		want       string
+	}{
+		{"tenant zone", "", func(err error) bool { return errors.Is(err, pgx.ErrNoRows) }, "pgx.ErrNoRows (B's tenants row invisible)"},
+		{"format zone", "America/Los_Angeles", func(err error) bool {
+			var pe *pgconn.PgError
+			return errors.As(err, &pe) && pe.Code == pgInsufficientPrivilege
+		}, "SQLSTATE 42501 (record_counters WITH CHECK)"},
 	}
-	c.Epoch = 1
-	scope, err := c.Scope()
-	if err != nil {
-		t.Fatal(err)
+	for _, mode := range modes {
+		for _, z := range zones {
+			t.Run(mode+"/"+z.name, func(t *testing.T) {
+				e := migrated(t)
+				a, b := seedTenant(t, e), seedTenant(t, e)
+				setTenantZone(t, e, b, "America/Los_Angeles")
+				defB := *definitionID(t, e, b.id)
+				c, err := numbering.CompileFormat(numbering.Format{
+					Template: "{prefix}-{yyyy}{MM}-{seq:4}", Overflow: numbering.Grow, TimeZone: z.zone,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				c.Epoch = 1
+				taken, err := forgedDatedUpsert(t, e, mode, a, b.id, defB, c)
+				if taken != 0 {
+					t.Fatalf("the counter upsert of a tenant A %s create took number %d of tenant B's type (err %v)", mode, taken, err)
+				}
+				if err == nil {
+					t.Fatalf("a tenant A %s create took a dated number of tenant B's type", mode)
+				}
+				if !z.is(err) {
+					t.Fatalf("a tenant A %s create of tenant B's type failed with %v, want %s", mode, err, z.want)
+				}
+				if rows := counters(t, e, b); len(rows) != 0 {
+					t.Fatalf("tenant B counters %s after a tenant A forged %s create, want none", fmtCounters(rows), mode)
+				}
+				if n := count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1`, b.id); n != 0 {
+					t.Fatalf("tenant B has %d records after a tenant A forged %s create, want none", n, mode)
+				}
+			})
+		}
 	}
+}
+
+// pgInsufficientPrivilege is SQLSTATE 42501, which a row a policy's WITH
+// CHECK refuses raises.
+const pgInsufficientPrivilege = "42501"
+
+// forgedDatedUpsert runs, in a tenant A create's transaction, the mode's
+// counter upsert queued for tenant forged and its type def under format c:
+// `gaps` through tenancy.AllocTx and store.QueueAllocate, `gapless` as the
+// create's own batch from store.QueueInsertNumbered. It returns the counter
+// value the upsert read back, 0 when it took none, and the transaction's
+// error. The value pins a failure to the upsert itself: on the `gapless`
+// path a forged upsert that took a number is still refused by the records
+// INSERT after it (records' WITH CHECK, 42501 too), which must not stand in
+// for the counter's own check.
+func forgedDatedUpsert(t *testing.T, e env, mode string, a tenantFixture, forged, def uuid.UUID, c numbering.Compiled) (int64, error) {
+	t.Helper()
 	ctx := context.Background()
-	err = tenancy.InTenantTx(ctx, e.app, a.id, func(createTx pgx.Tx) error {
-		var got store.Allocated
-		_, err := tenancy.AllocTx(ctx, e.alloc, createTx, func(batch *pgx.Batch, tenant uuid.UUID) {
-			if tenant != a.id {
-				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
+	var taken int64
+	err := tenancy.InTenantTx(ctx, e.app, a.id, func(createTx pgx.Tx) error {
+		if mode == "gaps" {
+			scope, err := c.Scope()
+			if err != nil {
+				t.Fatal(err)
 			}
-			store.QueueAllocate(batch, b.id, defB, scope, &got)
-		})
+			var got store.Allocated
+			_, err = tenancy.AllocTx(ctx, e.alloc, createTx, func(batch *pgx.Batch, tenant uuid.UUID) {
+				if tenant != a.id {
+					t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
+				}
+				store.QueueAllocate(batch, forged, def, scope, &got)
+			})
+			taken = got.Number
+			return err
+		}
+		rec := &store.Record{
+			TenantID: forged, ID: uuid.New(), Version: 1, EntityDefinitionID: def, SchemaVersion: 1,
+			State: "new", CreatedBy: &a.principal.PrincipalID, Data: map[string]any{"title": "forged"},
+		}
+		batch := &pgx.Batch{}
+		var got store.Numbered
+		if err := store.QueueInsertNumbered(batch, rec, "INC", c, nil, &got); err != nil {
+			t.Fatal(err)
+		}
+		err := createTx.SendBatch(ctx, batch).Close()
+		taken = got.N
 		return err
 	})
-	if err == nil {
-		t.Fatal("a tenant A allocation took a dated number of tenant B's type")
-	}
-	if rows := counters(t, e, b); len(rows) != 0 {
-		t.Fatalf("tenant B counters %s after a tenant A forged allocation, want none", fmtCounters(rows))
-	}
+	return taken, err
 }
