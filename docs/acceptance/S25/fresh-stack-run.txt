@@ -14,7 +14,7 @@ seed: the incident type of each tenant has the default ACL; request and change h
 nava-sdk-1.0.0-alpha.1.tgz
 
 == install the tarball into examples/sdk-node
-nava-sdk-node-example@ C:\Users\vknav\multica_workspaces\ticket-4c6f7183f414\tick-830-a37aecee5927\workdir\TicketingSystem\examples\sdk-node
+nava-sdk-node-example@ examples/sdk-node
 `-- @nava/sdk@1.0.0-alpha.1
 
 

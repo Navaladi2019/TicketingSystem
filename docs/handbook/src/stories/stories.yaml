@@ -208,6 +208,10 @@ stories:
     issue: TICK-684
     title: A plugin authors number formats through the public API (parked)
     status: planned
+  - id: S25
+    issue: TICK-801
+    title: A developer installs the TypeScript SDK and lists, reads and creates records (story branch TICK-801/typescript-sdk)
+    status: in-progress
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story
