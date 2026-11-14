@@ -26,8 +26,8 @@ The header comes before everything else in the body, including `Depends on:` and
 Worked example (S17, record numbering):
 > **What changes:** nothing visible. Ticket numbers keep counting from where they were after the upgrade.
 > **Why:** we're changing how the counter table is keyed so number formats can reset per period later. A bad migration could restart numbering or hand out duplicate numbers.
-> **What you'll see:** after the upgrade, the next incident is `INC0000043`, and 8 users creating tickets at once never get the same number.
-> **Codes below:** ADR-005 = the record-numbering decision. R1/R2 = first and second release of the change. M1–M3 = its three database migration steps.
+> **What you'll see when it's done:** after the upgrade, the last incident before it was `INC0000042`, the next one is `INC0000043`, and 8 users creating tickets at once never get the same number.
+> **Codes used below:** ADR-005 = the record-numbering decision. R1/R2 = first and second release of the change. M1–M3 = its three database migration steps.
 
 ## 2. Bug issues
 
@@ -58,7 +58,7 @@ You are the Comprehension Goldfish: a fresh reader who has just joined the proje
    **What this proposes**
    **How the system works today, per this text**
    If you cannot paraphrase a section, report it as a Blocker. A wrong-sounding or impossible paraphrase is itself a finding: say where the text led you.
-2. **Undefined terms:** list every term, code, service, table or concept that is specific to this project and is neither defined in the document nor linked. Do not list general engineering terms (HTTP, PostgreSQL, RLS, idempotency).
+2. **Undefined terms:** list every term, code, service, table or concept that is specific to this project and is neither defined in the document nor linked. Do not list general engineering terms (HTTP, PostgreSQL, RLS, idempotency), except in the plain-language header ("What changes / Why / What you'll see") and in an "In plain words" section: their reader is not an engineer, so list every technical term used there that is not explained in the same sentence.
 3. **Vague lines:** quote each line that asserts something without saying how ("the system handles this", "seamless", "robust") or assumes an unstated setup step.
 4. For each finding in 2-3 give Severity (Blocker | Major | Nit) and the section it is in.
 No preamble, no suggestions beyond the findings.
