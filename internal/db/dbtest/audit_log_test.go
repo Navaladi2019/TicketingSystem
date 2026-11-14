@@ -155,8 +155,9 @@ func TestP510bAuditLogShape(t *testing.T) {
 	}
 }
 
-// R2: the subject_type CHECK equals internal/audit/subjects.go exactly, and
-// the other closed vocabularies are the ADR's (with E1's cascade actions).
+// R2: the subject_type CHECK equals internal/audit/subjects.go exactly, the
+// action CHECK equals audit.Actions() exactly (ADR-004-E9 [PG 1]), and the
+// other closed vocabularies are the ADR's.
 func TestP510bSubjectTypesMirrorRegistry(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -177,10 +178,18 @@ func TestP510bSubjectTypesMirrorRegistry(t *testing.T) {
 	if got := values("audit_log_subject_type_check"); !slices.Equal(got, registry) {
 		t.Errorf("subject_type CHECK = %v, internal/audit/subjects.go = %v", got, registry)
 	}
+	// ADR-004-E9 [PG 1]: the action CHECK equals audit.Actions() exactly, so
+	// a value in one and not the other fails here.
+	var actions []string
+	for _, a := range audit.Actions() {
+		actions = append(actions, string(a))
+	}
+	slices.Sort(actions)
+	if got := values("audit_log_action_check"); !slices.Equal(got, actions) {
+		t.Errorf("action CHECK = %v, audit.Actions() (internal/audit/entry.go) = %v", got, actions)
+	}
 	for con, want := range map[string][]string{
 		"audit_log_domain_check": {"audit", "config", "record"},
-		"audit_log_action_check": {"cascade_cycle", "cascade_too_deep", "create", "delete", "disable", "enable",
-			"erase", "export", "promote", "publish", "reseed", "rollback", "state_change", "update"},
 		"audit_log_source_check": {"ai", "change_set", "function", "onboarding", "plugin", "rule", "system", "user", "workflow"},
 	} {
 		if got := values(con); !slices.Equal(got, want) {

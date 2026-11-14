@@ -23,7 +23,8 @@ const (
 )
 
 // Action is audit_log.action, the closed R2 list with ADR-004-E1's two
-// cascade actions. audit_log_action_check mirrors it.
+// cascade actions and ADR-004-E9's number_space_exhausted.
+// audit_log_action_check mirrors it (TestP510bSubjectTypesMirrorRegistry).
 type Action string
 
 // The R2 actions.
@@ -42,6 +43,9 @@ const (
 	ActionReseed         Action = "reseed"
 	ActionCascadeCycle   Action = "cascade_cycle"
 	ActionCascadeTooDeep Action = "cascade_too_deep"
+	// ActionNumberSpaceExhausted records a create refused because its
+	// number format's scope has no number left (ADR-004-E9).
+	ActionNumberSpaceExhausted Action = "number_space_exhausted"
 )
 
 // Source is audit_log.source, the closed R2 channel list.
@@ -66,7 +70,7 @@ func Actions() []Action {
 	return []Action{
 		ActionCreate, ActionUpdate, ActionPublish, ActionEnable, ActionDisable, ActionDelete,
 		ActionPromote, ActionRollback, ActionStateChange, ActionExport, ActionErase, ActionReseed,
-		ActionCascadeCycle, ActionCascadeTooDeep,
+		ActionCascadeCycle, ActionCascadeTooDeep, ActionNumberSpaceExhausted,
 	}
 }
 
