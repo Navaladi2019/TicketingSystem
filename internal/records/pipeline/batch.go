@@ -196,7 +196,7 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 		return Result{}, fmt.Errorf("pipeline: new audit id: %w", err)
 	}
 	fixed := w.def.FixedColumns()
-	format := w.format()
+	format := w.format
 	var (
 		got      store.Inserted
 		numbered store.Numbered
@@ -247,15 +247,32 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 	if err := w.tx.SendBatch(ctx, b).Close(); err != nil {
 		var m *mappedErr
 		switch {
+		case gapless && numbered.N > 0 && !format.Fits(numbered.N):
+			// The INSERT rendered no number: the counter outgrew a refuse
+			// format's width. The rollback gives the value back.
+			w.observeFill(ctx, numbered.N)
+			return Result{}, w.exhausted(numbered.ScopeKey)
 		case errors.Is(err, store.ErrDuplicateKey):
 			return Result{}, &ErrIdempotencyConflict{Concurrent: true}
 		case errors.As(err, &m):
 			return Result{}, m.err
 		}
+		scope := w.scopeKey
+		if gapless {
+			scope = numbered.ScopeKey
+		}
+		if nt := numberTaken(err, w.cmd.EntityKey, format, scope, rec.Number); nt != nil {
+			return Result{}, nt
+		}
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	if gapless {
-		want, err := format.Render(w.def.NumberPrefix(), numbered.N)
+		w.observeFill(ctx, numbered.N)
+		datePart, err := format.DatePartOf(numbered.ScopeKey)
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+		want, err := format.RenderParts(w.def.NumberPrefix(), datePart, numbered.N)
 		if err != nil {
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
@@ -391,7 +408,10 @@ func (w *write) writeCreateAtCommit(ctx context.Context, rec *store.Record, afte
 // writeCreate and Write map the same failure of the write batch.
 func (w *write) mapAtCommit(err error) error {
 	var m *mappedErr
+	nt := numberTaken(err, w.cmd.EntityKey, w.format, w.scopeKey, "")
 	switch {
+	case nt != nil:
+		err = nt
 	case errors.Is(err, store.ErrDuplicateKey):
 		err = &ErrIdempotencyConflict{Concurrent: true}
 	case errors.As(err, &m):
@@ -404,6 +424,14 @@ func (w *write) mapAtCommit(err error) error {
 		return fmt.Errorf("%w: %w", ErrRetryable, err)
 	}
 	return err
+}
+
+// observeFill records a `gapless` create's fill ratio on the runner, when
+// it is a FillObserver (ADR-005 §3.5).
+func (w *write) observeFill(ctx context.Context, n int64) {
+	if fo, ok := w.p.runner.(FillObserver); ok {
+		fo.ObserveFill(ctx, w.format, n)
+	}
 }
 
 // storedKey is the tx memo key of a record this transaction created: the row

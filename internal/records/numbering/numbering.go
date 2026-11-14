@@ -4,12 +4,14 @@
 //
 // Compile accepts every template of the ADR-005 §3.1 grammar except
 // {field:…} (S19) and refuses the rest with a *FormatError. Disjoint is the
-// §3.3 rule that two epochs of one type never render the same number. Until
-// the S18 publish path links a format to a type, every create uses Default,
-// {prefix}{seq:7} with overflow grow: epoch 0, scope key ”. Every record
+// §3.3 rule that two epochs of one type never render the same number. A type
+// with no linked format uses Default, {prefix}{seq:7} with overflow grow:
+// epoch 0, scope key ”; a linked one the snapshot on its definition version
+// (TICK-673). Every record
 // number, on the `gaps` and the `gapless` path, is rendered from a Compiled
 // (Render in Go, SQL in PostgreSQL), so there is one definition of the
-// format, not two.
+// format, not two. At allocation PostgreSQL computes the scope key, the date
+// parts and period_end from now() in the numbering time zone (Scope, A7).
 package numbering
 
 import (
@@ -52,8 +54,8 @@ const EpochUnassigned = -1
 // §4.1, CHECK (length(scope_key) <= 128)).
 const MaxScopeKey = 128
 
-// ErrTemplatesUnavailable means a Compiled cannot be rendered on this path
-// yet: SQL renders neither Refuse nor date parts (A7, S18).
+// ErrTemplatesUnavailable means a Compiled cannot be rendered on this path:
+// SQL was given no local-time expression for a format with date parts.
 var ErrTemplatesUnavailable = errors.New("numbering: this number format cannot be rendered here yet")
 
 // ErrNumberSpaceExhausted means a counter value does not fit a Refuse
@@ -173,17 +175,11 @@ func (c Compiled) check() (compiled, error) {
 	return ct, nil
 }
 
-// ScopeKey is the scope key of a format with no date part: ” for the
-// default, epoch 0. Callers before S18 hold only Default; the S18 allocation
-// builds every key with ScopeKeyAt.
-func (c Compiled) ScopeKey() string {
-	return ""
-}
-
 // ScopeKeyAt is the counter's scope key, the third column of
 // record_counters' key (ADR-005 §4.1), for datePart, the format's date
 // parts at the allocation instant concatenated in ScopeParts order (see
-// DatePart; at allocation PostgreSQL computes it, A7, S18):
+// DatePart; at allocation PostgreSQL computes it, A7, and Scope is the
+// same key as SQL builds it):
 //
 //   - the default (epoch 0): ”, and datePart must be empty;
 //   - any other epoch: e<epoch>, then |d:<datePart> when the format has date
@@ -197,14 +193,8 @@ func (c Compiled) ScopeKeyAt(datePart string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	width := 0
-	for _, t := range ct.tokens {
-		if t.kind == tokDate {
-			width += t.width
-		}
-	}
-	if len(datePart) != width || strings.IndexFunc(datePart, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
-		return "", fmt.Errorf("numbering: the date part must be %d digits, got %d characters", width, len(datePart))
+	if err := checkDatePart(ct, datePart); err != nil {
+		return "", err
 	}
 	switch c.Epoch {
 	case 0:
@@ -213,7 +203,7 @@ func (c Compiled) ScopeKeyAt(datePart string) (string, error) {
 		return "", errors.New("numbering: the format has no epoch yet")
 	}
 	key := "e" + strconv.Itoa(c.Epoch)
-	if width > 0 {
+	if datePart != "" {
 		key += "|d:" + datePart
 	}
 	if len(key) > MaxScopeKey {
@@ -270,13 +260,38 @@ func (c Compiled) RenderAt(prefix string, at time.Time, n int64) (string, error)
 	if err != nil {
 		return "", err
 	}
+	return c.render(ct, prefix, n, func(t token) (string, error) { return renderDate(t, at) })
+}
+
+// RenderParts is RenderAt with the date parts given as datePart, the digits
+// PostgreSQL computed for the counter's scope key (DatePartOf), instead of
+// an instant: the number then carries exactly the date its counter was
+// scoped by (ADR-005 A7).
+func (c Compiled) RenderParts(prefix, datePart string, n int64) (string, error) {
+	ct, err := c.check()
+	if err != nil {
+		return "", err
+	}
+	if err := checkDatePart(ct, datePart); err != nil {
+		return "", err
+	}
+	rest := datePart
+	return c.render(ct, prefix, n, func(t token) (string, error) {
+		v := rest[:t.width]
+		rest = rest[t.width:]
+		return v, nil
+	})
+}
+
+// render renders ct, c's tokens, with date(t) for each date token.
+func (c Compiled) render(ct compiled, prefix string, n int64, date func(token) (string, error)) (string, error) {
 	if n < 1 {
 		return "", fmt.Errorf("numbering: counter value %d: values start at 1", n)
 	}
-	digits := strconv.FormatInt(n, 10)
-	if len(digits) > c.Width && c.Overflow == Refuse {
+	if !c.Fits(n) {
 		return "", fmt.Errorf("%w: %d has more than %d digits", ErrNumberSpaceExhausted, n, c.Width)
 	}
+	digits := strconv.FormatInt(n, 10)
 	if pad := c.Width - len(digits); pad > 0 {
 		digits = strings.Repeat("0", pad) + digits
 	}
@@ -290,7 +305,7 @@ func (c Compiled) RenderAt(prefix string, at time.Time, n int64) (string, error)
 		case tokSeq:
 			b.WriteString(digits)
 		case tokDate:
-			v, err := renderDate(t, at)
+			v, err := date(t)
 			if err != nil {
 				return "", err
 			}
@@ -300,29 +315,39 @@ func (c Compiled) RenderAt(prefix string, at time.Time, n int64) (string, error)
 	return b.String(), nil
 }
 
+// Fits reports whether counter value n renders under c: always under Grow,
+// and under Refuse only within Width digits (ADR-005 §3.5).
+func (c Compiled) Fits(n int64) bool {
+	return c.Overflow != Refuse || len(strconv.FormatInt(n, 10)) <= c.Width
+}
+
 // SQL is Render as a PostgreSQL text expression, for a number PostgreSQL
 // builds in the statement that inserts the record (the `gapless` path):
 // prefix and value are SQL expressions for the type's prefix (text) and the
-// counter value (bigint). Literal template text never enters the SQL text:
-// each literal run is appended to args and referenced as $<len(args)>::text,
+// counter value (bigint), and local, for a format with date parts, one for
+// the allocation instant's wall time in the numbering time zone (timestamp
+// without time zone, ADR-005 A7); "" for a format without. Literal template
+// text never enters the SQL text: each literal run, and each date part's
+// to_char pattern, is appended to args and referenced as $<len(args)>::text,
 // and SQL returns the extended args (Security, TICK-666 review). Width is an
-// int. Only Grow is rendered in SQL (Refuse needs an error path SQL has not
-// got), and no date part yet (A7, S18): both are ErrTemplatesUnavailable.
-func (c Compiled) SQL(prefix, value string, args []any) (string, []any, error) {
+// int. Under Refuse a value past Width digits renders NULL, which the
+// records.number NOT NULL constraint refuses: the caller, which knows the
+// value, reports ErrNumberSpaceExhausted (Fits).
+func (c Compiled) SQL(prefix, value, local string, args []any) (string, []any, error) {
 	ct, err := c.check()
 	if err != nil {
 		return "", args, err
 	}
-	if c.Overflow != Grow {
-		return "", args, fmt.Errorf("%w: overflow %q in SQL", ErrTemplatesUnavailable, c.Overflow)
-	}
-	if len(c.ScopeParts) > 0 {
-		return "", args, fmt.Errorf("%w: date parts in SQL", ErrTemplatesUnavailable)
+	if len(c.ScopeParts) > 0 && local == "" {
+		return "", args, fmt.Errorf("%w: date parts in SQL need the local time", ErrTemplatesUnavailable)
 	}
 	// lpad alone would cut a value longer than Width.
 	w := strconv.Itoa(c.Width)
-	seq := "CASE WHEN " + value + " < 1" + strings.Repeat("0", c.Width) +
-		" THEN lpad(" + value + "::text, " + w + ", '0') ELSE " + value + "::text END"
+	fits := value + " < 1" + strings.Repeat("0", c.Width)
+	seq := "CASE WHEN " + fits + " THEN lpad(" + value + "::text, " + w + ", '0') ELSE " + value + "::text END"
+	if c.Overflow == Refuse {
+		seq = "CASE WHEN " + fits + " THEN lpad(" + value + "::text, " + w + ", '0') END"
+	}
 	parts := make([]string, 0, len(ct.tokens))
 	for _, t := range ct.tokens {
 		switch t.kind {
@@ -333,6 +358,9 @@ func (c Compiled) SQL(prefix, value string, args []any) (string, []any, error) {
 		case tokLiteral:
 			args = append(args, t.text)
 			parts = append(parts, "$"+strconv.Itoa(len(args))+"::text")
+		case tokDate:
+			args = append(args, sqlPattern(t))
+			parts = append(parts, "to_char("+local+", $"+strconv.Itoa(len(args))+"::text)")
 		}
 	}
 	return "(" + strings.Join(parts, " || ") + ")", args, nil

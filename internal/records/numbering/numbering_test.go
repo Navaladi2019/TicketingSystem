@@ -17,8 +17,8 @@ func TestCompileDefaultIsEpochZeroWithEmptyScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.ScopeKey(); got != "" {
-		t.Errorf("ScopeKey() = %q, want \"\"", got)
+	if s, err := c.Scope(); err != nil || s.KeyPrefix != "" || s.Dated() || s.PeriodUnit != "" {
+		t.Errorf("Scope() = %+v, %v; want key '', no date part, no period", s, err)
 	}
 	if c.Epoch != 0 {
 		t.Errorf("Epoch = %d, want 0", c.Epoch)
@@ -64,8 +64,36 @@ func TestRenderRefuseOverflow(t *testing.T) {
 	if _, err := c.Render("INC", 10000000); !errors.Is(err, numbering.ErrNumberSpaceExhausted) {
 		t.Errorf("Render(10000000) = %v, want ErrNumberSpaceExhausted", err)
 	}
-	if _, _, err := c.SQL("$1", "v", nil); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
-		t.Errorf("SQL with refuse = %v, want ErrTemplatesUnavailable", err)
+	if got, _, err := c.SQL("$1", "v", "", nil); err != nil || got != "($1 || CASE WHEN v < 10000000 THEN lpad(v::text, 7, '0') END)" {
+		t.Errorf("SQL with refuse = %q, %v; want NULL past the width", got, err)
+	}
+	if !c.Fits(9999999) || c.Fits(10000000) || !numbering.Default().Fits(10000000) {
+		t.Error("Fits: refuse fits 7 digits only; grow fits every value")
+	}
+}
+
+// RenderParts takes the date digits PostgreSQL put in the scope key
+// (TICK-674, A7) and refuses digits that are not the format's date part.
+func TestRenderParts(t *testing.T) {
+	c, err := numbering.Compile("{prefix}/{yy}/{seq:2}/{MM}", numbering.Refuse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.RenderParts("VISA", "2611", 1); err != nil || got != "VISA/26/01/11" {
+		t.Errorf("RenderParts = %q, %v; want VISA/26/01/11", got, err)
+	}
+	for _, bad := range []string{"", "261", "26111", "26x1"} {
+		if _, err := c.RenderParts("VISA", bad, 1); err == nil {
+			t.Errorf("RenderParts(%q): no error, want one", bad)
+		}
+	}
+	if _, err := c.RenderParts("VISA", "2611", 100); !errors.Is(err, numbering.ErrNumberSpaceExhausted) {
+		t.Errorf("RenderParts(100) = %v, want ErrNumberSpaceExhausted", err)
+	}
+	edited := c
+	edited.Tail = "/X"
+	if _, err := edited.RenderParts("VISA", "2611", 1); !errors.Is(err, numbering.ErrInvalidCompiled) {
+		t.Errorf("RenderParts of an edited format = %v, want ErrInvalidCompiled", err)
 	}
 }
 
@@ -88,7 +116,7 @@ func TestRenderRefusesEditedCompiled(t *testing.T) {
 		if _, err := c.RenderAt("INC", time.Now(), 1); !errors.Is(err, numbering.ErrInvalidCompiled) {
 			t.Errorf("%s: RenderAt = %v, want ErrInvalidCompiled", name, err)
 		}
-		if _, _, err := c.SQL("$1", "v", nil); !errors.Is(err, numbering.ErrInvalidCompiled) {
+		if _, _, err := c.SQL("$1", "v", "l", nil); !errors.Is(err, numbering.ErrInvalidCompiled) {
 			t.Errorf("%s: SQL = %v, want ErrInvalidCompiled", name, err)
 		}
 		if _, err := c.ScopeKeyAt(""); !errors.Is(err, numbering.ErrInvalidCompiled) {
@@ -100,6 +128,12 @@ func TestRenderRefusesEditedCompiled(t *testing.T) {
 		if _, err := c.DatePart(time.Now()); !errors.Is(err, numbering.ErrInvalidCompiled) {
 			t.Errorf("%s: DatePart = %v, want ErrInvalidCompiled", name, err)
 		}
+		if _, err := c.Scope(); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: Scope = %v, want ErrInvalidCompiled", name, err)
+		}
+		if _, err := c.DatePartOf(""); !errors.Is(err, numbering.ErrInvalidCompiled) {
+			t.Errorf("%s: DatePart = %v, want ErrInvalidCompiled", name, err)
+		}
 		if numbering.Disjoint(c, numbering.Default(), "INC") {
 			t.Errorf("%s: Disjoint = true, want false", name)
 		}
@@ -107,7 +141,7 @@ func TestRenderRefusesEditedCompiled(t *testing.T) {
 }
 
 func TestSQLDefault(t *testing.T) {
-	got, args, err := numbering.Default().SQL("$15::text", "(c.next - 1)", []any{"a"})
+	got, args, err := numbering.Default().SQL("$15::text", "(c.next - 1)", "", []any{"a"})
 	if err != nil {
 		t.Fatal(err)
 	}

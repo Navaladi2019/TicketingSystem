@@ -172,3 +172,7 @@ codes:
     status: 422
     title: Number format not found
     detail: The number format and version do not exist in this tenant. Nothing was published. See errors for the field.
+  - code: number_space_exhausted
+    status: 409
+    title: No record number left
+    detail: The entity type's number format has no number left in this numbering scope. Nothing was created. A retry fails the same way until the scope changes or a wider format is published. See errors for the scope.

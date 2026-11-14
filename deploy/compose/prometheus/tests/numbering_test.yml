@@ -1,0 +1,35 @@
+# promtool test rules for rules/numbering.yml (TICK-674). Run by
+# internal/audit/lineage.TestAlertRules (integration) with the pinned
+# prom/prometheus image; this directory is not mounted into Prometheus.
+rule_files:
+  - ../rules/numbering.yml
+
+evaluation_interval: 1m
+
+tests:
+  # NumberSpaceNearlyExhausted: silent while every number is at or under 0.9
+  # of the width, fires once one is above it, silent 10 min after.
+  - interval: 1m
+    input_series:
+      - series: 'nava_numbering_fill_ratio_count{job="nava",instance="nava-core:8080"}'
+        values: '0 1 2 3 4 4 4 4 4 4 4 4 4 4 4 4 4'
+      - series: 'nava_numbering_fill_ratio_bucket{le="0.9",job="nava",instance="nava-core:8080"}'
+        values: '0 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: NumberSpaceNearlyExhausted
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: NumberSpaceNearlyExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: A refuse number format has used more than 90 % of its width in a numbering scope (ADR-005 §3.5).
+              description: >-
+                Creates of that type fail with 409 number_space_exhausted once the
+                scope's counter outgrows the width. Publish a wider format (a new
+                epoch) for the type, or wait for the next period of a dated scope.
+      - eval_time: 16m
+        alertname: NumberSpaceNearlyExhausted
+        exp_alerts: []

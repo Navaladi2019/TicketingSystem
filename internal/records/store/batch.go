@@ -304,47 +304,74 @@ func writeKeyError(err error) error {
 type Numbered struct {
 	// N is the counter value the create took.
 	N int64
+	// ScopeKey is the key of the counter row the upsert took N from, as
+	// PostgreSQL computed it.
+	ScopeKey string
 	// Number is the number the INSERT stored, built by PostgreSQL from N.
 	Number string
 	// Payload is the stored row's payload, as PayloadJSON returns it.
 	Payload json.RawMessage
 	// CreatedAt and UpdatedAt are the stored timestamps, at PostgreSQL's
-	// precision.
+	// precision: the transaction's now(), the instant the number's date
+	// parts were read at (ADR-005 A7).
 	CreatedAt, UpdatedAt time.Time
 }
 
 // QueueInsertNumbered queues a `gapless` type's numbering and insert (ADR-005
 // L1, D-3-9; the TICK-648 layout), the first statements of the create's
-// write batch: the record_counters upsert of the type's
-// counter in format's scope, which locks the counter row until the
-// transaction ends, then the INSERT of r, whose number PostgreSQL renders
-// from the counter value the upsert left, as format.SQL under prefix.
-// r.Number is ignored. When the batch runs, *dst holds the value, the
-// number, the stored timestamps and the stored payload under fixed. A
-// rollback after this gives the number back (no gap). It upserts the same
-// row as QueueAllocate, the `gaps` path, so a type whose mode changes
-// carries on from its counter and no number is used twice (ADR-005 §2.1.1).
+// write batch: the record_counters upsert of the type's counter in format's
+// scope, which locks the counter row until the transaction ends, then the
+// INSERT of r, whose number PostgreSQL renders from the counter value the
+// upsert left, as format.SQL under prefix. r.Number and r.CreatedAt are
+// ignored: the record is created at the transaction's now(), and both
+// statements compute the scope key and the date parts from that same now()
+// in the numbering time zone (ADR-005 A7), so the number's date and
+// created_at agree. When the batch runs, *dst holds the value, the scope
+// key, the number, the stored timestamps and the stored payload under
+// fixed. A rollback after this gives the number back (no gap). It upserts
+// the same row as QueueAllocate, the `gaps` path, so a type whose mode
+// changes carries on from its counter and no number is used twice (ADR-005
+// §2.1.1).
+//
+// Under overflow refuse a value past the width renders no number, and the
+// INSERT fails on records.number's NOT NULL; dst.N then tells the caller the
+// space is exhausted (numbering.Compiled.Fits). A tenant time zone changed
+// between the two statements is the same failure, with a value that fits.
 func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numbering.Compiled, fixed map[string]string, dst *Numbered) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
+	scope, err := format.Scope()
+	if err != nil {
+		return fmt.Errorf("records/store: %w", err)
+	}
 	base := []any{
 		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.State,
-		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth, prefix, format.ScopeKey(),
+		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, jsonParam(data),
+		r.CausationOriginID, r.CausationDepth, prefix, scope.KeyPrefix,
 	}
-	// The number, rendered from the counter value the upsert left, read
-	// back by key in the INSERT. The format's literal text is bound as
-	// parameters after base, never pasted into the statement.
-	render, base, err := format.SQL("$15::text", "(c.next - 1)", base)
+	// The counter row, read back by its key: $15 for a scope with no date
+	// part, else $15 completed with the date part of local, the transaction's
+	// now() in the numbering time zone, exactly as the upsert computed it.
+	key, local := "$15::text", ""
+	if scope.Dated() {
+		base = append(base, scope.TimeZone, scope.Patterns)
+		local = `(now() AT TIME ZONE coalesce(nullif($16::text, ''), (SELECT t.time_zone FROM tenants t WHERE t.id = $1)))`
+		key = `$15::text || (SELECT string_agg(to_char(` + local + `, p.f), '' ORDER BY p.i) FROM unnest($17::text[]) WITH ORDINALITY AS p(f, i))`
+	}
+	// The number, rendered from the counter value the upsert left. The
+	// format's literal text is bound as parameters after base, never pasted
+	// into the statement.
+	render, base, err := format.SQL("$14::text", "(c.next - 1)", local, base)
 	if err != nil {
 		return fmt.Errorf("records/store: %w", err)
 	}
 	numberSQL := "(SELECT " + render + ` FROM record_counters c
-    WHERE c.tenant_id = $1 AND c.entity_definition_id = $4 AND c.scope_key = $16::text)`
-	b.Queue(nextNumberSQL, r.TenantID, r.EntityDefinitionID, format.ScopeKey()).QueryRow(func(row pgx.Row) error {
-		if err := row.Scan(&dst.N); err != nil {
+    WHERE c.tenant_id = $1 AND c.entity_definition_id = $4 AND c.scope_key = ` + key + `)`
+	upsert, upsertArgs := upsertSQL(r.TenantID, r.EntityDefinitionID, scope)
+	b.Queue(upsert, upsertArgs...).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(&dst.N, &dst.ScopeKey); err != nil {
 			return fmt.Errorf("records/store: take record number: %w", err)
 		}
 		return nil
@@ -357,7 +384,7 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
     causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, now(), now(), $11, $12, $13)
 RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(func(row pgx.Row) error {
 		var payload string
 		if err := row.Scan(&dst.Number, &dst.CreatedAt, &dst.UpdatedAt, &payload); err != nil {
