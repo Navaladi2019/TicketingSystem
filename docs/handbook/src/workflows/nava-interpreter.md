@@ -15,7 +15,7 @@ sources:
   - docs/architecture/event-sink.md
   - docs/adr/ADR-003-retiring-recorded-histories.md
   - internal/outbox/outbox.go:105
-  - internal/outbox/outbox.go:204
+  - internal/outbox/outbox.go:233
   - internal/workflow/interp/interp.go:38,42-45,51
   - internal/workflow/interp/workflow.go:20
   - internal/workflow/interp/workflow.go:27-42

@@ -38,7 +38,7 @@
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../workflows/index.html">workflows</a> / <span>Audit sealer (audit.seal)</span></nav>
 <article>
 <h1 class="page-title">Audit sealer (audit.seal)</h1>
-<p><code>audit.seal</code> hash-chains each tenant's audit entries (ADR-004 R16). It runs in the stack: <code>nava-worker</code> registers it in the production build (<code>cmd/nava-worker/main.go:298-303</code>), with its two activities, on <code>nava-tq</code>. Each run is one link in the tenant's <strong>seal lineage</strong>: the run commits its successor's start row first, then seals.</p>
+<p><code>audit.seal</code> hash-chains each tenant's audit entries (ADR-004 R16). It runs in the stack: <code>nava-worker</code> registers it in the production build (<code>cmd/nava-worker/main.go:331-336</code>), with its two activities, on <code>nava-tq</code>. Each run is one link in the tenant's <strong>seal lineage</strong>: the run commits its successor's start row first, then seals.</p>
 <h2 id="trigger">Trigger</h2>
 <p>A start row of kind <code>audit.seal</code> (<code>internal/outbox/outbox.go:110</code>), started by the relay as <code>t:&lt;tenant&gt;:audit.seal:&lt;o&gt;</code>, where <code>o</code> is the row's outbox ID. Three producers write that row; see <a href="../workflows/outbox-relay-worker.html#producers">the durable path</a>:</p>
 <ul>

@@ -108,19 +108,19 @@
 <td>Record write pipeline <code>EventSink</code> (<code>eventsink.Sink</code>)</td>
 <td><code>nava.interpreter</code> start, one per published definition whose current version's trigger matches the write</td>
 <td><code>cascade.ClaimStart</code> claims the start key, then <code>outbox.EnqueueStart</code>; a repeat claim enqueues nothing and writes <code>AuditSuppressed</code> (A5-4)</td>
-<td><code>internal/records/pipeline/eventsink/eventsink.go:102-153</code>, <code>internal/records/cascade/cascade.go:117</code>, <code>internal/outbox/outbox.go:233</code></td>
+<td><code>internal/records/pipeline/eventsink/eventsink.go:102-149</code>, <code>internal/records/cascade/cascade.go:117</code>, <code>internal/outbox/outbox.go:233</code></td>
 </tr>
 <tr>
 <td>Interpreter signals from a record write (<code>eventsink.Sink</code>)</td>
 <td><code>nava.interpreter.signal</code> to each open run on the record that waits on <code>record_changed</code>, never the writing run</td>
 <td><code>outbox.EnqueueSignal</code> at the version the write gave the record</td>
-<td><code>internal/records/pipeline/eventsink/eventsink.go:155-194</code>, <code>internal/outbox/outbox.go:280</code></td>
+<td><code>internal/records/pipeline/eventsink/eventsink.go:155-192</code>, <code>internal/outbox/outbox.go:280</code></td>
 </tr>
 <tr>
 <td>Sealer A1 (<code>audit.seal.Reschedule</code>)</td>
 <td>next <code>audit.seal</code> start</td>
 <td><code>outbox.EnqueueSeal</code> with <code>WithDelay</code> (10 s with pending work, else the stored interval, up to 300 s)</td>
-<td><code>internal/audit/seal/seal.go:140</code>, <code>internal/outbox/outbox.go:338</code></td>
+<td><code>internal/audit/seal/seal.go:140</code>, <code>internal/outbox/outbox.go:394</code></td>
 </tr>
 <tr>
 <td><code>chain:reseed</code></td>
@@ -140,12 +140,12 @@
 <p><strong>The production sink is <code>eventsink.Sink</code>.</strong> Both pipelines that write records use it: <code>nava-core</code>'s (<code>internal/server/api.go:113</code>) and the interpreter's <code>RecordWriter</code> (<code>internal/workflow/recordports/recordports.go:121</code>). So a workflow's own write can start or signal other runs, bounded by I9. <code>EnqueueStart</code> and <code>EnqueueSignal</code> each write the row's <code>workflow_cause</code> row in the same transaction (D-3-29). The interpreter takes a write's causation only from that row, never from its input. Outside production, <code>cmd/demo-interpreter</code> and <code>cmd/demo-outbox</code> also call <code>EnqueueStart</code> (<code>cmd/demo-interpreter/main.go:233</code>, <code>cmd/demo-outbox/main.go:305</code>). <code>cmd/demo-interpreter</code> calls <code>EnqueueSignal</code> (<code>main.go:204</code>), and <code>cmd/demo-outbox</code> calls <code>EnqueueAtVersion</code> (<code>main.go:308</code>).</p>
 <h2 id="workflow-id-and-start-options">Workflow ID and start options</h2>
 <ul>
-<li><strong>Workflow ID</strong> <code>t:&lt;tenant_id&gt;:&lt;target_key&gt;</code>, where a start row's <code>target_key</code> is <code>&lt;kind&gt;:&lt;its own outbox id&gt;</code> (<code>dispatch.go:336-348</code>). The relay accepts only a <code>target_key</code> of <code>&lt;kind&gt;:&lt;canonical uuid&gt;</code> with a kind matching <code>^[a-z][a-z0-9._-]{0,99}$</code>, so the ID carries no free text and no PII. Proof: <code>TestWorkflowID</code>, <code>TestInvalidTargetKeyIsDead</code>.</li>
-<li><strong>Start options</strong> (<code>dispatch.go:319-328</code>): <code>WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE</code> and <code>WorkflowExecutionErrorWhenAlreadyStarted: true</code>, task queue <code>relay.TaskQueue</code>. Proof: <code>TestStartRequest</code>.</li>
-<li><strong>Search attribute</strong> <code>NavaTenantId</code> is set from the outbox row's tenant, never from the payload. It is for visibility queries only. The tenant is bound by the workflow ID and the <code>nava-tenant</code> header, which the client propagator sets from <code>workerguard.ContextWithTenant</code> (<code>dispatch.go:239</code>).</li>
+<li><strong>Workflow ID</strong> <code>t:&lt;tenant_id&gt;:&lt;target_key&gt;</code>, where a start row's <code>target_key</code> is <code>&lt;kind&gt;:&lt;its own outbox id&gt;</code> (<code>dispatch.go:338-350</code>). The relay accepts only a <code>target_key</code> of <code>&lt;kind&gt;:&lt;canonical uuid&gt;</code> with a kind matching <code>^[a-z][a-z0-9._-]{0,99}$</code>, so the ID carries no free text and no PII. Proof: <code>TestWorkflowID</code>, <code>TestInvalidTargetKeyIsDead</code>.</li>
+<li><strong>Start options</strong> (<code>dispatch.go:321-329</code>): <code>WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE</code> and <code>WorkflowExecutionErrorWhenAlreadyStarted: true</code>, task queue <code>relay.TaskQueue</code>. Proof: <code>TestStartRequest</code>.</li>
+<li><strong>Search attribute</strong> <code>NavaTenantId</code> is set from the outbox row's tenant, never from the payload. It is for visibility queries only. The tenant is bound by the workflow ID and the <code>nava-tenant</code> header, which the client propagator sets from <code>workerguard.ContextWithTenant</code> (<code>dispatch.go:241</code>).</li>
 <li><strong>One queue, <code>nava-tq</code>.</strong> <code>relay.TaskQueue = &quot;nava-tq&quot;</code> (<code>internal/relay/dispatch.go:29</code>) and the worker polls the same queue (<code>cmd/nava-worker/main.go:45</code>). It is the only queue on the Temporal Authorizer's allow-list.</li>
 </ul>
-<h2 id="outcomes-classify-dispatchgo354-370">Outcomes (<code>classify</code>, <code>dispatch.go:354-370</code>)</h2>
+<h2 id="outcomes-classify-dispatchgo356-372">Outcomes (<code>classify</code>, <code>dispatch.go:356-372</code>)</h2>
 <table>
 <thead>
 <tr>
@@ -188,10 +188,10 @@
 </tr>
 </tbody>
 </table>
-<p>Two cases are settled <strong>without a send</strong> (<code>dispatch.go:222-233</code>):</p>
+<p>Two cases are settled <strong>without a send</strong> (<code>dispatch.go:223-235</code>):</p>
 <ul>
 <li><strong>Invalid target</strong>: <code>target_key</code> or <code>kind</code> not in the one form above → <code>MarkDead</code> with <code>relay: target_key is not &lt;kind&gt;:&lt;uuid&gt;</code>. Proof: <code>TestInvalidTargetKeyIsDead</code>.</li>
-<li><strong>Invalid payload</strong>: the payload is not references only (<code>outbox.ValidatePayload</code>, CI-7), for example a row written around <code>Enqueue*</code> → <code>MarkDead</code>, alert metric <code>outbox_relay_payload_refused</code>. It never reaches Temporal. Proof: <code>TestRecordDataPayloadIsRefusedBeforeDispatch</code>; the database check refusing such an insert: <code>TestPayloadCheckRefusesDirectInsert</code>.</li>
+<li><strong>Invalid payload</strong>: the payload is not references only (<code>outbox.ValidateKindPayload</code>, CI-7: the pattern rule plus the per-kind key allow-list, AR-041; <code>dispatch.go:232</code>), for example a row written around <code>Enqueue*</code> → <code>MarkDead</code>, alert metric <code>outbox_relay_payload_refused</code>. It never reaches Temporal. Proof: <code>TestRecordDataPayloadIsRefusedBeforeDispatch</code>; the database check refusing such an insert: <code>TestPayloadCheckRefusesDirectInsert</code>.</li>
 </ul>
 <p>A row reached after its dispatch deadline is backed off without a call, so a late call can never overtake the successor that took over its lease (<code>TestDeadlineBacksOff</code>). A settle that finds its lease taken is <code>lease_lost</code> and writes nothing (<code>TestRedeliveredStartAfterSettleIsLeaseLost</code>).</p>
 <h2 id="timing-quoted-by-hand-checked-against-the-footer-sha">Timing (quoted by hand; checked against the footer sha)</h2>
@@ -227,17 +227,17 @@
 <tr>
 <td>Dispatch deadline</td>
 <td>lease / 2 from the start of the poll</td>
-<td><code>internal/relay/dispatch.go:188</code></td>
+<td><code>internal/relay/dispatch.go:189</code></td>
 </tr>
 <tr>
 <td>Rows dispatched at once per poll</td>
 <td>8</td>
-<td><code>internal/relay/dispatch.go:124</code></td>
+<td><code>internal/relay/dispatch.go:125</code></td>
 </tr>
 <tr>
 <td>Settle timeout (runs even during shutdown)</td>
 <td>5 s</td>
-<td><code>internal/relay/dispatch.go:83</code></td>
+<td><code>internal/relay/dispatch.go:84</code></td>
 </tr>
 <tr>
 <td>Backoff</td>
@@ -270,13 +270,13 @@
 <tr>
 <td>Producer write</td>
 <td><code>dedupe_key</code>, <code>UNIQUE (tenant_id, dedupe_key)</code>, insert <code>ON CONFLICT DO NOTHING</code></td>
-<td><code>internal/outbox/outbox.go:139-143</code></td>
+<td><code>internal/outbox/outbox.go:144-148</code></td>
 <td><code>TestCI10_DuplicateDedupeKeyWritesOneRow</code></td>
 </tr>
 <tr>
 <td>Start</td>
 <td>the workflow ID, with <code>REJECT_DUPLICATE</code></td>
-<td><code>dispatch.go:319-328</code></td>
+<td><code>dispatch.go:321-329</code></td>
 <td><code>TestStartAlreadyStartedIsDispatched</code></td>
 </tr>
 <tr>
@@ -301,7 +301,7 @@
 <li><strong>Activity</strong>: a missing or different header fails it non-retryably; otherwise the tenant is put on the context for <code>InTenantTx</code> (<code>guard.go:604</code>). Proof: <code>TestActivityGuard</code>.</li>
 <li><strong>Arguments and results</strong>: every activity, child and continue-as-new argument must be references only (CI-7), and a result that is not fails. Proof: <code>TestContinueAsNewArgsGuard</code>.</li>
 <li><strong>Continue-as-new, checked twice.</strong> <code>NewContinueAsNewError</code> checks the header and input when the command is built (<code>guard.go:352-366</code>). <code>ContinueAsNewError</code> is plain data, so workflow code could change it afterwards; <code>ExecuteWorkflow</code> checks it again on the way out, and the input must be one the first check saw (<code>guard.go:161-178</code>). Proof: <code>TestAdversarialContinueAsNewInputRewrittenAfterGuard</code>, <code>TestAdversarialContinueAsNewHeaderRewrittenAfterGuard</code>.</li>
-<li><strong><code>nava.workflow_ref.Close</code></strong> (<code>workflowref.go:34</code>, registered at <code>workflowref.go:52-54</code>): a workflow whose start row has a <code>workflow_ref</code> row calls it last. On <code>main</code> that is <code>nava.interpreter</code>, whose start row's <code>workflow_ref</code> is written by <code>EnqueueStart</code> (<code>outbox.go:528-531</code>). <code>audit.seal</code> has no <code>workflow_ref</code> row (<code>outbox.go:318-319</code>) and never calls it. It finds its <code>workflow_ref</code> row from the workflow ID, never from an argument, runs in <code>InTenantTx</code> with the header tenant and keeps the first <code>closed_at</code>, so a retry is a no-op. Start-to-close 30 s, SDK default retries (<code>workflowref.go:105-110</code>). Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>, <code>TestWorkflowRefCloseIsTenantScoped</code>, <code>TestWorkflowRefCloseWithWrongHeaderTouchesNothing</code>.</li>
+<li><strong><code>nava.workflow_ref.Close</code></strong> (<code>workflowref.go:34</code>, registered at <code>workflowref.go:52-54</code>): a workflow whose start row has a <code>workflow_ref</code> row calls it last. On <code>main</code> that is <code>nava.interpreter</code>, whose start row's <code>workflow_ref</code> is written by <code>EnqueueStart</code> (<code>outbox.go:152</code>, <code>insertRefSQL</code>, executed at <code>outbox.go:604</code>). <code>audit.seal</code> has no <code>workflow_ref</code> row (<code>outbox.go:374-375</code>) and never calls it. It finds its <code>workflow_ref</code> row from the workflow ID, never from an argument, runs in <code>InTenantTx</code> with the header tenant and keeps the first <code>closed_at</code>, so a retry is a no-op. Start-to-close 30 s, SDK default retries (<code>workflowref.go:105-110</code>). Proof: <code>TestCompletedWorkflowClosesItsWorkflowRef</code>, <code>TestWorkflowRefCloseIsTenantScoped</code>, <code>TestWorkflowRefCloseWithWrongHeaderTouchesNothing</code>.</li>
 </ul>
 <h2 id="versioning">Versioning</h2>
 <p>Neither workflow calls <code>workflow.GetVersion</code> today. Every row a producer on <code>main</code> writes carries <code>kind_version</code> 1 (the seal producers fix it; the demo producers pass 1), and the relay passes <code>kind_version</code> to the workflow in <code>outbox.Delivery</code>; no workflow branches on it yet. A later code change to the interpreter follows ADR-003. Details and proofs are on each workflow page.</p>
