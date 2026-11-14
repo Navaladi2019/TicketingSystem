@@ -39,4 +39,4 @@ links the verdict and evidence. The step-by-step kit stays in the
 - [S17: Record numbers keep counting while the counter table moves](s17.md)
 - [HB2: A first-time reader learns the product from the handbook](hb2.md)
 
-S17 has a page whose verdict and date are pending until the story verdict is posted. S12 and S18 to S20 (planned) have no page: they are not on `main`. The table above lists them apart from the delivered stories.
+S12 and S18 to S20 (planned) have no page: they are not on `main`. The table above lists them apart from the delivered stories.

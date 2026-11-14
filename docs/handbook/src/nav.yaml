@@ -29,7 +29,7 @@
     - page: tour/07-access-rules-and-masks.md
       label: "7. Access rules and masks"
     - page: tour/08-workflows.md
-      label: "8. Workflows (not built)"
+      label: "8. Workflows"
     - page: tour/09-create-and-work-with-records.md
       label: "9. Create and work with records"
     - page: tour/10-audit.md
@@ -215,6 +215,9 @@
         label: "ADR-006 Filterable tenant fields"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
+        children:
+          - page: adr/adr-007-a1.md
+            label: "A1: embedding clients always name the organization"
     - page: stories/index.md
       label: "Stories"
       children:
