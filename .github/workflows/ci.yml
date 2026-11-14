@@ -725,6 +725,15 @@ jobs:
         id: images
         run: make image-ci
 
+      # TICK-829: the sdk_ts case runs the SDK's integration tests with
+      # node --test --experimental-strip-types, so the Node of sdk/ts/.nvmrc
+      # (22), not the runner's default; same setup as the sdk job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: sdk/ts/.nvmrc
+          cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
+          cache-dependency-path: sdk/ts/package-lock.json
+
       # Phase 1: the platform and Temporal cases.
       - name: Start the stack
         id: up
