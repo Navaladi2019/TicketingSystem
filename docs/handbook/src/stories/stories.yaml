@@ -126,7 +126,7 @@ stories:
       - docs/acceptance/s10-evidence/s10-fresh-stack-run.txt
   - id: S11a
     issue: TICK-334
-    title: "The workflow interpreter runs a definition on Temporal (scope: interpreter only; S11b, records starting workflows, is in progress)"
+    title: "The workflow interpreter runs a definition on Temporal (scope: interpreter only; records starting workflows is S11b)"
     status: delivered
     verdict: READY
     date: 2026-11-01
@@ -178,8 +178,15 @@ stories:
       - docs/acceptance/S16/README.md
   - id: S11b
     issue: TICK-337
-    title: Creating an incident starts a workflow that waits (story branch TICK-337/workflows-on-records)
-    status: in-progress
+    title: Creating an incident starts a workflow that waits a minute and sets its state in_progress
+    status: delivered
+    verdict: READY
+    date: 2026-11-13
+    verdict_comment: "Acceptance kit s11b.html (stack case s11b_workflows)"
+    bruno: [S11b]
+    evidence:
+      - docs/acceptance/guide/s11b.html
+      - deploy/compose/test/cases/s11b_workflows.sh
   - id: S17
     issue: TICK-664
     title: Record numbers keep counting while the counter table moves (story branch TICK-664/counter-scope-key)

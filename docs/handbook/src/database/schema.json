@@ -1062,6 +1062,19 @@
       ],
       "foreign_keys": [
         {
+          "name": "cascade_start_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "definition_id"
+          ],
+          "ref_table": "workflow_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
           "name": "cascade_start_record_fkey",
           "columns": [
             "tenant_id",
@@ -1739,7 +1752,8 @@
           "command": "SELECT",
           "roles": [
             "nava_app",
-            "nava_groupsync"
+            "nava_groupsync",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
@@ -3868,6 +3882,472 @@
       ]
     },
     {
+      "name": "workflow_cause",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "outbox_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ref_outbox_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "causation_origin_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "causation_depth",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "outbox_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "workflow_cause_tenant_fkey",
+          "columns": [
+            "tenant_id"
+          ],
+          "ref_table": "tenants",
+          "ref_columns": [
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "workflow_cause_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "outbox_id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "workflow_cause_ref_newest",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "ref_outbox_id",
+            "created_at",
+            "outbox_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "workflow_cause_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "workflow_cause_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "workflow_definition_versions",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "body",
+          "type": "json",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "body_sha256",
+          "type": "bytea",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "step_ids",
+          "type": "jsonb",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "trigger_on",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "trigger_entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "published_by",
+          "type": "uuid",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "definition_id",
+        "version"
+      ],
+      "foreign_keys": [
+        {
+          "name": "workflow_definition_versions_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "definition_id"
+          ],
+          "ref_table": "workflow_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "workflow_definition_versions_published_by_fkey",
+          "columns": [
+            "tenant_id",
+            "published_by"
+          ],
+          "ref_table": "principals",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "workflow_definition_versions_trigger_entity_fkey",
+          "columns": [
+            "tenant_id",
+            "trigger_entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "workflow_definition_versions_id_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "workflow_definition_versions_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "definition_id",
+            "version"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "workflow_definition_versions_trigger",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "trigger_entity_definition_id",
+            "trigger_on"
+          ],
+          "include": [
+            "definition_id",
+            "version",
+            "id"
+          ],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "workflow_definition_versions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "workflow_definition_versions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "workflow_definitions",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "key",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "current_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "workflow_definitions_created_by_fkey",
+          "columns": [
+            "tenant_id",
+            "created_by"
+          ],
+          "ref_table": "principals",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "workflow_definitions_entity_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "workflow_definitions_tenant_fkey",
+          "columns": [
+            "tenant_id"
+          ],
+          "ref_table": "tenants",
+          "ref_columns": [
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "workflow_definitions_key_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "key"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "workflow_definitions_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "workflow_definitions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "workflow_definitions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "workflow_definitions_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
       "name": "workflow_ref",
       "kind": "table",
       "partition_of": "",
@@ -3911,6 +4391,12 @@
         {
           "name": "closed_at",
           "type": "timestamp with time zone",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "record_changed_signal_id",
+          "type": "uuid",
           "nullable": true,
           "default": ""
         }
@@ -3968,6 +4454,17 @@
           ],
           "include": [],
           "predicate": ""
+        },
+        {
+          "name": "workflow_ref_waiting",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": "closed_at IS NULL AND record_changed_signal_id IS NOT NULL"
         }
       ],
       "policies": [

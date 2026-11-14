@@ -717,6 +717,68 @@
         "TICK-336",
         "TICK-656"
       ]
+    },
+    {
+      "file": "20261112100000_group_members_group_live_fkey_recheck.sql",
+      "on_main": true,
+      "commit": "41275106",
+      "date": "2026-11-12",
+      "pr": "588",
+      "story": "",
+      "tickets": [
+        "TICK-715"
+      ]
+    },
+    {
+      "file": "20261112100100_records_assignment_group_fkey_recheck.sql",
+      "on_main": true,
+      "commit": "41275106",
+      "date": "2026-11-12",
+      "pr": "588",
+      "story": "",
+      "tickets": [
+        "TICK-715"
+      ]
+    },
+    {
+      "file": "20261113123300_workflow_definitions.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123310_audit_log_subject_workflow_definition.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123320_audit_log_subject_workflow_definition_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123330_cascade_start_definition_fkey.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123340_cascade_start_definition_fkey_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123350_workflow_ref_record_changed_signal.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113123400_workflow_ref_waiting.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113180000_workflow_definitions_audit_commit_check.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113190000_groups_select_worker.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113200000_workflow_cause_ref_newest.sql",
+      "on_main": false
     }
   ]
 }
