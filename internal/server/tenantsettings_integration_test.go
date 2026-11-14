@@ -175,3 +175,64 @@ func TestTenantTimeZoneIsolation(t *testing.T) {
 		t.Errorf("tenant-scoped path = %d, %d; want 404, 404", missing.Code, unknown.Code)
 	}
 }
+
+// Two admins change the zone at once with different Idempotency-Keys. The
+// row is locked while the old value is read, so each change is audited
+// against the value it really replaced (C12).
+func TestTenantTimeZoneConcurrentChangesAreAuditedOnce(t *testing.T) {
+	put := func(e *etEnv, keys []string, zones []string) {
+		t.Helper()
+		codes := make(chan int, len(keys))
+		for i := range keys {
+			go func() {
+				codes <- e.do(t, http.MethodPut, tzPath, "admin-a", keys[i], `{"time_zone":"`+zones[i]+`"}`).Code
+			}()
+		}
+		for range keys {
+			if c := <-codes; c != 200 {
+				t.Errorf("put = %d", c)
+			}
+		}
+	}
+	t.Run("same value", func(t *testing.T) {
+		e := newETEnv(t)
+		put(e, []string{"c1", "c2", "c3", "c4"}, []string{"Europe/Berlin", "Europe/Berlin", "Europe/Berlin", "Europe/Berlin"})
+		if got := tzOf(t, e, e.a.id); got != "Europe/Berlin" {
+			t.Errorf("stored %q", got)
+		}
+		if n := tzAudit(t, e, e.a.id); n != 1 {
+			t.Errorf("%d audit entries for one change, want 1", n)
+		}
+	})
+	t.Run("different values", func(t *testing.T) {
+		e := newETEnv(t)
+		put(e, []string{"d1", "d2"}, []string{"Europe/Berlin", "Asia/Tokyo"})
+		if n := tzAudit(t, e, e.a.id); n != 2 {
+			t.Fatalf("%d audit entries for two changes, want 2", n)
+		}
+		// The later entry's diff names the value now stored, and the entries
+		// differ: the second change replaced the first one's value, not UTC.
+		rows, err := e.super.Query(t.Context(), `SELECT diff::text, content_sha256 FROM audit_log
+			WHERE tenant_id = $1 AND subject_type = 'tenant_setting' ORDER BY txid, occurred_at, id`, e.a.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var diffs []string
+		var sums [][]byte
+		for rows.Next() {
+			var d string
+			var sum []byte
+			if err := rows.Scan(&d, &sum); err != nil {
+				t.Fatal(err)
+			}
+			diffs, sums = append(diffs, d), append(sums, sum)
+		}
+		if len(diffs) != 2 || string(sums[0]) == string(sums[1]) {
+			t.Fatalf("entries = %v", diffs)
+		}
+		if got := tzOf(t, e, e.a.id); !strings.Contains(diffs[1], got) || strings.Contains(diffs[0], got) {
+			t.Errorf("stored %q; first diff %s, second diff %s", got, diffs[0], diffs[1])
+		}
+	})
+}

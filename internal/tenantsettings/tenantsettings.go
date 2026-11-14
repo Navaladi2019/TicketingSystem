@@ -69,6 +69,19 @@ func (Store) TimeZone(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (strin
 	return tz, nil
 }
 
+// timeZoneForUpdate is TimeZone with the row locked until the transaction ends.
+func (Store) timeZoneForUpdate(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (string, error) {
+	var tz string
+	err := tx.QueryRow(ctx, `SELECT time_zone FROM tenants WHERE id = $1 FOR UPDATE`, tenantID).Scan(&tz)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("tenantsettings: lock time zone: %w", err)
+	}
+	return tz, nil
+}
+
 // SetTimeZone sets the tenant's time zone after CheckTimeZone, and audits the
 // change. Setting the value it already has writes nothing and no audit entry.
 // It returns the value now stored.
@@ -79,7 +92,10 @@ func (s Store) SetTimeZone(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, n
 	if err := CheckTimeZone(name); err != nil {
 		return "", err
 	}
-	before, err := s.TimeZone(ctx, tx, tenantID)
+	// The old value is read with the row locked, so a concurrent change waits
+	// here and then sees the committed value: the audit diff is always the
+	// real change, and the same value twice is one audit entry (C12).
+	before, err := s.timeZoneForUpdate(ctx, tx, tenantID)
 	if err != nil {
 		return "", err
 	}
