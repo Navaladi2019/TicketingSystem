@@ -556,8 +556,9 @@ func TestRepublishLinkedRefusals(t *testing.T) {
 	wantProblem(t, e.do(t, http.MethodPost, path, "admin-a", "", `{"version":1}`), http.StatusBadRequest, problem.ValidationFailed)
 	wantProblem(t, e.republish(t, "user-a", f, 1), http.StatusForbidden, problem.Forbidden)
 	wantProblem(t, e.republish(t, "admin-a", f, 9), http.StatusUnprocessableEntity, problem.NumberFormatNotFound)
-	p := wantProblem(t, e.do(t, http.MethodPost, path, "admin-a", linkKey("rl"), `{"version":0}`), http.StatusUnprocessableEntity, problem.NumberFormatInvalid)
-	if len(p.Errors) != 1 || p.Errors[0].Pointer != "/version" {
+	// The contract's minimum: 1 refuses a version below 1 before the handler runs.
+	p := wantProblem(t, e.do(t, http.MethodPost, path, "admin-a", linkKey("rl"), `{"version":0}`), http.StatusBadRequest, problem.ValidationFailed)
+	if len(p.Errors) != 1 || p.Errors[0].Pointer != "/body/version" {
 		t.Errorf("errors = %+v", p.Errors)
 	}
 
