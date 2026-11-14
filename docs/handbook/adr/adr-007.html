@@ -116,7 +116,7 @@
 <tr>
 <td>S1 host-client token passes unchanged <code>Resolve</code>; no prompt on top-level redirect</td>
 <td>D1</td>
-<td>Token refused: amendment. Prompt shown: accepted UX cost.</td>
+<td>Token refused: amendment. Prompt shown: accepted UX cost. <strong>Ran (TICK-806): FAIL, which triggered <a href="#amendment-a1-embedding-clients-always-name-the-organization">Amendment A1</a>; passes with A1's rules (S1 + S1b).</strong></td>
 </tr>
 <tr>
 <td>S2 service account as org member, sync row, <code>Resolve</code></td>
@@ -171,6 +171,104 @@
 </tr>
 </tbody>
 </table>
+<h2 id="amendment-a1-embedding-clients-always-name-the-organization">Amendment A1: embedding clients always name the organization</h2>
+<p>Status: <strong>ACCEPTED</strong>, 2026-11-14, by the Solution Architect (TICK-843, PR #655). Technical Architect critique round 1 had no blocking items; Security approved F1 on re-check; the CTO ruled on the fixtures and on spike S1b. No dissent. <strong>Accepted, not implemented:</strong> the <code>GET</code> endpoint and the two response members land with TICK-815. Normative text: <a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md">ADR-007-A1-org-alias-mandatory.md</a>; explainer: <a href="../../../docs/adr/ADR-007-A1-explained.html">ADR-007-A1-explained.html</a>. Sources: RFC-018 in <a href="../../../docs/adr/ADR-007/rfc">rfc/</a>, spikes S1 and S1b in <a href="../../../docs/adr/ADR-007/spikes">spikes/</a>. Amends D1 and D13.</p>
+<p><em>Paraphrases: "Context", "Decision", "Tests", "Residuals".</em></p>
+<p><strong>Why.</strong> Spike S1 failed: on a user's first sign-in through a tenant's identity provider (the <code>kc_idp_hint</code> broker path), Keycloak 26.8.1 brokers before its organization picker runs, so a token requested with bare scope <code>organization</code> carries no <code>organization</code> claim and the unchanged <code>Resolve</code> answers 401 <code>tenant_unresolved</code>. No token resolved to a wrong tenant: a correctness and UX gap, not an isolation gap.</p>
+<p><strong>Decision.</strong> Every authorization request from an embedding client carries <code>organization:&lt;alias&gt;</code> for the tenant the host acts for, and should carry <code>kc_idp_hint</code> of the same tenant. <code>Resolve</code>, <code>realm-nava.json</code> and <code>nava-web</code> do not change. The alias is a hint, not a trust input: the tenant still comes only from the signed <code>organization.id</code> (ADR-001 I2).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>One line</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1-A1.1</td>
+<td>Embedding clients MUST request <code>organization:&lt;alias&gt;</code>; bare <code>organization</code> is not supported for them.</td>
+</tr>
+<tr>
+<td>D1-A1.2</td>
+<td>They SHOULD also send <code>kc_idp_hint=&lt;idp alias&gt;</code> of the same tenant (no prompt with a live IdP session).</td>
+</tr>
+<tr>
+<td>D1-A1.3</td>
+<td><code>GET</code> and <code>PUT /api/v1/embedding-clients/{client_id}</code> return the read-only pair <code>organization_alias = t-&lt;uuid&gt;</code> and <code>idp_hint = idp-&lt;uuid&gt;</code>, derived from <code>Principal.TenantID</code> alone; no table is read. SDK and kit helpers take the response object, not two strings.</td>
+</tr>
+<tr>
+<td>D1-A1.4</td>
+<td>Alias the user cannot use: (a) no hint, the realm sign-in form, no code; (b) with the hint, a token with no <code>organization</code> claim and 401 <code>tenant_unresolved</code>; (c) an alias naming no org, <code>error=invalid_scope</code>, no code. Never a token for a tenant the user is not in.</td>
+</tr>
+<tr>
+<td>D1-A1.5</td>
+<td>No hint and only an IdP session: Keycloak's username form once (FAIL-UX, not a resolution failure).</td>
+</tr>
+<tr>
+<td>D1-A1.6</td>
+<td>A claimless token gets 401 from the unchanged <code>Resolve</code>: the fail-closed backstop, not a supported path.</td>
+</tr>
+<tr>
+<td>D1-A1.7</td>
+<td>D13 gains <code>GET /api/v1/embedding-clients/{client_id}</code>: tenant admin only, role gate before any lookup, the same 404 for a not-enabled and an unknown <code>client_id</code>, audited. <code>PUT</code> with either read-only member answers 400 <code>unknown_field</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>How a host gets the pair.</strong> The tenant admin's <code>GET</code> (or <code>PUT</code>) at opt-in returns <code>{organization_alias, idp_hint}</code>; the host sends both on its top-level redirect to Keycloak.</p>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">sequenceDiagram
+  participant H as Host page
+  participant P as nava API
+  participant K as Keycloak
+  H-&gt;&gt;P: GET /api/v1/embedding-clients/{client_id} (tenant admin)
+  P--&gt;&gt;H: organization_alias t-&lt;A&gt;, idp_hint idp-&lt;A&gt;
+  H-&gt;&gt;K: /auth scope &quot;openid organization:t-&lt;A&gt;&quot; kc_idp_hint idp-&lt;A&gt;
+  alt user is a member of A
+    K--&gt;&gt;H: token organization = t-&lt;A&gt;
+    H-&gt;&gt;P: Resolve gives tenant A, then the client gate
+  else user is not a member of A
+    K--&gt;&gt;H: token with no organization claim
+    H-&gt;&gt;P: Resolve answers 401 tenant_unresolved
+  end
+</pre></div></figure>
+<p><strong>Tests.</strong> CI-E2 is restated; CI-E14a-d (Keycloak behaviour on seeded fixtures, plus the invariant that no token names a non-member org), CI-E15 (two-org user) and CI-E16 (cross-tenant isolation of the <code>GET</code>/<code>PUT</code> pair, onboarded tenants) are added. Seed tenants are not renamed; kits use tenants created through onboarding.</p>
+<p><strong>Accepted risks.</strong> Indexed in <a href="../../../docs/security/accepted-risks.md">accepted-risks.md</a> as AR-TICK-843-01 to -05.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Residual</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RR-A1-1 (AR-TICK-843-01)</td>
+<td>No-hint path only: a brokered user is stranded on Keycloak's sign-in form with no way back to the host.</td>
+<td>Technical Lead</td>
+</tr>
+<tr>
+<td>RR-A1-2 (AR-TICK-843-02)</td>
+<td><code>nava-web</code> keeps bare <code>organization</code>; a multi-org user's first brokered sign-in gets 401 (fail-closed).</td>
+<td>Solution Architect</td>
+</tr>
+<tr>
+<td>RR-A1-3 (AR-TICK-843-03)</td>
+<td>A brokered user resolves in a second org only if that org's binding lists the brokering IdP. Not new.</td>
+<td>Solution Architect</td>
+</tr>
+<tr>
+<td>RR-A1-4 (AR-TICK-843-04)</td>
+<td>Without <code>kc_idp_hint</code>, a username prompt once.</td>
+<td>Technical Lead</td>
+</tr>
+<tr>
+<td>RR-A1-6 (AR-TICK-843-05)</td>
+<td>Dev seed tenants do not follow the derived names, so the pair names no org for them (<code>invalid_scope</code>, fails closed).</td>
+<td>Technical Lead</td>
+</tr>
+</tbody>
+</table>
+<p>RR-A1-5 was withdrawn: S1b showed a new user signing in with a wrong alias still joins the org linked to their IdP.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../adr/adr-006.html">&larr; ADR-006: filterable tenant fields</a><a class="next" href="../stories/index.html">Stories &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
@@ -178,9 +276,10 @@
 <h3>ADR ADR-004</h3><ul><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
 <h3>ADR ADR-007</h3><ul><li><a href="../stories/hb2.html">HB2: A first-time reader learns the product from the handbook</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 74d51ac4f056 (2026-11-14)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 71f70dca163d (2026-11-14)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
 <script src="../assets/handbook.js"></script>
 </body>
 </html>
