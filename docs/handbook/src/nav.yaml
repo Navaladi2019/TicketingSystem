@@ -204,6 +204,8 @@
             label: "E7: A1 books the 10 s interval when work is pending"
           - page: adr/adr-004-e8.md
             label: "E8: the reader also reads the chain columns"
+          - page: adr/adr-004-e9.md
+            label: "E9: the audit row for a number_space_exhausted refusal"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:
