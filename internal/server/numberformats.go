@@ -87,6 +87,9 @@ func (r *notFoundResponse) VisitPublishNumberFormatVersionResponse(w http.Respon
 func (r *versionConflictResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
 	return r.VisitPatchRecordResponse(w)
 }
+func (r *versionConflictResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+	return r.VisitPatchRecordResponse(w)
+}
 
 var (
 	_ api.CreateNumberFormatResponseObject         = numberFormatResponse{}
@@ -95,6 +98,7 @@ var (
 	_ api.GetNumberFormatResponseObject            = (*notFoundResponse)(nil)
 	_ api.PublishNumberFormatVersionResponseObject = (*notFoundResponse)(nil)
 	_ api.PublishNumberFormatVersionResponseObject = (*versionConflictResponse)(nil)
+	_ api.PublishEntityTypeVersionResponseObject   = (*versionConflictResponse)(nil)
 )
 
 // numberFormatList is the JSON of a NumberFormatList.

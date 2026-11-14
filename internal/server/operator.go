@@ -73,6 +73,9 @@ type options struct {
 	allocPool *pgxpool.Pool
 	// nfGate overrides the number-format publish gate; set by tests only.
 	nfGate *numberformats.Gate
+	// typePublishCheck overrides the per-type publish authorisation; set by
+	// tests only.
+	typePublishCheck TypePublishCheck
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
@@ -82,6 +85,13 @@ func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
 // WithNumberFormatGate replaces the number-format publish gate (default: the
 // catalog probe, cached 60 s). Tests inject a probe and a clock.
 func WithNumberFormatGate(g *numberformats.Gate) Option { return func(o *options) { o.nfGate = g } }
+
+// WithTypePublishCheck replaces the per-type right "re-publish linked types"
+// checks (default: tenant admin, the only definition-publish right there is).
+// It exists for tests: no other right to publish one type exists yet.
+func WithTypePublishCheck(c TypePublishCheck) Option {
+	return func(o *options) { o.typePublishCheck = c }
+}
 
 // WithAllocatorPool gives the record pipeline's own transactions (a create's
 // number, D-3-9 as amended 2026-11-10; the cascade_rejected audit row) a

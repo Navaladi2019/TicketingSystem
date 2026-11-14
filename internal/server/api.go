@@ -79,7 +79,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, nfGate: opts.nfGate}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -209,6 +209,9 @@ type handlers struct {
 	tsStore           tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
+	// typePublishCheck is the right to publish one entity type's definition;
+	// nil is tenant admin.
+	typePublishCheck TypePublishCheck
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the
@@ -315,6 +318,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.NumberFormatPrefixRequired:
 					h.reg.Write(w, r, problem.NumberFormatPrefixRequired, pe.fields...)
+					return
+				case problem.NumberFormatOverlap:
+					h.reg.Write(w, r, problem.NumberFormatOverlap, pe.fields...)
+					return
+				case problem.NumberFormatNotFound:
+					h.reg.Write(w, r, problem.NumberFormatNotFound, pe.fields...)
 					return
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)

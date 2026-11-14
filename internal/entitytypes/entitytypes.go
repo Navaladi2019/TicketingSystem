@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -98,11 +99,14 @@ type Version struct {
 	Compat       string
 	Current      bool
 	PublishedAt  time.Time
+	// NumberFormat is the pinned number format, nil for the default numbering.
+	NumberFormat *FormatRef
 }
 
 const versionSelect = `
 SELECT d.key, d.name, d.number_prefix, d.numbering_mode, d.current_version, v.version, v.schema::text,
-       v.schema_sha256, v.fixed_columns, v.states, v.compat, v.published_at
+       v.schema_sha256, v.fixed_columns, v.states, v.compat, v.published_at,
+       v.number_format_id, v.number_format_version
 FROM entity_definitions d
 JOIN entity_definition_versions v ON v.tenant_id = d.tenant_id AND v.definition_id = d.id`
 
@@ -112,8 +116,10 @@ func scanVersion(row pgx.Row) (*Version, error) {
 		schema string
 		sum    []byte
 		cur    int
+		fmtID  *uuid.UUID
+		fmtVer *int
 	)
-	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &v.NumberingMode, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt)
+	err := row.Scan(&v.Key, &v.Name, &v.NumberPrefix, &v.NumberingMode, &cur, &v.Version, &schema, &sum, &v.FixedColumns, &v.States, &v.Compat, &v.PublishedAt, &fmtID, &fmtVer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -126,6 +132,9 @@ func scanVersion(row pgx.Row) (*Version, error) {
 	v.Schema = json.RawMessage(schema)
 	copy(v.SchemaSHA256[:], sum)
 	v.Current = cur == v.Version
+	if fmtID != nil && fmtVer != nil {
+		v.NumberFormat = &FormatRef{ID: *fmtID, Version: *fmtVer}
+	}
 	return &v, nil
 }
 
@@ -293,6 +302,13 @@ type PublishInput struct {
 	Key         string
 	PublishedBy uuid.UUID
 	Definition  metadata.Definition
+	// NumberFormat changes the pinned number format; its zero value keeps the
+	// previous version's (ADR-005 §3.2).
+	NumberFormat NumberFormatChange
+	// ExpectedVersion, when not empty, holds the versions the caller based the
+	// publish on (its If-Match); the type's current version must be one of
+	// them, else *ConflictError.
+	ExpectedVersion []int
 }
 
 // Publish writes version N+1 of the entity type and makes it current, and
@@ -321,6 +337,9 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	}
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: lock definition: %w", err)
+	}
+	if len(in.ExpectedVersion) > 0 && !slices.Contains(in.ExpectedVersion, current) {
+		return nil, &ConflictError{Current: current}
 	}
 	prevVersion, err := s.GetVersion(ctx, tx, in.Key, current)
 	if err != nil {
@@ -364,13 +383,20 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE definition_id = $1`, defID).Scan(&number); err != nil {
 		return nil, fmt.Errorf("entitytypes: next version: %w", err)
 	}
+	// The epoch is taken after the row lock above, in this transaction (C10).
+	lk, err := resolveLink(ctx, tx, tenantID, defID, prefix, current, in.NumberFormat)
+	if err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256(d.Schema)
 	if _, err := tx.Exec(ctx, `
 INSERT INTO entity_definition_versions
-  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
-VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10)`,
-		tenantID, uuid.New(), defID, number, string(d.Schema), sum[:], string(fixed), string(states), class.String(), in.PublishedBy); err != nil {
-		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by,
+   number_format_id, number_format_version, number_compiled)
+VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13::jsonb)`,
+		tenantID, uuid.New(), defID, number, string(d.Schema), sum[:], string(fixed), string(states), class.String(), in.PublishedBy,
+		lk.id, lk.version, lk.compiled); err != nil {
+		return nil, mapFormatFK(fmt.Errorf("entitytypes: insert version: %w", err))
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {

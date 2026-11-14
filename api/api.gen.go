@@ -166,6 +166,24 @@ func (e RecordChangeAction) Valid() bool {
 	}
 }
 
+// Defines values for RepublishLinkedReportResultsStatus.
+const (
+	Published RepublishLinkedReportResultsStatus = "published"
+	Refused   RepublishLinkedReportResultsStatus = "refused"
+)
+
+// Valid indicates whether the value is a known member of the RepublishLinkedReportResultsStatus enum.
+func (e RepublishLinkedReportResultsStatus) Valid() bool {
+	switch e {
+	case Published:
+		return true
+	case Refused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListAuditEntriesParamsDomain.
 const (
 	ListAuditEntriesParamsDomainAudit  ListAuditEntriesParamsDomain = "audit"
@@ -411,7 +429,13 @@ type EntityTypeVersion struct {
 	FixedColumns map[string]string `json:"fixed_columns"`
 	Key          string            `json:"key"`
 	Name         string            `json:"name"`
-	NumberPrefix string            `json:"number_prefix"`
+
+	// NumberFormat The number-format version this version pins; `null` is the default numbering.
+	NumberFormat *struct {
+		Id      openapi_types.UUID `json:"id"`
+		Version int                `json:"version"`
+	} `json:"number_format,omitempty"`
+	NumberPrefix string `json:"number_prefix"`
 
 	// NumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
 	NumberingMode EntityTypeVersionNumberingMode `json:"numbering_mode"`
@@ -635,6 +659,30 @@ type RecordList struct {
 	TotalCapped *bool `json:"total_capped,omitempty"`
 }
 
+// RepublishLinkedReport defines model for RepublishLinkedReport.
+type RepublishLinkedReport struct {
+	FormatId openapi_types.UUID `json:"format_id"`
+	Results  []struct {
+		// Code The problem code, when `refused`.
+		Code *string `json:"code,omitempty"`
+
+		// EntityType The entity type key.
+		EntityType string                             `json:"entity_type"`
+		Errors     *[]FieldError                      `json:"errors,omitempty"`
+		Status     RepublishLinkedReportResultsStatus `json:"status"`
+
+		// Version The new definition version, when `published`.
+		Version *int `json:"version,omitempty"`
+	} `json:"results"`
+	Version int `json:"version"`
+}
+
+// RepublishLinkedReportResultsStatus defines model for RepublishLinkedReport.Results.Status.
+type RepublishLinkedReportResultsStatus string
+
+// RepublishLinkedRequest `{version}`, a published version of the format. Kept as the request bytes (`json.RawMessage`); the server checks it after the admin check.
+type RepublishLinkedRequest = json.RawMessage
+
 // TenantTimeZone defines model for TenantTimeZone.
 type TenantTimeZone struct {
 	// TimeZone An IANA time zone name.
@@ -737,6 +785,9 @@ type PutEntityTypeAccessParams struct {
 // PublishEntityTypeVersionParams defines parameters for PublishEntityTypeVersion.
 type PublishEntityTypeVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+
+	// IfMatch The `ETag` of the current version the publish is based on. Optional.
+	IfMatch *string `json:"If-Match,omitempty"`
 }
 
 // ListNumberFormatsParams defines parameters for ListNumberFormats.
@@ -760,6 +811,11 @@ type PublishNumberFormatVersionParams struct {
 	// IfMatch The `ETag` of the version the publish is based on. Optional in the contract only so that its absence is the registered 428.
 	IfMatch        *string `json:"If-Match,omitempty"`
 	IdempotencyKey string  `json:"Idempotency-Key"`
+}
+
+// RepublishLinkedTypesParams defines parameters for RepublishLinkedTypes.
+type RepublishLinkedTypesParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
 // OnboardTenantParams defines parameters for OnboardTenant.
@@ -811,6 +867,9 @@ type CreateNumberFormatJSONRequestBody = CreateNumberFormatRequest
 
 // PublishNumberFormatVersionJSONRequestBody defines body for PublishNumberFormatVersion for application/json ContentType.
 type PublishNumberFormatVersionJSONRequestBody = PublishNumberFormatRequest
+
+// RepublishLinkedTypesJSONRequestBody defines body for RepublishLinkedTypes for application/json ContentType.
+type RepublishLinkedTypesJSONRequestBody = RepublishLinkedRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
@@ -874,6 +933,9 @@ type ServerInterface interface {
 	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
 	// (PUT /api/v1/number-formats/{id})
 	PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request, id FormatId, params PublishNumberFormatVersionParams)
+	// RepublishLinkedTypes Re-publish the entity types linked to an older version of a format (tenant admin)
+	// (POST /api/v1/number-formats/{id}/republish-linked)
+	RepublishLinkedTypes(w http.ResponseWriter, r *http.Request, id FormatId, params RepublishLinkedTypesParams)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
@@ -1533,6 +1595,25 @@ func (siw *ServerInterfaceWrapper) PublishEntityTypeVersion(w http.ResponseWrite
 		return
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PublishEntityTypeVersion(w, r, key, params)
 	}))
@@ -1790,6 +1871,60 @@ func (siw *ServerInterfaceWrapper) PublishNumberFormatVersion(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PublishNumberFormatVersion(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RepublishLinkedTypes operation middleware
+func (siw *ServerInterfaceWrapper) RepublishLinkedTypes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RepublishLinkedTypesParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RepublishLinkedTypes(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2339,6 +2474,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats", wrapper.CreateNumberFormat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.GetNumberFormat)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.PublishNumberFormatVersion)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats/{id}/republish-linked", wrapper.RepublishLinkedTypes)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.GetTenantTimeZone)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.PutTenantTimeZone)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
@@ -3536,15 +3672,23 @@ type PublishEntityTypeVersionResponseObject interface {
 	VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error
 }
 
-type PublishEntityTypeVersion201JSONResponse EntityTypeVersion
+type PublishEntityTypeVersion201ResponseHeaders struct {
+	ETag string
+}
+
+type PublishEntityTypeVersion201JSONResponse struct {
+	Body    EntityTypeVersion
+	Headers PublishEntityTypeVersion201ResponseHeaders
+}
 
 func (response PublishEntityTypeVersion201JSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
@@ -3620,6 +3764,28 @@ func (response PublishEntityTypeVersion409ApplicationProblemPlusJSONResponse) Vi
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion412ResponseHeaders struct {
+	ETag string
+}
+
+type PublishEntityTypeVersion412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PublishEntityTypeVersion412ResponseHeaders
+}
+
+func (response PublishEntityTypeVersion412ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4401,6 +4567,146 @@ func (response PublishNumberFormatVersion500ApplicationProblemPlusJSONResponse) 
 type PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse Problem
 
 func (response PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypesRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params RepublishLinkedTypesParams
+	Body   *RepublishLinkedTypesJSONRequestBody
+}
+
+type RepublishLinkedTypesResponseObject interface {
+	VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error
+}
+
+type RepublishLinkedTypes200JSONResponse RepublishLinkedReport
+
+func (response RepublishLinkedTypes200JSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RepublishLinkedTypes400ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes401ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes401ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes403ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes403ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response RepublishLinkedTypes404ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes422ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes422ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes429ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes429ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes500ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes500ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes501ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes501ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5596,6 +5902,9 @@ type StrictServerInterface interface {
 	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
 	// (PUT /api/v1/number-formats/{id})
 	PublishNumberFormatVersion(ctx context.Context, request PublishNumberFormatVersionRequestObject) (PublishNumberFormatVersionResponseObject, error)
+	// RepublishLinkedTypes Re-publish the entity types linked to an older version of a format (tenant admin)
+	// (POST /api/v1/number-formats/{id}/republish-linked)
+	RepublishLinkedTypes(ctx context.Context, request RepublishLinkedTypesRequestObject) (RepublishLinkedTypesResponseObject, error)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
@@ -6108,6 +6417,40 @@ func (sh *strictHandler) PublishNumberFormatVersion(w http.ResponseWriter, r *ht
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PublishNumberFormatVersionResponseObject); ok {
 		if err := validResponse.VisitPublishNumberFormatVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RepublishLinkedTypes operation middleware
+func (sh *strictHandler) RepublishLinkedTypes(w http.ResponseWriter, r *http.Request, id FormatId, params RepublishLinkedTypesParams) {
+	var request RepublishLinkedTypesRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body RepublishLinkedTypesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RepublishLinkedTypes(ctx, request.(RepublishLinkedTypesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RepublishLinkedTypes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RepublishLinkedTypesResponseObject); ok {
+		if err := validResponse.VisitRepublishLinkedTypesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

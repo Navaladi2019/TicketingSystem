@@ -253,6 +253,8 @@ func TestPublishRefusalsAndFailures(t *testing.T) {
 	invalid := in
 	invalid.Definition = broken
 
+	stale := in
+	stale.ExpectedVersion = []int{7}
 	tests := []struct {
 		name  string
 		in    PublishInput
@@ -260,14 +262,16 @@ func TestPublishRefusalsAndFailures(t *testing.T) {
 		want  error
 		text  string
 	}{
+		{"stale expected version", stale, []step{lock}, nil, "entity type is at version 1"},
 		{"unknown type", in, []step{fail(pgx.ErrNoRows)}, ErrNotFound, ""},
 		{"lock fails", in, []step{fail(errDB)}, errDB, "lock definition"},
 		{"current version unreadable", in, []step{lock, fail(errDB)}, errDB, "read version"},
 		{"stored version does not compile", in, []step{lock, versionRow(broken, 1, 1, false)}, nil, "does not compile"},
 		{"new definition invalid", invalid, []step{lock, cur}, nil, ""},
 		{"next number fails", in, []step{lock, cur, fail(errDB)}, errDB, "next version"},
-		{"insert fails", in, []step{lock, cur, found(), execFail(errDB)}, errDB, "insert version"},
-		{"set current fails", in, []step{lock, cur, found(), {}, execFail(errDB)}, errDB, "set current version"},
+		{"pinned format unreadable", in, []step{lock, cur, found(), fail(errDB)}, errDB, "read pinned format"},
+		{"insert fails", in, []step{lock, cur, found(), found(), execFail(errDB)}, errDB, "insert version"},
+		{"set current fails", in, []step{lock, cur, found(), found(), {}, execFail(errDB)}, errDB, "set current version"},
 	}
 	for _, tt := range tests {
 		_, err := Store{}.Publish(ctx, &fakeTx{t: t, steps: tt.steps}, uuid.New(), tt.in)

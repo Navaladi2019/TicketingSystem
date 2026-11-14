@@ -144,6 +144,22 @@ paths:
         version and answers the current version. Any other value answers 422
         `invalid_definition` at `/numbering_mode`. Numbering carries on from the
         type's counter. `Idempotency-Key` is required.
+
+        `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to
+        the new definition version: `{id, version}`, or `null` for the default
+        numbering. It needs `definition`. **A publish without the field keeps
+        the pinned version**; only an explicit value changes it. The publish
+        takes or reuses the type's numbering epoch in its own transaction: a
+        format already used by the type reuses its epoch; a new one is checked
+        against every earlier epoch of the type, epoch 0 included, and
+        answers 422 `number_format_overlap` (`errors[].rule` is
+        `overlap:<the clashing template>`) when it could render a number the
+        type already issued. A format that is not in the tenant, and another
+        tenant's, give the same 422 `number_format_not_found`.
+
+        `If-Match`, when sent, carries the `ETag` of the type's current
+        version (`W/"<current version>"`); a stale one answers 412
+        `version_conflict` and writes nothing.
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: Idempotency-Key
@@ -153,6 +169,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 255
+        - name: If-Match
+          in: header
+          required: false
+          description: The `ETag` of the current version the publish is based on. Optional.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -162,6 +184,12 @@ paths:
       responses:
         "201":
           description: The new version, now current.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -176,6 +204,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
         "409":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "412":
+          description: The `If-Match` version is not the current one; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
         "422":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "429":
@@ -419,6 +458,10 @@ components:
           description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
+        number_format:
+          description: >
+            `{id, version}` pins a number-format version, `null` returns to the
+            default numbering; absent keeps the pinned version. Needs `definition`.
     EntityTypeVersion:
       type: object
       required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
@@ -452,6 +495,16 @@ components:
         compat:
           type: string
           enum: [initial, compatible, needs_backfill]
+        number_format:
+          type: [object, "null"]
+          description: The number-format version this version pins; `null` is the default numbering.
+          required: [id, version]
+          properties:
+            id:
+              type: string
+              format: uuid
+            version:
+              type: integer
         published_at:
           type: string
           format: date-time

@@ -249,6 +249,14 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 			return perr
 		}
 		modeOnly = pr.def == nil
+		// If-Match is optional here (the contract only adds to /api/v1): sent,
+		// it must name the current version, checked under the row lock.
+		var expected []int
+		if versions, ok := ifMatchVersions(req.Params.IfMatch); ok {
+			for _, n := range versions {
+				expected = append(expected, int(n))
+			}
+		}
 		var err error
 		// The mode is set first, so a publish in the same request reads it.
 		if pr.hasMode {
@@ -257,7 +265,10 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 			}
 		}
 		if pr.def != nil {
-			v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{Key: req.Key, PublishedBy: p.PrincipalID, Definition: *pr.def})
+			v, err = h.store.Publish(ctx, tx, p.TenantID, entitytypes.PublishInput{
+				Key: req.Key, PublishedBy: p.PrincipalID, Definition: *pr.def,
+				NumberFormat: pr.format, ExpectedVersion: expected,
+			})
 		} else { // a mode-only change publishes no version: the reply is the current one
 			v, err = h.store.GetCurrent(ctx, tx, req.Key)
 		}
@@ -269,6 +280,8 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	})
 	var (
 		breaking *entitytypes.BreakingError
+		overlap  *entitytypes.OverlapError
+		conflict *entitytypes.ConflictError
 		invalidD *metadata.ErrInvalidDefinition
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
@@ -282,6 +295,10 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		return nil, &problemError{problem.Forbidden, nil, err}
 	case errors.Is(err, entitytypes.ErrNotFound):
 		return h.notFound(ctx), nil
+	case errors.As(err, &conflict):
+		return h.versionConflict(ctx, int64(conflict.Current)), nil
+	case errors.Is(err, entitytypes.ErrFormatNotFound), errors.As(err, &overlap):
+		return nil, formatLinkProblem(err)
 	case errors.As(err, &breaking):
 		fields := make([]problem.FieldError, len(breaking.Paths))
 		for i, path := range breaking.Paths {
@@ -323,6 +340,14 @@ func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
 	}
 	var out publishRequest
 	_, out.hasMode = fields["numbering_mode"]
+	if rawFmt, present := fields["number_format"]; present {
+		var ok bool
+		if out.format, ok = parseFormatLink(rawFmt); !ok {
+			bad = append(bad, invalid("/number_format", "invalid"))
+		} else if _, hasDef := fields["definition"]; !hasDef {
+			bad = append(bad, invalid("/definition", "required"))
+		}
+	}
 	var modeBad bool
 	if out.mode, modeBad = parseNumberingMode(fields); modeBad {
 		bad = append(bad, invalid("/numbering_mode", "invalid"))
@@ -354,6 +379,43 @@ type publishRequest struct {
 	def     *metadata.Definition // nil: a mode-only change
 	mode    metadata.NumberingMode
 	hasMode bool
+	// format is the number-format change; its zero value keeps the pinned one.
+	format entitytypes.NumberFormatChange
+}
+
+// parseFormatLink reads the number_format field: null unpins, {id, version}
+// pins. ok is false for any other shape: an id that is not a UUID, a version
+// below 1 or not an integer, a missing member, an unknown member.
+func parseFormatLink(raw json.RawMessage) (entitytypes.NumberFormatChange, bool) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return entitytypes.NumberFormatChange{Set: true}, true
+	}
+	var ref struct {
+		ID      *string `json:"id"`
+		Version *int    `json:"version"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&ref) != nil || ref.ID == nil || ref.Version == nil || *ref.Version < 1 {
+		return entitytypes.NumberFormatChange{}, false
+	}
+	id, err := uuid.Parse(*ref.ID)
+	if err != nil {
+		return entitytypes.NumberFormatChange{}, false
+	}
+	return entitytypes.NumberFormatChange{Set: true, Ref: &entitytypes.FormatRef{ID: id, Version: *ref.Version}}, true
+}
+
+// formatLinkProblem maps the two refusals of a format link to their 422. A
+// format of another tenant and a made-up id are the same ErrFormatNotFound,
+// so they get the same body (C8). The overlap names the clashing epoch's
+// template, which is the tenant's own.
+func formatLinkProblem(err error) *problemError {
+	var overlap *entitytypes.OverlapError
+	if errors.As(err, &overlap) {
+		return &problemError{problem.NumberFormatOverlap, []problem.FieldError{invalid("/number_format", "overlap:"+overlap.Template)}, err}
+	}
+	return &problemError{problem.NumberFormatNotFound, []problem.FieldError{invalid("/number_format", "not_found")}, err}
 }
 
 // secretProblem is the 422 config_secret_in_content. The response and the log
@@ -527,7 +589,7 @@ func (r *entityTypeResponse) write(w http.ResponseWriter) error {
 	}{
 		{"key", v.Key}, {"name", v.Name}, {"number_prefix", v.NumberPrefix}, {"numbering_mode", v.NumberingMode}, {"version", v.Version}, {"current", v.Current},
 		{"schema", v.Schema}, {"schema_sha256", sum}, {"fixed_columns", fixed}, {"states", v.States},
-		{"compat", v.Compat}, {"published_at", v.PublishedAt.UTC()},
+		{"compat", v.Compat}, {"number_format", numberFormatJSON(v.NumberFormat)}, {"published_at", v.PublishedAt.UTC()},
 	} {
 		if f.name == "schema" {
 			// Verbatim: json.Marshal would compact it.
@@ -544,9 +606,21 @@ func (r *entityTypeResponse) write(w http.ResponseWriter) error {
 	}
 	b.WriteByte('}')
 	w.Header().Set("Content-Type", "application/json")
+	if v.Current {
+		w.Header().Set("ETag", etag(int64(v.Version)))
+	}
 	w.WriteHeader(r.status)
 	_, err := b.WriteTo(w)
 	return err
+}
+
+// numberFormatJSON is the number_format member of a version: null for the
+// default numbering.
+func numberFormatJSON(ref *entitytypes.FormatRef) any {
+	if ref == nil {
+		return nil
+	}
+	return map[string]any{"id": ref.ID, "version": ref.Version}
 }
 
 func (r *entityTypeResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error {
