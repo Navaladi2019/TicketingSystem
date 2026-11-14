@@ -2,14 +2,17 @@
 type: adr
 id: ADR-007
 title: Embedding the platform in other applications — realm-client identity, per-tenant host-app opt-in, web-component widget, TypeScript SDK
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-14
+accepted: 2026-11-14
 issue: TICK-792
 rfc: RFC-017 (rev 1, docs/adr/ADR-007/rfc/RFC-017-embedding.md; critique docs/adr/ADR-007/rfc/critique-round-1-technical-architect.md)
 supersedes: none. Amends ADR-004 R1 (audit envelope v2, D5 below).
 ---
 
 # ADR-007: Embedding the platform in other applications
+
+**Status: ACCEPTED** on 2026-11-14 by the Solution Architect (merge policy set by vknavaladi). Technical Architect critique round 1 had no blocking findings, so no CTO tie-break was needed. Verdict on TICK-792, PR #644.
 
 > **Invariants source.** The project description defines no invariants; this ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9.
 

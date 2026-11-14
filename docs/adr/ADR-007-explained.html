@@ -35,12 +35,12 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-007 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-007 ACCEPTED</span>
 <span class="src">This companion explains <code>docs/adr/ADR-007-embedding-widget-and-sdk.md</code>. It changes nothing. If this page and the ADR disagree, the ADR wins. The debate is archived in <code>docs/adr/ADR-007/rfc/</code> (RFC-017 rev 0, rev 1 and the Technical Architect's critique).</span></div>
 <table class="front"><tbody>
 <tr><th>Decision</th><td>Other applications embed our records through a <b>ready-made widget</b> and a <b>TypeScript library</b>. Their users sign in through our existing sign-in server, so the rule that decides which customer (tenant) a request belongs to does not change.</td></tr>
 <tr><th>Issue</th><td>TICK-792 (parent TICK-786). The human chose “both a widget and an API/SDK”.</td></tr>
-<tr><th>Status</th><td>PROPOSED, 2026-11-14. Critique round 1 found no blocking problems; all fixes were taken in RFC rev 1.</td></tr>
+<tr><th>Status</th><td>ACCEPTED, 2026-11-14, by the Solution Architect (PR #644). Critique round 1 found no blocking problems; all fixes were taken in RFC rev 1.</td></tr>
 <tr><th>Not decided here</th><td>An iframe version of the widget, other SDK languages, GraphQL.</td></tr>
 </tbody></table>
 
