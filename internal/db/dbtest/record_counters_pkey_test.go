@@ -256,7 +256,9 @@ func TestP605M3DownAndUp(t *testing.T) {
 	m := seededBefore(t, migrationsThrough)
 	super := superNava(t)
 	sqlDB := openSQL(t, roleConfig(t, m.Owner(), m.PlatformDatabase))
-	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrationsThrough(t, m3Migration),
+	// With P6-10's purge policies, which migrateFS applied out of order, so
+	// goose knows every applied version.
+	p, err := goose.NewProvider(goose.DialectPostgres, sqlDB, withCounterPurge(t, migrationsThrough(t, m3Migration)),
 		goose.WithAllowOutofOrder(true), goose.WithDisableGlobalRegistry(true))
 	if err != nil {
 		t.Fatal(err)

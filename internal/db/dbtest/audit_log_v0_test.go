@@ -192,6 +192,9 @@ func migrateTo(t *testing.T, m *grants.Manifest, fsys fs.FS) (migrate.Result, er
 	if _, err := fs.Stat(fsys, deadLineageMigration); err != nil {
 		fsys = withMigrationFrom(t, fsys, deadLineageMigration)
 	}
+	// And P6-10's (TICK-675), which the allow-list pins, with the S17 M1
+	// columns it needs.
+	fsys = withCounterPurge(t, fsys)
 	gm, am := beforeACLTables(fsys, &withV0, &a)
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),

@@ -11,7 +11,8 @@ import (
 )
 
 // TICK-146: every batch DELETE, run as nava_purge under its *_purge policies,
-// can be served by its 00005 index. The seed is tiny, so seq scans are
+// can be served by its 00005 index (record_counters: the S17 partial index on
+// period_end, P6-10). The seed is tiny, so seq scans are
 // switched off: a statement or policy change that no index can serve plans a
 // Seq Scan anyway and fails here. The plans at volume are in
 // docs/data/purge-indexes.md.
@@ -25,6 +26,8 @@ func TestT146PurgeStatementsUseTheirIndexes(t *testing.T) {
 		purge.TableIdempotencyKeys: {"idempotency_keys_purge_expires"},
 		purge.TableOutbox:          {"outbox_purge_dispatched", "outbox_purge_dead"},
 		purge.TableWorkflowRef:     {"workflow_ref_purge_closed"},
+		// P6-10 (TICK-675, ADR-005 §4.3), the partial index of 20261112193300.
+		purge.TableRecordCounters: {"record_counters_period_end"},
 	}
 	ctx := context.Background()
 	conn := connect(t, roleConfig(t, "nava_purge", "nava"))

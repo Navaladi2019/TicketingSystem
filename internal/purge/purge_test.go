@@ -127,19 +127,19 @@ func TestOnceReportsEachFailingStep(t *testing.T) {
 			db := &batchDB{s: c.s}
 			p, logs := newTestPurger(t, db, Options{})
 			rs := p.Once(t.Context())
-			if len(rs) != 3 {
+			if len(rs) != 4 {
 				t.Fatalf("%d results, want one per table", len(rs))
 			}
-			for i, table := range []string{TableIdempotencyKeys, TableOutbox, TableWorkflowRef} {
+			for i, table := range []string{TableIdempotencyKeys, TableOutbox, TableWorkflowRef, TableRecordCounters} {
 				r := rs[i]
 				if r.Table != table || !errors.Is(r.Err, errBoom) || r.Err.Error() != c.want || r.Deleted != 0 || r.Skipped {
 					t.Errorf("result %d = %+v, want %s failed with %q", i, r, table, c.want)
 				}
 			}
-			if got := strings.Count(logs.String(), `msg="purge failed"`); got != 3 {
-				t.Errorf("%d failure logs, want 3:\n%s", got, logs)
+			if got := strings.Count(logs.String(), `msg="purge failed"`); got != 4 {
+				t.Errorf("%d failure logs, want 4:\n%s", got, logs)
 			}
-			if db.begins != 3 {
+			if db.begins != 4 {
 				t.Errorf("%d transactions, want one per table (a failure ends the table)", db.begins)
 			}
 		})
@@ -151,10 +151,10 @@ func TestOnceBatchesUntilShort(t *testing.T) {
 	db := &batchDB{s: script{locked: true, deleted: []int64{2, 2, 1}}}
 	p, logs := newTestPurger(t, db, Options{BatchSize: 2})
 	rs := p.Once(t.Context())
-	if rs[0].Deleted != 5 || rs[0].Err != nil || rs[1].Deleted != 0 || rs[2].Deleted != 0 {
+	if rs[0].Deleted != 5 || rs[0].Err != nil || rs[1].Deleted != 0 || rs[2].Deleted != 0 || rs[3].Deleted != 0 {
 		t.Fatalf("results = %+v, want 5 from idempotency_keys and 0 from the rest", rs)
 	}
-	if db.deletes != 5 {
+	if db.deletes != 6 {
 		t.Errorf("%d DELETEs, want 3 for the first table and 1 for each other", db.deletes)
 	}
 	// Each statement got the batch size and the windows, nothing else: no
@@ -164,6 +164,9 @@ func TestOnceBatchesUntilShort(t *testing.T) {
 		{2}, {2}, {2},
 		{2, w.OutboxDispatched.Seconds(), w.OutboxDead.Seconds()},
 		{2, w.WorkflowRef.Seconds()},
+		// record_counters: the 2-day grace is fixed (ADR-005 §4.3), so only
+		// the batch size.
+		{2},
 	}
 	if fmt.Sprint(db.args) != fmt.Sprint(want) {
 		t.Errorf("arguments %v, want %v", db.args, want)
@@ -194,9 +197,9 @@ func TestRunRepeatsUntilCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	db := &batchDB{s: script{locked: true}}
-	// Three tables per run: the seventh transaction is the third run's.
+	// Four tables per run: the ninth transaction is the third run's.
 	db.onBegin = func(n int) {
-		if n == 7 {
+		if n == 9 {
 			cancel()
 		}
 	}
@@ -211,7 +214,7 @@ func TestRunRepeatsUntilCancelled(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after cancel")
 	}
-	if db.begins < 7 {
+	if db.begins < 9 {
 		t.Errorf("%d transactions, want at least three runs", db.begins)
 	}
 }

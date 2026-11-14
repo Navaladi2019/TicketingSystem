@@ -94,7 +94,9 @@ func TestP601CounterScopeMigration(t *testing.T) {
 	exec(t, super, "UPDATE record_counters SET next = 43 WHERE tenant_id = $1", tenantA)
 	fileBefore := queryString(t, super, `SELECT pg_relation_filenode('record_counters')::text`)
 
-	beforeM3 := migrationsBefore(t, m3Migration)
+	// With P6-10's purge policies out of order, as migrateFS applies them, so
+	// the Down below knows every applied version.
+	beforeM3 := withCounterPurge(t, migrationsBefore(t, m3Migration))
 	if _, err := migrateFS(t, m, beforeM3); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
