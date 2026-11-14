@@ -23,7 +23,12 @@ package workerstack
 //
 // The definition stays published after the test, so the cleanup publishes a
 // retiring version (a 24 h timer, then end) in its place: a later incident in
-// tenant A (the S11b Bruno folder) starts no write from it.
+// tenant A (the S11b Bruno folder) starts no write from it. There is no
+// disable/retire endpoint yet, so this is a stack-local side effect: every
+// later tenant A incident on the same stack still starts one run of the
+// retiring version, which holds an open workflow_ref and a Temporal workflow
+// for 24 h and then ends. Replace this with the real retire path once the
+// definition API has one (TICK-793).
 
 import (
 	"bytes"

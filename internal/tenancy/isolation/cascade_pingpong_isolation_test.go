@@ -139,8 +139,11 @@ func cascadePingPong(ctx context.Context, cl Cluster) error {
 		return fmt.Errorf("open the two waiting runs: %w", err)
 	}
 	defer func() {
-		_ = g.tx(context.WithoutCancel(ctx), func(tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, `UPDATE workflow_ref SET closed_at = now() WHERE tenant_id = $1 AND outbox_id = ANY($2)`,
+		// The refs must close even when ctx is already cancelled, so the
+		// statement runs on the same uncancellable context as the transaction.
+		cctx := context.WithoutCancel(ctx)
+		_ = g.tx(cctx, func(tx pgx.Tx) error {
+			_, err := tx.Exec(cctx, `UPDATE workflow_ref SET closed_at = now() WHERE tenant_id = $1 AND outbox_id = ANY($2)`,
 				g.tenant, []uuid.UUID{x, y})
 			return err
 		})
