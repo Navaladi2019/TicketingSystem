@@ -35,13 +35,13 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-008 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-008 ACCEPTED</span>
 <span class="src">This companion explains <code>docs/adr/ADR-008-competitive-gate.md</code>. It changes nothing. If this page and the ADR disagree, the ADR wins. The debate is archived in <code>docs/adr/ADR-008/rfc/RFC-020-competitive-gate.md</code>.</span></div>
 <h1>ADR-008 explained: a Competitive Gate in every design decision</h1>
 <table class="front"><tbody>
 <tr><th>Decision</th><td>Every new design record (ADR) gets a short <b>Competitive Gate</b> section. It says which of four measures the design improves against Salesforce, ServiceNow and Freshworks, by how much and how that is measured, and which of their known problems it avoids. A design with no number, or one that repeats a known problem without an accepted reason, is sent back.</td></tr>
 <tr><th>Issue</th><td>TICK-857. The founder asked that every design show how it makes us "10x better" than those three products.</td></tr>
-<tr><th>Status</th><td>PROPOSED, 2026-11-15. Technical Architect: critique round 1 found two blocking problems. Both were fixed in RFC rev 1, and the re-check approved it.</td></tr>
+<tr><th>Status</th><td>ACCEPTED, 2026-11-15, by the Solution Architect (PR #683). Technical Architect: critique round 1 found two blocking problems. Both were fixed in RFC rev 1, and the re-check approved it. The CTO decided how to treat designs already under review (below).</td></tr>
 <tr><th>Not decided here</th><td>Pricing targets, and whether we may benchmark competitor trial accounts. Both go to the human.</td></tr>
 </tbody></table>
 
@@ -70,6 +70,7 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <li><b>A four-line section in every ADR:</b> the measure moved, by how much, the problems avoided or risked, and how it is measured. We may say "10x" only when both sides were measured the same way.</li>
 <li><b>Never a trade.</b> Security, tenant isolation, audit and reliability must stay equal or better. A design that weakens them to win on a measure goes to the CTO; it is not a gate answer.</li>
 </ul>
+<p><b>Designs already under review</b> when this was accepted do not have to add the section, because adding it would restart a review round. Each one is checked against the register once it is accepted, and gets its one-line result added to the table below. A design that has not had its first critique yet must add the section.</p>
 <p>We expect it to work because it uses the review we already run. The Technical Architect checks the section during the critique, and a failing gate is a blocking objection. No new meeting and no new role.</p>
 <h3>4. Who is affected</h3>
 <p>ADR authors write four more lines. Internal-only ADRs, such as test tooling, write one line marked <code>N/A</code>. Reviewers get a pass/fail item. The founder gets a running, sourced record of where we are ahead and where we have not proven it yet. Tenants and operators see no change.</p>

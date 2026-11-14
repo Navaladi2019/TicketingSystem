@@ -2,7 +2,7 @@
 type: register
 id: CP
 title: Competitor pain-point register — Salesforce Service Cloud, ServiceNow, Freshworks
-status: ACTIVE with ADR-008 (PROPOSED until ADR-008 is accepted)
+status: ACTIVE (ADR-008 accepted 2026-11-15)
 date: 2026-11-14
 owner: Solution Architect
 review: every 6 months, or when a vendor changes pricing, packaging or limits

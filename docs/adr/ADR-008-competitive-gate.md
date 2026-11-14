@@ -2,8 +2,9 @@
 type: adr
 id: ADR-008
 title: Competitive Gate in every ADR — four named axes against Salesforce, ServiceNow and Freshworks, parity on the rest, no unaccepted repeat of a registered competitor pain point
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-15
+accepted: 2026-11-15
 issue: TICK-857
 rfc: RFC-020 (rev 1, docs/adr/ADR-008/rfc/RFC-020-competitive-gate.md; Technical Architect critique round 1 and re-check inside it). Renumbered from RFC-019, which ADR-004-E9 took in parallel.
 supersedes: none
@@ -11,7 +12,7 @@ supersedes: none
 
 # ADR-008: Competitive Gate in every ADR
 
-**Status: PROPOSED.** Technical Architect critique round 1 was `CHANGES` (B1, B2); the re-check of rev 1 was `APPROVE`. No CTO tie-break has been needed so far. Q4 is open with the CTO, Q1 and Q2 with the human.
+**Status: ACCEPTED** on 2026-11-15 by the Solution Architect (merge policy set by vknavaladi). Technical Architect critique round 1 was `CHANGES` (B1, B2); the re-check of rev 1 was `APPROVE`. The CTO decided Q4, and its two guards are in D6. No tie-break was needed. Q1 and Q2 are open with the human and do not block this ADR. Verdict on TICK-857, PR #683.
 
 > **Invariants source.** TICK-857 has no project, so there is no project description to read invariants from. This ADR is checked against [[ADR-001-platform-blueprint]] §1, I1–I9.
 
@@ -31,7 +32,7 @@ supersedes: none
 | **D3** | **Grades.** A = vendor documentation or a public incident report. B = aggregated reviews or community threads. C = blogs and single anecdotes. Any grade can support "avoids". A send-back for "repeats" needs an A or B source. |
 | **D4** | **Four axes, five metrics.** Every claim needs a number and the method that produces it. A **multiplier** ("10x") may be cited only when both sides were measured on the same quantity. |
 | **D5** | **Parity, not trade.** Isolation, security, identity, audit and compliance, and reliability (I1–I9) are parity or better. An ADR that trades any I1–I9 property for an axis gain is a design escalation to the CTO, not a gate answer. |
-| **D6** | **Mandatory section.** Every ADR numbered above 008, and every amendment or erratum dated on or after this ADR's acceptance, has `## Competitive Gate` in the template's shape. The result is one of: `PASS`, `PASS with accepted risk <CP-id>: <reason, owner, revisit trigger>`, or `N/A: <one line>`. **Q4 default** (the CTO may override): an ADR already in critique when this one is accepted is exempt. |
+| **D6** | **Mandatory section.** Every ADR numbered above 008, and every amendment or erratum dated on or after this ADR's acceptance, has `## Competitive Gate` in the template's shape. The result is one of: `PASS`, `PASS with accepted risk <CP-id>: <reason, owner, revisit trigger>`, or `N/A: <one line>`. **In-flight ADRs (Q4, CTO decision 2026-11-15):** an ADR already in critique when this one is accepted does not fill in the gate. Two guards apply. (1) "In critique" means the Technical Architect's round-1 critique was posted before ADR-008's `accepted` date. An RFC or ADR with no posted critique yet must fill in the gate. (2) An exempt ADR is back-applied once it is accepted: whoever accepts it appends a one-line result to this ADR's back-apply table. An erratum is raised only when it clearly repeats a grade A or B pain point. |
 | **D7** | **Send-back.** The Technical Architect checks the gate in the critique, and a failing gate is a `blocking` objection. An ADR fails the gate when it: (a) makes a claim with no number or no method; (b) repeats a grade A or B pain point with no accepted reason; or (c) uses `N/A` while changing a tenant-visible behaviour, an API, a limit, a configuration surface or an upgrade path. The Solution Architect does not set `ACCEPTED` on an ADR that fails the gate. |
 | **D8** | **The gate judges, it does not add scope.** "Axis moved: none" is a valid `PASS`. |
 | **D9** | **Measured vs intended.** A method not yet in the repo is cited as "planned", and the claim counts as a target, not evidence. |
@@ -103,7 +104,6 @@ supersedes: none
 |---|---|---|
 | Q1 | **Business tradeoff.** Is "1/10 of competitor list price" a goal? What X4 target do we set? Are capabilities ever gated by tier? | Human, via the CTO |
 | Q2 | May we time free competitor trial instances (CG-SP-1)? Vendor terms may restrict benchmarking. | Human, via the CTO |
-| Q4 | Must ADRs already in critique at acceptance fill in the gate? Default in D6: no. | CTO |
 
 ## Competitive Gate (ADR-008)
 

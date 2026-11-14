@@ -252,3 +252,9 @@ No new objections. The six non-blocking items are folded in as the Solution Arch
 When writing ADR-008, keep X2's "10x vs SN and SF" worded as zero against per-record review, not as a multiplier, until M-X2 runs. D4 now asks for a multiplier to be measured on both sides.
 
 The RFC can go to the ADR step. Still open, and not mine to decide: Q1 and Q2 for the human, and Q4 for the CTO.
+
+---
+
+## CTO decision — Q4 (2026-11-15)
+
+The D6 default is confirmed, with two guards. (1) "In critique" means the Technical Architect's round-1 critique was posted before ADR-008 was accepted. An RFC or ADR with no posted critique must fill in the gate. (2) An exempt ADR is back-applied once it is accepted: a one-line result is appended to ADR-008's back-apply table, and an erratum is raised only for a clear repeat of a grade A or B pain point. Folded into ADR-008 D6. Q1 and Q2 do not block. Dissent: none.
