@@ -7,6 +7,8 @@ description: "How to write RFCs, ADRs and PLANs that a reviewer can read in fift
 
 **The reader:** one human reviewer with about fifteen minutes per document, reading it as a rendered HTML page. Every document leads with the recommendation and the decisions the human must make, then the detail that supports them. If a section does not change a decision, cut it.
 
+**Plain-language header first.** Every ADR, amendment and erratum (and every story and bug, see `delivery-planning`) opens with the header from the `readable-issues` skill: what changes, why, what you'll see when it's done, codes used below. No internal codes in it. The Solution Architect runs the comprehension Goldfish (`readable-issues` §3) on the ADR before giving the verdict.
+
 **RFC (the proposal and its debate)**
 1. Summary — 3–6 bullets: what we decide, the main trade-off, what the human must accept.
 2. Decisions table — `| # | Decision | Why / what it prevents |`, one row per binding choice, numbered (D1, D2…) so reviews can cite them.
@@ -15,13 +17,23 @@ description: "How to write RFCs, ADRs and PLANs that a reviewer can read in fift
 5. Test/acceptance spec — the tests that prove the decisions (CI-1, CI-2…), each with what it catches.
 6. Open questions — only ones the human or a named role must answer.
 
-**ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers. Status stays `PROPOSED` until the Solution Architect's verdict (after the Technical Architect critique and any CTO tie-break); the Solution Architect never sets `ACCEPTED` on a contested design without that verdict. No debate history (it stays in the archived RFC).
+**ADR (the decision, after the RFC is approved)** — at most two pages: decision, context it rests on, consequences, rejected options, recorded dissent, revisit triggers, and - for every API operation the ADR adds or changes - an **API test scenarios** list (operation x documented status, invalid input writes nothing, idempotent replay writes once, cross-tenant refused; rule in `testing-ci`). Status stays `PROPOSED` until the Solution Architect's verdict (after the Technical Architect critique and any CTO tie-break); the Solution Architect never sets `ACCEPTED` on a contested design without that verdict. No debate history (it stays in the archived RFC).
 
-**PLAN** — summary, critical path, sequencing with reasons, what the milestone cannot absorb and the proposed cut, then the task graph. Each task: one outcome, acceptance criteria, the interface contract it must honour, dependencies, a role tag. When the plan splits work into stories, each story lists the files and packages it touches, and no two stories touch the same file; a real dependency is written `Depends on: <story>`, and that story starts only after the one it depends on is merged into `main`.
+**HTML explainer (`ADR-NNN[-A<k>|-E<k>]-explained.html`)** — self-contained, for a decision-maker who has not read the RFC. Its first section, "In plain words", answers the Heilmeier questions (EGM `heilmeier-standard.md`) with no jargon and no internal codes:
+1. **Goal** — what are we trying to do?
+2. **Today** — how is it done now, and what are the limits?
+3. **What's new** — what changes, and why we expect it to work.
+4. **Who is affected** — which users, tenants, operators or teams, and what difference it makes to them.
+5. **Risks** — what could go wrong, and what we accept.
+6. **How we'll know it worked** — the check or test that proves it, mid-way and at the end.
+Then the agent-level sections: options, decision, fix, accepted risks, evidence.
+
+**PLAN** — summary, critical path, sequencing with reasons, what the milestone cannot absorb and the proposed cut, then the task graph. Each task: one outcome, acceptance criteria, the API test scenarios for every operation it touches (from the ADR, see `delivery-planning`), the interface contract it must honour, dependencies, a role tag. When the plan splits work into stories, each story lists the files and packages it touches, and no two stories touch the same file; a real dependency is written `Depends on: <story>`, and that story starts only after the one it depends on is merged into `main`.
 
 **Where they live and how they ship** — paths, branch name and PR target are in the `design-triad` skill ("Where design artefacts live", "Branch and PR").
 
 **Writing**
+- Plain English: no ungrounded adjectives (seamless, robust, blazingly fast, scalable, simple); give the measurement or the mechanism. Never "the system handles this" without saying what handles it and how (`readable-issues` §5).
 - Claims that rest on measurement cite the spike or file that measured them; unverified claims say "unverified" and how to verify. A confident wrong number costs more than an honest "unknown".
 - Name concrete things: tables, columns, endpoints, error codes, flags. "Handle errors properly" is not a decision.
 - Link documents as wikilinks (`[[ADR-001-…]]`); tasks link the ADR only.
