@@ -5,7 +5,7 @@
 
 SDK_DIR := sdk/ts
 
-.PHONY: sdk-deps check-sdk-generated sdk-lint sdk-test sdk-pack ci-sdk-changed
+.PHONY: sdk-deps check-sdk-generated sdk-lint sdk-test sdk-integration sdk-pack ci-sdk-changed
 
 sdk-deps:
 	cd $(SDK_DIR) && npm ci
@@ -25,6 +25,14 @@ sdk-lint: sdk-deps
 ## The SDK tests, the type tests among them.
 sdk-test: sdk-deps
 	cd $(SDK_DIR) && npm test
+
+## TICK-829 (RFC-017 CI-E8, SDK part): the SDK against the running stack,
+## tenants A and B seeded (docs/acceptance/guide/tools/seed.sh). The stack
+## case sdk_ts runs it in the ci workflow's stack job; on a laptop, with the
+## stack up and seeded, it is the same command. NAVA_CORE_URL and
+## NAVA_KEYCLOAK_URL default to the compose ports (sdk/ts/test/integration/stack.ts).
+sdk-integration: sdk-deps
+	cd $(SDK_DIR) && npm run test:integration
 
 ## Build into sdk/ts/dist and npm pack the tarball into sdk/ts; nothing is
 ## published (D-8-7).
