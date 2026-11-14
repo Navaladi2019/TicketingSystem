@@ -1,0 +1,55 @@
+
+== readyz (nava-core admin listener)
+ok
+
+
+== seed tenants A and B
+ Container nava-nava-groupsync-run-5f55d779d634 Creating 
+ Container nava-nava-groupsync-run-5f55d779d634 Created 
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
+
+== pack the SDK (task sdk:build)
+nava-sdk-1.0.0-alpha.1.tgz
+
+== install the tarball into examples/sdk-node
+nava-sdk-node-example@ examples/sdk-node
+`-- @nava/sdk@1.0.0-alpha.1
+
+
+== the ten-line example, as alice@tenant-a.test: list, create, get
+created INC0000001 (01a1da70-8a2e-7a4f-bd18-4b3cccaa3082), version 1
+
+== the example twice more with one idempotency key: the second create answers the same record
+created INC0000002 (01a1da70-8dbc-78c5-859d-b375e194f4ce), version 1
+created INC0000002 (01a1da70-8dbc-78c5-859d-b375e194f4ce), version 1
+
+== criteria 1 to 4 and the isolation checks, tenants A and B
+S25 acceptance walk, run 33bfe6f8, against http://127.0.0.1:18080
+PASS  C1 list: 5 records at pageSize 2 arrive in full, each once  (5 listed)
+PASS  C1 list: it took 3 page requests (cursor followed twice)  (3 GETs)
+PASS  C1 get: returns the record  (INC0000003)
+PASS  C1 get: returns its version  (version 1)
+PASS  C2 replay answers the same record  (INC0000008 both times)
+PASS  C2 exactly one record exists for the replayed body  (1 found)
+PASS  ISO same idempotencyKey in tenant B makes tenant B's own record  (B got INC0000001)
+PASS  C3 update with the current version succeeds  (v1 -> v2)
+PASS  C3 update with a stale version throws VersionConflict  (VersionConflict 412 version_conflict)
+PASS  C3 the stale update changed nothing  (priority 1)
+PASS  C3 invalid body throws NavaProblem with code record_invalid  (NavaProblem 422 record_invalid)
+PASS  C3 the field errors are exposed  (/data/priority enum, /data/short_description required)
+PASS  C3 the refused create wrote nothing  (0 found)
+PASS  ISO tenant B get of tenant A's record is 404 not_found  (404 not_found)
+PASS  ISO tenant B update of tenant A's record is 404 not_found  (404 not_found)
+PASS  ISO tenant A's record is not in tenant B's list  (0 found)
+PASS  ISO tenant A's record is unchanged  (priority 1)
+PASS  C4 installed package version is 1.x (API major 1)  (@nava/sdk@1.0.0-alpha.1, SDK_VERSION 1.0.0-alpha.1)
+PASS  C4 every request (create, get, list, update) carries Nava-SDK  (4 requests [GET,PATCH,POST], header ts/1.0.0-alpha.1)
+PASS  C3 a burst past the tenant's bucket throws RateLimited  (47 of 200 limited, 0 other errors)
+PASS  C3 RateLimited exposes a positive retryAfter (seconds) and code rate_limited  (retryAfter 1)
+ALL PASS
+
+== criterion 2 in Postgres: audit_log rows for the replayed create
+record 01a1da70-95e2-731f-943a-0c54d7ed39b8: 1 audit_log row(s)
+PASS  C2 one audit_log row

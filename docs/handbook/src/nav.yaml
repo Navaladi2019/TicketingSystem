@@ -204,6 +204,8 @@
             label: "E7: A1 books the 10 s interval when work is pending"
           - page: adr/adr-004-e8.md
             label: "E8: the reader also reads the chain columns"
+          - page: adr/adr-004-e9.md
+            label: "E9: a refused create with number_space_exhausted is audited"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:
@@ -257,6 +259,8 @@
             label: "Record numbers during counter moves"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
+          - page: stories/s25.md
+            label: "Install the TypeScript SDK"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
@@ -267,6 +271,8 @@
       label: "Operations overview"
     - page: operations/local-stack.md
       label: "Local stack"
+    - page: operations/sdk.md
+      label: "Using the TypeScript SDK"
     - page: operations/observability.md
       label: "Traces, logs and metrics"
     - page: operations/troubleshooting.md

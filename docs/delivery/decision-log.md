@@ -8,6 +8,7 @@ Delivery decisions that change a task's contract, newest first.
 
 - [2026-11-14: PLAN-008 drafted: ADR-007 lands as four spikes, then S25 (SDK) now, S23 (gate) after S18 and S22, S26 (widget), S24 (M2M)](decisions/2026-11-14-plan-008-adr-007.md)
 - [2026-11-14: PLAN-008 absorbs ADR-007-A1 without a new story; two new S23 tasks](decisions/2026-11-14-plan-008-adr-007-a1.md)
+- [2026-11-14: PLAN-005-E9 drafted: the number_space_exhausted audit row lands in four S18 tasks](decisions/2026-11-14-plan-005-e9.md)
 - [2026-11-13: TICK-712, the worker reads `groups` through a column grant (TICK-782), not a pipeline-side fork](decisions/2026-11-13-tick-712-worker-groups-column-grant.md)
 - [2026-11-12: product handbook in docs/handbook/ (TICK-718)](decisions/2026-11-12-handbook.md)
 - [2026-11-11: D-3-29, S11b contract: causation is copied durably into workflow_cause, and the waiting state is tracked on workflow_ref](decisions/2026-11-11-d-3-29-s11b-interface-contract.md)
