@@ -392,6 +392,10 @@ jobs:
         run: make check-ci-steps
       - name: OpenAPI additive-only
         run: make check-openapi
+      # TICK-847: the handbook generator's tests; the page-coverage gate is
+      # api/handbook_coverage_test.go in make test.
+      - name: Handbook generator tests
+        run: make test-handbook
       # govulncheck: the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
