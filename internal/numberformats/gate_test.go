@@ -50,3 +50,11 @@ func TestGateProbeFailureIsNotCached(t *testing.T) {
 		t.Fatalf("after recovery = %v, want open", err)
 	}
 }
+
+func TestNewGateDefaultsToTheCatalogAndTheClock(t *testing.T) {
+	t.Parallel()
+	g := NewGate(nil, nil)
+	if g.probe == nil || g.now == nil || g.ttl != GateTTL {
+		t.Errorf("defaults not set: %+v", g)
+	}
+}
