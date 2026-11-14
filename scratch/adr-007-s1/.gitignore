@@ -1,0 +1,5 @@
+node_modules/
+package-lock.json
+# Raw access tokens (bearer credentials of the scratch realm). Only decoded
+# claims go into the evidence page.
+out/
