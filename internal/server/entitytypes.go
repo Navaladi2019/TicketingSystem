@@ -344,8 +344,6 @@ func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
 		var ok bool
 		if out.format, ok = parseFormatLink(rawFmt); !ok {
 			bad = append(bad, invalid("/number_format", "invalid"))
-		} else if _, hasDef := fields["definition"]; !hasDef {
-			bad = append(bad, invalid("/definition", "required"))
 		}
 	}
 	var modeBad bool
@@ -361,7 +359,10 @@ func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
 	switch {
 	case !present && !out.hasMode:
 		bad = append(bad, invalid("/definition", "required"))
-	case !present:
+	case !present: // a mode-only change; a number_format needs a definition to publish
+		if out.format.Set {
+			bad = append(bad, invalid("/definition", "required"))
+		}
 	case json.Unmarshal(defRaw, &def) != nil:
 		bad = append(bad, invalid("/definition", "type"))
 	default:

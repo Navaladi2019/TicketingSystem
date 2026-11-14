@@ -16,6 +16,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -114,7 +115,8 @@ func (h *handlers) RepublishLinkedTypes(ctx context.Context, req api.RepublishLi
 		}
 		target = *body.Version
 		if _, err = h.nfStore.GetVersion(ctx, tx, id, target); errors.Is(err, numberformats.ErrNotFound) {
-			return &problemError{problem.NumberFormatNotFound, []problem.FieldError{invalid("/version", "not_found")}, err}
+			// A new error, not err: the sentinel would read as the 404 below.
+			return &problemError{problem.NumberFormatNotFound, []problem.FieldError{invalid("/version", "not_found")}, errors.New("number format version not found")}
 		} else if err != nil {
 			return err
 		}
@@ -132,6 +134,15 @@ func (h *handlers) RepublishLinkedTypes(ctx context.Context, req api.RepublishLi
 		if r, ok := h.republishOne(ctx, p, key, id, target); ok {
 			report.Results = append(report.Results, r)
 		}
+	}
+	// Each type published in a transaction of its own, so no one transaction
+	// covers the writes. The key completes, with the report, in a short closing
+	// transaction. A run that dies before it can be repeated: a re-run finds only
+	// the types still pinned below the target.
+	if err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
+		return idempotency.CompleteInTx(ctx, tx, republishResponse(report).VisitRepublishLinkedTypesResponse)
+	}); err != nil {
+		return nil, err
 	}
 	h.log.InfoContext(ctx, "linked entity types re-published",
 		slog.String("tenant_id", p.TenantID.String()), slog.String("format_id", id.String()),
