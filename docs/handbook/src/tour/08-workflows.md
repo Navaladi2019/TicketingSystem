@@ -2,11 +2,11 @@
 title: "8. Workflows"
 section: tour
 status: delivered
-sources: [docs/acceptance/guide/s11b.html, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go]
-adrs: [ADR-001, ADR-003]
-stories: [S11a, S11b]
+sources: [docs/acceptance/guide/s11b.html, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go]
+adrs: [ADR-001, ADR-003, ADR-008]
+stories: [S11a, S11b, S27]
 tables: [outbox]
-packages: [internal/workflow/interp, cmd/nava-worker]
+packages: [internal/workflow/interp, cmd/nava-worker, internal/configsurface]
 ---
 
 ## In plain words
@@ -57,6 +57,16 @@ Each record write also writes a row to a work queue (the "outbox") in the same d
 - One tenant's writes never start or signal another tenant's workflow.
 
 Details: [workflow interpreter](../workflows/nava-interpreter.md), [outbox, relay and worker](../workflows/outbox-relay-worker.md), [S11b](../stories/s11b.md).
+
+## Adding or removing a step type
+
+The step catalog today is `condition`, `branch`, `timer`, `wait_signal`, `update_record` and `end`, with condition operators `eq`, `ne`, `in` and triggers `record.created`, `record.updated`. A tenant's published definition keeps working after an upgrade within a major version: the catalog is additive-only (ADR-008 D12), and the upgrade-compatibility suite (M-X2, S27) checks that on every PR.
+
+- **Adding** a step type, step field, operator or trigger: change `internal/workflow/def` (its `schema.json` and `Parse`), then list the new item in `internal/configsurface/testdata/inventory.json` and add a fixture `internal/configsurface/testdata/fixtures/workflow/<name>.json` that uses it. Without them `task test` fails with `unlisted: …` or `no fixture: …`.
+- **Deprecating** one: keep it in the code and in the inventory, and add `{"item": "workflow.step_types/<name>", "since": "<version>"}` to the inventory's `deprecated` list. It must stay listed and its fixture must keep parsing until the next major.
+- **Removing** one: only with a new major. Raise `"major"` in the inventory and write `docs/upgrade/v<major>.md` naming the item (for example `workflow.step_types/timer`) with the migration. Otherwise `task test` fails with `removed: …` and `task lint` with `compat: removed: …`. No `docs/upgrade/` note exists yet: nothing has been removed.
+
+What each failure line means: [Troubleshooting](../operations/troubleshooting.md#a-lint-or-test-check-fails).
 
 ## Not built yet
 
