@@ -197,8 +197,6 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 	var (
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
-		quota    *entitytypes.IndexQuotaError
-		busy     *entitytypes.FieldIndexBusyError
 	)
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
@@ -207,10 +205,6 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
-	case errors.As(err, &quota):
-		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
-	case errors.As(err, &busy):
-		return nil, &problemError{problem.FieldIndexBusy, pointerErrors(busy.Paths, "field_index_busy"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
@@ -279,10 +273,16 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 		refused  *metadata.RefusalError
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
+		quota    *entitytypes.IndexQuotaError
+		busy     *entitytypes.FieldIndexBusyError
 	)
 	switch {
 	case errors.As(err, &refused):
 		return nil, refusalProblem(refused, "/definition", err)
+	case errors.As(err, &quota):
+		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
+	case errors.As(err, &busy):
+		return nil, &problemError{problem.FieldIndexBusy, pointerErrors(busy.Paths, "field_index_busy"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
