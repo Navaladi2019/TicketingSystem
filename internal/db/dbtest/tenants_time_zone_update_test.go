@@ -16,9 +16,9 @@ import (
 // time_zone and nothing else on tenants.
 
 // tenantsTimeZoneUpdateBefore is the version just before
-// 20261113110100_tenants_time_zone_update_policy.sql (the record_counters
+// 20261113210900_tenants_time_zone_update_policy.sql (the record_counters
 // purge), so DownTo rolls back only the policy migration.
-const tenantsTimeZoneUpdateBefore = 20261113110000
+const tenantsTimeZoneUpdateBefore = 20261113210800
 
 // Acceptance: the policy is FOR UPDATE TO nava_app with the canonical
 // predicate on id in USING and WITH CHECK, and nava_app may update

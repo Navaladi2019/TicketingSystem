@@ -1,8 +1,8 @@
 # Number formats, epochs and the pinned link (P6-06, TICK-671)
 
 ADR-005 §3.2, §3.3, §3.6, §3.7 C8, C9, C12. Migrations
-`db/migrations/20261113100000_number_format_tables.sql` to
-`20261113100600_audit_log_subject_number_format_validate.sql`. Tests:
+`db/migrations/20261113210100_number_format_tables.sql` to
+`20261113210700_audit_log_subject_number_format_validate.sql`. Tests:
 `internal/db/dbtest/number_format_tables_test.go` and the isolation registry
 (`internal/tenancy/isolation/numberformat_paths.go`). Bench:
 `scratch/tick-671-number-formats/` (`sh run.sh`).

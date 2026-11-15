@@ -160,7 +160,7 @@ R1; once non-default scopes exist, the M1/M2 Down cannot run either.
 
 ## M3 (S18, release R2): the point of no return
 
-`db/migrations/20261113034010_record_counters_pkey_scope_key.sql`, TICK-670.
+`db/migrations/20261113210000_record_counters_pkey_scope_key.sql`, TICK-670.
 
 **Run it only when** every API and worker replica runs R1 or later (the
 precondition of release R2). The migrate job runs it before the R2 rollout,
@@ -219,7 +219,7 @@ SELECT EXISTS (
 `true`: M3 has run, R0 can never serve again, and the publish gate opens
 within its 60 s cache TTL. `false`: M3 has not run (or was rolled back), and
 non-default formats stay refused with `numbering_templates_unavailable`.
-`goose_db_version` holding `20261113034010` says the same.
+`goose_db_version` holding `20261113210000` says the same.
 
 ### After M3
 

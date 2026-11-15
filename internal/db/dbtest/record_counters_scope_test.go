@@ -27,7 +27,7 @@ const (
 	periodEndMigration    = "20261112193300_record_counters_period_end.sql"
 	// m3Migration is S18's M3 (TICK-670). The S17 tests here run on the
 	// schema before it: the expand window M1/M2 opened and M3 closes.
-	m3Migration = "20261113034010_record_counters_pkey_scope_key.sql"
+	m3Migration = "20261113210000_record_counters_pkey_scope_key.sql"
 	// scopeColumnsBefore is the version just before M1.
 	scopeColumnsBefore = 20261112192959
 

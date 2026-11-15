@@ -4,7 +4,7 @@ section: database
 status: delivered
 tables: [record_counters]
 adrs: [ADR-005, ADR-005-E1]
-sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, db/migrations/20261112193000_record_counters_scope_columns.sql, db/migrations/20261112193100_record_counters_scope_key_len_validate.sql, db/migrations/20261112193200_record_counters_scoped_key.sql, db/migrations/20261112193300_record_counters_period_end.sql, db/migrations/20261113034010_record_counters_pkey_scope_key.sql]
+sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, db/migrations/20261112193000_record_counters_scope_columns.sql, db/migrations/20261112193100_record_counters_scope_key_len_validate.sql, db/migrations/20261112193200_record_counters_scoped_key.sql, db/migrations/20261112193300_record_counters_period_end.sql, db/migrations/20261113210000_record_counters_pkey_scope_key.sql]
 stories: [S17, S18]
 ---
 
@@ -47,7 +47,7 @@ Four migrations, all online (runbook:
 
 ## Primary key on the scope (S18, release R2: M3)
 
-- **M3** (`20261113034010`) drops the 2-column key and promotes
+- **M3** (`20261113210000`) drops the 2-column key and promotes
   `record_counters_scoped_key` with `ADD PRIMARY KEY USING INDEX`, so the key
   keeps the name `record_counters_pkey` and covers `scope_key`. No build, no
   scan. It waits at most 2 s for its lock and retries up to 5 times with

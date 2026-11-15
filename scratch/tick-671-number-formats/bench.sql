@@ -1,7 +1,7 @@
 -- TICK-671 (P6-06): the number-format tables, the epoch registry and the
 -- pinned link at realistic row counts, read as an RLS-bound role with the
 -- canonical predicate, as nava_app reads them. Shapes copy
--- db/migrations/20261113100000 and 20261113100100 (without the principals and
+-- db/migrations/20261113210100 and 20261113210200 (without the principals and
 -- tenants FKs, which the queries below never touch).
 \timing off
 SET client_min_messages = warning;
@@ -48,7 +48,7 @@ INSERT INTO entity_definition_versions SELECT d.tenant_id, d.id, v, '{"type": "o
 FROM entity_definitions d, generate_series(1, 5) v;
 VACUUM ANALYZE;
 
-\echo '== migration 20261113100100 / 100200 on the filled entity_definition_versions (500,000 rows)'
+\echo '== migration 20261113210200 / 210300 on the filled entity_definition_versions (500,000 rows)'
 \timing on
 ALTER TABLE entity_definition_versions
     ADD COLUMN number_format_id uuid, ADD COLUMN number_format_version integer, ADD COLUMN number_compiled jsonb,

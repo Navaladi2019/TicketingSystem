@@ -24,7 +24,7 @@ import (
 // audit subject.
 
 const (
-	numberFormatTablesMigration = "20261113100000_number_format_tables.sql"
+	numberFormatTablesMigration = "20261113210100_number_format_tables.sql"
 	// numberFormatBefore is the version just before every P6-06 migration.
 	numberFormatBefore = 20261113095959
 
@@ -46,7 +46,7 @@ const (
 		VALUES ($1, gen_random_uuid(), 'config', 'publish', 'entity_definition', $1, 2, 'system', 'system', sha256(''::bytea))`
 )
 
-// numberFormatTables are the three tables 20261113100000 creates.
+// numberFormatTables are the three tables 20261113210100 creates.
 var numberFormatTables = []string{"number_formats", "number_format_versions", "numbering_epochs"}
 
 // seedNumberFormats writes, as the superuser, for each tenant: seedEntityTypes'
@@ -64,11 +64,11 @@ func seedNumberFormats(t *testing.T, super *pgx.Conn, tenants ...string) {
 }
 
 // beforeNumberFormats drops the P6-06 tables from today's grants and audited
-// manifests when fsys stops before 20261113100000, so a test that migrates to
+// manifests when fsys stops before 20261113210100, so a test that migrates to
 // an earlier version can still apply them.
 //
 // It also drops tenants.time_zone from every role's tenants column lists when
-// fsys stops before 20261113100300 (TICK-795 grants nava_app SELECT and
+// fsys stops before 20261113210400 (TICK-795 grants nava_app SELECT and
 // UPDATE on it); a privilege left with no column is dropped, since an empty
 // list would be a table-level grant.
 func beforeNumberFormats(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
@@ -94,7 +94,7 @@ func beforeNumberFormats(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*
 }
 
 // tenantsTimeZoneMigration adds tenants.time_zone (P6-06).
-const tenantsTimeZoneMigration = "20261113100300_tenants_time_zone.sql"
+const tenantsTimeZoneMigration = "20261113210400_tenants_time_zone.sql"
 
 // beforeTenantsTimeZone is m without tenants.time_zone when fsys stops before
 // tenantsTimeZoneMigration; see beforeNumberFormats.
