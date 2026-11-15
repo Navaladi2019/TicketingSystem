@@ -167,14 +167,18 @@ roles:
       # another tenant can be told apart.
       entity_definition_versions: { SELECT: [tenant_id, definition_id, schema] }
 
-  # As nava_app, without idempotency_keys or tenants; the final activity
-  # closes workflow_ref.
+  # As nava_app, without idempotency_keys; the final activity closes
+  # workflow_ref.
   nava_worker:
     attributes: [LOGIN]
     pgbouncer_login: true
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
+      # TICK-868 (20261115100000_tenants_select_worker.sql): a create on a
+      # dated number format reads its tenant's time_zone (ADR-005 §3.6, A7);
+      # tenants_tenant scopes the row. Never state or the onboarding columns.
+      tenants: { SELECT: [id, time_zone] }
       records:
         SELECT: []
         INSERT: []
