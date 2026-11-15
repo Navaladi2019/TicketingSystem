@@ -348,6 +348,43 @@
 </tr>
 </tbody>
 </table>
+<h3 id="schema-backfill-adr-009">Schema backfill (ADR-009)</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live-write p95 during a schema backfill</td>
+<td>≤ +25% over baseline (4 live writers, 20 ms cadence, pause 0)</td>
+<td>+1.7% at 20k records (48.3 → 49.1 ms), one transaction per record. 100k not yet run. Spike on main ecedb2e9 plus PR #711 head 5aa2973f, archived in docs/adr/ADR-009/spikes/pipeline/r1. Only the 20k run is measured; the 100k run is CI-12 in ADR-009</td>
+<td><strong>met</strong></td>
+<td>2026-11-15</td>
+<td><code>ecedb2e9</code></td>
+<td>Docker Desktop/WSL2, 16 vCPU, postgres:16.10</td>
+<td><a href="../../../docs/budgets.md#schema-backfill-adr-009">source</a></td>
+</tr>
+<tr>
+<td>Schema backfill cost per record</td>
+<td>None set: report-only</td>
+<td>no recorded result. No threshold yet. The round-1 spikes measured 7.3 ms and 4.0–4.1 KB WAL per record (docs/adr/ADR-009/spikes)</td>
+<td><strong>no result yet</strong></td>
+<td>-</td>
+<td>-</td>
+<td>None</td>
+<td><a href="../../../docs/budgets.md#schema-backfill-adr-009">source</a></td>
+</tr>
+</tbody>
+</table>
 <h2 id="where-each-number-comes-from">Where each number comes from</h2>
 <table>
 <thead>
@@ -451,6 +488,16 @@
 <td>Worker pools vs. <code>nava_worker</code> PgBouncer pool</td>
 <td>Principal Software Engineer</td>
 </tr>
+<tr>
+<td>Schema backfill (ADR-009)</td>
+<td>Live-write p95 during a schema backfill</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Schema backfill (ADR-009)</td>
+<td>Schema backfill cost per record</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
 </tbody>
 </table>
 </article>
@@ -461,7 +508,7 @@
 <h3>ADR ADR-004-E6</h3><ul><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
 <h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">ADR-005-E2: grow is refused when a digit touches {seq:N}</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/numbering.html">Numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 1dc3992ff46b (2026-11-15)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ ecedb2e94c73 (2026-11-15)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
