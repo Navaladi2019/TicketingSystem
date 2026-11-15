@@ -28,6 +28,11 @@ WHERE tenant_id = $1 AND entity_definition_id = $2`, tenantID, definitionID)
 	if err != nil {
 		return nil, fmt.Errorf("records/store: read field index registry: %w", err)
 	}
+	return collectIndexFields(rows)
+}
+
+// collectIndexFields reads every registry row of rows and closes it.
+func collectIndexFields(rows pgx.Rows) (map[string]IndexField, error) {
 	defer rows.Close()
 	out := map[string]IndexField{}
 	for rows.Next() {

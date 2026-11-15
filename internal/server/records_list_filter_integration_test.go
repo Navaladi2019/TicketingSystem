@@ -651,3 +651,19 @@ func TestListFilterPushdownIsAnIndexCond(t *testing.T) {
 		}
 	}
 }
+
+// A failed registry read is a 500, never a fall back to the legacy scan or an
+// unchecked filter.
+func TestListFilterRegistryReadFailureIsA500(t *testing.T) {
+	e := newFilterEnv(t)
+	e.createAssets(t, "admin-a")
+	if _, err := e.super.Exec(t.Context(), "ALTER TABLE record_index_fields RENAME TO record_index_fields_gone"); err != nil {
+		t.Fatal(err)
+	}
+	// A data filter needs the registry; the same list without one does not.
+	rec, _ := e.list(t, "admin-a", "asset", "filter[name]=alpha")
+	listCode(t, rec, http.StatusInternalServerError, "internal_error")
+	if rec, _ := e.list(t, "admin-a", "asset", "filter[state]=new"); rec.Code != http.StatusOK {
+		t.Errorf("a list with no data filter = %d, want 200", rec.Code)
+	}
+}
