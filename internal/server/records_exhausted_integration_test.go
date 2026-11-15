@@ -286,8 +286,8 @@ func (x *exhEnv) wantR2b(t *testing.T, r exhRow, counter int64) string {
 	}
 	var scope string
 	_ = json.Unmarshal(ops[0].Value["scope_key"], &scope)
-	if string(ops[0].Value["counter"]) != fmt.Sprint(counter) || string(ops[0].Value["epoch"]) != "1" || string(ops[0].Value["width"]) != "1" || !strings.HasPrefix(scope, "e1|") {
-		t.Errorf("diff %s, want counter %d, epoch 1, width 1, an epoch-1 scope", r.diff, counter)
+	if string(ops[0].Value["counter"]) != fmt.Sprint(counter) || string(ops[0].Value["epoch"]) != "1" || string(ops[0].Value["width"]) != "1" || scope != "e1" {
+		t.Errorf("diff %s, want counter %d, epoch 1, width 1, scope e1 (the format has no date part)", r.diff, counter)
 	}
 	if strings.Contains(r.diff, "refused") || strings.Contains(r.diff, "short_description") {
 		t.Errorf("diff %s carries record data", r.diff)
@@ -378,8 +378,17 @@ func TestNumberSpaceExhaustedCreateAppendsOneEntryPerRefusal(t *testing.T) {
 			if !strings.Contains(logs, x.a.id.String()) || !strings.Contains(logs, "entity_key="+exhKey) {
 				t.Errorf("refusal log lines name no tenant or type:\n%s", logs)
 			}
-			if strings.Contains(logs, scope) {
-				t.Errorf("a log line names the scope key %s:\n%s", scope, logs)
+			// The refusal line carries tenant_id and entity_key only: no scope
+			// attribute and no scope value. The bare value "e1" can occur in
+			// a UUID, so only the attribute forms are matched.
+			for _, line := range strings.Split(logs, "\n") {
+				if !strings.Contains(line, "number space exhausted") {
+					continue
+				}
+				if strings.Contains(line, "scope") || strings.Contains(line, "="+scope+" ") ||
+					strings.HasSuffix(line, "="+scope) || strings.Contains(line, `"`+scope+`"`) {
+					t.Errorf("a refusal log line names the scope key %s: %s", scope, line)
+				}
 			}
 			if n := len(x.exhRows(t, x.b.id)); n != 0 {
 				t.Errorf("tenant B has %d number_space_exhausted entries", n)
