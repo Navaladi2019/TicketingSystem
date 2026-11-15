@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -194,14 +193,6 @@ func (w *write) exhausted(ctx context.Context, scopeKey string, counter int64) e
 		return errors.Join(ex, err)
 	}
 	ex.Entry = entry
-	// TICK-872 FORCED FAILURE (reverted in the next commit): the R2b append
-	// moved back into Write, on the allocator runner.
-	if err := w.p.runner.InTenantTx(ctx, w.tenant, func(tx pgx.Tx) error {
-		_, err := audit.Append(ctx, tx, entry)
-		return err
-	}); err != nil {
-		return errors.Join(ex, err)
-	}
 	return ex
 }
 
