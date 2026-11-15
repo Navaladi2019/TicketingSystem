@@ -1,18 +1,18 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:38080/api/v1/entity-types/visa/versions",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/visa/versions",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "910",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:38080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-671bfa5f-link",
+      "Idempotency-Key": "s18n-b0b7d2de-link",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"definition\": {\n    \"schema\": {\n      \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"short_description\",\n        \"state\"\n      ],\n      \"properties\": {\n        \"short_description\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"maxLength\": 160\n        },\n        \"state\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"new\",\n            \"closed\"\n          ],\n          \"default\": \"new\"\n        }\n      }\n    },\n    \"fixed_columns\": {\n      \"state\": \"state\"\n    },\n    \"states\": {\n      \"initial\": \"new\",\n      \"states\": [\n        \"new\",\n        \"closed\"\n      ],\n      \"transitions\": [\n        {\n          \"from\": \"new\",\n          \"to\": \"closed\"\n        }\n      ]\n    }\n  },\n  \"number_format\": {\n    \"id\": \"e8127bc6-8a14-4a2a-bae5-db5fe544256c\",\n    \"version\": 1\n  }\n}"
+    "body": "{\n  \"definition\": {\n    \"schema\": {\n      \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"short_description\",\n        \"state\"\n      ],\n      \"properties\": {\n        \"short_description\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"maxLength\": 160\n        },\n        \"state\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"new\",\n            \"closed\"\n          ],\n          \"default\": \"new\"\n        }\n      }\n    },\n    \"fixed_columns\": {\n      \"state\": \"state\"\n    },\n    \"states\": {\n      \"initial\": \"new\",\n      \"states\": [\n        \"new\",\n        \"closed\"\n      ],\n      \"transitions\": [\n        {\n          \"from\": \"new\",\n          \"to\": \"closed\"\n        }\n      ]\n    }\n  },\n  \"number_format\": {\n    \"id\": \"88e0c979-ee1e-4340-8ea7-f5200188e6be\",\n    \"version\": 1\n  }\n}"
   },
   "response": {
     "status": 201,
@@ -66,10 +66,10 @@
       },
       "compat": "compatible",
       "number_format": {
-        "id": "e8127bc6-8a14-4a2a-bae5-db5fe544256c",
+        "id": "88e0c979-ee1e-4340-8ea7-f5200188e6be",
         "version": 1
       },
-      "published_at": "2026-11-15T05:12:23.171419Z"
+      "published_at": "2026-11-15T13:12:15.589261Z"
     }
   },
   "tests": [

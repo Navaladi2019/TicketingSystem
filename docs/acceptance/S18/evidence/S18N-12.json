@@ -1,34 +1,34 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:38080/api/v1/records/incident",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "66",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:38080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-671bfa5f-inc-a3",
+      "Idempotency-Key": "s18n-b0b7d2de-inc-a3",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 671bfa5f inc-a3\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 b0b7d2de inc-a3\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "created_at": "2026-11-15T05:12:23.329847Z",
+      "created_at": "2026-11-15T13:12:16.354347Z",
       "data": {
         "priority": 3,
-        "requester": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
-        "short_description": "S18 671bfa5f inc-a3",
+        "requester": "3cd3d09b-32d4-42b3-8784-a4f3345b5f00",
+        "short_description": "S18 b0b7d2de inc-a3",
         "state": "new"
       },
-      "id": "01a1dd9e-f020-78d6-8bc1-e7064a863901",
+      "id": "01a1df56-48e1-76ff-a95b-1ef5ea14f2b4",
       "number": "INC0000003",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-15T05:12:23.329847Z",
+      "updated_at": "2026-11-15T13:12:16.354347Z",
       "version": 1
     }
   },

@@ -1,6 +1,6 @@
 # S18 acceptance kit: a tenant admin defines a number format and links it to a ticket type (TICK-669)
 
-Kit task TICK-677 (PLAN-006 P6-12). Story branch `TICK-669/number-formats` at `e8129d90` (every S18 task merged, TICK-872 and TICK-892 included). Design: ADR-005 (§3, §4.2), ADR-005-E2, ADR-004-E9 (PLAN-005-E9 D-E9-5). Runbook: [`docs/data/record-counters-scope-key.md`](../../data/record-counters-scope-key.md). Verified on 2026-11-15 at 05:12Z on a fresh stack that started on the S17 build and was upgraded to S18.
+Kit task TICK-677 (PLAN-006 P6-12). Story branch `TICK-669/number-formats` at `26651ace` (every S18 task merged, TICK-868 / #705 and the `main` merge #708 included). Design: ADR-005 (§3, §4.2), ADR-005-E2, ADR-004-E9 (PLAN-005-E9 D-E9-5). Runbook: [`docs/data/record-counters-scope-key.md`](../../data/record-counters-scope-key.md). Verified on 2026-11-15 at 13:12Z on a fresh stack that started on the S17 build and was upgraded to S18.
 
 **Result: PASS.** All five acceptance criteria and the E9 check pass. The run had 38 requests and 100 tests, all passed (`evidence/run-summary.json`). The forced-failure run (below) exits 1, as it must.
 

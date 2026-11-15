@@ -1,4 +1,4 @@
-== record_counters after the upgrade (M3) (2026-11-15T05:11:58Z)
+== record_counters after the upgrade (M3) (2026-11-15T13:10:58Z)
        conname        |                           def                            
 ----------------------+----------------------------------------------------------
  record_counters_pkey | PRIMARY KEY (tenant_id, entity_definition_id, scope_key)
@@ -10,5 +10,5 @@
 
  s18_migrations 
 ----------------
-             14
+             15
 

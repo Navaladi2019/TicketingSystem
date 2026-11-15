@@ -1,1 +1,0 @@
-s18: FAILED: S18; evidence in docs/acceptance/S18/evidence/forced-failure

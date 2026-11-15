@@ -1,4 +1,4 @@
-== record_counters on the S17 build, before the upgrade (2026-11-15T05:10:52Z)
+== record_counters on the S17 build, before the upgrade (2026-11-15T13:02:58Z)
        conname        |                      def                      
 ----------------------+-----------------------------------------------
  record_counters_pkey | PRIMARY KEY (tenant_id, entity_definition_id)

@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:38080/api/v1/records/incident/01a1dd9d-9985-7cc5-9474-18795834d72a",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident/01a1df4d-d393-7103-bb28-c3cfc14f15e3",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:38080",
+      "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -15,18 +15,18 @@
   "response": {
     "status": 200,
     "body": {
-      "created_at": "2026-11-15T05:10:55.623271Z",
+      "created_at": "2026-11-15T13:03:02.036416Z",
       "data": {
         "priority": 3,
-        "requester": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
+        "requester": "3cd3d09b-32d4-42b3-8784-a4f3345b5f00",
         "short_description": "S18 pre-upgrade incident A 1",
         "state": "new"
       },
-      "id": "01a1dd9d-9985-7cc5-9474-18795834d72a",
+      "id": "01a1df4d-d393-7103-bb28-c3cfc14f15e3",
       "number": "INC0000001",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-15T05:10:55.623271Z",
+      "updated_at": "2026-11-15T13:03:02.036416Z",
       "version": 1
     }
   },
