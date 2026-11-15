@@ -197,6 +197,7 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 	var (
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
+		quota    *entitytypes.IndexQuotaError
 	)
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
@@ -205,6 +206,8 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
+	case errors.As(err, &quota):
+		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):

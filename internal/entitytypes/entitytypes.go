@@ -40,6 +40,10 @@ var (
 	// ErrInvalidNumberingMode means a numbering mode other than gaps or
 	// gapless (entity_definitions_numbering_mode_check).
 	ErrInvalidNumberingMode = errors.New("entitytypes: numbering mode must be gaps or gapless")
+	// ErrSeedFilterable means a seeded definition flags x-nava-filterable. The
+	// registry is written only by nava_app in a publish or create (P7-01), never
+	// by onboarding.
+	ErrSeedFilterable = errors.New("entitytypes: a seeded definition may not flag x-nava-filterable")
 )
 
 // BreakingError is returned by Publish when the new definition is a breaking
@@ -225,6 +229,15 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 		tenantID, verID, defID, string(d.Schema), sum[:], string(fixed), string(states), in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
 	}
+	// Flags in version 1 get their registry and backfill rows and count against
+	// the quota like those of a publish (ADR-006 D8, D12).
+	compiled, err := metadata.Compile(d)
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: compile created definition: %w", err)
+	}
+	if err := registerFilterable(ctx, tx, tenantID, defID, 1, compiled.Filterable()); err != nil {
+		return nil, err
+	}
 	if err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
 		return nil, err
 	}
@@ -253,6 +266,11 @@ type SeedInput struct {
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
+	if c, err := metadata.Compile(d); err != nil {
+		return false, fmt.Errorf("entitytypes: compile seeded definition: %w", err)
+	} else if len(c.Filterable()) > 0 {
+		return false, ErrSeedFilterable
+	}
 	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: encode fixed columns: %w", err)

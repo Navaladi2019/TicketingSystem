@@ -488,3 +488,93 @@ func TestEnqueueFieldIndexBackfillNeedsATenantTransaction(t *testing.T) {
 		t.Errorf("%d outbox rows, want 0", n)
 	}
 }
+
+func etCreateWithSchema(t *testing.T, e *etEnv, key, prefix, idem, schema string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := fmt.Sprintf(`{"key": %q, "name": "Type %s", "number_prefix": %q, "definition": {"schema": %s, %s}}`, key, key, prefix, schema, etDefTail)
+	return e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", idem, body)
+}
+
+// covers: createEntityType 201
+func TestCreateWithFlagWritesRegistryRowAndOutboxRow(t *testing.T) {
+	e := newETEnv(t)
+	if rec := etCreateWithSchema(t, e, "incident", "INC", "k-c1", etFlaggedProps(t, "region")); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	reg := etRegistry(t, e, e.a.id)
+	if len(reg) != 1 || reg[0].Key != "region" || reg[0].State != "backfilling" || reg[0].Progress != 0 || reg[0].Req != 1 {
+		t.Fatalf("registry = %+v, want one region row backfilling 0 requested_version 1", reg)
+	}
+	etWantCounts(t, e, 1, 1)
+	rows := etBackfillRows(t, e, e.a.id)
+	if rows[0].Seq != 1 || rows[0].Payload["field_id"] != reg[0].ID.String() {
+		t.Errorf("outbox row = %+v, want target_seq 1 and the registry row's field_id", rows[0])
+	}
+}
+
+// covers: createEntityType 422
+func TestCreateRefusesFlagsOverTheQuotaAndWritesNothing(t *testing.T) {
+	e := newETEnv(t)
+	rec := etCreateWithSchema(t, e, "incident", "INC", "k-c6", etFlaggedProps(t, "f1", "f2", "f3", "f4", "f5", "f6"))
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.IndexQuotaExceeded)
+	if got := pointers(p); !slices.Contains(got, "/definition/schema/properties/f6") {
+		t.Errorf("pointers = %v, want the new properties named", got)
+	}
+	etWantCounts(t, e, 0, 0)
+	var n int
+	if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM entity_definitions WHERE tenant_id = $1", e.a.id).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d entity definitions (err %v), want 0", n, err)
+	}
+}
+
+// covers: createEntityType 422
+func TestCreateThatWouldPassTheTenantQuotaIsRefused(t *testing.T) {
+	e := newETEnv(t)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-bulk", etBody("bulk", "BLK")); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	for i := range 50 {
+		etFixtureField(t, e, "bulk", fmt.Sprintf("b%d", i), "ready")
+	}
+	wantProblem(t, etCreateWithSchema(t, e, "incident", "INC", "k-c51", etFlaggedProps(t, "region")), http.StatusUnprocessableEntity, problem.IndexQuotaExceeded)
+	if n := len(etRegistry(t, e, e.a.id)); n != 50 {
+		t.Errorf("%d registry rows, want 50", n)
+	}
+	if n := len(etBackfillRows(t, e, e.a.id)); n != 0 {
+		t.Errorf("%d backfill outbox rows, want 0", n)
+	}
+}
+
+// The registry row of a create and its create audit entry share one
+// transaction: a rollback takes both, the row and the outbox row with them.
+func TestCreateRegistryWriteAndAuditEntryShareOneTransaction(t *testing.T) {
+	e := newETEnv(t)
+	errAbort := errors.New("abort after create")
+	def := etDefinition(t, "incident", "INC")
+	def.Schema = json.RawMessage(etFlaggedProps(t, "region"))
+	create := func(tx pgx.Tx) error {
+		_, err := entitytypes.Store{}.Create(context.Background(), tx, e.a.id, entitytypes.NewInput{Name: "Incident", PublishedBy: e.a.admin.PrincipalID, Definition: def})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		return nil
+	}
+	err := tenancy.InTenantTx(context.Background(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		_ = create(tx)
+		return errAbort
+	})
+	if !errors.Is(err, errAbort) {
+		t.Fatalf("tx = %v, want the abort", err)
+	}
+	etWantCounts(t, e, 0, 0)
+	if rows := etAuditRows(t, e); len(rows) != 0 {
+		t.Errorf("%d audit entries after rollback, want 0", len(rows))
+	}
+	if err := tenancy.InTenantTx(context.Background(), e.pool, e.a.id, create); err != nil {
+		t.Fatal(err)
+	}
+	etWantCounts(t, e, 1, 1)
+	if rows := etAuditRows(t, e); len(rows) != 1 || rows[0].Action != "create" {
+		t.Errorf("audit entries = %+v, want the create", rows)
+	}
+}

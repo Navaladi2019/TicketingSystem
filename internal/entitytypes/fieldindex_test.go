@@ -1,10 +1,13 @@
 package entitytypes
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 )
@@ -77,5 +80,23 @@ func TestFieldIndexErrorMessages(t *testing.T) {
 	b := &FieldIndexBusyError{Paths: []string{"/schema/properties/a", "/schema/properties/b"}}
 	if got := b.Error(); got != "entitytypes: field_index_busy at /schema/properties/a, /schema/properties/b" {
 		t.Errorf("FieldIndexBusyError = %q", got)
+	}
+}
+
+// Seed refuses a flagged definition before any query (tx is nil): onboarding
+// must not write the registry (P7-01).
+func TestSeedRefusesAFilterableDefinition(t *testing.T) {
+	t.Parallel()
+	_, err := Store{}.Seed(context.Background(), nil, uuid.New(), SeedInput{
+		DefinitionID: uuid.New(), VersionID: uuid.New(), Name: "Incident",
+		Definition: metadata.Definition{
+			Key: "incident", NumberPrefix: "INC",
+			Schema:       json.RawMessage(`{"type":"object","additionalProperties":false,"required":["state"],"properties":{"state":{"type":"string","enum":["new"]},"region":{"type":"string","x-nava-filterable":true}}}`),
+			FixedColumns: map[string]string{"state": "state"},
+			States:       metadata.StateModel{Initial: "new", States: []string{"new"}},
+		},
+	})
+	if !errors.Is(err, ErrSeedFilterable) {
+		t.Fatalf("Seed = %v, want ErrSeedFilterable", err)
 	}
 }

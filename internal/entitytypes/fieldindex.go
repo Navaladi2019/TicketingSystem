@@ -98,8 +98,9 @@ const tenantQuotaLockSQL = `SELECT pg_advisory_xact_lock(hashtextextended('field
 // quota lock before it counts, so two concurrent publishes cannot both pass.
 // A field that already has a registry row gets none: a row in state removing
 // is *FieldIndexBusyError. This is the only nava_app path that writes the
-// registry; it runs inside the audited publish, which is why the registry is
-// exempt from the audit commit check.
+// registry. Its two callers, Store.Create (version 1) and Store.Publish, run
+// it inside the audited version write, which is why the registry is exempt
+// from the audit commit check.
 func registerFilterable(ctx context.Context, tx pgx.Tx, tenantID, defID uuid.UUID, version int, added []metadata.FilterableField) error {
 	if len(added) == 0 {
 		return nil
