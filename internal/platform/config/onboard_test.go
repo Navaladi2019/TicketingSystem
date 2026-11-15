@@ -122,3 +122,22 @@ func TestLoadOnboardFetchBaseURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadOnboardDevIdPHosts(t *testing.T) {
+	cfg, err := config.LoadOnboard(lookup(onboardEnv()))
+	if err != nil || len(cfg.DevIdPHosts) != 0 {
+		t.Fatalf("default: hosts=%v err=%v, want none", cfg.DevIdPHosts, err)
+	}
+	env := onboardEnv()
+	env["NAVA_ONBOARD_DEV_IDP_HOSTS"] = "Keycloak:8080, localhost:18081"
+	cfg, err = config.LoadOnboard(lookup(env))
+	if err != nil || len(cfg.DevIdPHosts) != 2 || cfg.DevIdPHosts[0] != "keycloak:8080" || cfg.DevIdPHosts[1] != "localhost:18081" {
+		t.Fatalf("hosts=%v err=%v", cfg.DevIdPHosts, err)
+	}
+	for _, bad := range []string{"10.0.0.0/8", "*.internal", "http://keycloak:8080", "keycloak/x", "a,,b", "u@keycloak", "a b"} {
+		env["NAVA_ONBOARD_DEV_IDP_HOSTS"] = bad
+		if _, err := config.LoadOnboard(lookup(env)); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

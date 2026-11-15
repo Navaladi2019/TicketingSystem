@@ -24,13 +24,14 @@ body:json {
     ],
     "identity_provider": {
       "provider_id": "oidc",
-      "display_name": "Acceptance IdP",
+      "display_name": "Stand-in company login",
       "config": {
-        "clientId": "acceptance-client",
-        "clientSecret": "dev-only-not-a-secret",
-        "authorizationUrl": "https://93.184.216.34/auth",
-        "tokenUrl": "https://93.184.216.34/token",
-        "jwksUrl": "https://93.184.216.34/jwks",
+        "clientId": "nava-broker",
+        "clientSecret": "dev-only-broker-secret",
+        "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18081/realms/standin-company/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/token",
+        "jwksUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/certs",
         "useJwksUrl": "true",
         "defaultScope": "openid email profile"
       }
@@ -44,7 +45,7 @@ script:pre-request {
   bru.setVar('s28_run', run);
   bru.setVar('s28_domain', `s28-${run}.test`);
   bru.setVar('s28_admin_email', `admin@s28-${run}.test`);
-  // The stand-in IdP user's password: dev-only, made up per run, never stored.
+  // The password the admin chooses at the stand-in company login: dev-only, made up per run, never stored.
   bru.setVar('s28_admin_password', `dev-only-s28-${run}`);
 }
 

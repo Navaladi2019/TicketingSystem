@@ -175,15 +175,16 @@ func newBackends(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	}
 	b.specs = onboard.NewSpecs()
 	b.dir, err = keycloak.NewDirectory(keycloak.DirectoryConfig{
-		BaseURL:    cfg.KeycloakURL,
-		Realm:      cfg.KeycloakRealm,
-		Runtime:    keycloak.ClientCredentials{ClientID: cfg.RuntimeClientID, ClientSecret: cfg.RuntimeClientSecret},
-		Onboarding: &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
-		Registry:   b.reg,
-		IdPs:       b.specs.Source,
-		Invites:    b.store,
-		InviteTTL:  cfg.InviteTTL,
-		Logger:     log,
+		BaseURL:     cfg.KeycloakURL,
+		Realm:       cfg.KeycloakRealm,
+		Runtime:     keycloak.ClientCredentials{ClientID: cfg.RuntimeClientID, ClientSecret: cfg.RuntimeClientSecret},
+		Onboarding:  &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
+		Registry:    b.reg,
+		IdPs:        b.specs.Source,
+		Invites:     b.store,
+		InviteTTL:   cfg.InviteTTL,
+		DevIdPHosts: cfg.DevIdPHosts,
+		Logger:      log,
 	}, out)
 	if err != nil {
 		b.close()
@@ -200,7 +201,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 	}
 	svc, err := onboard.New(onboard.Options{
 		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, ACL: onboard.ACLStore{Pool: b.appPool}, Specs: b.specs,
-		Resolver: onboard.NewNetResolver(), Issuer: cfg.Issuer, Log: log,
+		Resolver: onboard.NewNetResolver(), DevIdPHosts: cfg.DevIdPHosts, Issuer: cfg.Issuer, Log: log,
 	})
 	if err != nil {
 		b.close()

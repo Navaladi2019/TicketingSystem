@@ -796,3 +796,27 @@ func TestEnsureAuditorGroupNoWarningWhenCreatedOrEmpty(t *testing.T) {
 		})
 	}
 }
+
+func TestIdPConfigDevHosts(t *testing.T) {
+	t.Parallel()
+	mk := func(u string) IdPSpec {
+		return IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", "tokenUrl": u, "jwksUrl": u, "issuer": u}}
+	}
+	standin := "http://keycloak:8080/realms/standin-company/protocol/openid-connect/token"
+	if err := checkIdPConfig(mk(standin)); !errors.Is(err, identity.ErrInvalidInput) {
+		t.Errorf("setting unset: err = %v, want ErrInvalidInput", err)
+	}
+	hosts := []string{"keycloak:8080"}
+	if err := checkIdPConfigWith(mk(standin), hosts); err != nil {
+		t.Errorf("listed host refused: %v", err)
+	}
+	for _, u := range []string{
+		"http://keycloak:8081/x", "http://keycloak/x", "http://10.0.0.5/x", "https://10.0.0.5/x", "http://127.0.0.1:8080/x",
+		"http://localhost:8080/x", "http://169.254.169.254/x", "http://[::1]:8080/x", "http://keycloak:8080@10.0.0.5/x", "http://u:p@keycloak:8080/x",
+		"ftp://keycloak:8080/x", "//keycloak:8080/x",
+	} {
+		if err := checkIdPConfigWith(mk(u), hosts); !errors.Is(err, identity.ErrInvalidInput) {
+			t.Errorf("%q with keycloak:8080 allowed: err = %v, want ErrInvalidInput", u, err)
+		}
+	}
+}

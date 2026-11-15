@@ -19,7 +19,7 @@ You are the first administrator of a customer that has just been onboarded, work
 
 **Not allowed:** `psql` or any other database access, operator or admin routes other than the onboarding call itself, platform-staff actions (the Keycloak master admin, `docker` commands, restarting services), and reading Go code or anything else outside the handbook and this kit. A step you cannot finish with the allowed help is a **finding**: write it down in the log ("needed help", and what you would have needed) instead of working around it.
 
-**The one exception, sign-in on the local stack.** A real customer signs in through its own company login. The local stack has none, so the first admin cannot sign in with the allowed help alone. The kit's stand-in for the company login is Bruno `S28.3` to `S28.5` (the Keycloak master admin creates the user that the company login would create, links it to the tenant's login and adds it to the tenant's organization), after which the admin signs in with the password grant (`S28.6`). Using it is a platform-staff action: log that step as "needed help: platform staff (stand-in for the company login)", then use it, so the rest of the path can be timed. Do not use the master admin for anything else.
+**Sign-in on the local stack.** A real customer signs in through its own company login. The local stack has a dev-only stand-in for it, the realm `standin-company`: at the first sign-in the admin creates their own user there (the registration page, with the invited email and a password they choose) and is sent back to the platform. Bruno `S28.3` does this and `S28.6` renews the token. No master admin and no platform-staff help is needed; if a step still needs help, log it as "needed help".
 
 **Before the clock (the operator's part).** The stack is up and its operator tunnels are open (`sh docs/acceptance/guide/tools/tunnels.sh up`): nava-core on `http://127.0.0.1:18080`, Keycloak on `http://127.0.0.1:18081`, nava-onboard on `http://127.0.0.1:18082`. Get an operator token as the tour's "Before you start" describes. Pick a domain nobody has used, such as `x1a-<something random>.test`; the first admin's address is `admin@` that domain.
 
@@ -59,7 +59,7 @@ sh docs/acceptance/guide/tools/api-test.sh S28
 |---|---|---|
 | S28.1 | operator token | `200`, issuer |
 | S28.2 | 1 onboard (clock start) | `201`, `state: active` |
-| S28.3 to S28.5 | 2 stand-in for the company login (platform staff) | `201`, `204`, `201` |
+| S28.3 to S28.6 | 2 first sign-in through the stand-in company login | `200`, `200`, `200`, `200` |
 | S28.6 | 2 the admin signs in | `200`; the token names only the new tenant's organization |
 | S28.7 | 2 placed in `/admins` | `200` `/me` is the new tenant, `/admins`; polls up to `s28_place_limit_s` (360 s) |
 | S28.8 | 3 starter types | `200`, `incident` at version 1 |
@@ -73,6 +73,6 @@ In CI the stack case `s28_first_routed_record` (`deploy/compose/test/cases/s28_f
 
 ## Known limitations
 
-- The sign-in step on the local stack is a platform-staff stand-in (finding F1 in the quality page). A real tenant's admin signs in through the company login in a browser; this kit cannot time that.
+- The sign-in step on the local stack uses the dev-only stand-in company login (F1, fixed by TICK-967). A real tenant's admin signs in through their own company login in a browser; this kit cannot time that.
 - The record history says `source: workflow` but not which workflow. The kit relies on the new tenant having one definition.
 - There is no screen: every step is the REST API.
