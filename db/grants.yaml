@@ -145,6 +145,9 @@ roles:
       "public.acl_cond_valid(jsonb)": [EXECUTE]
       "public.acl_rules_valid(jsonb)": [EXECUTE]
       "public.acl_masks_valid(jsonb)": [EXECUTE]
+      # P7-02 (TICK-742): the records trigger (as the writer) and the P7-05
+      # backfill call the one coercion of ADR-006 D5.
+      "public.record_field_coerce(jsonb,text)": [EXECUTE]
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
   # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
@@ -243,6 +246,9 @@ roles:
       "public.acl_cond_valid(jsonb)": [EXECUTE]
       "public.acl_rules_valid(jsonb)": [EXECUTE]
       "public.acl_masks_valid(jsonb)": [EXECUTE]
+      # P7-02 (TICK-742): the records trigger (as the writer) and the P7-05
+      # backfill call the one coercion of ADR-006 D5.
+      "public.record_field_coerce(jsonb,text)": [EXECUTE]
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.

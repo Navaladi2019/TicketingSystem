@@ -4,6 +4,7 @@ package main
 
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
@@ -16,9 +17,9 @@ import (
 // With workflows off (WorkflowsEnv=off, the activity-only worker) it returns
 // nil, nil: that worker polls no workflow tasks and registers no interpreter,
 // and must still start. The interptest build errors instead (newWorker).
-func interpreterActivities(_ config.LookupFunc, pool, pipePool *pgxpool.Pool, workflows bool) (*interp.Activities, error) {
+func interpreterActivities(_ config.LookupFunc, pool, pipePool *pgxpool.Pool, workflows bool, mp metric.MeterProvider) (*interp.Activities, error) {
 	if !workflows {
 		return nil, nil //nolint:nilnil // nil Activities is "not registered", not an error
 	}
-	return productionActivities(pool, pipePool)
+	return productionActivities(pool, pipePool, mp)
 }
