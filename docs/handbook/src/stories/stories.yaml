@@ -198,8 +198,15 @@ stories:
     status: planned
   - id: S18
     issue: TICK-669
-    title: A tenant admin defines a number format and links it to a ticket type
-    status: planned
+    title: A tenant admin defines a number format and links it to a ticket type (release R2, M3)
+    status: in-progress
+    verdict_comment: "Kit PASS on e8129d90 (38 requests, 100 tests), 2026-11-15; story verdict pending"
+    bruno: [S18, S18-API, S18-TZ]
+    evidence:
+      - docs/acceptance/S18/README.md
+      - docs/acceptance/S18/evidence/run-summary.json
+      - docs/acceptance/S18/evidence/schema-after-upgrade.txt
+      - docs/acceptance/S18/evidence/forced-failure/result.txt
   - id: S19
     issue: TICK-678
     title: A record number can carry a branch or other enum code

@@ -3,26 +3,29 @@ title: "Core: record numbering (gaps and gapless)"
 section: system
 status: delivered
 normative: docs/adr/ADR-005-record-numbering.md
-sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, docs/architecture/number-format-compiler.md, internal/records/numbering/numbering.go, internal/records/numbering/template.go, docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/alloc.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/store/numbering.go, internal/tenancy/alloc.go, internal/entitytypes/entitytypes.go, cmd/nava-core/allocator.go]
+sources: [docs/adr/ADR-005-record-numbering.md, docs/adr/ADR-005-E1-first-create-race-in-expand-window.md, docs/data/record-counters-scope-key.md, docs/architecture/number-format-compiler.md, internal/records/numbering/numbering.go, internal/records/numbering/template.go, docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/alloc.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/store/numbering.go, internal/tenancy/alloc.go, internal/entitytypes/entitytypes.go, cmd/nava-core/allocator.go, internal/records/numbering/scope.go, internal/records/numbering/disjoint.go, internal/server/records.go, docs/data/number-formats.md, docs/budgets.md]
 packages: [internal/records/pipeline, internal/records/store, internal/records/numbering, internal/tenancy, cmd/nava-core]
-stories: [S10, S17]
-adrs: [ADR-005, ADR-005-E1, ADR-001]
+stories: [S10, S17, S18]
+adrs: [ADR-005, ADR-005-E1, ADR-005-E2, ADR-001, ADR-004]
 invariants: [I4, I8]
 operations: [createRecord]
-tables: [record_counters, entity_definitions, records]
-tests: [TestRefusedCreatesLeaveTheCounter, TestCreateReplayTakesNoNumber, TestCreateTakesItsNumberInATransactionOfItsOwn, TestRolledBackCreateLeavesAGap, TestCreateRollsBackAtEveryStage, TestAllocationIsTheCreatesAndDatesTheRecord, TestAllocationTransactionIsTenantScoped, TestCreateChecksTheAllocation, TestAllocationTimeoutIsRetryableAndMeasured, TestAllocatorPoolDoesNotStarveThePool, TestAllocatorPoolRefusesABypassRLSRole, TestRolledBackCreateNumberIsReused, TestModeSwitchNeverReusesANumber, TestNumberingModesDoNotInterfere, TestNumbersPerTenantAndType, TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer, TestRenderDefault, TestCompileDefaultIsEpochZeroWithEmptyScope, TestP602CreateContinuesTheTwoColumnCounter, TestP605FirstCreateWaitsForTheWinner, TestP605OtherScopeDoesNotBlockTheDefault, TestP602ConcurrentFirstCreatesAllSucceed, TestConcurrentFirstCreatesOfATypeAllSucceed]
+tables: [record_counters, entity_definitions, entity_definition_versions, numbering_epochs, records]
+tests: [TestRefusedCreatesLeaveTheCounter, TestCreateReplayTakesNoNumber, TestCreateTakesItsNumberInATransactionOfItsOwn, TestRolledBackCreateLeavesAGap, TestCreateRollsBackAtEveryStage, TestAllocationIsTheCreatesAndDatesTheRecord, TestAllocationTransactionIsTenantScoped, TestCreateChecksTheAllocation, TestAllocationTimeoutIsRetryableAndMeasured, TestAllocatorPoolDoesNotStarveThePool, TestAllocatorPoolRefusesABypassRLSRole, TestRolledBackCreateNumberIsReused, TestModeSwitchNeverReusesANumber, TestNumberingModesDoNotInterfere, TestNumbersPerTenantAndType, TestConcurrentCreatesNumberWithoutGapsThroughPgBouncer, TestRenderDefault, TestCompileDefaultIsEpochZeroWithEmptyScope, TestP602CreateContinuesTheTwoColumnCounter, TestP605FirstCreateWaitsForTheWinner, TestP605OtherScopeDoesNotBlockTheDefault, TestP602ConcurrentFirstCreatesAllSucceed, TestConcurrentFirstCreatesOfATypeAllSucceed, TestScopeKeyAt, TestDisjointProperty, TestRenderRefuseOverflow, TestNumberFormatAttackNoTwoEpochsRenderOneString, TestNumberFormatAttackLinkRaceNeverForksAnEpoch, TestNumberSpaceExhaustedCreateAppendsOneEntryPerRefusal, TestNumberSpaceExhaustedEntryIsAppendedOnTheAPIPoolAfterTheCreate, TestAllocatorPoolRunsOnlyAllocations]
 ---
 
 ## Purpose
 
-Every record gets a human number, `<prefix><7 digits>` (`INC0000001`), unique
-and increasing per tenant and entity type. Numbers come from one
-`record_counters` upsert on `(tenant_id, entity_definition_id, scope_key)`;
-there is no sequence (ADR-001 I8). Every type uses the default format
-(`numbering.Default()`: `{prefix}{seq:7}`, scope key `''`) until S18 links
-formats to types. The format compiler is already in `internal/records/numbering`
-(see the [compiler note](../../../architecture/number-format-compiler.md)). A type's
-`numbering_mode` picks where the upsert runs:
+Every record gets a human number, unique and increasing per tenant, entity
+type and scope. Numbers come from one `record_counters` upsert on
+`(tenant_id, entity_definition_id, scope_key)`; there is no sequence (ADR-001
+I8). A type with no linked format uses the default (`numbering.Default()`:
+`{prefix}{seq:7}`, epoch 0, scope key `''`, `INC0000001`). Since S18 a type
+version can pin a published number format (`{prefix}-{yyyy}{MM}{seq:4}`,
+`VISA-2026110001`); the version snapshots the compiled format, so a create
+never reads the format tables (see the
+[compiler note](../../../architecture/number-format-compiler.md) and
+[number formats](../../../data/number-formats.md)). A type's `numbering_mode`
+picks where the upsert runs:
 
 - `gaps` (default, ADR-005 L2s): in a transaction of its own on the allocator
   pool, committed before the record is inserted. The counter row is locked for
@@ -45,8 +48,17 @@ section of
   (`internal/records/store/numbering.go`).
 - `gapless`: `store.QueueInsertNumbered` in `write.writeCreate` (`batch.go`).
 - Mode change: `entitytypes.Store.SetNumberingMode`.
-- Format: `write.format` returns `numbering.Default()`; its `ScopeKey()` is the
-  upsert's third key.
+- Format: `defs.NumberFormat` (`entitytypes.Store.NumberFormat`) reads the
+  compiled snapshot pinned on the create's definition version, or
+  `numbering.Default()` when none is pinned. The upsert computes the scope key
+  (`''`, `e<epoch>` or `e<epoch>|d:<date part>`), the date part and
+  `period_end` in SQL from `now()` in the tenant's time zone
+  (`tenants.time_zone`, or the format's override).
+- Exhausted scope: under `overflow: refuse`, `Compiled.Fits` fails and the
+  create returns `ErrNumberSpaceExhausted` (`gaps`: after `allocate` in
+  `pipeline.go`; `gapless`: in `writeCreate`, `batch.go`). After the create's
+  transaction has ended, `internal/server/records.go` appends one
+  `number_space_exhausted` audit entry on the API pool (ADR-004-E9 R2b).
 - First creates of a counter: since M3 (S18, TICK-670) the 3-column key is
   the only unique index, so they serialise on it with no retry (ADR-005-E1's
   race, and S17's retry for it, are gone).
@@ -63,9 +75,9 @@ sequenceDiagram
         C->>A: allocate(createTx, definition), bounded by AllocTimeout
         A->>T: tenant = TenantOf(createTx)
         T->>P: one send: BEGIN; set_config; SET LOCAL synchronous_commit = off;<br/>record_counters upsert RETURNING next - 1, now(); COMMIT
-        T-->>C: Allocation (tenant, type, scope '', epoch 0, n, instant)
+        T-->>C: Allocation (tenant, type, scope key, epoch, n, instant)
         C->>C: check allocation is this create's; created_at = instant
-        C->>P: INSERT record with format.RenderAt(prefix, instant, n), audit, COMMIT
+        C->>P: INSERT record with format.RenderParts(prefix, date part, n), audit, COMMIT
         Note over C,P: failure after the allocation: n is a gap
     else numbering_mode = gapless
         C->>P: write batch: record_counters upsert + INSERT record, audit, COMMIT
@@ -79,7 +91,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | 1 | Take the number only after the replay check, validation, the write check and the unique and group checks | `write.create` | I4: a refused, invalid or replayed create never moves the counter | `TestRefusedCreatesLeaveTheCounter`, `TestCreateReplayTakesNoNumber` |
 | 2 | `gaps`: allocate in its own transaction on the allocator pool; tenant from the create's transaction, never a parameter | `write.allocate`, `PoolRunner.Allocate`, `tenancy.AllocTx`, `store.QueueAllocate` | ADR-005 A1, A2, A4 | `TestCreateTakesItsNumberInATransactionOfItsOwn`, `TestAllocationTransactionIsTenantScoped` |
-| 3 | Check the allocation names this create's tenant, type, scope `''` and epoch 0; store its `now()` as `created_at` | `write.allocate` | ADR-005 A2, A7 | `TestCreateChecksTheAllocation`, `TestAllocationIsTheCreatesAndDatesTheRecord` |
+| 3 | Check the allocation names this create's tenant, type, scope and epoch; store its `now()` as `created_at` | `write.allocate` | ADR-005 A2, A7 | `TestCreateChecksTheAllocation`, `TestAllocationIsTheCreatesAndDatesTheRecord` |
 | 4 | Give up past the allocation timeout with `ErrRetryable`; record acquire and total time | `PoolRunner.Allocate`, `AllocMetrics` | ADR-005 A5, A8 | `TestAllocationTimeoutIsRetryableAndMeasured` |
 | 5 | The allocator pool is separate from the API pool and logs in as `nava_app` only | `tenancy.AllocPoolConfig`, `tenancy.CheckAllocatorRole` | ADR-005 A3; I3 | `TestAllocatorPoolDoesNotStarveThePool`, `TestAllocatorPoolRefusesABypassRLSRole` |
 | 6 | A failure after the allocation commits leaves a gap; numbers are never reused | `gaps_integration_test.go` | Gaps by design | `TestRolledBackCreateLeavesAGap`, `TestCreateRollsBackAtEveryStage` |
@@ -87,6 +99,10 @@ sequenceDiagram
 | 8 | A mode change applies to creates that start after it; both modes upsert the same row | `entitytypes.Store.SetNumberingMode` | No number used twice | `TestModeSwitchNeverReusesANumber`, `TestNumberingModesDoNotInterfere` |
 | 9 | Render `<prefix><7 digits>`, growing past 7; lists sort on `created_at` | `numbering.Compiled.RenderAt` | Unique per tenant and type | `TestRenderDefault`, `TestNumbersPerTenantAndType` |
 | 10 | Upsert on the 3-column key, `record_counters_pkey` since M3 and the only unique index: concurrent first creates of a counter wait on it and take the UPDATE arm, with no retry | `store.QueueAllocate`, `store.QueueInsertNumbered` | ADR-005 §4.2 M3; READ COMMITTED only (ADR-005-E1) | `TestP605FirstCreateWaitsForTheWinner`, `TestP605OtherScopeDoesNotBlockTheDefault`, `TestP602ConcurrentFirstCreatesAllSucceed`, `TestConcurrentFirstCreatesOfATypeAllSucceed` |
+| 12 | A linked format: scope key, date part and `period_end` from `now()` in the tenant's zone, in the upsert | `numbering.Compiled.Scope`, `store.QueueAllocate` (`upsertSQL`) | ADR-005 §3.6, A7 | `TestScopeKeyAt` |
+| 13 | Two epochs of one type never render the same string: a link is refused with `number_format_overlap` unless its literal head is disjoint from every earlier epoch | `numbering.Disjoint`, the definition publish | ADR-005 §3.3 | `TestDisjointProperty`, `TestNumberFormatAttackNoTwoEpochsRenderOneString`, `TestNumberFormatAttackLinkRaceNeverForksAnEpoch` |
+| 14 | `overflow: refuse`: a counter past `{seq:N}` is `409 number_space_exhausted`; one audit entry per refusal, on the API pool after the create ends | `write.exhausted`, `handlers.auditExhausted` | ADR-004-E9 R2b | `TestRenderRefuseOverflow`, `TestNumberSpaceExhaustedCreateAppendsOneEntryPerRefusal`, `TestNumberSpaceExhaustedEntryIsAppendedOnTheAPIPoolAfterTheCreate` |
+| 15 | Only allocations run on the allocator pool | test guard | `docs/budgets.md` allocator-pool rule | `TestAllocatorPoolRunsOnlyAllocations` |
 | 11 | The default format keeps the old counter (epoch 0, scope `''`); a counter row written by the pre-S17 build is continued | `numbering.Default`, `store.NextNumber` | No existing number moves | `TestCompileDefaultIsEpochZeroWithEmptyScope`, `TestP602CreateContinuesTheTwoColumnCounter` |
 
 ## Errors
@@ -96,13 +112,16 @@ sequenceDiagram
 | `ErrRetryable` (allocation past its timeout) | `503 retry_later`, nothing committed but possibly the number (a gap) |
 | allocation not this create's (tenant, type, scope, epoch) | `500 internal_error` (a bug, never expected) |
 | `entitytypes.ErrInvalidNumberingMode` | refused before anything is written |
+| `ErrNumberSpaceExhausted` (`overflow: refuse`, the scope is full) | `409 number_space_exhausted`, naming the type and scope; a `gaps` counter has moved (the number is a gap), a `gapless` one has not |
+| `ErrNumberTaken` (a number already on a record, never expected) | `500 internal_error` |
 
 ## Notes
 
 - Metrics: `nava_numbering_alloc_acquire_seconds`,
   `nava_numbering_alloc_seconds` and `nava_numbering_alloc_timeouts`.
   `nava_numbering_first_create_retries` (S17) was removed with M3.
-- Story: [S17](../stories/s17.md).
+- Stories: [S17](../stories/s17.md), [S18](../stories/s18.md).
+- Metric `records_number_space_exhausted_total` (no tenant or type label) counts refusals.
 - Measured create latency under both modes: [benchmarks page](../benchmarks/index.md).
 
 ## Links

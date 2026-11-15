@@ -19,7 +19,7 @@
 <div class="nav-section"><a class="nav-title" href="../adr/index.html">adr</a>
 <ul><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-002-e1.html">ADR-002-E1: a line-scoped nolint replaces the api.go exclusion</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">ADR-004-E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">ADR-004-E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">ADR-004-E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">ADR-004-E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">ADR-004-E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">ADR-004-E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">ADR-004-E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../stories/index.html">stories</a>
-<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
+<ul><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s13.html">S13: An auditor verifies an audit export offline, and any tampering is detected</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../workflows/index.html">workflows</a>
 <ul><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul></div>
 <div class="nav-section"><a class="nav-title" href="../database/index.html">database</a>
@@ -82,24 +82,427 @@ retry are gone.</li>
 deployed again. Its Down restores the 2-column key only while every
 <code>scope_key</code> is <code>&#x27;&#x27;</code>, and refuses otherwise.</li>
 </ul>
+<h2 id="number-formats-epochs-and-the-pinned-link-s18">Number formats, epochs and the pinned link (S18)</h2>
+<p>Design note: <a href="../../../docs/data/number-formats.md"><code>number-formats.md</code></a>. Three
+tenant tables, each under <code>ENABLE</code> and <code>FORCE ROW LEVEL SECURITY</code>, with every
+key and foreign key leading with <code>tenant_id</code> (ADR-005 §3.7 C8: a foreign-key
+check runs as the owner and skips RLS).</p>
+<ul>
+<li><strong><code>number_formats</code></strong>: one row per format, <code>key</code> unique per tenant (never
+globally, which would be a cross-tenant oracle) and <code>current_version</code>.
+<code>nava_app</code> creates formats and moves <code>current_version</code> and <code>updated_at</code>.</li>
+<li><strong><code>number_format_versions</code></strong>: immutable. <code>document</code> is the format as the
+admin published it (template, overflow, optional time-zone override);
+<code>compiled</code> is <code>numbering.Compiled</code> as JSON and <code>compiled_sha256</code> its
+SHA-256, computed in Go. No role may update or delete a version (C9).</li>
+<li><strong><code>numbering_epochs</code></strong>: the identity of a compiled template within one
+type. A publish whose <code>compiled_sha256</code> is already there reuses its epoch;
+otherwise it takes <code>max(epoch) + 1</code> after <code>SELECT ... FOR UPDATE</code> on the
+type. Epoch 0 (<code>{prefix}{seq:7}</code>, scope <code>&#x27;&#x27;</code>) is implicit and has no row.
+<code>literal_head</code> (the text before the first variable token, <code>{prefix}</code>
+resolved) is what the disjointness check compares across the type's
+epochs, so two epochs can never render the same number. Immutable.</li>
+<li><strong>The pinned link</strong> is on the immutable <code>entity_definition_versions</code>:
+<code>number_format_id</code>, <code>number_format_version</code> and <code>number_compiled</code>, the
+snapshot a create reads, so a create never reads the format tables. All
+three NULL is the default numbering. The composite foreign key leads with
+<code>tenant_id</code>, so tenant B's format id fails exactly as a made-up id does
+(23503); the API answers both with <code>422 number_format_not_found</code>.</li>
+<li><strong><code>tenants.time_zone</code></strong>: <code>text NOT NULL DEFAULT &#x27;UTC&#x27;</code>, an IANA name. The
+CHECK pins its shape; whether the zone exists is checked in Go against the
+binary's tzdata. <code>nava_app</code> updates it through its own policy, and the
+change is audited under subject type <code>tenant_setting</code>. <code>nava_worker</code> reads
+it too (<code>20261115100000</code>), because a dated create reads the zone inside the
+counter upsert.</li>
+<li>Audited under subject type <code>number_format</code> (formats, versions) and
+<code>entity_definition</code> (epochs).</li>
+</ul>
+<h2 id="scope-keys-and-the-purge-of-period-counters-s18">Scope keys and the purge of period counters (S18)</h2>
+<ul>
+<li>A linked format's counter scope is <code>e&lt;epoch&gt;</code> for a date-free format, or
+<code>e&lt;epoch&gt;|d:&lt;date part&gt;</code> for a dated one (<code>e1|d:202611</code>). PostgreSQL
+computes the scope key, the date part and <code>period_end</code> from <code>now()</code> in the
+tenant's time zone, in the upsert itself, so the date in the number and
+the counter it came from always agree.</li>
+<li><code>period_end</code> is set only for a row whose scope ends (a dated format with a
+year). Rows of recurring keys (<code>{MM}</code> with no year, <code>{dd}</code> with no month)
+and default-scope rows keep <code>period_end</code> NULL, so they are never purged:
+a purged and restarted counter would hand out numbers already issued.</li>
+<li><code>nava_purge</code> deletes rows whose <code>period_end</code> is more than 2 days past,
+through the paired policies <code>record_counters_purge_select</code> and
+<code>record_counters_purge</code> on one predicate, <code>period_end &lt; now() - interval &#x27;2 days&#x27;</code> (<code>20261113210800</code>). The 2-day grace exceeds the widest UTC-offset
+span (26 h), so a time-zone change cannot reopen a purged period. NULL never
+matches. Its grant is <code>SELECT</code> on the key columns and <code>period_end</code>, and
+<code>DELETE</code>; never <code>next</code>. The batch <code>DELETE</code> reads the partial index
+<code>record_counters_period_end</code>.</li>
+</ul>
 <h2 id="diagram">Diagram</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
+    number_format_versions {
+        uuid tenant_id PK,FK
+        uuid format_id PK,FK
+        integer version PK
+        jsonb document
+        jsonb compiled
+        bytea compiled_sha256
+        timestamp_with_time_zone created_at
+        uuid created_by FK
+    }
+    number_formats {
+        uuid tenant_id PK,FK
+        uuid id PK
+        text key
+        integer current_version
+        timestamp_with_time_zone created_at
+        timestamp_with_time_zone updated_at
+    }
+    numbering_epochs {
+        uuid tenant_id PK,FK
+        uuid entity_definition_id PK,FK
+        integer epoch PK
+        bytea compiled_sha256
+        text literal_head
+        timestamp_with_time_zone created_at
+    }
     record_counters {
         uuid tenant_id PK,FK
         uuid entity_definition_id PK,FK
         bigint next
-        text scope_key
+        text scope_key PK
         timestamp_with_time_zone period_end
     }
+    number_format_versions }o--|| principals : &quot;tenant_id,created_by&quot;
+    number_format_versions }o--|| number_formats : &quot;tenant_id,format_id&quot;
+    number_formats }o--|| tenants : &quot;tenant_id&quot;
+    numbering_epochs }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
     record_counters }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
     entity_definitions {
         stub other_area
     }
+    principals {
+        stub other_area
+    }
+    tenants {
+        stub other_area
+    }
 </pre></div></figure>
-<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>.</p>
+<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>, <code>principals</code> on <a href="../database/identity.html">identity</a>, <code>tenants</code> on <a href="../database/tenancy.html">tenancy</a>.</p>
 <h2 id="tables">Tables</h2>
+<h4 id="numberformatversions"><code>number_format_versions</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>format_id</code>, <code>version</code>.</p>
+<p>Audit: audited (subject <code>number_format</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>format_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>document</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled_sha256</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>created_by</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_format_versions_created_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>created_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>number_format_versions_format_fkey</code></td>
+<td><code>tenant_id</code>, <code>format_id</code></td>
+<td><code>number_formats</code> (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_format_versions_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>format_id</code>, <code>version</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>number_format_versions_insert</code> (INSERT, nava_app), <code>number_format_versions_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT.</p>
+<h4 id="numberformats"><code>number_formats</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>id</code>.</p>
+<p>Audit: audited (subject <code>number_format</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>key</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>current_version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_formats_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_formats_key_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>key</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+<tr>
+<td><code>number_formats_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>number_formats_insert</code> (INSERT, nava_app), <code>number_formats_select</code> (SELECT, nava_app, nava_worker), <code>number_formats_update</code> (UPDATE, nava_app).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (current_version, updated_at); nava_worker SELECT.</p>
+<h4 id="numberingepochs"><code>numbering_epochs</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>, <code>epoch</code>.</p>
+<p>Audit: audited (subject <code>entity_definition</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>epoch</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled_sha256</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>literal_head</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>numbering_epochs_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>numbering_epochs_compiled_sha256_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>compiled_sha256</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+<tr>
+<td><code>numbering_epochs_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>epoch</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>numbering_epochs_insert</code> (INSERT, nava_app), <code>numbering_epochs_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT.</p>
 <h4 id="recordcounters"><code>record_counters</code></h4>
-<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>.</p>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code>.</p>
 <p>Audit: exempt from the audit log: Record-number counter (D-3-9); the record insert that takes the number is audited.</p>
 <table>
 <thead>
@@ -179,34 +582,66 @@ deployed again. Its Down restores the 2-column key only while every
 <td><code>period_end</code></td>
 <td>-</td>
 <td><code>period_end IS NOT NULL</code></td>
-<td><a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
+<td><a href="../../../docs/data/purge-indexes.md">purge-indexes</a>, <a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
 </tr>
 <tr>
 <td><code>record_counters_pkey</code> (unique)</td>
 <td>btree</td>
-<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code></td>
 <td>-</td>
 <td>-</td>
 <td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
 </tr>
-<tr>
-<td><code>record_counters_scoped_key</code> (unique)</td>
-<td>btree</td>
-<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code></td>
-<td>-</td>
-<td>-</td>
-<td><a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
-</tr>
 </tbody>
 </table>
 <p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>record_counters_insert</code> (INSERT, nava_app, nava_worker), <code>record_counters_select</code> (SELECT, nava_app, nava_worker), <code>record_counters_update</code> (UPDATE, nava_app, nava_worker).</p>
-<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (next); nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (next).</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Kind</th>
+<th>Type</th>
+<th>Command</th>
+<th>Roles</th>
+<th>Using</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>record_counters_purge</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_purge</code></td>
+<td><code>(period_end &lt; (now() - &#x27;2 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_counters_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(period_end &lt; (now() - &#x27;2 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (next); nava_purge SELECT (tenant_id, entity_definition_id, scope_key, period_end); nava_purge DELETE; nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (next).</p>
 </article>
 <section class="backlinks"><h2>Also named by</h2>
-<h3>Table record_counters</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table entity_definition_versions</h3><ul><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Table number_format_versions</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li></ul>
+<h3>Table number_formats</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li></ul>
+<h3>Table numbering_epochs</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Table record_counters</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li></ul>
+<h3>Table tenants</h3><ul><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li></ul>
 <h3>Story S17</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
-<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
-<h3>ADR ADR-005-E1</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Story S18</h3><ul><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li></ul>
+<h3>ADR ADR-005-E1</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>ADR ADR-005-E2</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
 </section>
 <footer><p class="hb-footer">Content generated against main @ ac253bada1b0 (2026-11-13)</p></footer>
 </main>

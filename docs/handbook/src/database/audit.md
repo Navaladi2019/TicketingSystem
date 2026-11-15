@@ -3,8 +3,9 @@ title: "Audit log and seal chain"
 section: database
 status: delivered
 tables: [audit_log, audit_log_default, audit_chain_head]
-adrs: [ADR-004, ADR-004-A1, ADR-001-A6]
-sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md]
+adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-001-A6]
+stories: [S18]
+sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql]
 ---
 
 `audit_log` is one append-only log for every audited table (ADR-004). An
@@ -29,6 +30,21 @@ Because of the partitioning:
   reaches its rows only through the parent.
 - each partition sets `n_distinct = 1` on `occurred_at`, so the planner keeps
   the tenant-led indexes. Epic 30 must set it on every partition it creates.
+
+**Actions.** `action` is a closed list, mirrored by `audit_log_action_check`
+and `audit.Actions()` (`internal/audit/entry.go`): `create`, `update`,
+`publish`, `enable`, `disable`, `delete`, `promote`, `rollback`,
+`state_change`, `export`, `erase`, `reseed`, `cascade_cycle`,
+`cascade_too_deep` (ADR-004-E1) and `number_space_exhausted` (ADR-004-E9,
+S18). A `number_space_exhausted` entry records a create refused because its
+number format's scope is full: domain `record`, subject `entity_definition`
+(the type), both versions NULL, and a `diff` of one `add` of `/number_space`
+with `epoch`, `scope_key`, `width` and `counter`; never the attempted record
+data. It is written in a transaction of its own on the API pool, after the
+refused create's transaction has ended, never on the allocator pool. The
+CHECK was widened `NOT VALID` (`20261115090000`), then validated
+(`20261115090100`). S18 also adds the subject types `number_format` and
+`tenant_setting`.
 
 Only `nava_audit_reader` reads `diff` and `diff_salt` (ADR-004-A1). The
 migrator generates the `audit_log` policies from `db/audited-tables.yaml`.
