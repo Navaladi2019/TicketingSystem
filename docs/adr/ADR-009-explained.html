@@ -25,11 +25,11 @@
 
 <h1>Catching old records up when a field gets a default</h1>
 <p class="muted">ADR-009 (from RFC-021) · issue TICK-897 · Epic 04 · author: Solution Architect · 2026-11-15</p>
-<p><span class="status">PROPOSED</span> Security, Postgres and the Technical Architect reviewed this design in two rounds. All three approve. The CTO approved the design with one last search fix folded in. The final verdict (accept, or revise) is the next step.</p>
+<p><span class="status" style="color:var(--ok)">ACCEPTED, 2026-11-15</span> Security, Postgres and the Technical Architect reviewed this design in two rounds. All three approve. The CTO approved the design with one last search fix folded in. The Solution Architect accepted it on 2026-11-15. The delivery plan comes next.</p>
 
 <h2>In plain words</h2>
 
-<div class="q"><b>1. Goal.</b> When a tenant admin changes a record type so that a field gets a <i>default</i> (the value a record gets when nobody sets one), every existing record should behave as if it had that value. Opening a record, listing records and searching must all agree.</div>
+<div class="q"><b>1. Goal.</b> When a tenant admin (an administrator at one customer organisation, a <i>tenant</i>) changes a record type (a kind of record they define, such as "incident") so that a field gets a <i>default</i> (the value a record gets when nobody sets one), every existing record should behave as if it had that value. Opening a record, listing records and searching must all agree.</div>
 
 <div class="q"><b>2. Today.</b> The platform saves the new version of the type and stops there. Old records never get the value written into the database. Opening one shows the default anyway, because the display code fills it in as it reads. Searching does not fill it in. So a ticket can show <code>priority: 3</code> when you open it, and still be missing when you search for priority 3. A record only catches up when someone edits it.</div>
 
@@ -41,7 +41,7 @@
 <div class="q"><b>3. What's new.</b> Three changes.
 <ol>
 <li><b>A background job writes the default into every old record</b>, using the same write path as a normal edit, so each change is checked and recorded in the audit log. It first makes a list of the records that need it. Then it updates them <b>one record at a time</b>, each in its own small database step, so a person editing a record never waits for more than one record's update. It covers one tenant and one record type, and pauses between groups of records.</li>
-<li><b>Until the job finishes, searches count the default as a match.</b> Results are correct from the moment the admin publishes, not hours later. Before the job has built its list, the search checks every record for the missing field. Once the list exists and only a few records are left, the search uses the list, so it stays fast.</li>
+<li><b>Until the job finishes, searches count the default as a match.</b> Results are correct from the moment the admin publishes, not hours later (one exception: sorting by that field, see the risks). Before the job has built its list, the search checks every record for the missing field. Once the list exists and only a few records are left, the search uses the list, so it stays fast.</li>
 <li><b>A field that must be unique cannot have a default.</b> A default would give every record the same value, and the second record would already be a duplicate.</li>
 </ol>
 We expect this to work because the normal edit path already fills in defaults on every edit. The job is just an edit with nothing changed, applied to every record that was never edited.</div>
@@ -50,11 +50,11 @@ We expect this to work because the normal edit path already fills in defaults on
 <ul>
 <li><b>End users and integrations:</b> search, lists and single records give the same answer. The "last updated" time does not move, so lists sorted by it stay in the same order while the job runs. A user who has a record open in an edit form while the job rewrites it gets a "record changed, reload" message once.</li>
 <li><b>Tenant admins:</b> the record-type page shows the job's progress and any records it could not update.</li>
-<li><b>Workflow authors:</b> nothing fires. The job's writes do not count as "record updated" events, because the value people see did not change.</li>
+<li><b>Workflow authors</b> (people who set up automatic steps that run when a record changes): nothing fires. The job's writes do not count as "record updated" events, because the value people see did not change.</li>
 <li><b>Operators:</b> a burst of database writes on large record types. Each job is limited to one tenant, and the number of tenants running a job at once is capped.</li>
 </ul></div>
 
-<div class="q"><b>5. Risks.</b> Measured on test hardware: each record takes about 7 milliseconds and writes about 4 KB to the database log. A 100,000-record type therefore takes roughly 12 minutes plus pauses and writes about 400 MB of log. With one record per step, live edits slowed by <b>1.7%</b> in a 20,000-record test. The first design, which locked 100 records at a time, slowed them by up to 416%. The full 100,000-record run of the new design is <b>not measured yet</b>. Sorting by the defaulted field may place not-yet-updated records with the empty values until the job ends. A record that fails the checks is skipped and listed for the admin, and searches stay correct.</div>
+<div class="q"><b>5. Risks.</b> Measured on test hardware: each record takes about 7 milliseconds and writes about 4 KB to the database's change log (the write-ahead log it keeps for crash recovery and replicas). A 100,000-record type therefore takes roughly 12 minutes plus pauses and writes about 400 MB of log. With one record per step, live edits slowed by <b>1.7%</b> in a 20,000-record test. The first design, which locked 100 records at a time, slowed them by up to 416%. The full 100,000-record run of the new design is <b>not measured yet</b>. Sorting by the defaulted field may place not-yet-updated records with the empty values until the job ends. A record that fails the checks is skipped and listed for the admin, and searches stay correct.</div>
 
 <div class="q"><b>6. How we'll know it worked.</b> Mid-way: a search for the default value returns the old records while the job is still running, both when many and when few are left (test CI-7). At the end: every old record has the value stored, has exactly one audit entry from the job, keeps its "last updated" time, and no workflow was started (CI-2). Another tenant's records are never touched, and no tenant workflow can start the job (CI-3). A load test on 100,000 records must keep live edits within 25% of their normal speed (CI-12).</div>
 
