@@ -19,7 +19,8 @@
 // The fixed CI seed is i5DefaultSeed; NAVA_I5_SEED=<n> make isolation replays
 // another. NAVA_I5_MUTANT=<name> runs the agreement row against a mutant
 // compiler instead of the real one, which must turn it red (the PR's
-// mutation run).
+// mutation run); a data-filter mutant's name (i5FilterMutants) runs the
+// data filters row against that broken list route instead.
 
 package isolation
 
@@ -51,7 +52,7 @@ const (
 	i5RowLoader    = "I5 loader: authz.SharesFor fills Row.SharedWith pair-matched, as the generator does (A1, AR-S10-01)"
 	i5RowMutant    = "I5 mutant %s: the suite catches a broken compiler"
 	i5RowFilters   = "I5 data filters: eq and in on data fields agree with the Go check on null, absent, defaulted and type-changed fields"
-	i5RowListPage  = "I5 list route: a record the caller cannot read is absent from a list page (PR #523 security finding 2)"
+	i5RowListPage  = "I5 list route: a record the caller cannot read is on no page of GET /records/{entity}, and total is the readable count (PR #523 security finding 2)"
 )
 
 // TestI5Agreement runs the I5 properties and adds their rows to the report.
@@ -63,12 +64,18 @@ func TestI5Agreement(t *testing.T) {
 	t.Logf("I5 seed %d (replay: %s=%d make isolation)", seed, i5SeedEnv, seed)
 	w, cases := i5Generate(seed)
 	compile, compiler := i5Compiler(authz.CompileRead), "authz.CompileRead"
+	filterMutant := ""
 	if m := os.Getenv(i5MutantEnv); m != "" {
 		mc, ok := i5Mutants()[m]
-		if !ok {
-			t.Fatalf("%s=%q: not one of %v", i5MutantEnv, m, i5MutantNames())
+		_, isFilter := i5FilterMutants()[m]
+		switch {
+		case ok:
+			compile, compiler = mc, "mutant "+m
+		case isFilter:
+			filterMutant = m // the data filters row runs against it (TICK-900)
+		default:
+			t.Fatalf("%s=%q: not one of %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames())
 		}
-		compile, compiler = mc, "mutant "+m
 	}
 
 	add := func(name, status, detail string) {
@@ -114,10 +121,9 @@ func TestI5Agreement(t *testing.T) {
 	if err != nil {
 		add(i5RowAgreement, statusFail, fmt.Sprintf("seed %d: the run broke: %v", seed, err))
 	}
-	// P3-34 (TICK-619) adds the data filter compiler and the list route; it
-	// turns these two rows into checks (P3-38 waits on the first).
-	add(i5RowFilters, statusPending, "pending P3-34 (TICK-619): no data filter compiler yet; P3-38 starts only when this row is a PASS")
-	add(i5RowListPage, statusPending, "pending P3-34 (TICK-619): no list route yet")
+	// The data filters, list route and masked-field rows drive the real list
+	// route (TICK-900); i5_route_isolation_test.go.
+	i5RouteRows(t.Context(), cluster{t: t, e: suite}, seed, filterMutant, add)
 }
 
 // i5InWorld seeds w as the superuser in one transaction, switches it to
