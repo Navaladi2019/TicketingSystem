@@ -5,7 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -66,6 +69,36 @@ func TestCreateRefusesAnExhaustedFormat(t *testing.T) {
 	}
 	if tx.ranAny(sqlInsert) || tx.ranAny(sqlAudit) {
 		t.Error("the create inserted with no number left")
+	}
+	// ADR-004-E9 R2b: the refusal carries its entry, and Write appended
+	// nothing (the caller does, after the create's transaction).
+	if ex.Epoch != 1 || ex.Counter != 100 {
+		t.Errorf("epoch %d, counter %d; want 1 and 100", ex.Epoch, ex.Counter)
+	}
+	wantExhaustedEntry(t, ex.Entry, f.defID, f.actor.PrincipalID, `[{"op":"add","path":"/number_space","value":{"counter":100,"epoch":1,"scope_key":"e1|d:202611","width":2}}]`)
+}
+
+// wantExhaustedEntry checks a refusal's R2b entry (ADR-004-E9): subject the
+// entity type, no versions, the command's actor and a depth-0 origin, no
+// content hash, and the one /number_space add.
+func wantExhaustedEntry(t *testing.T, e audit.Entry, defID, principal uuid.UUID, diff string) {
+	t.Helper()
+	if e.Domain != audit.DomainRecord || e.Action != audit.ActionNumberSpaceExhausted ||
+		e.SubjectType != audit.SubjectEntityDefinition || e.SubjectID != defID ||
+		e.EntityDefinitionID == nil || *e.EntityDefinitionID != defID {
+		t.Errorf("entry %+v, want number_space_exhausted on entity_definition %s", e, defID)
+	}
+	if e.VersionBefore != nil || e.VersionAfter != nil || e.ContentSHA256 != nil || e.SecretPaths != nil || e.ChangeSetID != nil {
+		t.Errorf("entry %+v, want no versions, content hash, secret paths or change set", e)
+	}
+	if e.Actor.PrincipalID == nil || *e.Actor.PrincipalID != principal || e.Actor.System != nil || e.Source != audit.SourceUser || e.SourceRef != nil {
+		t.Errorf("actor %+v source %s, want the user %s", e.Actor, e.Source, principal)
+	}
+	if e.CausationID == nil || *e.CausationID == uuid.Nil || e.CausationDepth != 0 {
+		t.Errorf("causation %v depth %d, want the minted depth-0 origin", e.CausationID, e.CausationDepth)
+	}
+	if string(e.Diff) != diff {
+		t.Errorf("diff = %s, want %s", e.Diff, diff)
 	}
 }
 

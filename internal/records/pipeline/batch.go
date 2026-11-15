@@ -251,7 +251,7 @@ func (w *write) writeCreate(ctx context.Context, rec *store.Record, after []byte
 			// The INSERT rendered no number: the counter outgrew a refuse
 			// format's width. The rollback gives the value back.
 			w.observeFill(ctx, numbered.N)
-			return Result{}, w.exhausted(numbered.ScopeKey)
+			return Result{}, w.exhausted(ctx, numbered.ScopeKey, numbered.N)
 		case errors.Is(err, store.ErrDuplicateKey):
 			return Result{}, &ErrIdempotencyConflict{Concurrent: true}
 		case errors.As(err, &m):

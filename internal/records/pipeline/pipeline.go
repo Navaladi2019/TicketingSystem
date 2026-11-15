@@ -352,13 +352,27 @@ func (e *ErrUniqueViolation) Error() string {
 // overflow, when the counter of the create's scope has outgrown the format's
 // width (ADR-005 §3.5). The HTTP layer maps it to 409
 // number_space_exhausted, naming the type and the scope. Nothing is written
-// in the create's transaction. errors.Is matches
-// numbering.ErrNumberSpaceExhausted.
+// in the create's transaction, and Write writes nothing to audit_log for
+// it. errors.Is matches numbering.ErrNumberSpaceExhausted.
+//
+// Entry is the refusal's R2b audit entry (ADR-004-E9). The caller appends it
+// with audit.Append in a transaction of its own on its own (API) pool, after
+// the create's transaction has ended and its connection is released, never
+// on the TxRunner or the allocator pool (E9 placement, spike S1). The entry
+// is never queued with another refusal's.
 type ErrNumberSpaceExhausted struct {
 	// EntityKey is the type; ScopeKey the counter's scope (e<epoch>|d:...).
 	EntityKey, ScopeKey string
-	// Width is the format's {seq:N} width.
-	Width int
+	// Width is the format's {seq:N} width; Epoch the format's epoch
+	// (ADR-005 §3.3).
+	Width, Epoch int
+	// Counter is the value that did not fit: a `gaps` allocation's number,
+	// already committed, or the value a `gapless` rollback gives back.
+	Counter int64
+	// Entry is the R2b entry: domain record, subject the entity type, no
+	// versions, the refused command's actor, source and causation, and a
+	// diff of one add of /number_space. It carries no record data.
+	Entry audit.Entry
 }
 
 func (e *ErrNumberSpaceExhausted) Error() string {
@@ -477,6 +491,10 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // tenant: a write beyond the limit changes nothing in tx and writes one
 // cascade_too_deep entry on the TxRunner, committed before Write returns.
 // If that entry cannot be written, the error also wraps the cause.
+//
+// A create refused with *ErrNumberSpaceExhausted writes no audit entry: the
+// error carries it, and the caller appends it once tx has ended
+// (ADR-004-E9).
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
 	if retryable(err) {
@@ -728,7 +746,7 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		}
 		w.scopeKey = alloc.ScopeKey
 		if !w.format.Fits(alloc.Number) {
-			return Result{}, w.exhausted(alloc.ScopeKey)
+			return Result{}, w.exhausted(ctx, alloc.ScopeKey, alloc.Number)
 		}
 		// The date parts are the ones PostgreSQL put in the scope key.
 		if rec.Number, err = w.format.RenderParts(w.def.NumberPrefix(), datePart, alloc.Number); err != nil {
