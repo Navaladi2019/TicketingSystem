@@ -1,0 +1,9 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.updated", "entity": "request" },
+  "start": "mark",
+  "steps": [
+    { "key": "mark", "type": "update_record", "set": { "state": "in_progress", "priority": 2 }, "next": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

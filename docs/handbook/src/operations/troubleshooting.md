@@ -2,7 +2,7 @@
 title: "Troubleshooting"
 section: operations
 status: delivered
-sources: [docs/acceptance/guide/troubleshooting.html, deploy/compose/README.md, compose.yaml, docs/operator/onboarding.md, deploy/compose/prometheus/rules/audit.yml]
+sources: [docs/acceptance/guide/troubleshooting.html, tools/adrgate/main.go, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go, docs/acceptance/s27-competitive-gate.md, deploy/compose/README.md, compose.yaml, docs/operator/onboarding.md, deploy/compose/prometheus/rules/audit.yml]
 evidence: [docs/acceptance/guide/troubleshooting.html]
 ---
 
@@ -45,6 +45,38 @@ Where to look first, by symptom. The acceptance guide's [troubleshooting page](.
 | Audit entries are not sealed | Prometheus Alerts: `AuditSealLag`, `AuditDeadLineage`, `AuditDeadLineageCheckDown` |
 | Users or groups changed in Keycloak do not show | Group sync runs every 5 minutes; run one cycle with `docker compose run --rm --no-deps nava-groupsync --once` |
 | A tenant is stuck in provisioning | [docs/operator/onboarding.md](../../../operator/onboarding.md), "Steps and recovery" |
+
+## A lint or test check fails
+
+Two checks from S27 (ADR-008) fail a PR on documents and configuration, not on code style. Run one alone: `go run ./tools/adrgate`, `go run ./internal/configsurface/cmd/compat`, `go test ./internal/configsurface/...`.
+
+**`adrgate` lines in `task lint`** (`path: CI-n: message`, exit 1):
+
+| Line | Cause | Fix |
+|---|---|---|
+| `CI-1: no ## Competitive Gate section (ADR-008 D6)` | An ADR numbered above 008, or an amendment or erratum dated on or after 2026-11-15, has no gate | Copy the `## Competitive Gate (ADR-008)` section from `docs/adr/_template-adr.md` and fill it in |
+| `CI-1: ## Competitive Gate has no **Result:** line before the next ## heading` | The section is there but has no result | Add `**Result:** PASS`, `PASS with accepted risk CP-…: <reason, owner, trigger>` or `N/A: <one line>` (N/A only for internal ADRs, D7) |
+| `CI-1: **Result:** "…" does not start with PASS, PASS with accepted risk CP-, or N/A` or `… names no accepted risk CP- id` | The result value has another shape | Start it with one of the three forms; an accepted risk names its `CP-` id |
+| `CI-1: amendment or erratum has no front-matter date: YYYY-MM-DD` | The gate cannot tell when it was written | Add `date:` to the front matter |
+| `CI-2: CP-… is not a row in docs/adr/competitive/pain-points.md` | A typo, or a pain point not yet in the register | Fix the id, or add the row to the register (with evidence and a grade) in the same PR |
+| `CI-3: CP-…: Evidence has no https:// link` or `Grade "…" is not A, B or C …` | A register row lacks a source or a grade | Add the link; set the grade to A, B or C (or `A/B`) |
+| `CI-4: M-X… is not a method in ADR-008 "The axes"` | A method id that ADR-008 does not name | Use a method from the axes table (`M-X1a`, `M-X1b`, `M-X2`, `M-X3`, `M-X4`); a new method needs an ADR-008 amendment |
+
+Exit 2 (no findings printed, an `adrgate:` line on stderr) means `docs/adr` or ADR-008 could not be read: run from the repository root.
+
+**Upgrade-compatibility lines** (M-X2, see [8. Workflows](../tour/08-workflows.md#adding-or-removing-a-step-type)):
+
+| Line | Where | Cause | Fix |
+|---|---|---|---|
+| `removed: workflow.step_types/timer` (or another item) | `task test`, `internal/configsurface` | The code no longer has an item tenants can use | Put it back. Within a major version the configuration surface is additive-only (D12); deprecate instead of removing |
+| `unlisted: …; add it to inventory.json` | `task test` | A new step type, field, keyword or extension is in the code but not in the inventory | Add it to `internal/configsurface/testdata/inventory.json`, with a fixture |
+| `no fixture: …` / `unused: … is used by no accepted fixture` | `task test` | A listed item has no stored example | Add `internal/configsurface/testdata/fixtures/<workflow or typedef>/<name>.json` that uses it |
+| `not accepted: <fixture>: …` | `task test` | A stored fixture no longer parses or compiles: tenant configuration like it would break | Restore what the fixture uses, or keep the old form accepted |
+| `deprecated: … is no longer in the inventory` / `has no accepted fixture` | `task test` | A deprecated item was dropped before the next major | Keep it listed and accepted until the major is raised |
+| `compat: removed: … (listed on the base, major 1); keep it, or raise major …` | `task lint` | The item was removed from both the code and the inventory | Put both back; a real removal needs a new major (`"major"` in the inventory) and `docs/upgrade/v<major>.md` naming the item |
+| `compat: base origin/main not found; fetch it first (git fetch origin main)`, exit 2 | `task lint` | The base ref is missing, for example in a shallow clone | `git fetch origin main`, or set `BASE` to a ref you have |
+
+`compat: no internal/configsurface/testdata/inventory.json on origin/main: nothing to compare` is not a failure: the base has no inventory yet.
 
 ## Start over
 

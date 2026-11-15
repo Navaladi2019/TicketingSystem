@@ -5,14 +5,20 @@ ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile che
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,
 # its own module, D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check,
-# then the duplicate-id check on the shared tables (tools/dupids).
+# then the Competitive Gate check on docs/adr (tools/adrgate, CI-1..CI-4),
+# then the duplicate-id check on the shared tables (tools/dupids), then the
+# upgrade-compatibility baseline (M-X2, TICK-881): fails when an item in the
+# base's internal/configsurface/testdata/inventory.json ($BASE, default
+# origin/main) is missing from HEAD's.
 lint:
 	$(GOLANGCI_LINT) run ./...
 	sh scripts/ci/navalint.sh
 	sh scripts/ci/workflowcheck.sh
 	sh scripts/ci/nolint-allowlist.sh
 	go run ./tools/docindex -check
+	go run ./tools/adrgate
 	go run ./tools/dupids
+	go run ./internal/configsurface/cmd/compat
 
 # Fails when api/openapi.bundled.yaml or api/api.gen.go is not what api/openapi.yaml
 # + api/paths/*.yaml generate (TICK-297, TICK-294): any difference or untracked file

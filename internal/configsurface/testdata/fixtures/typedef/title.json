@@ -1,0 +1,18 @@
+{
+  "key": "fx_title",
+  "number_prefix": "FX",
+  "fixed_columns": { "state": "state" },
+  "states": {
+    "initial": "open",
+    "states": ["open", "closed"],
+    "transitions": [{ "from": "open", "to": "closed" }]
+  },
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "state": { "type": "string", "enum": ["open", "closed"] },
+      "summary": { "type": "string", "title": "Summary" }
+    }
+  }
+}

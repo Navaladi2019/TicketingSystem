@@ -1,0 +1,24 @@
+{
+  "major": 1,
+  "workflow": {
+    "formats": ["nava.workflow/v1"],
+    "trigger_on": ["record.created", "record.updated"],
+    "step_types": ["branch", "condition", "end", "timer", "update_record", "wait_signal"],
+    "condition_ops": ["eq", "in", "ne"],
+    "step_fields": {
+      "branch": ["cases", "default", "key", "type"],
+      "condition": ["else", "field", "key", "op", "then", "type", "value"],
+      "end": ["key", "type"],
+      "timer": ["duration", "key", "next", "type"],
+      "update_record": ["key", "next", "set", "type"],
+      "wait_signal": ["key", "name", "next", "on_timeout", "timeout", "type"]
+    }
+  },
+  "type_definition": {
+    "keywords": ["$schema", "additionalProperties", "default", "description", "enum", "format", "maxLength", "minLength", "properties", "required", "title", "type", "writeOnly"],
+    "extensions": ["x-nava-secret", "x-nava-unique"],
+    "fields": ["fixed_columns", "key", "number_prefix", "numbering_mode", "schema", "states", "states.initial", "states.states", "states.transitions", "states.transitions.from", "states.transitions.to"]
+  },
+  "script": [],
+  "deprecated": []
+}
