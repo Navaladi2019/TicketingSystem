@@ -27,7 +27,8 @@ func TestTenantSettingsErrorMapping(t *testing.T) {
 		}
 	}
 	other := errors.New("boom")
-	if got := tenantSettingsError(other); got != other {
+	var pe *problemError
+	if got := tenantSettingsError(other); !errors.Is(got, other) || errors.As(got, &pe) {
 		t.Errorf("tenantSettingsError(unknown) = %v, want it unchanged", got)
 	}
 }
