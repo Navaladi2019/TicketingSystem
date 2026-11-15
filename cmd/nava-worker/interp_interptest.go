@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
@@ -36,12 +37,12 @@ const (
 // fixture store, the file records and the counting writer; with PortsEnv=db,
 // the production ports instead. The pause-after-commit hook is on when
 // interp.PauseDirEnv is set, with either.
-func interpreterActivities(lookup config.LookupFunc, pool, pipePool *pgxpool.Pool, _ bool) (*interp.Activities, error) {
+func interpreterActivities(lookup config.LookupFunc, pool, pipePool *pgxpool.Pool, _ bool, mp metric.MeterProvider) (*interp.Activities, error) {
 	ports, set := lookup(PortsEnv)
 	switch {
 	case !set || ports == "":
 	case ports == "db":
-		return productionActivities(pool, pipePool)
+		return productionActivities(pool, pipePool, mp)
 	default:
 		return nil, errors.New("config: " + PortsEnv + " is empty (the fakes) or db (the production ports)")
 	}

@@ -109,7 +109,11 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		if opts.allocPool == nil {
 			return nil, errors.New("server: the record routes need WithAllocatorPool (ADR-005 L2s): the number allocator never runs on the request pool")
 		}
-		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics}
+		fieldIndexMetrics, err := pipeline.NewFieldIndexMetrics(tel.MeterProvider)
+		if err != nil {
+			return nil, err
+		}
+		runner := pipeline.PoolRunner{Pool: opts.allocPool, Metrics: allocMetrics, FieldIndex: fieldIndexMetrics}
 		h.pipe = pipeline.New(h.acl, h.store, eventsink.Sink{}, runner, pipeline.SystemClock{})
 	}
 	api.HandlerWithOptions(
