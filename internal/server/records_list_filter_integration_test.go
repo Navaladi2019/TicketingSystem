@@ -267,6 +267,26 @@ func TestListFilterReadyOperatorsMatchTheRecomputeOracle(t *testing.T) {
 	// Two filters are ANDed: a range from two keys.
 	p := e.mustList(t, "admin-a", "asset", "filter[qty][gte]=2&filter[qty][lt]=5")
 	wantIDs(t, "range", p.Items, rows[1].rec)
+
+	// A fixed-column filter and a data filter share one statement and one
+	// placeholder numbering: a wrong offset would return the wrong rows with
+	// no error. rows[0] (qty 1) is closed, rows[1] (qty 2.5) stays new.
+	if rec := e.patch(t, "admin-a", "asset", rows[0].rec.ID, `W/"1"`, `{"state": "closed"}`); rec.Code != http.StatusOK {
+		t.Fatalf("close = %d: %s", rec.Code, rec.Body)
+	}
+	for q, want := range map[string][]recBody{
+		"filter[state]=closed&filter[qty][lte]=2.5":                               {rows[0].rec},
+		"filter[qty][lte]=2.5&filter[state]=new":                                  {rows[1].rec, rows[4].rec},
+		"filter[state][in]=new,closed&filter[name][in]=alpha,beta":                {rows[0].rec, rows[1].rec},
+		"filter[state]=closed&filter[name]=beta":                                  nil,
+		"filter[state]=new&filter[vip]=true&filter[qty][gt]=1&filter[name]=gamma": {rows[2].rec},
+	} {
+		p := e.mustList(t, "admin-a", "asset", q)
+		wantIDs(t, q, p.Items, want...)
+		if p.Total != len(want) {
+			t.Errorf("?%s: total %d, want %d", q, p.Total, len(want))
+		}
+	}
 }
 
 // covers: listRecords 422
@@ -504,6 +524,11 @@ func TestListFilterLegacyAllowList(t *testing.T) {
 	// The scan takes equality and in only; another field of the seed type is not on the list.
 	rec, _ = e.list(t, "admin-a", "incident", "filter[priority][gt]=0")
 	listCode(t, rec, http.StatusBadRequest, "validation_failed")
+	// A value of the wrong type is refused before the scan runs.
+	for _, q := range []string{"filter[priority][in]=1,abc", "filter[priority]=abc"} {
+		rec, _ = e.list(t, "admin-a", "incident", q)
+		listCode(t, rec, http.StatusBadRequest, "validation_failed")
+	}
 	rec, _ = e.list(t, "admin-a", "incident", "filter[short_description]=p1")
 	listCode(t, rec, http.StatusBadRequest, "field_not_filterable")
 

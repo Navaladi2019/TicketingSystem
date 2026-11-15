@@ -138,3 +138,28 @@ func TestLegacyScanIsKeyedByTypeAndField(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectivityBand(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		total  int64
+		capped bool
+		want   string
+	}{
+		{0, false, "none"}, {1, false, "lt_10"}, {9, false, "lt_10"}, {10, false, "lt_100"}, {99, false, "lt_100"},
+		{100, false, "lt_1000"}, {999, false, "lt_1000"}, {1000, false, "lt_1000"}, {1000, true, "over_1000"},
+	} {
+		if got := selectivityBand(c.total, c.capped); got != c.want {
+			t.Errorf("selectivityBand(%d, %v) = %q, want %q", c.total, c.capped, got, c.want)
+		}
+	}
+}
+
+func TestIndexedListErrorsAndNilHistogram(t *testing.T) {
+	t.Parallel()
+	if (&notReadyError{progress: 3}).Error() == "" || notFilterable("f").Error() == "" {
+		t.Error("the list errors must carry a message for the log")
+	}
+	// No histogram configured: nothing is recorded and nothing panics.
+	(&handlers{}).observeIndexedList(t.Context(), time.Second, &pipeline.ListPage{Total: 5}, true)
+}
