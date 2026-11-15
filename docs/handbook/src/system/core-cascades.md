@@ -3,12 +3,12 @@ title: "Core: cascade bounds (I9)"
 section: system
 status: delivered
 normative: docs/adr/ADR-001-A5-i9-cycle-suppress-start.md
-sources: [docs/adr/ADR-001-A5-i9-cycle-suppress-start.md, docs/adr/ADR-004-E1-cascade-entries-and-diff-truncated.md, docs/architecture/record-write-pipeline.md, internal/records/cascade/cascade.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/audit.go, internal/platform/config/config.go]
+sources: [docs/adr/ADR-001-A5-i9-cycle-suppress-start.md, docs/adr/ADR-004-E1-cascade-entries-and-diff-truncated.md, docs/architecture/record-write-pipeline.md, internal/records/cascade/cascade.go, internal/records/pipeline/pipeline.go, internal/records/pipeline/eventsink/eventsink.go, internal/records/pipeline/audit.go, internal/platform/config/config.go]
 packages: [internal/records/cascade, internal/records/pipeline]
 adrs: [ADR-001, ADR-001-A5, ADR-004-E1]
 invariants: [I9, I6, I7]
 tables: [cascade_start, records, audit_log, outbox]
-tests: [TestDepthZeroWritesMintTheirOrigin, TestWorkflowWriteAtDepthZeroIsInvalidEntry, TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner, TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing, TestCI10_StartKeyIsPerTenant, TestCI10_ConcurrentClaimsOfOneKey, TestCI10_RetriedActivityCreatesNoSecondStart, TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles, TestCI10_WriteBackToTriggeringRecordCommits, TestClaimStartReadsTheKeyFromTheRecord, TestCIA17CycleEntries, TestTooDeepAuditFailure]
+tests: [TestEventSink_TwoWritesInOneCascadeStartOnce, TestCI10_G_SignalPingPongBetweenTwoRunsStopsAtDepth9, TestDepthZeroWritesMintTheirOrigin, TestWorkflowWriteAtDepthZeroIsInvalidEntry, TestCI10_DepthBeyondLimitRejectedAndAuditedOnTheRunner, TestCI10_TooDeepUpdateOfAnotherTenantsRecordLeaksNothing, TestCI10_StartKeyIsPerTenant, TestCI10_ConcurrentClaimsOfOneKey, TestCI10_RetriedActivityCreatesNoSecondStart, TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles, TestCI10_WriteBackToTriggeringRecordCommits, TestClaimStartReadsTheKeyFromTheRecord, TestCIA17CycleEntries, TestTooDeepAuditFailure]
 ---
 
 ## Purpose
@@ -19,8 +19,6 @@ causation (origin id and depth) and a write deeper than the limit is refused,
 and a workflow definition starts at most once per (tenant, origin, record).
 This page shows where both checks run inside the write pipeline.
 
-On `main` the record API wires `pipeline.NoopSink`; the start-key path (steps 4–6) is built and tested but not called by a running service until S11b's EventSink (P3-42, TICK-711). Steps 1–3 (depth bound, minted origin, causation on the row) are delivered and live in `Pipeline.perform`.
-
 ## Entry point
 
 - Depth: `Pipeline.perform` in `internal/records/pipeline/pipeline.go`
@@ -28,8 +26,8 @@ On `main` the record API wires `pipeline.NoopSink`; the start-key path (steps 4�
   (`internal/platform/config/config.go`) before any statement but the tenant
   read.
 - Start key: `cascade.ClaimStart(ctx, tx, cascade.Key)` in
-  `internal/records/cascade/cascade.go`, called by the EventSink (S11b, in
-  progress) in the triggering write's transaction; a repeat is audited by
+  `internal/records/cascade/cascade.go`, called by the event sink in the
+  triggering write's transaction; a repeat is audited by
   `pipeline.AuditSuppressed`.
 
 ```mermaid

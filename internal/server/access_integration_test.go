@@ -261,11 +261,6 @@ func TestPutAccessReplayWithTheSameKeyWritesOneVersion(t *testing.T) {
 // covers: putEntityTypeAccess 400 403 404 422
 func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 	e := newPatchEnv(t)
-	// noTenantGroup is a valid UUID that names no group. The leak check below
-	// looks for its whole dashed form: a request id (in `instance`) is 32 bare
-	// hex digits with no '-', so it can never match by chance. The old bare
-	// hex fragment "dead" did, about once in 500 runs (TICK-892).
-	const noTenantGroup = "00000000-0000-4000-8000-00000000dead"
 	own := uuidList(e.a.adminGroup)
 	foreign := uuidList(e.b.adminGroup)
 	rule := func(who, where string) string {
@@ -287,7 +282,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 		{"unknown top-level key", `{"rules": [], "extra": 1}`, "/extra unknown_key"},
 		{"duplicate rule id", `{"rules": [{"id": "r", "ops": ["read"], "who": {}}, {"id": "r", "ops": ["read"], "who": {}}]}`, "/rules/1/id duplicate"},
 		{"group of another tenant", rule(`{"groups": [`+foreign+`]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
-		{"group of no tenant", rule(`{"groups": ["`+noTenantGroup+`"]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
+		{"group of no tenant", rule(`{"groups": ["`+missingGroup+`"]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
 		{"user of another tenant", rule(`{"users": [`+uuidList(e.b.user.PrincipalID)+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
 		{"a group where a user belongs", rule(`{"users": [`+own+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
 		{"requester of another tenant in a condition", rule(`{}`, `{"column": "requester_id", "op": "eq", "values": [`+uuidList(e.b.user.PrincipalID)+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
@@ -309,7 +304,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 			t.Errorf("%s: errors %v, want %q", tc.name, got, tc.want)
 		}
 		// The response names pointers and rules, never a value of the request.
-		for _, leak := range []string{e.b.adminGroup.String(), e.b.user.PrincipalID.String(), e.b.admin.PrincipalID.String(), noTenantGroup} {
+		for _, leak := range []string{e.b.adminGroup.String(), e.b.user.PrincipalID.String(), e.b.admin.PrincipalID.String(), missingGroup} {
 			if strings.Contains(rec.Body.String(), leak) {
 				t.Errorf("%s: the 422 body repeats %q: %s", tc.name, leak, rec.Body)
 			}
@@ -334,7 +329,7 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 	}
 	// A foreign id and an id that does not exist are refused alike.
 	a := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-1", `W/"1"`, rule(`{"groups": [`+foreign+`]}`, ""))
-	b := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-2", `W/"1"`, rule(`{"groups": ["`+noTenantGroup+`"]}`, ""))
+	b := e.access(t, http.MethodPut, accessPath, "admin-a", "alike-2", `W/"1"`, rule(`{"groups": ["`+missingGroup+`"]}`, ""))
 	// The bodies differ only in `instance`, the request id of each response:
 	// compare status, code, detail and errors.
 	if sa, sb := sameProblem(t, a), sameProblem(t, b); a.Code != b.Code || sa != sb {
@@ -542,6 +537,11 @@ func TestEntityTypeAndItsACLInOneTransactionHaveOneAuditEntryEach(t *testing.T) 
 		}
 	}
 }
+
+// missingGroup is a well-formed group id that exists in no tenant. Match it
+// whole: a short tail such as "dead" can occur in the random hex request id of
+// the problem's `instance` and fail the test about 1 run in 100.
+const missingGroup = "00000000-0000-4000-8000-00000000dead"
 
 // sameProblem is a problem response without its per-request `instance`: its
 // status, code, title, detail and errors, as one comparable string.

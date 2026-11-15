@@ -1,0 +1,65 @@
+meta {
+  name: S11b.16 Reuse an Idempotency-Key with another body: 409
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick710-s11b-{{s11b_run}}-v1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "notify"
+      },
+      {
+        "key": "notify",
+        "type": "update_record",
+        "set": {
+          "short_description": "notified"
+        },
+        "next": "mark"
+      },
+      {
+        "key": "mark",
+        "type": "update_record",
+        "set": {
+          "short_description": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('idempotency_key_reuse', 409);
+}
+
+docs {
+  S11b.3's key with a different body.
+}

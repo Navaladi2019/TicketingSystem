@@ -1,0 +1,1 @@
+{"name":"adr-007-s3","private":true,"type":"module","scripts":{"build":"node build.mjs","test":"node run.mjs"},"dependencies":{"@jsonforms/core":"^3.8.0","@jsonforms/react":"^3.8.0","@jsonforms/vanilla-renderers":"^3.8.0","@playwright/test":"^1.65.1","esbuild":"^0.28.2","react":"^19.3.1","react-dom":"^19.3.1"}}

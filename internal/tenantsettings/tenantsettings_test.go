@@ -115,6 +115,27 @@ func TestSetTimeZoneRefusals(t *testing.T) {
 			t.Errorf("err = %v", err)
 		}
 	})
+	// Under RLS another tenant's row is invisible: the locked read finds no
+	// row, so the change is not found and nothing is written (TICK-896).
+	t.Run("tenant row not visible", func(t *testing.T) {
+		t.Parallel()
+		tx := &stubTx{rowErr: pgx.ErrNoRows}
+		if _, err := (Store{}).SetTimeZone(t.Context(), tx, uuid.New(), "Asia/Tokyo", by); !errors.Is(err, ErrNotFound) || tx.execs != 0 {
+			t.Errorf("err = %v, %d statements", err, tx.execs)
+		}
+	})
+	// A change is never kept without its audit entry: when the audit write
+	// fails after the UPDATE (here the stub transaction has no tenant scope,
+	// so audit.Append refuses the entry), SetTimeZone fails and the caller's
+	// transaction rolls the UPDATE back.
+	t.Run("audit write fails", func(t *testing.T) {
+		t.Parallel()
+		tx := &stubTx{zone: "UTC", rows: 1}
+		got, err := (Store{}).SetTimeZone(t.Context(), tx, uuid.New(), "Asia/Tokyo", by)
+		if err == nil || !strings.Contains(err.Error(), "tenantsettings: audit time zone") || got != "" || tx.execs != 1 {
+			t.Errorf("= %q, %v, %d statements; want the audit error after the UPDATE", got, err, tx.execs)
+		}
+	})
 	t.Run("update matches no row", func(t *testing.T) {
 		t.Parallel()
 		tx := &stubTx{zone: "UTC", rows: 0}

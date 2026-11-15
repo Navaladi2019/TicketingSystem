@@ -34,8 +34,8 @@ Four migrations, all online (runbook:
 - **M2** builds `record_counters_scoped_key`, a unique index on `(tenant_id,
   entity_definition_id, scope_key)` that the upsert names as its arbiter, and
   `record_counters_period_end`, a partial index on `period_end IS NOT NULL`
-  that the purge job will read. Both are built `CONCURRENTLY`; the partial
-  index stays empty until S18 publishes period formats.
+  that the purge job reads. Both are built `CONCURRENTLY`; the partial
+  index holds only the period counters of S18's dated formats.
 - The primary key is still `(tenant_id, entity_definition_id)`. Until M3
   (S18, release R2) both unique indexes exist, so the pre-S17 build still runs
   and a rollout with mixed binaries works for existing counters.

@@ -3,15 +3,22 @@
 package main
 
 import (
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 )
 
-// interpreterActivities is nil in a production build: the interpreter's real
-// DefinitionStore, RecordReader and RecordWriter do not exist yet (P3-41,
-// P3-43), and the file-backed fakes are only in an interptest build
-// (interp_interptest.go). TestProductionBuildLinksNoFakes keeps it so.
-// TODO(TODO-TICK-367-01): wire the real ports here when P3-41 and P3-43 land.
-func interpreterActivities(config.LookupFunc) (*interp.Activities, error) {
-	return nil, nil //nolint:nilnil // nil Activities is "not registered", not an error
+// interpreterActivities is the production interpreter (productionActivities,
+// interp_ports.go); the file-backed fakes stay in an interptest build
+// (interp_interptest.go; TestProductionBuildLinksNoFakes keeps it so).
+//
+// With workflows off (WorkflowsEnv=off, the activity-only worker) it returns
+// nil, nil: that worker polls no workflow tasks and registers no interpreter,
+// and must still start. The interptest build errors instead (newWorker).
+func interpreterActivities(_ config.LookupFunc, pool, pipePool *pgxpool.Pool, workflows bool) (*interp.Activities, error) {
+	if !workflows {
+		return nil, nil //nolint:nilnil // nil Activities is "not registered", not an error
+	}
+	return productionActivities(pool, pipePool)
 }

@@ -14,6 +14,9 @@ stack-test-worker:
 # restarted; the retry applies the effect once, read from the
 # interptest-state volume, outside the killed process. Behind the
 # interpcrash tag, so stack-test-worker never compiles it. The recipe is
-# explicit: make does not apply stack-test-% to a .PHONY target.
+# explicit: make does not apply stack-test-% to a .PHONY target. The S11b
+# case (P3-44, TICK-713) runs the same kill against the real pipeline.Write:
+# the interptest worker with NAVA_INTERPTEST_PORTS=db (the production ports
+# plus the pause hook), triggered by an incident created through nava-core.
 stack-test-interpreter:
 	go test -tags workerstack,interpcrash -count=1 -timeout 10m -run '^TestInterpreterCrash' -v ./internal/workerstack

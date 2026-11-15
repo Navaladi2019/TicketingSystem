@@ -62,6 +62,9 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			body := etPublishBody(t, `"description": "a <b>&amp; tag"`, `"description": "changed"`)
 			return e.do(t, http.MethodPost, etVersionsPath, "admin-a", key, body)
 		},
+		"POST /api/v1/workflow-definitions/{key}/versions": func(key string) *httptest.ResponseRecorder {
+			return e.do(t, http.MethodPost, "/api/v1/workflow-definitions/k487_flow/versions", "admin-a", key, wfBody("incident", "short_description"))
+		},
 		"POST /api/v1/records/{entity}": func(key string) *httptest.ResponseRecorder {
 			return e.createRec(t, "user-a", "job", key, `{"short_description": "two"}`)
 		},

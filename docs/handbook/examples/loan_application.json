@@ -1,0 +1,38 @@
+{
+  "key": "loan_application",
+  "name": "Loan application",
+  "number_prefix": "LOAN",
+  "definition": {
+    "fixed_columns": {
+      "state": "state",
+      "requester": "requester_id",
+      "assignee": "assignee_id",
+      "assignment_group": "assignment_group_id"
+    },
+    "states": {
+      "initial": "submitted",
+      "states": ["submitted", "under_review", "approved", "rejected"],
+      "transitions": [
+        {"from": "submitted", "to": "under_review"},
+        {"from": "under_review", "to": "approved"},
+        {"from": "under_review", "to": "rejected"}
+      ]
+    },
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicant_name", "amount", "term_months", "state"],
+      "properties": {
+        "applicant_name": {"type": "string", "title": "Applicant name", "minLength": 1, "maxLength": 160},
+        "amount": {"type": "integer", "title": "Amount requested", "minimum": 1},
+        "term_months": {"type": "integer", "title": "Term (months)", "minimum": 1, "maximum": 480},
+        "income": {"type": "integer", "title": "Annual income", "minimum": 0},
+        "state": {"type": "string", "title": "State", "enum": ["submitted", "under_review", "approved", "rejected"], "default": "submitted"},
+        "requester": {"type": "string", "format": "uuid", "title": "Applicant (user)"},
+        "assignee": {"type": "string", "format": "uuid", "title": "Underwriter"},
+        "assignment_group": {"type": "string", "format": "uuid", "title": "Review group"}
+      }
+    }
+  }
+}

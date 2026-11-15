@@ -1,0 +1,29 @@
+    s1b_spike_test.go:185: CONTROL organization=map[tenant-b:map[id:00000000-0000-4000-8000-0000000000b1]] idp=idp-tenant-b scope=openid organization:tenant-b
+    s1b_spike_test.go:188: CONTROL Resolve err=tenant_unresolved: no store
+    s1b_spike_test.go:192: CONTROL dave memberships=[tenant-b]
+--- PASS: TestS1bControlRightAlias (1.78s)
+    s1b_spike_test.go:209: E14b s1b-host run 1: code issued; organization=<absent> idp=idp-tenant-b scope="openid"; Resolve=tenant_unresolved: no organization
+    s1b_spike_test.go:209: E14b s1b-host run 2: code issued; organization=<absent> idp=idp-tenant-b scope="openid"; Resolve=tenant_unresolved: no organization
+    s1b_spike_test.go:209: E14b s1b-host run 3: code issued; organization=<absent> idp=idp-tenant-b scope="openid"; Resolve=tenant_unresolved: no organization
+    s1b_spike_test.go:209: E14b nava-web run 1: code issued; organization=<absent> idp=idp-tenant-b scope="openid profile email"; Resolve=tenant_unresolved: no organization
+    s1b_spike_test.go:209: E14b nava-web run 2: code issued; organization=<absent> idp=idp-tenant-b scope="openid profile email"; Resolve=tenant_unresolved: no organization
+    s1b_spike_test.go:209: E14b nava-web run 3: code issued; organization=<absent> idp=idp-tenant-b scope="openid profile email"; Resolve=tenant_unresolved: no organization
+--- PASS: TestS1bE14bHintedWrongAlias (1.68s)
+    s1b_spike_test.go:235: E14d run 1: user s1b-b2f7a62c@tenant-b.test; organization=<absent>; memberships after first sign-in=[tenant-b]
+    s1b_spike_test.go:237: E14d run 1: memberships = [tenant-b], want none
+    s1b_spike_test.go:243: E14d run 1: later sign-in with organization:tenant-b -> organization=map[tenant-b:map[id:00000000-0000-4000-8000-0000000000b1]] memberships=[tenant-b]
+    s1b_spike_test.go:235: E14d run 2: user s1b-9297a4b9@tenant-b.test; organization=<absent>; memberships after first sign-in=[tenant-b]
+    s1b_spike_test.go:237: E14d run 2: memberships = [tenant-b], want none
+    s1b_spike_test.go:243: E14d run 2: later sign-in with organization:tenant-b -> organization=map[tenant-b:map[id:00000000-0000-4000-8000-0000000000b1]] memberships=[tenant-b]
+    s1b_spike_test.go:235: E14d run 3: user s1b-0ae290d3@tenant-b.test; organization=<absent>; memberships after first sign-in=[tenant-b]
+    s1b_spike_test.go:237: E14d run 3: memberships = [tenant-b], want none
+    s1b_spike_test.go:243: E14d run 3: later sign-in with organization:tenant-b -> organization=map[tenant-b:map[id:00000000-0000-4000-8000-0000000000b1]] memberships=[tenant-b]
+    s1b_spike_test.go:255: E14d CONTROL fresh s1b-5af3a7e9@tenant-b.test right alias: organization=map[tenant-b:map[id:00000000-0000-4000-8000-0000000000b1]] memberships=[tenant-b]
+--- FAIL: TestS1bE14dFreshUserWrongAlias (2.41s)
+    s1b_spike_test.go:263: E14a (no hint): code="" error="" status=200 loginform=true
+    s1b_spike_test.go:267: E14c (hint=""): code="" error="invalid_scope" status=302
+    s1b_spike_test.go:267: E14c (hint="idp-tenant-b"): code="" error="invalid_scope" status=302
+--- PASS: TestS1bSideE14aE14c (0.14s)
+FAIL
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/identitystack	10.292s
+FAIL

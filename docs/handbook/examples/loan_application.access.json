@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {"id": "admins", "ops": ["read", "write"], "who": {"groups": ["__ADMINS__"]}},
+    {"id": "auditors-read", "ops": ["read"], "who": {"groups": ["__AUDITORS__"]}},
+    {"id": "applicant-read", "ops": ["read"], "who": {"requester": true}},
+    {"id": "applicant-edit-submitted", "ops": ["read", "write"], "who": {"requester": true},
+     "where": [{"column": "state", "op": "eq", "values": ["submitted"]}]}
+  ],
+  "masks": [
+    {"field": "income", "read": {"groups": ["__ADMINS__"]}, "write": {"groups": ["__ADMINS__"]}}
+  ]
+}

@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 HANDBOOK = "docs/handbook"
-SECTIONS = ["vision", "system", "adr", "stories", "workflows", "database",
+SECTIONS = ["vision", "tour", "system", "adr", "stories", "workflows", "database",
             "security", "benchmarks", "operations", "glossary"]
 HOME = "home"
 
@@ -2323,28 +2323,91 @@ def plain_text(body_html):
 
 # -------------------------------------------------------------- page layout
 
-def nav_for(pages):
-    nav = []
-    for s in SECTIONS:
-        index, items = "", []
-        for p in pages:
-            if p.section != s:
-                continue
-            if p.slug == "index":
-                index = p.out()
-            else:
-                items.append((p.slug, p.front["title"], p.out()))
-        items.sort()
-        if index or items:
-            nav.append((s, index, items))
-    return nav
+NAV_FILE = "nav.yaml"
+
+
+def load_nav(root, pages):
+    """Read src/nav.yaml: [{group, pages: [{page, label?, children?}]}]. Returns
+    (groups, order, problems). groups is [(name, [node])], node = (page, label, [node]);
+    order is every page in sidebar order, for previous/next. A page missing from the
+    file, listed twice, or named but absent is an error: nothing is dropped silently."""
+    path = os.path.join(root, HANDBOOK, "src", NAV_FILE)
+    rel = "%s/src/%s" % (HANDBOOK, NAV_FILE)
+    try:
+        raw = parse_yaml(read_text(path))
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        return [], [], ["%s: %s" % (rel, e)]
+    problems, seen, order = [], set(), []
+    by_rel = {p.src_rel(): p for p in pages}
+
+    def node(item, where):
+        if not isinstance(item, dict) or not isinstance(item.get("page"), str):
+            problems.append("%s: %s needs a page: <path>" % (rel, where))
+            return None
+        for k in item:
+            if k not in ("page", "label", "children"):
+                problems.append("%s: %s: unknown key %r" % (rel, item["page"], k))
+        pg = item["page"]
+        if pg not in by_rel:
+            problems.append("%s: %s is not a handbook page" % (rel, pg))
+            return None
+        if pg in seen:
+            problems.append("%s: %s is listed more than once" % (rel, pg))
+            return None
+        seen.add(pg)
+        order.append(by_rel[pg])
+        label = item.get("label") or by_rel[pg].front["title"]
+        kids = item.get("children", [])
+        if kids == "":
+            kids = []
+        if not isinstance(kids, list):
+            problems.append("%s: %s: children must be a list" % (rel, pg))
+            kids = []
+        return (pg, label, [n for n in (node(k, "child of " + pg) for k in kids) if n])
+
+    groups = []
+    if not isinstance(raw, list):
+        return [], [], ["%s: must be a list of groups" % rel]
+    for g in raw:
+        if not isinstance(g, dict) or not isinstance(g.get("group"), str) or not isinstance(g.get("pages"), list):
+            problems.append("%s: each entry needs group: <name> and pages: [...]" % rel)
+            continue
+        groups.append((g["group"], [n for n in (node(i, "group " + g["group"]) for i in g["pages"]) if n]))
+    for p in pages:
+        if p.src_rel() not in seen:
+            problems.append("%s: %s has no place in the sidebar" % (rel, p.src_rel()))
+    return groups, order, problems
+
+
+def nav_html(groups, current, prefix, by_rel):
+    """Collapsible sidebar. A group or parent holding the current page is open."""
+    def has(n):
+        return n[0] == current or any(has(k) for k in n[2])
+
+    def link(n):
+        cur = n[0] == current
+        return '<a href="%s"%s>%s</a>' % (esc(prefix + by_rel[n[0]].out()),
+                                          ' aria-current="page"' if cur else "", esc(n[1]))
+
+    def render(n):
+        if not n[2]:
+            return '<li%s>%s</li>' % (' class="current"' if n[0] == current else "", link(n))
+        return '<li%s><details%s><summary>%s</summary><ul>%s</ul></details></li>' % (
+            ' class="current"' if n[0] == current else "", " open" if has(n) else "", link(n),
+            "".join(render(k) for k in n[2]))
+
+    o = []
+    for name, nodes in groups:
+        o.append('<details class="nav-group"%s><summary>%s</summary><ul>%s</ul></details>' % (
+            " open" if any(has(n) for n in nodes) else "", esc(name), "".join(render(n) for n in nodes)))
+    return "".join(o)
 
 
 def esc(s):
     return html.escape(s, quote=True)
 
 
-def render_page(p, pages, nav, body, has_mermaid, stamp):
+def render_page(p, pages, nav, order, body, has_mermaid, stamp):
     prefix = "" if p.section == HOME else "../"
     o = ["<!DOCTYPE html>", '<html lang="en">', "<head>", '<meta charset="utf-8">',
          "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; "
@@ -2356,12 +2419,7 @@ def render_page(p, pages, nav, body, has_mermaid, stamp):
          '<a class="brand" href="%sindex.html">Nava handbook</a>' % prefix,
          '<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" '
          'aria-label="Search"><ul id="hb-results" hidden></ul></div>', '<nav aria-label="Sections">']
-    for name, index, items in nav:
-        o.append('<div class="nav-section"><a class="nav-title" href="%s">%s</a>' % (
-            esc(prefix + index) if index else "#", esc(name)))
-        li = "".join('<li%s><a href="%s">%s</a></li>' % (' class="current"' if href == p.out() else "",
-                                                          esc(prefix + href), esc(title)) for _s, title, href in items)
-        o.append("<ul>%s</ul></div>" % li)
+    o.append(nav_html(nav, p.src_rel(), prefix, {q.src_rel(): q for q in pages}))
     o += ["</nav>", "</aside>", "<main>"]
     if p.section != HOME:
         o.append('<nav class="crumbs" aria-label="Breadcrumb"><a href="%sindex.html">Handbook</a> / '
@@ -2376,6 +2434,12 @@ def render_page(p, pages, nav, body, has_mermaid, stamp):
     if p.front["build"] == "interptest":
         o.append('<p class="badge">Registered only in the <code>interptest</code> build; not running in the stack</p>')
     o += ["<article>", '<h1 class="page-title">%s</h1>' % esc(p.front["title"]), body, "</article>"]
+    if p in order:
+        i = order.index(p)
+        pn = ['<nav class="pager" aria-label="Previous and next page">']
+        pn.append('<a class="prev" href="%s">&larr; %s</a>' % (esc(prefix + order[i - 1].out()), esc(order[i - 1].front["title"])) if i else "<span></span>")
+        pn.append('<a class="next" href="%s">%s &rarr;</a>' % (esc(prefix + order[i + 1].out()), esc(order[i + 1].front["title"])) if i + 1 < len(order) else "<span></span>")
+        o.append("".join(pn) + "</nav>")
     bl = backlinks(p, pages)
     if bl:
         o.append('<section class="backlinks"><h2>Also named by</h2>')
@@ -2424,7 +2488,8 @@ def build(root, sha, date, registry=None):
     by_rel = {p.src_rel(): p for p in pages}
     if "index.md" not in by_rel:
         problems.append("docs/handbook/src/index.md: the home page is missing")
-    nav = nav_for(pages)
+    nav, order, np_ = load_nav(root, pages)
+    problems += np_
     stamp = "Content generated against main @ %s (%s)" % (short_sha(sha or ""), date)
     out, diagrams, entries = {}, {}, []
     for p in pages:
@@ -2435,7 +2500,7 @@ def build(root, sha, date, registry=None):
         ctx = Ctx(facts, p, by_rel, prefix, diagrams)
         body = render_blocks(ctx, expanded.split("\n"))
         problems += ctx.problems
-        out[p.out()] = render_page(p, pages, nav, body, ctx.mermaid, stamp).encode("utf-8")
+        out[p.out()] = render_page(p, pages, nav, order, body, ctx.mermaid, stamp).encode("utf-8")
         entries.append({"url": p.out(), "title": p.front["title"], "section": p.section, "text": plain_text(body)})
     if problems:
         raise BuildError(sorted(problems))

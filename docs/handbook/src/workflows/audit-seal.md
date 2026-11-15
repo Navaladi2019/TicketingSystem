@@ -29,8 +29,8 @@ sources:
   - internal/audit/seal/seal.go:68
   - internal/audit/seal/seal.go:108-154
   - internal/audit/seal/testdata/histories/...
-  - cmd/nava-worker/main.go:200-203
-  - cmd/nava-worker/main.go:298-303
+  - cmd/nava-worker/main.go:233-236
+  - cmd/nava-worker/main.go:331-336
   - scripts/ci/workflowcheck.sh:13
 tests:
   - TestRegisterSealer
@@ -63,7 +63,7 @@ tests:
   - TestSealFailureTypesPassUnchanged
 ---
 
-`audit.seal` hash-chains each tenant's audit entries (ADR-004 R16). It runs in the stack: `nava-worker` registers it in the production build (`cmd/nava-worker/main.go:298-303`), with its two activities, on `nava-tq`. Each run is one link in the tenant's **seal lineage**: the run commits its successor's start row first, then seals.
+`audit.seal` hash-chains each tenant's audit entries (ADR-004 R16). It runs in the stack: `nava-worker` registers it in the production build (`cmd/nava-worker/main.go:331-336`), with its two activities, on `nava-tq`. Each run is one link in the tenant's **seal lineage**: the run commits its successor's start row first, then seals.
 
 ## Trigger
 

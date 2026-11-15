@@ -1,0 +1,31 @@
+{
+  "name": "@nava/sdk",
+  "version": "1.0.0-alpha.1",
+  "description": "TypeScript SDK for the Nava core API, generated from api/openapi.bundled.yaml (ADR-007 D10).",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "gen": "openapi-typescript ../../api/openapi.bundled.yaml -o src/generated/schema.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json --noEmit && node --test --experimental-strip-types test/*.test.ts",
+    "test:integration": "node --test --experimental-strip-types --test-concurrency=1 test/integration/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

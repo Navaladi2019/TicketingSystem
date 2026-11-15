@@ -11,6 +11,7 @@ package pipeline_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -58,11 +59,18 @@ func (s *startSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Ev
 		}
 		if _, err := outbox.EnqueueStart(ctx, tx, c, outbox.Entry{Kind: outbox.InterpreterKind, KindVersion: 1,
 			DedupeKey: "start:" + c.OutboxID().String(), RecordID: ev.RecordID,
-			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}}); err != nil {
+			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Payload: startPayload(ev.RecordID)}); err != nil {
 			return err
 		}
 	}
 	return s.failAfter
+}
+
+// startPayload is a start's payload: exactly the interpreter's allow-list
+// (outbox.ValidateKindPayload, AR-041). The version id names no row; nothing
+// here loads it.
+func startPayload(record uuid.UUID) json.RawMessage {
+	return json.RawMessage(`{"definition_version_id":"` + uuid.NewString() + `","record_id":"` + record.String() + `"}`)
 }
 
 func (s *startSink) last() pipeline.Event {
@@ -113,7 +121,7 @@ func createWithStart(t *testing.T, e env, p *pipeline.Pipeline, sink *startSink,
 func TestCI10_WriteBackToTriggeringRecordCommits(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	d := uuid.New()
+	d := workflowDefinition(t, e, f)
 	sink := &startSink{defs: []uuid.UUID{d}}
 	p := newPipeline(e, sink)
 
@@ -280,7 +288,7 @@ func definitionID(t *testing.T, e env, tenant uuid.UUID) *uuid.UUID {
 func TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	d := uuid.New()
+	d := workflowDefinition(t, e, f)
 	sink := &startSink{defs: []uuid.UUID{d}}
 	p := newPipeline(e, sink)
 	ctx := context.Background()
@@ -317,7 +325,7 @@ func TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles(t *testing.T) {
 
 	// Another definition on the same write is claimed on its own, and a new
 	// user write mints a new origin, so D starts again (RS-A5-1).
-	d2 := uuid.New()
+	d2 := workflowDefinition(t, e, f)
 	sink.defs = []uuid.UUID{d, d2}
 	if _, err := write(ctx, e, p, f.id, updateCmd(f, r.RecordID, 6, map[string]any{"summary": "by hand"})); err != nil {
 		t.Fatal(err)
@@ -336,7 +344,7 @@ func TestCI10_SiblingAndSelfRetriggeringWritesAreNotCycles(t *testing.T) {
 func TestCI10_RetriedActivityCreatesNoSecondStart(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
-	d := uuid.New()
+	d := workflowDefinition(t, e, f)
 	sink := &startSink{defs: []uuid.UUID{d}}
 	p := newPipeline(e, sink)
 	ctx := context.Background()
@@ -508,7 +516,7 @@ func TestCI10_StartKeyIsPerTenant(t *testing.T) {
 	e := migrated(t)
 	a, b := seedTenant(t, e), seedTenant(t, e)
 	ctx := context.Background()
-	record, origin, d := uuid.New(), uuid.New(), uuid.New()
+	record, origin, d := uuid.New(), uuid.New(), workflowDefinition(t, e, a, b)
 	for _, f := range []tenantFixture{a, b} {
 		seedRecord(t, e, f.id, record, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 0)`,
 			f.id, record, origin)
@@ -554,7 +562,7 @@ func TestCI10_ConcurrentClaimsOfOneKey(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
 	ctx := context.Background()
-	d := uuid.New()
+	d := workflowDefinition(t, e, f)
 
 	for _, firstCommits := range []bool{true, false} {
 		record := uuid.New()
@@ -625,10 +633,10 @@ func TestCascadeStartGuards(t *testing.T) {
 	seedRecord(t, e, f.id, bare, `INSERT INTO records (tenant_id, id) VALUES ($1, $2)`, f.id, bare)
 	seedRecord(t, e, f.id, keyed, `INSERT INTO records (tenant_id, id, causation_origin_id, causation_depth) VALUES ($1, $2, $3, 2)`,
 		f.id, keyed, origin)
-	d := uuid.New()
+	d := workflowDefinition(t, e, f)
 	start := func(record uuid.UUID, c outbox.Causation) outbox.Entry {
 		return outbox.Entry{Kind: outbox.InterpreterKind, KindVersion: 1, DedupeKey: "g-" + uuid.NewString(), RecordID: record,
-			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Causation: c}
+			Target: outbox.TargetStart{Kind: outbox.InterpreterKind}, Causation: c, Payload: startPayload(record)}
 	}
 	inRollback := func(fn func(tx pgx.Tx) error) error {
 		err := tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {

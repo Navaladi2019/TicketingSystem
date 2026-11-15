@@ -3,7 +3,7 @@ title: "Audit log and seal chain"
 section: database
 status: delivered
 tables: [audit_log, audit_log_default, audit_chain_head]
-adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-001-A6]
+adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-004-E9, ADR-001-A6]
 stories: [S18]
 sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql]
 ---

@@ -49,8 +49,37 @@ func tenantCalls() []call {
 		{"PublishEntityTypeVersion", func(ctx context.Context, h *handlers) (any, error) {
 			return h.PublishEntityTypeVersion(ctx, api.PublishEntityTypeVersionRequestObject{Key: "incident"})
 		}},
+		{"PublishWorkflowDefinitionVersion", func(ctx context.Context, h *handlers) (any, error) {
+			return h.PublishWorkflowDefinitionVersion(ctx, api.PublishWorkflowDefinitionVersionRequestObject{Key: "triage"})
+		}},
+		{"GetWorkflowDefinition", func(ctx context.Context, h *handlers) (any, error) {
+			return h.GetWorkflowDefinition(ctx, api.GetWorkflowDefinitionRequestObject{Key: "triage"})
+		}},
 		{"CreateRecord", func(ctx context.Context, h *handlers) (any, error) {
 			return h.CreateRecord(ctx, api.CreateRecordRequestObject{Entity: "incident"})
+		}},
+		// S18 number formats and the tenant time zone (TICK-896: these guards
+		// were reached only through the router, never on their own).
+		{"ListNumberFormats", func(ctx context.Context, h *handlers) (any, error) {
+			return h.ListNumberFormats(ctx, api.ListNumberFormatsRequestObject{})
+		}},
+		{"GetNumberFormat", func(ctx context.Context, h *handlers) (any, error) {
+			return h.GetNumberFormat(ctx, api.GetNumberFormatRequestObject{Id: uuid.NewString()})
+		}},
+		{"CreateNumberFormat", func(ctx context.Context, h *handlers) (any, error) {
+			return h.CreateNumberFormat(ctx, api.CreateNumberFormatRequestObject{})
+		}},
+		{"PublishNumberFormatVersion", func(ctx context.Context, h *handlers) (any, error) {
+			return h.PublishNumberFormatVersion(ctx, api.PublishNumberFormatVersionRequestObject{Id: uuid.NewString()})
+		}},
+		{"RepublishLinkedTypes", func(ctx context.Context, h *handlers) (any, error) {
+			return h.RepublishLinkedTypes(ctx, api.RepublishLinkedTypesRequestObject{Id: uuid.NewString()})
+		}},
+		{"GetTenantTimeZone", func(ctx context.Context, h *handlers) (any, error) {
+			return h.GetTenantTimeZone(ctx, api.GetTenantTimeZoneRequestObject{})
+		}},
+		{"PutTenantTimeZone", func(ctx context.Context, h *handlers) (any, error) {
+			return h.PutTenantTimeZone(ctx, api.PutTenantTimeZoneRequestObject{})
 		}},
 		{"GetRecord", func(ctx context.Context, h *handlers) (any, error) {
 			return h.GetRecord(ctx, api.GetRecordRequestObject{Entity: "incident", Id: uuid.NewString()})

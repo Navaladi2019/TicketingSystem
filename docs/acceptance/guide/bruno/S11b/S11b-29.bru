@@ -1,0 +1,26 @@
+meta {
+  name: S11b.29 AC4: Bob's incident history is its create only
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_b1}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('one row, the create, source user; no workflow row', () => {
+    expect(items).to.have.length(1);
+    expect(items[0].action).to.eql('create');
+    expect(items[0].source).to.eql('user');
+  });
+}
