@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -154,6 +155,23 @@ func wantAllocationsOnly(t *testing.T, step string, r *recordingRunner, tr *allo
 	}
 }
 
+// refuse runs one create that must be refused with number_space_exhausted,
+// in a tenant transaction on api, and returns the refusal.
+func refuse(t *testing.T, p *pipeline.Pipeline, api *pgxpool.Pool, f tenantFixture) *pipeline.ErrNumberSpaceExhausted {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	err := tenancy.InTenantTx(ctx, api, f.id, func(tx pgx.Tx) error {
+		_, err := p.Write(ctx, tx, createCmd(f, map[string]any{"title": "refused"}))
+		return err
+	})
+	var ex *pipeline.ErrNumberSpaceExhausted
+	if !errors.As(err, &ex) {
+		t.Fatalf("create: %v, want ErrNumberSpaceExhausted", err)
+	}
+	return ex
+}
+
 // TestAllocatorPoolRunsOnlyAllocations is the allocator-pool guard: a
 // successful and a refused create on each numbering mode run no
 // InTenantTx on the allocator runner and no transaction but an allocation
@@ -185,15 +203,24 @@ func TestAllocatorPoolRunsOnlyAllocations(t *testing.T) {
 			}
 			wantAllocationsOnly(t, "eight more successful creates", runner, tr, 0, 8*allocs)
 
-			// Refusal: number_space_exhausted. refuseAndAppend fails unless
-			// Write appended nothing and the caller's own append, on the API
-			// pool after the create ended, left exactly one more entry.
+			// Refusal: number_space_exhausted. The guard's own checks run
+			// first, then the caller's append as records.go does it: on the
+			// API pool, after the create's transaction has ended.
 			tr.reset()
 			before := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted))
-			_, ex := refuseAndAppend(t, e, p, e.app, f)
+			ex := refuse(t, p, e.app, f)
 			wantAllocationsOnly(t, "refused create", runner, tr, 0, allocs)
+			if n := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted)); n != before {
+				t.Errorf("after Write: %d number_space_exhausted entries, want %d: Write itself appended the R2b entry", n, before)
+			}
 			if ex.Entry.Action != audit.ActionNumberSpaceExhausted {
 				t.Errorf("refusal entry action %q, want %q", ex.Entry.Action, audit.ActionNumberSpaceExhausted)
+			}
+			if err := tenancy.InTenantTx(context.Background(), e.app, f.id, func(tx pgx.Tx) error {
+				_, err := audit.Append(context.Background(), tx, ex.Entry)
+				return err
+			}); err != nil {
+				t.Fatalf("the caller's append of the refusal's entry: %v", err)
 			}
 			if n := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted)); n != before+1 {
 				t.Errorf("%d number_space_exhausted entries, want %d: the refusal's R2b entry is missing or doubled", n, before+1)
