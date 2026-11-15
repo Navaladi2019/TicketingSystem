@@ -2,7 +2,7 @@
 type: rfc
 id: RFC-022
 title: Composable access rules (named conditions, AND/OR/NOT policies)
-status: APPROVED (Technical Architect re-check, round 1; became ADR-010)
+status: APPROVED (Technical Architect re-check, round 1; became ADR-010, ACCEPTED 2026-11-15)
 date: 2026-11-15
 issue: TICK-901
 epic: TICK-9 (Epic 06)

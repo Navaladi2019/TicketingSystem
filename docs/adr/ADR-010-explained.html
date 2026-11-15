@@ -35,14 +35,14 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 </style>
 </head>
 <body><main>
-<div class="banner"><span class="pill">READING GUIDE &middot; ADR-010 PROPOSED</span>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-010 ACCEPTED</span>
 <span class="src">This page explains <code>docs/adr/ADR-010-composable-access-rules.md</code> and changes nothing itself. If this page and the ADR disagree, the ADR is correct. The discussion that led to it is archived in <code>docs/adr/ADR-010/rfc/</code> (RFC-022 rev 0 and rev 1).</span></div>
 <table class="front"><tbody>
 <tr><th>Question</th><td>How can tenant admins build ticket and workflow access rules from reusable pieces (AND, OR, NOT), without code, while keeping the database filter and the single-ticket check giving the same answer?</td></tr>
 <tr><th>Decision</th><td>Admins write named conditions and combine them into named policies, all stored as one versioned document per ticket type. Rules only ever <i>grant</i> access. A broken rule is refused when it is saved, and if one ever reached the database it would grant nothing.</td></tr>
 <tr><th>Not decided here</th><td>Whether the later workflow expression language (Epic 10) builds on this format (open, owner: CTO). Rules on tenant-defined fields wait for TICK-900.</td></tr>
 <tr><th>Issue</th><td>TICK-901 &middot; RFC-022 &middot; Epic 06 (TICK-9)</td></tr>
-<tr><th>Status</th><td><b>PROPOSED</b>, waiting for the Solution Architect's verdict.</td></tr>
+<tr><th>Status</th><td><b>ACCEPTED</b>, 2026-11-15, by the Solution Architect (PR #716), after the Technical Architect approved the design and its one wording finding on the ADR was fixed.</td></tr>
 <tr><th>Reviews</th><td>Technical Architect: CHANGES in round 1 (3 blocking items), then APPROVE on re-check. The Technical Lead decided who sets a ticket's org unit. No dissent.</td></tr>
 </tbody></table>
 
@@ -50,13 +50,13 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <h3>Goal: what are we trying to do?</h3>
 <p>Let each customer's admin decide who may see and work on which tickets by combining simple, named building blocks. For example, the admin can write "managers in the assigned group may work on a withdrawal request, <b>but not</b> if they raised it themselves", without anyone writing code.</p>
 <h3>Today: how is it done now, and what are the limits?</h3>
-<p>Today a rule is a flat list: "these people may see tickets where all of these things hold". There is no "or" and no "not", so separation of duties cannot be written. Nothing can be reused, so the same idea has to be copied into every rule. Adding these later without a design would mean rewriting the rule engine and its proof.</p>
+<p>Today a rule is a flat list: "these people may see tickets where all of these things hold". There is no "or" and no "not", so separation of duties cannot be written. Nothing can be reused, so the same idea has to be copied into every rule. Adding these later without a design would mean rewriting the code that applies rules, and the test that proves the database and the program agree.</p>
 <h3>What's new, and why we expect it to work</h3>
 <p>Admins name a condition once, such as <i>is_requester</i>, and use it in many policies. A policy combines conditions with AND, OR and NOT. Every rule only adds access, so the outcome never depends on the order of the rules. The rules are a small, fixed set of building blocks, and each block has exactly one translation into a database filter and one into a program check. That is why the two can be tested against each other on thousands of random cases, which we already do for today's rules.</p>
 <h3>Who is affected</h3>
-<p><b>Tenant admins</b> get composition, reuse and clearer explanations. <b>Agents and requesters</b> see no change until an admin edits rules: existing rules are converted automatically and behave the same. <b>Operators</b> get three new metrics and a small change to the directory sync. <b>Engineers</b> on Epic 03 and Epic 06 build the pieces in the plan.</p>
+<p><b>Tenant admins</b> get composition, reuse and clearer explanations. <b>Support agents and the people who raise tickets</b> see no change until an admin edits rules: existing rules are converted automatically and behave the same. <b>Operators</b>, the people who run the platform, get three new counters on their dashboards and a small change to the directory sync, the job that copies users, groups and org units from the login system every few minutes. <b>Engineers</b> on Epic 03 and Epic 06 build the pieces in the plan.</p>
 <h3>Risks: what could go wrong, and what we accept</h3>
-<p>Region-based access could be slow for very large org trees. A spike measures this before we build. A user who moves between org units keeps their old region access until the next directory sync, which is within 10 minutes, the same as for groups today. Size limits on rules could block an unusually large policy.</p>
+<p>Region-based access ("tickets from my part of the organisation") could be slow for very large organisations. A short experiment, a spike, measures this before we build. A user who moves between org units keeps their old region access until the next directory sync, which is within 10 minutes, the same as for groups today. Size limits on rules could block an unusually large policy.</p>
 <h3>How we'll know it worked</h3>
 <p><b>Mid-way:</b> two spikes, one on region access speed and one on the save-time check's cost. <b>At the end:</b> the random agreement test passes, including the new NOT and empty-value cases. Every existing rule gives the same answers and the same database filter as today. The 800,000-ticket benchmark stays within 150 ms. A deleted org unit no longer stops the directory sync.</p>
 
@@ -67,6 +67,9 @@ dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
 <dt>Database filter (SQL predicate)</dt><dd>The rule translated into the "WHERE" part of a database query, so a list only ever contains tickets you may see.</dd>
 <dt>Agreement test</dt><dd>A test that builds thousands of random rules, users and tickets and checks that the database filter and the single-ticket check in the program always agree.</dd>
 <dt>Tombstone</dt><dd>Marking a row as deleted instead of removing it, so things that point at it keep working.</dd>
+<dt>Org unit</dt><dd>A branch of the customer's organisation chart, such as a region or an office. Units form a tree: "my region" means my unit and everything under it.</dd>
+<dt>Directory sync</dt><dd>The job that copies users, groups and org units from the login system into the platform every few minutes.</dd>
+<dt>Explainer</dt><dd>The admin screen that answers "can this user see this ticket, and why".</dd>
 <dt>Spike</dt><dd>A short, time-boxed experiment that measures something before we commit to building it.</dd>
 </dl>
 
