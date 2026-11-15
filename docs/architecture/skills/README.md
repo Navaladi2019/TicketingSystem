@@ -6,5 +6,6 @@ The live copies of these skills are Multica workspace skills; agents load them f
 |---|---|
 | `design-triad` | `d283fa40-9e66-4b8e-a352-e2fa947dbe79` |
 | `design-docs` | `cffda1db-eb0c-4ed0-a58f-d587a494efd9` |
+| `readable-issues` | `5eaee06a-0b6a-430b-b47a-fec6c4dc6d57` |
 
 If the two copies disagree, the workspace copy is what agents run; open a PR to bring this directory in line.

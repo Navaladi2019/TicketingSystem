@@ -47,6 +47,7 @@ const (
 	EntityTypeExists              Code = "entity_type_exists"
 	NumberPrefixTaken             Code = "number_prefix_taken"
 	SchemaBreakingChange          Code = "schema_breaking_change"
+	WorkflowDefinitionInvalid     Code = "workflow_definition_invalid"
 	RecordInvalid                 Code = "record_invalid"
 	IfMatchRequired               Code = "if_match_required"
 	VersionConflict               Code = "version_conflict"
@@ -77,7 +78,7 @@ func Codes() []Code {
 	return []Code{
 		TenantUnresolved, InvalidToken, IdempotencyKeyReuse, IdempotencyInFlight, Forbidden, DomainClaimed, InvalidIdPConfig, OnboardingConflict, InvalidCursor,
 		RateLimited, RetryLater, NotFound, ValidationFailed, MethodNotAllowed,
-		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, RecordInvalid,
+		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, WorkflowDefinitionInvalid, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,

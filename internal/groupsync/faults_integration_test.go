@@ -413,3 +413,23 @@ func (b *lockedBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+// A query the server refuses once it runs (here: permission denied, checked
+// at executor start) reaches Tenants through rows.Err(), not through Query.
+// Tenants must report it instead of an empty list. This pins the rows.Err()
+// branch deterministically: the cancelled-context call in
+// TestSyncerErrorPaths fails either at Query or at rows.Err() depending on
+// timing, which made the 95% coverage gate flake by one statement (TICK-785).
+func TestTenantsReportsAnExecutionError(t *testing.T) {
+	super, pool := cluster(t)
+	seedTenant(t, super, uuid.New(), 1)
+	s := newSyncer(t, pool, &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}})
+	if _, err := super.Exec(context.Background(), "REVOKE ALL ON tenant_identity_binding FROM nava_groupsync"); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := s.Tenants(context.Background())
+	var pgErr *pgconn.PgError
+	if ts != nil || !errors.As(err, &pgErr) || pgErr.Code != "42501" || !strings.Contains(err.Error(), "groupsync: list tenants") {
+		t.Fatalf("Tenants without SELECT on the bindings = %v, %v; want a wrapped 42501", ts, err)
+	}
+}

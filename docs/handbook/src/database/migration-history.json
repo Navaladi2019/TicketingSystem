@@ -785,7 +785,174 @@
       ]
     },
     {
+      "file": "20261113123300_workflow_definitions.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123310_audit_log_subject_workflow_definition.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123320_audit_log_subject_workflow_definition_validate.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123330_cascade_start_definition_fkey.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123340_cascade_start_definition_fkey_validate.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123350_workflow_ref_record_changed_signal.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113123400_workflow_ref_waiting.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113180000_workflow_definitions_audit_commit_check.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113190000_groups_select_worker.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337"
+      ]
+    },
+    {
+      "file": "20261113200000_workflow_cause_ref_newest.sql",
+      "on_main": true,
+      "commit": "1dc3992f",
+      "date": "2026-11-15",
+      "pr": "689",
+      "story": "",
+      "tickets": [
+        "TICK-337",
+        "TICK-785"
+      ]
+    },
+    {
       "file": "20261113210000_record_counters_pkey_scope_key.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210100_number_format_tables.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210200_entity_definition_versions_number_format.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210300_entity_definition_versions_number_format_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210400_tenants_time_zone.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210500_tenants_time_zone_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210600_audit_log_subject_number_format.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210700_audit_log_subject_number_format_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210800_record_counters_purge.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261113210900_tenants_time_zone_update_policy.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261114090000_audit_log_subject_tenant_setting.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261114090100_audit_log_subject_tenant_setting_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261115090000_audit_log_action_number_space_exhausted.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261115090100_audit_log_action_number_space_exhausted_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261115100000_tenants_select_worker.sql",
       "on_main": false
     }
   ]

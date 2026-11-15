@@ -61,6 +61,11 @@ const (
 	signalName   = "demo.note"
 	// definition is the one the cascade start key names (A5).
 	definition = "5e7a0000-0000-4000-8000-0000000000d0"
+	// definitionVersion is the version id the start row names: a start of
+	// nava.interpreter carries exactly {definition_version_id, record_id}
+	// (outbox.ValidateKindPayload, AR-041). The demo's stand-in body never
+	// loads it, so no version row is seeded.
+	definitionVersion = "5e7a0000-0000-4000-8000-0000000000d1"
 	// The longest key whose suffixed forms fit outbox's 200-byte dedupe key
 	// and the pipeline's 200-byte idempotency key.
 	maxKeyLen = 150
@@ -111,7 +116,9 @@ func main() {
 }
 
 // seedSQL is the superuser SQL that seeds the demo entity type in tenant-a at
-// version 1, as entitytypes.Store.Seed writes a type (no publisher). The
+// version 1, as entitytypes.Store.Seed writes a type (no publisher), and
+// the workflow definition the start key names (cascade_start's foreign key,
+// P3-40; no creator, and no audit entry until P3-41 attaches its trigger). The
 // tenants row must exist. Every INSERT is ON CONFLICT DO NOTHING, so a rerun
 // changes nothing. The definition is compiled first, so the seed never stores
 // a type the pipeline would refuse.
@@ -140,23 +147,27 @@ func seedSQL() (string, error) {
 	sum := sha256.Sum256([]byte(entitySchema))
 	// The seed is a bare fixture, not a publish: like the isolation seed
 	// (internal/tenancy/isolation/testdata/seed.sql), it turns the
-	// entity-definition commit-check triggers (P5-32, migration B) off for
-	// its own explicit transaction and back on before it commits. Only
+	// entity-definition (P5-32, migration B) and workflow_definitions (P3-41b)
+	// commit-check triggers off for its own explicit transaction and back on before it commits. Only
 	// audit.Append writes audit_log (internal/records/arch_test.go).
 	return fmt.Sprintf(`BEGIN;
 ALTER TABLE entity_definitions DISABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions DISABLE TRIGGER entity_definition_versions_audit_commit_check;
+ALTER TABLE workflow_definitions DISABLE TRIGGER workflow_definitions_audit_commit_check;
 INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
 VALUES ('%[1]s', '%[2]s', '%[3]s', 'Demo note', '%[4]s', 1) ON CONFLICT DO NOTHING;
 INSERT INTO entity_definition_versions
   (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 VALUES ('%[1]s', '%[5]s', '%[2]s', 1, $nava$%[6]s$nava$::json, '\x%[7]s'::bytea, '%[8]s'::jsonb, '%[9]s'::jsonb, 'initial', NULL)
 ON CONFLICT DO NOTHING;
+INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+VALUES ('%[1]s', '%[10]s', 'demo_start', '%[2]s', 1, NULL) ON CONFLICT DO NOTHING;
 ALTER TABLE entity_definitions ENABLE TRIGGER entity_definitions_audit_commit_check;
 ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions_audit_commit_check;
+ALTER TABLE workflow_definitions ENABLE TRIGGER workflow_definitions_audit_commit_check;
 COMMIT;
 `, tenantA, entityDefID, entityKey, entityPrefix, entityVersionID, entitySchema, hex.EncodeToString(sum[:]),
-		fixed, states), nil
+		fixed, states, definition), nil
 }
 
 func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer) error {
@@ -274,7 +285,11 @@ type demoSink struct {
 // signal through EnqueueAtVersion at ev.Version, under the write's causation.
 func (s *demoSink) RecordChanged(ctx context.Context, tx pgx.Tx, ev pipeline.Event) error {
 	e := s.next
-	payload, err := json.Marshal(map[string]string{"record_id": ev.RecordID.String()})
+	refs := map[string]string{"record_id": ev.RecordID.String()}
+	if _, ok := e.Target.(outbox.TargetStart); ok {
+		refs["definition_version_id"] = definitionVersion
+	}
+	payload, err := json.Marshal(refs)
 	if err != nil {
 		return err
 	}

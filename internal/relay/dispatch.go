@@ -39,9 +39,10 @@ const (
 	// CauseInvalidTarget is a row whose target_key or kind is not in the only
 	// form the relay dispatches (TICK-94 item 3).
 	CauseInvalidTarget = "relay: target_key is not <kind>:<uuid>"
-	// CauseInvalidPayload is a row whose payload is not references only
-	// (outbox.ValidatePayload, CI-7): record data written outside Enqueue
-	// (T32b finding 1, second line). It never reaches Temporal.
+	// CauseInvalidPayload is a row whose payload is not references only, or
+	// whose keys are not its kind's allow-list (outbox.ValidateKindPayload,
+	// CI-7, AR-041): record data written outside Enqueue (T32b finding 1,
+	// second line). It never reaches Temporal.
 	CauseInvalidPayload = "relay: payload is not references only"
 	// CauseLeaseTooShort is a row the poll claimed but reached only after its
 	// dispatch deadline.
@@ -225,9 +226,10 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 		return
 	}
 	log = log.With(slog.String("workflow_id", workflowID))
-	// The same rule outbox's Enqueue functions apply, so a row written around
-	// them (T32b finding 1) is never sent. The error is not logged: it names a payload field.
-	if outbox.ValidatePayload(c.Payload) != nil {
+	// The same rule outbox's Enqueue functions apply, the per-kind key
+	// allow-list included (AR-041), so a row written around them (T32b
+	// finding 1) is never sent. The error is not logged: it names a payload field.
+	if outbox.ValidateKindPayload(c.Kind, c.Payload) != nil {
 		d.settle(ctx, log, c, op, outcomeInvalidPayload, CauseInvalidPayload)
 		return
 	}

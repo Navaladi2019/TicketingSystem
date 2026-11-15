@@ -1,0 +1,43 @@
+meta {
+  name: S11b.23 AC3: Alice creates a second incident, which starts on v2: 201
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-i2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S11b {{s11b_run}} two",
+      "priority": 3
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1, state new, priority 3', () => {
+    expect(b.version).to.eql(1);
+    expect(b.state).to.eql('new');
+    expect(b.data.priority).to.eql(3);
+  });
+  bru.setVar('s11b_i2', b.id);
+  bru.setVar('s11b_i2_at', String(Date.now()));
+}
+
+docs {
+  The positive control for AC3: a run that starts after S11b.21 runs version 2 and sets priority 1.
+}
