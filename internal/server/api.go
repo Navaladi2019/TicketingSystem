@@ -320,6 +320,15 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.SearchableNotAvailable:
 					h.reg.Write(w, r, problem.SearchableNotAvailable, pe.fields...)
 					return
+				case problem.FilterableFieldRemovalUnavailable:
+					h.reg.Write(w, r, problem.FilterableFieldRemovalUnavailable, pe.fields...)
+					return
+				case problem.IndexQuotaExceeded:
+					h.reg.Write(w, r, problem.IndexQuotaExceeded, pe.fields...)
+					return
+				case problem.FieldIndexBusy:
+					h.reg.Write(w, r, problem.FieldIndexBusy, pe.fields...)
+					return
 				}
 			}
 			if pe.code == problem.RetryLater {

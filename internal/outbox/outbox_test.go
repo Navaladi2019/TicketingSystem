@@ -280,6 +280,10 @@ func TestValidateKindPayload(t *testing.T) {
 		{InterpreterSignalKind, `{}`, false},
 		{SealKind, `{}`, true},
 		{SealKind, `{"record_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `}`, true},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `,"record_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"field_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":3}`, false},
 		// A kind with no allow-list keeps the pattern rule only.
 		{"ticket.approval", `{"anything":` + ref + `}`, true},
 		// The references-only rule still applies first.
@@ -328,5 +332,34 @@ func TestInterpreterEntriesRefusedBeforeAnyWrite(t *testing.T) {
 	toOther.Target = TargetSignal{Kind: "ticket.approval", SignalName: InterpreterSignalKind}
 	if _, err := EnqueueSignal(ctx, nil, ref, toOther, 1); !errors.Is(err, ErrInvalidEntry) {
 		t.Errorf("EnqueueSignal to another workflow type = %v, want ErrInvalidEntry", err)
+	}
+}
+
+// A field-index backfill start has its own entry point: the generic enqueue
+// refuses it before any query (tx is nil, so a query would panic).
+func TestGenericEnqueueRefusesFieldIndexBackfill(t *testing.T) {
+	e := validEntry()
+	e.Kind, e.Target = FieldIndexBackfillKind, TargetStart{Kind: FieldIndexBackfillKind}
+	e.Payload = json.RawMessage(`{"tenant_id":"` + uuid.NewString() + `","field_id":"` + uuid.NewString() + `"}`)
+	if _, err := EnqueueAtVersion(context.Background(), nil, e, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion of a backfill start = %v, want ErrInvalidEntry", err)
+	}
+}
+
+func TestEnqueueFieldIndexBackfillRefusesBadArgumentsBeforeAnyQuery(t *testing.T) {
+	cases := []struct {
+		name    string
+		field   uuid.UUID
+		version int
+	}{
+		{"nil field", uuid.Nil, 2},
+		{"version 0", uuid.New(), 0},
+		{"version 32768", uuid.New(), 32768},
+	}
+	for _, c := range cases {
+		// tx is nil: a query would panic.
+		if _, err := EnqueueFieldIndexBackfill(context.Background(), nil, c.field, c.version); !errors.Is(err, ErrInvalidEntry) {
+			t.Errorf("%s: err = %v, want ErrInvalidEntry", c.name, err)
+		}
 	}
 }
