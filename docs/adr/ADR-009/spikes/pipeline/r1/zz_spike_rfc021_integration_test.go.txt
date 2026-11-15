@@ -1,0 +1,649 @@
+//go:build integration
+
+// THROWAWAY SPIKE (TICK-897, RFC-021 CI-12 + R3). Never commit.
+
+package pipeline_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
+)
+
+const schemaV3 = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "priority"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["open", "closed"]},
+    "priority": {"type": "string", "enum": ["low", "high"], "default": "low"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "requester": {"type": "string", "format": "uuid"},
+    "summary": {"type": "string"},
+    "channel": {"type": "string", "default": "email"},
+    "note": {"type": "string"}
+  }
+}`
+
+func spikeEnvInt(k string, d int) int {
+	if v, err := strconv.Atoi(os.Getenv(k)); err == nil {
+		return v
+	}
+	return d
+}
+
+func roleDSN(t *testing.T, role, database string) string {
+	u, _ := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
+	pw, _ := testPassword(role)
+	u.User = url.UserPassword(role, pw)
+	u.Path = "/" + database
+	return u.String()
+}
+
+func pct(d []time.Duration, p float64) time.Duration {
+	if len(d) == 0 {
+		return 0
+	}
+	s := append([]time.Duration(nil), d...)
+	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+	i := int(float64(len(s)-1) * p)
+	return s[i]
+}
+
+func lsn(t *testing.T, e env) string {
+	var s string
+	if err := e.super.QueryRow(context.Background(), `SELECT pg_current_wal_lsn()::text`).Scan(&s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func walDiff(t *testing.T, e env, a, b string) int64 {
+	var n int64
+	if err := e.super.QueryRow(context.Background(), `SELECT pg_wal_lsn_diff($1::pg_lsn, $2::pg_lsn)::bigint`, b, a).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func sizes(t *testing.T, e env) (rec, aud int64) {
+	ctx := context.Background()
+	if err := e.super.QueryRow(ctx, `SELECT pg_total_relation_size('records')`).Scan(&rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.super.QueryRow(ctx, `SELECT coalesce(sum(pg_total_relation_size(relid)),0)::bigint FROM pg_partition_tree('audit_log')`).Scan(&aud); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// seedBulk clones the tenant's first record n times (v1, no channel key),
+// ~1 KB data each, with the matching audit entry the commit check needs.
+func seedBulk(t *testing.T, e env, p *pipeline.Pipeline, f tenantFixture, n int) {
+	ctx := context.Background()
+	first := mustCreate(t, e, p, f, map[string]any{"title": "seed", "priority": "low"})
+	const chunk = 10000
+	for off := 0; off < n; off += chunk {
+		m := min(chunk, n-off)
+		ids := make([]uuid.UUID, m)
+		for i := range ids {
+			ids[i] = uuid.Must(uuid.NewV7())
+		}
+		err := pgx.BeginFunc(ctx, e.super, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `
+INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
+    requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
+    causation_origin_id, causation_depth)
+SELECT r.tenant_id, ($3::uuid[])[g], 1, r.entity_definition_id, 1, 'INC-S' || ($2 + g), 'open',
+    r.requester_id, NULL, NULL, r.created_by, now() - make_interval(secs => ($5::int - ($2 + g))), now() - make_interval(secs => ($5::int - ($2 + g))),
+    jsonb_build_object('title', 't' || ($2 + g), 'priority', CASE WHEN ($2 + g) % 100 = 0 THEN 'high' ELSE 'low' END,
+                       'tags', '["a","b"]'::jsonb, 'summary', repeat(md5(($2 + g)::text), 28)),
+    r.causation_origin_id, r.causation_depth
+FROM records r, generate_series(1, $4::int) g WHERE r.id = $1`, first.RecordID, off, ids, m, n+1); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+SELECT $1, gen_random_uuid(), 'record', 'create', 'record', x, 1, 'system', 'system' FROM unnest($2::uuid[]) x`, f.id, ids)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+}
+
+type liveStats struct {
+	mu        sync.Mutex
+	lat       []time.Duration
+	conflicts int
+	errs      int
+	lastErr   error
+}
+
+func (s *liveStats) snapshot() ([]time.Duration, int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Duration(nil), s.lat...), s.conflicts, s.errs
+}
+
+func (s *liveStats) reset() {
+	s.mu.Lock()
+	s.lat, s.conflicts, s.errs = nil, 0, 0
+	s.mu.Unlock()
+}
+
+// liveWriters: k user writers, each a fresh read-then-write of a random record
+// (the ETag a form loaded just now), patching summary.
+func liveWriters(ctx context.Context, e env, p *pipeline.Pipeline, f tenantFixture, ids []uuid.UUID, k int, st *liveStats) *sync.WaitGroup {
+	var wg sync.WaitGroup
+	for w := 0; w < k; w++ {
+		wg.Add(1)
+		go func(seed int64) {
+			defer wg.Done()
+			r := rand.New(rand.NewSource(seed))
+			for ctx.Err() == nil {
+				id := ids[r.Intn(len(ids))]
+				var v int64
+				if err := e.app.QueryRow(context.Background(), `SELECT 1`).Scan(new(int)); err != nil {
+					return
+				}
+				// the version a client just read
+				_ = tenancy.InTenantTx(context.Background(), e.app, f.id, func(tx pgx.Tx) error {
+					return tx.QueryRow(context.Background(), `SELECT version FROM records WHERE id = $1`, id).Scan(&v)
+				})
+				t0 := time.Now()
+				_, err := write(context.Background(), e, p, f.id, updateCmd(f, id, v, map[string]any{"summary": fmt.Sprintf("live %d", r.Int())}))
+				d := time.Since(t0)
+				st.mu.Lock()
+				st.lat = append(st.lat, d)
+				if errors.Is(err, pipeline.ErrVersionConflict) {
+					st.conflicts++
+				} else if err != nil {
+					st.errs++
+					st.lastErr = err
+				}
+				st.mu.Unlock()
+				time.Sleep(20 * time.Millisecond)
+			}
+		}(int64(w) + 7)
+	}
+	return &wg
+}
+
+type bfResult struct {
+	written, lockedSkipped, conflicts, noop, failed int
+	batches                                         int
+	batchDur                                        []time.Duration
+	wall                                            time.Duration
+	maxSubxact                                      int
+	overflowSeen                                    bool
+}
+
+// backfill is the RFC-021 D7 loop through the real pipeline, as nava_worker.
+func backfill(t *testing.T, e env, worker *pgxpool.Pool, p *pipeline.Pipeline, f tenantFixture, defID uuid.UUID, target, batch int, pause time.Duration, savepoints, forShare bool) bfResult {
+	ctx := context.Background()
+	var res bfResult
+	cursor := uuid.Nil
+	origin := uuid.Must(uuid.NewV7())
+	start := time.Now()
+	for {
+		var got int
+		var last uuid.UUID
+		t0 := time.Now()
+		err := tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+			if forShare {
+				var cv int
+				if err := tx.QueryRow(ctx, `SELECT current_version FROM entity_definitions WHERE tenant_id = $1 AND id = $2 FOR SHARE`, f.id, defID).Scan(&cv); err != nil {
+					return fmt.Errorf("for share: %w", err)
+				}
+			}
+			rows, err := tx.Query(ctx, `SELECT id, version FROM records
+WHERE tenant_id = $1 AND entity_definition_id = $2 AND schema_version < $3 AND id > $4
+ORDER BY id LIMIT $5 FOR UPDATE SKIP LOCKED`, f.id, defID, target, cursor, batch)
+			if err != nil {
+				return err
+			}
+			type rv struct {
+				id uuid.UUID
+				v  int64
+			}
+			var todo []rv
+			for rows.Next() {
+				var x rv
+				if err := rows.Scan(&x.id, &x.v); err != nil {
+					return err
+				}
+				todo = append(todo, x)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			got = len(todo)
+			for _, x := range todo {
+				last = x.id
+				cmd := pipeline.Command{Op: pipeline.OpUpdate, EntityKey: entityKey, RecordID: x.id, ExpectedVersion: x.v,
+					Data: map[string]any{}, Actor: f.system(), Source: pipeline.SourceSystem,
+					Causation: outbox.Causation{OriginID: origin, Depth: 1}}
+				var werr error
+				if savepoints {
+					sp, err := tx.Begin(ctx)
+					if err != nil {
+						return err
+					}
+					_, werr = p.Write(ctx, sp, cmd)
+					if werr != nil {
+						_ = sp.Rollback(ctx)
+					} else if err := sp.Commit(ctx); err != nil {
+						return err
+					}
+				} else {
+					_, werr = p.Write(ctx, tx, cmd)
+				}
+				switch {
+				case werr == nil:
+					res.written++
+				case errors.Is(werr, pipeline.ErrVersionConflict):
+					res.conflicts++
+				default:
+					res.failed++
+					if !savepoints {
+						return werr
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("batch: %v", err)
+		}
+		res.batchDur = append(res.batchDur, time.Since(t0))
+		res.batches++
+		if got == 0 {
+			break
+		}
+		cursor = last
+		if pause > 0 {
+			time.Sleep(pause)
+		}
+	}
+	res.wall = time.Since(start)
+	// keyset pass done; count what SKIP LOCKED left behind
+	var left int
+	_ = e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2 AND NOT (data ? 'channel')`, f.id, defID).Scan(&left)
+	res.lockedSkipped = left
+	return res
+}
+
+func defIDOf(t *testing.T, e env, f tenantFixture) uuid.UUID {
+	var id uuid.UUID
+	if err := e.super.QueryRow(context.Background(), `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, f.id, entityKey).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// listTimed runs store.List (the real count + page statements) reps times.
+func listTimed(t *testing.T, e env, f tenantFixture, defID uuid.UUID, where string, args []any, reps int) (p50, p95 time.Duration, total int64, plan string) {
+	ctx := context.Background()
+	q := store.ListQuery{TenantID: f.id, DefinitionID: defID, Where: where, Args: args, SortColumn: "updated_at", Desc: true, Limit: 26, DataFilter: true, Timeout: 30 * time.Second}
+	var ds []time.Duration
+	for i := 0; i < reps+5; i++ {
+		t0 := time.Now()
+		inTx(t, e, f.id, func(tx pgx.Tx) error {
+			pg, err := store.List(ctx, tx, q)
+			if err == nil {
+				total = pg.Total
+			}
+			return err
+		})
+		if i >= 5 {
+			ds = append(ds, time.Since(t0))
+		}
+	}
+	inTx(t, e, f.id, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF) "+store.CountStatement(q), append([]any{f.id, defID}, args...)...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var l string
+			_ = rows.Scan(&l)
+			plan += l + "\n"
+		}
+		return rows.Err()
+	})
+	return pct(ds, 0.5), pct(ds, 0.95), total, plan
+}
+
+type r3Case struct{ name, plain, fallback string }
+
+var r3Cases = []r3Case{
+	{"channel=email (default)", `true AND (r.data @> '{"channel":"email"}'::jsonb)`, `true AND ((r.data @> '{"channel":"email"}'::jsonb) OR NOT (r.data ? 'channel'))`},
+	{"channel=email AND priority=high (1%)", `true AND (r.data @> '{"channel":"email"}'::jsonb) AND (r.data @> '{"priority":"high"}'::jsonb)`, `true AND ((r.data @> '{"channel":"email"}'::jsonb) OR NOT (r.data ? 'channel')) AND (r.data @> '{"priority":"high"}'::jsonb)`},
+	{"channel=sms (not default, no fallback)", `true AND (r.data @> '{"channel":"sms"}'::jsonb)`, `true AND (r.data @> '{"channel":"sms"}'::jsonb)`},
+}
+
+func runR3(t *testing.T, e env, f tenantFixture, defID uuid.UUID, label string, useFallback bool) {
+	for _, c := range r3Cases {
+		w := c.plain
+		if useFallback {
+			w = c.fallback
+		}
+		p50, p95, total, plan := listTimed(t, e, f, defID, w, nil, 30)
+		t.Logf("R3 %s | %s | fallback=%v | p50=%v p95=%v total=%d", label, c.name, useFallback, p50.Round(time.Millisecond/10), p95.Round(time.Millisecond/10), total)
+		t.Logf("R3 plan %s | %s:\n%s", label, c.name, plan)
+	}
+}
+
+func TestSpikeRFC021(t *testing.T) {
+	n := spikeEnvInt("SPIKE_N", 100000)
+	ctx := context.Background()
+	e := migrated(t)
+	worker := newPool(t, serverPoolConfig(t, roleDSN(t, "nava_worker", e.platform)))
+	p := newPipeline(e, nil)
+	pw := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: worker, AllocTimeout: noLatencyBudget}, pipeline.SystemClock{})
+	_ = pw
+
+	var ver string
+	_ = e.super.QueryRow(ctx, `SELECT version()`).Scan(&ver)
+	t.Logf("ENV %s", ver)
+	for _, s := range []string{"shared_buffers", "fsync", "synchronous_commit", "full_page_writes", "wal_level", "max_wal_size", "checkpoint_timeout", "wal_compression"} {
+		var v string
+		_ = e.super.QueryRow(ctx, "SHOW "+s).Scan(&v)
+		t.Logf("ENV %s=%s", s, v)
+	}
+
+	f := seedTenant(t, e)
+	defID := defIDOf(t, e, f)
+	t0 := time.Now()
+	seedBulk(t, e, p, f, n)
+	t.Logf("SEED %d records in %v", n, time.Since(t0))
+	mustExec(t, e.super, "VACUUM ANALYZE records")
+	mustExec(t, e.super, "ANALYZE audit_log")
+	var avgData int
+	_ = e.super.QueryRow(ctx, `SELECT avg(pg_column_size(data))::int FROM records WHERE tenant_id = $1`, f.id).Scan(&avgData)
+	t.Logf("SEED avg pg_column_size(data)=%d bytes", avgData)
+
+	tp := time.Now()
+	publishV2(t, e, f) // adds channel default "email" -> window open, 0 records hold it
+	t.Logf("PUBLISH baseline (v2, idle) took %v", time.Since(tp))
+	var ids []uuid.UUID
+	rows, _ := e.super.Query(ctx, `SELECT id FROM records WHERE tenant_id = $1`, f.id)
+	for rows.Next() {
+		var id uuid.UUID
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	// ---- Probe 1: D8 FOR SHARE as nava_worker
+	err := tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+		var cv int
+		return tx.QueryRow(ctx, `SELECT current_version FROM entity_definitions WHERE tenant_id = $1 AND id = $2 FOR SHARE`, f.id, defID).Scan(&cv)
+	})
+	t.Logf("PROBE D8 FOR SHARE as nava_worker: err=%v", err)
+	forShare := err == nil
+	if !forShare && os.Getenv("SPIKE_GRANT") != "" {
+		mustExec(t, e.super, `GRANT UPDATE (current_version) ON entity_definitions TO nava_worker`)
+		var got int
+		err = tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM entity_definitions WHERE tenant_id = $1 AND id = $2 FOR SHARE) x`, f.id, defID).Scan(&got)
+		})
+		t.Logf("PROBE D8 FOR SHARE after column GRANT, no UPDATE policy: rows=%d err=%v", got, err)
+		mustExec(t, e.super, `CREATE POLICY spike_worker_lock ON entity_definitions FOR UPDATE TO nava_worker USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)`)
+		err = tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM entity_definitions WHERE tenant_id = $1 AND id = $2 FOR SHARE) x`, f.id, defID).Scan(&got)
+		})
+		t.Logf("PROBE D8 FOR SHARE after GRANT + UPDATE policy: rows=%d err=%v", got, err)
+		forShare = err == nil && got == 1
+	}
+
+	// ---- R3 open window, 0% materialised
+	runR3(t, e, f, defID, "open-0%", false)
+	runR3(t, e, f, defID, "open-0%", true)
+
+	// ---- live baseline
+	st := &liveStats{}
+	lctx, stop := context.WithCancel(ctx)
+	nolive := os.Getenv("SPIKE_NOLIVE") != ""
+	k := 4
+	if nolive {
+		k = 0
+	}
+	wg := liveWriters(lctx, e, p, f, ids, k, st)
+	if !nolive {
+		time.Sleep(20 * time.Second)
+	}
+	base, bc, be := st.snapshot()
+	t.Logf("LIVE baseline n=%d p50=%v p95=%v p99=%v max=%v conflicts=%d errs=%d", len(base), pct(base, .5), pct(base, .95), pct(base, .99), pct(base, 1), bc, be)
+	st.reset()
+
+	// samplers: lock waits and subxact overflow
+	var lockSamples, lockWaitSamples, maxSub int64
+	var overflow atomic.Bool
+	sctx, sstop := context.WithCancel(ctx)
+	var swg sync.WaitGroup
+	swg.Add(1)
+	go func() {
+		defer swg.Done()
+		c, err := pgx.ConnectConfig(ctx, e.super.Config())
+		if err != nil {
+			return
+		}
+		defer c.Close(ctx)
+		for sctx.Err() == nil {
+			var w int64
+			var ms int64
+			var ov bool
+			_ = c.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE usename IN ('nava_app','nava_worker') AND wait_event_type = 'Lock'`).Scan(&w)
+			_ = c.QueryRow(ctx, `SELECT coalesce(max(s.subxact_count),0), coalesce(bool_or(s.subxact_overflowed),false) FROM pg_stat_get_backend_idset() b, LATERAL pg_stat_get_backend_subxact(b) s`).Scan(&ms, &ov)
+			atomic.AddInt64(&lockSamples, 1)
+			if w > 0 {
+				atomic.AddInt64(&lockWaitSamples, 1)
+			}
+			if ms > atomic.LoadInt64(&maxSub) {
+				atomic.StoreInt64(&maxSub, ms)
+			}
+			if ov {
+				overflow.Store(true)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	// concurrent paginator: walk the default list (updated_at DESC) in pages of 100
+	pagSeen := map[uuid.UUID]bool{}
+	pagPages := 0
+	swg.Add(1)
+	go func() {
+		defer swg.Done()
+		if nolive && os.Getenv("SPIKE_PAG") == "" {
+			return
+		}
+		time.Sleep(3 * time.Second)
+		var curT *time.Time
+		var curID uuid.UUID
+		for {
+			q := store.ListQuery{TenantID: f.id, DefinitionID: defID, Where: "true", SortColumn: "updated_at", Desc: true, Limit: 100}
+			if curT != nil {
+				q.Keyset = "(r.updated_at, r.id) < ($3::timestamptz, $4::uuid)"
+				q.KeysetArgs = []any{*curT, curID}
+			}
+			var pg *store.ListPage
+			_ = tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
+				var err error
+				pg, err = store.List(ctx, tx, q)
+				return err
+			})
+			if pg == nil || len(pg.Records) == 0 {
+				return
+			}
+			pagPages++
+			for _, r := range pg.Records {
+				pagSeen[r.ID] = true
+			}
+			l := pg.Records[len(pg.Records)-1]
+			tt := l.UpdatedAt
+			curT, curID = &tt, l.ID
+			time.Sleep(150 * time.Millisecond) // a client paging through
+		}
+	}()
+
+	// mid-run publish of v3 (no new default), timed: D8 FOR SHARE vs publish FOR UPDATE
+	var pubDur time.Duration
+	swg.Add(1)
+	go func() {
+		defer swg.Done()
+		if nolive {
+			return
+		}
+		time.Sleep(10 * time.Second)
+		t0 := time.Now()
+		inTx(t, e, f.id, func(tx pgx.Tx) error {
+			_, err := entitytypes.Store{}.Publish(ctx, tx, f.id, entitytypes.PublishInput{Key: entityKey, PublishedBy: f.principal.PrincipalID, Definition: definition(schemaV3)})
+			return err
+		})
+		pubDur = time.Since(t0)
+	}()
+
+	var dl0 int64
+	_ = e.super.QueryRow(ctx, `SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()`).Scan(&dl0)
+	var upd0, hot0 int64
+	_ = e.super.QueryRow(ctx, `SELECT n_tup_upd, n_tup_hot_upd FROM pg_stat_user_tables WHERE relname = 'records'`).Scan(&upd0, &hot0)
+	rs0, as0 := sizes(t, e)
+	l0 := lsn(t, e)
+
+	batch := spikeEnvInt("SPIKE_BATCH", 100)
+	pause := time.Duration(spikeEnvInt("SPIKE_PAUSE_MS", 0)) * time.Millisecond
+	var res bfResult
+	if os.Getenv("SPIKE_PERREC") != "" {
+		res = backfillPerRecord(t, e, worker, pw, f, defID, 2, batch)
+	} else {
+		res = backfill(t, e, worker, pw, f, defID, 2, batch, pause, os.Getenv("SPIKE_NOSP") == "", forShare)
+	}
+
+	l1 := lsn(t, e)
+	during, dc, de := st.snapshot()
+	stop()
+	wg.Wait()
+	time.Sleep(200 * time.Millisecond)
+	sstop()
+	swg.Wait()
+	rs1, as1 := sizes(t, e)
+	var dl1, upd1, hot1 int64
+	_ = e.super.QueryRow(ctx, `SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()`).Scan(&dl1)
+	_ = e.super.QueryRow(ctx, `SELECT n_tup_upd, n_tup_hot_upd FROM pg_stat_user_tables WHERE relname = 'records'`).Scan(&upd1, &hot1)
+
+	wal := walDiff(t, e, l0, l1)
+	t.Logf("BACKFILL n=%d batch=%d pause=%v savepoints=%v forShare=%v", n, batch, pause, os.Getenv("SPIKE_NOSP") == "", forShare)
+	t.Logf("BACKFILL wall=%v batches=%d written=%d conflicts=%d failed=%d left_unmaterialised_after_keyset=%d", res.wall.Round(time.Millisecond), res.batches, res.written, res.conflicts, res.failed, res.lockedSkipped)
+	t.Logf("BACKFILL per-record=%v batch p50=%v p95=%v max=%v", (res.wall / time.Duration(max(res.written, 1))).Round(time.Microsecond), pct(res.batchDur, .5).Round(time.Millisecond), pct(res.batchDur, .95).Round(time.Millisecond), pct(res.batchDur, 1).Round(time.Millisecond))
+	t.Logf("BACKFILL WAL=%d bytes (%.1f MiB) = %d bytes/written record (incl. %d live writes in window)", wal, float64(wal)/(1<<20), wal/int64(max(res.written, 1)), len(during))
+	t.Logf("BACKFILL records size %d -> %d MiB; audit_log %d -> %d MiB", rs0>>20, rs1>>20, as0>>20, as1>>20)
+	t.Logf("BACKFILL records n_tup_upd +%d, hot +%d; deadlocks +%d", upd1-upd0, hot1-hot0, dl1-dl0)
+	t.Logf("BACKFILL lock-wait samples %d/%d (%.1f%%); max subxact_count=%d overflowed=%v", lockWaitSamples, lockSamples, 100*float64(lockWaitSamples)/float64(max(lockSamples, 1)), maxSub, overflow.Load())
+	t.Logf("LIVE during n=%d p50=%v p95=%v p99=%v max=%v conflicts(412)=%d errs=%d lastErr=%v", len(during), pct(during, .5), pct(during, .95), pct(during, .99), pct(during, 1), dc, de, st.lastErr)
+	t.Logf("PUBLISH mid-run (v3, FOR UPDATE vs batch FOR SHARE) took %v", pubDur)
+	t.Logf("PAGINATOR pages=%d distinct records seen=%d of %d", pagPages, len(pagSeen), n+1)
+	var moved int
+	_ = e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE tenant_id = $1 AND updated_at > now() - interval '1 hour'`, f.id).Scan(&moved)
+	t.Logf("UPDATED_AT records with updated_at in last hour after backfill=%d", moved)
+	var aud int
+	_ = e.super.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND actor_system IS NOT NULL AND action = 'update'`, f.id).Scan(&aud)
+	t.Logf("AUDIT system update entries=%d", aud)
+
+	mustExec(t, e.super, "VACUUM ANALYZE records")
+	runR3(t, e, f, defID, "closed", false)
+	runR3(t, e, f, defID, "closed", true)
+}
+
+// backfillPerRecord: unlocked keyset read of ids, then one short tx per record
+// (row lock only for that record's own UPDATE), synchronous_commit off.
+func backfillPerRecord(t *testing.T, e env, worker *pgxpool.Pool, p *pipeline.Pipeline, f tenantFixture, defID uuid.UUID, target, batch int) bfResult {
+	ctx := context.Background()
+	var res bfResult
+	cursor := uuid.Nil
+	origin := uuid.Must(uuid.NewV7())
+	start := time.Now()
+	for {
+		type rv struct {
+			id uuid.UUID
+			v  int64
+		}
+		var todo []rv
+		t0 := time.Now()
+		err := tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, `SELECT id, version FROM records
+WHERE tenant_id = $1 AND entity_definition_id = $2 AND schema_version < $3 AND id > $4
+ORDER BY id LIMIT $5`, f.id, defID, target, cursor, batch)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var x rv
+				if err := rows.Scan(&x.id, &x.v); err != nil {
+					return err
+				}
+				todo = append(todo, x)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(todo) == 0 {
+			break
+		}
+		for _, x := range todo {
+			cmd := pipeline.Command{Op: pipeline.OpUpdate, EntityKey: entityKey, RecordID: x.id, ExpectedVersion: x.v,
+				Data: map[string]any{}, Actor: f.system(), Source: pipeline.SourceSystem,
+				Causation: outbox.Causation{OriginID: origin, Depth: 1}}
+			werr := tenancy.InTenantTx(ctx, worker, f.id, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, `SET LOCAL synchronous_commit = off`); err != nil {
+					return err
+				}
+				_, err := p.Write(ctx, tx, cmd)
+				return err
+			})
+			switch {
+			case werr == nil:
+				res.written++
+			case errors.Is(werr, pipeline.ErrVersionConflict):
+				res.conflicts++
+			default:
+				res.failed++
+			}
+		}
+		cursor = todo[len(todo)-1].id
+		res.batchDur = append(res.batchDur, time.Since(t0))
+		res.batches++
+	}
+	res.wall = time.Since(start)
+	_ = e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2 AND NOT (data ? 'channel')`, f.id, defID).Scan(&res.lockedSkipped)
+	return res
+}
