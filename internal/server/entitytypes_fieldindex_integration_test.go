@@ -424,12 +424,33 @@ func (f failingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.Co
 	return f.Tx.Exec(ctx, sql, args...)
 }
 
+func (f failingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, f.failOn) {
+		return failingRow{}
+	}
+	return f.Tx.QueryRow(ctx, sql, args...)
+}
+
+func (f failingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, f.failOn) {
+		return nil, errors.New("injected failure")
+	}
+	return f.Tx.Query(ctx, sql, args...)
+}
+
+type failingRow struct{}
+
+func (failingRow) Scan(...any) error { return errors.New("injected failure") }
+
 // A failed registry write fails the publish and leaves no version, registry
 // row or outbox row behind.
 func TestPublishFieldIndexWriteFailuresLeaveNothingBehind(t *testing.T) {
 	for _, tc := range []struct{ name, failOn, want string }{
 		{"quota lock", "pg_advisory_xact_lock", "lock field index quota"},
 		{"registry insert", "INSERT INTO record_index_fields", "insert field index registry row"},
+		{"registry read", "SELECT field_key, state FROM record_index_fields", "read field index registry"},
+		{"registry count", "SELECT count(*) FROM record_index_fields", "count field index registry"},
+		{"outbox insert", "INSERT INTO outbox", "enqueue field index backfill"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newETEnv(t)
