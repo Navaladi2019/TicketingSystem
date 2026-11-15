@@ -36,8 +36,9 @@
 -- A value that does not coerce writes no row and never fails the write (D5).
 -- The trigger counts them (non-null values minus rows written) and adds the
 -- count to the transaction-local setting nava.field_index_uncoerced, a JSON
--- object {"<entity_definition_id>": n}. internal/records/pipeline reads it in
--- the commit's round trip (tenancy.ReadSettingAtCommit) and adds each count
+-- object {"<entity_definition_id>": n}. For a type that flags a field,
+-- internal/records/pipeline reads it in the commit's round trip
+-- (tenancy.ReadSettingAtCommit) and adds each count
 -- to nava_field_index_uncoerced_total{entity_definition}. No RAISE, no
 -- table write: a rolled-back savepoint or transaction takes its counts back
 -- with it. A setting value the trigger did not write is discarded, never

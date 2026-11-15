@@ -138,9 +138,16 @@ There is no `RAISE` and no table write. The mechanism is a
    writes the setting only when the count is above 0. A value in the setting
    that the trigger did not write (not JSON, not an object, not a whole
    number) is dropped, never cast blindly, so it cannot fail a write.
-2. After a successful write, `internal/records/pipeline` registers
+2. After a successful write to a type whose current definition flags a
+   top-level property (`metadata.Compiled.HasFilterable`),
+   `internal/records/pipeline` registers
    `tenancy.ReadSettingAtCommit(tx, "nava.field_index_uncoerced", ...)`. It
-   does this once per transaction.
+   does this once per transaction. A write to any other type registers
+   nothing, so its commit batch keeps the TICK-692 statement budget
+   (`TestRecordCreateAndGetRoundTrips`: 19 statements, 4 trips). Nothing is
+   missed: the registry holds a `backfilling` or `ready` row only for a field
+   the current definition flags (P7-04), and the trigger skips `removing`
+   rows.
 3. `tenancy.InTenantTx` sends `SELECT coalesce(current_setting($1, true), '')`
    in the same batch as `COMMIT`, after every queued statement. No round trip
    is added. Only after the `COMMIT` succeeds does it hand the value to the

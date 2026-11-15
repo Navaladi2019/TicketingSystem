@@ -514,8 +514,13 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	}
 	// The records trigger counted any value of a flagged field that did not
 	// coerce in a transaction-local setting; the commit's round trip reads it
-	// (ADR-006 R5, fieldindex.go).
-	p.fieldIndexMetrics().watch(tx)
+	// (ADR-006 R5, fieldindex.go). Only for a type that flags a field: the
+	// registry holds a backfilling or ready row only for a field the current
+	// definition flags (P7-04), so any other write has nothing to count and
+	// keeps its commit batch as it was (TICK-692's statement budget).
+	if def.HasFilterable() {
+		p.fieldIndexMetrics().watch(tx)
+	}
 	if p.beforeReturn != nil {
 		p.beforeReturn(ctx)
 	}

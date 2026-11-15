@@ -127,6 +127,22 @@ func (c *Compiled) SecretProperties() []string {
 	return out
 }
 
+// HasFilterable reports whether a top-level property is marked
+// "x-nava-filterable": true (ADR-006 D8). The records pipeline reads the
+// field index's uncoerced counter only for such a definition (P7-02): a type
+// with no flagged field has no registry row the trigger would copy, so its
+// writes pay nothing for the counter. P7-03 owns the keyword's validation.
+func (c *Compiled) HasFilterable() bool {
+	props, _ := c.doc["properties"].(map[string]any)
+	for _, v := range props {
+		p, _ := v.(map[string]any)
+		if flagged, _ := p["x-nava-filterable"].(bool); flagged {
+			return true
+		}
+	}
+	return false
+}
+
 // NumberPrefix returns the definition's record number prefix.
 func (c *Compiled) NumberPrefix() string { return c.numberPrefix }
 

@@ -56,7 +56,16 @@ func uncoercedCounts(t *testing.T, reader *sdkmetric.ManualReader) (map[string]i
 // nothing, and a write that coerces counts nothing.
 func TestUncoercedValueIsCountedNotRaised(t *testing.T) {
 	e := migrated(t)
-	f := seedTenant(t, e)
+	// title and tags are flagged: the pipeline reads the counter only for a
+	// type that flags a field (Compiled.HasFilterable).
+	flagged := strings.Replace(schemaV1, `"title": {"type": "string", "minLength": 1}`,
+		`"title": {"type": "string", "minLength": 1, "x-nava-filterable": true}`, 1)
+	flagged = strings.Replace(flagged, `"tags": {"type": "array", "items": {"type": "string"}}`,
+		`"tags": {"type": "array", "items": {"type": "string"}, "x-nava-filterable": true}`, 1)
+	if flagged == schemaV1 || strings.Count(flagged, "x-nava-filterable") != 2 {
+		t.Fatal("the flagged schema did not take both flags")
+	}
+	f := seedTenantWith(t, e, definition(flagged))
 	ctx := context.Background()
 	var def uuid.UUID
 	if err := e.super.QueryRow(ctx, `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, f.id, entityKey).Scan(&def); err != nil {
