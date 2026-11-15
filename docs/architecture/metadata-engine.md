@@ -8,12 +8,14 @@ no database, network or file-system code (`import_test.go` checks the graph).
 ```mermaid
 flowchart LR
   D[Definition<br/>key, schema, prefix,<br/>fixed columns, states] --> S[scan: size, depth,<br/>duplicate keys]
-  S --> W[walk: local $ref only,<br/>top-level default and<br/>x-nava-unique only]
+  S --> W[walk: local $ref only,<br/>top-level default,<br/>x-nava-unique and<br/>x-nava-filterable only]
+  W -- "x-nava-searchable or<br/>nested x-nava-filterable" --> R[RefusalError]
   W --> J[fresh jsonschema.Compiler<br/>deny-all loader, format asserted]
   J --> X[defaults satisfy own schema,<br/>fixed-column types, state enum]
   X --> C[*Compiled]
   C --> V[Validate → FieldError path, keyword]
   C --> A[ApplyDefaults → copy, missing keys only]
+  C --> F[Filterable → Key, ValueType]
   C --> K[Classify prev, next → Compat, paths]
 ```
 
@@ -57,11 +59,43 @@ with `422 definition_secret_required` and `errors[].pointer` naming the
 offending entry. No record could satisfy such a definition. The marker itself,
 on a property that is not required, stays legal.
 
+## Filterable properties (`x-nava-filterable`)
+
+ADR-006 D8 (P7-03, TICK-743). `"x-nava-filterable": true` is allowed only
+directly on a top-level property, and `Compiled.Filterable()` lists the
+flagged properties, sorted, with the `fieldindex.ValueType` their values are
+stored as:
+
+| Property schema | `ValueType` |
+| --- | --- |
+| `"type": "string"` (any other `format`, with or without `enum`), or no `type` and an `enum` of strings only | `text` |
+| `"type": "string"` with `format: date-time` or `date` | `ts` |
+| `"type": "number"` or `"integer"` | `num` |
+| `"type": "boolean"` | `bool` |
+| `"type": "array"` whose `items` is one of the above | the element's type |
+
+The value type is read from the property's own `type`, `format` and `enum`,
+so a flagged property may not use `$ref`, `$dynamicRef`, `allOf`, `anyOf`,
+`oneOf`, `not` or `if`/`then`/`else` (nor `prefixItems`/`contains` for an
+array). A type list such as `["string","null"]` is refused too.
+
+| Case | Answer |
+| --- | --- |
+| The flag anywhere else (nested, `$defs`, in an applicator, `items`, the root), with any value | `*RefusalError` → 422 `filterable_field_not_top_level` |
+| `x-nava-searchable` anywhere, with any value (reserved until RFC-016) | `*RefusalError` → 422 `searchable_not_available` |
+| A top-level flag with a non-boolean value or a type outside the table | `*ErrInvalidDefinition` → 422 `invalid_definition` at the flag |
+| `Classify`: a property flagged in `prev` whose value type in `next` differs (or is unsupported), flagged in `next` or not | `*RefusalError` → 422 `filterable_field_type_change` at the property |
+
+Refusals come ahead of every other problem in the definition, searchable
+first. Adding or removing the flag is Compatible; any other change to the
+property keeps its usual class (`integer` → `number` stays Breaking on the
+`type` keyword but keeps `num`, so it is not a type-change refusal).
+
 ## Compatibility classes
 
 | Class | Changes |
 | --- | --- |
-| Compatible | add an optional property (with or without a default); widen an `enum`; add a state or transition; change `title`, `description`, `$comment`, `examples` |
+| Compatible | add an optional property (with or without a default); widen an `enum`; add a state or transition; change `title`, `description`, `$comment`, `examples`; add or remove `x-nava-filterable` |
 | NeedsBackfill | add a required property that has a default; add a default to an existing property |
 | Breaking | everything else: change a `type`, narrow or add an `enum`, add a required property with no default, remove a property, change `FixedColumns` or `NumberPrefix`, change or remove a default, add or remove `x-nava-unique`, make a property required or optional, remove a state or transition, change the initial state, any other keyword change |
 

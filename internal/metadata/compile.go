@@ -113,7 +113,11 @@ func Compile(d Definition) (*Compiled, error) {
 	if !ok {
 		return nil, bad.err()
 	}
-	props := checkShape(doc, &bad)
+	props, refused := checkShape(doc, &bad)
+	if refused != nil {
+		return nil, refused
+	}
+	filterable := collectFilterable(props, &bad)
 	if len(bad) > 0 {
 		return nil, bad.err()
 	}
@@ -157,10 +161,11 @@ func Compile(d Definition) (*Compiled, error) {
 			States:      slices.Clone(d.States.States),
 			Transitions: slices.Clone(d.States.Transitions),
 		},
-		schema:   sch,
-		doc:      doc,
-		defaults: defaults,
-		unique:   unique,
+		schema:     sch,
+		doc:        doc,
+		defaults:   defaults,
+		unique:     unique,
+		filterable: filterable,
 	}, nil
 }
 
@@ -282,7 +287,10 @@ func scanSchema(raw []byte, bad *problems) bool {
 // schemas, "additionalProperties": false and no "patternProperties". A
 // closed root is what makes adding an optional property provably
 // Compatible: no existing row can already hold a key the new version types.
-func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
+// A misplaced x-nava-filterable or any x-nava-searchable is returned as a
+// *RefusalError, ahead of every other problem, so the caller answers with its
+// own code.
+func checkShape(doc map[string]any, bad *problems) (map[string]map[string]any, error) {
 	if s, ok := doc["$schema"]; ok && s != draft2020URL {
 		bad.add("schema", "$schema")
 	}
@@ -297,13 +305,16 @@ func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 	}
 	w := walker{bad: bad, schemas: map[string]bool{}, anchors: map[string]bool{}, anchorAt: map[string]string{}, marked: map[string]bool{}}
 	w.walk(doc, []string{"schema"})
+	if err := w.refusal(); err != nil {
+		return nil, err
+	}
 	w.checkRefs()
 	w.checkMarked(doc)
 
 	rawProps, ok := doc["properties"].(map[string]any)
 	if !ok {
 		bad.add("schema", "properties")
-		return nil
+		return nil, nil
 	}
 	props := make(map[string]map[string]any, len(rawProps))
 	for name, v := range rawProps {
@@ -314,7 +325,7 @@ func checkShape(doc map[string]any, bad *problems) map[string]map[string]any {
 		}
 		props[name] = p
 	}
-	return props
+	return props, nil
 }
 
 // isTopLevelProperty reports whether path is /schema/properties/<name>.
@@ -346,6 +357,10 @@ type walker struct {
 	// (an anchored pattern spells out a literal).
 	valueSites [][]string
 	refs       []refSite
+	// nestedFilterable and searchable are the paths of an x-nava-filterable
+	// not directly on a top-level property and of every x-nava-searchable.
+	nestedFilterable [][]string
+	searchable       [][]string
 }
 
 // secretKeywords mark a value that must never be stored in a definition or
@@ -435,6 +450,14 @@ func (w *walker) walk(node any, path []string) {
 			if _, isBool := v.(bool); !isBool || !isTopLevelProperty(path) {
 				w.bad.add(at(kw)...)
 			}
+		case kw == FilterableKeyword:
+			if !isTopLevelProperty(path) {
+				w.nestedFilterable = append(w.nestedFilterable, at(kw))
+			} else if _, isBool := v.(bool); !isBool {
+				w.bad.add(at(kw)...)
+			}
+		case kw == SearchableKeyword:
+			w.searchable = append(w.searchable, at(kw))
 		case subschemaKind(kw) == oneSubschema:
 			w.walk(v, at(kw))
 		case subschemaKind(kw) == subschemaArray:

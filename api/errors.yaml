@@ -148,3 +148,15 @@ codes:
     status: 409
     title: Audit chain is alive
     detail: The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.
+  - code: filterable_field_not_top_level
+    status: 422
+    title: Filterable field not top-level
+    detail: x-nava-filterable is allowed only directly on a top-level property of the schema. Nothing was written. See errors for the path.
+  - code: filterable_field_type_change
+    status: 422
+    title: Filterable field type change
+    detail: The new version changes the value type of a property that the current version marks x-nava-filterable. Nothing was written. See errors for the property.
+  - code: searchable_not_available
+    status: 422
+    title: Searchable not available
+    detail: x-nava-searchable is reserved and not available yet. Nothing was written. See errors for the path.
