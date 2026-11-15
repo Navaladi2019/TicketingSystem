@@ -149,7 +149,7 @@ func newExhEnv(t *testing.T, mode string, extra ...server.Option) *exhEnv {
 		t.Fatalf("create type = %d: %s", rec.Code, rec.Body)
 	}
 	rec := x.do(t, http.MethodPost, nfPath, "admin-a", linkKey("exh-fmt"),
-		`{"key":"exh-one-digit","document":{"template":"{prefix}-{seq:1}","overflow":"refuse"}}`)
+		`{"key":"exh_one_digit","document":{"template":"{prefix}-{seq:1}","overflow":"refuse"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create format = %d: %s", rec.Code, rec.Body)
 	}

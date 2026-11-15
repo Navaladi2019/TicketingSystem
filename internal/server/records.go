@@ -199,6 +199,18 @@ func (h *handlers) CreateRecord(ctx context.Context, req api.CreateRecordRequest
 // holds an API connection past the request).
 const exhaustedAuditTimeout = 5 * time.Second
 
+// exhaustedAuditContext is the context of a refusal's append (ADR-004-E9
+// N1): ctx's values without its cancellation, so a client that disconnects
+// after the refusal does not drop the entry, bounded by ctx's deadline, or
+// by exhaustedAuditTimeout when ctx has none.
+func exhaustedAuditContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	actx := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(actx, deadline)
+	}
+	return context.WithTimeout(actx, exhaustedAuditTimeout)
+}
+
 // auditExhausted appends the R2b entry of a create refused with
 // number_space_exhausted (ADR-004-E9), and returns refused, joined with the
 // audit error if the append failed: a refusal is never a success, and the
@@ -221,12 +233,7 @@ func (h *handlers) auditExhausted(ctx context.Context, tenant uuid.UUID, ex *pip
 	}
 	attrs := []any{slog.String("tenant_id", tenant.String()), slog.String("entity_key", ex.EntityKey)}
 	h.log.WarnContext(actx, "record create refused: number space exhausted", attrs...)
-	var cancel context.CancelFunc
-	if deadline, ok := ctx.Deadline(); ok {
-		actx, cancel = context.WithDeadline(actx, deadline)
-	} else {
-		actx, cancel = context.WithTimeout(actx, exhaustedAuditTimeout)
-	}
+	actx, cancel := exhaustedAuditContext(ctx)
 	defer cancel()
 	err := tenancy.InTenantTx(actx, h.pool, tenant, func(tx pgx.Tx) error {
 		_, err := audit.Append(actx, tx, ex.Entry)

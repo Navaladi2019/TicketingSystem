@@ -56,6 +56,7 @@ func refuseAndAppend(t *testing.T, e env, p *pipeline.Pipeline, api *pgxpool.Poo
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	before := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted))
 	var createXid string
 	err := tenancy.InTenantTx(ctx, api, f.id, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, "SELECT pg_current_xact_id()::text").Scan(&createXid); err != nil {
@@ -72,8 +73,8 @@ func refuseAndAppend(t *testing.T, e env, p *pipeline.Pipeline, api *pgxpool.Poo
 		t.Fatalf("%d API connections held after the create ended, want 0", n)
 	}
 	// Write appended nothing: the entry exists only once the caller appends.
-	if n := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted)); n != 0 {
-		t.Fatalf("Write wrote %d number_space_exhausted entries, want 0", n)
+	if n := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted)); n != before {
+		t.Fatalf("after Write: %d number_space_exhausted entries, want %d (unchanged)", n, before)
 	}
 	// api has one connection: had the create's still been held, this would
 	// wait until ctx's deadline and fail.
@@ -82,6 +83,9 @@ func refuseAndAppend(t *testing.T, e env, p *pipeline.Pipeline, api *pgxpool.Poo
 		return err
 	}); err != nil {
 		t.Fatalf("append the refusal's entry: %v", err)
+	}
+	if n := entries(t, e, f.id, string(audit.ActionNumberSpaceExhausted)); n != before+1 {
+		t.Fatalf("after the append: %d number_space_exhausted entries, want %d", n, before+1)
 	}
 	return createXid, ex
 }
