@@ -109,6 +109,20 @@ exempt:
     reason: "Workflow bookkeeping for a start the audited write queued; holds no record or configuration content."
   workflow_cause:
     reason: "Durable copy of a delivered outbox row's causation (D-3-29); the write that queued the delivery is audited."
+  # Field index (ADR-006 D3, P7-01, TICK-741). The registry is exempt, not
+  # audited: the entity-definition publish that creates, flips or asks to
+  # remove a row writes its own audit entry in that transaction; the worker's
+  # state, progress and delete are backfill and removal bookkeeping.
+  record_index_fields:
+    reason: "Field-index configuration; the entity-definition publish that writes or flips a row is audited, state and progress are workflow bookkeeping."
+  rfv_text:
+    reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
+  rfv_num:
+    reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
+  rfv_ts:
+    reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
+  rfv_bool:
+    reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
   cascade_start:
     reason: "Cascade start key (A5). A suppressed or rejected cascade is audited as a cascade_key entry by the pipeline (ADR-004-E1)."
   idempotency_keys:

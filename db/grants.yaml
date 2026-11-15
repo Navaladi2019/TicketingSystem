@@ -128,6 +128,15 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261115120000): the side
+      # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
+      # runs as the record writer). Publish (P7-04) creates a registry row and
+      # flips its state; it never rewrites the key, the field or the type.
+      record_index_fields: { SELECT: [], INSERT: [], UPDATE: [state, progress, requested_version, updated_at] }
+      rfv_text: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role.
     functions:
@@ -213,6 +222,15 @@ roles:
       workflow_definitions: { SELECT: [] }
       workflow_definition_versions: { SELECT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
+      # Field index (ADR-006 D14, P7-01, TICK-741): the trigger as the record
+      # writer, the backfill (D10) and the removal (D11). The worker moves a
+      # registry row's state and progress and deletes it once its side rows
+      # are gone; it never sets requested_version, which only publish does.
+      record_index_fields: { SELECT: [], UPDATE: [state, progress, updated_at], DELETE: [] }
+      rfv_text: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
+      rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
       # TICK-782 (20261113190000): records/store's recordSelect joins the
       # assignment group for its tombstone; groups_select's tenant predicate
       # reads tenant_id. Never path or keycloak_group_id.
