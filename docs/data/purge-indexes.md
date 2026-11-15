@@ -210,7 +210,7 @@ whose `period_end` is more than 2 days past is deleted by `nava_purge`, in
 batches of 1,000, through the S17 partial index `record_counters_period_end`.
 This change adds the policies, the grant and the job. It adds no index.
 
-- **Policies** (`20261113110000_record_counters_purge.sql`):
+- **Policies** (`20261113210800_record_counters_purge.sql`):
   `record_counters_purge_select` and `record_counters_purge`, `FOR SELECT`
   and `FOR DELETE TO nava_purge`, both
   `USING (period_end < now() - interval '2 days')`. This follows the outbox

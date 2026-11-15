@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	counterPurgeMigration        = "20261113110000_record_counters_purge.sql"
+	counterPurgeMigration        = "20261113210800_record_counters_purge.sql"
 	scopeKeyLenValidateMigration = "20261112193100_record_counters_scope_key_len_validate.sql"
 )
 
