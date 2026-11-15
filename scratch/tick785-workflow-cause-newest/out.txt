@@ -1,0 +1,196 @@
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+  rows   | tenants 
+---------+---------
+ 2100000 |    1001
+(1 row)
+
+=== BEFORE: newest cause (newer = false) ===
+            ref_outbox_id             |         causation_origin_id          | causation_depth | newer 
+--------------------------------------+--------------------------------------+-----------------+-------
+ 00051d49-000d-4315-9230-b2e5abbeb5de | b41c7d28-f209-424d-8d52-78f527be786c |               0 | f
+(1 row)
+
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=24.005..24.011 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=2151
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.028..0.031 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = '74a1cec5-28e2-4791-93da-e0fae0505226'::uuid))
+         Buffers: shared hit=4
+   SubPlan 1
+     ->  Result (actual time=23.959..23.960 rows=0 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=2147
+           ->  Bitmap Heap Scan on workflow_cause n (actual time=23.955..23.955 rows=0 loops=1)
+                 Recheck Cond: (tenant_id = c.tenant_id)
+                 Filter: ((ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Rows Removed by Filter: 100000
+                 Heap Blocks: exact=1334
+                 Buffers: shared hit=2147
+                 ->  Bitmap Index Scan on workflow_cause_pkey (actual time=10.007..10.007 rows=100000 loops=1)
+                       Index Cond: (tenant_id = c.tenant_id)
+                       Buffers: shared hit=813
+ Planning Time: 0.370 ms
+ Execution Time: 24.071 ms
+(21 rows)
+
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=23.726..23.735 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=2151
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.021..0.027 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = '74a1cec5-28e2-4791-93da-e0fae0505226'::uuid))
+         Buffers: shared hit=4
+   SubPlan 1
+     ->  Result (actual time=23.690..23.692 rows=0 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=2147
+           ->  Bitmap Heap Scan on workflow_cause n (actual time=23.686..23.688 rows=0 loops=1)
+                 Recheck Cond: (tenant_id = c.tenant_id)
+                 Filter: ((ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Rows Removed by Filter: 100000
+                 Heap Blocks: exact=1334
+                 Buffers: shared hit=2147
+                 ->  Bitmap Index Scan on workflow_cause_pkey (actual time=8.227..8.228 rows=100000 loops=1)
+                       Index Cond: (tenant_id = c.tenant_id)
+                       Buffers: shared hit=813
+ Planning Time: 0.373 ms
+ Execution Time: 23.792 ms
+(21 rows)
+
+=== BEFORE: stale cause (newer = true) ===
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=10.660..10.672 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=845
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.021..0.029 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = 'd31699be-117a-4d44-9d2c-1f65d1fcbe73'::uuid))
+         Buffers: shared hit=4
+   SubPlan 1
+     ->  Result (actual time=10.625..10.627 rows=1 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=841
+           ->  Bitmap Heap Scan on workflow_cause n (actual time=10.621..10.622 rows=1 loops=1)
+                 Recheck Cond: (tenant_id = c.tenant_id)
+                 Filter: ((ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Rows Removed by Filter: 2008
+                 Heap Blocks: exact=28
+                 Buffers: shared hit=841
+                 ->  Bitmap Index Scan on workflow_cause_pkey (actual time=9.965..9.966 rows=100000 loops=1)
+                       Index Cond: (tenant_id = c.tenant_id)
+                       Buffers: shared hit=813
+ Planning Time: 0.235 ms
+ Execution Time: 10.736 ms
+(21 rows)
+
+Time: 4755.281 ms (00:04.755)
+=== AFTER: newest cause (newer = false) ===
+            ref_outbox_id             |         causation_origin_id          | causation_depth | newer 
+--------------------------------------+--------------------------------------+-----------------+-------
+ 00051d49-000d-4315-9230-b2e5abbeb5de | b41c7d28-f209-424d-8d52-78f527be786c |               0 | f
+(1 row)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.045..0.048 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=8
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.020..0.021 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = '74a1cec5-28e2-4791-93da-e0fae0505226'::uuid))
+         Buffers: shared hit=4
+   SubPlan 1
+     ->  Result (actual time=0.016..0.016 rows=0 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=4
+           ->  Index Only Scan using workflow_cause_ref_newest on workflow_cause n (actual time=0.013..0.013 rows=0 loops=1)
+                 Index Cond: ((tenant_id = c.tenant_id) AND (ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Heap Fetches: 0
+                 Buffers: shared hit=4
+ Planning Time: 0.221 ms
+ Execution Time: 0.086 ms
+(16 rows)
+
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.027..0.028 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=8
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.012..0.013 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = '74a1cec5-28e2-4791-93da-e0fae0505226'::uuid))
+         Buffers: shared hit=4
+   SubPlan 1
+     ->  Result (actual time=0.009..0.009 rows=0 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=4
+           ->  Index Only Scan using workflow_cause_ref_newest on workflow_cause n (actual time=0.007..0.007 rows=0 loops=1)
+                 Index Cond: ((tenant_id = c.tenant_id) AND (ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Heap Fetches: 0
+                 Buffers: shared hit=4
+ Planning Time: 0.147 ms
+ Execution Time: 0.053 ms
+(16 rows)
+
+=== AFTER: stale cause (newer = true) ===
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.065..0.067 rows=1 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000001'::uuid)
+   Buffers: shared hit=8 read=1
+   ->  Index Scan using workflow_cause_pkey on workflow_cause c (actual time=0.042..0.043 rows=1 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000001'::uuid) AND (outbox_id = 'd31699be-117a-4d44-9d2c-1f65d1fcbe73'::uuid))
+         Buffers: shared hit=3 read=1
+   SubPlan 1
+     ->  Result (actual time=0.016..0.016 rows=1 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = c.tenant_id)
+           Buffers: shared hit=5
+           ->  Index Only Scan using workflow_cause_ref_newest on workflow_cause n (actual time=0.013..0.013 rows=1 loops=1)
+                 Index Cond: ((tenant_id = c.tenant_id) AND (ref_outbox_id = c.ref_outbox_id) AND (ROW(created_at, outbox_id) > ROW(c.created_at, c.outbox_id)))
+                 Heap Fetches: 0
+                 Buffers: shared hit=5
+ Planning Time: 0.160 ms
+ Execution Time: 0.097 ms
+(16 rows)
+
+=== Sizes ===
+          relname          | pg_size_pretty 
+---------------------------+----------------
+ workflow_cause_pkey       | 131 MB
+ workflow_cause            | 219 MB
+ workflow_cause_ref_newest | 155 MB
+(3 rows)
+
+=== Insert cost: 100,000 rows into the light tenants, without vs with the index ===
+without
+Time: 0.647 ms
+Time: 0.760 ms
+Time: 3527.542 ms (00:03.528)
+Time: 0.531 ms
+with
+Time: 0.299 ms
+Time: 3303.357 ms (00:03.303)
+Time: 0.515 ms
+without
+Time: 0.276 ms
+Time: 0.886 ms
+Time: 503.668 ms
+Time: 0.301 ms
+with
+Time: 0.187 ms
+Time: 912.930 ms
+Time: 0.388 ms
+without
+Time: 0.164 ms
+Time: 0.589 ms
+Time: 594.781 ms
+Time: 0.277 ms
+with
+Time: 0.193 ms
+Time: 993.173 ms
+Time: 0.703 ms

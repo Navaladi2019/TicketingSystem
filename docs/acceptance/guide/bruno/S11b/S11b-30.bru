@@ -1,0 +1,50 @@
+meta {
+  name: S11b.30 Retire the demo: publish a version that waits a day and writes nothing: 201
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s11b_demo/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-demo-retire
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT24H",
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('current', () => expect(N.json().current).to.eql(true));
+}
+
+docs {
+  Clean-up, not a criterion: tenant A's incidents created by later folders on this stack are not written a minute later. Stack-local side effect: there is no disable/retire endpoint yet, so this version stays current. Every tenant A incident created later on this stack (any folder, and the next S11b pass until S11b.18 publishes again) starts one run that holds an open `workflow_ref` and a Temporal workflow for 24 hours, then ends without writing. Runs already started keep their version. `docker compose down -v` clears it.
+}

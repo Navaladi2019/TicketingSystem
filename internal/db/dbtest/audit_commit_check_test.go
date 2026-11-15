@@ -170,11 +170,12 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	if p, err := auditedManifest(t).Check(ctx, super, m, g); err != nil || len(p) != 0 {
 		t.Fatalf("real manifest: problems %v, err %v", p, err)
 	}
-	// Exactly four tables have the trigger: records (P5-13c, TICK-530), the
-	// entity-definition tables (P5-32, migration B, TICK-442) and acl_versions
-	// (P3-35, TICK-620).
+	// Exactly six tables have the trigger: records (P5-13c, TICK-530), the
+	// entity-definition tables (P5-32, migration B, TICK-442), acl_versions
+	// (P3-35, TICK-620) and the workflow definition tables (P3-41b, TICK-737).
 	const wantTriggers = "acl_versions:acl_versions_audit_commit_check:O,entity_definition_versions:entity_definition_versions_audit_commit_check:O," +
-		"entity_definitions:entity_definitions_audit_commit_check:O,records:records_audit_commit_check:O"
+		"entity_definitions:entity_definitions_audit_commit_check:O,records:records_audit_commit_check:O," +
+		"workflow_definition_versions:workflow_definition_versions_audit_commit_check:O,workflow_definitions:workflow_definitions_audit_commit_check:O"
 	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
 		ORDER BY t.tgname COLLATE "C"), '')
 		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE p.proname = 'audit_commit_check'`); got != wantTriggers {

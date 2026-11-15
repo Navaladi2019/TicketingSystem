@@ -313,9 +313,24 @@ type target struct {
 	origin uuid.UUID
 }
 
-// startDefinition is the definition the cascade start key names (A5): any
-// UUID, since each target's record is new.
+// startDefinition is the definition the cascade start key names (A5),
+// created in each target's tenant by workflowDefinitionSQL.
 const startDefinition = "51a11000-0000-4000-8000-0000000000d0"
+
+// workflowDefinitionSQL is, for a new tenant, what cascade_start's definition foreign key
+// (P3-40) needs before a claim: an entity type with its config audit entry
+// (the entity_definitions commit check, P5-32) whose id is the tenant's, and
+// the workflow definition def, seeded with no creator.
+func workflowDefinitionSQL(tenant uuid.UUID, def string) string {
+	return fmt.Sprintf(`WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+    VALUES ('%[1]s', '%[1]s', 'wf_host', 'Workflow host', 'WFH', 1))
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
+VALUES ('%[1]s', gen_random_uuid(), 'config', 'create', 'entity_definition', '%[1]s', NULL, 'system', 'system', sha256(''::bytea));
+WITH w AS (INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
+    VALUES ('%[1]s', '%[2]s', 'wf_start', '%[1]s', 1, NULL))
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source, content_sha256)
+VALUES ('%[1]s', gen_random_uuid(), 'config', 'create', 'workflow_definition', '%[2]s', NULL, 'system', 'system', sha256(''::bytea));`, tenant, def)
+}
 
 func newID(t *testing.T) uuid.UUID {
 	t.Helper()
@@ -337,6 +352,7 @@ WITH r AS (INSERT INTO records (tenant_id, id, causation_origin_id, causation_de
 INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
 SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r;`,
 		tg.tenant, tg.record, tg.origin))
+	psqlSuper(t, workflowDefinitionSQL(tg.tenant, startDefinition))
 	t.Cleanup(func() {
 		psqlSuper(t, fmt.Sprintf(`UPDATE outbox SET dead_at = now(), last_error = 'CI-6 cleanup'
 WHERE tenant_id = '%s' AND dispatched_at IS NULL AND dead_at IS NULL;`, tg.tenant))
@@ -361,6 +377,17 @@ func relayWorkflowID(tenant, start uuid.UUID) string {
 
 // refs is a references-only payload (outbox.ValidatePayload).
 func (tg *target) refs() string { return `{"record_id":"` + tg.record.String() + `"}` }
+
+// startVersion is the definition version id every probe start row names: a
+// start of nava.interpreter carries exactly {definition_version_id,
+// record_id} (outbox.ValidateKindPayload, AR-041), and the probe body never
+// reads it.
+const startVersion = "5e7a0000-0000-4000-8000-0000000000d1"
+
+// startRefs is the payload of a start row: the interpreter's allow-list.
+func (tg *target) startRefs() string {
+	return `{"definition_version_id":"` + startVersion + `","record_id":"` + tg.record.String() + `"}`
+}
 
 // signalRowSQL is a pipeline write plus outbox.EnqueueAtVersion for a
 // signal: bump the record's version, write the update's audit entry (the

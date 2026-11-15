@@ -375,12 +375,12 @@ func TestHistoryHoldsNoDefinitionLiteral(t *testing.T) {
 // text, as an adapter that quotes a bad condition operand might.
 type markerReader struct{ interptest.FileRecords }
 
-func (m markerReader) Read(ctx context.Context, tenant, record uuid.UUID) (map[string]any, error) {
-	r, err := m.FileRecords.Read(ctx, tenant, record)
+func (m markerReader) Read(ctx context.Context, tenant, record uuid.UUID) (map[string]any, int64, error) {
+	r, _, err := m.FileRecords.Read(ctx, tenant, record)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return nil, temporal.NewNonRetryableApplicationError(fmt.Sprintf("condition /priority: cannot compare %v", r["priority"]), "adapter.Bad", nil)
+	return nil, 0, temporal.NewNonRetryableApplicationError(fmt.Sprintf("condition /priority: cannot compare %v", r["priority"]), "adapter.Bad", nil)
 }
 
 // TestNextStepFailureWithheld (Security): a NextStep failure whose text holds

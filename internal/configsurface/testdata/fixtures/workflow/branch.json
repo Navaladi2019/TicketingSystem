@@ -1,0 +1,18 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "change" },
+  "start": "by_risk",
+  "steps": [
+    {
+      "key": "by_risk",
+      "type": "branch",
+      "cases": [
+        { "field": "/risk", "op": "in", "value": ["high", "critical"], "next": "high" },
+        { "field": "/risk", "op": "eq", "value": "low", "next": "done" }
+      ],
+      "default": "done"
+    },
+    { "key": "high", "type": "end" },
+    { "key": "done", "type": "end" }
+  ]
+}

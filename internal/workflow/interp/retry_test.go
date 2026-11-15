@@ -23,9 +23,9 @@ var errAdapterDown = errors.New("adapter: connection refused")
 // countingReader fails every Read with errAdapterDown and counts the calls.
 type countingReader struct{ n *atomic.Int32 }
 
-func (c countingReader) Read(context.Context, uuid.UUID, uuid.UUID) (map[string]any, error) {
+func (c countingReader) Read(context.Context, uuid.UUID, uuid.UUID) (map[string]any, int64, error) {
 	c.n.Add(1)
-	return nil, errAdapterDown
+	return nil, 0, errAdapterDown
 }
 
 // TestActivityRetryPolicyIsBounded: both activities carry an explicit policy

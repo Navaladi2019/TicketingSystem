@@ -58,14 +58,16 @@ tasks:
       - sh bench/acl-perf/run.sh
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the Competitive Gate check on docs/adr (CI-1..CI-4, tools/adrgate), then the duplicate-id check, then the upgrade-compatibility baseline against $BASE or origin/main (M-X2) (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
       - sh scripts/ci/workflowcheck.sh
       - sh scripts/ci/nolint-allowlist.sh
       - go run ./tools/docindex -check
+      - go run ./tools/adrgate
       - go run ./tools/dupids
+      - go run ./internal/configsurface/cmd/compat
 
   vet:tags:
     desc: Run go vet once per build-tag set the //go:build lines use, so a tagged test that stops compiling fails (TICK-320), the same as make vet-tags
@@ -108,10 +110,37 @@ tasks:
     cmds:
       - python -I docs/handbook/build/build.py
 
+  test:handbook:
+    desc: Run the handbook generator's tests (docs/handbook/build/test_build.py), the same as make test-handbook; the page-coverage gate is in task test
+    cmds:
+      - python -I docs/handbook/build/test_build.py
+
   handbook:check:
     desc: Fail when the committed handbook HTML is stale (rebuilt in memory, footer stamp ignored), the stamped sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md
     cmds:
       - python -I docs/handbook/build/build.py --check
+
+  sdk:gen:
+    desc: Regenerate sdk/ts/src/generated from api/openapi.bundled.yaml with the pinned openapi-typescript (deterministic; TICK-826)
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm run gen
+
+  sdk:test:
+    desc: Type-check (strict) and run the SDK tests, including the type tests
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm test
+
+  sdk:build:
+    desc: Build the SDK (ESM plus type declarations) into sdk/ts/dist and npm pack the tarball; nothing is published (D-8-7)
+    dir: sdk/ts
+    cmds:
+      - npm ci
+      - npm run build
+      - npm pack
 
   check-openapi:
     desc: Fail if the api bundle removes or narrows anything on origin/main (additive-only rule for /api/v1)

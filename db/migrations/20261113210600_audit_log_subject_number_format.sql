@@ -4,7 +4,8 @@
 --
 -- audit_log_subject_type_check mirrors the registry exactly
 -- (TestP510bSubjectTypesMirrorRegistry), so it is replaced by the same list
--- plus 'number_format'. The new check is weaker than the old one, so every
+-- plus 'number_format'; it keeps 'workflow_definition', which the earlier
+-- 20261113123310 added. The new check is weaker than the old one, so every
 -- existing row satisfies it, but ADD CONSTRAINT would still scan every
 -- partition under ACCESS EXCLUSIVE. It is added NOT VALID here (catalogue
 -- only) and validated by the next migration under SHARE UPDATE EXCLUSIVE,
@@ -16,8 +17,8 @@ SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_subject_type_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_subject_type_check CHECK (subject_type IN (
-    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'number_format', 'audit_export', 'audit_chain',
-    'erasure_request')) NOT VALID;
+    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'workflow_definition', 'number_format',
+    'audit_export', 'audit_chain', 'erasure_request')) NOT VALID;
 
 -- +goose Down
 
@@ -25,4 +26,5 @@ SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_subject_type_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_subject_type_check CHECK (subject_type IN (
-    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'audit_export', 'audit_chain', 'erasure_request')) NOT VALID;
+    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'workflow_definition', 'audit_export', 'audit_chain',
+    'erasure_request')) NOT VALID;

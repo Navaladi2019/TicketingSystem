@@ -1,4 +1,4 @@
-.PHONY: test
+.PHONY: test test-handbook
 
 ci-unit: test
 
@@ -20,3 +20,9 @@ test:
 	go run ./tools/ci/racelock -- go run ./tools/ci/suiteran -- go test -json -race -trimpath -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
 	go run ./tools/ci/racelock -- go -C tools/navalint test -race ./...
 
+
+# The handbook generator's own tests (TICK-719), stdlib Python only (TICK-847).
+# The coverage gate itself (a delivered story or an ADR with no page, an
+# unknown operationId) is Go, api/handbook_coverage_test.go, so make test runs it.
+test-handbook:
+	$${PYTHON:-python3} -I docs/handbook/build/test_build.py

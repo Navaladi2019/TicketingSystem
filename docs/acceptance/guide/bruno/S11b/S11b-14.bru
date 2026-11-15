@@ -1,0 +1,16 @@
+meta {
+  name: S11b.14 Read without a token: 401
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}

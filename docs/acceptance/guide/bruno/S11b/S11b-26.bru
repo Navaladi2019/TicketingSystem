@@ -1,0 +1,45 @@
+meta {
+  name: S11b.26 AC3: the second incident ran v2: in_progress and priority 1
+  type: http
+  seq: 26
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s11b_i2}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const t0 = Date.now();
+  for (;;) {
+    const r = await N.send({
+      url: N.url('{{core_url}}/api/v1/records/incident/{{s11b_i2}}'),
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('alice_token') },
+    });
+    if ((r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 180 * 1000) break;
+    await bru.sleep(1000);
+  }
+  bru.setVar('s11b_i2_after_s', String(Math.round((Date.now() - Number(bru.getVar('s11b_i2_at'))) / 1000)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('state in_progress, priority 1 (v2), version 2', () => {
+    expect(b.state).to.eql('in_progress');
+    expect(b.data.priority).to.eql(1);
+    expect(b.version).to.eql(2);
+  });
+}
+
+docs {
+  Polls like S11b.24. Version 2 was current when S11b.23 created it, so its run sets priority 1 too.
+}

@@ -13,15 +13,16 @@ type SubjectType = subjects.Type
 
 // The registered subject types (subjects.All).
 const (
-	SubjectRecord           = subjects.Record
-	SubjectCascadeKey       = subjects.CascadeKey
-	SubjectEntityDefinition = subjects.EntityDefinition
-	SubjectACLPolicy        = subjects.ACLPolicy
-	SubjectNumberFormat     = subjects.NumberFormat
-	SubjectTenantSetting    = subjects.TenantSetting
-	SubjectAuditExport      = subjects.AuditExport
-	SubjectAuditChain       = subjects.AuditChain
-	SubjectErasureRequest   = subjects.ErasureRequest
+	SubjectRecord             = subjects.Record
+	SubjectCascadeKey         = subjects.CascadeKey
+	SubjectEntityDefinition   = subjects.EntityDefinition
+	SubjectACLPolicy          = subjects.ACLPolicy
+	SubjectWorkflowDefinition = subjects.WorkflowDefinition
+	SubjectNumberFormat       = subjects.NumberFormat
+	SubjectTenantSetting      = subjects.TenantSetting
+	SubjectAuditExport        = subjects.AuditExport
+	SubjectAuditChain         = subjects.AuditChain
+	SubjectErasureRequest     = subjects.ErasureRequest
 )
 
 // SubjectTypes returns every registered subject type, sorted.

@@ -1,0 +1,66 @@
+meta {
+  name: S11b.3 Publish v1: 201, version 1, ids assigned by the server
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/{{s11b_key}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick710-s11b-{{s11b_run}}-v1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "mark"
+      },
+      {
+        "key": "mark",
+        "type": "update_record",
+        "set": {
+          "short_description": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1, current, entity incident', () => {
+    expect(b.version).to.eql(1);
+    expect(b.current).to.eql(true);
+    expect(b.entity).to.eql('incident');
+  });
+  test('an id per step key', () => expect(Object.keys(b.step_ids).sort()).to.eql(['done', 'mark', 'wait']));
+  bru.setVar('s11b_v1_ids', JSON.stringify(b.step_ids));
+  bru.setVar('s11b_v1_id', b.version_id);
+}
+
+docs {
+  The first publish of a key creates the definition. `step_ids` maps every step key to an id the server drew; the body is stored byte for byte (`body_sha256`).
+}

@@ -1,0 +1,81 @@
+ ?column? |  count   | pg_size_pretty 
+----------+----------+----------------
+ rows     | 13000000 | 466 TB
+(1 row)
+
+== T1 before: insert number_space_exhausted fails
+== T2 migration A (one tx, lock_timeout 5s): drop + add NOT VALID; locks held
+ERROR:  new row for relation "audit_log_2026_06" violates check constraint "audit_log_action_check"
+DETAIL:  Failing row contains (bc50dbad-49a9-4e14-803d-dec9bf6c9226, 58a9efc3-8f21-460d-821c-e018c336232a, 2026-06-01 00:00:00+00, number_space_exhausted, null).
+Time: 0.442 ms
+Time: 0.320 ms
+Time: 1.904 ms
+Time: 1.892 ms
+     relation      |        mode         
+-------------------+---------------------
+ audit_log_2026_03 | AccessExclusiveLock
+ audit_log_2026_05 | AccessExclusiveLock
+ audit_log_2026_04 | AccessExclusiveLock
+ audit_log_2026_06 | AccessExclusiveLock
+ audit_log_2026_09 | AccessExclusiveLock
+ audit_log_2026_08 | AccessExclusiveLock
+(6 rows)
+
+ rels_access_exclusive 
+-----------------------
+                    14
+(1 row)
+
+== T3 after A: catalogue state, parent + every partition NOT VALID
+     conrelid      | convalidated | conislocal | coninhcount 
+-------------------+--------------+------------+-------------
+ audit_log         | f            | t          |           0
+ audit_log_2026_01 | f            | f          |           1
+ audit_log_2026_02 | f            | f          |           1
+ audit_log_2026_03 | f            | f          |           1
+(4 rows)
+
+ convalidated | count 
+--------------+-------
+ f            |    14
+(1 row)
+
+== T4 after A: new action insert works, unknown action still refused (new rows checked)
+ERROR:  new row for relation "audit_log_2026_06" violates check constraint "audit_log_action_check"
+DETAIL:  Failing row contains (01103e3a-7423-4c9b-ab88-e04207870f82, dd9d46ff-73c5-4147-b8a8-b8bb23c043df, 2026-06-01 00:00:00+00, bogus, null).
+== T5 partition created while NOT VALID
+     conrelid      | convalidated 
+-------------------+--------------
+ audit_log_2027_01 | t
+(1 row)
+
+== T6 ATTACH of a table carrying the OLD narrower check under the same name
+ERROR:  child table "audit_log_2027_02" has different definition for check constraint "audit_log_action_check"
+== T6b ATTACH of a table with no action check
+ERROR:  child table is missing constraint "audit_log_action_check"
+ conrelid | convalidated 
+----------+--------------
+(0 rows)
+
+== T7 migration B: VALIDATE (lock mode + time)
+Time: 198.223 ms
+           mode           | count 
+--------------------------+-------
+ ShareUpdateExclusiveLock |    15
+(1 row)
+
+ convalidated | count 
+--------------+-------
+ t            |    16
+(1 row)
+
+== T8 VALIDATE refuses a bad row hidden in one partition
+ERROR:  check constraint "audit_log_action_check" of relation "audit_log_2026_03" is violated by some row
+ convalidated | count 
+--------------+-------
+ f            |    15
+ t            |     1
+(2 rows)
+
+== T9 baseline: plain ADD (validating) time for comparison
+Time: 197.968 ms

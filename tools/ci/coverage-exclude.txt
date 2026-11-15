@@ -28,3 +28,6 @@ internal/identity/contracttest/...   # the identity adapter contract suite, run 
 internal/identity/keycloak/keycloaktest/... # fake Keycloak realm for tests
 internal/workflow/interp/interptest/... # interpreter fixture seams, linked only into the interptest-tagged worker for stack tests
 internal/tenancy/isolation/...       # the tenant isolation suite's path registry, read by its tests and navalint
+
+# Spikes: throwaway ADR experiments, never imported by a production binary.
+scratch/adr-007-s4/...               # ADR-007 spike S4 (TICK-809) CORS/engine server and bench; not production code, no tests by design

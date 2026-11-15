@@ -19,8 +19,8 @@ SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_subject_type_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_subject_type_check CHECK (subject_type IN (
-    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'number_format', 'tenant_setting', 'audit_export',
-    'audit_chain', 'erasure_request')) NOT VALID;
+    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'workflow_definition', 'number_format',
+    'tenant_setting', 'audit_export', 'audit_chain', 'erasure_request')) NOT VALID;
 
 -- +goose Down
 
@@ -28,5 +28,5 @@ SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_subject_type_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_subject_type_check CHECK (subject_type IN (
-    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'number_format', 'audit_export', 'audit_chain',
-    'erasure_request')) NOT VALID;
+    'record', 'cascade_key', 'entity_definition', 'acl_policy', 'workflow_definition', 'number_format',
+    'audit_export', 'audit_chain', 'erasure_request')) NOT VALID;

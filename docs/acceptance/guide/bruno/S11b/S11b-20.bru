@@ -1,0 +1,43 @@
+meta {
+  name: S11b.20 AC4: Bob creates an incident in tenant B: 201, state new
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-b1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S11b {{s11b_run}} tenant B",
+      "priority": 3
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1, state new, priority 3', () => {
+    expect(b.version).to.eql(1);
+    expect(b.state).to.eql('new');
+    expect(b.data.priority).to.eql(3);
+  });
+  bru.setVar('s11b_b1', b.id);
+  console.log('S11b.20 created', b.number, b.id);
+}
+
+docs {
+  Tenant B has no workflow definition. S11b.28 and S11b.29 read it after tenant A's run has written.
+}

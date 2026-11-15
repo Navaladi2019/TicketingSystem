@@ -1,0 +1,64 @@
+meta {
+  name: S11b.21 AC3: the admin publishes v2 while the first run waits: 201
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s11b_demo/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick713-s11b-{{s11b_run}}-demo-v2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1M",
+        "next": "triage"
+      },
+      {
+        "key": "triage",
+        "type": "update_record",
+        "set": {
+          "state": "in_progress",
+          "priority": 1
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('the next version, current', () => {
+    expect(b.version).to.eql(Number(bru.getVar('s11b_demo_v1')) + 1);
+    expect(b.current).to.eql(true);
+  });
+  bru.setVar('s11b_demo_v2_id', b.version_id);
+}
+
+docs {
+  Version 2 also sets `priority` 1. The run started in S11b.19 is waiting on its timer and stays on the version it started with: it never sets the priority.
+}
