@@ -41,7 +41,13 @@
   }&#x27;
 </code></pre>
 <p><code>$ADMIN</code> is the administrator's token from <a href="../tour/index.html#before-you-start">the setup</a>; on a tenant you onboarded yourself, use its first admin's token (<a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">step 2</a>). On such a tenant <code>incident</code> is still version 1 unless you published a new version in step 6; either works.</p>
-<p>Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. Read it again after a minute with <code>getRecord</code>, and its history with <code>getRecordHistory</code>.</p>
+<p>The <code>timer</code> step is optional. Without it (<code>&quot;start&quot;: &quot;triage&quot;</code>), the record routes within a second or so of the create; with it, about a minute later.</p>
+<p>Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. <code>short_description</code> is the one field you must send (<code>state</code> starts at <code>new</code>):</p>
+<pre><code class="language-sh">curl -i -X POST $CORE/api/v1/records/incident -H &quot;Authorization: Bearer $ADMIN&quot; \
+  -H &quot;Idempotency-Key: tour-inc-1&quot; -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{&quot;data&quot;:{&quot;short_description&quot;:&quot;Printer is offline&quot;,&quot;priority&quot;:3,&quot;affected_service&quot;:&quot;email&quot;}}&#x27;
+</code></pre>
+<p>Read it again after a minute with <code>getRecord</code> (<code>GET /api/v1/records/incident/{id}</code>), and its history with <code>getRecordHistory</code> (<code>.../{id}/history</code>).</p>
 <h2 id="what-you-see">What you see</h2>
 <p>These are the checks the S11b kit makes (Bruno folder <code>S11b</code>, requests <code>S11b-18</code> and <code>S11b-24</code>). The S28 kit (Bruno <code>S28.10</code> to <code>S28.13</code>) publishes this same definition on a newly onboarded tenant and sees the same answers; it runs in CI as the stack case <code>s28_first_routed_record</code>.</p>
 <ul>

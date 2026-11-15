@@ -20,7 +20,7 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a)</h1>
-<p>Story TICK-879 (kit and first run TICK-884, this page TICK-885; PLAN-009 D-9-3). Status: <strong>in progress</strong>. The kit and the agent-proxy run are merged into the story branch <code>TICK-879/first-routed-record</code> (PR #706). The acceptance run (run 2) and the Technical Lead's verdict are still to come.</p>
+<p>Story TICK-879 (kit and first run TICK-884, this page TICK-885; PLAN-009 D-9-3). Status: <strong>in progress</strong>. The kit and the agent-proxy run are merged into the story branch <code>TICK-879/first-routed-record</code> (PR #706). The acceptance run (run 2) is recorded (TICK-885); the Technical Lead's verdict on TICK-879 is still to come.</p>
 <h2 id="what-a-user-can-now-do">What a user can now do</h2>
 <p>Anyone can time how long a brand-new customer's first administrator takes to get from "the tenant was just created" to "a new incident was routed by a workflow I published myself", using only the handbook and the kit. This is ADR-008's axis <strong>X1a</strong>, measured by method <strong>M-X1a</strong>. The target is 8 hours, the aim 4.</p>
 <ul>
@@ -50,10 +50,10 @@
 </tr>
 <tr>
 <td>2</td>
-<td>acceptance run (<code>agent proxy</code>)</td>
-<td>not yet</td>
-<td></td>
-<td></td>
+<td>acceptance run (<code>agent proxy</code>, a second fresh subagent, on the fixed tour)</td>
+<td>2026-11-15</td>
+<td><strong>2.7 min</strong> (10:17:08 to 10:19:51 UTC), about 1 min of it the workflow's timer</td>
+<td>Step 2, sign-in: platform staff (F1)</td>
 </tr>
 <tr>
 <td>3</td>
@@ -64,7 +64,7 @@
 </tr>
 </tbody>
 </table>
-<p>1.4 minutes is an agent's time: it sends each request right after reading the page. It shows the handbook path works end to end on a new tenant, with one platform-staff step. It does not show how long a person takes. Until a human run exists, every X1a number is labelled <code>agent proxy</code>.</p>
+<p>Both are an agent's time: it sends each request right after reading the page. It shows the handbook path works end to end on a new tenant, with one platform-staff step. It does not show how long a person takes. Until a human run exists, every X1a number is labelled <code>agent proxy</code>.</p>
 <h2 id="flow">Flow</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
   onboard[&quot;1 Onboard: 201, clock starts&quot;] --&gt; signin[&quot;2 Sign in: stand-in, platform staff&quot;]
@@ -90,11 +90,11 @@
 </tr>
 <tr>
 <td>2 The history shows <code>source=workflow</code></td>
-<td><code>S28.13</code>; run 1's entry at <code>2026-11-15T07:21:18.231Z</code></td>
+<td><code>S28.13</code>; run 1's entry at <code>2026-11-15T07:21:18.231Z</code>, run 2's at <code>2026-11-15T10:19:46.598Z</code></td>
 </tr>
 <tr>
 <td>3 Two totals against the 8 h target</td>
-<td>Run 1: 1.4 min. Run 2: pending</td>
+<td>Run 1: 1.4 min. Run 2: 2.7 min. Both far below 8 h</td>
 </tr>
 <tr>
 <td>4 No database command, platform-staff action or operator route</td>
@@ -146,6 +146,21 @@
 <td>F7</td>
 <td>The history does not say which workflow wrote the change</td>
 <td>Documented in <a href="../tour/08-workflows.html">8. Workflows</a>; no API change</td>
+</tr>
+<tr>
+<td>F8 (run 2)</td>
+<td>The new step-6 command needed <code>jq</code>, not in the prerequisites; an empty body gave <code>400</code></td>
+<td><a href="../tour/06-create-an-entity-type.html#an-example-whose-type-the-tenant-already-has">6. Create an entity type</a></td>
+</tr>
+<tr>
+<td>F9 (run 2)</td>
+<td>Kit step 4 reads as no timer; the tour example has one</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a> says the timer is optional</td>
+</tr>
+<tr>
+<td>F10 (run 2)</td>
+<td>No incident create example for a new tenant</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a></td>
 </tr>
 </tbody>
 </table>

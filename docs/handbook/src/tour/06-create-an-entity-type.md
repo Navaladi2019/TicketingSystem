@@ -58,9 +58,13 @@ Publishing version 2, with an optional `purpose` field added (`POST /api/v1/enti
 Every new tenant already has `incident`, `request` and `change` at version 1 (step 1). Sending `docs/handbook/examples/incident.json` to `POST /api/v1/entity-types` therefore answers `409 entity_type_exists`. Publish the example's `definition` as the next version of `incident` instead:
 
 ```sh
-jq '{definition: .definition}' docs/handbook/examples/incident.json > /tmp/incident-v2.json
-curl -i -X POST $CORE/api/v1/entity-types/incident/versions   -H "Authorization: Bearer $ADMIN" -H "Idempotency-Key: tour-incident-v2"   -H 'Content-Type: application/json' --data-binary @/tmp/incident-v2.json
+jq '{definition: .definition}' docs/handbook/examples/incident.json > incident-v2.json
+curl -i -X POST $CORE/api/v1/entity-types/incident/versions \
+  -H "Authorization: Bearer $ADMIN" -H "Idempotency-Key: tour-incident-v2" \
+  -H 'Content-Type: application/json' --data-binary @incident-v2.json
 ```
+
+The first line needs `jq`. Without it, copy the file's `definition` object into `{"definition": …}` by hand. If `incident-v2.json` ends up empty, the call answers `400 validation_failed` with only `/body` in `errors`: that means the body was empty.
 
 It answers `201` with `"key":"incident","version":2,"current":true`, and `incident` keeps its default access rule. This is what the S28 kit does (Bruno `S28.9`). `loan_application` and `visa_application` are new keys, so `POST /api/v1/entity-types` works for them, but they have no default access rule: publish their `.access.json` with your tenant's group ids in place of `__ADMINS__` and `__AUDITORS__` (step 7) before anyone can read their records.
 

@@ -40,7 +40,17 @@ curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
 
 `$ADMIN` is the administrator's token from [the setup](index.md#before-you-start); on a tenant you onboarded yourself, use its first admin's token ([step 2](02-sign-in.md#a-newly-onboarded-tenants-first-admin)). On such a tenant `incident` is still version 1 unless you published a new version in step 6; either works.
 
-Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. Read it again after a minute with `getRecord`, and its history with `getRecordHistory`.
+The `timer` step is optional. Without it (`"start": "triage"`), the record routes within a second or so of the create; with it, about a minute later.
+
+Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. `short_description` is the one field you must send (`state` starts at `new`):
+
+```sh
+curl -i -X POST $CORE/api/v1/records/incident -H "Authorization: Bearer $ADMIN" \
+  -H "Idempotency-Key: tour-inc-1" -H 'Content-Type: application/json' \
+  -d '{"data":{"short_description":"Printer is offline","priority":3,"affected_service":"email"}}'
+```
+
+Read it again after a minute with `getRecord` (`GET /api/v1/records/incident/{id}`), and its history with `getRecordHistory` (`.../{id}/history`).
 
 ## What you see
 
