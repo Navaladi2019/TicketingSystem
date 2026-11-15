@@ -346,3 +346,17 @@ func TestDisjointHeadsAgreesWithDisjoint(t *testing.T) {
 		}
 	}
 }
+
+// A Compiled that fails its own check is never disjoint, in either argument
+// (TICK-896): a tampered or hand-built snapshot cannot pass a publish.
+func TestDisjointRefusesAnInvalidCompiled(t *testing.T) {
+	t.Parallel()
+	good := withEpoch(compileSpec(t, "{prefix}-{yyyy}{seq:4}/refuse"), 1)
+	bad := good
+	bad.Head = "tampered-"
+	for name, pair := range map[string][2]numbering.Compiled{"first": {bad, good}, "second": {good, bad}} {
+		if numbering.Disjoint(pair[0], pair[1], "INC") {
+			t.Errorf("Disjoint with an invalid %s argument = true, want false", name)
+		}
+	}
+}
