@@ -104,3 +104,16 @@ func PageStatement(q ListQuery) (string, []any, error) { return store.PageStatem
 
 // CountStatement is the capped count statement List runs for q.
 func CountStatement(q ListQuery) string { return store.CountStatement(q) }
+
+// IndexField is a field-index registry row of an entity type.
+type IndexField = store.IndexField
+
+// IndexFields reads the field-index registry rows of an entity type, by field
+// key, for the list's filter check (ADR-006 D6). It reads only.
+func IndexFields(ctx context.Context, tx pgx.Tx, tenantID, definitionID uuid.UUID) (map[string]IndexField, error) {
+	m, err := store.IndexFields(ctx, tx, tenantID, definitionID)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline: %w", err)
+	}
+	return m, nil
+}

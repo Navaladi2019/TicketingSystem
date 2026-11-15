@@ -514,6 +514,17 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// ProblemFieldNotReady The 422 field_not_ready problem of a list filter on a field whose values are still being indexed (ADR-006 D6). `index_progress` is the registry's whole percentage and the only thing the body says about the field: no count, no pointer.
+type ProblemFieldNotReady struct {
+	Code          string `json:"code"`
+	Detail        string `json:"detail"`
+	IndexProgress int    `json:"index_progress"`
+	Instance      string `json:"instance"`
+	Status        int    `json:"status"`
+	Title         string `json:"title"`
+	Type          string `json:"type"`
+}
+
 // ProblemNoInstance A Problem without `instance`, for the 404 of a resource that may belong to another tenant: the body is identical for an unknown and a foreign resource (D-3-10). The request id is in the X-Request-Id header.
 type ProblemNoInstance struct {
 	Code   string `json:"code"`
@@ -720,6 +731,11 @@ type ListRecordsParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListRecords422ApplicationProblemPlusJSONResponseBody defines parameters for ListRecords.
+type ListRecords422ApplicationProblemPlusJSONResponseBody struct {
+	union json.RawMessage
+}
+
 // CreateRecordParams defines parameters for CreateRecord.
 type CreateRecordParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -763,6 +779,68 @@ type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
 
 // PublishWorkflowDefinitionVersionJSONRequestBody defines body for PublishWorkflowDefinitionVersion for application/json ContentType.
 type PublishWorkflowDefinitionVersionJSONRequestBody = PublishWorkflowDefinitionRequest
+
+// AsProblemFieldNotReady returns the union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody as a ProblemFieldNotReady
+func (t ListRecords422ApplicationProblemPlusJSONResponseBody) AsProblemFieldNotReady() (ProblemFieldNotReady, error) {
+	var body ProblemFieldNotReady
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromProblemFieldNotReady overwrites any union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody as the provided ProblemFieldNotReady
+func (t *ListRecords422ApplicationProblemPlusJSONResponseBody) FromProblemFieldNotReady(v ProblemFieldNotReady) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeProblemFieldNotReady performs a merge with any union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody, using the provided ProblemFieldNotReady
+func (t *ListRecords422ApplicationProblemPlusJSONResponseBody) MergeProblemFieldNotReady(v ProblemFieldNotReady) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsProblem returns the union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody as a Problem
+func (t ListRecords422ApplicationProblemPlusJSONResponseBody) AsProblem() (Problem, error) {
+	var body Problem
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromProblem overwrites any union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody as the provided Problem
+func (t *ListRecords422ApplicationProblemPlusJSONResponseBody) FromProblem(v Problem) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeProblem performs a merge with any union data inside the ListRecords422ApplicationProblemPlusJSONResponseBody, using the provided Problem
+func (t *ListRecords422ApplicationProblemPlusJSONResponseBody) MergeProblem(v Problem) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ListRecords422ApplicationProblemPlusJSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ListRecords422ApplicationProblemPlusJSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -3829,12 +3907,12 @@ func (response ListRecords404ApplicationProblemPlusJSONResponse) VisitListRecord
 	return err
 }
 
-type ListRecords422ApplicationProblemPlusJSONResponse Problem
+type ListRecords422ApplicationProblemPlusJSONResponse = ListRecords422ApplicationProblemPlusJSONResponseBody
 
 func (response ListRecords422ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.union); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")

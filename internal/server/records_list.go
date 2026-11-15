@@ -50,7 +50,7 @@ func withRawQuery(next http.Handler) http.Handler {
 }
 
 var (
-	filterKeyRE = regexp.MustCompile(`^filter\[([^\[\]]+)\](\[in\])?$`)
+	filterKeyRE = regexp.MustCompile(`^filter\[([^\[\]]+)\](?:\[(in|eq|lt|lte|gt|gte)\])?$`)
 	numberRE    = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 )
 
@@ -60,6 +60,16 @@ type listFilter struct {
 	prop   string
 	col    string
 	values []any
+	// op is eq, in, lt, lte, gt or gte. A fixed column takes eq and in only.
+	op string
+	// raws are the unparsed values of a data filter: how they parse depends on
+	// the registry row of the field, so resolve parses them (ADR-006 D6).
+	raws []string
+	// idx is the ready registry row a data filter reads through its side
+	// table; nil for a legacy-scan filter and for a fixed column.
+	idx *pipeline.IndexField
+	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
+	legacy bool
 }
 
 // listPlan is a request resolved against one entity type version.
@@ -105,12 +115,16 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 		if m == nil {
 			return nil, listInvalid("/filter", "form")
 		}
-		prop, isIn := m[1], m[2] != ""
+		prop, op := m[1], m[2]
+		if op == "" {
+			op = "eq"
+		}
+		isIn := op == "in"
 		ptr := "/filter/" + escapePointer(prop)
 		if len(q[k]) != 1 {
 			return nil, listInvalid(ptr, "repeated")
 		}
-		typ, known := types[prop]
+		_, known := types[prop]
 		if !known || slices.Contains(secret, prop) {
 			return nil, listInvalid(ptr, "unknown")
 		}
@@ -121,9 +135,18 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 				return nil, listInvalid(ptr, "too_many")
 			}
 		}
-		f := listFilter{prop: prop, col: fixed[prop]}
+		f := listFilter{prop: prop, col: fixed[prop], op: op}
+		if f.col == "" {
+			// A data filter is parsed once the registry says how (resolve).
+			f.raws = raws
+			pl.filters = append(pl.filters, f)
+			continue
+		}
+		if op != "eq" && op != "in" {
+			return nil, listInvalid(ptr, "operator")
+		}
 		for _, raw := range raws {
-			v, ok := filterValue(f.col, prop, typ, raw)
+			v, ok := filterValue(f.col, prop, "", raw)
 			if !ok {
 				return nil, listInvalid(ptr, "type")
 			}
@@ -211,6 +234,10 @@ func (pl *listPlan) where(base int) (string, []any) {
 	for _, f := range pl.filters {
 		switch f.col {
 		case "":
+			if f.idx != nil {
+				terms = append(terms, existsTerm(f, next))
+				continue
+			}
 			ors := make([]string, 0, len(f.values))
 			for _, v := range f.values {
 				ors = append(ors, "r.data @> "+next(v, "jsonb"))
@@ -228,9 +255,16 @@ func (pl *listPlan) where(base int) (string, []any) {
 	return strings.Join(terms, " AND "), args
 }
 
-// hasDataFilter reports whether any filter reads the data document.
-func (pl *listPlan) hasDataFilter() bool {
-	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.col == "" })
+// hasLegacyScan reports whether any filter reads the data document through
+// the JSONB scan: only such a list has no index to lean on and runs under the
+// data-filter timeout (PLAN-007 D-7-6).
+func (pl *listPlan) hasLegacyScan() bool {
+	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.legacy })
+}
+
+// hasIndexFilter reports whether any filter reads a typed side table.
+func (pl *listPlan) hasIndexFilter() bool {
+	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.idx != nil })
 }
 
 func textsOf(vs []any) []string {
@@ -390,6 +424,10 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err
 		}
+		// ADR-006 D6 after masked: flagged, ready, then the values.
+		if err := h.resolveFilters(ctx, tx, p.TenantID, defID, req.Entity, def, pl); err != nil {
+			return err
+		}
 		var pos *listPos
 		if req.Params.Cursor != nil {
 			raw, err := h.cursors.Decode(claims, *req.Params.Cursor)
@@ -429,8 +467,13 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
 		}
-		lq.DataFilter, lq.Timeout = pl.hasDataFilter(), h.dataFilterTimeout
+		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
+		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
+		if err == nil && pl.hasIndexFilter() {
+			narrowing := branches != nil || len(readArgs) > 0 || strings.Contains(readSQL, "r.")
+			h.observeIndexedList(ctx, time.Since(started), page, narrowing)
+		}
 		if err != nil {
 			if errors.Is(err, pipeline.ErrStatementTimeout) {
 				return &problemError{problem.FilterTooExpensive, nil, err}

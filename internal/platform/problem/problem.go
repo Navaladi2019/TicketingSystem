@@ -68,6 +68,9 @@ const (
 	FilterableFieldNotTopLevel Code = "filterable_field_not_top_level"
 	FilterableFieldTypeChange  Code = "filterable_field_type_change"
 	SearchableNotAvailable     Code = "searchable_not_available"
+	// ADR-006 D6: a list filter on a data field the registry does not serve.
+	FieldNotFilterable Code = "field_not_filterable"
+	FieldNotReady      Code = "field_not_ready"
 )
 
 // Codes lists every Code constant.
@@ -79,6 +82,7 @@ func Codes() []Code {
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
+		FieldNotFilterable, FieldNotReady,
 	}
 }
 
@@ -142,6 +146,10 @@ type Body struct {
 	Detail   string       `json:"detail"`
 	Instance string       `json:"instance,omitempty"`
 	Errors   []FieldError `json:"errors,omitempty"`
+	// IndexProgress is the whole percentage (0-100) of a field's backfill, on
+	// field_not_ready only. It is read from the registry row and is the only
+	// thing the body says about the field (ADR-006 D6).
+	IndexProgress *int `json:"index_progress,omitempty"`
 }
 
 // Write sends the problem for code, for a 4xx only: a 5xx goes through
@@ -151,6 +159,14 @@ type Body struct {
 // sent as internal_error.
 func (reg *Registry) Write(w http.ResponseWriter, r *http.Request, code Code, errs ...FieldError) {
 	write(w, r, reg.Body(r.Context(), code, errs...))
+}
+
+// WriteNotReady sends the 422 field_not_ready problem with index_progress,
+// the registry's whole percentage for the field (ADR-006 D6).
+func (reg *Registry) WriteNotReady(w http.ResponseWriter, r *http.Request, progress int) {
+	b := reg.Body(r.Context(), FieldNotReady)
+	b.IndexProgress = &progress
+	write(w, r, b)
 }
 
 // WriteError sends the problem for code like Write and, for a 5xx, first
