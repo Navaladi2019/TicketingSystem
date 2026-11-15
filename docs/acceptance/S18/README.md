@@ -73,7 +73,7 @@ The evidence is in `evidence/`: one JSON file per API request (request and respo
 S18_FORCE_FAIL=1 S18_EVIDENCE=docs/acceptance/S18/evidence/forced-failure sh docs/acceptance/S18/tools/run-kit.sh
 ```
 
-**Forced-failure run:** 2026-11-15 at 05:15Z on a fresh stack, same commit: `EXIT 1` (`s18: FAILED: S18`). 3 of 100 tests fail, and all three come from the one extra create. The extra create took `VISA-2026110001` (`run.log`: "S18 FORCED FAILURE: an extra Visa create took VISA-2026110001"). S18N.10 then got `VISA-2026110002` where it expects `…0001`, S18N.11 got `…0003` where it expects `…0002`, and S18N.23 got `…0004` where it expects `…0003`. Every other criterion still passes. Evidence: `evidence/forced-failure/` (`run-summary.json`, `run.log`, `result.txt`).
+**Forced-failure run:** 2026-11-15 at 05:15Z on a fresh stack, on `e8129d90` (the kit is unchanged since): `EXIT 1` (`s18: FAILED: S18`). 3 of 100 tests fail, and all three come from the one extra create. The extra create took `VISA-2026110001` (`run.log`: "S18 FORCED FAILURE: an extra Visa create took VISA-2026110001"). S18N.10 then got `VISA-2026110002` where it expects `…0001`, S18N.11 got `…0003` where it expects `…0002`, and S18N.23 got `…0004` where it expects `…0003`. Every other criterion still passes. Evidence: `evidence/forced-failure/` (`run-summary.json`, `run.log`, `result.txt`).
 
 ## Isolation check
 

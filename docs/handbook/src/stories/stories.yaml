@@ -218,8 +218,10 @@ stories:
   - id: S18
     issue: TICK-669
     title: A tenant admin defines a number format and links it to a ticket type (release R2, M3)
-    status: in-progress
-    verdict_comment: "Kit PASS on e8129d90 (38 requests, 100 tests), 2026-11-15; story verdict pending"
+    status: delivered
+    verdict: ACCEPTED
+    date: 2026-11-15
+    verdict_comment: "Fresh-stack kit PASS on 26651ace (38 requests, 100 tests), ci:full green; story PR #717"
     bruno: [S18, S18-API, S18-TZ]
     evidence:
       - docs/acceptance/S18/README.md
