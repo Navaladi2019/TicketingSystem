@@ -68,6 +68,10 @@ const (
 	FilterableFieldNotTopLevel Code = "filterable_field_not_top_level"
 	FilterableFieldTypeChange  Code = "filterable_field_type_change"
 	SearchableNotAvailable     Code = "searchable_not_available"
+	// ADR-006 D8, D12 (P7-04): publish refusals for the field-index registry.
+	FilterableFieldRemovalUnavailable Code = "filterable_field_removal_unavailable"
+	IndexQuotaExceeded                Code = "index_quota_exceeded"
+	FieldIndexBusy                    Code = "field_index_busy"
 )
 
 // Codes lists every Code constant.
@@ -79,6 +83,7 @@ func Codes() []Code {
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
+		FilterableFieldRemovalUnavailable, IndexQuotaExceeded, FieldIndexBusy,
 	}
 }
 

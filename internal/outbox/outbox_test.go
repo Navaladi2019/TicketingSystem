@@ -280,6 +280,10 @@ func TestValidateKindPayload(t *testing.T) {
 		{InterpreterSignalKind, `{}`, false},
 		{SealKind, `{}`, true},
 		{SealKind, `{"record_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `}`, true},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `,"record_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"field_id":` + ref + `}`, false},
+		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":3}`, false},
 		// A kind with no allow-list keeps the pattern rule only.
 		{"ticket.approval", `{"anything":` + ref + `}`, true},
 		// The references-only rule still applies first.

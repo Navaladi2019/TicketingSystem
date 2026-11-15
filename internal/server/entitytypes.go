@@ -197,6 +197,8 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 	var (
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
+		quota    *entitytypes.IndexQuotaError
+		busy     *entitytypes.FieldIndexBusyError
 	)
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
@@ -205,6 +207,10 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
 		return nil, &problemError{problem.NumberPrefixTaken, nil, err}
+	case errors.As(err, &quota):
+		return nil, &problemError{problem.IndexQuotaExceeded, pointerErrors(quota.Paths, "index_quota_exceeded"), err}
+	case errors.As(err, &busy):
+		return nil, &problemError{problem.FieldIndexBusy, pointerErrors(busy.Paths, "field_index_busy"), err}
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
@@ -506,6 +512,8 @@ func refusalProblem(r *metadata.RefusalError, prefix string, err error) *problem
 		code = problem.FilterableFieldTypeChange
 	case metadata.RefusalSearchableNotAvailable:
 		code = problem.SearchableNotAvailable
+	case metadata.RefusalFilterableRemovalUnavailable:
+		code = problem.FilterableFieldRemovalUnavailable
 	default:
 		return &problemError{problem.InternalError, nil, err}
 	}
@@ -629,3 +637,12 @@ var (
 	_ api.GetEntityTypeVersionResponseObject     = (*notFoundResponse)(nil)
 	_ api.PublishEntityTypeVersionResponseObject = (*notFoundResponse)(nil)
 )
+
+// pointerErrors names each definition-relative path under /definition.
+func pointerErrors(paths []string, code string) []problem.FieldError {
+	out := make([]problem.FieldError, len(paths))
+	for i, p := range paths {
+		out[i] = invalid("/definition"+p, code)
+	}
+	return out
+}

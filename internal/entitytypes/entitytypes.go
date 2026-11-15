@@ -346,6 +346,9 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: classify: %w", err)
 	}
+	if err := removedFilterable(prev, next); err != nil {
+		return nil, err
+	}
 	if class == metadata.Breaking {
 		return nil, &BreakingError{Paths: paths}
 	}
@@ -363,6 +366,9 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	if err := tx.QueryRow(ctx, `
 SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE definition_id = $1`, defID).Scan(&number); err != nil {
 		return nil, fmt.Errorf("entitytypes: next version: %w", err)
+	}
+	if err := registerFilterable(ctx, tx, tenantID, defID, number, addedFilterable(prev, next)); err != nil {
+		return nil, err
 	}
 	sum := sha256.Sum256(d.Schema)
 	if _, err := tx.Exec(ctx, `

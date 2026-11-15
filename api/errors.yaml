@@ -160,3 +160,15 @@ codes:
     status: 422
     title: Searchable not available
     detail: x-nava-searchable is reserved and not available yet. Nothing was written. See errors for the path.
+  - code: filterable_field_removal_unavailable
+    status: 422
+    title: Filterable field removal unavailable
+    detail: The new version no longer marks a property x-nava-filterable that the current version marks, by dropping the flag or the property. Removing a filterable field is not available yet. Nothing was written. See errors for the property.
+  - code: index_quota_exceeded
+    status: 422
+    title: Index quota exceeded
+    detail: The new version marks more properties x-nava-filterable than the quota allows, 5 on one entity type or 50 in the tenant. Nothing was written. See errors for the properties that were newly marked.
+  - code: field_index_busy
+    status: 409
+    title: Field index busy
+    detail: A property the new version marks x-nava-filterable has an index that is being removed. Retry when the removal has finished. Nothing was written.
