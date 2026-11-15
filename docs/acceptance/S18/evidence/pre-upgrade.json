@@ -1,0 +1,60 @@
+{
+  "step": "on the S17 build, before the upgrade, default numbering",
+  "types": [
+    {
+      "key": "visa",
+      "number_prefix": "VISA",
+      "acl_version": 1,
+      "acl_rules": [
+        "s18-admins",
+        "s18-service-desk"
+      ]
+    },
+    {
+      "key": "permit",
+      "number_prefix": "PMT",
+      "acl_version": 1,
+      "acl_rules": [
+        "s18-admins",
+        "s18-service-desk"
+      ]
+    }
+  ],
+  "visa_tenant_a": [
+    {
+      "user": "admin@tenant-a.test",
+      "number": "VISA0000001",
+      "id": "01a1dd9d-9879-7f0d-b1d7-502dc70d8a96"
+    },
+    {
+      "user": "alice@tenant-a.test",
+      "number": "VISA0000002",
+      "id": "01a1dd9d-9905-7bdb-a433-b99675a3e26d"
+    }
+  ],
+  "incident_tenant_a": [
+    {
+      "user": "admin@tenant-a.test",
+      "number": "INC0000001",
+      "id": "01a1dd9d-9985-7cc5-9474-18795834d72a"
+    },
+    {
+      "user": "admin@tenant-a.test",
+      "number": "INC0000002",
+      "id": "01a1dd9d-999a-7e44-b688-2701b829d5d9"
+    }
+  ],
+  "incident_tenant_b": [
+    {
+      "user": "bob@tenant-b.test",
+      "number": "INC0000001",
+      "id": "01a1dd9d-99ac-7ea9-af50-fb77857ec3b6"
+    },
+    {
+      "user": "bob@tenant-b.test",
+      "number": "INC0000002",
+      "id": "01a1dd9d-99c1-799f-808b-e3e3aebf097f"
+    }
+  ],
+  "as_expected": true
+}

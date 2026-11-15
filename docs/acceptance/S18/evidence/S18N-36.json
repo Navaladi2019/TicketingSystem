@@ -1,0 +1,141 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:38080/api/v1/audit/entries?subject_type=entity_definition&subject_id=c0c20ca1-3d10-43c8-b191-d642ca576091&limit=500",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "number_space_exhausted",
+          "actor_principal_id": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1dd9e-f512-79b9-ab1e-c1256c722adb",
+          "diff": [
+            {
+              "op": "add",
+              "path": "/number_space",
+              "value": {
+                "counter": 10,
+                "epoch": 1,
+                "scope_key": "e1",
+                "width": 1
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "17905403e6cf17a0306e6a933dfedc23",
+          "diff_sha256": "9be297f1c0a82216d680dfabdd8bbb1c23e41ec9c64817ba908c3dccf9e7e91b",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "c0c20ca1-3d10-43c8-b191-d642ca576091",
+          "id": "01a1dd9e-f516-7dfe-a69a-d8f52b94548d",
+          "occurred_at": "2026-11-15T05:12:24.59813Z",
+          "request_id": "24797977c145976c792ca97ef1fde80f",
+          "source": "user",
+          "subject_id": "c0c20ca1-3d10-43c8-b191-d642ca576091",
+          "subject_type": "entity_definition"
+        },
+        {
+          "action": "publish",
+          "actor_principal_id": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "93f82a5abe155f3126c84cd176350ae755fe034dac96c3a342a60eb3fa195b7f",
+          "diff": [],
+          "diff_redacted": false,
+          "diff_salt": "9e767730e31b692997f15b59473f8ea1",
+          "diff_sha256": "ea6f63cb43f938ef66996c0fb597aadadc0e3b04d2ea6445f56689e693dbbc3b",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1dd9e-f3fd-70a1-aab6-a3500a783718",
+          "occurred_at": "2026-11-15T05:12:24.306259Z",
+          "request_id": "d3457e367929c58b6f687a6cb10cdc63",
+          "source": "user",
+          "subject_id": "c0c20ca1-3d10-43c8-b191-d642ca576091",
+          "subject_type": "entity_definition",
+          "version_after": 2,
+          "version_before": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
+          "backfilled": false,
+          "causation_depth": 0,
+          "content_sha256": "3583e718cfec4afb5726dc2a7ca203808cdac6d667b1eef573427a8f002efda9",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "short_description": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "state": {
+                    "default": "new",
+                    "enum": [
+                      "new",
+                      "closed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "short_description",
+                  "state"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "01b4ff938a4444b23a7f117aefb4068a",
+          "diff_sha256": "5da97ed53685c8aea683dc6658629624309ccceb8ac08d012dc931dee984df2f",
+          "diff_truncated": false,
+          "domain": "config",
+          "id": "01a1dd9d-97e8-7937-9386-9c755cb4c50f",
+          "occurred_at": "2026-11-15T05:10:55.197667Z",
+          "request_id": "ef99d41af909a6e40fdd00c573a5b0e6",
+          "source": "user",
+          "subject_id": "c0c20ca1-3d10-43c8-b191-d642ca576091",
+          "subject_type": "entity_definition",
+          "version_after": 1
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "exactly one number_space_exhausted entry",
+      "status": "pass"
+    },
+    {
+      "test": "domain record, subject the permit type",
+      "status": "pass"
+    },
+    {
+      "test": "diff /number_space has epoch, scope_key, width, counter: {\"counter\":10,\"epoch\":1,\"scope_key\":\"e1\",\"width\":1}",
+      "status": "pass"
+    }
+  ]
+}

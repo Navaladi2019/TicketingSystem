@@ -1,0 +1,48 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/records/permit",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "72",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-671bfa5f-exhausted",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 671bfa5f one too many\"\n  }\n}"
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "urn:nava:problem:number_space_exhausted",
+      "title": "No record number left",
+      "status": 409,
+      "code": "number_space_exhausted",
+      "detail": "The entity type's number format has no number left in this numbering scope. Nothing was created. A retry fails the same way until the scope changes or a wider format is published. See errors for the scope.",
+      "instance": "urn:nava:request:24797977c145976c792ca97ef1fde80f",
+      "errors": [
+        {
+          "pointer": "/entity",
+          "rule": "scope:e1"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 409",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code number_space_exhausted",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

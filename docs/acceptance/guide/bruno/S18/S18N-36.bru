@@ -1,0 +1,50 @@
+meta {
+  name: S18N.36 E9: the permit type's audit timeline has exactly one number_space_exhausted entry
+  type: http
+  seq: 36
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?subject_type=entity_definition&subject_id={{s18n_permit_def}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  // The permit type's id: the entity_definition_id of PMT-1's create entry.
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/audit/entries?domain=record&subject_type=record&subject_id=' + bru.getVar('s18n_pmt1_id')),
+    method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') } });
+  const e = ((r.data && r.data.items) || [])[0];
+  if (!e || !e.entity_definition_id) throw new Error('no audit entry for PMT-1: HTTP ' + r.status);
+  bru.setVar('s18n_permit_def', e.entity_definition_id);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const xs = (N.json().items || []).filter(e => e.action === 'number_space_exhausted');
+  test('exactly one number_space_exhausted entry', () => expect(xs.length).to.eql(1));
+  const e = xs[0] || {};
+  test('domain record, subject the permit type', () => {
+    expect(e.domain).to.eql('record');
+    expect(e.subject_type).to.eql('entity_definition');
+    expect(e.subject_id).to.eql(bru.getVar('s18n_permit_def'));
+  });
+  const ops = Array.isArray(e.diff) ? e.diff : [];
+  const ns = (ops.find(o => o.path === '/number_space') || {}).value || {};
+  test(`diff /number_space has epoch, scope_key, width, counter: ${JSON.stringify(ns)}`, () => {
+    expect(ns).to.have.all.keys('epoch', 'scope_key', 'width', 'counter');
+    expect(ns.width).to.eql(1);
+    expect(ns.counter).to.eql(10);
+    expect(ns.epoch).to.be.at.least(1);
+  });
+}
+
+docs {
+  `subject_type=entity_definition`, `subject_id` the permit type (found through PMT-1's create entry).
+}
