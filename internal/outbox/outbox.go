@@ -302,7 +302,7 @@ func notOwnEntryPointStart(e Entry) error {
 	if !ok {
 		return nil
 	}
-	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}, {FieldIndexBackfillKind, "EnqueueFieldIndexBackfill"}} {
+	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
 		if t.Kind == k.kind || e.Kind == k.kind {
 			return fmt.Errorf("%w: a start of %s goes through %s", ErrInvalidEntry, k.kind, k.via)
 		}
@@ -645,6 +645,13 @@ func validate(e Entry) (json.RawMessage, error) {
 	if strings.HasPrefix(e.DedupeKey, sealDedupePrefix) {
 		return nil, invalid("dedupe keys starting %q are EnqueueSeal's", sealDedupePrefix)
 	}
+	// A backfill is not tied to a record, so it has its own entry point. The
+	// kind is guarded here, not in notOwnEntryPointStart, whose rows the
+	// handbook build reads as the closed list of registered workflow kinds;
+	// the worker registers this one in P7-05.
+	if e.Kind == FieldIndexBackfillKind {
+		return nil, invalid("a %s start goes through EnqueueFieldIndexBackfill", FieldIndexBackfillKind)
+	}
 	if e.RecordID == uuid.Nil {
 		return nil, invalid("no record id")
 	}
@@ -829,7 +836,7 @@ func EnqueueFieldIndexBackfill(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID
 	dedupe := FieldIndexBackfillDedupeKey(fieldID, requestedVersion)
 	var got uuid.UUID
 	err = tx.QueryRow(ctx, insertSQL, id, tenant, FieldIndexBackfillKind, 1, dedupe,
-		FieldIndexBackfillKind+":"+id.String(), int64(requestedVersion), id, 0, payload, traceparent(ctx)).Scan(&got)
+		FieldIndexBackfillKind+":"+id.String(), int64(requestedVersion), id, 0, string(payload), traceparent(ctx)).Scan(&got)
 	if err == nil {
 		return got, nil
 	}

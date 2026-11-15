@@ -334,3 +334,14 @@ func TestInterpreterEntriesRefusedBeforeAnyWrite(t *testing.T) {
 		t.Errorf("EnqueueSignal to another workflow type = %v, want ErrInvalidEntry", err)
 	}
 }
+
+// A field-index backfill start has its own entry point: the generic enqueue
+// refuses it before any query (tx is nil, so a query would panic).
+func TestGenericEnqueueRefusesFieldIndexBackfill(t *testing.T) {
+	e := validEntry()
+	e.Kind, e.Target = FieldIndexBackfillKind, TargetStart{Kind: FieldIndexBackfillKind}
+	e.Payload = json.RawMessage(`{"tenant_id":"` + uuid.NewString() + `","field_id":"` + uuid.NewString() + `"}`)
+	if _, err := EnqueueAtVersion(context.Background(), nil, e, 1); !errors.Is(err, ErrInvalidEntry) {
+		t.Fatalf("EnqueueAtVersion of a backfill start = %v, want ErrInvalidEntry", err)
+	}
+}
