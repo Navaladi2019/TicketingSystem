@@ -2,8 +2,9 @@
 title: "6. Create an entity type"
 section: tour
 status: delivered
-sources: [docs/handbook/examples/README.md, docs/handbook/examples/loan_application.json, docs/acceptance/s8-entity-types.md, docs/acceptance/guide/bruno/S8/S8-11.bru]
-adrs: [ADR-001, ADR-005]
+sources: [docs/handbook/examples/README.md, docs/handbook/examples/loan_application.json, docs/acceptance/s8-entity-types.md, docs/acceptance/guide/bruno/S8/S8-11.bru, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go]
+adrs: [ADR-001, ADR-005, ADR-008]
+stories: [S27]
 operations: [createEntityType, listEntityTypes, getEntityType, publishEntityTypeVersion]
 tables: [entity_definitions, entity_definition_versions]
 ---
@@ -55,6 +56,16 @@ Publishing version 2, with an optional `purpose` field added (`POST /api/v1/enti
 ## What happens behind it
 
 The administrator's call is checked first: only a tenant administrator may define types, and the body is validated as a JSON Schema 2020-12 document and a state model before anything is stored. The schema is stored as the exact bytes sent. A new version must not break the previous one (for example, changing a field's type answers `422 schema_breaking_change`). Record numbers are `<prefix><7 digits>` per type per tenant: `LOAN0000001`, `LOAN0000002`. The `gaps` mode takes the number in its own short transaction, so a failed create can leave a gap; `gapless` is the other mode. Details: [entity types](../database/entity-definitions.md), [metadata engine](../system/core-metadata.md), [numbering](../database/numbering.md).
+
+## Adding or removing a type-definition keyword
+
+The keywords a type's schema can use are listed in `internal/configsurface/testdata/inventory.json` under `type_definition`: the JSON Schema keywords the seed templates use (`type`, `properties`, `required`, `enum`, `maxLength` and the rest), the extensions `x-nava-secret` and `x-nava-unique`, and the fields of the type-definition document (`key`, `schema`, `states`, `numbering_mode` and the rest). Within a major version this list only grows (ADR-008 D12), so a type a tenant published keeps compiling after an upgrade. The upgrade-compatibility suite (M-X2, S27) checks it.
+
+- **Adding** a keyword or extension: list it under `type_definition` and add a fixture `internal/configsurface/testdata/fixtures/typedef/<name>.json` that uses it. A new `x-nava-*` extension or document field that is not listed fails `task test` with `unlisted: …`. The standard keyword list is hand-curated, because `internal/metadata` accepts any JSON Schema 2020-12 keyword; its fixtures catch a removal.
+- **Deprecating** one: keep it accepted and listed, and add it to the inventory's `deprecated` list with a `since` version.
+- **Removing** one: only with a new major, a raised `"major"` and a `docs/upgrade/v<major>.md` note naming it (for example `type_definition.extensions/x-nava-unique`). Otherwise `task test` fails with `removed: …` or `not accepted: typedef/<name>.json: …`, and `task lint` with `compat: removed: …`.
+
+What each failure line means: [Troubleshooting](../operations/troubleshooting.md#a-lint-or-test-check-fails).
 
 ## Not built yet
 
