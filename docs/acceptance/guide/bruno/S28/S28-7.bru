@@ -1,0 +1,42 @@
+meta {
+  name: S28.7 After one group-sync cycle the admin is in /admins
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const limit = Number(N.v('s28_place_limit_s') || 360) * 1000;
+  const t0 = Date.now();
+  for (;;) {
+    // A token lives 5 min, shorter than one default cycle: sign in again each round.
+    const t = await N.token(N.v('s28_admin_email'), N.v('s28_admin_password'));
+    if (t.status === 200) bru.setVar('s28_admin_token', t.data.access_token);
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/me'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('s28_admin_token') } });
+    const paths = r.status === 200 ? (r.data.group_paths || []).map(g => g.path) : [];
+    if (paths.includes('/admins') || Date.now() - t0 > limit) break;
+    await bru.sleep(2000);
+  }
+  bru.setVar('s28_placed_after_s', String(Math.round((Date.now() - t0) / 1000)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me(bru.getVar('s28_tenant'));
+  test('in /admins', () => expect(N.paths()).to.include('/admins'));
+  console.log('S28.7 placed after', bru.getVar('s28_placed_after_s'), 's');
+}
+
+docs {
+  Tour steps 2 and 4. Group sync consumes the pending invite and places the admin in the tenant and its admins group; the same token then resolves. Polls every 2 s up to `s28_place_limit_s` (default 360 s).
+}
