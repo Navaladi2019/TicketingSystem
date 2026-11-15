@@ -139,7 +139,7 @@ There is no `RAISE` and no table write. The mechanism is a
    that the trigger did not write (not JSON, not an object, not a whole
    number) is dropped, never cast blindly, so it cannot fail a write.
 2. After a successful write to a type whose current definition flags a
-   top-level property (`metadata.Compiled.HasFilterable`),
+   top-level property (`metadata.Compiled.Filterable`, P7-03),
    `internal/records/pipeline` registers
    `tenancy.ReadSettingAtCommit(tx, "nava.field_index_uncoerced", ...)`. It
    does this once per transaction. A write to any other type registers

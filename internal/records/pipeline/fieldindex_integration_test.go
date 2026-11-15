@@ -57,7 +57,7 @@ func uncoercedCounts(t *testing.T, reader *sdkmetric.ManualReader) (map[string]i
 func TestUncoercedValueIsCountedNotRaised(t *testing.T) {
 	e := migrated(t)
 	// title and tags are flagged: the pipeline reads the counter only for a
-	// type that flags a field (Compiled.HasFilterable).
+	// type that flags a field (Compiled.Filterable, P7-03).
 	flagged := strings.Replace(schemaV1, `"title": {"type": "string", "minLength": 1}`,
 		`"title": {"type": "string", "minLength": 1, "x-nava-filterable": true}`, 1)
 	flagged = strings.Replace(flagged, `"tags": {"type": "array", "items": {"type": "string"}}`,

@@ -63,6 +63,11 @@ const (
 	InvalidAccessPolicy       Code = "invalid_access_policy"
 	ExportInProgress          Code = "export_in_progress"
 	ChainAlive                Code = "chain_alive"
+	// ADR-006 D8: the metadata refusals for x-nava-filterable and the
+	// reserved x-nava-searchable (metadata.RefusalError).
+	FilterableFieldNotTopLevel Code = "filterable_field_not_top_level"
+	FilterableFieldTypeChange  Code = "filterable_field_type_change"
+	SearchableNotAvailable     Code = "searchable_not_available"
 )
 
 // Codes lists every Code constant.
@@ -73,6 +78,7 @@ func Codes() []Code {
 		NotImplemented, InternalError, InvalidDefinition, EntityTypeExists, NumberPrefixTaken, SchemaBreakingChange, WorkflowDefinitionInvalid, RecordInvalid,
 		IfMatchRequired, VersionConflict, IllegalTransition, UniqueViolation, ConfigSecretInContent, DefinitionSecretRequired, AssignmentGroupRemoved, HistoryTooLong, ExportInProgress, ChainAlive,
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
+		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
 	}
 }
 

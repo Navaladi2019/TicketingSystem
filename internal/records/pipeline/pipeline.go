@@ -518,7 +518,7 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	// registry holds a backfilling or ready row only for a field the current
 	// definition flags (P7-04), so any other write has nothing to count and
 	// keeps its commit batch as it was (TICK-692's statement budget).
-	if def.HasFilterable() {
+	if len(def.Filterable()) > 0 {
 		p.fieldIndexMetrics().watch(tx)
 	}
 	if p.beforeReturn != nil {
