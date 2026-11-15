@@ -1,0 +1,9 @@
+## 2026-11-15: Epic 04 gap list: backfill and cross-version reads go to an RFC; references and i18n parked with triggers
+
+- **Decided by:** the Technical Lead, on TICK-7 (Epic 04), closing the 2026-10-15 gap list on that epic.
+- **Already delivered:** compatibility classification on publish (Compatible / NeedsBackfill / Breaking, fail-closed; `docs/architecture/metadata-engine.md`). Removing a field, changing a type, narrowing an enum and adding a required field with no default are refused as Breaking (S8, TICK-333). Configuration audit (S14, TICK-419).
+- **Decision 1 (stays in Epic 04):** the durable backfill for `needs_backfill` publishes, and the meaning of lists, filters and `x-nava-unique` across schema versions, go to one RFC (TICK-897, Architecture squad). Epic 04 stays open until its ADR is accepted and planned.
+  - **Drift found:** reads fill an older record's missing fields with the current version's defaults (`internal/server/records.go:247-252`), but `filter[f]` matches stored JSON only (`internal/server/records_list.go:216`). A record can show a default value and still not match a filter on that value. The ADR-006 side tables (S21, not started) copy stored values only, so they would carry the same gap.
+- **Decision 2 (deferred out of Epic 04):** reference fields and dot-walking (TICK-898, backlog). Reason: it changes ACL evaluation, the list query and GraphQL, so it belongs to no single epic, and Epic 04's acceptance criteria do not need it. **Trigger:** planning of Epic 23 or Epic 24, the first type that must point at another record, or Milestone 1 closing.
+- **Decision 3 (deferred out of Epic 04):** translated labels (TICK-899, backlog). Reason: there is no form or UI layer yet, and the API returns keys. **Trigger:** planning of Epic 26 or Epic 10 UI policies, a tenant needing a non-English label, or Milestone 1 closing.
+- **Dissent:** none.
