@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/records/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "66",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-671bfa5f-inc-a4",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 671bfa5f inc-a4\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-15T05:12:23.759473Z",
+      "data": {
+        "priority": 3,
+        "requester": "259fbcd1-dd38-423c-8928-3c05bcc0c609",
+        "short_description": "S18 671bfa5f inc-a4",
+        "state": "new"
+      },
+      "id": "01a1dd9e-f1ce-7c40-803b-14de6a052855",
+      "number": "INC0000004",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-15T05:12:23.759473Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "number INC0000004",
+      "status": "pass"
+    }
+  ]
+}

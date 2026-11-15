@@ -1,0 +1,83 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:38080/api/v1/entity-types/permit",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "key": "permit",
+      "name": "Work permit",
+      "number_prefix": "PMT",
+      "numbering_mode": "gaps",
+      "version": 2,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "schema_sha256": "93f82a5abe155f3126c84cd176350ae755fe034dac96c3a342a60eb3fa195b7f",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "number_format": {
+        "id": "a44efbfa-e988-4d16-9eb7-904105ac1b02",
+        "version": 1
+      },
+      "published_at": "2026-11-15T05:12:24.306259Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "9 creates: 201 PMT-1, 201 PMT-2, 201 PMT-3, 201 PMT-4, 201 PMT-5, 201 PMT-6, 201 PMT-7, 201 PMT-8, 201 PMT-9",
+      "status": "pass"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+meta {
+  name: S18N.11 AC1: the next one is VISA-<yyyymm>0002 (agent@tenant-a)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/records/visa
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-visa2
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} visa2"
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  bru.setVar('s18n_ym_before', ym(N.v('s18_tz')));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  N.status(201);
+  const n = N.json().number;
+  const months = [bru.getVar('s18n_ym_before'), ym(N.v('s18_tz'))];
+  test(`number VISA-<yyyymm in ${N.v('s18_tz')}>0002: ${n}`, () => expect(months.map(m => 'VISA-' + m + '0002')).to.include(n));
+  bru.setVar('s18n_visa2_id', N.json().id);
+  bru.setVar('s18n_visa2_number', n);
+  console.log('S18 visa2:', n);
+}
+
+docs {
+  Alice, an agent of tenant A, creates the next one.
+}
