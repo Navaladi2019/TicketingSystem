@@ -46,8 +46,8 @@ import (
 // allocPoolTracer classifies every round trip on the allocator pool. An
 // allocation is one batch that tenancy.AllocTenant recognises (BEGIN; the
 // tenant; SET LOCAL synchronous_commit = off; ...; COMMIT) and that never
-// names audit_log. The one other statement allowed is a read outside any
-// transaction (the pool's role check on connect, tenancy.CheckAllocatorRole).
+// names audit_log. The one other statement allowed is the pool's role check
+// on connect (tenancy.IsAllocatorRoleCheck), outside any transaction.
 // Anything else, a BEGIN of tenancy.InTenantTx included, is a violation.
 type allocPoolTracer struct {
 	prev   pgx.QueryTracer
@@ -58,7 +58,7 @@ type allocPoolTracer struct {
 
 func (a *allocPoolTracer) TraceQueryStart(ctx context.Context, c *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
 	sql := strings.TrimSpace(d.SQL)
-	read := strings.HasPrefix(strings.ToUpper(sql), "SELECT") && !strings.Contains(sql, "audit_log")
+	read := tenancy.IsAllocatorRoleCheck(d.SQL)
 	if !read || c.PgConn().TxStatus() != 'I' {
 		a.mu.Lock()
 		a.bad = append(a.bad, sql)
@@ -115,7 +115,7 @@ func (a *allocPoolTracer) seen() (allocs int, bad []string) {
 	return a.allocs, append([]string(nil), a.bad...)
 }
 
-// tracedAllocPool is allocPool's allocator pool with a statementTracer.
+// tracedAllocPool is allocPool's allocator pool with an allocPoolTracer.
 func tracedAllocPool(t *testing.T, dsn string) (*pgxpool.Pool, *allocPoolTracer) {
 	t.Helper()
 	cfg := serverPoolConfig(t, dsn)
