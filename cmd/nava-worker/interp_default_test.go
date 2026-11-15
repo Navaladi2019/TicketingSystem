@@ -17,7 +17,7 @@ import (
 // ports over the worker's pool, and the pipeline on a pool of its own.
 func TestProductionBuildWiresTheDatabasePorts(t *testing.T) {
 	pool, pipePool := &pgxpool.Pool{}, &pgxpool.Pool{}
-	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool, pipePool, true)
+	acts, err := interpreterActivities(func(string) (string, bool) { return "/fixtures", true }, pool, pipePool, true, nil)
 	if err != nil || acts == nil {
 		t.Fatalf("interpreterActivities = (%v, %v), want the interpreter's ports", acts, err)
 	}
@@ -42,7 +42,7 @@ func TestProductionBuildWiresTheDatabasePorts(t *testing.T) {
 }
 
 func TestProductionBuildInterpreterNeedsAPool(t *testing.T) {
-	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil, nil, true); err == nil {
+	if _, err := interpreterActivities(func(string) (string, bool) { return "", false }, nil, nil, true, nil); err == nil {
 		t.Error("interpreterActivities with no pool returned no error")
 	}
 }
@@ -52,7 +52,7 @@ func TestProductionBuildInterpreterNeedsAPool(t *testing.T) {
 // without a pool.
 func TestProductionBuildWithWorkflowsOffRegistersNoInterpreter(t *testing.T) {
 	for _, pool := range []*pgxpool.Pool{nil, {}} {
-		acts, err := interpreterActivities(func(string) (string, bool) { return "", false }, pool, pool, false)
+		acts, err := interpreterActivities(func(string) (string, bool) { return "", false }, pool, pool, false, nil)
 		if err != nil || acts != nil {
 			t.Fatalf("interpreterActivities(workflows off) = (%v, %v), want (nil, nil)", acts, err)
 		}

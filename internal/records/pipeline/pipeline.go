@@ -279,6 +279,9 @@ type PoolRunner struct {
 	AllocTimeout time.Duration
 	// Metrics records the allocator's metrics (A8); nil records none.
 	Metrics *AllocMetrics
+	// FieldIndex counts the values of filterable fields that did not coerce
+	// (ADR-006 R5); nil counts none.
+	FieldIndex *FieldIndexMetrics
 }
 
 // InTenantTx implements TxRunner.
@@ -509,6 +512,10 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	if err != nil {
 		return Result{}, &ErrAtVersion{SchemaVersion: defVersion, FixedColumns: def.FixedColumns(), StateProperty: def.StateProperty(), Err: err}
 	}
+	// The records trigger counted any value of a flagged field that did not
+	// coerce in a transaction-local setting; the commit's round trip reads it
+	// (ADR-006 R5, fieldindex.go).
+	p.fieldIndexMetrics().watch(tx)
 	if p.beforeReturn != nil {
 		p.beforeReturn(ctx)
 	}

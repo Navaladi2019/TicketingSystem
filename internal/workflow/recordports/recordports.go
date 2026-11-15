@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
@@ -116,9 +117,19 @@ type Writer struct {
 // NewWriter is the worker's Writer: the records pipeline with the real
 // EventSink (a workflow write fires triggers and signals like any other,
 // D-3-14), whose TxRunner runs on pipePool, a pool of its own, never on pool.
-func NewWriter(pool, pipePool *pgxpool.Pool) Writer {
+// mp, when not nil, gets the pipeline's count of flagged values a workflow
+// write stores that do not coerce (ADR-006 R5).
+func NewWriter(pool, pipePool *pgxpool.Pool, mp metric.MeterProvider) (Writer, error) {
+	runner := pipeline.PoolRunner{Pool: pipePool}
+	if mp != nil {
+		m, err := pipeline.NewFieldIndexMetrics(mp)
+		if err != nil {
+			return Writer{}, err
+		}
+		runner.FieldIndex = m
+	}
 	return Writer{Pool: pool, Pipeline: pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{},
-		eventsink.Sink{}, pipeline.PoolRunner{Pool: pipePool}, pipeline.SystemClock{})}
+		eventsink.Sink{}, runner, pipeline.SystemClock{})}, nil
 }
 
 var _ interp.RecordWriter = Writer{}

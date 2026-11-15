@@ -123,13 +123,37 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 	if err := fn(st); err != nil {
 		return err
 	}
-	if st.atCommit == nil || st.atCommit.Len() == 0 {
+	reads := st.memo.reads
+	if len(reads) == 0 && (st.atCommit == nil || st.atCommit.Len() == 0) {
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("tenancy: commit: %w", err)
 		}
 		return nil
 	}
-	return st.commitBatch(ctx, conn.Conn().PgConn())
+	if st.atCommit == nil {
+		st.atCommit = &pgx.Batch{}
+	}
+	values := make([]string, len(reads))
+	for i, r := range reads {
+		st.atCommit.Queue(readSettingSQL, r.name).QueryRow(func(row pgx.Row) error { return row.Scan(&values[i]) })
+	}
+	if err := st.commitBatch(ctx, conn.Conn().PgConn()); err != nil {
+		return err
+	}
+	for i, r := range reads {
+		r.committed(ctx, values[i])
+	}
+	return nil
+}
+
+// readSettingSQL reads a setting for ReadSettingAtCommit: "" when it was
+// never set in the session.
+const readSettingSQL = "SELECT coalesce(current_setting($1, true), '')"
+
+// settingRead is one ReadSettingAtCommit registration.
+type settingRead struct {
+	name      string
+	committed func(ctx context.Context, value string)
 }
 
 // scopedTx is the transaction InTenantTx hands fn: pgx's own, plus the tenant
@@ -161,6 +185,10 @@ type memo struct {
 	m    map[any]any
 	undo []undoEntry
 	open int // savepoints open
+	// reads are the ReadSettingAtCommit registrations, one per setting, in
+	// the order made. A savepoint's rollback keeps them: the setting itself
+	// rolls back with it, and a read of it costs nothing extra.
+	reads []settingRead
 }
 
 // undoEntry is key's value before a change: v, or absent when !had.
@@ -311,6 +339,36 @@ func QueueAtCommit(tx pgx.Tx) (*pgx.Batch, bool) {
 		s.atCommit = &pgx.Batch{}
 	}
 	return s.atCommit, true
+}
+
+// ReadSettingAtCommit reads the run-time setting name (a custom one such as
+// nava.field_index_uncoerced) in the round trip that commits tx, after every
+// statement fn sent or queued with ExecAtCommit and QueueAtCommit, and
+// immediately before COMMIT; once the COMMIT has succeeded it calls committed
+// with the setting's value as the transaction left it ("" if it was never
+// set). committed is not called when the transaction rolls back or the
+// commit fails. It costs no round trip of its own: a commit with nothing
+// queued becomes a batch of the read and COMMIT.
+//
+// One read per name per transaction: a second registration of the same name
+// is ignored, so a caller may register once per write. It works from a
+// savepoint of tx too (the read runs at the outer commit). It returns false,
+// registering nothing, when tx is not an InTenantTx transaction.
+//
+// The value is read as text and handed over unparsed; committed must
+// tolerate anything, since any session may set a custom setting.
+func ReadSettingAtCommit(tx pgx.Tx, name string, committed func(ctx context.Context, value string)) bool {
+	s, ok := tx.(*scopedTx)
+	if !ok {
+		return false
+	}
+	for _, r := range s.memo.reads {
+		if r.name == name {
+			return true
+		}
+	}
+	s.memo.reads = append(s.memo.reads, settingRead{name: name, committed: committed})
+	return true
 }
 
 // Remember stores v under key in tx's memo, for Recall later in the same

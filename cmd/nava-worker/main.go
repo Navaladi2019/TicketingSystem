@@ -200,7 +200,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	}
 	closeAll := func() { closePG(); pipePool.Close(); pool.Close(); c.Close() }
 
-	acts, err := interpreterActivities(lookup, pool, pipePool, workflows)
+	acts, err := interpreterActivities(lookup, pool, pipePool, workflows, tel.MeterProvider)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, err

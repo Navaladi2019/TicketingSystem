@@ -898,6 +898,10 @@
     {
       "file": "20261115120000_field_index_tables.sql",
       "on_main": false
+    },
+    {
+      "file": "20261115130000_field_index_trigger.sql",
+      "on_main": false
     }
   ]
 }

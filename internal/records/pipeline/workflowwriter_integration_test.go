@@ -60,7 +60,10 @@ func newWorker(t *testing.T, e env) worker {
 	}
 	w := worker{pool: sized(workerWidth), pipePool: sized(pipelineWidth)}
 	w.reader = recordports.Reader{Pool: w.pool}
-	w.writer = recordports.NewWriter(w.pool, w.pipePool)
+	var err error
+	if w.writer, err = recordports.NewWriter(w.pool, w.pipePool, nil); err != nil {
+		t.Fatal(err)
+	}
 	w.waits = workerguard.WaitTracker{Pool: w.pool}
 	return w
 }
