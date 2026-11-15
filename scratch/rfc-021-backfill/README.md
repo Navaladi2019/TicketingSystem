@@ -50,3 +50,16 @@ This spike measures the RFC-021 rev 0 backfill (D3, D7) and filter (D12) mechani
 - Batches: 1,000 at size 100, for 60k rewrites. The 40k records that need no change still take batch slots, and pauses.
 - With an unthrottled backfill, user p95 on this host went from 18–24 ms to 3–10 s. Only **3 lock waits over 50 ms** were logged across those runs, so the cause is I/O saturation, not row locks. Wall times drifted up to 4× between identical runs, so this host's timings support only orders of magnitude. The WAL bytes are deterministic.
 - After the run: `rfv_num` holds 100,000 rows (60,000 at the default), and 0 records lack the key. The D4 trigger converges with no change.
+
+## Round 2: the D12 switch point (`09_switch_point.sql` → `switch-point-results.txt`)
+
+Same host and data. k records of the 100k type lack `priority`, and all k are pending. The default 3 is stored nowhere, which is the sparse worst case. Each shape is rev 1's D12 form, and each was run twice.
+
+| k pending | OR page | OR capped count | UNION ALL page | UNION ALL capped count |
+|---|---|---|---|---|
+| 1,000 | 5.3–5.9 ms | **78.5–85.6 ms** | 9.2–11.2 ms | 10.3–10.4 ms |
+| 5,000 | 1.0–1.2 ms | 12.9–14.2 ms | 21.8–25.1 ms | 5.9–6.0 ms |
+| 20,000 | 0.35 ms | 4.5–5.2 ms | 117–120 ms | 87–89 ms |
+
+- Taking page and count together, the crossover falls between 1k and 5k pending. A switch at 1,000 is on the safe side of it.
+- Just above the switch, the OR count walks the whole type, so its cost grows with type size: about 80 ms at 100k.
