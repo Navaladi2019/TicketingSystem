@@ -1,0 +1,14 @@
+NOTICE:  batch=100 lock=FOR UPDATE pause=0ms batches=1000 rewritten=60000 total=00:02:10.759181 max_batch=00:00:02.997827 wal=234 MB wal_per_rec=4092 B
+b100-FOR_UPDATE upd n=1466 p50=17.37ms p95=2989.90ms p99=4407.00ms max=4808.2ms
+b100-FOR_UPDATE shr n=466 p50=16.36ms p95=2431.47ms p99=2532.49ms max=2552.3ms
+NOTICE:  batch=100 lock=FOR NO KEY UPDATE pause=0ms batches=1000 rewritten=60000 total=00:02:08.170116 max_batch=00:00:02.947614 wal=228 MB wal_per_rec=3987 B
+b100-FOR_NO_KEY_UPDATE upd n=1251 p50=453.39ms p95=4894.10ms p99=5601.48ms max=7571.4ms
+b100-FOR_NO_KEY_UPDATE shr n=434 p50=73.72ms p95=1557.55ms p99=2043.64ms max=4903.1ms
+NOTICE:  batch=500 lock=FOR NO KEY UPDATE pause=0ms batches=200 rewritten=60000 total=00:02:24.858291 max_batch=00:00:04.151978 wal=237 MB wal_per_rec=4145 B
+b500-FOR_NO_KEY_UPDATE upd n=706 p50=6148.90ms p95=8139.44ms p99=10029.40ms max=14412.5ms
+b500-FOR_NO_KEY_UPDATE shr n=332 p50=947.49ms p95=2616.29ms p99=2801.39ms max=6282.1ms
+NOTICE:  batch=50 lock=FOR NO KEY UPDATE pause=0ms batches=2000 rewritten=60000 total=00:02:01.599526 max_batch=00:00:08.608367 wal=230 MB wal_per_rec=4017 B
+b50-FOR_NO_KEY_UPDATE upd n=379 p50=31.43ms p95=10611.50ms p99=11833.70ms max=17810.1ms
+b50-FOR_NO_KEY_UPDATE shr n=129 p50=3942.02ms p95=8622.74ms p99=9223.45ms max=14813.8ms
+
+[exited with code 0]

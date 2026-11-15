@@ -75,3 +75,12 @@ At R = 1 (compose) the total is **221**, 26 under the limit. Each further replic
 - Temporal is counted at its configured ceiling, not at what it was seen to use; it is 120 of the 221.
 - Trigger to revisit (AR-TICK-653-04): more than about 10 API replicas, or connection pressure on PostgreSQL. At that point the allocator alone is 40 server connections.
 - CI's integration pooler (`scripts/ci/pgbouncer/pooled.ini`) mirrors this with `nava_alloc` `pool_size=4` against a 5-connection `nava` pool. `isolation.ini` and `noprep.ini` have no allocator entry because neither suite allocates numbers.
+
+## Schema backfill (ADR-009)
+
+The `schema.backfill` job that writes a newly published default into existing records (ADR-009 D7). These rows were proposed in the TICK-897 round-1 critique. Both start report-only.
+
+| Budget | Measured as | Threshold | Baseline | Source | Owner |
+|---|---|---|---|---|---|
+| Live-write p95 during a schema backfill | 4 live writers at a 20 ms cadence, same tenant, pause 0, real pipeline as `nava_worker`, one transaction per record | ≤ +25% over baseline | +1.7% at 20k (48.3 → 49.1 ms). The rejected batch lock gave +28% at 20k and +416% at 100k. **100k with one transaction per record is unverified.** 2026-11-15, postgres:16.10, Docker Desktop with 16 vCPU | [ADR-009 spike](adr/ADR-009/spikes/pipeline/r1/README.md) | Postgres & Data Modeling Specialist |
+| Schema backfill cost per record | Real `pipeline.Write`, empty patch, no load, no savepoints | none yet (report only) | 7.3 ms and 4.0–4.1 KB WAL per record | [ADR-009 spikes](adr/ADR-009/spikes/) (pipeline r1, postgres r1 PG-5) | Postgres & Data Modeling Specialist |

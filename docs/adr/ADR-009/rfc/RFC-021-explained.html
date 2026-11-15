@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RFC-021 explained: catching old records up when a field gets a default</title>
+<style>
+  :root { --ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --bg:#ffffff; --soft:#f6f8fa; --accent:#3b5bdb; --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --bg:#0d1117; --soft:#151b23; --accent:#7c9cff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; } }
+  body { font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); background:var(--bg); max-width: 920px; margin: 2rem auto; padding: 0 1.2rem; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; } h2 { margin-top: 2.2rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+  .status { display:inline-block; padding:.15rem .6rem; border-radius: 1rem; background: var(--soft); border:1px solid var(--line); color: var(--warn); font-weight:600; font-size:.85rem; }
+  .muted { color: var(--muted); } code { background: var(--soft); padding: 0 .3rem; border-radius: 4px; font-size: .9em; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: .93rem; } th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; } th { background: var(--soft); }
+  .q { background: var(--soft); border-left: 4px solid var(--accent); padding: .6rem .9rem; margin: .8rem 0; border-radius: 0 6px 6px 0; }
+  .flow { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin: 1rem 0; }
+  .box { border:1px solid var(--line); background: var(--soft); border-radius: 8px; padding: .5rem .7rem; font-size: .88rem; max-width: 210px; }
+  .arrow { color: var(--muted); font-size: 1.3rem; }
+  .ok { color: var(--ok); font-weight:600; } .bad { color: var(--bad); font-weight:600; }
+  .pair { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; } @media (max-width: 700px) { .pair { grid-template-columns: 1fr; } }
+  .card { border:1px solid var(--line); border-radius: 8px; padding: .7rem .9rem; }
+</style>
+</head>
+<body>
+
+<h1>Catching old records up when a field gets a default</h1>
+<p class="muted">RFC-021 · issue TICK-897 · Epic 04 · author: Solution Architect · 2026-11-15</p>
+<p><span class="status">REVISED (rev 1), after critique round 1</span> Security, Postgres and the Technical Architect each asked for changes. This revision makes them. The decision record (ADR-009, assumed number) follows once the blocking items are re-checked.</p>
+
+<h2>In plain words</h2>
+
+<div class="q"><b>1. Goal.</b> When a tenant admin changes a record type so that a field gets a <i>default</i> (the value a record gets when nobody sets one), every existing record should behave as if it had that value. Opening a record, listing records and searching must all agree.</div>
+
+<div class="q"><b>2. Today.</b> The platform saves the new version of the type and stops there. Old records never get the value written into the database. Opening one shows the default anyway, because the display code fills it in as it reads. Searching does not fill it in. So a ticket can show <code>priority: 3</code> when you open it, and still be missing when you search for priority 3. A record only catches up when someone edits it.</div>
+
+<div class="pair">
+  <div class="card"><b>Open ticket #1042</b><br>priority: <b>3</b> <span class="muted">(filled in on read)</span></div>
+  <div class="card"><b>Search: priority = 3</b><br>#1042 <span class="bad">not found</span> <span class="muted">(the database has no priority stored)</span></div>
+</div>
+
+<div class="q"><b>3. What's new.</b> Three changes.
+<ol>
+<li><b>A background job writes the default into every old record</b>, using the same write path as a normal edit, so each change is checked and recorded in the audit log. It first makes a list of the records that need it. Then it updates them <b>one record at a time</b>, each in its own small database step, so a person editing a record never waits for more than one record's update. It covers one tenant and one record type, and pauses between groups of records.</li>
+<li><b>Until the job finishes, searches count the default as a match.</b> Results are correct from the moment the admin publishes, not hours later. When only a few records are left, the search uses the job's own list, so it stays fast.</li>
+<li><b>A field that must be unique cannot have a default.</b> A default would give every record the same value, and the second record would already be a duplicate.</li>
+</ol>
+We expect this to work because the normal edit path already fills in defaults on every edit. The job is just an edit with nothing changed, applied to every record that was never edited.</div>
+
+<div class="q"><b>4. Who is affected.</b>
+<ul>
+<li><b>End users and integrations:</b> search, lists and single records give the same answer. The "last updated" time does not move, so lists sorted by it stay in the same order while the job runs. A user who has a record open in an edit form while the job rewrites it gets a "record changed, reload" message once.</li>
+<li><b>Tenant admins:</b> the record-type page shows the job's progress and any records it could not update.</li>
+<li><b>Workflow authors:</b> nothing fires. The job's writes do not count as "record updated" events, because the value people see did not change.</li>
+<li><b>Operators:</b> a burst of database writes on large record types. Each job is limited to one tenant, and the number of tenants running a job at once is capped.</li>
+</ul></div>
+
+<div class="q"><b>5. Risks.</b> Measured on test hardware: each record takes about 7 milliseconds and writes about 4 KB to the database log. A 100,000-record type therefore takes roughly 12 minutes plus pauses and writes about 400 MB of log. With one record per step, live edits slowed by <b>1.7%</b> in a 20,000-record test. The first design, which locked 100 records at a time, slowed them by up to 416%. The full 100,000-record run of the new design is <b>not measured yet</b>. Sorting by the defaulted field may place not-yet-updated records with the empty values until the job ends. A record that fails the checks is skipped and listed for the admin, and searches stay correct.</div>
+
+<div class="q"><b>6. How we'll know it worked.</b> Mid-way: a search for the default value returns the old records while the job is still running, both when many and when few are left (test CI-7). At the end: every old record has the value stored, has exactly one audit entry from the job, keeps its "last updated" time, and no workflow was started (CI-2). Another tenant's records are never touched, and no tenant workflow can start the job (CI-3). A load test on 100,000 records must keep live edits within 25% of their normal speed (CI-12).</div>
+
+<h2>How the job runs</h2>
+<div class="flow">
+  <div class="box"><b>Admin publishes</b><br>a version that adds a default</div><span class="arrow">→</span>
+  <div class="box">In the <b>same database transaction</b>: the version, a job row (<code>schema_backfills</code>), and a start message (<i>outbox row</i>)</div><span class="arrow">→</span>
+  <div class="box">The <b>relay</b> starts the job. The tenant id is written into the job's name, taken from that message</div><span class="arrow">&rarr;</span>
+  <div class="box">The job lists the records that lack the value (<code>schema_backfill_pending</code>)</div><span class="arrow">&rarr;</span>
+  <div class="box">One record per step: a normal checked write with an audit entry and no events, and the record is crossed off the list in the same step</div><span class="arrow">&rarr;</span>
+  <div class="box">List empty &rarr; <span class="ok">done</span>. Records that failed are kept on a separate list for the admin</div>
+</div>
+<p class="muted"><i>Outbox row</i>: a message saved in the same transaction as the change that caused it, so a job starts if and only if the publish really happened.</p>
+
+<h2>Who the job runs as, and why it cannot cross tenants</h2>
+<table>
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>Which identity?</td><td>The system actor <code>schema-backfill</code>. The audit log records it in place of a person. Database role: the existing worker role <code>nava_worker</code>. No new role, no new permission on existing tables, and no permission to skip row-level security (the database rule that hides other tenants' rows).</td></tr>
+<tr><td>Where does the tenant come from?</td><td>Only from the job's name, <code>t:&lt;tenant&gt;:schema.backfill:&hellip;</code>. The relay builds the name from the start message the publish saved under that tenant's security rules. The job takes no tenant as an input, so nobody can hand it a different tenant.</td></tr>
+<tr><td>How much does one job cover?</td><td>Exactly one tenant and one record type. No code loops over tenants.</td></tr>
+<tr><td>If the tenant setting were missing?</td><td>Every query also says <code>tenant_id = …</code>, so a missing setting returns zero rows, never all rows.</td></tr>
+<tr><td>Can a tenant start it by hand?</td><td>No. Only publishing a version starts it. The workflow engine's permission rules mark it "start-only": only the relay may start it, so tenant workflows cannot start it or restart it.</td></tr>
+</table>
+
+<h2>The five questions, answered</h2>
+<table>
+<tr><th>#</th><th>Question</th><th>Proposed answer</th></tr>
+<tr><td>1</td><td>Backfill?</td><td>Yes. A durable job through the normal write path, one record per step: one audit entry per record. The record's version number goes up (so its ETag, the version tag clients send back when they save, changes), and its "last updated" time stays as it was. Throttled per tenant. If a newer version adding another default is published mid-way, the old job hands over to a new one that applies every default. No database lock on the record type is needed.</td></tr>
+<tr><td>2</td><td>Which version shapes reads?</td><td>Everywhere a record is shown: the stored values, plus the current version's defaults for fields the record does not hold. The audit log is the exception: it always shows what was actually stored at the time.</td></tr>
+<tr><td>3</td><td>Must filters match defaults?</td><td>Yes. While records still lack the value, a search that the default would satisfy also matches them. This works on both search paths. With many records left it scans. With few left it uses the job's list (0.45 ms against 98.6 ms measured). After the job ends, the stored values already match.</td></tr>
+<tr><td>4</td><td>Uniqueness on stored or effective values?</td><td>Stored values. A unique field may not have a default, so the two can never differ.</td></tr>
+<tr><td>5</td><td>Other change types?</td><td>Unchanged, except that "make an existing field required" is allowed when it has a default (the job fills it in). Removing a field, narrowing a list of allowed values, and adding a required field with no default stay refused.</td></tr>
+</table>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Result</th><th>Why</th></tr>
+<tr><td><b>A.</b> Job through the write path, one record per step, plus searches that match defaults while it runs</td><td class="ok">Recommended</td><td>Correct from the moment of publish. Live edits slowed by 1.7% in the test.</td></tr>
+<tr><td>A, first draft. The same job locking 100 records at a time</td><td class="bad">Rejected in review</td><td>Live edits waited for the whole group: up to 416% slower, and 73 failed saves. One bad record could stall the job forever.</td></tr>
+<tr><td>B. Never write the value. Every search computes defaults forever</td><td class="bad">Rejected</td><td>Every search pays forever and cannot use the indexes. The default logic would be copied into the database's own code.</td></tr>
+<tr><td>C. One bulk database update per tenant</td><td class="bad">Rejected</td><td>It skips the checks, the version number and the audit log, which the platform requires for every write.</td></tr>
+<tr><td>D. Records catch up only when edited</td><td class="bad">Rejected</td><td>That is today's bug. Records nobody edits never catch up.</td></tr>
+<tr><td>E. Refuse searches on the field while the job runs</td><td class="bad">Rejected</td><td>Safe but unusable for hours on large types.</td></tr>
+</table>
+
+<h2>Accepted risks (proposed)</h2>
+<table>
+<tr><th>Risk</th><th>Owner</th><th>Look again when</th></tr>
+<tr><td>Write burst on large types: about 400 MB of database log per 100k records (measured). The full 100k run of the new design is not yet measured.</td><td>Postgres specialist</td><td>100k records take more than 30 minutes, or live writes slow by more than 25%</td></tr>
+<tr><td>A record's version changes while its "last updated" time does not</td><td>Solution Architect</td><td>An integration relies on the two always moving together</td></tr>
+<tr><td>One "reload" prompt per open record</td><td>Solution Architect</td><td>Support reports it, or the embed SDK does not reload on its own</td></tr>
+<tr><td>Search speed on the defaulted field during the job depends on the switch point between the two search shapes</td><td>Technical Architect</td><td>Either shape exceeds 150 ms at 400k records</td></tr>
+<tr><td>Sort order is off for not-yet-updated records during the job</td><td>Solution Architect</td><td>Any tenant-visible report</td></tr>
+<tr><td>Records that fail checks stay without the stored value (searches stay correct and fast)</td><td>Technical Lead</td><td>Any type stuck more than 7 days (needs a retry button, open question 4)</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<ul>
+<li>The bug in code: reads fill in defaults (<code>internal/server/records.go:247-252</code>, <code>records_list.go:453</code>). The search filter reads only stored data (<code>records_list.go:216</code>). The uniqueness check reads only stored data (<code>internal/records/store/unique.go:65</code>).</li>
+<li>Normal edits already fill in defaults and move the record to the current version (<code>internal/records/pipeline/pipeline.go:758-821</code>). The job reuses this.</li>
+<li>Every edit today starts "on updated" workflows (<code>eventsink.go:88-130</code>). That is why the job's writes must not count as events.</li>
+<li>Postgres spike (round 1, 100k-record type in 10 tenants): about 4 KB of database log per record at every group size. The "missing value" search took 98.6 ms when only 34 records were left, and 0.45 ms using the job's list.</li>
+<li>Technical Architect spike (round 1, real write path): locking 100 records at a time slowed live edits by 416% at 100k. One record per step slowed them by 1.7% at 20k. Rewriting "last updated" made a client paging through the list miss 10% of records. The worker role cannot lock the record-type table (permission denied), so the design no longer locks it.</li>
+</ul>
+
+<h2>Still open</h2>
+<ol>
+<li><b>Technical Lead:</b> ship a retry button for failed records now, or later? This is decided at the delivery-cost step.</li>
+<li><b>Measurement:</b> the full 100,000-record run of the one-record-per-step design, and whether the job fits in one workflow history (estimated 8,000 events, against a 51,200 limit).</li>
+</ol>
+
+<p class="muted">Invariants checked against ADR-001 §1 (I1–I9). The project description defines none, so the check is incomplete if the project is meant to have its own list.</p>
+</body>
+</html>

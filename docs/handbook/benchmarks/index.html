@@ -348,6 +348,43 @@
 </tr>
 </tbody>
 </table>
+<h3 id="schema-backfill-adr-009">Schema backfill (ADR-009)</h3>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Threshold</th>
+<th>Latest result</th>
+<th>Verdict</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Host class</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live-write p95 during a schema backfill</td>
+<td>≤ +25% over baseline (4 live writers, 20 ms cadence, pause 0)</td>
+<td>+1.7% at 20k records (48.3 → 49.1 ms), one transaction per record. 100k not yet run. Spike on main ecedb2e9 plus PR #711 head 5aa2973f, archived in docs/adr/ADR-009/spikes/pipeline/r1. Only the 20k run is measured; the 100k run is CI-12 in ADR-009</td>
+<td><strong>met</strong></td>
+<td>2026-11-15</td>
+<td><code>ecedb2e9</code></td>
+<td>Docker Desktop/WSL2, 16 vCPU, postgres:16.10</td>
+<td><a href="../../../docs/budgets.md#schema-backfill-adr-009">source</a></td>
+</tr>
+<tr>
+<td>Schema backfill cost per record</td>
+<td>None set: report-only</td>
+<td>no recorded result. No threshold yet. The round-1 spikes measured 7.3 ms and 4.0–4.1 KB WAL per record (docs/adr/ADR-009/spikes)</td>
+<td><strong>no result yet</strong></td>
+<td>-</td>
+<td>-</td>
+<td>None</td>
+<td><a href="../../../docs/budgets.md#schema-backfill-adr-009">source</a></td>
+</tr>
+</tbody>
+</table>
 <h2 id="where-each-number-comes-from">Where each number comes from</h2>
 <table>
 <thead>
@@ -450,6 +487,16 @@
 <td>Worker pipeline pool</td>
 <td>Worker pools vs. <code>nava_worker</code> PgBouncer pool</td>
 <td>Principal Software Engineer</td>
+</tr>
+<tr>
+<td>Schema backfill (ADR-009)</td>
+<td>Live-write p95 during a schema backfill</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+</tr>
+<tr>
+<td>Schema backfill (ADR-009)</td>
+<td>Schema backfill cost per record</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
 </tr>
 </tbody>
 </table>
