@@ -71,13 +71,13 @@ func TestUncoercedValueIsCountedNotRaised(t *testing.T) {
 	if err := e.super.QueryRow(ctx, `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, f.id, entityKey).Scan(&def); err != nil {
 		t.Fatal(err)
 	}
-	// title and tags are flagged as text (P7-04 will write these rows on
-	// publish). A title over 2,000 bytes does not coerce: it would not fit
-	// the value index.
-	for i, key := range []string{"title", "tags"} {
-		mustExec(t, e.super, `INSERT INTO record_index_fields (tenant_id, id, entity_definition_id, field_key, value_type, state, requested_version)
-			VALUES ($1, $2, $3, $4, 'text', 'ready', 1)`, f.id, uuid.NewSHA1(def, []byte{byte(i)}), def, key)
+	// title and tags are flagged as text. Create (P7-04) wrote their registry
+	// rows as backfilling; mark them ready, as the backfill would. A title over
+	// 2,000 bytes does not coerce: it would not fit the value index.
+	if n := count(t, e.super, `SELECT count(*) FROM record_index_fields WHERE entity_definition_id = $1 AND value_type = 'text'`, def); n != 2 {
+		t.Fatalf("registry rows after create = %d, want 2 (title, tags)", n)
 	}
+	mustExec(t, e.super, `UPDATE record_index_fields SET state = 'ready' WHERE tenant_id = $1 AND entity_definition_id = $2`, f.id, def)
 
 	reader := sdkmetric.NewManualReader()
 	m, err := pipeline.NewFieldIndexMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))

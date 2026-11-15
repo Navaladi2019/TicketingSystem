@@ -114,6 +114,11 @@ const InterpreterSignalKind = "nava.interpreter.signal"
 // (ADR-001 A6.3).
 const SealKind = "audit.seal"
 
+// FieldIndexBackfillKind is the workflow type of the field-index backfill
+// (ADR-006 D10, P7-04). Its starts are not tied to a record and go through
+// EnqueueFieldIndexBackfill only.
+const FieldIndexBackfillKind = "field_index.backfill"
+
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
 // comes from, it holds references only (CI-7). OutboxID is the id the
@@ -640,6 +645,13 @@ func validate(e Entry) (json.RawMessage, error) {
 	if strings.HasPrefix(e.DedupeKey, sealDedupePrefix) {
 		return nil, invalid("dedupe keys starting %q are EnqueueSeal's", sealDedupePrefix)
 	}
+	// A backfill is not tied to a record, so it has its own entry point. The
+	// kind is guarded here, not in notOwnEntryPointStart, whose rows the
+	// handbook build reads as the closed list of registered workflow kinds;
+	// the worker registers this one in P7-05.
+	if e.Kind == FieldIndexBackfillKind {
+		return nil, invalid("a %s start goes through EnqueueFieldIndexBackfill", FieldIndexBackfillKind)
+	}
 	if e.RecordID == uuid.Nil {
 		return nil, invalid("no record id")
 	}
@@ -676,9 +688,10 @@ func validate(e Entry) (json.RawMessage, error) {
 //
 //nolint:gochecknoglobals // fixed table, read only
 var kindPayloadKeys = map[string][]string{
-	InterpreterKind:       {"definition_version_id", "record_id"},
-	InterpreterSignalKind: {"signal"},
-	SealKind:              {},
+	InterpreterKind:        {"definition_version_id", "record_id"},
+	InterpreterSignalKind:  {"signal"},
+	SealKind:               {},
+	FieldIndexBackfillKind: {"tenant_id", "field_id"},
 }
 
 // ValidateKindPayload is ValidatePayload plus the per-kind allow-list
@@ -777,4 +790,62 @@ func traceparent(ctx context.Context) *string {
 		return nil
 	}
 	return &tp
+}
+
+// FieldIndexBackfillDedupeKey is the dedupe_key of the backfill start row for
+// field fieldID asked for by entity definition version requestedVersion.
+func FieldIndexBackfillDedupeKey(fieldID uuid.UUID, requestedVersion int) string {
+	return fmt.Sprintf("%s:%s:%d", FieldIndexBackfillKind, fieldID, requestedVersion)
+}
+
+// EnqueueFieldIndexBackfill writes the start row of a field-index backfill
+// for the registry row fieldID in tx's tenant and returns its id (ADR-006
+// D10, P7-04). The publish transaction calls it once per newly flagged field.
+//
+// The row is not tied to a record: it has no workflow_ref, target_key =
+// field_index.backfill:<own id>, target_seq = requestedVersion, causation_id
+// = its own id at depth 0 (a backfill starts no cascade), and the payload is
+// {tenant_id, field_id}: references only. requestedVersion is not in the
+// payload because outbox_payload_check admits only UUID values; the workflow
+// reads it from the registry row, and it is part of the dedupe_key, so a
+// retry of the same publish returns the row it wrote and nothing more.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueFieldIndexBackfill(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID, requestedVersion int) (uuid.UUID, error) {
+	if fieldID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("%w: no field id", ErrInvalidEntry)
+	}
+	if requestedVersion < 1 || requestedVersion > 32767 {
+		return uuid.Nil, fmt.Errorf("%w: requested version %d out of range", ErrInvalidEntry, requestedVersion)
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: %w", err)
+	}
+	payload, err := json.Marshal(map[string]string{"tenant_id": tenant.String(), "field_id": fieldID.String()})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: encode payload: %w", err)
+	}
+	if err := ValidateKindPayload(FieldIndexBackfillKind, payload); err != nil {
+		return uuid.Nil, err
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+	}
+	dedupe := FieldIndexBackfillDedupeKey(fieldID, requestedVersion)
+	var got uuid.UUID
+	err = tx.QueryRow(ctx, insertSQL, id, tenant, FieldIndexBackfillKind, 1, dedupe,
+		FieldIndexBackfillKind+":"+id.String(), int64(requestedVersion), id, 0, string(payload), traceparent(ctx)).Scan(&got)
+	if err == nil {
+		return got, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, fmt.Errorf("outbox: insert field index backfill row: %w", err)
+	}
+	var existing uuid.UUID
+	if err := tx.QueryRow(ctx, dedupeLookupSQL, dedupe).Scan(&existing); err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
+	}
+	return existing, nil
 }
