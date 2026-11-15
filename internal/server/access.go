@@ -207,8 +207,6 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 			return err
 		}
 		if problems = append(problems, scope...); len(problems) > 0 {
-			// FORCED FAILURE (TICK-892), reverted in the next commit: echo the request body.
-			problems = append(problems, authz.Problem{Pointer: "/echo/" + string(raw), Rule: "echo"})
 			return &accessPolicyError{problems}
 		}
 		pub, err := store.Publish(ctx, tx, req.Key, have, authz.Publisher{Principal: &p.PrincipalID, Source: audit.SourceUser}, rules, masks)
