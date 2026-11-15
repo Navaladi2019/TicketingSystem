@@ -27,8 +27,8 @@ owner: Technical Lead
 |---|---|
 | **D-10-1** | **S29 waits for S21 (TICK-739) and S22 (TICK-740) merged into `main`**, the first option the ADR's sequencing note allows. It reuses `fieldindex.Barrier` and the D10 pause controller as S21 builds them, and adds D12 to the side-table filter compile in `internal/records/store/list.go` that S22 finishes. It also waits for **S12** (TICK-338) if S12 has opened by then (shared `internal/records/pipeline`, migrations, grants, isolation registry), and for S23 or S19 if either is open at that point (story independence). **If S29 and S23 are ready at the same moment, S29 goes first**: it fixes a wrong answer tenants get today, S23 adds a capability. *Sequencing call, not a priority call: if the human wants embedding first, S23 goes first and S29 waits; nothing else here changes.* |
 | **D-10-2** | **D12 is built on the side-table path only.** S22 (TICK-752) deletes the JSONB data-filter path, and after it an unflagged data field answers 400 `field_not_filterable`, so no other data-filter path exists. CI-7's "JSONB path" variant is covered by S22's acceptance check (no JSONB filter compile in non-test code). *Trigger:* if S22's removal is cut or reverted before S29 starts, TICK-924 also covers the JSONB path and its body is amended first. |
-| **D-10-3** | **OQ-4 (`backfill:retry` endpoint) is deferred out of v1.** A `failed_records` window closes with the next default-adding publish (D9). A retry cannot help a record that still fails validation, and a record fixed by a normal edit already holds the default (updates apply current defaults). TICK-921 adds the gauge `nava_schema_backfill_failed_records_oldest_seconds` so R6's trigger is observable. *Trigger (R6):* any type more than 7 days in `failed_records`. Owner: Technical Lead. |
-| **D-10-4** | **The "4 tenants at once per worker pool" cap is a worker setting, not a query.** Page activities run on task queue `schema-backfill`, whose worker sets `MaxConcurrentActivityExecutionSize` from `NAVA_SCHEMA_BACKFILL_CONCURRENCY` (default 4). Counting other tenants' running jobs would need a cross-tenant read, which RLS forbids and this plan will not add. With N worker replicas the cap is 4×N; TICK-927 tunes it. "One job per tenant at a time" is checked inside the tenant, under RLS, at admission (TICK-921). |
+| **D-10-3** | **OQ-4 (`backfill:retry` endpoint) is deferred out of v1.** A `failed_records` window closes with the next default-adding publish (D9). A retry cannot help a record that still fails validation, and a record fixed by a normal edit already holds the default (updates apply current defaults). TICK-921 makes R6's trigger fire durably and in-tenant: a job that ends `failed_records` sleeps on a 7-day Temporal timer, then re-reads its own row; if it is still `failed_records` and newest for its type, it increments `nava_schema_backfill_r6_tripped_total` and logs one WARN line (tenant id, type key, version). No gauge and no cross-tenant read (Solution Architect's CHANGES). *Trigger (R6):* any type more than 7 days in `failed_records`. Owner: Technical Lead. |
+| **D-10-4** | **The "4 tenants at once per worker pool" cap is a worker setting, not a query.** Page activities run on task queue `schema-backfill`, whose worker sets `MaxConcurrentActivityExecutionSize` from `NAVA_SCHEMA_BACKFILL_CONCURRENCY` (default 4). Counting other tenants' running jobs would need a cross-tenant read, which RLS forbids and this plan will not add. The fill activity, the heaviest statement, runs on the same queue so the cap covers it. ADR D7 says 4 per **pool**; this setting caps per **replica**, so with N replicas the effective cap is 4×N. Accepted, because it is a tuning value either way: TICK-927 records the deployed replica count and the effective cap in `docs/budgets.md` next to the CI-12 result. "One job per tenant at a time" is enforced by the partial unique index `schema_backfills_one_active_per_tenant` (TICK-916): the `pending → filling` UPDATE is the admission, and a `23505` means stay `pending` and retry on a timer (TICK-921). No read-then-decide check, which would race under READ COMMITTED. |
 | **D-10-5** | **S29 sits directly under Epic 04 (TICK-7)**, like S8, with no feature: it is one story closing that epic's last gap. Epic 04 can close when S29 is accepted. |
 | **D-10-6** | **D11 surfaces today are four**: single read, list, PATCH response (`internal/server/records*.go`) and the workflow `RecordReader` (`internal/workflow/interp`). GraphQL and the embed SDK do not exist yet. TICK-923 adds one helper and an architecture test that refuses any other `ApplyDefaults` caller outside the pipeline, so future surfaces (S26 widget, GraphQL, export) inherit D11 without a note on each. |
 | **D-10-7** | **The rollout migration (D15) reports skipped `default` + `x-nava-unique` types as `RAISE NOTICE` lines** (tenant id and type key only) in the deploy log, which the Technical Lead reads at the first deploy. Rollout jobs have `causation_audit_id = NULL` (no publish caused them). |
@@ -135,7 +135,7 @@ Before cutting `TICK-915/schema-backfill` the Technical Lead re-checks that no o
 | D4 one audit entry per record; start and finish entries | TICK-917, TICK-920 |
 | D5 `version` +1, `schema_version`, `updated_at` kept | TICK-917 (CI-2); `api/paths/records.yaml` text TICK-922 |
 | D6 no workflows, signals or outbox | TICK-917 (CI-2) |
-| D7 barrier, one-tx fill + flip, pages, per-record tx, failures, pause, states | TICK-920 (CI-2, 4, 6, 11); per tenant and cap TICK-921 (D-10-4) |
+| D7 barrier, one-tx fill + flip, pages, per-record tx, failures, pause, states | TICK-920 (CI-2, 4, 6, 11); one active job per tenant: index TICK-916, admission TICK-921; cap TICK-921, recorded by TICK-927 (D-10-4) |
 | D8 supersede, no lock, no new grant | TICK-921 (CI-5) |
 | D9 poison records never block | TICK-920 (CI-6), TICK-924 (failures branch); OQ-4 D-10-3 |
 | D10 `backfill` object and failures route | TICK-922 |
@@ -148,7 +148,7 @@ Before cutting `TICK-915/schema-backfill` the Technical Lead re-checks that no o
 | CI-3 end to end | TICK-926 |
 | CI-12, R1, R5, R9 | TICK-927 (D-10-9) |
 | R2, R4, R7, R8 (Solution Architect), R3 (Technical Architect) | no task; triggers in the ADR. R3 is measured by S21's TICK-747 at 400k |
-| R6 | D-10-3 gauge in TICK-921 |
+| R6 | D-10-3 durable 7-day check and counter in TICK-921 |
 | Handbook pages (metadata engine, write pipeline, ADR-006 filters) | TICK-929 |
 | ADR handbook summary page (missing from PR #711) | TICK-930 (Solution Architect, `todo` now) |
 
@@ -156,7 +156,7 @@ Before cutting `TICK-915/schema-backfill` the Technical Lead re-checks that no o
 
 | Cut | Why | Trigger to revisit | Owner |
 |---|---|---|---|
-| `backfill:retry` endpoint (OQ-4) | The next default-adding publish closes the window; retrying a still-invalid record fails again (D-10-3) | R6: a type > 7 days in `failed_records` | Technical Lead |
+| `backfill:retry` endpoint (OQ-4) | The next default-adding publish closes the window; retrying a still-invalid record fails again (D-10-3) | R6: `nava_schema_backfill_r6_tripped_total` increments (a type still newest and `failed_records` after 7 days) | Technical Lead |
 | D12 on the JSONB filter path | S22 deletes that path (D-10-2) | S22's removal cut or reverted | Technical Lead |
 | Building S21's barrier and pacer separately so S29 can start now | It doubles shared code and S21 is already in progress (D-10-1) | S21 or S22 slips by more than two weeks with S29 ready | Technical Lead → CTO |
 
