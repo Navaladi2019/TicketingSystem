@@ -62,17 +62,25 @@ Bruno folder: `docs/acceptance/guide/bruno/S28/` (generated from `build/collecti
 
 **Reading the total.** 1.4 minutes is far below the 8 h target, but it is the time of an agent that sends a request right after reading a page. It shows the handbook path works end to end, with one platform-staff step. It does not show how long a person takes. The runner's workflow had no timer, so the route took 0.16 s; the handbook example's one-minute timer would add a minute.
 
-### Run 2: acceptance run
+### Run 2: acceptance run (agent proxy)
+
+- **Runner:** `agent proxy`, a second fresh subagent started by the Technical Lead (TICK-885), given only the kit's "How to try" text, the handbook, the Bruno collection and the stack URLs.
+- **Date:** 2026-11-15.
+- **Commit:** branch `TICK-885/s28-handbook` at `89cbffee` (story branch `TICK-879/first-routed-record` at `fa867b69` plus the handbook fixes for F2 to F7). So this run read the fixed tour.
+- **Stack:** fresh local compose stack (`docker compose build`, `docker compose down -v`, `docker compose up --wait`), `NAVA_GROUPSYNC_INTERVAL=15s`, tunnels up. No `seed.sh`.
+- **What it published:** domain `x1a-c5d08442.test`, tenant `48422df8-4ba1-5530-9e42-501370756f2f`; `incident` version 2 from `docs/handbook/examples/incident.json` (`compat: compatible`); workflow `x1a_route` version 1 (`record.created` on `incident`, a one-minute `timer`, then `update_record` sets `state` to `in_progress`); record `INC0000001`, created 10:18:46.333Z. The `source: workflow` history entry is at `2026-11-15T10:19:46.598Z`.
 
 | Step | Start | End | Minutes | Help used | Blocker |
 |---|---|---|---|---|---|
-| 1 Onboard | | | | | |
-| 2 Sign in | | | | | |
-| 3 Type from an example | | | | | |
-| 4 Workflow | | | | | |
-| 5 Record | | | | | |
-| 6 Routed | | | | | |
-| **Total** | | | | | |
+| 1 Onboard | 10:17:02 | 10:17:08 | 0.1 | Tour index "Before you start", tour step 1 | none |
+| 2 Sign in | 10:17:16 | 10:17:51 | 0.6 | **Needed help: platform staff** (stand-in for the company login, Bruno S28.3–S28.5 copied to curl, with `lib/nava.js` `kcAdmin()` and `environments/local.bru`); tour step 2 "A newly onboarded tenant's first admin"; S28.6, S28.7 | F1. `/me` showed `/admins` on the first call, so no `401` (F2 did not occur) |
+| 3 Type from an example | 10:17:58 | 10:18:16 | 0.3 | Tour step 6 "An example whose type the tenant already has", examples README | one `400` first (F8) |
+| 4 Workflow | 10:18:21 | 10:18:31 | 0.2 | Tour step 8 | none (F9) |
+| 5 Record | 10:18:37 | 10:18:46 | 0.2 | Tour step 9; the fields from the step-3 response | none (F10) |
+| 6 Routed | 10:18:56 | 10:19:51 | 0.9 | Tour steps 8 and 9 | none; routed about 60 s after the create (the timer) |
+| **Total** (onboarding `201` to the routed record) | 10:17:08 | 10:19:51 | **2.7** | | |
+
+**Reading the total.** 2.7 minutes, of which about one minute is the workflow's own timer. Like run 1 it is an agent's time, not a person's. The F3 `409` and the F4 empty token did not recur: the fixed tour got the runner past them.
 
 ### Run 3: human (if the human does one)
 
@@ -88,7 +96,7 @@ Bruno folder: `docs/acceptance/guide/bruno/S28/` (generated from `build/collecti
 
 ## Findings, follow-ups for the Technical Lead
 
-Ordered by impact on M-X1a. F1 is the only step that needed help.
+Ordered by impact on M-X1a. F1 is the only step that needed help, in both runs. F2 to F7 are from run 1 and fixed in the handbook (TICK-885); F8 to F10 are from run 2.
 
 | # | Severity | Finding | Where | Follow-up |
 |---|---|---|---|---|
@@ -99,3 +107,6 @@ Ordered by impact on M-X1a. F1 is the only step that needed help.
 | F5 | Spec drift (handbook) | Tour step 8 says "create an incident as an agent (step 9)"; a newly onboarded tenant has no agent user. The admin can create it (the runner did). | `docs/handbook/src/tour/08-workflows.md` | Say "as the admin, or an agent" and note that a new tenant has only its admin. |
 | F6 | Preference | Tour step 8 says it "was not re-run against a tour stack". This run confirms the publish response and the `source: workflow` history entry on a new tenant. | `docs/handbook/src/tour/08-workflows.md` | Drop the caveat when the page is next re-run. |
 | F7 | Missing test (observability of the stop condition) | The history entry says `source: workflow` but not which workflow or version wrote it. The clock-stop rule "from that admin's workflow" holds here only because the new tenant has one definition. | `RecordChange` in `api/openapi.bundled.yaml` | Not a blocker for M-X1a. If tenants with several workflows are measured later, the history would need the definition key. |
+| F8 | Spec drift (handbook) | Tour step 6's new command for publishing `incident.json` as the next version used `jq`, which "Before you start" does not list; with no `jq` the shell wrote an empty file and the call answered `400 validation_failed` with only `/body`. Found in run 2. | `docs/handbook/src/tour/06-create-an-entity-type.md` | Fixed in TICK-885: the page says the line needs `jq`, how to do it without, and what the `400` means; the file is written to the working directory, not `/tmp`. |
+| F9 | Preference (kit) | The kit's step 4 ("on `record.created`, an `update_record` step that sets `state`") reads as no timer; the handbook example it points to has a one-minute timer. Run 2 kept the timer, so its step 6 includes about a minute of designed wait; run 1 had none. | `docs/acceptance/s28-first-routed-record.md` step 4, tour step 8 | Fixed in TICK-885 on the tour side: tour step 8 says the timer is optional and what each choice does. Totals are comparable only with the timer noted. |
+| F10 | Spec drift (handbook) | Tour step 9 shows only a `loan_application` create; tour step 8 sends the reader there to create an incident, so the runner read the required fields from the schema. Also the stand-in sign-in has no curl version, only Bruno requests with pre-request scripts (part of F1). | `docs/handbook/src/tour/08-workflows.md`, `09-create-and-work-with-records.md` | Fixed in TICK-885: tour step 8 has the incident create. The curl stand-in stays with F1. |

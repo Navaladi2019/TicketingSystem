@@ -2,8 +2,9 @@
 title: "2. Sign in"
 section: tour
 status: delivered
-sources: [docs/acceptance/s3-tenant-signin.md, docs/acceptance/guide/bruno/S3/S3-4.bru, docs/acceptance/guide/bruno/S3/S3-5.bru]
-adrs: [ADR-001]
+sources: [docs/acceptance/s3-tenant-signin.md, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S3/S3-4.bru, docs/acceptance/guide/bruno/S3/S3-5.bru]
+adrs: [ADR-001, ADR-008]
+stories: [S28]
 operations: [getMe]
 tables: [tenant_identity_binding]
 ---
@@ -47,6 +48,13 @@ The token's content (trimmed; `organization` is how Keycloak names the customer)
 
 With no token: `401 invalid_token`. With the header naming tenant B: the answer is still tenant A's, and the header is ignored.
 
+## A newly onboarded tenant's first admin
+
+The demo users above come from `seed.sh`. The first admin of a tenant you onboarded in step 1 is different in two ways.
+
+- **The local stack has no company login, so this admin cannot sign in on their own.** A real admin signs in through the company login named at onboarding. The local stack has none, and onboarding refuses private addresses, so there is nothing to sign in through. The S28 kit has a stand-in: Bruno `S28.3` to `S28.5` create the user the company login would create, using the Keycloak master admin, and `S28.6` signs in with the password flow. Using the stand-in is **platform-staff help**, not something a customer admin can do. See [the S28 kit](../../../acceptance/s28-first-routed-record.md) (finding F1).
+- **`/me` answers `401 tenant_unresolved` until group sync has run.** The admin's invite is turned into membership of `/admins` by the next group-sync cycle (step 4): up to 5 minutes by default, 15 s with `NAVA_GROUPSYNC_INTERVAL=15s`. Until then a valid token gets `401 tenant_unresolved`. Wait one cycle, sign in again and repeat the call. Do not run `seed.sh`: it seeds the demo tenants, not yours.
+
 ## What happens behind it
 
 The platform checks the token's signature, issuer and audience, then looks up the token's organisation in its own table (`tenant_identity_binding`) to find the tenant. Groups are read from the platform's database, not from the token. A token that names no organisation, or two, is refused. Details: [token validation](../security/01-token.md) and [tenant resolution](../security/02-tenant-resolution.md).
@@ -54,4 +62,5 @@ The platform checks the token's signature, issuer and audience, then looks up th
 ## Not built yet
 
 - There is no sign-in screen. The password flow used here is for the local stack only; a real tenant signs in through its own company login.
+- The local stack has no stand-in company login for a newly onboarded tenant. Its first admin signs in only with platform-staff help (the S28 kit's stand-in). We revisit this when a test company login is added to the stack or a human timed run is planned.
 - There is no way to revoke a token before it expires except disabling the user, which the platform notices within one group-sync cycle (step 4).

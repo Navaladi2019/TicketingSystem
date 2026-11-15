@@ -247,6 +247,15 @@ stories:
     verdict_comment: "Acceptance kit s27-competitive-gate.md (TICK-882), status ready"
     evidence:
       - docs/acceptance/s27-competitive-gate.md
+  - id: S28
+    issue: TICK-879
+    title: A new tenant's time to its first workflow-routed ticket is measured (ADR-008 X1a)
+    status: in-progress
+    bruno:
+      - S28
+    evidence:
+      - docs/quality/x1a-first-routed-record.md
+      - docs/acceptance/s28-first-routed-record.md
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story
