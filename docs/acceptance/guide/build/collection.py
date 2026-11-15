@@ -132,12 +132,14 @@ module.exports = ({ test, expect, res, bru } = {}) => {
       }
     },
     // A password-grant token from the nava realm (or another realm).
-    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm') } = {}) {
+    // timeout (ms), when given, bounds the call (a poll loop must never hang).
+    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm'), timeout } = {}) {
       return N.send({
         url: N.url(`{{keycloak_url}}/realms/${realm}/protocol/openid-connect/token`),
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         data: N.form({ grant_type: 'password', client_id: client, scope, username: user, password }),
+        ...(timeout ? { timeout } : {}),
       });
     },
     // A Keycloak master-realm admin token in kc_admin_token. It lives 60 s, so
@@ -3456,9 +3458,10 @@ const limit = Number(N.v('s28_place_limit_s') || 360) * 1000;
 const t0 = Date.now();
 for (;;) {
   // A token lives 5 min, shorter than one default cycle: sign in again each round.
-  const t = await N.token(N.v('s28_admin_email'), N.v('s28_admin_password'));
+  // Each call is bounded (15 s); a timeout counts as "not yet", the loop's own bound decides.
+  const t = await N.token(N.v('s28_admin_email'), N.v('s28_admin_password'), { timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
   if (t.status === 200) bru.setVar('s28_admin_token', t.data.access_token);
-  const r = await N.send({ url: N.url('{{core_url}}/api/v1/me'), method: 'GET', headers: """ + admin_hdr + """ });
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/me'), method: 'GET', headers: """ + admin_hdr + """, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
   const paths = r.status === 200 ? (r.data.group_paths || []).map(g => g.path) : [];
   if (paths.includes('/admins') || Date.now() - t0 > limit) break;
   await bru.sleep(2000);
@@ -3470,7 +3473,7 @@ bru.setVar('s28_placed_after_s', String(Math.round((Date.now() - t0) / 1000)));"
 // No record (S28.11 failed): one read, no wait. Otherwise until 300 s after the create.
 const t0 = Number(bru.getVar('s28_rec_at')) || 0;
 for (;;) {
-  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: """ + admin_hdr + """ });
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: """ + admin_hdr + """, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
   if (!bru.getVar('s28_rec') || (r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 300 * 1000) break;
   await bru.sleep(1000);
 }

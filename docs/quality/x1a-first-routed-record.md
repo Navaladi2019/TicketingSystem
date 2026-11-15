@@ -19,7 +19,7 @@ Bruno folder: `docs/acceptance/guide/bruno/S28/` (generated from `build/collecti
 |---|---|---|---|
 | 1 | A newly onboarded tenant cannot reach a routed record at all: onboarding, the invite, group sync, the type publish, the workflow publish and the route do not compose for a tenant that is not seeded. | Bruno `S28.1`–`S28.13`, CI stack case `s28_first_routed_record` | end to end (stack) |
 | 2 | The handbook does not get a new admin through the path without help, so M-X1a is far over 8 h for a real customer. | The timed runs below; each finding is a follow-up | agent proxy, then human |
-| 3 | The route never happens and the kit hangs. | `S28.12` polls at most 300 s after the create, then fails; with no record it reads once and fails | end to end (stack) |
+| 3 | The route never happens and the kit hangs. | `S28.12` polls at most 300 s after the create, then fails; with no record it reads once and fails; every call inside the `S28.7` and `S28.12` loops is bounded at 15 s, and a timed-out call counts as "not yet" | end to end (stack) |
 | 4 | The first admin's token expires while group sync places them (token 5 min, default cycle 5 min). | `S28.7` signs in again each round, polls up to `s28_place_limit_s` (360 s) | end to end (stack) |
 
 ## Fixtures

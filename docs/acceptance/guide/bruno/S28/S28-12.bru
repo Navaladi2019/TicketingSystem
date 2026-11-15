@@ -19,7 +19,7 @@ script:pre-request {
   // No record (S28.11 failed): one read, no wait. Otherwise until 300 s after the create.
   const t0 = Number(bru.getVar('s28_rec_at')) || 0;
   for (;;) {
-    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('s28_admin_token') } });
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('s28_admin_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
     if (!bru.getVar('s28_rec') || (r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 300 * 1000) break;
     await bru.sleep(1000);
   }
