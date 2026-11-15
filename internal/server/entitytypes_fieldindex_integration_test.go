@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
@@ -406,5 +407,63 @@ func TestEnqueueFieldIndexBackfillReplayReturnsTheSameRow(t *testing.T) {
 	}
 	if rows := etBackfillRows(t, e, e.a.id); len(rows) != 2 {
 		t.Errorf("%d outbox rows, want 2 (version 2 once, version 3)", len(rows))
+	}
+}
+
+// failingTx fails every Exec whose SQL contains failOn, to reach the error
+// paths of the registry write that a healthy database never takes.
+type failingTx struct {
+	pgx.Tx
+	failOn string
+}
+
+func (f failingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(sql, f.failOn) {
+		return pgconn.CommandTag{}, errors.New("injected failure")
+	}
+	return f.Tx.Exec(ctx, sql, args...)
+}
+
+// A failed registry write fails the publish and leaves no version, registry
+// row or outbox row behind.
+func TestPublishFieldIndexWriteFailuresLeaveNothingBehind(t *testing.T) {
+	for _, tc := range []struct{ name, failOn, want string }{
+		{"quota lock", "pg_advisory_xact_lock", "lock field index quota"},
+		{"registry insert", "INSERT INTO record_index_fields", "insert field index registry row"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newETEnv(t)
+			etCreateIncident(t, e)
+			def := etDefinition(t, "incident", "INC")
+			def.Schema = json.RawMessage(etFlaggedProps(t, "region"))
+			var pubErr error
+			err := tenancy.InTenantTx(context.Background(), e.pool, e.a.id, func(tx pgx.Tx) error {
+				_, pubErr = entitytypes.Store{}.Publish(context.Background(), failingTx{tx, tc.failOn}, e.a.id,
+					entitytypes.PublishInput{Key: "incident", PublishedBy: e.a.admin.PrincipalID, Definition: def})
+				return pubErr
+			})
+			if err == nil || pubErr == nil || !strings.Contains(pubErr.Error(), tc.want) {
+				t.Fatalf("Publish = %v (tx %v), want an error containing %q", pubErr, err, tc.want)
+			}
+			etWantCounts(t, e, 1, 0)
+		})
+	}
+}
+
+// Outside InTenantTx the transaction has no tenant: the enqueue refuses and
+// writes no row.
+func TestEnqueueFieldIndexBackfillNeedsATenantTransaction(t *testing.T) {
+	e := newETEnv(t)
+	ctx := context.Background()
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := outbox.EnqueueFieldIndexBackfill(ctx, tx, uuid.New(), 2); err == nil {
+		t.Fatal("EnqueueFieldIndexBackfill without a tenant succeeded")
+	}
+	if n := len(etBackfillRows(t, e, e.a.id)); n != 0 {
+		t.Errorf("%d outbox rows, want 0", n)
 	}
 }
