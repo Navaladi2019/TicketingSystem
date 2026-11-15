@@ -58,13 +58,14 @@ tasks:
       - sh bench/acl-perf/run.sh
 
   lint:
-    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the duplicate-id check, then the upgrade-compatibility baseline against $BASE or origin/main (M-X2) (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
+    desc: Run golangci-lint, then the navalint analyzers (set_config outside internal/tenancy), then workflowcheck on internal/workflow (D-3-23), then the ADR-002-E1 nolint allow-list gate, then the decision-log index check, then the Competitive Gate check on docs/adr (CI-1..CI-4, tools/adrgate), then the duplicate-id check, then the upgrade-compatibility baseline against $BASE or origin/main (M-X2) (the OpenAPI regenerate-and-diff gate is check-generate, not lint)
     cmds:
       - golangci-lint run ./...
       - sh scripts/ci/navalint.sh
       - sh scripts/ci/workflowcheck.sh
       - sh scripts/ci/nolint-allowlist.sh
       - go run ./tools/docindex -check
+      - go run ./tools/adrgate
       - go run ./tools/dupids
       - go run ./internal/configsurface/cmd/compat
 
