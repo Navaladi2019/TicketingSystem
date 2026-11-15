@@ -2,9 +2,9 @@
 title: "8. Workflows"
 section: tour
 status: delivered
-sources: [docs/acceptance/guide/s11b.html, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go]
+sources: [docs/acceptance/guide/s11b.html, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S28/S28-13.bru, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go]
 adrs: [ADR-001, ADR-003, ADR-008]
-stories: [S11a, S11b, S27]
+stories: [S11a, S11b, S27, S28]
 tables: [outbox]
 packages: [internal/workflow/interp, cmd/nava-worker, internal/configsurface]
 ---
@@ -23,7 +23,7 @@ This is the demo the S11b acceptance kit publishes on the `incident` type, which
 
 ```sh
 curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Authorization: Bearer $ADMIN" \
   -H "Idempotency-Key: tour-s11b-demo-v1" \
   -H "Content-Type: application/json" \
   -d '{
@@ -38,15 +38,19 @@ curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
   }'
 ```
 
-Then create an incident as an agent (step 9) and read it again after a minute with `getRecord`, and its history with `getRecordHistory`.
+`$ADMIN` is the administrator's token from [the setup](index.md#before-you-start); on a tenant you onboarded yourself, use its first admin's token ([step 2](02-sign-in.md#a-newly-onboarded-tenants-first-admin)). On such a tenant `incident` is still version 1 unless you published a new version in step 6; either works.
+
+Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. Read it again after a minute with `getRecord`, and its history with `getRecordHistory`.
 
 ## What you see
 
-These are the checks the S11b kit makes (Bruno folder `S11b`, requests `S11b-18` and `S11b-24`); this page was not re-run against a tour stack.
+These are the checks the S11b kit makes (Bruno folder `S11b`, requests `S11b-18` and `S11b-24`). The S28 kit (Bruno `S28.10` to `S28.13`) publishes this same definition on a newly onboarded tenant and sees the same answers; it runs in CI as the stack case `s28_first_routed_record`.
 
 - The publish answers `201` with `current: true`, `entity: "incident"` and a server-assigned id for each step (`step_ids` has `wait`, `triage` and `done`).
 - About a minute after the create (the kit allows 60 to 180 s), the incident has `state: "in_progress"` and `version: 2`.
-- The history entry for version 2 has `source: workflow`.
+- The history entry for version 2 has `source: workflow`, `action: update`, `changed: ["/data/state"]` and no `actor_id`.
+
+The history says that *a* workflow made the change, not *which* one: there is no definition key or version on the entry. If the type has more than one published workflow, the history alone does not tell you which wrote the change; look the run up in the Temporal UI (namespace `nava`). The S28 timed run relies on a new tenant having one definition (finding F7).
 
 ## What happens behind it
 
@@ -74,3 +78,4 @@ What each failure line means: [Troubleshooting](../operations/troubleshooting.md
 - Disabling or deleting a definition. The kit retires its demo by publishing a version that waits a day and writes nothing.
 - An API to send a signal (such as `approve`) to a running workflow, so approvals are not a product feature yet.
 - Conditions on state changes.
+- The record history does not name the workflow or version that wrote a change.

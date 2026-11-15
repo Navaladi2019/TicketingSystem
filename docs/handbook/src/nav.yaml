@@ -29,7 +29,7 @@
     - page: tour/07-access-rules-and-masks.md
       label: "7. Access rules and masks"
     - page: tour/08-workflows.md
-      label: "8. Workflows (not built)"
+      label: "8. Workflows"
     - page: tour/09-create-and-work-with-records.md
       label: "9. Create and work with records"
     - page: tour/10-audit.md
@@ -265,6 +265,8 @@
             label: "Install the TypeScript SDK"
           - page: stories/s27.md
             label: "CI checks the Competitive Gate and the configuration surface"
+          - page: stories/s28.md
+            label: "Time to the first workflow-routed record (X1a)"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
