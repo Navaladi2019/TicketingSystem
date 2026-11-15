@@ -759,9 +759,36 @@ paths:
           content:
             application/problem+json:
               schema:
-                oneOf:
-                  - $ref: "#/components/schemas/ProblemFieldNotReady"
-                  - $ref: "#/components/schemas/Problem"
+                type: object
+                description: >
+                  The Problem of the 422 codes, spelled out so that `index_progress` can be added: it is present on `field_not_ready` only, the registry's whole percentage and the only thing that body says about the field.
+
+                required: [type, title, status, code, detail, instance]
+                properties:
+                  type:
+                    type: string
+                    description: A URN naming the problem type, `urn:nava:problem:<code>`.
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                    description: Fixed text per code; never carries request input.
+                  instance:
+                    type: string
+                    description: "`urn:nava:request:<request id>`, the X-Request-Id of the response."
+                  errors:
+                    type: array
+                    description: Present on validation_failed. Never carries request input.
+                    items:
+                      $ref: "#/components/schemas/FieldError"
+                  index_progress:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
         "429":
           $ref: "#/components/responses/Problem"
         "500":
@@ -1042,29 +1069,6 @@ components:
           description: Present on validation_failed. Never carries request input.
           items:
             $ref: "#/components/schemas/FieldError"
-    ProblemFieldNotReady:
-      type: object
-      description: >
-        The 422 field_not_ready problem of a list filter on a field whose values are still being indexed (ADR-006 D6). `index_progress` is the registry's whole percentage and the only thing the body says about the field: no count, no pointer.
-
-      required: [type, title, status, code, detail, instance, index_progress]
-      properties:
-        type:
-          type: string
-        title:
-          type: string
-        status:
-          type: integer
-        code:
-          type: string
-        detail:
-          type: string
-        instance:
-          type: string
-        index_progress:
-          type: integer
-          minimum: 0
-          maximum: 100
     ProblemNoInstance:
       type: object
       description: >

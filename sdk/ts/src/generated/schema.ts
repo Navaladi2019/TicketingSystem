@@ -358,16 +358,6 @@ export interface components {
             /** @description Present on validation_failed. Never carries request input. */
             errors?: components["schemas"]["FieldError"][];
         };
-        /** @description The 422 field_not_ready problem of a list filter on a field whose values are still being indexed (ADR-006 D6). `index_progress` is the registry's whole percentage and the only thing the body says about the field: no count, no pointer. */
-        ProblemFieldNotReady: {
-            type: string;
-            title: string;
-            status: number;
-            code: string;
-            detail: string;
-            instance: string;
-            index_progress: number;
-        };
         /** @description A Problem without `instance`, for the 404 of a resource that may belong to another tenant: the body is identical for an unknown and a foreign resource (D-3-10). The request id is in the X-Request-Id header. */
         ProblemNoInstance: {
             type: string;
@@ -1258,7 +1248,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemFieldNotReady"] | components["schemas"]["Problem"];
+                    "application/problem+json": {
+                        /** @description A URN naming the problem type, `urn:nava:problem:<code>`. */
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        /** @description Fixed text per code; never carries request input. */
+                        detail: string;
+                        /** @description `urn:nava:request:<request id>`, the X-Request-Id of the response. */
+                        instance: string;
+                        /** @description Present on validation_failed. Never carries request input. */
+                        errors?: components["schemas"]["FieldError"][];
+                        index_progress?: number;
+                    };
                 };
             };
             429: components["responses"]["Problem"];
