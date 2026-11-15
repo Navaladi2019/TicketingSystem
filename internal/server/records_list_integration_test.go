@@ -734,3 +734,65 @@ func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 		t.Errorf("error logs do not show the 57014 cancel: %s", got)
 	}
 }
+
+// I5 (TICK-912): a filter on a field's default matches the records that leave
+// the field out (v1 rows, v2 rows), not the ones holding null; items and
+// total are what GET shows.
+func TestListDataFilterOnDefaultMatchesAbsentField(t *testing.T) {
+	e := newRecEnv(t)
+	absent := e.mustCreateRec(t, "admin-a", "ticket", "df1", `{"short_description": "v1 absent"}`)
+	nulled := e.mustCreateRec(t, "admin-a", "ticket", "df2", `{"short_description": "v1 null"}`)
+	v2 := strings.Replace(recSchema, `"requester": {"type": "string", "format": "uuid"}`,
+		`"requester": {"type": "string", "format": "uuid"},
+    "priority": {"type": "string", "enum": ["low", "high"], "default": "low"}`, 1)
+	body := fmt.Sprintf(`{"definition": {"schema": %s,
+  "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
+  "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/ticket/versions", "admin-a", "df-pub", body); rec.Code != http.StatusCreated {
+		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
+	}
+	absent2 := e.mustCreateRec(t, "admin-a", "ticket", "df3", `{"short_description": "v2 absent"}`)
+	explicit := e.mustCreateRec(t, "admin-a", "ticket", "df4", `{"short_description": "v2 low", "priority": "low"}`)
+	high := e.mustCreateRec(t, "admin-a", "ticket", "df5", `{"short_description": "v2 high", "priority": "high"}`)
+	// The API refuses a null for an enum, so the row is written directly,
+	// with the audit trigger off for this one transaction.
+	tx, err := e.super.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context()) //nolint:errcheck
+	for _, q := range []string{"SET LOCAL session_replication_role = replica"} {
+		if _, err := tx.Exec(t.Context(), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(t.Context(), `UPDATE records SET data = data || '{"priority": null}'::jsonb WHERE tenant_id = $1 AND id = $2`, e.a.id, nulled.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// What GET shows for each record decides what the filter must return.
+	for _, r := range []recBody{absent, absent2, explicit} {
+		rec := e.do(t, http.MethodGet, "/api/v1/records/ticket/"+r.ID, "admin-a", "", "")
+		var g recBody
+		if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || g.Data["priority"] != "low" {
+			t.Fatalf("GET %s = %d %s, want priority low", r.ID, rec.Code, rec.Body)
+		}
+	}
+	p := e.mustList(t, "admin-a", "ticket", "filter[priority]=low&limit=200")
+	wantIDs(t, "priority=low", p.Items, absent, absent2, explicit)
+	if p.Total != 3 {
+		t.Errorf("total = %d, want 3", p.Total)
+	}
+	p = e.mustList(t, "admin-a", "ticket", "filter[priority][in]=high,low&limit=200")
+	wantIDs(t, "priority in", p.Items, absent, absent2, explicit, high)
+	if p.Total != 4 {
+		t.Errorf("in total = %d, want 4", p.Total)
+	}
+	p = e.mustList(t, "admin-a", "ticket", "filter[priority]=high&limit=200")
+	wantIDs(t, "priority=high", p.Items, high)
+	if p.Total != 1 {
+		t.Errorf("high total = %d, want 1", p.Total)
+	}
+}

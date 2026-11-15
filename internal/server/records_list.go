@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -60,6 +61,10 @@ type listFilter struct {
 	prop   string
 	col    string
 	values []any
+	// absentMatches is set for a data filter when one value equals the current
+	// version's default for prop: a record that leaves prop out is served with
+	// that default, so it matches too (I5). A present null does not.
+	absentMatches bool
 }
 
 // listPlan is a request resolved against one entity type version.
@@ -88,6 +93,7 @@ func listInvalid(pointer, rule string) *problemError {
 func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*listPlan, *problemError) {
 	types, fixed := def.PropertyTypes(), def.FixedColumns()
 	secret := def.SecretProperties()
+	defaults := def.ApplyDefaults(nil)
 	pl := &listPlan{sortProp: defaultSortField, sortCol: defaultSortField, desc: true, limit: defaultRecordsLimit}
 	if limit != nil {
 		pl.limit = *limit
@@ -128,6 +134,9 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 				return nil, listInvalid(ptr, "type")
 			}
 			f.values = append(f.values, v)
+			if d, has := defaults[prop]; has && f.col == "" && sameFilterValue(v, d) {
+				f.absentMatches = true
+			}
 		}
 		pl.filters = append(pl.filters, f)
 	}
@@ -185,6 +194,35 @@ func filterValue(col, prop, typ, raw string) (any, bool) {
 	return string(doc), err == nil
 }
 
+// sameFilterValue reports whether the filter document doc ({prop: v}, from
+// filterValue) holds the JSON value def. Numbers compare by value, as jsonb @>
+// does (1 and 1.0 are equal); other scalars compare exactly.
+func sameFilterValue(doc any, def any) bool {
+	s, ok := doc.(string)
+	if !ok {
+		return false
+	}
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil {
+		return false
+	}
+	for _, v := range m {
+		if a, ok := v.(json.Number); ok {
+			b, ok := def.(json.Number)
+			if !ok {
+				return false
+			}
+			ra, ok1 := new(big.Rat).SetString(a.String())
+			rb, ok2 := new(big.Rat).SetString(b.String())
+			return ok1 && ok2 && ra.Cmp(rb) == 0
+		}
+		return v == def
+	}
+	return false
+}
+
 // checkPlan is the masked-field gate for everything the request names.
 func checkPlan(pol *authz.Policy, p identity.Principal, pl *listPlan) error {
 	return maskedFieldError(authz.CheckQueryFields(pol, p, pl.fields()))
@@ -214,6 +252,9 @@ func (pl *listPlan) where(base int) (string, []any) {
 			ors := make([]string, 0, len(f.values))
 			for _, v := range f.values {
 				ors = append(ors, "r.data @> "+next(v, "jsonb"))
+			}
+			if f.absentMatches {
+				ors = append(ors, "NOT (r.data ? "+next(f.prop, "text")+")")
 			}
 			terms = append(terms, "("+strings.Join(ors, " OR ")+")")
 		case metadata.ColumnState:
