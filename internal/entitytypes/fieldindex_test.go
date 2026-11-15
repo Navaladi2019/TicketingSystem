@@ -67,3 +67,15 @@ func TestFieldPointerEscapes(t *testing.T) {
 		t.Fatalf("fieldPointer = %q", got)
 	}
 }
+
+func TestFieldIndexErrorMessages(t *testing.T) {
+	t.Parallel()
+	q := &IndexQuotaError{Scope: QuotaPerType, Limit: 5}
+	if got := q.Error(); got != "entitytypes: index_quota_exceeded: more than 5 filterable fields per type" {
+		t.Errorf("IndexQuotaError = %q", got)
+	}
+	b := &FieldIndexBusyError{Paths: []string{"/schema/properties/a", "/schema/properties/b"}}
+	if got := b.Error(); got != "entitytypes: field_index_busy at /schema/properties/a, /schema/properties/b" {
+		t.Errorf("FieldIndexBusyError = %q", got)
+	}
+}

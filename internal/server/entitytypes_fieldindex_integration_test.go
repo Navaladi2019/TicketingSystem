@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -374,5 +375,36 @@ func TestRegistryWriteAndPublishAuditEntryShareOneTransaction(t *testing.T) {
 	rows := etAuditRows(t, e)
 	if len(rows) != 2 || rows[1].Action != "publish" {
 		t.Errorf("audit entries = %+v, want the create then the publish", rows)
+	}
+}
+
+// A retry of the same enqueue returns the row it wrote and nothing more; a
+// later requested version is a new row.
+func TestEnqueueFieldIndexBackfillReplayReturnsTheSameRow(t *testing.T) {
+	e := newETEnv(t)
+	field := uuid.New()
+	var first, again, next uuid.UUID
+	err := tenancy.InTenantTx(context.Background(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		var err error
+		if first, err = outbox.EnqueueFieldIndexBackfill(context.Background(), tx, field, 2); err != nil {
+			return err
+		}
+		if again, err = outbox.EnqueueFieldIndexBackfill(context.Background(), tx, field, 2); err != nil {
+			return err
+		}
+		next, err = outbox.EnqueueFieldIndexBackfill(context.Background(), tx, field, 3)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != again {
+		t.Errorf("replay returned %s, want the first row %s", again, first)
+	}
+	if next == first {
+		t.Error("a later requested version returned the first row, want a new one")
+	}
+	if rows := etBackfillRows(t, e, e.a.id); len(rows) != 2 {
+		t.Errorf("%d outbox rows, want 2 (version 2 once, version 3)", len(rows))
 	}
 }

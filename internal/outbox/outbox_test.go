@@ -345,3 +345,21 @@ func TestGenericEnqueueRefusesFieldIndexBackfill(t *testing.T) {
 		t.Fatalf("EnqueueAtVersion of a backfill start = %v, want ErrInvalidEntry", err)
 	}
 }
+
+func TestEnqueueFieldIndexBackfillRefusesBadArgumentsBeforeAnyQuery(t *testing.T) {
+	cases := []struct {
+		name    string
+		field   uuid.UUID
+		version int
+	}{
+		{"nil field", uuid.Nil, 2},
+		{"version 0", uuid.New(), 0},
+		{"version 32768", uuid.New(), 32768},
+	}
+	for _, c := range cases {
+		// tx is nil: a query would panic.
+		if _, err := EnqueueFieldIndexBackfill(context.Background(), nil, c.field, c.version); !errors.Is(err, ErrInvalidEntry) {
+			t.Errorf("%s: err = %v, want ErrInvalidEntry", c.name, err)
+		}
+	}
+}
