@@ -79,7 +79,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,
 		// no events yet. S11b swaps the sink.
@@ -201,8 +201,11 @@ type handlers struct {
 	pool              *pgxpool.Pool
 	cursors           *cursor.Keyring
 	dataFilterTimeout time.Duration
-	store             entitytypes.Store
-	workflows         workflowdefs.Store
+	// listDataTerm replaces the list's data-filter term; nil in every
+	// production build (see listPlan.dataTerm).
+	listDataTerm func(arg string) string
+	store        entitytypes.Store
+	workflows    workflowdefs.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the

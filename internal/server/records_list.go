@@ -74,6 +74,10 @@ type listPlan struct {
 	sortCol  string
 	desc     bool
 	limit    int
+	// dataTerm renders one data-filter value whose JSON document is bound at
+	// arg; nil is containment, r.data @> arg. Only the I5 mutants set it
+	// (WithListDataTerm, integration builds only).
+	dataTerm func(arg string) string
 }
 
 // fields are the top-level names the plan reads, for CheckQueryFields.
@@ -251,7 +255,12 @@ func (pl *listPlan) where(base int) (string, []any) {
 		case "":
 			ors := make([]string, 0, len(f.values))
 			for _, v := range f.values {
-				ors = append(ors, "r.data @> "+next(v, "jsonb"))
+				arg := next(v, "jsonb")
+				term := "r.data @> " + arg
+				if pl.dataTerm != nil {
+					term = pl.dataTerm(arg)
+				}
+				ors = append(ors, term)
 			}
 			if f.absentMatches {
 				ors = append(ors, "NOT (r.data ? "+next(f.prop, "text")+")")
@@ -427,6 +436,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if perr != nil {
 			return perr
 		}
+		pl.dataTerm = h.listDataTerm
 		// Before any SQL: filters, sort and the default sort.
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err
