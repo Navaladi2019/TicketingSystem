@@ -259,6 +259,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/s18.md
+            label: "Number formats on ticket types"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
           - page: stories/s25.md
