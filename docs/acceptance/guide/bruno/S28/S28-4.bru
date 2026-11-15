@@ -1,0 +1,38 @@
+meta {
+  name: S28.4 Stand-in: link the user to the tenant's IdP: 204
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{s28_user}}/federated-identity/idp-{{s28_tenant}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "identityProvider": "idp-{{s28_tenant}}",
+    "userId": "s28-{{s28_run}}",
+    "userName": "{{s28_admin_email}}"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(204);
+}
+
+docs {
+  Local stack only, platform staff (F1). The federated link the brokered login would create, to the IdP onboarding bound to the tenant (`idp-<tenant_id>`). Group sync places only a user whose every link is a bound IdP.
+}

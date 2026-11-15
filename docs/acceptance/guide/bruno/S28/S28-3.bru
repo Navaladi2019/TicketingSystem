@@ -1,0 +1,56 @@
+meta {
+  name: S28.3 Stand-in for the company login: create the admin's user: 201
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{s28_admin_email}}",
+    "email": "{{s28_admin_email}}",
+    "emailVerified": true,
+    "enabled": true,
+    "firstName": "First",
+    "lastName": "Admin",
+    "attributes": {
+      "nava_idp_email_verified": [
+        "true"
+      ]
+    },
+    "credentials": [
+      {
+        "type": "password",
+        "value": "{{s28_admin_password}}",
+        "temporary": false
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const loc = N.header('Location') || '';
+  test('Location names the new user', () => expect(loc).to.match(/\/users\/[0-9a-f-]{36}$/));
+  bru.setVar('s28_user', loc.split('/').pop());
+}
+
+docs {
+  Local stack only, platform staff (F1). What the tenant's company login does at the admin's first sign-in (`nava-first-broker-login`): a user with the invited email, the IdP's `email_verified` copied to `nava_idp_email_verified`, and (for the password grant in S28.6) a dev-only password made up for this run.
+}

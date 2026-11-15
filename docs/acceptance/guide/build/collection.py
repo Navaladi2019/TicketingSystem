@@ -132,12 +132,14 @@ module.exports = ({ test, expect, res, bru } = {}) => {
       }
     },
     // A password-grant token from the nava realm (or another realm).
-    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm') } = {}) {
+    // timeout (ms), when given, bounds the call (a poll loop must never hang).
+    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm'), timeout } = {}) {
       return N.send({
         url: N.url(`{{keycloak_url}}/realms/${realm}/protocol/openid-connect/token`),
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         data: N.form({ grant_type: 'password', client_id: client, scope, username: user, password }),
+        ...(timeout ? { timeout } : {}),
       });
     },
     // A Keycloak master-realm admin token in kc_admin_token. It lives 60 s, so
@@ -3419,6 +3421,194 @@ test('one row, the create, source user; no workflow row', () => {
     ]
 
 
+# --------------------------------------------------------------------------- S28
+def s28():
+    """Story S28 (TICK-879), M-X1a kit (TICK-884): a newly onboarded tenant's
+    first admin, from the onboarding call's 201 to the first record a workflow
+    that admin published has routed."""
+    ex_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "handbook", "examples", "incident.json")
+    with open(ex_path, encoding="utf-8") as f:
+        example = json.load(f)
+    core = "{{core_url}}/api/v1"
+    key = lambda k: {"Idempotency-Key": "tick884-s28-{{s28_run}}-" + k}
+    admin_hdr = "{ Authorization: 'Bearer ' + bru.getVar('s28_admin_token') }"
+    route = {
+        "format": "nava.workflow/v1",
+        "trigger": {"on": "record.created", "entity": "incident"},
+        "start": "wait",
+        "steps": [
+            {"key": "wait", "type": "timer", "duration": "PT1M", "next": "triage"},
+            {"key": "triage", "type": "update_record", "set": {"state": "in_progress"}, "next": "done"},
+            {"key": "done", "type": "end"},
+        ],
+    }
+    fresh = """
+// One run id per pass: a new domain, so a new tenant, every time.
+const run = Math.random().toString(16).slice(2, 10);
+bru.setVar('s28_run', run);
+bru.setVar('s28_domain', `s28-${run}.test`);
+bru.setVar('s28_admin_email', `admin@s28-${run}.test`);
+// The stand-in IdP user's password: dev-only, made up per run, never stored.
+bru.setVar('s28_admin_password', `dev-only-s28-${run}`);"""
+    # Polls GET /me as the new admin until group sync has placed them in
+    # /admins, or s28_place_limit_s passes (default 360 s: one default 5 min
+    # group-sync interval and a margin). The request then reads /me once more.
+    wait_placed = LOAD_PRE + """
+const limit = Number(N.v('s28_place_limit_s') || 360) * 1000;
+const t0 = Date.now();
+for (;;) {
+  // A token lives 5 min, shorter than one default cycle: sign in again each round.
+  // Each call is bounded (15 s); a timeout counts as "not yet", the loop's own bound decides.
+  const t = await N.token(N.v('s28_admin_email'), N.v('s28_admin_password'), { timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+  if (t.status === 200) bru.setVar('s28_admin_token', t.data.access_token);
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/me'), method: 'GET', headers: """ + admin_hdr + """, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+  const paths = r.status === 200 ? (r.data.group_paths || []).map(g => g.path) : [];
+  if (paths.includes('/admins') || Date.now() - t0 > limit) break;
+  await bru.sleep(2000);
+}
+bru.setVar('s28_placed_after_s', String(Math.round((Date.now() - t0) / 1000)));"""
+    # Polls the record once a second until its state is in_progress, or 300 s
+    # after the create (the kit's poll timeout). Never hangs.
+    wait_routed = LOAD_PRE + """
+// No record (S28.11 failed): one read, no wait. Otherwise until 300 s after the create.
+const t0 = Number(bru.getVar('s28_rec_at')) || 0;
+for (;;) {
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: """ + admin_hdr + """, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+  if (!bru.getVar('s28_rec') || (r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 300 * 1000) break;
+  await bru.sleep(1000);
+}
+bru.setVar('s28_routed_after_s', String(Math.round((Date.now() - t0) / 1000)));"""
+    org_pre = """
+const o = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/organizations?search=t-{{s28_tenant}}&exact=true'),
+  method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
+const org = (o.data || []).find(x => x.alias === 't-' + bru.getVar('s28_tenant'));
+if (!org) throw new Error('S28.5: no organization t-' + bru.getVar('s28_tenant') + ' (HTTP ' + o.status + ')');
+bru.setVar('s28_org', org.id);"""
+    return {
+        "dir": "S28", "name": "S28 first routed record (M-X1a)",
+        "desc": ("Story S28, TICK-879; kit P9-05 (TICK-884), ADR-008 X1a / M-X1a. A tenant onboarded in this run (not a seeded one): its first admin publishes a type from the handbook example `docs/handbook/examples/incident.json`, publishes a workflow written from the handbook's example (tour step 8), creates an incident and waits for the workflow to route it. "
+                 "The clock starts at S28.2's 201 and stops at the `source: workflow` history entry (S28.13), which logs the total. "
+                 "Needs the stack and `tools/tunnels.sh up` (nava-onboard publishes no port); no `tools/seed.sh`. "
+                 "S28.3 to S28.5 are a **local-stack stand-in for the customer's company login** and use the Keycloak master admin (a platform-staff action): the stack has no customer IdP, so the brokered first login that creates the admin's user is replayed through the admin API. A timed run counts them as `needed help` (finding F1 of `docs/quality/x1a-first-routed-record.md`). "
+                 "S28.7 waits for one group-sync cycle (up to `s28_place_limit_s`, default 360 s; set `NAVA_GROUPSYNC_INTERVAL=15s` for seconds). S28.12 waits up to 300 s after the create for the route (the workflow waits one minute). Runs again on the same stack: every pass onboards a new tenant."),
+        "items": [
+            token("S28.1 Sign in as the operator", "operator_username", "operator_password", "s28_operator_token",
+                  client="nava-operator-cli"),
+            req("S28.2 Onboard a new tenant: 201 (the clock starts)", "POST", "{{onboard_url}}/api/v1/operator/tenants",
+                auth="s28_operator_token", pre=fresh, headers=key("onboard"), body=onboard_body("s28_domain"),
+                desc="Tour step 1. A new domain each pass, so a new tenant. The clock of M-X1a starts when this call returns.",
+                tests="""N.status(201);
+const b = N.json();
+test('tenant_id is a uuid, state active', () => {
+  expect(b.tenant_id).to.match(/^[0-9a-f-]{36}$/);
+  expect(b.state).to.eql('active');
+});
+bru.setVar('s28_tenant', b.tenant_id);
+bru.setVar('s28_t0', String(Date.now()));
+console.log('S28.2 clock start', new Date().toISOString(), 'tenant', b.tenant_id);"""),
+            kc_admin("S28.3 Stand-in for the company login: create the admin's user: 201", "POST", "/users",
+                     desc="Local stack only, platform staff (F1). What the tenant's company login does at the admin's first sign-in (`nava-first-broker-login`): a user with the invited email, the IdP's `email_verified` copied to `nava_idp_email_verified`, and (for the password grant in S28.6) a dev-only password made up for this run.",
+                     body={"username": "{{s28_admin_email}}", "email": "{{s28_admin_email}}", "emailVerified": True,
+                           "enabled": True, "firstName": "First", "lastName": "Admin",
+                           "attributes": {"nava_idp_email_verified": ["true"]},
+                           "credentials": [{"type": "password", "value": "{{s28_admin_password}}", "temporary": False}]},
+                     tests="""N.status(201);
+const loc = N.header('Location') || '';
+test('Location names the new user', () => expect(loc).to.match(/\\/users\\/[0-9a-f-]{36}$/));
+bru.setVar('s28_user', loc.split('/').pop());"""),
+            kc_admin("S28.4 Stand-in: link the user to the tenant's IdP: 204", "POST",
+                     "/users/{{s28_user}}/federated-identity/idp-{{s28_tenant}}",
+                     desc="Local stack only, platform staff (F1). The federated link the brokered login would create, to the IdP onboarding bound to the tenant (`idp-<tenant_id>`). Group sync places only a user whose every link is a bound IdP.",
+                     body={"identityProvider": "idp-{{s28_tenant}}", "userId": "s28-{{s28_run}}", "userName": "{{s28_admin_email}}"},
+                     tests="N.status(204);"),
+            kc_admin("S28.5 Stand-in: add the user to the tenant's organization: 201", "POST",
+                     "/organizations/{{s28_org}}/members", pre_extra=org_pre,
+                     desc="Local stack only, platform staff (F1). The first-login flow adds the new user to the tenant's organization (`t-<tenant_id>`), which puts the `organization` claim in their token.",
+                     body='"{{s28_user}}"', tests="N.status(201);"),
+            token("S28.6 The new admin signs in", "s28_admin_email", "s28_admin_password", "s28_admin_token",
+                  extra="""test('the token names exactly the organization of the new tenant', () => {
+  const orgs = c.organization || {};
+  expect(Object.keys(orgs)).to.eql(['t-' + bru.getVar('s28_tenant')]);
+  expect(orgs['t-' + bru.getVar('s28_tenant')].id).to.eql(bru.getVar('s28_org'));
+});"""),
+            req("S28.7 After one group-sync cycle the admin is in /admins", "GET", core + "/me", auth="s28_admin_token",
+                pre=wait_placed,
+                desc="Tour steps 2 and 4. Group sync consumes the pending invite and places the admin in the tenant and its admins group; the same token then resolves. Polls every 2 s up to `s28_place_limit_s` (default 360 s).",
+                tests="""N.me(bru.getVar('s28_tenant'));
+test('in /admins', () => expect(N.paths()).to.include('/admins'));
+console.log('S28.7 placed after', bru.getVar('s28_placed_after_s'), 's');"""),
+            req("S28.8 The new tenant has the starter types: incident at version 1", "GET", core + "/entity-types",
+                auth="s28_admin_token", desc="Tour step 6: onboarding seeded `change`, `incident` and `request`.",
+                tests="""N.status(200);
+const body = N.json();
+const items = Array.isArray(body) ? body : (body.items || []);
+const inc = items.find(t => t.key === 'incident');
+test('incident is there at version 1', () => expect(inc && inc.current_version).to.eql(1));"""),
+            req("S28.9 Publish the example type: incident version 2 from the handbook example: 201", "POST",
+                core + "/entity-types/incident/versions", auth="s28_admin_token", headers=key("type"),
+                body={"definition": example["definition"]},
+                desc="Tour step 6. `incident` already exists, so the handbook example `docs/handbook/examples/incident.json` (the template plus `affected_service`) is published as its next version: body `{\"definition\": …}` of the example.",
+                tests="""N.status(201);
+const b = N.json();
+test('version 2, current, has affected_service', () => {
+  expect(b.version).to.eql(2);
+  expect(b.current).to.eql(true);
+  expect(b.schema.properties).to.have.property('affected_service');
+});"""),
+            req("S28.10 Publish the workflow written from the handbook example: 201", "POST",
+                core + "/workflow-definitions/s28_route/versions", auth="s28_admin_token", headers=key("wf"), body=route,
+                desc="Tour step 8: on `record.created` of an incident, wait one minute, set `state` to `in_progress`. The key is the admin's own (`s28_route`).",
+                tests="""N.status(201);
+const b = N.json();
+test('version 1, current, on incident', () => {
+  expect(b.version).to.eql(1);
+  expect(b.current).to.eql(true);
+  expect(b.entity).to.eql('incident');
+});"""),
+            req("S28.11 The admin creates an incident: 201, state new", "POST", core + "/records/incident",
+                auth="s28_admin_token", headers=key("rec"),
+                body={"data": {"short_description": "S28 {{s28_run}} first routed record", "priority": 3, "affected_service": "email"}},
+                desc="Tour step 9. Version 2 of the type (S28.9) is current, so the record is created under it.",
+                tests="""N.status(201);
+const b = N.json();
+test('state new, schema version 2', () => {
+  expect(b.state).to.eql('new');
+  expect(b.schema_version).to.eql(2);
+});
+bru.setVar('s28_rec', b.id);
+bru.setVar('s28_rec_at', String(Date.now()));
+console.log('S28.11 created', b.number, b.id);"""),
+            req("S28.12 The workflow routes the record: in_progress within 300 s", "GET", core + "/records/incident/{{s28_rec}}",
+                auth="s28_admin_token", pre=wait_routed,
+                desc="Polls once a second for up to 300 s after S28.11 (the kit's poll timeout), then fails rather than hang.",
+                tests="""N.status(200);
+const b = N.json();
+test('state in_progress, version 2', () => {
+  expect(b.state).to.eql('in_progress');
+  expect(b.version).to.eql(2);
+});
+console.log('S28.12 routed after', bru.getVar('s28_routed_after_s'), 's');"""),
+            req("S28.13 The history shows the write with source workflow (the clock stops)", "GET",
+                core + "/records/incident/{{s28_rec}}/history", auth="s28_admin_token",
+                desc="Two rows, newest first: the workflow's state change (`source: workflow`) and the admin's create. The new tenant has one workflow definition, the admin's `s28_route`, so the write is that workflow's. The clock stops at the workflow entry's `at`.",
+                tests="""N.status(200);
+const items = N.json().items;
+test('newest: the workflow set the state; then the admin create', () => {
+  expect(items).to.have.length(2);
+  expect(items[0].source).to.eql('workflow');
+  expect(items[0].changed).to.eql(['/data/state']);
+  expect(items[0].after.state).to.eql('in_progress');
+  expect(items[1].action).to.eql('create');
+  expect(items[1].source).to.eql('user');
+});
+const stop = Date.parse(items[0].at);
+const total = (stop - Number(bru.getVar('s28_t0'))) / 60000;
+test('M-X1a: within the 8 h target', () => expect(total).to.be.below(8 * 60));
+console.log('S28.13 clock stop', items[0].at, 'total minutes', total.toFixed(1));"""),
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- S17
 # Story S17 (TICK-664, release R1 of ADR-005), kit TICK-668:
 # docs/acceptance/S17/README.md. docs/acceptance/S17/tools/run-kit.sh brings
@@ -3570,7 +3760,7 @@ test('version 1, the text of S17.6', () => {
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, s28, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

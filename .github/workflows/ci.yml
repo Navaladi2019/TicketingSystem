@@ -795,6 +795,16 @@ jobs:
           path: docs/acceptance/guide/reports/S11b.*
           if-no-files-found: warn
           retention-days: 14
+      # Written by the s28_first_routed_record case (TICK-884): the S28 M-X1a kit's Bruno
+      # reports, onboarding to the first workflow-routed record. Same content and warn as above.
+      - name: S28 first routed record report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s28-first-routed-record-report
+          path: docs/acceptance/guide/reports/S28.*
+          if-no-files-found: warn
+          retention-days: 14
       - name: Logs on failure (stack)
         if: always() && (steps.up.outcome == 'failure' || steps.cases-stack.outcome == 'failure')
         run: make stack-logs

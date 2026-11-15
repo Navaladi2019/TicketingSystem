@@ -105,12 +105,14 @@ module.exports = ({ test, expect, res, bru } = {}) => {
       }
     },
     // A password-grant token from the nava realm (or another realm).
-    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm') } = {}) {
+    // timeout (ms), when given, bounds the call (a poll loop must never hang).
+    async token(user, password, { client = 'nava-web', scope = 'openid', realm = N.v('realm'), timeout } = {}) {
       return N.send({
         url: N.url(`{{keycloak_url}}/realms/${realm}/protocol/openid-connect/token`),
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         data: N.form({ grant_type: 'password', client_id: client, scope, username: user, password }),
+        ...(timeout ? { timeout } : {}),
       });
     },
     // A Keycloak master-realm admin token in kc_admin_token. It lives 60 s, so
