@@ -168,7 +168,7 @@ func TestT09TenantRowsInvisible(t *testing.T) {
 	// table -> the tenant column, for each role's readable tables.
 	readable := map[string]map[string]string{
 		"nava_app":    {"tenants": "id", "records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id", "idempotency_keys": "tenant_id"},
-		"nava_worker": {"records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id"},
+		"nava_worker": {"tenants": "id", "records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id"},
 	}
 	for role, tables := range readable {
 		conn := asRole(t, role)
