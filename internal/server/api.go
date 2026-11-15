@@ -307,6 +307,15 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)
 					return
+				case problem.FilterableFieldNotTopLevel:
+					h.reg.Write(w, r, problem.FilterableFieldNotTopLevel, pe.fields...)
+					return
+				case problem.FilterableFieldTypeChange:
+					h.reg.Write(w, r, problem.FilterableFieldTypeChange, pe.fields...)
+					return
+				case problem.SearchableNotAvailable:
+					h.reg.Write(w, r, problem.SearchableNotAvailable, pe.fields...)
+					return
 				}
 			}
 			if pe.code == problem.RetryLater {

@@ -270,10 +270,13 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 	var (
 		breaking *entitytypes.BreakingError
 		invalidD *metadata.ErrInvalidDefinition
+		refused  *metadata.RefusalError
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
 	)
 	switch {
+	case errors.As(err, &refused):
+		return nil, refusalProblem(refused, "/definition", err)
 	case errors.As(err, &secret):
 		return nil, h.secretProblem(ctx, secret, err)
 	case errors.As(err, &required):
@@ -453,6 +456,10 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 	// field errors and the definition errors together.
 	if defOK {
 		if _, err := metadata.Compile(cr.def); err != nil {
+			var refused *metadata.RefusalError
+			if errors.As(err, &refused) {
+				return cr, refusalProblem(refused, "/definition", err)
+			}
 			var ie *metadata.ErrInvalidDefinition
 			if !errors.As(err, &ie) {
 				return cr, &problemError{problem.InternalError, nil, err}
@@ -485,6 +492,28 @@ func parseNumberingMode(fields map[string]json.RawMessage) (metadata.NumberingMo
 		return "", true
 	}
 	return m, false
+}
+
+// refusalProblem maps a metadata refusal (ADR-006 D8) to its registered
+// code, naming each path under prefix. An unknown code is an internal error:
+// the metadata package and this switch are out of step.
+func refusalProblem(r *metadata.RefusalError, prefix string, err error) *problemError {
+	var code problem.Code
+	switch r.Code {
+	case metadata.RefusalFilterableNotTopLevel:
+		code = problem.FilterableFieldNotTopLevel
+	case metadata.RefusalFilterableTypeChange:
+		code = problem.FilterableFieldTypeChange
+	case metadata.RefusalSearchableNotAvailable:
+		code = problem.SearchableNotAvailable
+	default:
+		return &problemError{problem.InternalError, nil, err}
+	}
+	fields := make([]problem.FieldError, len(r.Paths))
+	for i, path := range r.Paths {
+		fields[i] = invalid(prefix+path, r.Code)
+	}
+	return &problemError{code, fields, err}
 }
 
 func unprocessable(fields ...problem.FieldError) *problemError {
