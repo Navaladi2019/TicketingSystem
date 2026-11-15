@@ -42,12 +42,12 @@ curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
 
 The `timer` step is optional. Without it (`"start": "triage"`), the record routes within a second or so of the create; with it, about a minute later.
 
-Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. `short_description` is the one field you must send (`state` starts at `new`):
+Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. `short_description` is the one field you must send (`state` starts at `new`). This body works on `incident` version 1 and version 2; add `"affected_service"` only after you published version 2 from the example in step 6, because version 1 refuses fields it does not list:
 
 ```sh
 curl -i -X POST $CORE/api/v1/records/incident -H "Authorization: Bearer $ADMIN" \
   -H "Idempotency-Key: tour-inc-1" -H 'Content-Type: application/json' \
-  -d '{"data":{"short_description":"Printer is offline","priority":3,"affected_service":"email"}}'
+  -d '{"data":{"short_description":"Printer is offline","priority":3}}'
 ```
 
 Read it again after a minute with `getRecord` (`GET /api/v1/records/incident/{id}`), and its history with `getRecordHistory` (`.../{id}/history`).

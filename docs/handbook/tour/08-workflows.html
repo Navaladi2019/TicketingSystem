@@ -42,10 +42,10 @@
 </code></pre>
 <p><code>$ADMIN</code> is the administrator's token from <a href="../tour/index.html#before-you-start">the setup</a>; on a tenant you onboarded yourself, use its first admin's token (<a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">step 2</a>). On such a tenant <code>incident</code> is still version 1 unless you published a new version in step 6; either works.</p>
 <p>The <code>timer</code> step is optional. Without it (<code>&quot;start&quot;: &quot;triage&quot;</code>), the record routes within a second or so of the create; with it, about a minute later.</p>
-<p>Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. <code>short_description</code> is the one field you must send (<code>state</code> starts at <code>new</code>):</p>
+<p>Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. <code>short_description</code> is the one field you must send (<code>state</code> starts at <code>new</code>). This body works on <code>incident</code> version 1 and version 2; add <code>&quot;affected_service&quot;</code> only after you published version 2 from the example in step 6, because version 1 refuses fields it does not list:</p>
 <pre><code class="language-sh">curl -i -X POST $CORE/api/v1/records/incident -H &quot;Authorization: Bearer $ADMIN&quot; \
   -H &quot;Idempotency-Key: tour-inc-1&quot; -H &#x27;Content-Type: application/json&#x27; \
-  -d &#x27;{&quot;data&quot;:{&quot;short_description&quot;:&quot;Printer is offline&quot;,&quot;priority&quot;:3,&quot;affected_service&quot;:&quot;email&quot;}}&#x27;
+  -d &#x27;{&quot;data&quot;:{&quot;short_description&quot;:&quot;Printer is offline&quot;,&quot;priority&quot;:3}}&#x27;
 </code></pre>
 <p>Read it again after a minute with <code>getRecord</code> (<code>GET /api/v1/records/incident/{id}</code>), and its history with <code>getRecordHistory</code> (<code>.../{id}/history</code>).</p>
 <h2 id="what-you-see">What you see</h2>
