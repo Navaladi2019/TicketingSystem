@@ -70,7 +70,7 @@ only once no R1 replica serves.</li>
 </ul>
 <h2 id="primary-key-on-the-scope-s18-release-r2-m3">Primary key on the scope (S18, release R2: M3)</h2>
 <ul>
-<li><strong>M3</strong> (<code>20261113034010</code>) drops the 2-column key and promotes
+<li><strong>M3</strong> (<code>20261113210000</code>) drops the 2-column key and promotes
 <code>record_counters_scoped_key</code> with <code>ADD PRIMARY KEY USING INDEX</code>, so the key
 keeps the name <code>record_counters_pkey</code> and covers <code>scope_key</code>. No build, no
 scan. It waits at most 2 s for its lock and retries up to 5 times with

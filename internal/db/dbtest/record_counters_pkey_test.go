@@ -24,14 +24,14 @@ import (
 
 const (
 	// m3Version is m3Migration's version; m3Before the one just before it.
-	m3Version = 20261113034010
+	m3Version = 20261113210000
 	m3Before  = m3Version - 1
 
 	counterPrimaryKey = `SELECT pg_get_constraintdef(oid) FROM pg_constraint
 		WHERE conrelid = 'record_counters'::regclass AND contype = 'p'`
 	counterFKey = `SELECT pg_get_constraintdef(oid) FROM pg_constraint
 		WHERE conrelid = 'record_counters'::regclass AND conname = 'record_counters_entity_definition_fkey'`
-	m3Applied = `SELECT count(*) FROM goose_db_version WHERE version_id = 20261113034010`
+	m3Applied = `SELECT count(*) FROM goose_db_version WHERE version_id = 20261113210000`
 
 	pkeyTwoColumns   = "PRIMARY KEY (tenant_id, entity_definition_id)"
 	pkeyThreeColumns = "PRIMARY KEY (tenant_id, entity_definition_id, scope_key)"
