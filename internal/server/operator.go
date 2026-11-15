@@ -55,6 +55,9 @@ type options struct {
 	cursors *cursor.Keyring
 	// dataFilterTimeout overrides the data-filter list timeout; zero keeps the default.
 	dataFilterTimeout time.Duration
+	// listDataTerm replaces the list's data-filter term; only
+	// WithListDataTerm (integration builds) sets it.
+	listDataTerm func(arg string) string
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int
