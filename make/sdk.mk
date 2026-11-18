@@ -5,7 +5,7 @@
 
 SDK_DIR := sdk/ts
 
-.PHONY: sdk-deps check-sdk-generated sdk-lint sdk-test sdk-integration sdk-pack ci-sdk-changed
+.PHONY: sdk-deps check-sdk-generated sdk-lint sdk-test sdk-integration sdk-flag-fields sdk-pack ci-sdk-changed
 
 sdk-deps:
 	cd $(SDK_DIR) && npm ci
@@ -33,6 +33,12 @@ sdk-test: sdk-deps
 ## NAVA_KEYCLOAK_URL default to the compose ports (sdk/ts/test/integration/stack.ts).
 sdk-integration: sdk-deps
 	cd $(SDK_DIR) && npm run test:integration
+
+## Setup for the integration tests: flags the fields they filter on as tenant A's
+## admin (sdk/ts/test/integration/flag-fields.ts). The stack case sdk_ts runs it
+## before sdk-integration; sdk-deps gives it its node_modules on a fresh checkout.
+sdk-flag-fields: sdk-deps
+	cd $(SDK_DIR) && node --experimental-strip-types test/integration/flag-fields.ts
 
 ## Build into sdk/ts/dist and npm pack the tarball into sdk/ts; nothing is
 ## published (D-8-7).

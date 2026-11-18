@@ -30,6 +30,7 @@ export async function passwordToken(u: SeededUser): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "password", client_id: "nava-web", scope: "openid", username: u.username, password: u.password }),
+    signal: AbortSignal.timeout(REQUEST_MS),
   });
   if (res.status !== 200) throw new Error(`token for ${u.username}: Keycloak answered HTTP ${res.status}`);
   const body = (await res.json()) as { access_token?: unknown };
@@ -76,6 +77,7 @@ export function clientFor(u: SeededUser, opts: { firstTokens?: string[] } = {}):
 export async function history(u: SeededUser, entity: string, id: string): Promise<Array<{ action: string; source: string }>> {
   const res = await fetch(`${CORE_URL}/api/v1/records/${entity}/${id}/history`, {
     headers: { Authorization: `Bearer ${await passwordToken(u)}` },
+    signal: AbortSignal.timeout(REQUEST_MS),
   });
   if (res.status !== 200) throw new Error(`history of ${entity}/${id}: HTTP ${res.status}`);
   const body = (await res.json()) as { items: Array<{ action: string; source: string }>; next_cursor?: string };
@@ -85,3 +87,73 @@ export async function history(u: SeededUser, entity: string, id: string): Promis
 
 /** A short random marker that keeps this run's records apart from every other run's on a shared stack. */
 export const RUN = globalThis.crypto.randomUUID().slice(0, 8);
+
+/** The cap on the wait for a new field index to finish its backfill. */
+const INDEX_WAIT_MS = 60_000;
+function errorCode(body: string): string | undefined {
+  try {
+    return (JSON.parse(body) as { code?: string }).code;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The cap on one request, so a hung one cannot outlast the wait. */
+const REQUEST_MS = 10_000;
+
+/**
+ * Publishes a new version of an entity type with `props` flagged `x-nava-filterable` (ADR-006), as
+ * `u`, a tenant admin. Raw requests: the SDK has no entity-type calls in v1. Touches only the named
+ * properties and publishes nothing when they are all flagged already, so a rerun on the same stack
+ * is a no-op. The index is `backfilling` after this; see waitFilterable.
+ */
+export async function flagFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
+  const headers = { Authorization: `Bearer ${await passwordToken(u)}`, "Content-Type": "application/json" };
+  const base = `${CORE_URL}/api/v1/entity-types/${entity}`;
+  const cur = await fetch(base, { headers, signal: AbortSignal.timeout(REQUEST_MS) });
+  if (cur.status !== 200) throw new Error(`entity type ${entity}: HTTP ${cur.status}`);
+  const type = (await cur.json()) as {
+    schema: { properties: Record<string, Record<string, unknown>> };
+    fixed_columns: unknown;
+    states: unknown;
+  };
+
+  const missing = props.filter((p) => type.schema.properties[p]?.["x-nava-filterable"] !== true);
+  if (missing.length === 0) return;
+  for (const p of missing) {
+    if (!type.schema.properties[p]) throw new Error(`entity type ${entity} has no property ${p}`);
+    type.schema.properties[p]["x-nava-filterable"] = true;
+  }
+  const res = await fetch(`${base}/versions`, {
+    method: "POST",
+    headers: { ...headers, "Idempotency-Key": `sdk-it-${RUN}-flag-${missing.join("-")}` },
+    body: JSON.stringify({ definition: { schema: type.schema, fixed_columns: type.fixed_columns, states: type.states } }),
+    signal: AbortSignal.timeout(REQUEST_MS),
+  });
+  if (res.status !== 201) throw new Error(`publish ${entity} with ${missing.join(", ")} flagged: HTTP ${res.status} ${await res.text()}`);
+}
+
+/**
+ * Waits, up to INDEX_WAIT_MS, until a list filtered on each prop is served as `u` (no 422
+ * field_not_ready). A filter on an unflagged data field is a 400 field_not_filterable.
+ */
+export async function waitFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
+  const headers = { Authorization: `Bearer ${await passwordToken(u)}` };
+  const deadline = Date.now() + INDEX_WAIT_MS;
+  for (const p of props) {
+    for (;;) {
+      const res = await fetch(`${CORE_URL}/api/v1/records/${entity}?limit=1&filter[${p}]=${encodeURIComponent(`sdk-it-${RUN}-ready`)}`, {
+        headers,
+        signal: AbortSignal.timeout(REQUEST_MS),
+      });
+      if (res.status === 200) break;
+      // Only field_not_ready means "keep waiting"; any other answer, a 422 included, is a real error.
+      const text = await res.text();
+      if (res.status !== 422 || errorCode(text) !== "field_not_ready") {
+        throw new Error(`filter on ${entity}.${p}: HTTP ${res.status} ${text}`);
+      }
+      if (Date.now() > deadline) throw new Error(`the index of ${entity}.${p} is not ready after ${INDEX_WAIT_MS} ms`);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
