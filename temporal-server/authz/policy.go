@@ -236,16 +236,34 @@ var deniedByDefault = []string{
 // of audit.seal is denied (D9c, commands.go). The sealer reschedules through
 // the outbox, so every sealer run is a relay start the head fences.
 //
+// field_index.coordinator and field_index.backfill.run are the ADR-006 D10
+// field-index backfill (PLAN-007 D-7-12, TICK-745), on nava-tq. The
+// coordinator is the one per-tenant queue, `t:<tenant>:field_index.coordinator`:
+// nava-relay signal-with-starts it from a field_index.backfill outbox row, and
+// it continues as new after N items, so it is not start-only.
+// field_index.backfill.run is the backfill itself and is in
+// childOnlyWorkflowTypes: the coordinator starts it as a child, one at a time
+// per tenant, and no relay start or signal-with-start may name it, so nothing
+// runs a backfill around the coordinator's one-per-tenant rule (D10.5).
+//
 // The sets are built by functions, not held in package variables
 // (gochecknoglobals, TICK-610): each call returns a fresh set, so no caller can
 // widen the allow-list for another.
 func platformTaskQueues() map[string]struct{} { return set("nava-tq") }
 
-func platformWorkflowTypes() map[string]struct{} { return set("nava.interpreter", "audit.seal") }
+func platformWorkflowTypes() map[string]struct{} {
+	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run")
+}
 
 // startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // relay start may name; a child or continue-as-new of one is denied.
 func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal") }
+
+// childOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
+// worker command (a child or continue-as-new) may name; a relay start or
+// signal-with-start of one is denied. It is disjoint from
+// startOnlyWorkflowTypes.
+func childOnlyWorkflowTypes() map[string]struct{} { return set("field_index.backfill.run") }
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
 // (sdk-go v1.49.0 getWorkerTaskQueue). At server v1.29.7 a sticky partition and

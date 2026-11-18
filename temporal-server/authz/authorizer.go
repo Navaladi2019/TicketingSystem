@@ -189,8 +189,8 @@ var workloadChecks = map[Identity]map[string]workloadCheck{
 }
 
 // checkStartRequest is D9a for starts: the workflow type and the task queue are
-// allow-listed, the queue is NORMAL, and the workflow id has a tenant prefix.
-// The start must also not make the server create runs on its own (TICK-573): a
+// allow-listed and not child-only (TICK-745), the queue is NORMAL, and the
+// workflow id has a tenant prefix. The start must also not make the server create runs on its own (TICK-573): a
 // CronSchedule starts a run on every tick and a workflow RetryPolicy starts one
 // after every failure. Neither run is a relay start, so the outbox never
 // fenced it (ADR-004 R16, R18); the relay sets neither. Continue-as-new's cron
@@ -222,6 +222,9 @@ func checkStartRequest(request any) *commandDenial {
 		return d
 	}
 	reason, detail := checkWorkflowType(wt.GetName())
+	if name := wt.GetName(); reason == "" && inSet(childOnlyWorkflowTypes(), name) {
+		reason, detail = ReasonWorkflowType, "workflow type "+strconv.Quote(name)+" is child-only"
+	}
 	if reason == "" {
 		reason, detail = checkNormalTaskQueue(tq)
 	}
