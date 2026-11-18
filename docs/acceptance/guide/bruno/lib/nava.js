@@ -157,6 +157,11 @@ module.exports = ({ test, expect, res, bru } = {}) => {
           }
           throw new Error('too many redirects');
         },
+        // Where a page is, for an error message: its URL and <title>.
+        where(x) {
+          const t = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(x.html || '');
+          return ' (HTTP ' + x.status + ' at ' + x.url + ', title "' + (t ? t[1].trim().slice(0, 80) : 'none') + '")';
+        },
         // The action of the first <form> whose tag matches re.
         formAction(html, re) {
           const m = (html.match(/<form\b[^>]*>/gi) || []).find(t => re.test(t));

@@ -184,6 +184,11 @@ module.exports = ({ test, expect, res, bru } = {}) => {
           }
           throw new Error('too many redirects');
         },
+        // Where a page is, for an error message: its URL and <title>.
+        where(x) {
+          const t = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(x.html || '');
+          return ' (HTTP ' + x.status + ' at ' + x.url + ', title "' + (t ? t[1].trim().slice(0, 80) : 'none') + '")';
+        },
         // The action of the first <form> whose tag matches re.
         formAction(html, re) {
           const m = (html.match(/<form\b[^>]*>/gi) || []).find(t => re.test(t));
@@ -3499,7 +3504,7 @@ def s28():
         "authorizationUrl": "http://localhost:18081/realms/standin-company/protocol/openid-connect/auth",
         "tokenUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/token",
         "jwksUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/certs",
-        "useJwksUrl": "true", "defaultScope": "openid email profile"}}
+        "useJwksUrl": "true", "defaultScope": "openid profile"}}
     fresh = """
 // One run id per pass: a new domain, so a new tenant, every time.
 const run = Math.random().toString(16).slice(2, 10);
@@ -3573,13 +3578,13 @@ const auth = N.url('{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/au
   client_id: 'nava-web', redirect_uri: cb, response_type: 'code', scope: 'openid', kc_idp_hint: 'idp-' + bru.getVar('s28_tenant') });
 const login = await B.go(auth);
 const reg = B.link(login.html, /registration/);
-if (!reg) throw new Error('S28.3: the stand-in login page has no registration link (HTTP ' + login.status + ')');
+if (!reg) throw new Error('S28.3: no registration link on the page the sign-in reached' + B.where(login));
 const form = await B.go(new URL(reg, login.url).toString());
 const action = B.formAction(form.html, /register/i);
-if (!action) throw new Error('S28.3: no registration form at the stand-in (HTTP ' + form.status + ')');
+if (!action) throw new Error('S28.3: no registration form' + B.where(form));
 const done = await B.go(new URL(action, form.url).toString(), {
   email, firstName: 'First', lastName: 'Admin', password: pw, 'password-confirm': pw });
-if (!done.stopped) throw new Error('S28.3: registration did not lead back to the platform (HTTP ' + done.status + ')');
+if (!done.stopped) throw new Error('S28.3: registration did not lead back to the platform' + B.where(done));
 const code = new URL(done.stopped).searchParams.get('code');
 if (!code) throw new Error('S28.3: the platform sign-in returned no code');
 bru.setVar('s28_code', code);""",
