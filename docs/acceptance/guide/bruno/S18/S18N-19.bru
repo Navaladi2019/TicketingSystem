@@ -1,0 +1,40 @@
+meta {
+  name: S18N.19 AC3: linking it to the incident type, which has default numbers, is refused: 422 number_format_overlap
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-overlap
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const tok = bru.getVar('admin_a_token');
+  const cur = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident'), method: 'GET', headers: { Authorization: 'Bearer ' + tok } });
+  if (cur.status !== 200) throw new Error('GET incident: HTTP ' + cur.status);
+  bru.setVar('s18n_cur_incident', String(cur.data.version));
+  req.setBody({ definition: { schema: cur.data.schema, fixed_columns: cur.data.fixed_columns, states: cur.data.states }, number_format: { id: bru.getVar('s18n_short_fmt'), version: 1 } });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_overlap', 422);
+  test('errors name the clashing template', () => expect(N.json().errors.map(e => e.rule).join(' ')).to.match(/overlap:/));
+}
+
+docs {
+  The pre-request script sends the incident type's current definition with the format. `INC`, two year digits and three digits can render a number the default numbering (`INC` then 7 digits) can issue.
+}

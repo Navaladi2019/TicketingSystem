@@ -1,0 +1,27 @@
+meta {
+  name: S18N.28 AC5: admin@tenant-b reads a made-up id: the same 404, byte for byte
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats/00000000-0000-4000-8000-00000000f18f
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  N.status(404);
+  test('the same body as for tenant A\'s format', () => expect(N.text()).to.eql(bru.getVar('s18n_404_a')));
+}

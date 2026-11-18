@@ -6,8 +6,11 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-15: PLAN-010 drafted: ADR-009 lands as one story, S29, after S21 and S22 merge; OQ-4 retry deferred](decisions/2026-11-15-plan-010-adr-009.md)
 - [2026-11-15: PLAN-009 drafted: ADR-008 lands as S27 (CI gates) now, S28 (X1a timed run) after S11b, and an X4 cost model](decisions/2026-11-15-plan-009-adr-008.md)
 - [2026-11-15: Epic 04 gap list: backfill and cross-version reads go to an RFC; references and i18n parked with triggers](decisions/2026-11-15-epic-04-gap-list-routing.md)
+- [2026-11-14: TICK-673 review risks: mode-only If-Match is fixed in S18; the C13 republish-report filter is an accepted risk until per-type rights exist](decisions/2026-11-14-tick-673-review-risks.md)
+- [Counter rows for recurring keys keep `period_end` NULL and are never purged (S18)](decisions/2026-11-14-recurring-counter-rows-never-purged.md)
 - [2026-11-14: PLAN-008 drafted: ADR-007 lands as four spikes, then S25 (SDK) now, S23 (gate) after S18 and S22, S26 (widget), S24 (M2M)](decisions/2026-11-14-plan-008-adr-007.md)
 - [2026-11-14: PLAN-008 absorbs ADR-007-A1 without a new story; two new S23 tasks](decisions/2026-11-14-plan-008-adr-007-a1.md)
 - [2026-11-14: PLAN-005-E9 drafted: the number_space_exhausted audit row lands in four S18 tasks](decisions/2026-11-14-plan-005-e9.md)
