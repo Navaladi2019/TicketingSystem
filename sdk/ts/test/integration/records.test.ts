@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import { NavaProblem, RateLimited, VersionConflict, type NavaRecord } from "../../src/index.ts";
-import { ADMIN_A, ALICE, BOB, RUN, clientFor, ensureFilterable, history } from "./stack.ts";
+import { ADMIN_A, ALICE, BOB, RUN, clientFor, history, waitFilterable } from "./stack.ts";
 
 const ENTITY = "incident";
 const LIST_PATH = `/api/v1/records/${ENTITY}`;
@@ -28,9 +28,9 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
 
   before(async () => {
     // ADR-006: a list filter on a data field needs the field flagged x-nava-filterable and its
-    // index ready. short_description is flagged here; description stays unflagged on purpose
-    // (the negative test below, and the acceptance kit's S10.60).
-    await ensureFilterable(ADMIN_A, ENTITY, ["short_description"]);
+    // index ready. The stack case (sdk_ts.sh) flags short_description through flag-fields.ts and
+    // readies it; description stays unflagged on purpose (the negative test below, S10.60).
+    await waitFilterable(ADMIN_A, ENTITY, ["short_description"]);
     const { client } = clientFor(ALICE);
     alicesRecord = await client.records.create(ENTITY, { short_description: `sdk-it ${RUN} get`, priority: 2 });
   });

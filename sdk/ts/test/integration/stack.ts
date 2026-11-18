@@ -90,13 +90,12 @@ export const RUN = globalThis.crypto.randomUUID().slice(0, 8);
 const INDEX_WAIT_MS = 60_000;
 
 /**
- * Makes `props` of an entity type filterable (`x-nava-filterable`, ADR-006) as `u`, a tenant
- * admin, and waits until a list filtered on each one is served (no 422 field_not_ready).
- * A list filter on an unflagged data field is a 400 field_not_filterable. Raw requests: the SDK
- * has no entity-type calls in v1. Publishes one new version, only if a flag is missing, and
- * touches nothing but the named properties, so a rerun on the same stack publishes nothing.
+ * Publishes a new version of an entity type with `props` flagged `x-nava-filterable` (ADR-006), as
+ * `u`, a tenant admin. Raw requests: the SDK has no entity-type calls in v1. Touches only the named
+ * properties and publishes nothing when they are all flagged already, so a rerun on the same stack
+ * is a no-op. The index is `backfilling` after this; see waitFilterable.
  */
-export async function ensureFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
+export async function flagFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
   const headers = { Authorization: `Bearer ${await passwordToken(u)}`, "Content-Type": "application/json" };
   const base = `${CORE_URL}/api/v1/entity-types/${entity}`;
   const cur = await fetch(base, { headers });
@@ -108,19 +107,25 @@ export async function ensureFilterable(u: SeededUser, entity: string, props: str
   };
 
   const missing = props.filter((p) => type.schema.properties[p]?.["x-nava-filterable"] !== true);
+  if (missing.length === 0) return;
   for (const p of missing) {
     if (!type.schema.properties[p]) throw new Error(`entity type ${entity} has no property ${p}`);
     type.schema.properties[p]["x-nava-filterable"] = true;
   }
-  if (missing.length > 0) {
-    const res = await fetch(`${base}/versions`, {
-      method: "POST",
-      headers: { ...headers, "Idempotency-Key": `sdk-it-${RUN}-flag-${missing.join("-")}` },
-      body: JSON.stringify({ definition: { schema: type.schema, fixed_columns: type.fixed_columns, states: type.states } }),
-    });
-    if (res.status !== 201) throw new Error(`publish ${entity} with ${missing.join(", ")} flagged: HTTP ${res.status} ${await res.text()}`);
-  }
+  const res = await fetch(`${base}/versions`, {
+    method: "POST",
+    headers: { ...headers, "Idempotency-Key": `sdk-it-${RUN}-flag-${missing.join("-")}` },
+    body: JSON.stringify({ definition: { schema: type.schema, fixed_columns: type.fixed_columns, states: type.states } }),
+  });
+  if (res.status !== 201) throw new Error(`publish ${entity} with ${missing.join(", ")} flagged: HTTP ${res.status} ${await res.text()}`);
+}
 
+/**
+ * Waits, up to INDEX_WAIT_MS, until a list filtered on each prop is served as `u` (no 422
+ * field_not_ready). A filter on an unflagged data field is a 400 field_not_filterable.
+ */
+export async function waitFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
+  const headers = { Authorization: `Bearer ${await passwordToken(u)}` };
   const deadline = Date.now() + INDEX_WAIT_MS;
   for (const p of props) {
     for (;;) {

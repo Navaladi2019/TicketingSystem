@@ -3,11 +3,12 @@
 # The TypeScript SDK against the running stack (TICK-829, PLAN-008 P8-24; ADR-007 D10,
 # RFC-017 CI-E8 for the SDK): sdk/ts/test/integration/ through make sdk-integration.
 #   1. tools/seed.sh: tenants A and B (idempotent; run alone, the case needs no earlier case).
-#   2. The Node tests, as Alice, tenant A's admin and Bob with password-grant tokens: list
+#   2. Flag incident.short_description filterable and mark its index ready (see the TODO below).
+#   3. The Node tests, as Alice, tenant A's admin and Bob with password-grant tokens: list
 #      across two pages, get, create replayed with one Idempotency-Key, the 401 retry,
 #      stale version (VersionConflict), invalid body (record_invalid), another tenant's id
 #      (404), a forced 429 on tenant B (RateLimited.retryAfter).
-#   3. In Postgres: the replayed create has exactly one audit_log row (CI-E8).
+#   4. In Postgres: the replayed create has exactly one audit_log row (CI-E8).
 # Serial: it writes records and spends tenant B's rate-limit bucket. Full tier, like the other
 # story cases (s9_records): the daily run on main, ci:full and a manual run (TICK-652); the
 # smoke set stays as TestRealSmokeTier pins it. Needs Node.js, the version in sdk/ts/.nvmrc
@@ -20,6 +21,19 @@ command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js $(cat sdk
 
 sh docs/acceptance/guide/tools/seed.sh || fail "tools/seed.sh failed"
 pass "seeded"
+
+# The tests filter on incident.short_description, which ADR-006 makes a flagged field with a ready
+# index. Publish the flag as tenant A's admin, then mark the index ready here.
+# TODO(TODO-TICK-972-01): nothing on the story branch runs the backfill that moves a field from
+# backfilling to ready until TICK-745 lands; remove this UPDATE then (tracked in TICK-973).
+# Safe now: the field has no values yet, and the index trigger writes side rows for backfilling
+# fields too, so records the tests create afterwards are indexed.
+NAVA_CORE_URL="http://127.0.0.1:${NAVA_CORE_PORT:-18080}" \
+NAVA_KEYCLOAK_URL="http://127.0.0.1:${KEYCLOAK_PORT:-18081}" \
+    sh -c 'cd sdk/ts && node --experimental-strip-types test/integration/flag-fields.ts' || fail "flagging incident.short_description failed"
+n=$(psql_super nava "WITH u AS (UPDATE record_index_fields f SET state = 'ready', progress = 100, updated_at = now() FROM entity_definitions d WHERE f.tenant_id = '$A' AND d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key = 'incident' AND f.field_key = 'short_description' AND f.state = 'backfilling' RETURNING 1) SELECT count(*) FROM u" | tr -d '\r ')
+case $n in 0|1) ;; *) fail "marking incident.short_description ready changed $n rows, want at most 1" ;; esac
+pass "incident.short_description is flagged filterable and its index is ready"
 
 out=$(mktemp)
 trap 'rm -f "$out"' EXIT
