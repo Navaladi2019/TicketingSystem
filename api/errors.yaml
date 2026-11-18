@@ -148,3 +148,35 @@ codes:
     status: 409
     title: Audit chain is alive
     detail: The tenant's audit seal lineage is still running, so it cannot be reseeded. Retry when its next run is more than 10 minutes overdue.
+  - code: number_format_exists
+    status: 409
+    title: Number format exists
+    detail: A number format with this key already exists in the tenant.
+  - code: number_format_prefix_required
+    status: 422
+    title: Number format must start with the prefix
+    detail: The template must start with {prefix}, and the token after it must not produce letters. See errors for the field and position.
+  - code: number_format_invalid
+    status: 422
+    title: Invalid number format
+    detail: The number format is not accepted. Nothing was published. See errors for the field and position.
+  - code: numbering_templates_unavailable
+    status: 422
+    title: Numbering templates unavailable
+    detail: Only the default number format can be published until the record counter key has been migrated. Retry once the migration has run.
+  - code: invalid_time_zone
+    status: 422
+    title: Invalid time zone
+    detail: The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.
+  - code: number_format_overlap
+    status: 422
+    title: Number format overlaps an earlier numbering of the type
+    detail: This format could render a number that an earlier numbering of the entity type already issued. Nothing was published. See errors for the clashing template.
+  - code: number_format_not_found
+    status: 422
+    title: Number format not found
+    detail: The number format and version do not exist in this tenant. Nothing was published. See errors for the field.
+  - code: number_space_exhausted
+    status: 409
+    title: No record number left
+    detail: The entity type's number format has no number left in this numbering scope. Nothing was created. A retry fails the same way until the scope changes or a wider format is published. See errors for the scope.

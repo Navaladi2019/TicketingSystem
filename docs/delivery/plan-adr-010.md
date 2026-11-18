@@ -2,9 +2,9 @@
 type: plan
 id: PLAN-011
 title: Implementing ADR-010 (composable access rules)
-adr: "[[ADR-010-composable-access-rules]] (ACCEPTED 2026-11-15, TICK-901; docs PR #716, `main` at `c5b10793`)"
+adr: "[[ADR-010-composable-access-rules]] (ACCEPTED 2026-11-15, TICK-901; docs PR #716, `main` at `c5b10793`), amended by [[ADR-010-A1-sp2-caps-size-cap-app-only-publish]] (ACCEPTED 2026-11-19, TICK-971; docs PR #732, `main` at `2277d6b0`)"
 issue: TICK-931 (plan), TICK-9 (Epic 06)
-status: APPROVED (Solution Architect, 2026-11-15, on TICK-931 after two task-body edits, D-11-11)
+status: APPROVED (Solution Architect, 2026-11-15, on TICK-931 after two task-body edits, D-11-11); ADR-010-A1 delta (D-11-12) awaiting PLAN VERDICT
 date: 2026-11-15
 owner: Technical Lead
 ---
@@ -54,18 +54,19 @@ Run by the Technical Lead on 2026-11-15, read-only (`default_transaction_read_on
 | **D-11-8** | **Isolation tasks.** S31 has a Security & Multi-Tenancy Reviewer task, as TICK-931 requires (org-unit membership, tombstones, `records.org_unit_id`). S30 also gets one: D4's tenant-id check is a new tenant wall on publish, and the explainer is cross-tenant reachable. S32 does not: it reads policies through the S30 code inside the run's tenant, and its kit carries the cross-tenant case. |
 | **D-11-9** | **Agreement suite placement.** The new cases extend `internal/tenancy/isolation/i5_*` after TICK-900 merges (TICK-900 changes `i5_agreement_isolation_test.go`). The `under` mutants (`under_direct_only`, `under_ignores_tombstone`) are in S31; the other five in S30. |
 | **D-11-11** | **Plan verdict CHANGES, folded (Solution Architect, 2026-11-15).** (1) D4's tenant-id check runs in the database too: a CHECK cannot read other tables, so TICK-940 adds a `BEFORE INSERT` trigger on `acl_versions` that looks up every group and user id filtered by `NEW.tenant_id` explicitly and raises `check_violation` with `foreign_id`; TICK-947 extends it to org-unit ids; SP-2 (TICK-933) measures CHECK + trigger against R6. (2) The workflow policy test's `entity_type` must match the record's (D-11-7). Non-blocking, also folded: published caps (D-11-3); a cross-tenant `nava_primary_org_unit` case in TICK-952; SP-1 adds `records.org_unit_id` in the bench database only. D-11-5, D-11-6 and D-11-7 accepted. No ADR erratum. |
+| **D-11-12** | **ADR-010-A1 folded into this plan (CTO decision on TICK-971, 2026-11-19; no separate `Plan ADR-010-A1`).** A1 adds no task; it changes three S30 tasks still in `backlog`. **TICK-939 P11-07:** A1-1 caps `8, 16, 64, 128, 128` as constants; `NAVA_ACL_MAX_DOCUMENT_BYTES` (A1-2a: default 32,768, range 16,384-131,072, nava-core refuses to start outside it) applied to both `rules` (format 2) and `masks`; 422 `document_too_large` with pointer `/rules` or `/masks`, the only place the effective limit is shown (R2-1), plus a test that no other route accepts or returns it; `acl.CanonicalSize`, stored bytes = its output, the Go/PostgreSQL parity test (A1-2d, R2-2) and the 23514 → 422 mapping. **TICK-940 P11-08:** A1-1 caps in `acl2_problem`; `acl_versions_bytes_rules_check` and `acl_versions_bytes_masks_check` at 131,072, added `NOT VALID` in one migration and validated in the next (R2-3); A1-3 `nava_app`-only INSERT on `acl_versions` (grants.yaml, policy, no EXECUTE for `nava_worker` on `acl%`); tenant-id trigger `AFTER INSERT`; the exact-ceiling insert tests that pin PostgreSQL's side of the parity contract. Security & Multi-Tenancy Reviewer reviews the TICK-940 PR (A1-3 is a tenant-boundary grant). **TICK-945 P11-13:** S30 cap table, the access route page, a new operator setting page. **Parity test owner: TICK-939**, not TICK-940. The ADR leaves it to "whichever owns the route's Go checks"; the test asserts `CanonicalSize(d) == octet_length(d::jsonb::text)`, so it lives with `CanonicalSize`, and TICK-939 already depends on TICK-940, so it runs against the shipped constraints. Sequencing is unchanged: TICK-940 before TICK-939's 23514 test. |
 | **D-11-10** | **No grooming meeting** (as D-9-9). The acceptance criteria are RFC-022 §5 CI-1..CI-11, already reviewed by the Technical Architect, and the open design choices are answered here (D-11-4 to D-11-7). The Solution Architect's plan verdict is the check. A readiness Goldfish runs on each task before it is released. |
 
 ## Interface contracts
 
 | # | Contract | Producer → consumers |
 |---|---|---|
-| **C1** | Access route wire format (D-11-4); problems on 422 extend today's `invalid_access_policy` list, each with `pointer` (JSON pointer into the request body) and `code` from: `unknown_key`, `invalid_name`, `duplicate_name`, `unresolved_ref`, `ref_cycle`, `child_count`, `depth_exceeded`, `policy_leaves_exceeded`, `policies_exceeded`, `document_leaves_exceeded`, `foreign_id`, `not_available`. | TICK-939 P11-07 → TICK-940 P11-08 (same codes from the CHECK's error detail), TICK-943 P11-11, TICK-944 P11-12 |
+| **C1** | Access route wire format (D-11-4); problems on 422 extend today's `invalid_access_policy` list, each with `pointer` (JSON pointer into the request body) and `code` from: `unknown_key`, `invalid_name`, `duplicate_name`, `unresolved_ref`, `ref_cycle`, `child_count`, `depth_exceeded`, `policy_leaves_exceeded`, `policies_exceeded`, `document_leaves_exceeded`, `foreign_id`, `not_available`, and (ADR-010-A1) `document_too_large` with pointer `/rules` or `/masks` and the effective limit in `detail`. | TICK-939 P11-07 → TICK-940 P11-08 (same codes from the CHECK's error detail), TICK-943 P11-11, TICK-944 P11-12 |
 | **C2** | Expression JSON and the `authz.Document` Go type (`Conditions []Condition`, `Policies []NamedPolicy`, `Masks` unchanged), `authz.Decode(raw) (Document, error)` converting format 1 on read; the node registry `authz.Kinds()` with `SQLSafe`. | TICK-936 P11-04 → everything in S30, S31, S32 |
 | **C3** | `plan` returns `[]plannedPolicy` each with `(tree, err)`; `Allows` returns `(policy string, trace []TraceStep, ok bool)`. `authz_policy_invalid_total{entity_type}`. | TICK-937 P11-05 → TICK-938 P11-06, TICK-941 P11-09, TICK-942 P11-10, TICK-950 P11-17 |
 | **C4** | Workflow `condition` policy test (D-11-7); `entity_type` equals the record's entity type, else 422 `entity_type_mismatch` at save and false at run time. | TICK-956 P11-22 → TICK-957 P11-23, TICK-958 P11-24 |
 | **C5** | `org_unit_members (tenant_id, org_unit_id, principal_id, is_primary)`, `org_units.deleted_at`, `records.org_unit_id`, keys and grants as SP-2 reports them. | TICK-933 P11-02 → TICK-947 P11-14 → TICK-948 P11-15, TICK-949 P11-16, TICK-950 P11-17 |
-| **C6** | SP-2 report `docs/data/acl-format2-caps.md`: final caps (each ≤ D4), total-branch threshold, CHECK insert cost at caps, D6 query result against the threshold. | TICK-933 P11-02 → TICK-938 P11-06, TICK-939 P11-07, TICK-940 P11-08 |
+| **C6** | SP-2 report `docs/data/acl-format2-caps.md`: final caps (each ≤ D4), total-branch threshold, CHECK insert cost at caps, D6 query result against the threshold. **Caps superseded by ADR-010-A1 A1-1** (depth 8, children 16, policies 64, 128 leaves per policy and per document); byte limit and its range from A1-2. | TICK-933 P11-02 → TICK-938 P11-06, TICK-939 P11-07, TICK-940 P11-08 |
 
 ## Task graph
 
@@ -138,13 +139,13 @@ flowchart TD
 | TICK-936 P11-04 | `core-dev` | format-2 decode, registry, format-1 converter | TICK-900 merged | 1 |
 | TICK-937 P11-05 | `core-dev` | tree planner, two renderings, void-on-invalid | TICK-936 P11-04 | 1-1.5 |
 | TICK-938 P11-06 | `core-dev` | `ReadBranches` on trees, threshold fallback | TICK-937 P11-05, TICK-933 P11-02 | 0.5-1 |
-| TICK-939 P11-07 | `backend-dev` | route save checks, 422 table, format-2 GET | TICK-936 P11-04, TICK-933 P11-02 | 1 |
-| TICK-940 P11-08 | `postgres-dev` | PL/pgSQL CHECK for format 2 | TICK-936 P11-04, TICK-933 P11-02 | 1 |
+| TICK-939 P11-07 | `backend-dev` | route save checks, 422 table, format-2 GET; A1: byte limit setting, `document_too_large`, `CanonicalSize` + parity test | TICK-936 P11-04, TICK-933 P11-02, TICK-940 P11-08 | 1.5 |
+| TICK-940 P11-08 | `postgres-dev` | PL/pgSQL CHECK for format 2; A1: 128 KiB `bytes_` backstops (NOT VALID, then VALIDATE), `nava_app`-only insert | TICK-936 P11-04, TICK-933 P11-02 | 1.5 |
 | TICK-941 P11-09 | `backend-dev` | explainer `Policy` and `Trace` | TICK-937 P11-05 | 0.5 |
 | TICK-942 P11-10 | `qa` | agreement suite: depth 4, NULLs, caps, 5 mutants | TICK-937 P11-05, TICK-938 P11-06 | 1-1.5 |
 | TICK-943 P11-11 | `security` | cross-tenant publish, explainer, fail-closed | TICK-939 P11-07, TICK-940 P11-08, TICK-941 P11-09 | 0.5-1 |
 | TICK-944 P11-12 | `qa` | 800k bench, kit, D6 re-run on fresh stack | TICK-942 P11-10, TICK-943 P11-11 | 1 |
-| TICK-945 P11-13 | Technical Lead | S30 handbook | all S30 | 0.5 |
+| TICK-945 P11-13 | Technical Lead | S30 handbook; A1: cap table, access route page, operator setting page | all S30 | 0.5-1 |
 | TICK-947 P11-14 | `postgres-dev` | three migrations, grants, isolation registry | S30 merged, TICK-933 P11-02, S18/S21/S29 merged | 1 |
 | TICK-948 P11-15 | `backend-dev` | groupsync members, primary, tombstones, metric | TICK-947 P11-14 | 1-1.5 |
 | TICK-949 P11-16 | `backend-dev` | pipeline sets `org_unit_id` on create | TICK-947 P11-14 | 0.5-1 |
@@ -221,6 +222,12 @@ Before cutting each story branch the Technical Lead re-checks these lists agains
 | R1, R6 | SP-1, SP-2 |
 | R7, R8 alerts | TICK-937 P11-05 and TICK-948 P11-15 emit the metrics; alert rules in TICK-944 P11-12 and TICK-953 P11-20 kits name the thresholds |
 | Handbook summary page | TICK-934 P11-03 |
+| A1-1 caps 8/16/64/128/128 | TICK-939 P11-07 (Go constants, OpenAPI text), TICK-940 P11-08 (`acl2_problem`), TICK-942 P11-10 (cases at the caps), TICK-945 P11-13 (published table) |
+| A1-2a/c operator byte limit, `document_too_large` | TICK-939 P11-07; TICK-945 P11-13 (operator setting page) |
+| A1-2b 128 KiB `bytes_` backstops, NOT VALID then VALIDATE (R2-3) | TICK-940 P11-08 |
+| A1-2d `CanonicalSize`, stored bytes, parity test (R2-2), 23514 mapping | TICK-939 P11-07 (D-11-12) |
+| A1-3 `acl_versions` insert for `nava_app` only | TICK-940 P11-08, reviewed by the Security & Multi-Tenancy Reviewer |
+| A1 R6 ratio trigger | TICK-940 P11-08 (record), TICK-944 P11-12 (kit) |
 
 ## Migration (D12)
 

@@ -1,0 +1,40 @@
+meta {
+  name: S18N.34 E9: fill the format: PMT-1 to PMT-9
+  type: http
+  seq: 34
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/permit
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const tok = bru.getVar('admin_a_token');
+  const out = [];
+  for (let i = 1; i <= 9; i++) {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/permit'), method: 'POST',
+      headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', 'Idempotency-Key': 's18n-' + bru.getVar('s18n_run') + '-fill-' + i },
+      data: { data: { short_description: 'S18 fill ' + i } } });
+    out.push({ status: r.status, number: r.data && r.data.number, id: r.data && r.data.id });
+  }
+  bru.setVar('s18n_fill', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const rs = JSON.parse(bru.getVar('s18n_fill'));
+  test(`9 creates: ${rs.map(r => r.status + ' ' + r.number).join(', ')}`, () => expect(rs.map(r => r.number)).to.eql(['PMT-1', 'PMT-2', 'PMT-3', 'PMT-4', 'PMT-5', 'PMT-6', 'PMT-7', 'PMT-8', 'PMT-9']));
+  bru.setVar('s18n_pmt1_id', rs[0].id);
+}
+
+docs {
+  The pre-request script creates nine permits one after the other; this request reads the type.
+}

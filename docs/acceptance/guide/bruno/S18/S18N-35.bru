@@ -1,0 +1,34 @@
+meta {
+  name: S18N.35 E9: one more permit: 409 number_space_exhausted
+  type: http
+  seq: 35
+}
+
+post {
+  url: {{core_url}}/api/v1/records/permit
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-exhausted
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} one too many"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_space_exhausted', 409);
+}
+
+docs {
+  The format is full: nothing is created, and one audit entry is written.
+}

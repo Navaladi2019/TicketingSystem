@@ -2,13 +2,13 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 )
 
 // NextNumber takes the next record number of the tenant's entity type in
@@ -34,63 +34,76 @@ func NextNumber(ctx context.Context, tx pgx.Tx, tenantID, entityDefinitionID uui
 
 // nextNumberSQL takes the next number of a (tenant, type, scope) counter
 // (ADR-005 §4.2, R1): the first call inserts next = 2 and returns 1, every
-// later one adds one. Its arbiter is the 3-column key; until M3 (S18) the
-// old 2-column primary key still exists beside it, see CounterRace.
+// later one adds one. Its arbiter is record_counters_pkey, the 3-column key
+// since M3 (TICK-670) and the table's only unique index.
 const nextNumberSQL = `
 INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, $3, 2)
 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1
 RETURNING next - 1`
 
-// allocateSQL is nextNumberSQL, the same upsert of the same row, also
-// returning now(): the allocation's instant, which the create stores as
-// created_at (ADR-005 A7). now() is fixed at the allocation transaction's
-// start, so it adds no statement and no round trip.
-const allocateSQL = nextNumberSQL + ", now()"
+// The counter upsert of a scope with a date part (ADR-005 A7, §4.1, §3.6):
+// PostgreSQL computes the scope key and period_end from now() in the
+// numbering time zone, the format's own ($4) or else the tenant's
+// time_zone, read under the transaction's tenant (RLS). $3 is the key's
+// prefix (e<epoch>|d:), $5 the date parts' to_char patterns in order, $6 the
+// period's date_trunc unit or ” for none. The INSERT arm sets period_end;
+// the UPDATE arm sets next only, as nextNumberSQL's. A tenant row the
+// statement cannot read yields no zone and so no row, never a key without
+// its date: the upsert then writes nothing and returns nothing.
+const (
+	scopeZoneSQL  = `coalesce(nullif($4::text, ''), (SELECT t.time_zone FROM tenants t WHERE t.id = $1))`
+	scopeDatedSQL = `
+WITH z AS (
+    SELECT s.tz, now() AT TIME ZONE s.tz AS local
+    FROM (SELECT ` + scopeZoneSQL + ` AS tz) s
+    WHERE s.tz IS NOT NULL)
+INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next, period_end)
+SELECT $1, $2,
+       $3::text || (SELECT string_agg(to_char(z.local, p.f), '' ORDER BY p.i) FROM unnest($5::text[]) WITH ORDINALITY AS p(f, i)),
+       2,
+       CASE WHEN $6::text = '' THEN NULL
+            ELSE (date_trunc($6::text, z.local) + ('1 ' || $6::text)::interval) AT TIME ZONE z.tz END
+FROM z
+ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1
+RETURNING next - 1, scope_key`
+)
+
+// upsertSQL is the counter upsert of scope and its arguments: nextNumberSQL
+// with the key itself for a scope with no date part (the default, epoch 0,
+// is exactly R1's statement), else scopeDatedSQL.
+func upsertSQL(tenantID, entityDefinitionID uuid.UUID, scope numbering.Scope) (string, []any) {
+	if !scope.Dated() {
+		return nextNumberSQL + ", scope_key", []any{tenantID, entityDefinitionID, scope.KeyPrefix}
+	}
+	return scopeDatedSQL, []any{tenantID, entityDefinitionID, scope.KeyPrefix, scope.TimeZone, scope.Patterns, scope.PeriodUnit}
+}
 
 // Allocated is what QueueAllocate reads back when the batch runs.
 type Allocated struct {
 	// Number is the counter value taken.
 	Number int64
+	// ScopeKey is the key of the counter row the upsert took it from, as
+	// PostgreSQL computed it.
+	ScopeKey string
 	// Instant is the allocation transaction's now().
 	Instant time.Time
 }
 
 // QueueAllocate queues a `gaps` type's number allocation (ADR-005 L2s) for
-// tenancy.AllocTx: the record_counters upsert of the tenant's type and
+// tenancy.AllocTx: the record_counters upsert of the tenant's type in
 // scope, in the allocation's own transaction, which commits before the
-// create inserts the record. When the batch runs, *dst holds the number and
-// the instant.
-func QueueAllocate(b *pgx.Batch, tenantID, entityDefinitionID uuid.UUID, scopeKey string, dst *Allocated) {
-	b.Queue(allocateSQL, tenantID, entityDefinitionID, scopeKey).QueryRow(func(row pgx.Row) error {
-		if err := row.Scan(&dst.Number, &dst.Instant); err != nil {
+// create inserts the record. It also returns now(): the allocation's
+// instant, which the create stores as created_at, and the instant the scope
+// key's date part was computed from (ADR-005 A7). now() is fixed at the
+// allocation transaction's start, so it adds no statement and no round trip.
+// When the batch runs, *dst holds the number, the key and the instant; a
+// tenant whose zone the statement cannot read fails the batch.
+func QueueAllocate(b *pgx.Batch, tenantID, entityDefinitionID uuid.UUID, scope numbering.Scope, dst *Allocated) {
+	sql, args := upsertSQL(tenantID, entityDefinitionID, scope)
+	b.Queue(sql+", now()", args...).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(&dst.Number, &dst.ScopeKey, &dst.Instant); err != nil {
 			return fmt.Errorf("records/store: take record number: %w", err)
 		}
 		return nil
 	})
-}
-
-// The unique indexes of record_counters while ADR-005's expand window is
-// open (after M2, before M3): the old primary key (tenant_id,
-// entity_definition_id) and the 3-column key nextNumberSQL names.
-const (
-	counterPKey      = "record_counters_pkey"
-	counterScopedKey = "record_counters_scoped_key"
-)
-
-// CounterRace reports whether err is the first-create race of the expand
-// window (ADR-005-E1, TICK-665): a unique violation on the record_counters
-// unique index that is not the upsert's arbiter. ON CONFLICT absorbs
-// conflicts on its arbiter only, so of two concurrent first upserts of a
-// counter the loser can fail with 23505 on the other index, after the
-// winner committed. Retried once, the upsert sees the winner's row and takes
-// the UPDATE arm (READ COMMITTED). It is never another error, and never a
-// violation of another table's index. Correct at READ COMMITTED only: at
-// REPEATABLE READ the race raises 40001, which is deliberately not matched.
-//
-// TODO(TODO-S17-02): remove with M3 (S18/R2), with the numberSavepoint and
-// both retry sites: after M3 this can never match.
-func CounterRace(err error) bool {
-	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "23505" && pe.TableName == "record_counters" &&
-		(pe.ConstraintName == counterPKey || pe.ConstraintName == counterScopedKey)
 }

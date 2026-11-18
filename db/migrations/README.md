@@ -37,3 +37,14 @@ and names each added file, its version and `main`'s newest version. The job
 sets `BASE=origin/main` for every event, never the pull request's base. Locally
 it runs only with `BASE` set: `git fetch origin main && BASE=origin/main go test
 ./db/`.
+
+## Partitions carry the parent's current CHECKs
+
+`audit_log`'s closed-vocabulary CHECKs (`audit_log_action_check`,
+`audit_log_subject_type_check`, …) change whenever a value is added. Any future
+partition job must create a partition with `CREATE TABLE … PARTITION OF
+audit_log`, which copies the parent's constraints, or, if it attaches a table
+it built itself, copy each CHECK from `pg_get_constraintdef` at run time;
+never a hard-coded copy. `ATTACH PARTITION` refuses a table with no such CHECK
+(`child table is missing constraint`) and one with an older list (`different
+definition`) (ADR-004-E9).

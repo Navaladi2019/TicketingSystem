@@ -1,0 +1,28 @@
+meta {
+  name: S18.30 Re-publish a version the format does not have: 422
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}/republish-linked
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-rl422
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "version": 99
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_not_found', 422);
+}
