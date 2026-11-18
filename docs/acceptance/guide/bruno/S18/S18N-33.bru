@@ -1,0 +1,74 @@
+meta {
+  name: S18N.33 E9: admin@tenant-a links it to the permit type
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/permit/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-tiny-link
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    },
+    "number_format": {
+      "id": "{{s18n_tiny_fmt}}",
+      "version": 1
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('pins the format', () => expect(N.json().number_format).to.eql({ id: bru.getVar('s18n_tiny_fmt'), version: 1 }));
+}

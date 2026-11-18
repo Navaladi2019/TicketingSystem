@@ -23,7 +23,10 @@ func TestAll(t *testing.T) {
 	if All()[0] == "mutated" {
 		t.Error("All() returns the registry itself")
 	}
-	for _, s := range []Type{"", "Record", "record ", "tenant"} {
+	if !slices.Contains(got, TenantSetting) || TenantSetting != "tenant_setting" {
+		t.Errorf("All() = %v, want tenant_setting registered (TICK-854)", got)
+	}
+	for _, s := range []Type{"", "Record", "record ", "tenant", "tenant_settings"} {
 		if s.Valid() {
 			t.Errorf("%q is Valid", s)
 		}

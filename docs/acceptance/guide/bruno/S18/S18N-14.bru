@@ -1,0 +1,26 @@
+meta {
+  name: S18N.14 AC1: VISA0000001, issued before the upgrade, keeps its number
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/records/visa/{{s18_visa1_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const want = 'VISA0000001';
+  test(`number still ${want}`, () => expect(N.json().number).to.eql(want));
+}
+
+docs {
+  The record kit.mjs created on the S17 build.
+}

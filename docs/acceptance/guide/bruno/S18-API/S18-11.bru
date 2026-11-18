@@ -1,0 +1,28 @@
+meta {
+  name: S18.11 List the formats: 200
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/number-formats
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, the format of S18.4 is listed', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.json().items.map((i) => i.id)).to.include(bru.getVar('s18_id'));
+  });
+  N.status(200);
+}
+
+docs {
+  Any user of the tenant. Ordered by key.
+}

@@ -110,7 +110,7 @@ func wantSQLState(t *testing.T, what string, err error, code string) {
 	}
 }
 
-// Every T09, T16, T18a, T252a, P3-02, P3-09, P3-12, P3-30 and P3-40 table is under ENABLE and FORCE ROW LEVEL SECURITY, and
+// Every T09, T16, T18a, T252a, P3-02, P3-09, P3-12, P3-30, P3-40 and P6-06 table is under ENABLE and FORCE ROW LEVEL SECURITY, and
 // so is every other table in schema public but goose's version table.
 func TestT09EveryTableForcesRLS(t *testing.T) {
 	migratedPlatform(t)
@@ -121,6 +121,7 @@ func TestT09EveryTableForcesRLS(t *testing.T) {
 		  AND relrowsecurity AND relforcerowsecurity`)
 	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions", "record_counters", "cascade_start", "tenant_auditor_group",
 		"audit_log", "audit_log_default", "audit_chain_head", "record_write_keys", "acl_versions", "record_shares",
+		"number_formats", "number_format_versions", "numbering_epochs",
 		"workflow_definitions", "workflow_definition_versions", "workflow_cause")), ",")
 	if got != want {
 		t.Fatalf("tables with ENABLE + FORCE RLS = %s, want %s", got, want)
@@ -168,7 +169,7 @@ func TestT09TenantRowsInvisible(t *testing.T) {
 	// table -> the tenant column, for each role's readable tables.
 	readable := map[string]map[string]string{
 		"nava_app":    {"tenants": "id", "records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id", "idempotency_keys": "tenant_id"},
-		"nava_worker": {"records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id"},
+		"nava_worker": {"tenants": "id", "records": "tenant_id", "outbox": "tenant_id", "workflow_ref": "tenant_id"},
 	}
 	for role, tables := range readable {
 		conn := asRole(t, role)

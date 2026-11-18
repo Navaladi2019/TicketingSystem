@@ -12,17 +12,19 @@
 <a class="brand" href="../index.html">Nava handbook</a>
 <div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
 <nav aria-label="Sections">
-<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows (not built)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group" open><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li class="current"><a href="../database/numbering.html" aria-current="page">Record numbers</a></li></ul></details><details class="nav-group"><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group"><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></li></ul></details></li><li><details><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows (not built)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group" open><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li class="current"><a href="../database/numbering.html" aria-current="page">Record numbers</a></li></ul></details><details class="nav-group"><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group"><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></li></ul></details></li><li><details><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
 </nav>
 </aside>
 <main>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../database/index.html">database</a> / <span>Numbering</span></nav>
 <article>
 <h1 class="page-title">Numbering</h1>
-<p><code>record_counters</code> holds one row per <code>(tenant_id, entity_definition_id, scope_key)</code>: the next record number of that type in that scope. Today every
-row has the default scope <code>&#x27;&#x27;</code>, so there is still one counter per type. A
-record takes its number with one upsert, <code>INSERT ... ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next</code>, so <code>next</code> is the only
-column a role may update; the insert arm sets <code>scope_key</code> and <code>period_end</code>.</p>
+<p><code>record_counters</code> holds one row per <code>(tenant_id, entity_definition_id, scope_key)</code>: the next record number of that type in that scope, keyed by
+<code>record_counters_pkey</code> on those three columns since M3 (S18). The default
+scope <code>&#x27;&#x27;</code> is the counter of the default format; S18's number formats add
+scopes beside it. A record takes its number with one upsert, <code>INSERT ... ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next</code>, so
+<code>next</code> is the only column a role may update; the insert arm sets <code>scope_key</code>
+and <code>period_end</code>.</p>
 <p>The type's <code>numbering_mode</code> (ADR-005) decides when the number is taken. A
 <code>gaps</code> type takes it in its own short transaction before the create, so a
 failed create leaves a gap. A <code>gapless</code> type takes it inside the create
@@ -36,37 +38,452 @@ audit log, because the record insert that takes the number is audited.</p>
 <code>NOT VALID</code> and validated by the next migration. Existing rows read <code>&#x27;&#x27;</code>.</li>
 <li><strong>M2</strong> builds <code>record_counters_scoped_key</code>, a unique index on <code>(tenant_id, entity_definition_id, scope_key)</code> that the upsert names as its arbiter, and
 <code>record_counters_period_end</code>, a partial index on <code>period_end IS NOT NULL</code>
-that the purge job will read. Both are built <code>CONCURRENTLY</code>; the partial
-index stays empty until S18 publishes period formats.</li>
+that the purge job reads. Both are built <code>CONCURRENTLY</code>; the partial
+index holds only the period counters of S18's dated formats.</li>
 <li>The primary key is still <code>(tenant_id, entity_definition_id)</code>. Until M3
 (S18, release R2) both unique indexes exist, so the pre-S17 build still runs
 and a rollout with mixed binaries works for existing counters.</li>
 <li>A type's first create can lose a race for its counter row with <code>23505</code> on
 the index the upsert does not name (ADR-005-E1). R1 retries once. The
 pre-S17 build has no retry (accepted risk AR-S17-01).</li>
-<li><strong>M3 is the point of no return.</strong> After it the pre-S17 build can never be
-deployed again, and there is no rollback past it. Rolling back the S17
-schema before M3 is <code>goose down-to 20261112192959</code>, only once no R1 replica
-serves.</li>
+<li>Rolling back the S17 schema before M3 is <code>goose down-to 20261112192959</code>,
+only once no R1 replica serves.</li>
+</ul>
+<h2 id="primary-key-on-the-scope-s18-release-r2-m3">Primary key on the scope (S18, release R2: M3)</h2>
+<ul>
+<li><strong>M3</strong> (<code>20261113210000</code>) drops the 2-column key and promotes
+<code>record_counters_scoped_key</code> with <code>ADD PRIMARY KEY USING INDEX</code>, so the key
+keeps the name <code>record_counters_pkey</code> and covers <code>scope_key</code>. No build, no
+scan. It waits at most 2 s for its lock and retries up to 5 times with
+backoff (about 18 s at most), then fails with the table unchanged.</li>
+<li>From here a type can have rows of several scopes. There is one unique
+index, so first creates of a counter just wait on it: the E1 race and R1's
+retry are gone.</li>
+<li><strong>M3 is the point of no return.</strong> The pre-S17 build's <code>ON CONFLICT (tenant_id, entity_definition_id)</code> fails with <code>42P10</code>, so it can never be
+deployed again. Its Down restores the 2-column key only while every
+<code>scope_key</code> is <code>&#x27;&#x27;</code>, and refuses otherwise.</li>
+</ul>
+<h2 id="number-formats-epochs-and-the-pinned-link-s18">Number formats, epochs and the pinned link (S18)</h2>
+<p>Design note: <a href="../../../docs/data/number-formats.md"><code>number-formats.md</code></a>. Three
+tenant tables, each under <code>ENABLE</code> and <code>FORCE ROW LEVEL SECURITY</code>, with every
+key and foreign key leading with <code>tenant_id</code> (ADR-005 §3.7 C8: a foreign-key
+check runs as the owner and skips RLS).</p>
+<ul>
+<li><strong><code>number_formats</code></strong>: one row per format, <code>key</code> unique per tenant (never
+globally, which would be a cross-tenant oracle) and <code>current_version</code>.
+<code>nava_app</code> creates formats and moves <code>current_version</code> and <code>updated_at</code>.</li>
+<li><strong><code>number_format_versions</code></strong>: immutable. <code>document</code> is the format as the
+admin published it (template, overflow, optional time-zone override);
+<code>compiled</code> is <code>numbering.Compiled</code> as JSON and <code>compiled_sha256</code> its
+SHA-256, computed in Go. No role may update or delete a version (C9).</li>
+<li><strong><code>numbering_epochs</code></strong>: the identity of a compiled template within one
+type. A publish whose <code>compiled_sha256</code> is already there reuses its epoch;
+otherwise it takes <code>max(epoch) + 1</code> after <code>SELECT ... FOR UPDATE</code> on the
+type. Epoch 0 (<code>{prefix}{seq:7}</code>, scope <code>&#x27;&#x27;</code>) is implicit and has no row.
+<code>literal_head</code> (the text before the first variable token, <code>{prefix}</code>
+resolved) is what the disjointness check compares across the type's
+epochs, so two epochs can never render the same number. Immutable.</li>
+<li><strong>The pinned link</strong> is on the immutable <code>entity_definition_versions</code>:
+<code>number_format_id</code>, <code>number_format_version</code> and <code>number_compiled</code>, the
+snapshot a create reads, so a create never reads the format tables. All
+three NULL is the default numbering. The composite foreign key leads with
+<code>tenant_id</code>, so tenant B's format id fails exactly as a made-up id does
+(23503); the API answers both with <code>422 number_format_not_found</code>.</li>
+<li><strong><code>tenants.time_zone</code></strong>: <code>text NOT NULL DEFAULT &#x27;UTC&#x27;</code>, an IANA name. The
+CHECK pins its shape; whether the zone exists is checked in Go against the
+binary's tzdata. <code>nava_app</code> updates it through its own policy, and the
+change is audited under subject type <code>tenant_setting</code>. <code>nava_worker</code> reads
+it too (<code>20261115100000</code>), because a dated create reads the zone inside the
+counter upsert.</li>
+<li>Audited under subject type <code>number_format</code> (formats, versions) and
+<code>entity_definition</code> (epochs).</li>
+</ul>
+<h2 id="scope-keys-and-the-purge-of-period-counters-s18">Scope keys and the purge of period counters (S18)</h2>
+<ul>
+<li>A linked format's counter scope is <code>e&lt;epoch&gt;</code> for a date-free format, or
+<code>e&lt;epoch&gt;|d:&lt;date part&gt;</code> for a dated one (<code>e1|d:202611</code>). PostgreSQL
+computes the scope key, the date part and <code>period_end</code> from <code>now()</code> in the
+tenant's time zone, in the upsert itself, so the date in the number and
+the counter it came from always agree.</li>
+<li><code>period_end</code> is set only for a row whose scope ends (a dated format with a
+year). Rows of recurring keys (<code>{MM}</code> with no year, <code>{dd}</code> with no month)
+and default-scope rows keep <code>period_end</code> NULL, so they are never purged:
+a purged and restarted counter would hand out numbers already issued.</li>
+<li><code>nava_purge</code> deletes rows whose <code>period_end</code> is more than 2 days past,
+through the paired policies <code>record_counters_purge_select</code> and
+<code>record_counters_purge</code> on one predicate, <code>period_end &lt; now() - interval &#x27;2 days&#x27;</code> (<code>20261113210800</code>). The 2-day grace exceeds the widest UTC-offset
+span (26 h), so a time-zone change cannot reopen a purged period. NULL never
+matches. Its grant is <code>SELECT</code> on the key columns and <code>period_end</code>, and
+<code>DELETE</code>; never <code>next</code>. The batch <code>DELETE</code> reads the partial index
+<code>record_counters_period_end</code>.</li>
 </ul>
 <h2 id="diagram">Diagram</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">erDiagram
+    number_format_versions {
+        uuid tenant_id PK,FK
+        uuid format_id PK,FK
+        integer version PK
+        jsonb document
+        jsonb compiled
+        bytea compiled_sha256
+        timestamp_with_time_zone created_at
+        uuid created_by FK
+    }
+    number_formats {
+        uuid tenant_id PK,FK
+        uuid id PK
+        text key
+        integer current_version
+        timestamp_with_time_zone created_at
+        timestamp_with_time_zone updated_at
+    }
+    numbering_epochs {
+        uuid tenant_id PK,FK
+        uuid entity_definition_id PK,FK
+        integer epoch PK
+        bytea compiled_sha256
+        text literal_head
+        timestamp_with_time_zone created_at
+    }
     record_counters {
         uuid tenant_id PK,FK
         uuid entity_definition_id PK,FK
         bigint next
-        text scope_key
+        text scope_key PK
         timestamp_with_time_zone period_end
     }
+    number_format_versions }o--|| principals : &quot;tenant_id,created_by&quot;
+    number_format_versions }o--|| number_formats : &quot;tenant_id,format_id&quot;
+    number_formats }o--|| tenants : &quot;tenant_id&quot;
+    numbering_epochs }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
     record_counters }o--|| entity_definitions : &quot;tenant_id,entity_definition_id&quot;
     entity_definitions {
         stub other_area
     }
+    principals {
+        stub other_area
+    }
+    tenants {
+        stub other_area
+    }
 </pre></div></figure>
-<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>.</p>
+<p>Stub entities (<code>stub other_area</code>) belong to another area: <code>entity_definitions</code> on <a href="../database/entity-definitions.html">entity-definitions</a>, <code>principals</code> on <a href="../database/identity.html">identity</a>, <code>tenants</code> on <a href="../database/tenancy.html">tenancy</a>.</p>
 <h2 id="tables">Tables</h2>
+<h4 id="numberformatversions"><code>number_format_versions</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>format_id</code>, <code>version</code>.</p>
+<p>Audit: audited (subject <code>number_format</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>format_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>document</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled</code></td>
+<td><code>jsonb</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled_sha256</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>created_by</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_format_versions_created_by_fkey</code></td>
+<td><code>tenant_id</code>, <code>created_by</code></td>
+<td><code>principals</code> (<a href="../database/identity.html">identity</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+<tr>
+<td><code>number_format_versions_format_fkey</code></td>
+<td><code>tenant_id</code>, <code>format_id</code></td>
+<td><code>number_formats</code> (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_format_versions_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>format_id</code>, <code>version</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>number_format_versions_insert</code> (INSERT, nava_app), <code>number_format_versions_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT.</p>
+<h4 id="numberformats"><code>number_formats</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>id</code>.</p>
+<p>Audit: audited (subject <code>number_format</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>key</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>current_version</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_formats_tenant_fkey</code></td>
+<td><code>tenant_id</code></td>
+<td><code>tenants</code> (<a href="../database/tenancy.html">tenancy</a>) (<code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number_formats_key_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>key</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+<tr>
+<td><code>number_formats_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>id</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>number_formats_insert</code> (INSERT, nava_app), <code>number_formats_select</code> (SELECT, nava_app, nava_worker), <code>number_formats_update</code> (UPDATE, nava_app).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (current_version, updated_at); nava_worker SELECT.</p>
+<h4 id="numberingepochs"><code>numbering_epochs</code></h4>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>, <code>epoch</code>.</p>
+<p>Audit: audited (subject <code>entity_definition</code>, writers <code>nava_app</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Null</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>entity_definition_id</code></td>
+<td><code>uuid</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>epoch</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>compiled_sha256</code></td>
+<td><code>bytea</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>literal_head</code></td>
+<td><code>text</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>timestamp with time zone</code></td>
+<td>no</td>
+<td><code>now()</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Foreign key</th>
+<th>Columns</th>
+<th>References</th>
+<th>On delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>numbering_epochs_definition_fkey</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>entity_definitions</code> (<a href="../database/entity-definitions.html">entity-definitions</a>) (<code>tenant_id</code>, <code>id</code>)</td>
+<td>NO ACTION</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Method</th>
+<th>Columns</th>
+<th>Include</th>
+<th>Predicate</th>
+<th>Design note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>numbering_epochs_compiled_sha256_key</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>compiled_sha256</code></td>
+<td>-</td>
+<td>-</td>
+<td><a href="../../../docs/data/number-formats.md">number-formats</a></td>
+</tr>
+<tr>
+<td><code>numbering_epochs_pkey</code> (unique)</td>
+<td>btree</td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>epoch</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>numbering_epochs_insert</code> (INSERT, nava_app), <code>numbering_epochs_select</code> (SELECT, nava_app, nava_worker).</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_worker SELECT.</p>
 <h4 id="recordcounters"><code>record_counters</code></h4>
-<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>.</p>
+<p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code>.</p>
 <p>Audit: exempt from the audit log: Record-number counter (D-3-9); the record insert that takes the number is audited.</p>
 <table>
 <thead>
@@ -146,37 +563,69 @@ serves.</li>
 <td><code>period_end</code></td>
 <td>-</td>
 <td><code>period_end IS NOT NULL</code></td>
-<td><a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
+<td><a href="../../../docs/data/purge-indexes.md">purge-indexes</a>, <a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
 </tr>
 <tr>
 <td><code>record_counters_pkey</code> (unique)</td>
 <td>btree</td>
-<td><code>tenant_id</code>, <code>entity_definition_id</code></td>
+<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code></td>
 <td>-</td>
 <td>-</td>
 <td><a href="../../../docs/data/platform-tables.md">platform-tables</a>, <a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
 </tr>
-<tr>
-<td><code>record_counters_scoped_key</code> (unique)</td>
-<td>btree</td>
-<td><code>tenant_id</code>, <code>entity_definition_id</code>, <code>scope_key</code></td>
-<td>-</td>
-<td>-</td>
-<td><a href="../../../docs/data/record-counters-scope-key.md">record-counters-scope-key</a></td>
-</tr>
 </tbody>
 </table>
 <p>Policies with exactly the tenant predicate on <code>tenant_id</code> (<a href="../database/rls.html">RLS</a>): <code>record_counters_insert</code> (INSERT, nava_app, nava_worker), <code>record_counters_select</code> (SELECT, nava_app, nava_worker), <code>record_counters_update</code> (UPDATE, nava_app, nava_worker).</p>
-<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (next); nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (next).</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Kind</th>
+<th>Type</th>
+<th>Command</th>
+<th>Roles</th>
+<th>Using</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>record_counters_purge</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>DELETE</td>
+<td><code>nava_purge</code></td>
+<td><code>(period_end &lt; (now() - &#x27;2 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>record_counters_purge_select</code></td>
+<td>allow-list</td>
+<td>permissive</td>
+<td>SELECT</td>
+<td><code>nava_purge</code></td>
+<td><code>(period_end &lt; (now() - &#x27;2 days&#x27;::interval))</code></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_app UPDATE (next); nava_purge SELECT (tenant_id, entity_definition_id, scope_key, period_end); nava_purge DELETE; nava_worker SELECT; nava_worker INSERT; nava_worker UPDATE (next).</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../database/audit.html">&larr; Audit log and seal chain</a><a class="next" href="../system/index.html">System map &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
-<h3>Table record_counters</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li></ul>
+<h3>Table entity_definition_versions</h3><ul><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li></ul>
+<h3>Table number_format_versions</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li></ul>
+<h3>Table number_formats</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li></ul>
+<h3>Table numbering_epochs</h3><ul><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Table record_counters</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li></ul>
+<h3>Table tenants</h3><ul><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li></ul>
 <h3>Story S17</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">ADR-005-E2: grow is refused when a digit touches {seq:N}</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../vision/index.html">What the product is</a></li></ul>
-<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">ADR-005-E2: grow is refused when a digit touches {seq:N}</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
-<h3>ADR ADR-005-E1</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>Story S18</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li></ul>
+<h3>ADR ADR-005</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">ADR-005-E2: grow is refused when a digit touches {seq:N}</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>ADR ADR-005-E1</h3><ul><li><a href="../adr/adr-005-e1.html">ADR-005-E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
+<h3>ADR ADR-005-E2</h3><ul><li><a href="../adr/adr-005-e2.html">ADR-005-E2: grow is refused when a digit touches {seq:N}</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ c276a374dab5 (2026-11-15)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ c5b107932443 (2026-11-15)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>

@@ -1,0 +1,49 @@
+meta {
+  name: S18N.23 AC4: numbering carries on: the next Visa ticket is VISA-<yyyymm>0003
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{core_url}}/api/v1/records/visa
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-visa3
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} visa3"
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  bru.setVar('s18n_ym_before', ym(N.v('s18_tz')));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  N.status(201);
+  const n = N.json().number;
+  const months = [bru.getVar('s18n_ym_before'), ym(N.v('s18_tz'))];
+  test(`number VISA-<yyyymm in ${N.v('s18_tz')}>0003: ${n}`, () => expect(months.map(m => 'VISA-' + m + '0003')).to.include(n));
+  bru.setVar('s18n_visa3_id', N.json().id);
+  bru.setVar('s18n_visa3_number', n);
+  console.log('S18 visa3:', n);
+}

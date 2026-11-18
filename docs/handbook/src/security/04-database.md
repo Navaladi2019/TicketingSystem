@@ -37,7 +37,7 @@ roles):
   grants; `migrate` grants exactly those and revokes anything else.
 - A policy that does not test `app.tenant_id` must be on the ADR-001 Annex A.3
   allow-list (`catalog.AllowList()`, `internal/db/catalog/policy.go`), and has
-  a fixed `FOR`, `TO` and predicate. Today it has 11 policies; these are the
+  a fixed `FOR`, `TO` and predicate. Today it has 13 policies; these are the
   only places a role can reach rows across tenants:
   - `outbox_relay_select`: `SELECT` by `nava_relay`, `USING (true)`.
   - `outbox_relay_update`: `UPDATE` by `nava_relay`, `USING` pending rows
@@ -54,6 +54,9 @@ roles):
     by `nava_purge`, `USING` closed more than 30 days ago.
   - `audit_chain_head_purge_select`: `SELECT` by `nava_purge`, `USING` the R17
     predicate (shared with the `chain:reseed` gate).
+  - `record_counters_purge` and `record_counters_purge_select`: `DELETE` and
+    `SELECT` by `nava_purge`, `USING` a period counter more than 2 days past
+    its `period_end` (ADR-005 §4.3; never an open, in-grace or NULL row).
 
   So `nava_purge` selects and deletes expired rows of every tenant.
   `PinnedTenantPolicies()` adds a state test to the tenant predicate for the

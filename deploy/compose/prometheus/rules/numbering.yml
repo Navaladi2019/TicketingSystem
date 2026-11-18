@@ -1,0 +1,27 @@
+# Record numbering alerts (ADR-005 §3.5, TICK-674). Local dev only, like the
+# scrape config; prometheus.yml loads every file in this directory.
+#
+# nava_numbering_fill_ratio is, per nava-core, a histogram of how full a
+# `refuse` number format's {seq:N} is after each number taken: the counter
+# value over the largest N-digit value. No tenant or type label (T01); the
+# create that pushes a counter past 0.9 is on the nava-core logs, and a
+# refused one answers 409 number_space_exhausted naming the scope.
+# NumberSpaceNearlyExhausted fires when any number in the last 10 min was
+# taken above 90 % of its format's width: that scope runs out soon, and its
+# creates then fail until the scope changes or a wider format is published.
+# Tests: ../tests/numbering_test.yml (lineage.TestAlertRules).
+groups:
+  - name: numbering
+    rules:
+      - alert: NumberSpaceNearlyExhausted
+        expr: >-
+          sum(increase(nava_numbering_fill_ratio_count[10m]))
+          - sum(increase(nava_numbering_fill_ratio_bucket{le="0.9"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A refuse number format has used more than 90 % of its width in a numbering scope (ADR-005 §3.5).
+          description: >-
+            Creates of that type fail with 409 number_space_exhausted once the
+            scope's counter outgrows the width. Publish a wider format (a new
+            epoch) for the type, or wait for the next period of a dated scope.

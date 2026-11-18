@@ -46,7 +46,7 @@ func migrateBeforeB(t *testing.T, m *grants.Manifest) (migrate.Result, error) {
 	// The catalogue pins P5-34f's policy (TICK-590), which sorts after B but
 	// needs only audit_chain_head, so the run applies it out of order, as
 	// migrateTo does.
-	fsys := withMigrationFrom(t, migrationsBefore(t, migrationB), deadLineageMigration)
+	fsys := withCounterPurge(t, withMigrationFrom(t, migrationsBefore(t, migrationB), deadLineageMigration))
 	gm, am := beforeACLTables(fsys, m, &a)
 	log, _ := newLog()
 	return migrate.Run(context.Background(), roleConfig(t, gm.Owner(), gm.PlatformDatabase),
