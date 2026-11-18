@@ -124,6 +124,13 @@ func TestNumberingModesDoNotInterfere(t *testing.T) {
 func TestModeSwitchNeverReusesANumber(t *testing.T) {
 	e := migrated(t)
 	f := seedTenant(t, e)
+	modeSwitchNeverReusesANumber(t, e, f)
+}
+
+// modeSwitchNeverReusesANumber is the §2.1.1 pinned test on the incident
+// type of f, whatever its number format.
+func modeSwitchNeverReusesANumber(t *testing.T, e env, f tenantFixture) {
+	t.Helper()
 	p := newPipeline(e, nil)
 	const (
 		workers = 8

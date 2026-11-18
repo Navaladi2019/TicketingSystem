@@ -1,0 +1,638 @@
+{
+  "requests": 38,
+  "tests": 100,
+  "failed": 3,
+  "results": [
+    {
+      "request": "S18N-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "tenant_id is 00000000-0000-4000-8000-0000000000b1",
+          "status": "pass"
+        },
+        {
+          "test": "Me has the contract fields",
+          "status": "pass"
+        },
+        {
+          "test": "in /admins",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-5",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the zone is in force",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-6",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1 of {prefix}-{yyyy}{MM}{seq:4} (refuse)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-7",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-8",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-9",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 2 pins the format, version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-10",
+      "status": 201,
+      "tests": [
+        {
+          "test": "number VISA-<yyyymm in Pacific/Kiritimati>0001: VISA-2026110002",
+          "status": "fail",
+          "error": "expected [ Array(2) ] to include 'VISA-2026110002'"
+        },
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-11",
+      "status": 201,
+      "tests": [
+        {
+          "test": "number VISA-<yyyymm in Pacific/Kiritimati>0002: VISA-2026110003",
+          "status": "fail",
+          "error": "expected [ Array(2) ] to include 'VISA-2026110003'"
+        },
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-12",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000003",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-13",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000003",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-14",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "number still VISA0000001",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-15",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "number still VISA0000002",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-16",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_format_prefix_required",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "names position 0 of /document/template",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-17",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_format_prefix_required",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "names position 8 of /document/template",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-18",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1 of {prefix}{yy}{seq:3} (refuse)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-19",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_format_overlap",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors name the clashing template",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-20",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "same version, default numbering",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-21",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000004",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-22",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 3, compatible, still pins the format version 1",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-23",
+      "status": 201,
+      "tests": [
+        {
+          "test": "number VISA-<yyyymm in Pacific/Kiritimati>0003: VISA-2026110004",
+          "status": "fail",
+          "error": "expected [ Array(2) ] to include 'VISA-2026110004'"
+        },
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-24",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "number still VISA-2026110002",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-25",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "number still VISA0000001",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-26",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "number still INC0000001",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-27",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json, code not_found, no instance",
+          "status": "pass"
+        },
+        {
+          "test": "HTTP 404",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-28",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json, code not_found, no instance",
+          "status": "pass"
+        },
+        {
+          "test": "HTTP 404",
+          "status": "pass"
+        },
+        {
+          "test": "the same body as for tenant A's format",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-29",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_format_not_found",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-30",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_format_not_found",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "the same detail and errors as for tenant A's format",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-31",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "number INC0000004",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-32",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1 of {prefix}-{seq:1} (refuse)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-33",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "pins the format",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-34",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "9 creates: 201 PMT-1, 201 PMT-2, 201 PMT-3, 201 PMT-4, 201 PMT-5, 201 PMT-6, 201 PMT-7, 201 PMT-8, 201 PMT-9",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-35",
+      "status": 409,
+      "tests": [
+        {
+          "test": "HTTP 409",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code number_space_exhausted",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-36",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "exactly one number_space_exhausted entry",
+          "status": "pass"
+        },
+        {
+          "test": "domain record, subject the permit type",
+          "status": "pass"
+        },
+        {
+          "test": "diff /number_space has epoch, scope_key, width, counter: {\"counter\":10,\"epoch\":1,\"scope_key\":\"e1\",\"width\":1}",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-37",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "tenant B's record timeline has entries (4)",
+          "status": "pass"
+        },
+        {
+          "test": "no number_space_exhausted entry",
+          "status": "pass"
+        },
+        {
+          "test": "response names nothing of the other tenant",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S18N-38",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "no entries",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}

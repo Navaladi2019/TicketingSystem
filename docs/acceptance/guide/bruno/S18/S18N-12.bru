@@ -1,0 +1,35 @@
+meta {
+  name: S18N.12 AC1: other types keep their numbers: tenant A's next incident is INC0000003
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-inc-a3
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} inc-a3"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('number INC0000003', () => expect(N.json().number).to.eql('INC0000003'));
+}
+
+docs {
+  The incident type has no format: it carries on on the default numbering.
+}

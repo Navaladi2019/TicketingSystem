@@ -1,0 +1,56 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/number-formats",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "125",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-d690e1dc-visa",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"key\": \"s18n_visa_d690e1dc\",\n  \"document\": {\n    \"template\": \"{prefix}-{yyyy}{MM}{seq:4}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "7c14115f-750b-46fc-b636-619247fb0b6e",
+      "key": "s18n_visa_d690e1dc",
+      "version": 1,
+      "current_version": 1,
+      "document": {
+        "overflow": "refuse",
+        "template": "{prefix}-{yyyy}{MM}{seq:4}"
+      },
+      "compiled": {
+        "Head": "{prefix}-{yyyy}{MM}",
+        "Tail": "",
+        "Epoch": -1,
+        "Width": 4,
+        "Overflow": "refuse",
+        "TimeZone": "",
+        "ScopeParts": [
+          "{yyyy}",
+          "{MM}"
+        ],
+        "CompiledSHA256": "8e9932d9c3c78ccd2cae0265544b772fbcca21b26f2a8aab72bc28f458272c4c"
+      },
+      "compiled_sha256": "8e9932d9c3c78ccd2cae0265544b772fbcca21b26f2a8aab72bc28f458272c4c",
+      "created_at": "2026-11-15T05:15:36.476609Z",
+      "created_by": "1cd3ec96-876d-4b7f-a884-72b2cc9e650b"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "version 1 of {prefix}-{yyyy}{MM}{seq:4} (refuse)",
+      "status": "pass"
+    }
+  ]
+}

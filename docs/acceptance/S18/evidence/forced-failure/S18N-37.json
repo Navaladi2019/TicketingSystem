@@ -1,0 +1,168 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:38080/api/v1/audit/entries?domain=record&limit=500",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "action": "create",
+          "actor_principal_id": "31609442-4cd6-4793-980c-f1d53263e1c0",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1dda1-e7d3-732e-916c-5d7ffde857c7",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 3,
+                "requester": "31609442-4cd6-4793-980c-f1d53263e1c0",
+                "short_description": "S18 d690e1dc inc-b4",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "1fe343a5a37e2d0925796e144fc2b600",
+          "diff_sha256": "e0f6da2950875afb8f09c4d255bf17b1e0213103fcce81cf15fb292a0c6023ae",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "2a1ea7a6-7c83-4d2c-b090-b71829f35caa",
+          "id": "01a1dda1-e7d6-775e-8b46-ef29c5beeafe",
+          "occurred_at": "2026-11-15T05:15:37.809064Z",
+          "request_id": "ecded89067d395de1d0fced43918cbf4",
+          "source": "user",
+          "subject_id": "01a1dda1-e7d3-740e-b214-d187af0dc3a5",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "31609442-4cd6-4793-980c-f1d53263e1c0",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1dda1-e432-7736-b810-d217183502b1",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 3,
+                "requester": "31609442-4cd6-4793-980c-f1d53263e1c0",
+                "short_description": "S18 d690e1dc inc-b3",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "da9045c04b0bf4bbd737b66db2948b43",
+          "diff_sha256": "f05b6b17bd7e74bc5cd4ab7d22bea63b2d57d18a79bbf2434acf09329c7a93fd",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "2a1ea7a6-7c83-4d2c-b090-b71829f35caa",
+          "id": "01a1dda1-e434-7953-a2d1-41754ab48e3f",
+          "occurred_at": "2026-11-15T05:15:36.880116Z",
+          "request_id": "17a1c1dddcd38217d940fb55b49bdabc",
+          "source": "user",
+          "subject_id": "01a1dda1-e432-77a1-907b-aa06a674a297",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "d119402f-8f8a-478b-85d2-f1cbef2d0bb6",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1dda0-d710-7e33-bae6-682c930b986f",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 3,
+                "requester": "d119402f-8f8a-478b-85d2-f1cbef2d0bb6",
+                "short_description": "S18 pre-upgrade incident B 2",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "400e94c2d37996a71ea463c8c978efb8",
+          "diff_sha256": "6711f8cfd824edf5bbf1d3b81e67579412192b18aa585e1a4edd37f98eec2cdd",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "2a1ea7a6-7c83-4d2c-b090-b71829f35caa",
+          "id": "01a1dda0-d712-7920-bcf6-1a730107cfc5",
+          "occurred_at": "2026-11-15T05:14:27.982805Z",
+          "request_id": "7dedef47118827047d09bcb8c4cc226f",
+          "source": "user",
+          "subject_id": "01a1dda0-d710-7e9e-88dd-cf9212a983de",
+          "subject_type": "record",
+          "version_after": 1
+        },
+        {
+          "action": "create",
+          "actor_principal_id": "d119402f-8f8a-478b-85d2-f1cbef2d0bb6",
+          "backfilled": false,
+          "causation_depth": 0,
+          "causation_id": "01a1dda0-d6f9-7d38-9bc3-57b255958801",
+          "diff": [
+            {
+              "op": "add",
+              "path": "",
+              "value": {
+                "priority": 3,
+                "requester": "d119402f-8f8a-478b-85d2-f1cbef2d0bb6",
+                "short_description": "S18 pre-upgrade incident B 1",
+                "state": "new"
+              }
+            }
+          ],
+          "diff_redacted": false,
+          "diff_salt": "72f68df046fdabb38c24703df6278a9d",
+          "diff_sha256": "073fa8aa172d394ebf9b80cecade725ef93758a283760f43fe8c262e452e9a89",
+          "diff_truncated": false,
+          "domain": "record",
+          "entity_definition_id": "2a1ea7a6-7c83-4d2c-b090-b71829f35caa",
+          "id": "01a1dda0-d6fc-76bf-a025-7922225dd58f",
+          "occurred_at": "2026-11-15T05:14:27.956492Z",
+          "request_id": "5e8988952e6c26ad7521511d74a67e31",
+          "source": "user",
+          "subject_id": "01a1dda0-d6f9-7db1-911e-b70269719188",
+          "subject_type": "record",
+          "version_after": 1
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "tenant B's record timeline has entries (4)",
+      "status": "pass"
+    },
+    {
+      "test": "no number_space_exhausted entry",
+      "status": "pass"
+    },
+    {
+      "test": "response names nothing of the other tenant",
+      "status": "pass"
+    }
+  ]
+}

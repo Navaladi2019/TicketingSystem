@@ -1,0 +1,38 @@
+meta {
+  name: S18.21 Publish version 2: 200
+  type: http
+  seq: 21
+}
+
+put {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-p200
+  If-Match: W/"1"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "document": {
+      "template": "{prefix}-{yy}{MM}-{seq:5}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, ETag W/"2", version 2 is current', () => {
+    expect(res.getStatus()).to.eql(200);
+    expect(N.header('ETag')).to.eql('W/"2"');
+    expect(N.json().version).to.eql(2);
+    expect(N.json().current_version).to.eql(2);
+  });
+  N.status(200);
+}

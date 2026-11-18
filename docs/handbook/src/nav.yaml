@@ -222,6 +222,10 @@
             label: "A1: embedding clients always name the organization"
       - page: adr/adr-008.md
         label: "ADR-008 Competitive Gate in every ADR"
+      - page: adr/adr-009.md
+        label: "ADR-009 Records catch up when a default is added"
+      - page: adr/adr-010.md
+        label: "ADR-010 Composable access rules"
     - page: stories/index.md
       label: "Stories"
       children:
@@ -259,6 +263,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/s18.md
+            label: "Number formats on ticket types"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
           - page: stories/s25.md

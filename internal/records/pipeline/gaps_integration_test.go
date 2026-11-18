@@ -217,7 +217,7 @@ func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
 			}
 			// A forged tenant: B's counter, under A's setting.
-			store.QueueAllocate(batch, b.id, defB, "", &got)
+			store.QueueAllocate(batch, b.id, defB, numbering.Scope{}, &got)
 		})
 		return err
 	})
