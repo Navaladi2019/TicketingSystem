@@ -3504,7 +3504,7 @@ def s28():
         "authorizationUrl": "http://localhost:18081/realms/standin-company/protocol/openid-connect/auth",
         "tokenUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/token",
         "jwksUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/certs",
-        "useJwksUrl": "true", "defaultScope": "openid email profile"}}
+        "useJwksUrl": "true", "defaultScope": "openid profile"}}
     fresh = """
 // One run id per pass: a new domain, so a new tenant, every time.
 const run = Math.random().toString(16).slice(2, 10);
