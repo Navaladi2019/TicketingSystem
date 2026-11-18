@@ -224,6 +224,8 @@
         label: "ADR-008 Competitive Gate in every ADR"
       - page: adr/adr-009.md
         label: "ADR-009 Records catch up when a default is added"
+      - page: adr/adr-010.md
+        label: "ADR-010 Composable access rules"
     - page: stories/index.md
       label: "Stories"
       children:

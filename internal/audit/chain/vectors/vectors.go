@@ -14,7 +14,6 @@ package vectors
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -114,14 +113,8 @@ func Generate() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(f); err != nil {
-		return nil, err
-	}
-	return b.Bytes(), nil
+	// Not json.Encoder: it may re-escape the envelope bytes (TICK-970).
+	return chain.MarshalIndentJSONL(f, "", "  ")
 }
 
 func build() (File, error) {

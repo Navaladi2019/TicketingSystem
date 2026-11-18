@@ -2,7 +2,6 @@ package vectors
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -232,13 +231,12 @@ func (f exportFile) lines() ([]string, error) {
 	all := append(append([]any{f.header}, f.body...), f.trailer)
 	out := make([]string, 0, len(all))
 	for _, l := range all {
-		var b bytes.Buffer
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(l); err != nil {
+		// Not json.Encoder: it may re-escape the envelope bytes (TICK-970).
+		b, err := chain.MarshalJSONL(l)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, string(bytes.TrimSuffix(b.Bytes(), []byte("\n"))))
+		out = append(out, string(bytes.TrimSuffix(b, []byte("\n"))))
 	}
 	return out, nil
 }
