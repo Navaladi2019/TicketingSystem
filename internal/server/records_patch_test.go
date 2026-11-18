@@ -19,8 +19,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func TestIfMatchVersions(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -29,16 +27,16 @@ func TestIfMatchVersions(t *testing.T) {
 		ok   bool
 	}{
 		"absent":       {nil, nil, false},
-		"empty":        {ptr(""), nil, false},
-		"star":         {ptr("*"), nil, false},
-		"star padded":  {ptr(" * "), nil, false},
-		"weak":         {ptr(`W/"3"`), []int64{3}, true},
-		"strong":       {ptr(`"3"`), []int64{3}, true},
-		"list":         {ptr(`W/"1", "2"`), []int64{1, 2}, true},
-		"garbage":      {ptr(`W/"abc"`), []int64{0}, true},
-		"zero":         {ptr(`"0"`), []int64{0}, true},
-		"negative":     {ptr(`"-4"`), []int64{0}, true},
-		"star in list": {ptr(`"1", *`), []int64{1, 0}, true},
+		"empty":        {new(""), nil, false},
+		"star":         {new("*"), nil, false},
+		"star padded":  {new(" * "), nil, false},
+		"weak":         {new(`W/"3"`), []int64{3}, true},
+		"strong":       {new(`"3"`), []int64{3}, true},
+		"list":         {new(`W/"1", "2"`), []int64{1, 2}, true},
+		"garbage":      {new(`W/"abc"`), []int64{0}, true},
+		"zero":         {new(`"0"`), []int64{0}, true},
+		"negative":     {new(`"-4"`), []int64{0}, true},
+		"star in list": {new(`"1", *`), []int64{1, 0}, true},
 	} {
 		got, ok := ifMatchVersions(tc.in)
 		if ok != tc.ok || !slices.Equal(got, tc.want) {

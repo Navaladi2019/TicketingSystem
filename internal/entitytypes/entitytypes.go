@@ -520,8 +520,7 @@ func (Store) QueueCurrent(tx pgx.Tx, b *pgx.Batch, entityKey string) {
 	b.Queue(versionSelect+` WHERE d.key = $1 AND v.version = d.current_version`, entityKey).
 		QueryRow(func(row pgx.Row) error {
 			v, err := scanVersion(row)
-			var pe *pgconn.PgError
-			if errors.As(err, &pe) {
+			if _, ok := errors.AsType[*pgconn.PgError](err); ok {
 				return err // the statement failed: so does the batch
 			}
 			if err != nil {

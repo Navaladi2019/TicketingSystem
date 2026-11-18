@@ -55,7 +55,7 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 	if v == nil || strings.TrimSpace(*v) == "" || strings.TrimSpace(*v) == "*" {
 		return nil, false
 	}
-	for _, m := range strings.Split(*v, ",") {
+	for m := range strings.SplitSeq(*v, ",") {
 		m = strings.TrimSpace(m)
 		m = strings.TrimPrefix(m, "W/")
 		m = strings.Trim(m, `"`)
@@ -332,8 +332,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
 	}
-	var tooLong *read.HistoryTooLongError
-	if errors.As(err, &tooLong) {
+	if tooLong, ok := errors.AsType[*read.HistoryTooLongError](err); ok {
 		// The numbers only: no record data goes to the log or the metric.
 		h.log.WarnContext(ctx, "record history longer than the cap",
 			slog.String("code", string(problem.HistoryTooLong)), slog.String("entity", req.Entity),

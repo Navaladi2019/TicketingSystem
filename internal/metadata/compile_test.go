@@ -3,6 +3,7 @@ package metadata_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,12 +51,7 @@ func TestTemplatesCompile(t *testing.T) {
 }
 
 func contains(s []string, v string) bool {
-	for _, e := range s {
-		if e == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, v)
 }
 
 // TestCompileRefusesExternalRefs: no $ref may leave the document (TICK-363).

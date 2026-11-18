@@ -17,7 +17,7 @@ var (
 	groupG  = uuid.MustParse("00000000-0000-4000-8000-0000000000c3")
 )
 
-func bindingRow(tenant string) []*string { return []*string{s(tenant), s("{idp-a}")} }
+func bindingRow(tenant string) []*string { return []*string{new(tenant), new("{idp-a}")} }
 
 func bindingHandler(bindingRows [][]*string, stateRows [][]*string, stateErr string) func(string) result {
 	return func(sql string) result {
@@ -34,7 +34,7 @@ func bindingHandler(bindingRows [][]*string, stateRows [][]*string, stateErr str
 func TestBindingDefensiveBranches(t *testing.T) {
 	t.Parallel()
 	one := [][]*string{bindingRow(tenantX.String())}
-	active := [][]*string{{s("active")}}
+	active := [][]*string{{new("active")}}
 	cases := []struct {
 		name    string
 		h       func(string) result
@@ -108,14 +108,14 @@ func TestPrincipalDefensiveBranches(t *testing.T) {
 	})
 	t.Run("links that are not an array of links", func(t *testing.T) {
 		t.Parallel()
-		_, err := run(t, principalHandler([]*string{s(id), s("t"), s("[1]"), s("{}")}, ""))
+		_, err := run(t, principalHandler([]*string{new(id), new("t"), new("[1]"), new("{}")}, ""))
 		if err == nil || !strings.Contains(err.Error(), "federated_links") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("NULL links stay unknown and the groups are an empty list", func(t *testing.T) {
 		t.Parallel()
-		rec, err := run(t, principalHandler([]*string{s(id), s("t"), nil, s("{}")}, ""))
+		rec, err := run(t, principalHandler([]*string{new(id), new("t"), nil, new("{}")}, ""))
 		if err != nil || rec.LinksKnown || rec.FederatedIdPs != nil || rec.Groups == nil || len(rec.Groups) != 0 || !rec.Enabled {
 			t.Fatalf("rec = %+v, %v", rec, err)
 		}
@@ -123,7 +123,7 @@ func TestPrincipalDefensiveBranches(t *testing.T) {
 	t.Run("links and groups are read", func(t *testing.T) {
 		t.Parallel()
 		g := groupG.String()
-		rec, err := run(t, principalHandler([]*string{s(id), s("f"), s(`[{"identityProvider":"idp-a"},{"identityProvider":"idp-b"}]`), s("{" + g + "}")}, ""))
+		rec, err := run(t, principalHandler([]*string{new(id), new("f"), new(`[{"identityProvider":"idp-a"},{"identityProvider":"idp-b"}]`), new("{" + g + "}")}, ""))
 		if err != nil || !rec.LinksKnown || rec.Enabled || len(rec.FederatedIdPs) != 2 || rec.FederatedIdPs[1] != "idp-b" ||
 			len(rec.Groups) != 1 || rec.Groups[0] != groupG {
 			t.Fatalf("rec = %+v, %v", rec, err)
@@ -141,7 +141,7 @@ func TestTenantOwnsEmailDomainLowercasesAndWraps(t *testing.T) {
 	t.Parallel()
 	f := startFakePG(t, func(sql string) result {
 		if strings.Contains(sql, "tenant_email_domain") {
-			return result{cols: []uint32{oidBool}, rows: [][]*string{{s("t")}}}
+			return result{cols: []uint32{oidBool}, rows: [][]*string{{new("t")}}}
 		}
 		return result{err: "unexpected statement"}
 	})
@@ -179,14 +179,14 @@ func TestGroupPathsDefensiveBranches(t *testing.T) {
 			return result{err: "unexpected statement"}
 		}
 	}
-	got, err := run(t, rows([]*string{s(groupG.String()), s("/t/x/devs")}))
+	got, err := run(t, rows([]*string{new(groupG.String()), new("/t/x/devs")}))
 	if err != nil || len(got) != 1 || got[0].ID != groupG || got[0].Path != "/t/x/devs" {
 		t.Fatalf("paths = %+v, %v", got, err)
 	}
 	if got, err := run(t, rows()); err != nil || len(got) != 0 {
 		t.Fatalf("no groups = %+v, %v", got, err)
 	}
-	if got, err := run(t, rows([]*string{s("not-a-uuid"), s("/t/x/devs")})); err == nil || got != nil {
+	if got, err := run(t, rows([]*string{new("not-a-uuid"), new("/t/x/devs")})); err == nil || got != nil {
 		t.Fatalf("an unreadable row must fail the call: %+v, %v", got, err)
 	}
 	if got, err := run(t, func(string) result { return result{err: "boom"} }); err == nil || got != nil {

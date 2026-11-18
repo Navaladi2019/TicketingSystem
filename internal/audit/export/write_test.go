@@ -58,7 +58,7 @@ func newFakeLogWith(t *testing.T, n int, edit func(*read.Entry)) *fakeLog {
 		e := read.Entry{
 			ID: uuid.MustParse("0190f3a0-0000-7000-8000-" + padHex(i)), OccurredAt: base().Add(time.Duration(i) * time.Minute),
 			Domain: "record", Action: "update", SubjectType: "record", SubjectID: subj, Source: "user",
-			ActorSystem: ptr("system"), Seq: &seq,
+			ActorSystem: new("system"), Seq: &seq,
 		}
 		diff := []byte(`[{"op":"add","path":"/note","value":"<n` + padHex(i) + `>"}]`)
 		salt := [16]byte{byte(i)}
@@ -85,7 +85,6 @@ func newFakeLogWith(t *testing.T, n int, edit func(*read.Entry)) *fakeLog {
 
 func padHex(i int) string { return strings.Repeat("0", 12-len(itoa(i))) + itoa(i) }
 func itoa(i int) string   { b, _ := json.Marshal(i); return string(b) }
-func ptr[T any](v T) *T   { return &v }
 
 func envOf(r read.ExportRow) chain.Envelope {
 	e := r.Entry
@@ -237,10 +236,10 @@ func TestFilteredExportsVerify(t *testing.T) {
 	t.Parallel()
 	from, to := base().Add(4*time.Minute), base().Add(10*time.Minute)
 	cases := map[string]read.ExportFilter{
-		"subject": {SubjectID: ptr(subjA())},
+		"subject": {SubjectID: new(subjA())},
 		"time":    {From: &from, To: &to},
-		"domain":  {Domain: ptr("record"), SubjectID: ptr(subjB())},
-		"both":    {From: &from, To: &to, SubjectID: ptr(subjA())},
+		"domain":  {Domain: new("record"), SubjectID: new(subjB())},
+		"both":    {From: &from, To: &to, SubjectID: new(subjA())},
 	}
 	for name, f := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -265,7 +264,7 @@ func lines(b []byte) []string { return strings.Split(strings.TrimSuffix(string(b
 // CI-A6: each tamper fails under a filter.
 func TestTamperedExportsFail(t *testing.T) {
 	t.Parallel()
-	f := read.ExportFilter{SubjectID: ptr(subjA())}
+	f := read.ExportFilter{SubjectID: new(subjA())}
 	b, err := run(t, newFakeLog(t, 10), 100, export.Request{Stubs: true, Filter: f})
 	if err != nil {
 		t.Fatal(err)
@@ -323,7 +322,7 @@ func TestStubsFalse(t *testing.T) {
 		t.Parallel()
 		l := newFakeLog(t, 6)
 		to := base().Add(4 * time.Minute) // seq 1..3 match; 4..6 do not
-		b, err := run(t, l, 100, export.Request{Stubs: false, Filter: read.ExportFilter{To: &to, SubjectID: ptr(subjA())}})
+		b, err := run(t, l, 100, export.Request{Stubs: false, Filter: read.ExportFilter{To: &to, SubjectID: new(subjA())}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -372,7 +371,7 @@ func TestEmptyWindowHasNoAnchor(t *testing.T) {
 
 func TestAfterSeqAnchorsOnThatSeq(t *testing.T) {
 	t.Parallel()
-	b, err := run(t, newFakeLog(t, 8), 100, export.Request{Stubs: true, Filter: read.ExportFilter{AfterSeq: ptr(int64(5))}})
+	b, err := run(t, newFakeLog(t, 8), 100, export.Request{Stubs: true, Filter: read.ExportFilter{AfterSeq: new(int64(5))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +459,7 @@ func TestPageFailureLeavesNoTrailer(t *testing.T) {
 // The header's stubs is the request, written first; the filter is echoed.
 func TestHeaderRecordsTheRequest(t *testing.T) {
 	t.Parallel()
-	b, err := run(t, newFakeLog(t, 2), 100, export.Request{Stubs: false, Filter: read.ExportFilter{SubjectID: ptr(subjA())}})
+	b, err := run(t, newFakeLog(t, 2), 100, export.Request{Stubs: false, Filter: read.ExportFilter{SubjectID: new(subjA())}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +499,7 @@ func eraseEntryFor(t *testing.T, l *fakeLog, ids ...uuid.UUID) read.ExportRow {
 	return read.ExportRow{TenantID: l.tenant, Match: true, Entry: read.Entry{
 		ID: uuid.MustParse("0190f3a0-0000-7000-8000-0000000000e9"), OccurredAt: base().Add(48 * time.Hour),
 		Domain: "audit", Action: "erase", SubjectType: "erasure_request", SubjectID: refR24(), Source: "user",
-		ActorSystem: ptr("system"), DiffSHA256: d[:], Diff: diff, DiffSalt: salt[:],
+		ActorSystem: new("system"), DiffSHA256: d[:], Diff: diff, DiffSalt: salt[:],
 	}}
 }
 
@@ -515,7 +514,7 @@ func eraseScenario(t *testing.T, n int) *fakeLog {
 	l.onRange = func(call int) {
 		if call == 2 { // page size 2: the second page holds seq 3
 			now := base().Add(48 * time.Hour)
-			x.Entry.ErasedAt, x.ErasureRef = &now, ptr(refR24())
+			x.Entry.ErasedAt, x.ErasureRef = &now, new(refR24())
 			x.Entry.Diff, x.Entry.DiffSalt = nil, nil
 		}
 	}
@@ -575,7 +574,7 @@ func TestDroppedTailEraseLineIsUnlisted(t *testing.T) {
 func TestEraseSealedBeyondHeadIsTail(t *testing.T) {
 	t.Parallel()
 	l := eraseScenario(t, 4)
-	l.erase[0].Entry.Seq = ptr(int64(5))
+	l.erase[0].Entry.Seq = new(int64(5))
 	b, err := run(t, l, 2, export.Request{Stubs: true})
 	if err != nil {
 		t.Fatal(err)
@@ -597,7 +596,7 @@ func TestEraseEntryFetchedOnceAndNotRepeated(t *testing.T) {
 		inner(call)
 		if call == 2 { // the second erased entry shares the ref
 			now := base().Add(48 * time.Hour)
-			y.Entry.ErasedAt, y.ErasureRef = &now, ptr(refR24())
+			y.Entry.ErasedAt, y.ErasureRef = &now, new(refR24())
 			y.Entry.Diff, y.Entry.DiffSalt = nil, nil
 		}
 	}
@@ -621,7 +620,7 @@ func TestEraseEntryFetchedOnceAndNotRepeated(t *testing.T) {
 func TestEraseEntryInRangeAddsNothing(t *testing.T) {
 	t.Parallel()
 	l := eraseScenario(t, 4)
-	l.erase[0].Entry.Seq = ptr(int64(4)) // sealed, seq <= head_seq
+	l.erase[0].Entry.Seq = new(int64(4)) // sealed, seq <= head_seq
 	b, err := run(t, l, 2, export.Request{Stubs: true})
 	if err != nil {
 		t.Fatal(err)

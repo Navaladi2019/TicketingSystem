@@ -170,8 +170,7 @@ func (Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in Publ
 	}
 	d, err := def.Parse(in.Body)
 	if err != nil {
-		var inv *def.ErrInvalidDefinition
-		if errors.As(err, &inv) {
+		if inv, ok := errors.AsType[*def.ErrInvalidDefinition](err); ok {
 			return nil, &InvalidError{Fields: parseFields(in.Body, inv.Paths)}
 		}
 		return nil, err

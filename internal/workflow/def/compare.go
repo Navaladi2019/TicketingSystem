@@ -60,7 +60,7 @@ func lookup(doc map[string]any, ptr string) (any, bool) {
 		return nil, false
 	}
 	var cur any = doc
-	for _, tok := range strings.Split(ptr[1:], "/") {
+	for tok := range strings.SplitSeq(ptr[1:], "/") {
 		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
 		switch v := cur.(type) {
 		case map[string]any:

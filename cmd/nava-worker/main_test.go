@@ -242,7 +242,7 @@ func TestComposeWorkerPublishesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := serviceBlock(t, strings.ReplaceAll(string(b), "\r\n", "\n"), "nava-worker")
-	for _, line := range strings.Split(svc, "\n") {
+	for line := range strings.SplitSeq(svc, "\n") {
 		code, _, _ := strings.Cut(line, "#")
 		if strings.Contains(code, "ports:") {
 			t.Errorf("nava-worker publishes a port: %s", strings.TrimSpace(line))
@@ -272,7 +272,7 @@ func serviceBlock(t *testing.T, compose, name string) string {
 		t.Fatalf("no %s service in compose.yaml", name)
 	}
 	var b strings.Builder
-	for _, line := range strings.Split(rest, "\n") {
+	for line := range strings.SplitSeq(rest, "\n") {
 		if line != "" && !strings.HasPrefix(line, "    ") {
 			break
 		}

@@ -258,12 +258,12 @@ func TestAuthorizeNeverPanics(t *testing.T) {
 func TestAuthorizeConcurrent(t *testing.T) {
 	a := NewAuthorizer(log.NewNoopLogger(), metrics.NoopMetricsHandler)
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			id := []Identity{Relay, Core, Worker, Operator}[i%4]
-			for j := 0; j < 500; j++ {
+			for range 500 {
 				res, _ := a.Authorize(context.Background(), claimsFor(id), &authorization.CallTarget{APIName: wf + "GetSystemInfo"})
 				if res.Decision != authorization.DecisionAllow {
 					t.Errorf("%s GetSystemInfo denied", id)

@@ -18,8 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func baseEnvelope() Envelope {
 	return Envelope{
 		TenantID:    uuid.MustParse("0190f3a0-0000-7000-8000-000000000001"),
@@ -29,7 +27,7 @@ func baseEnvelope() Envelope {
 		Action:      "update",
 		SubjectType: "record",
 		SubjectID:   uuid.MustParse("0190f3a0-0000-7000-8000-0000000000e1"),
-		ActorSystem: ptr("workflow"),
+		ActorSystem: new("workflow"),
 		Source:      "workflow",
 	}
 }
@@ -72,17 +70,17 @@ var mutators = map[string]func(*Envelope){
 	"Action":             func(e *Envelope) { e.Action = "create" },
 	"SubjectType":        func(e *Envelope) { e.SubjectType = "entity_definition" },
 	"SubjectID":          func(e *Envelope) { e.SubjectID = uuid.MustParse("0190f3a0-0000-7000-8000-0000000000e2") },
-	"EntityDefinitionID": func(e *Envelope) { e.EntityDefinitionID = ptr(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000d1")) },
-	"VersionBefore":      func(e *Envelope) { e.VersionBefore = ptr[int64](0) },
-	"VersionAfter":       func(e *Envelope) { e.VersionAfter = ptr[int64](0) },
-	"ActorPrincipalID":   func(e *Envelope) { e.ActorPrincipalID = ptr(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1")) },
+	"EntityDefinitionID": func(e *Envelope) { e.EntityDefinitionID = new(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000d1")) },
+	"VersionBefore":      func(e *Envelope) { e.VersionBefore = new(int64(0)) },
+	"VersionAfter":       func(e *Envelope) { e.VersionAfter = new(int64(0)) },
+	"ActorPrincipalID":   func(e *Envelope) { e.ActorPrincipalID = new(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1")) },
 	"ActorSystem":        func(e *Envelope) { e.ActorSystem = nil },
 	"Source":             func(e *Envelope) { e.Source = "system" },
-	"SourceRef":          func(e *Envelope) { e.SourceRef = ptr("x") },
-	"ChangeSetID":        func(e *Envelope) { e.ChangeSetID = ptr(uuid.Nil) },
-	"CausationID":        func(e *Envelope) { e.CausationID = ptr(uuid.Nil) },
+	"SourceRef":          func(e *Envelope) { e.SourceRef = new("x") },
+	"ChangeSetID":        func(e *Envelope) { e.ChangeSetID = new(uuid.Nil) },
+	"CausationID":        func(e *Envelope) { e.CausationID = new(uuid.Nil) },
 	"CausationDepth":     func(e *Envelope) { e.CausationDepth = 1 },
-	"RequestID":          func(e *Envelope) { e.RequestID = ptr("r") },
+	"RequestID":          func(e *Envelope) { e.RequestID = new("r") },
 	"Backfilled":         func(e *Envelope) { e.Backfilled = true },
 	"ContentSHA256":      func(e *Envelope) { e.ContentSHA256 = &[32]byte{} },
 	"DiffSHA256":         func(e *Envelope) { e.DiffSHA256 = &[32]byte{} },
@@ -102,8 +100,8 @@ func TestEveryFieldIsHashed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range typ.NumField() {
-		name := typ.Field(i).Name
+	for field := range typ.Fields() {
+		name := field.Name
 		mut, ok := mutators[name]
 		if !ok {
 			t.Errorf("no mutator for %s", name)
@@ -237,10 +235,10 @@ func TestTimestamps(t *testing.T) {
 func TestTextRules(t *testing.T) {
 	for name, mut := range map[string]func(*Envelope){
 		"empty required": func(e *Envelope) { e.Domain = "" },
-		"empty nullable": func(e *Envelope) { e.RequestID = ptr("") },
-		"invalid utf8":   func(e *Envelope) { e.RequestID = ptr("a\xffb") },
-		"NUL":            func(e *Envelope) { e.RequestID = ptr("a\x00b") },
-		"lone surrogate": func(e *Envelope) { e.RequestID = ptr("\xed\xa0\x80") },
+		"empty nullable": func(e *Envelope) { e.RequestID = new("") },
+		"invalid utf8":   func(e *Envelope) { e.RequestID = new("a\xffb") },
+		"NUL":            func(e *Envelope) { e.RequestID = new("a\x00b") },
+		"lone surrogate": func(e *Envelope) { e.RequestID = new("\xed\xa0\x80") },
 	} {
 		e := baseEnvelope()
 		mut(&e)

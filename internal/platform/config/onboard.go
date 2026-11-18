@@ -139,7 +139,7 @@ func (r *reader) operators(key string) []OperatorEntry {
 		return nil
 	}
 	var out []OperatorEntry
-	for _, s := range strings.Split(v, ",") {
+	for s := range strings.SplitSeq(v, ",") {
 		iss, sub, ok := strings.Cut(strings.TrimSpace(s), "|")
 		if !ok || !isBaseURL(iss) || strings.TrimSpace(sub) == "" {
 			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated issuer|subject pairs", key))

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bufio"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,8 +59,8 @@ func parseDockerfile(t *testing.T, file string) []stage {
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue
 		}
-		if strings.HasSuffix(l, `\`) {
-			cont += strings.TrimSuffix(l, `\`) + " "
+		if before, ok := strings.CutSuffix(l, `\`); ok {
+			cont += before + " "
 			continue
 		}
 		l, cont = cont+l, ""
@@ -192,9 +193,7 @@ func TestDockerfileCIMatchesRealFinalStages(t *testing.T) {
 	for bin := range real {
 		targets[bin] = bin
 	}
-	for variant, base := range variantOf() {
-		targets[variant] = base
-	}
+	maps.Copy(targets, variantOf())
 	for bin, dir := range targets {
 		want := real[dir]
 		got, ok := ci[bin]
@@ -348,7 +347,7 @@ func TestDockerignoreKeepsCIBinaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		p := strings.TrimSpace(l)
 		if p == "" || strings.HasPrefix(p, "#") || strings.HasPrefix(p, "!") {
 			continue

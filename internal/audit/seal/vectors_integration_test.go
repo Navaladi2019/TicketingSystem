@@ -161,12 +161,14 @@ func exportBySQL(t *testing.T, e itEnv, tenant uuid.UUID) []byte {
 	type obj = map[string]any
 	null := (*string)(nil)
 	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
+	// chain.MarshalJSONL, not a json.Encoder: Go 1.27's encoder escapes
+	// U+2028/U+2029 inside the envelope's canonical bytes (TICK-970, TICK-962).
 	write := func(v any) {
-		if err := enc.Encode(v); err != nil {
+		b, err := chain.MarshalJSONL(v)
+		if err != nil {
 			t.Fatal(err)
 		}
+		out.Write(b)
 	}
 	write(obj{
 		"kind": "header", "format": "nava.audit.export/v1", "tenant_id": tenant.String(),

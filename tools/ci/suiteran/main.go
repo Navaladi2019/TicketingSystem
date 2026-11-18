@@ -149,7 +149,7 @@ func (sc scope) String() string {
 
 func splitTags(s string) []string {
 	var out []string
-	for _, t := range strings.Split(s, ",") {
+	for t := range strings.SplitSeq(s, ",") {
 		if t = strings.TrimSpace(t); t != "" {
 			out = append(out, t)
 		}
@@ -255,8 +255,7 @@ func runCommand(s *stream, args []string, tee string) (int, error) {
 	if readErr != nil {
 		return 0, readErr
 	}
-	var exit *exec.ExitError
-	if errors.As(waitErr, &exit) {
+	if exit, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		return exit.ExitCode(), nil
 	}
 	return 0, waitErr
@@ -440,7 +439,7 @@ func importPath(root, dir string) (string, error) {
 }
 
 func modulePath(gomod []byte) string {
-	for _, l := range strings.Split(string(gomod), "\n") {
+	for l := range strings.SplitSeq(string(gomod), "\n") {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "module"); ok && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
 			return strings.Trim(strings.TrimSpace(rest), `"`)
 		}

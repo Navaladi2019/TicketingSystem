@@ -266,7 +266,7 @@ func axesMethods(text string) (map[string]bool, error) {
 func checkRegister(text string) (map[string]bool, []finding) {
 	ids := map[string]bool{}
 	var findings []finding
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(l), "|") {
 			continue
 		}
@@ -295,7 +295,7 @@ func checkRegister(text string) (map[string]bool, []finding) {
 // validGrade: drop parenthesised text, split on "/", trim; at least one token
 // and every token is A, B or C (PLAN-009 D-9-4).
 func validGrade(cell string) bool {
-	for _, tok := range strings.Split(parenthesised.ReplaceAllString(cell, ""), "/") {
+	for tok := range strings.SplitSeq(parenthesised.ReplaceAllString(cell, ""), "/") {
 		switch strings.TrimSpace(tok) {
 		case "A", "B", "C":
 		default:
@@ -389,7 +389,7 @@ func frontMatter(doc string) map[string]string {
 	if !ok {
 		return fm
 	}
-	for _, l := range strings.Split(rest, "\n") {
+	for l := range strings.SplitSeq(rest, "\n") {
 		if strings.TrimSpace(l) == "---" {
 			break
 		}

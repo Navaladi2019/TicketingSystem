@@ -39,7 +39,7 @@ func (r *reader) cursor() Cursor {
 		return Cursor{}
 	}
 	seen := map[string]bool{}
-	for _, entry := range strings.Split(raw, ",") {
+	for entry := range strings.SplitSeq(raw, ",") {
 		id, secret, ok := strings.Cut(strings.TrimSpace(entry), "=")
 		dec, err := base64.RawURLEncoding.Strict().DecodeString(secret)
 		if !ok || id == "" || err != nil || len(dec) < minCursorKeyLen || seen[id] {

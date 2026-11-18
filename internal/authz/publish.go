@@ -141,8 +141,7 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 	}
 	tenancy.Forget(tx, policyKey{entityKey})
 	_, err = publishLocked(ctx, tx, tenant, def, 0, by, rules, masks)
-	var ce *ConflictError
-	if errors.As(err, &ce) {
+	if _, ok := errors.AsType[*ConflictError](err); ok {
 		return false, nil
 	}
 	return err == nil, err

@@ -65,7 +65,7 @@ func serve(t *testing.T, code problem.Code) run {
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
 
 	r := run{rec: rec, spans: exp.GetSpans()}
-	for _, l := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
 			t.Fatalf("log line %q: %v", l, err)

@@ -7,7 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -42,28 +42,26 @@ func main() {
 		}
 		return time.Since(s)
 	}
-	for i := 0; i < 2000; i++ { // warm-up
+	for i := range 2000 { // warm-up
 		one(i)
 	}
 	run := func(c int) []time.Duration {
 		d := make([]time.Duration, *n)
 		var wg sync.WaitGroup
 		jobs := make(chan int)
-		for w := 0; w < c; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range c {
+			wg.Go(func() {
 				for i := range jobs {
 					d[i] = one(i)
 				}
-			}()
+			})
 		}
 		for i := 0; i < *n; i++ {
 			jobs <- i
 		}
 		close(jobs)
 		wg.Wait()
-		sort.Slice(d, func(a, b int) bool { return d[a] < d[b] })
+		slices.Sort(d)
 		return d
 	}
 	for _, c := range []int{1, *conc} {

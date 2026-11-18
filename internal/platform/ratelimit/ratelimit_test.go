@@ -229,16 +229,14 @@ func TestFloodOfOneTenantDoesNotThrottleAnother(t *testing.T) {
 	var wg sync.WaitGroup
 	var sent, allowedA atomic.Int64
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 250 {
 				sent.Add(1)
 				if do(t, h, tenantA).Code == http.StatusNoContent {
 					allowedA.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

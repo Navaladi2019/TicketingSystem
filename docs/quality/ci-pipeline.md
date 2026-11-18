@@ -46,7 +46,9 @@ It checks the pinned golangci-lint version first (`check-golangci-lint`, the
 half of `check-tools` it needs). A waiver in the module still has to pass the
 ADR-002-E1 nolint gate, which greps every tracked `.go` file. The job shares
 the lint job's pinned-tools cache and adds the golangci-lint cache to its Go
-cache.
+cache. The pinned-tools cache key carries the Go version `setup-go`
+installed, because a golangci-lint built with an older Go panics on a newer
+`go.mod` (TICK-962).
 
 **temporal-server lint ratchet (TICK-584).** The first full run found 45
 findings already on `main`, so `lint-temporal-server` passes
@@ -1085,7 +1087,7 @@ health gate at once with "container ... vanished", not after 120 s of
 
 **Caches, shared by every run.** Nothing is set per run and nothing is cleaned.
 - Go: the per-user `GOCACHE`, `GOMODCACHE` and golangci-lint cache, safe for
-  concurrent use. The `go1.26.11` toolchain downloads once (`GOTOOLCHAIN=auto`).
+  concurrent use. The `go1.27.4` toolchain downloads once (`GOTOOLCHAIN=auto`).
 - Pinned tools: `make tools` runs only when `make check-tools` fails.
 - Images: `IMAGE_CACHE=local` makes `ci-stack` build with `make image-ci`
   (`buildx bake`) on the local builder. Its BuildKit cache is shared by every

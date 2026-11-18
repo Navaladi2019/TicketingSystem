@@ -1,6 +1,7 @@
 package audited_test
 
 import (
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -124,9 +125,7 @@ func TestMergeGrantsKeepsTableLevel(t *testing.T) {
 	raw := grantManifest(t)
 	r := raw.Roles["nava_app"]
 	tables := map[string]map[string][]string{}
-	for k, v := range r.Tables {
-		tables[k] = v
-	}
+	maps.Copy(tables, r.Tables)
 	tables[audited.LogTable] = map[string][]string{"SELECT": {}}
 	r.Tables = tables
 	raw.Roles["nava_app"] = r

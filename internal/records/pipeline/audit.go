@@ -253,8 +253,7 @@ func unionSorted(a, b []string) []string {
 // refused as invalid input, anything else is wrapped unchanged
 // (audit.ErrDuplicateEntry and database errors abort the transaction).
 func mapAppendError(err error) error {
-	var sec *secrets.ErrSecretInDiff
-	if errors.As(err, &sec) {
+	if sec, ok := errors.AsType[*secrets.ErrSecretInDiff](err); ok {
 		return &ErrValidation{Fields: []metadata.FieldError{{Path: string(sec.Path), Code: secrets.Code}}}
 	}
 	return fmt.Errorf("pipeline: audit: %w", err)

@@ -92,7 +92,7 @@ func TestPauseWithoutMarkerDoesNotBlock(t *testing.T) {
 // half-written (TICK-532: os.WriteFile creates the file before it writes it).
 func TestPauseMarkerAppearsWhole(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		key := fmt.Sprintf("wf:t:0192f3a0-0000-7000-8000-00000000000a:interp:x:step%d", i)
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})

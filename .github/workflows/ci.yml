@@ -334,7 +334,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - id: setup-go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
@@ -358,7 +359,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}
+          # The Go version is in the key: a golangci-lint built with an older Go
+          # panics on a newer go.mod ("package requires newer Go version", TICK-962).
+          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}-go${{ steps.setup-go.outputs.go-version }}
       - name: Install pinned tools
         if: steps.tools.outputs.cache-hit != 'true'
         run: make tools
@@ -470,7 +473,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - id: setup-go
+        uses: actions/setup-go@v5
         with:
           go-version-file: temporal-server/go.mod
           cache: false
@@ -495,7 +499,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}
+          # The Go version is in the key: a golangci-lint built with an older Go
+          # panics on a newer go.mod ("package requires newer Go version", TICK-962).
+          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}-go${{ steps.setup-go.outputs.go-version }}
       - name: Install pinned tools
         if: steps.tools.outputs.cache-hit != 'true'
         run: make tools
