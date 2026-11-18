@@ -26,7 +26,9 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style>
 </head><body><main>
 
-<span class="pill">PROPOSED · REV 1 · 2026-11-19</span> <span class="src">ADR-010-A1 · issue TICK-971 · amends ADR-010 D4 and R6 · source: SP-2 report (TICK-933, PR #727) · evidence: SP-2, A1 cap bench at 32 KiB and 128 KiB</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-19</span> <span class="src">ADR-010-A1 · issue TICK-971 · amends ADR-010 D4 and R6 · source: SP-2 report (TICK-933, PR #727) · evidence: SP-2, A1 cap bench at 32 KiB and 128 KiB</span>
+
+<blockquote><strong>Decision record.</strong> Accepted on 2026-11-19 by the Solution Architect. The Technical Architect reviewed it twice: the first review found one blocking gap (no size limit on masks), which revision 1 closed, and the second found nothing blocking. The security reviewer approved the save-rights change. The product owner chose a platform-wide, configurable limit.</blockquote>
 
 <h1>Access rules: smaller limits, a configurable size limit, and saving only from the API</h1>
 
@@ -38,7 +40,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <dt>Masks</dt><dd>The rules, saved alongside, that hide individual fields from some users. They are stored in the <code>masks</code> column of the same row.</dd>
 <dt>Leaf</dt><dd>One basic test inside a document, for example "the ticket's state is new" or "the user is in group X".</dd>
 <dt>Cap</dt><dd>A fixed upper limit the platform enforces on every document. A document over a cap is refused when the admin saves it.</dd>
-<dt>Operator setting</dt><dd>A value that the people who run the installation set in its deployment configuration (an environment variable). Tenants and their admins can neither see nor change it.</dd>
+<dt>Operator setting</dt><dd>A value that the people who run the installation set in its deployment configuration (an environment variable). Tenants and their admins cannot change it. They see its value only in the error that refuses a document as too large, so they know how much to cut.</dd>
 <dt>Publish</dt><dd>Saving a new version of the document. It writes one row to the database table <code>acl_versions</code>.</dd>
 <dt>CHECK and trigger</dt><dd>Safety nets inside the database on that table. A <em>CHECK</em> re-validates a value. The <em>trigger</em> confirms that every user, group and org-unit id belongs to the same customer. Both run even if the application code has a bug.</dd>
 <dt>Database login (role)</dt><dd>Each service connects as its own login, with its own rights. <code>nava_app</code> is the API's login; <code>nava_worker</code> is the background workflow worker's.</dd>
@@ -66,7 +68,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <h2>The decision</h2>
 <ol>
 <li><strong>Test limits:</strong> nesting depth 8, 16 items per group, 64 policies, and <strong>128 tests per policy and per document</strong>. These are not configurable.</li>
-<li><strong>Size limit:</strong> the rules and the masks may each be at most <code>NAVA_ACL_MAX_DOCUMENT_BYTES</code>, an operator setting. <strong>The default is 32 KiB, and the allowed range is 16 KiB to 128 KiB.</strong> Any other value stops the API from starting. The API refuses a larger document with a clear error before touching the database: <code>422 document_too_large</code>, pointing at <code>/rules</code> or <code>/masks</code>.</li>
+<li><strong>Size limit:</strong> the rules and the masks may each be at most <code>NAVA_ACL_MAX_DOCUMENT_BYTES</code>, an operator setting. <strong>The default is 32 KiB, and the allowed range is 16 KiB to 128 KiB.</strong> Any other value stops the API from starting. The API refuses a larger document with a clear error before touching the database: <code>422 document_too_large</code>, pointing at <code>/rules</code> or <code>/masks</code> and stating the limit.</li>
 <li><strong>Database safety net:</strong> the database refuses anything over the 128 KiB ceiling, whatever the setting, and does so before any expensive check runs. It does not read the setting itself, because the API's own login could change such a value and then it would be no safety net.</li>
 <li><strong>Who saves:</strong> only <code>nava_app</code> may insert into <code>acl_versions</code>. The worker keeps read access but loses write access and the right to run the check functions.</li>
 </ol>
@@ -115,7 +117,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <ul>
 <li><strong>A hostile admin can make one save cost up to about 90 ms</strong> of database time at the default, and about 340 ms if the operator raises the limit to the ceiling. The cost falls on their own tenant only. We revisit if the worst case grows past 10× a realistic save at the default, or 50× at the ceiling, measured on the same machine in the same run (3–4× and 19–27× today).</li>
 <li><strong>The database's safety net is the ceiling, not the operator's value.</strong> A code path that skipped the API's checks could save up to 128 KiB. Only the API's login can save, and both of its callers go through the checks.</li>
-<li><strong>The API and the database count the size separately.</strong> A test checks that they agree. If they ever disagree, the admin sees the same error, from the database instead.</li>
+<li><strong>The API and the database count the size separately.</strong> A test checks that they agree. If they ever disagreed, a document slightly over the operator's limit could be saved, but never one over the 128 KiB ceiling, so the cost stays bounded.</li>
 <li><strong>Lowering the setting</strong> leaves already-saved documents in place. Re-saving one that is now too big gets the error.</li>
 <li><strong>A future need for the worker to save rules</strong> will need a new decision.</li>
 </ul>
