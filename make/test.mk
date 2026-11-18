@@ -1,4 +1,4 @@
-.PHONY: test test-handbook
+.PHONY: test test-handbook test-handbook-coverage
 
 ci-unit: test
 
@@ -26,3 +26,13 @@ test:
 # unknown operationId) is Go, api/handbook_coverage_test.go, so make test runs it.
 test-handbook:
 	$${PYTHON:-python3} -I docs/handbook/build/test_build.py
+
+# The handbook page-coverage gate alone (TICK-960): the TestHandbook* tests in
+# api/handbook_coverage_test.go (a delivered story or an ADR record with no
+# page, an unknown operationId, and the gate's own failing cases). make test
+# runs them too, but the unit job is skipped on a docs-only change, which is
+# exactly the change that adds an ADR without its page (#711, #716). The lint
+# job runs this on every pull request and push, labelled or not. -count=1: the
+# gate reads directories the test cache does not key on.
+test-handbook-coverage:
+	go test -count=1 -run '^TestHandbook' ./api/
