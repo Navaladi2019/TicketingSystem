@@ -228,7 +228,7 @@
         label: "ADR-010 Composable access rules"
         children:
           - page: adr/adr-010-a1.md
-            label: "A1: SP-2 caps, a 32 KiB size cap, publish as nava_app only"
+            label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
     - page: stories/index.md
       label: "Stories"
       children:
