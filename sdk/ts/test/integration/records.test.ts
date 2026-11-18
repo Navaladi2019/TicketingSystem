@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import { NavaProblem, RateLimited, VersionConflict, type NavaRecord } from "../../src/index.ts";
-import { ADMIN_A, ALICE, BOB, RUN, clientFor, history } from "./stack.ts";
+import { ADMIN_A, ALICE, BOB, RUN, clientFor, ensureFilterable, history } from "./stack.ts";
 
 const ENTITY = "incident";
 const LIST_PATH = `/api/v1/records/${ENTITY}`;
@@ -27,6 +27,10 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
   let alicesRecord: NavaRecord;
 
   before(async () => {
+    // ADR-006: a list filter on a data field needs the field flagged x-nava-filterable and its
+    // index ready. short_description is flagged here; description stays unflagged on purpose
+    // (the negative test below, and the acceptance kit's S10.60).
+    await ensureFilterable(ADMIN_A, ENTITY, ["short_description"]);
     const { client } = clientFor(ALICE);
     alicesRecord = await client.records.create(ENTITY, { short_description: `sdk-it ${RUN} get`, priority: 2 });
   });
@@ -35,11 +39,11 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
     const { client, probe } = clientFor(ALICE);
     const marker = `sdk-it ${RUN} list`;
     const made: string[] = [];
-    for (let i = 0; i < 3; i++) made.push((await client.records.create(ENTITY, { short_description: `${marker} ${i}`, description: marker })).id);
+    for (let i = 0; i < 3; i++) made.push((await client.records.create(ENTITY, { short_description: marker, description: `${marker} ${i}` })).id);
 
     probe.requests.length = 0;
     const seen: string[] = [];
-    for await (const r of client.records.list(ENTITY, { filter: { description: marker }, pageSize: 2 })) seen.push(r.id);
+    for await (const r of client.records.list(ENTITY, { filter: { short_description: marker }, pageSize: 2 })) seen.push(r.id);
 
     assert.deepEqual([...seen].sort(), [...made].sort(), "every record of the run, each once");
     const pages = probe.requests.filter((r) => r.method === "GET" && r.path === LIST_PATH);
@@ -107,7 +111,7 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
   test("an invalid body is a NavaProblem record_invalid (422) with field pointers", async () => {
     const { client } = clientFor(ALICE);
     const marker = `sdk-it ${RUN} invalid`;
-    const e = await rejection(client.records.create(ENTITY, { description: marker, priority: 9 }));
+    const e = await rejection(client.records.create(ENTITY, { short_description: marker, priority: 9 }));
     assert.ok(e instanceof NavaProblem, `want NavaProblem, got ${String(e)}`);
     assert.equal(e.status, 422);
     assert.equal(e.code, "record_invalid");
@@ -115,7 +119,7 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
     for (const f of e.fields) assert.match(f.pointer, /^\/data(\/|$)/);
 
     let n = 0;
-    for await (const _ of client.records.list(ENTITY, { filter: { description: marker } })) n++;
+    for await (const _ of client.records.list(ENTITY, { filter: { short_description: marker } })) n++;
     assert.equal(n, 0, "the refused create wrote nothing");
   });
 
@@ -129,6 +133,14 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
     let n = 0;
     for await (const _ of client.records.list(ENTITY, { filter: { short_description: `sdk-it ${RUN} get` } })) n++;
     assert.equal(n, 0, "tenant A's record is not in tenant B's list");
+  });
+
+  test("a filter on a field that is not flagged filterable is a 400 field_not_filterable", async () => {
+    const { client } = clientFor(ALICE);
+    const e = await rejection(client.records.list(ENTITY, { filter: { description: `sdk-it ${RUN} unflagged` } })[Symbol.asyncIterator]().next());
+    assert.ok(e instanceof NavaProblem, `want NavaProblem, got ${String(e)}`);
+    assert.equal(e.status, 400);
+    assert.equal(e.code, "field_not_filterable");
   });
 
   describe("forced 429", () => {

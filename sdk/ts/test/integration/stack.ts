@@ -85,3 +85,50 @@ export async function history(u: SeededUser, entity: string, id: string): Promis
 
 /** A short random marker that keeps this run's records apart from every other run's on a shared stack. */
 export const RUN = globalThis.crypto.randomUUID().slice(0, 8);
+
+/** The cap on the wait for a new field index to finish its backfill. */
+const INDEX_WAIT_MS = 60_000;
+
+/**
+ * Makes `props` of an entity type filterable (`x-nava-filterable`, ADR-006) as `u`, a tenant
+ * admin, and waits until a list filtered on each one is served (no 422 field_not_ready).
+ * A list filter on an unflagged data field is a 400 field_not_filterable. Raw requests: the SDK
+ * has no entity-type calls in v1. Publishes one new version, only if a flag is missing, and
+ * touches nothing but the named properties, so a rerun on the same stack publishes nothing.
+ */
+export async function ensureFilterable(u: SeededUser, entity: string, props: string[]): Promise<void> {
+  const headers = { Authorization: `Bearer ${await passwordToken(u)}`, "Content-Type": "application/json" };
+  const base = `${CORE_URL}/api/v1/entity-types/${entity}`;
+  const cur = await fetch(base, { headers });
+  if (cur.status !== 200) throw new Error(`entity type ${entity}: HTTP ${cur.status}`);
+  const type = (await cur.json()) as {
+    schema: { properties: Record<string, Record<string, unknown>> };
+    fixed_columns: unknown;
+    states: unknown;
+  };
+
+  const missing = props.filter((p) => type.schema.properties[p]?.["x-nava-filterable"] !== true);
+  for (const p of missing) {
+    if (!type.schema.properties[p]) throw new Error(`entity type ${entity} has no property ${p}`);
+    type.schema.properties[p]["x-nava-filterable"] = true;
+  }
+  if (missing.length > 0) {
+    const res = await fetch(`${base}/versions`, {
+      method: "POST",
+      headers: { ...headers, "Idempotency-Key": `sdk-it-${RUN}-flag-${missing.join("-")}` },
+      body: JSON.stringify({ definition: { schema: type.schema, fixed_columns: type.fixed_columns, states: type.states } }),
+    });
+    if (res.status !== 201) throw new Error(`publish ${entity} with ${missing.join(", ")} flagged: HTTP ${res.status} ${await res.text()}`);
+  }
+
+  const deadline = Date.now() + INDEX_WAIT_MS;
+  for (const p of props) {
+    for (;;) {
+      const res = await fetch(`${CORE_URL}/api/v1/records/${entity}?limit=1&filter[${p}]=${encodeURIComponent(`sdk-it-${RUN}-ready`)}`, { headers });
+      if (res.status === 200) break;
+      if (res.status !== 422) throw new Error(`filter on ${entity}.${p}: HTTP ${res.status} ${await res.text()}`);
+      if (Date.now() > deadline) throw new Error(`the index of ${entity}.${p} is not ready after ${INDEX_WAIT_MS} ms`);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
