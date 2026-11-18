@@ -259,7 +259,7 @@ test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{{{key
 """)
 
 
-def problem_req(name, method, url, code, status, *, desc, auth=None, headers=None, body=None, extra="", pre=""):
+def problem_req(name, method, url, code, status, *, desc="", auth=None, headers=None, body=None, extra="", pre=""):
     return req(name, method, url, desc=desc, auth=auth, headers=headers, body=body, pre=pre,
                tests=f"N.problem('{code}', {status});\n{extra}")
 
@@ -1898,6 +1898,9 @@ test('version 2, current, compatible', () => {
                         body=pub(breaking=True), desc="The key of X4.30 with a different body."),
             req("X4.32 publishEntityTypeVersion 404: an unknown key", "POST", base + "/no_such_type_x4/versions", auth="admin_a_token",
                 headers={"Idempotency-Key": "{{x4_key7}}"}, body=pub(), desc="404 `not_found` with no `instance`.", tests=no404),
+            problem_req("X4.33 publishEntityTypeVersion 412: a stale If-Match", "POST", base + "/{{x4_type}}/versions", "version_conflict", 412,
+                        auth="admin_a_token", headers={"Idempotency-Key": "tick673-412-{{x4_key4}}", "If-Match": 'W/"1"'}, body=pub(),
+                        desc="`If-Match` is optional; sent, it must name the current version (2 after X4.30). Nothing is written and the current `ETag` is in the header (TICK-673)."),
         ],
     }
 
@@ -3570,7 +3573,451 @@ test('version 1, the text of S17.6', () => {
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, x1, x2, x4, x5, x3, late]
+# --------------------------------------------------------------------------- S18
+# Number-format admin API (TICK-672, P6-07, ADR-005 §3.2, §4.2): create a
+# format, publish a version, list, read. The story kit (TICK-677) extends this
+# folder; these requests assert every documented status of the four operations.
+def s18_api():
+    nf = "{{core_url}}/api/v1/number-formats"
+    one = nf + "/{{s18_id}}"
+    key = lambda k: {"Idempotency-Key": "tick672-{{s18_run}}-" + k}
+    ok_doc = {"template": "{prefix}-{yyyy}{MM}-{seq:4}", "overflow": "grow"}
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+    return {
+        "dir": "S18-API", "name": "S18 number-format API",
+        "desc": "TICK-672 (P6-07, ADR-005 §3.2, §4.2): the tenant-admin number-format routes. Needs the stack with M3 applied, so a non-default format is accepted. Each request asserts one documented status. Formats are keyed per run, so the folder can run again.",
+        "items": [
+            token("S18.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s18_run', Math.random().toString(16).slice(2, 10));\nbru.setVar('s18_fmt', 'nf_' + bru.getVar('s18_run'));"),
+            token("S18.2 Sign in as Alice (not an admin)", "alice_username", "alice_password", "alice_token"),
+            token("S18.3 Sign in as Bob (tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S18.4 Create a format: 201, version 1", "POST", nf, auth="admin_a_token", headers=key("create"),
+                body={"key": "{{s18_fmt}}", "document": ok_doc},
+                desc="`{key, document}`. The document is validated and compiled; the reply has the stored document, the compiled form and its SHA-256.",
+                tests="""
+test('HTTP 201, ETag W/"1", version 1', () => {
+  expect(res.getStatus()).to.eql(201);
+  expect(N.header('ETag')).to.eql('W/"1"');
+  expect(N.json().version).to.eql(1);
+  expect(N.json().key).to.eql(bru.getVar('s18_fmt'));
+  expect(N.json().compiled_sha256).to.match(/^[0-9a-f]{64}$/);
+});
+bru.setVar('s18_id', N.json().id);
+N.status(201);"""),
+            problem_req("S18.5 Create the same key again: 409", "POST", nf, "number_format_exists", 409, auth="admin_a_token", headers=key("dup"),
+                        body={"key": "{{s18_fmt}}", "document": ok_doc}, desc="A key is unique per tenant."),
+            problem_req("S18.6 A template that does not start with {prefix}: 422", "POST", nf, "number_format_prefix_required", 422,
+                        auth="admin_a_token", headers=key("nopfx"),
+                        body={"key": "{{s18_fmt}}_p", "document": {"template": "X{prefix}{seq:4}", "overflow": "grow"}},
+                        desc="`errors[].pointer` is `/document/template`, the rule `position:0`.",
+                        extra="test('names the position', () => expect(N.json().errors[0].rule).to.eql('position:0'));"),
+            problem_req("S18.7 A template with no {seq:N}: 422", "POST", nf, "number_format_invalid", 422,
+                        auth="admin_a_token", headers=key("noseq"),
+                        body={"key": "{{s18_fmt}}_s", "document": {"template": "{prefix}-{yyyy}", "overflow": "grow"}}),
+            problem_req("S18.8 Create without a token: 401", "POST", nf, "invalid_token", 401, headers=key("anon"),
+                        body={"key": "{{s18_fmt}}_a", "document": ok_doc}),
+            problem_req("S18.9 Alice (not an admin) creates: 403", "POST", nf, "forbidden", 403, auth="alice_token", headers=key("alice"),
+                        body={"key": "{{s18_fmt}}_b", "document": ok_doc}, desc="The admin check runs first."),
+            problem_req("S18.10 Create without an Idempotency-Key: 400", "POST", nf, "validation_failed", 400, auth="admin_a_token",
+                        body={"key": "{{s18_fmt}}_c", "document": ok_doc}),
+            req("S18.11 List the formats: 200", "GET", nf, auth="alice_token",
+                desc="Any user of the tenant. Ordered by key.",
+                tests="""
+test('HTTP 200, the format of S18.4 is listed', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().items.map((i) => i.id)).to.include(bru.getVar('s18_id'));
+});
+N.status(200);"""),
+            problem_req("S18.12 List with limit=0: 400", "GET", nf + "?limit=0", "validation_failed", 400, auth="alice_token", desc="`limit` is 1 to 200."),
+            problem_req("S18.13 List without a token: 401", "GET", nf, "invalid_token", 401, desc="Every route authenticates first."),
+            req("S18.14 Read the format: 200", "GET", one, auth="alice_token",
+                tests="""
+test('HTTP 200, current version 1', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().current_version).to.eql(1);
+});
+N.status(200);"""),
+            problem_req("S18.15 Read with version=0: 400", "GET", one + "?version=0", "validation_failed", 400, auth="alice_token", desc="`version` is at least 1."),
+            problem_req("S18.16 Read without a token: 401", "GET", one, "invalid_token", 401, desc="Every route authenticates first."),
+            req("S18.17 Bob reads tenant A's format: 404", "GET", one, auth="bob_token",
+                desc="The same 404 as an unknown id, byte for byte, with no `instance`.", tests=no404),
+            problem_req("S18.18 Publish without If-Match: 428", "PUT", one, "if_match_required", 428, auth="admin_a_token", headers=key("p428"),
+                        body={"document": ok_doc}),
+            problem_req("S18.19 Publish on a stale If-Match: 412", "PUT", one, "version_conflict", 412, auth="admin_a_token",
+                        headers={**key("p412"), "If-Match": 'W/"9"'}, body={"document": ok_doc},
+                        desc="The current `ETag` is in the response header."),
+            problem_req("S18.20 Publish an invalid document: 422", "PUT", one, "number_format_invalid", 422, auth="admin_a_token",
+                        headers={**key("p422"), "If-Match": 'W/"1"'}, body={"document": {"template": "{prefix}", "overflow": "grow"}},
+                        desc="A template with no `{seq:N}`."),
+            req("S18.21 Publish version 2: 200", "PUT", one, auth="admin_a_token", headers={**key("p200"), "If-Match": 'W/"1"'},
+                body={"document": {"template": "{prefix}-{yy}{MM}-{seq:5}", "overflow": "refuse"}},
+                tests="""
+test('HTTP 200, ETag W/"2", version 2 is current', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.header('ETag')).to.eql('W/"2"');
+  expect(N.json().version).to.eql(2);
+  expect(N.json().current_version).to.eql(2);
+});
+N.status(200);"""),
+            problem_req("S18.22 Publish without a token: 401", "PUT", one, "invalid_token", 401, headers={**key("p401"), "If-Match": 'W/"2"'},
+                        body={"document": ok_doc}),
+            problem_req("S18.23 Alice publishes: 403", "PUT", one, "forbidden", 403, auth="alice_token", headers={**key("p403"), "If-Match": 'W/"2"'},
+                        body={"document": ok_doc}, desc="The admin check runs first."),
+            req("S18.24 Publish an unknown id: 404", "PUT", nf + "/00000000-0000-4000-8000-00000000ffff", auth="admin_a_token",
+                headers={**key("p404"), "If-Match": 'W/"1"'}, body={"document": ok_doc}, tests=no404),
+            problem_req("S18.25 Publish without an Idempotency-Key: 400", "PUT", one, "validation_failed", 400, auth="admin_a_token",
+                        headers={"If-Match": 'W/"2"'}, body={"document": ok_doc}),
+            # Re-publish linked types (TICK-673, P6-08, ADR-005 section 3.2, 3.7 C13).
+            req("S18.26 Re-publish linked types: 200, no type is linked yet", "POST", one + "/republish-linked", auth="admin_a_token",
+                headers=key("rl200"), body={"version": 2},
+                desc="`{version}`: one independent publish per type pinned to an older version of the format, reported per type. No type is linked in this folder, so `results` is empty.",
+                tests="""
+test('HTTP 200, the report names the format and version', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().format_id).to.eql(bru.getVar('s18_id'));
+  expect(N.json().version).to.eql(2);
+  expect(N.json().results).to.be.an('array');
+});
+N.status(200);"""),
+            problem_req("S18.27 Re-publish without a token: 401", "POST", one + "/republish-linked", "invalid_token", 401, headers=key("rl401"),
+                        body={"version": 2}),
+            problem_req("S18.28 Alice re-publishes: 403", "POST", one + "/republish-linked", "forbidden", 403, auth="alice_token",
+                        headers=key("rl403"), body={"version": 2}, desc="The admin check runs first."),
+            req("S18.29 Re-publish an unknown format: 404", "POST", nf + "/00000000-0000-4000-8000-00000000ffff/republish-linked",
+                auth="admin_a_token", headers=key("rl404"), body={"version": 2}, tests=no404),
+            problem_req("S18.30 Re-publish a version the format does not have: 422", "POST", one + "/republish-linked",
+                        "number_format_not_found", 422, auth="admin_a_token", headers=key("rl422"), body={"version": 99}),
+            problem_req("S18.31 Re-publish without an Idempotency-Key: 400", "POST", one + "/republish-linked", "validation_failed", 400,
+                        auth="admin_a_token", body={"version": 2}),
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- S18 time zone
+# Tenant time-zone route (TICK-672, P6-07, ADR-005 section 3.6). The story kit
+# (TICK-677) extends this folder.
+def s18_tz():
+    tz = "{{core_url}}/api/v1/tenant/settings/time-zone"
+    key = lambda k: {"Idempotency-Key": "tick672-tz-{{s18tz_run}}-" + k}
+    return {
+        "dir": "S18-TZ", "name": "S18 tenant time zone",
+        "desc": "TICK-672 (P6-07, ADR-005 section 3.6): the tenant-admin route that reads and sets the numbering time zone. Each request asserts one documented status. The folder sets tenant A's zone and sets it back to `UTC`, so it can run again.",
+        "items": [
+            token("S18T.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s18tz_run', Math.random().toString(16).slice(2, 10));"),
+            token("S18T.2 Sign in as Alice (not an admin)", "alice_username", "alice_password", "alice_token"),
+            req("S18T.3 Set the zone: 200", "PUT", tz, auth="admin_a_token", headers=key("set"), body={"time_zone": "Europe/Berlin"},
+                desc="An IANA name. A change affects the scope keys of future allocations only, and is audited as `tenant_setting`.",
+                tests="""
+test('HTTP 200, the zone is in force', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('Europe/Berlin');
+});
+N.status(200);"""),
+            req("S18T.4 Read the zone: 200", "GET", tz, auth="admin_a_token",
+                tests="""
+test('HTTP 200, Europe/Berlin', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('Europe/Berlin');
+});
+N.status(200);"""),
+            problem_req("S18T.5 An unknown zone: 422", "PUT", tz, "invalid_time_zone", 422, auth="admin_a_token", headers=key("bad"),
+                        body={"time_zone": "Mars/Base"}, desc="`errors[].pointer` is `/time_zone`; nothing is written."),
+            problem_req("S18T.6 Set without a token: 401", "PUT", tz, "invalid_token", 401, headers=key("anon"), body={"time_zone": "UTC"}),
+            problem_req("S18T.7 Alice sets the zone: 403", "PUT", tz, "forbidden", 403, auth="alice_token", headers=key("alice"),
+                        body={"time_zone": "UTC"}, desc="The admin check runs first."),
+            problem_req("S18T.8 Set without an Idempotency-Key: 400", "PUT", tz, "validation_failed", 400, auth="admin_a_token",
+                        body={"time_zone": "UTC"}),
+            problem_req("S18T.9 Read without a token: 401", "GET", tz, "invalid_token", 401),
+            problem_req("S18T.10 Alice reads the zone: 403", "GET", tz, "forbidden", 403, auth="alice_token"),
+            req("S18T.11 Set the zone back to UTC: 200", "PUT", tz, auth="admin_a_token", headers=key("reset"), body={"time_zone": "UTC"},
+                tests="""
+test('HTTP 200, UTC again', () => {
+  expect(res.getStatus()).to.eql(200);
+  expect(N.json().time_zone).to.eql('UTC');
+});
+N.status(200);"""),
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- S18 story
+# Story S18 (TICK-669, release R2 of ADR-005), kit TICK-677:
+# docs/acceptance/S18/README.md. docs/acceptance/S18/tools/run-kit.sh brings
+# up a fresh stack on the S17 build, creates the `visa` (VISA) and `permit`
+# (PMT) types in tenant A with default numbers, upgrades the stack to the
+# story build (M3 runs) and runs this folder once. The exact numbers hold only
+# on that stack, so the folder does not run again on the same stack.
+# The definition matches DEFINITION in docs/acceptance/S18/tools/kit.mjs.
+S18N_DEF = {
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["short_description", "state"],
+        "properties": {
+            "short_description": {"type": "string", "minLength": 1, "maxLength": 160},
+            "state": {"type": "string", "enum": ["new", "closed"], "default": "new"},
+        },
+    },
+    "fixed_columns": {"state": "state"},
+    "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]},
+}
+
+# The month in the tenant's time zone, as {yyyy}{MM} renders it.
+S18N_YM = r"""const ym = (tz) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return p.year + p.month;
+};"""
+
+# Builds a publish body from the type's current definition (GET), with
+# number_format set to __FMT__ (a JS expression).
+S18N_LINK_PRE = LOAD_PRE + r"""
+const tok = bru.getVar('__TOKEN__');
+const cur = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/__TYPE__'), method: 'GET', headers: { Authorization: 'Bearer ' + tok } });
+if (cur.status !== 200) throw new Error('GET __TYPE__: HTTP ' + cur.status);
+bru.setVar('s18n_cur___TYPE__', String(cur.data.version));
+req.setBody({ definition: { schema: cur.data.schema, fixed_columns: cur.data.fixed_columns, states: cur.data.states }, number_format: __FMT__ });
+"""
+
+S18N_FORCE = LOAD_PRE + r"""
+// S18_FORCE_FAIL=1 (run-kit.sh): a second client takes the first formatted
+// Visa number before this create, so it gets ...0002 and the kit must fail.
+if (N.v('s18_force_fail') === '1') {
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/visa'), method: 'POST',
+    headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token'), 'Content-Type': 'application/json', 'Idempotency-Key': 's18n-' + bru.getVar('s18n_run') + '-force' },
+    data: { data: { short_description: 'S18 forced failure: one extra Visa create' } } });
+  console.log('S18 FORCED FAILURE: an extra Visa create took', r.data && r.data.number);
+}
+"""
+
+S18N_FILL = LOAD_PRE + r"""
+const tok = bru.getVar('admin_a_token');
+const out = [];
+for (let i = 1; i <= 9; i++) {
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/permit'), method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', 'Idempotency-Key': 's18n-' + bru.getVar('s18n_run') + '-fill-' + i },
+    data: { data: { short_description: 'S18 fill ' + i } } });
+  out.push({ status: r.status, number: r.data && r.data.number, id: r.data && r.data.id });
+}
+bru.setVar('s18n_fill', JSON.stringify(out));"""
+
+S18N_PERMIT_DEF = LOAD_PRE + r"""
+// The permit type's id: the entity_definition_id of PMT-1's create entry.
+const r = await N.send({ url: N.url('{{core_url}}/api/v1/audit/entries?domain=record&subject_type=record&subject_id=' + bru.getVar('s18n_pmt1_id')),
+  method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') } });
+const e = ((r.data && r.data.items) || [])[0];
+if (!e || !e.entity_definition_id) throw new Error('no audit entry for PMT-1: HTTP ' + r.status);
+bru.setVar('s18n_permit_def', e.entity_definition_id);"""
+
+S18N_EXHAUSTED = r"""N.status(200);
+const xs = (N.json().items || []).filter(e => e.action === 'number_space_exhausted');
+test('exactly one number_space_exhausted entry', () => expect(xs.length).to.eql(1));
+const e = xs[0] || {};
+test('domain record, subject the permit type', () => {
+  expect(e.domain).to.eql('record');
+  expect(e.subject_type).to.eql('entity_definition');
+  expect(e.subject_id).to.eql(bru.getVar('s18n_permit_def'));
+});
+const ops = Array.isArray(e.diff) ? e.diff : [];
+const ns = (ops.find(o => o.path === '/number_space') || {}).value || {};
+test(`diff /number_space has epoch, scope_key, width, counter: ${JSON.stringify(ns)}`, () => {
+  expect(ns).to.have.all.keys('epoch', 'scope_key', 'width', 'counter');
+  expect(ns.width).to.eql(1);
+  expect(ns.counter).to.eql(10);
+  expect(ns.epoch).to.be.at.least(1);
+});"""
+
+
+def s18_story():
+    nf = "{{core_url}}/api/v1/number-formats"
+    et = "{{core_url}}/api/v1/entity-types"
+    rec = "{{core_url}}/api/v1/records"
+    audit = "{{core_url}}/api/v1/audit/entries"
+    ghost = "00000000-0000-4000-8000-00000000f18f"
+    key = lambda k: {"Idempotency-Key": "s18n-{{s18n_run}}-" + k}
+    body = lambda text: {"data": {"short_description": "S18 {{s18n_run}} " + text}}
+    visa_link = {"definition": S18N_DEF, "number_format": {"id": "{{s18n_visa_fmt}}", "version": 1}}
+    added = json.loads(json.dumps(S18N_DEF))
+    added["schema"]["properties"]["passport_no"] = {"type": "string", "maxLength": 20}
+
+    def link_pre(tok, typ, fmt):
+        return S18N_LINK_PRE.replace("__TOKEN__", tok).replace("__TYPE__", typ).replace("__FMT__", fmt)
+
+    no404 = """
+test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});
+N.status(404);"""
+
+    def fmt(name, k, tmpl, overflow, var, desc):
+        return req(name, "POST", nf, auth="admin_a_token", headers=key(k),
+                   body={"key": "s18n_%s_{{s18n_run}}" % k, "document": {"template": tmpl, "overflow": overflow}}, desc=desc,
+                   tests=f"""N.status(201);
+test('version 1 of {tmpl} ({overflow})', () => {{
+  expect(N.json().version).to.eql(1);
+  expect(N.json().document.template).to.eql('{tmpl}');
+}});
+bru.setVar('{var}', N.json().id);""")
+
+    def visa(name, k, who, seq, desc, force=False):
+        pre = (S18N_FORCE + "\n" if force else LOAD_PRE + "\n") + S18N_YM + "\nbru.setVar('s18n_ym_before', ym(N.v('s18_tz')));"
+        want = "%04d" % seq
+        return req(name, "POST", rec + "/visa", auth=who, headers=key(k), body=body(k), desc=desc, pre=pre,
+                   tests=S18N_YM + f"""
+N.status(201);
+const n = N.json().number;
+const months = [bru.getVar('s18n_ym_before'), ym(N.v('s18_tz'))];
+test(`number VISA-<yyyymm in ${{N.v('s18_tz')}}>{want}: ${{n}}`, () => expect(months.map(m => 'VISA-' + m + '{want}')).to.include(n));
+bru.setVar('s18n_{k}_id', N.json().id);
+bru.setVar('s18n_{k}_number', n);
+console.log('S18 {k}:', n);""")
+
+    def inc(name, k, who, number, desc):
+        return req(name, "POST", rec + "/incident", auth=who, headers=key(k), body=body(k), desc=desc,
+                   tests=f"N.status(201);\ntest('number {number}', () => expect(N.json().number).to.eql('{number}'));")
+
+    def read(name, who, path, number_expr, desc):
+        return req(name, "GET", rec + path, auth=who, desc=desc,
+                   tests=f"N.status(200);\nconst want = {number_expr};\ntest(`number still ${{want}}`, () => expect(N.json().number).to.eql(want));")
+
+    pos = lambda p: ("test('names position %d of /document/template', () => {\n"
+                     "  expect(N.json().errors[0].pointer).to.eql('/document/template');\n"
+                     "  expect(N.json().errors[0].rule).to.eql('position:%d');\n});") % (p, p)
+
+    return {
+        "dir": "S18", "name": "S18 number formats",
+        "desc": "Story S18, TICK-669 (kit TICK-677, docs/acceptance/S18/README.md): release R2 of ADR-005. A tenant admin writes a number format, publishes it and links it to a ticket type. Needs the stack docs/acceptance/S18/tools/run-kit.sh prepares: a fresh stack on the S17 build where tenant A has the types `visa` (VISA0000001, VISA0000002) and `permit` and incidents INC0000001..2, tenant B incidents INC0000001..2, then upgraded to the story build (M3), with admin@tenant-b.test seeded. Users: admin@tenant-a, agent@tenant-a (Alice) and admin@tenant-b. AC1 S18N.5-S18N.15, AC2 S18N.16-S18N.17, AC3 S18N.18-S18N.21, AC4 S18N.22-S18N.26, AC5 S18N.27-S18N.31, E9 S18N.32-S18N.38. Runs once per prepared stack: the exact numbers do not hold on a second pass.",
+        "items": [
+            token("S18N.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s18n_run', Math.random().toString(16).slice(2, 10));\nconsole.log('S18 run', bru.getVar('s18n_run'));"),
+            token("S18N.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            token("S18N.3 Sign in as admin@tenant-b", "admin_b_username", "admin_b_password", "admin_b_token"),
+            req("S18N.4 admin@tenant-b is tenant B's admin", "GET", "{{core_url}}/api/v1/me", auth="admin_b_token",
+                desc="run-kit.sh seeded admin@tenant-b.test into tenant B's admins group.",
+                tests=f"N.me('{B}');\ntest('in /admins', () => expect(N.paths()).to.include('/admins'));"),
+            req("S18N.5 AC1: admin@tenant-a sets the tenant's numbering time zone", "PUT", "{{core_url}}/api/v1/tenant/settings/time-zone",
+                auth="admin_a_token", headers=key("tz"), body={"time_zone": "{{s18_tz}}"},
+                desc="The month in the number is the month in this zone (`s18_tz`; run-kit.sh uses `Pacific/Kiritimati`, UTC+14).",
+                tests="N.status(200);\ntest('the zone is in force', () => expect(N.json().time_zone).to.eql(N.v('s18_tz')));"),
+            fmt("S18N.6 AC1: admin@tenant-a writes and publishes {prefix}-{yyyy}{MM}{seq:4}", "visa", "{prefix}-{yyyy}{MM}{seq:4}", "refuse", "s18n_visa_fmt",
+                "A date-then-sequence format must use `refuse` (ADR-005-E2)."),
+            problem_req("S18N.7 AC1: agent@tenant-a cannot write a format: 403", "POST", nf, "forbidden", 403, auth="alice_token", headers=key("alice-fmt"),
+                        body={"key": "s18n_alice_{{s18n_run}}", "document": {"template": "{prefix}-{yyyy}{MM}{seq:4}", "overflow": "refuse"}},
+                        desc="Formats are for tenant admins."),
+            problem_req("S18N.8 AC1: agent@tenant-a cannot link it: 403", "POST", et + "/visa/versions", "forbidden", 403, auth="alice_token",
+                        headers=key("alice-link"), body=visa_link),
+            req("S18N.9 AC1: admin@tenant-a links the format to the Visa type", "POST", et + "/visa/versions", auth="admin_a_token",
+                headers=key("link"), body=visa_link,
+                desc="`number_format` `{id, version}` with the same definition. The format cannot render a default number (`VISA` then 7 digits), so the publish takes a new epoch.",
+                tests="""N.status(201);
+test('version 2 pins the format, version 1', () => {
+  expect(N.json().version).to.eql(2);
+  expect(N.json().number_format).to.eql({ id: bru.getVar('s18n_visa_fmt'), version: 1 });
+});"""),
+            visa("S18N.10 AC1: the next Visa ticket is VISA-<yyyymm>0001", "visa1", "admin_a_token", 1,
+                 "admin@tenant-a creates a Visa ticket. The month is the month now in the tenant's time zone.", force=True),
+            visa("S18N.11 AC1: the next one is VISA-<yyyymm>0002 (agent@tenant-a)", "visa2", "alice_token", 2,
+                 "Alice, an agent of tenant A, creates the next one."),
+            inc("S18N.12 AC1: other types keep their numbers: tenant A's next incident is INC0000003", "inc-a3", "admin_a_token", "INC0000003",
+                "The incident type has no format: it carries on on the default numbering."),
+            inc("S18N.13 AC1: tenant B's next incident is INC0000003", "inc-b3", "admin_b_token", "INC0000003",
+                "Tenant B is untouched by tenant A's format."),
+            read("S18N.14 AC1: VISA0000001, issued before the upgrade, keeps its number", "admin_a_token", "/visa/{{s18_visa1_id}}", "'VISA0000001'",
+                 "The record kit.mjs created on the S17 build."),
+            read("S18N.15 AC1: VISA0000002 keeps its number (agent@tenant-a reads it)", "alice_token", "/visa/{{s18_visa2_id}}", "'VISA0000002'", ""),
+            problem_req("S18N.16 AC2: {yyyy}{MM}{seq:4} is refused: 422 number_format_prefix_required", "POST", nf, "number_format_prefix_required", 422,
+                        auth="admin_a_token", headers=key("nopfx"),
+                        body={"key": "s18n_nopfx_{{s18n_run}}", "document": {"template": "{yyyy}{MM}{seq:4}", "overflow": "refuse"}},
+                        desc="The template does not start with `{prefix}`.", extra=pos(0)),
+            problem_req("S18N.17 AC2: {prefix}X{seq:4} is refused: 422 number_format_prefix_required", "POST", nf, "number_format_prefix_required", 422,
+                        auth="admin_a_token", headers=key("letter"),
+                        body={"key": "s18n_letter_{{s18n_run}}", "document": {"template": "{prefix}X{seq:4}", "overflow": "refuse"}},
+                        desc="The token after `{prefix}` produces a letter, at byte 8.", extra=pos(8)),
+            fmt("S18N.18 AC3: admin@tenant-a writes {prefix}{yy}{seq:3}", "short", "{prefix}{yy}{seq:3}", "refuse", "s18n_short_fmt",
+                "On its own the format is valid."),
+            problem_req("S18N.19 AC3: linking it to the incident type, which has default numbers, is refused: 422 number_format_overlap", "POST",
+                        et + "/incident/versions", "number_format_overlap", 422, auth="admin_a_token", headers=key("overlap"), body={},
+                        pre=link_pre("admin_a_token", "incident", "{ id: bru.getVar('s18n_short_fmt'), version: 1 }"),
+                        desc="The pre-request script sends the incident type's current definition with the format. `INC`, two year digits and three digits can render a number the default numbering (`INC` then 7 digits) can issue.",
+                        extra="test('errors name the clashing template', () => expect(N.json().errors.map(e => e.rule).join(' ')).to.match(/overlap:/));"),
+            req("S18N.20 AC3: the refused link wrote nothing", "GET", et + "/incident", auth="admin_a_token",
+                tests="N.status(200);\ntest('same version, default numbering', () => {\n  expect(String(N.json().version)).to.eql(bru.getVar('s18n_cur_incident'));\n  expect(N.json().number_format == null).to.eql(true);\n});"),
+            inc("S18N.21 AC3: the incident type still numbers by default: INC0000004", "inc-a4", "admin_a_token", "INC0000004", ""),
+            req("S18N.22 AC4: admin@tenant-a publishes an unrelated change to the Visa type (adds a field)", "POST", et + "/visa/versions",
+                auth="admin_a_token", headers=key("addfield"), body={"definition": added},
+                desc="No `number_format` field: the publish keeps the pinned format.",
+                tests="""N.status(201);
+test('version 3, compatible, still pins the format version 1', () => {
+  expect(N.json().version).to.eql(3);
+  expect(N.json().compat).to.eql('compatible');
+  expect(N.json().schema.properties).to.have.property('passport_no');
+  expect(N.json().number_format).to.eql({ id: bru.getVar('s18n_visa_fmt'), version: 1 });
+});"""),
+            visa("S18N.23 AC4: numbering carries on: the next Visa ticket is VISA-<yyyymm>0003", "visa3", "admin_a_token", 3, ""),
+            read("S18N.24 AC4: the first formatted ticket keeps its number", "admin_a_token", "/visa/{{s18n_visa1_id}}", "bru.getVar('s18n_visa1_number')", ""),
+            read("S18N.25 AC4: VISA0000001 keeps its number", "admin_a_token", "/visa/{{s18_visa1_id}}", "'VISA0000001'", ""),
+            read("S18N.26 AC4: tenant A's first incident keeps INC0000001", "admin_a_token", "/incident/{{s18_inc_a1_id}}", "'INC0000001'", ""),
+            req("S18N.27 AC5: admin@tenant-b reads tenant A's format: 404", "GET", nf + "/{{s18n_visa_fmt}}", auth="admin_b_token",
+                tests=no404 + "\nbru.setVar('s18n_404_a', N.text());\nN.noLeak(bru.getVar('s18n_visa_fmt'), '{yyyy}');"),
+            req("S18N.28 AC5: admin@tenant-b reads a made-up id: the same 404, byte for byte", "GET", nf + "/" + ghost, auth="admin_b_token",
+                tests=no404 + "\ntest('the same body as for tenant A\\'s format', () => expect(N.text()).to.eql(bru.getVar('s18n_404_a')));"),
+            problem_req("S18N.29 AC5: admin@tenant-b links tenant A's format to tenant B's incident type: 422 number_format_not_found", "POST",
+                        et + "/incident/versions", "number_format_not_found", 422, auth="admin_b_token", headers=key("b-link"), body={},
+                        pre=link_pre("admin_b_token", "incident", "{ id: bru.getVar('s18n_visa_fmt'), version: 1 }"),
+                        extra="bru.setVar('s18n_422_a', JSON.stringify({ detail: N.json().detail, errors: N.json().errors }));\nN.noLeak('{yyyy}');"),
+            problem_req("S18N.30 AC5: a made-up format id gives the same 422", "POST", et + "/incident/versions", "number_format_not_found", 422,
+                        auth="admin_b_token", headers=key("b-ghost"), body={},
+                        pre=link_pre("admin_b_token", "incident", "{ id: '%s', version: 1 }" % ghost),
+                        extra="test('the same detail and errors as for tenant A\\'s format', () => expect(JSON.stringify({ detail: N.json().detail, errors: N.json().errors })).to.eql(bru.getVar('s18n_422_a')));"),
+            inc("S18N.31 AC5: tenant B's incident type still numbers by default: INC0000004", "inc-b4", "admin_b_token", "INC0000004", ""),
+            fmt("S18N.32 E9: admin@tenant-a writes {prefix}-{seq:1} (refuse), nine numbers", "tiny", "{prefix}-{seq:1}", "refuse", "s18n_tiny_fmt",
+                "A one-digit sequence: PMT-1 to PMT-9, then nothing left."),
+            req("S18N.33 E9: admin@tenant-a links it to the permit type", "POST", et + "/permit/versions", auth="admin_a_token", headers=key("tiny-link"),
+                body={"definition": S18N_DEF, "number_format": {"id": "{{s18n_tiny_fmt}}", "version": 1}},
+                tests="N.status(201);\ntest('pins the format', () => expect(N.json().number_format).to.eql({ id: bru.getVar('s18n_tiny_fmt'), version: 1 }));"),
+            req("S18N.34 E9: fill the format: PMT-1 to PMT-9", "GET", et + "/permit", auth="admin_a_token", pre=S18N_FILL,
+                desc="The pre-request script creates nine permits one after the other; this request reads the type.",
+                tests="""N.status(200);
+const rs = JSON.parse(bru.getVar('s18n_fill'));
+test(`9 creates: ${rs.map(r => r.status + ' ' + r.number).join(', ')}`, () => expect(rs.map(r => r.number)).to.eql(['PMT-1', 'PMT-2', 'PMT-3', 'PMT-4', 'PMT-5', 'PMT-6', 'PMT-7', 'PMT-8', 'PMT-9']));
+bru.setVar('s18n_pmt1_id', rs[0].id);"""),
+            problem_req("S18N.35 E9: one more permit: 409 number_space_exhausted", "POST", rec + "/permit", "number_space_exhausted", 409,
+                        auth="admin_a_token", headers=key("exhausted"), body=body("one too many"),
+                        desc="The format is full: nothing is created, and one audit entry is written."),
+            req("S18N.36 E9: the permit type's audit timeline has exactly one number_space_exhausted entry", "GET",
+                audit + "?subject_type=entity_definition&subject_id={{s18n_permit_def}}&limit=500", auth="admin_a_token", pre=S18N_PERMIT_DEF,
+                desc="`subject_type=entity_definition`, `subject_id` the permit type (found through PMT-1's create entry).",
+                tests=S18N_EXHAUSTED),
+            req("S18N.37 E9: tenant B's timeline has no number_space_exhausted entry", "GET", audit + "?domain=record&limit=500", auth="admin_b_token",
+                desc="admin@tenant-b reads tenant B's record timeline. It is not empty (tenant B's incident creates are on it), so the check reads a real page.",
+                tests="""N.status(200);
+const items = N.json().items;
+test(`tenant B's record timeline has entries (${(items || []).length})`, () => {
+  expect(items).to.be.an('array').that.is.not.empty;
+  expect(items.map(e => e.action)).to.include('create');
+});
+test('no number_space_exhausted entry', () => expect(items.filter(e => e.action === 'number_space_exhausted')).to.eql([]));
+N.noLeak(bru.getVar('s18n_permit_def'));"""),
+            req("S18N.38 E9: admin@tenant-b asks for tenant A's permit type's timeline: an empty page", "GET",
+                audit + "?subject_type=entity_definition&subject_id={{s18n_permit_def}}&limit=500", auth="admin_b_token",
+                desc="The same filter as S18N.36, as tenant B's admin. The tenant comes from the token, so tenant A's entry is not there.",
+                tests="N.status(200);\ntest('no entries', () => expect(N.json().items).to.eql([]));"),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, x1, x2, x4, x5, x3, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
@@ -3595,6 +4042,9 @@ ENV = [
     ("auditor_a_password", "dev-only-auditor-a"),
     ("bob_username", "bob@tenant-b.test"),
     ("bob_password", "dev-only-bob"),
+    # S18 kit (TICK-677): docs/acceptance/S18/tools/kit.mjs admin-b seeds this user.
+    ("admin_b_username", "admin@tenant-b.test"),
+    ("admin_b_password", "dev-only-admin-b"),
     ("operator_username", "operator@nava.test"),
     ("operator_password", "dev-only-operator"),
     ("dave_username", "dave@no-org.test"),
@@ -3607,6 +4057,9 @@ ENV = [
     ("poll_limit_seconds", "660"),
     ("demo_workflow_id", ""),
     ("rate_burst_requests", "300"),
+    # S18 kit: run-kit.sh passes its own values with --env-var.
+    ("s18_tz", "UTC"),
+    ("s18_force_fail", "0"),
 ]
 
 COLLECTION_DOC = """One folder per delivered story (S1–S9), then the API suite (X1–X3) and the expired-token checks (Z). Run top to bottom. Before a full run: stack up, `tools/seed.sh`, `tools/tunnels.sh up`, and `make demo-outbox DEDUPE_KEY=accept` twice. Select the `local` environment. Only the documented dev-only seed credentials appear in the environment; tokens are fetched at run time and kept in runtime variables. Headless: `sh docs/acceptance/guide/tools/api-test.sh` from the repository root."""

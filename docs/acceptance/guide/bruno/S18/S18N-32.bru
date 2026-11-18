@@ -1,0 +1,41 @@
+meta {
+  name: S18N.32 E9: admin@tenant-a writes {prefix}-{seq:1} (refuse), nine numbers
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-tiny
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_tiny_{{s18n_run}}",
+    "document": {
+      "template": "{prefix}-{seq:1}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('version 1 of {prefix}-{seq:1} (refuse)', () => {
+    expect(N.json().version).to.eql(1);
+    expect(N.json().document.template).to.eql('{prefix}-{seq:1}');
+  });
+  bru.setVar('s18n_tiny_fmt', N.json().id);
+}
+
+docs {
+  A one-digit sequence: PMT-1 to PMT-9, then nothing left.
+}

@@ -200,7 +200,7 @@ func TestCompileRefusesSQLMetacharacters(t *testing.T) {
 	}
 	edited := mustCompile(t, "{prefix}-{seq:5}/X", numbering.Grow)
 	edited.Tail = "';DROP TABLE records;--"
-	if _, _, err := edited.SQL("$15::text", "v", nil); !errors.Is(err, numbering.ErrInvalidCompiled) {
+	if _, _, err := edited.SQL("$15::text", "v", "", nil); !errors.Is(err, numbering.ErrInvalidCompiled) {
 		t.Errorf("SQL of an edited tail = %v, want ErrInvalidCompiled", err)
 	}
 	if _, err := edited.Render("INC", 1); !errors.Is(err, numbering.ErrInvalidCompiled) {
@@ -212,7 +212,7 @@ func TestCompileRefusesSQLMetacharacters(t *testing.T) {
 // bound parameters, never as statement text.
 func TestSQLBindsLiterals(t *testing.T) {
 	c := mustCompile(t, "{prefix}-{seq:5}/X.Y", numbering.Grow)
-	got, args, err := c.SQL("$15::text", "(c.next - 1)", []any{"keep"})
+	got, args, err := c.SQL("$15::text", "(c.next - 1)", "", []any{"keep"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,8 +227,26 @@ func TestSQLBindsLiterals(t *testing.T) {
 		t.Errorf("SQL %q contains the literal text", got)
 	}
 	dated := mustCompile(t, "{prefix}-{yy}-{seq:4}", numbering.Grow)
-	if _, _, err := dated.SQL("$1", "v", nil); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
-		t.Errorf("SQL with a date part = %v, want ErrTemplatesUnavailable", err)
+	if _, _, err := dated.SQL("$1", "v", "", nil); !errors.Is(err, numbering.ErrTemplatesUnavailable) {
+		t.Errorf("SQL with a date part and no local time = %v, want ErrTemplatesUnavailable", err)
+	}
+}
+
+// A7 (TICK-674): date parts render in SQL from the local-time expression,
+// one to_char per token with its pattern bound; refuse renders NULL past the
+// width, so the records.number NOT NULL refuses the INSERT.
+func TestSQLRendersDatePartsAndRefuse(t *testing.T) {
+	c := mustCompile(t, "{prefix}/{yy}/{seq:2}/{MM}", numbering.Refuse)
+	got, args, err := c.SQL("p", "v", "l", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "(p || $1::text || to_char(l, $2::text) || $3::text || CASE WHEN v < 100 THEN lpad(v::text, 2, '0') END || $4::text || to_char(l, $5::text))"
+	if got != want {
+		t.Errorf("SQL =\n%s\nwant\n%s", got, want)
+	}
+	if !slices.Equal(args, []any{"/", "YY", "/", "/", "MM"}) {
+		t.Errorf("args = %v, want [/ YY / / MM]", args)
 	}
 }
 

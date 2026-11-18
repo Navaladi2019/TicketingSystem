@@ -83,6 +83,27 @@ func TestEveryTenantWriteRouteCompletesItsKeyInTheWrite(t *testing.T) {
 			body := `{"rules": [{"id": "k487", "ops": ["read", "write"], "who": {"users": ["` + e.a.admin.PrincipalID.String() + `", "` + e.a.user.PrincipalID.String() + `"]}}]}`
 			return e.access(t, http.MethodPut, "/api/v1/entity-types/incident/access", "admin-a", key, `W/"1"`, body)
 		},
+		"POST /api/v1/number-formats": func(key string) *httptest.ResponseRecorder {
+			return e.do(t, http.MethodPost, nfPath, "admin-a", key, nfMonthly)
+		},
+		"PUT /api/v1/number-formats/{id}": func(key string) *httptest.ResponseRecorder {
+			seed := e.do(t, http.MethodPost, nfPath, "admin-a", key+"-seed", nfDefault)
+			if seed.Code != http.StatusCreated {
+				t.Fatalf("seed format = %d: %s", seed.Code, seed.Body)
+			}
+			return e.doIf(t, http.MethodPut, nfPath+"/"+nfID(t, seed.Body.Bytes()), "admin-a", key, `W/"1"`, nfDefault)
+		},
+		"POST /api/v1/number-formats/{id}/republish-linked": func(key string) *httptest.ResponseRecorder {
+			// Its own format key: the PUT driver seeds nfDefault in the same tenant.
+			seed := e.do(t, http.MethodPost, nfPath, "admin-a", key+"-seed", strings.Replace(nfDefault, `"plain"`, `"republish_seed"`, 1))
+			if seed.Code != http.StatusCreated {
+				t.Fatalf("seed format = %d: %s", seed.Code, seed.Body)
+			}
+			return e.do(t, http.MethodPost, nfPath+"/"+nfID(t, seed.Body.Bytes())+"/republish-linked", "admin-a", key, `{"version":1}`)
+		},
+		"PUT /api/v1/tenant/settings/time-zone": func(key string) *httptest.ResponseRecorder {
+			return e.do(t, http.MethodPut, tzPath, "admin-a", key, `{"time_zone":"Asia/Tokyo"}`)
+		},
 		"POST /api/v1/audit/chain:reseed": func(key string) *httptest.ResponseRecorder {
 			// A tenant with a dead chain head (R17: next_seal_at over 10 minutes late).
 			ctx := t.Context()

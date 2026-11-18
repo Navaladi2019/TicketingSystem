@@ -1,0 +1,73 @@
+meta {
+  name: S18N.8 AC1: agent@tenant-a cannot link it: 403
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/visa/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-alice-link
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      }
+    },
+    "number_format": {
+      "id": "{{s18n_visa_fmt}}",
+      "version": 1
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}

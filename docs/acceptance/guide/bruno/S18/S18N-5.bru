@@ -1,0 +1,33 @@
+meta {
+  name: S18N.5 AC1: admin@tenant-a sets the tenant's numbering time zone
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{core_url}}/api/v1/tenant/settings/time-zone
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-tz
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "time_zone": "{{s18_tz}}"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the zone is in force', () => expect(N.json().time_zone).to.eql(N.v('s18_tz')));
+}
+
+docs {
+  The month in the number is the month in this zone (`s18_tz`; run-kit.sh uses `Pacific/Kiritimati`, UTC+14).
+}

@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/me",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "group_paths": [
+        {
+          "id": "b2bf63df-7110-4552-8051-360974be2089",
+          "path": "/admins"
+        }
+      ],
+      "groups": [
+        "b2bf63df-7110-4552-8051-360974be2089"
+      ],
+      "idp_alias": "",
+      "tenant_id": "00000000-0000-4000-8000-0000000000b1",
+      "user_id": "93c9fb75-22c3-43eb-a0e2-63e13a08c125"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "tenant_id is 00000000-0000-4000-8000-0000000000b1",
+      "status": "pass"
+    },
+    {
+      "test": "Me has the contract fields",
+      "status": "pass"
+    },
+    {
+      "test": "in /admins",
+      "status": "pass"
+    }
+  ]
+}
