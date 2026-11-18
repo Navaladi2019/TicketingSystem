@@ -31,6 +31,16 @@ const (
 	// the ACL chain never shares a (subject, version) key with the entity
 	// type's schema versions (contract amendment A3).
 	ACLPolicy Type = "acl_policy"
+	// NumberFormat is a number format and its published versions (S18,
+	// P6-06, ADR-005 §3.7 C12; domain config): subject_id is the format id,
+	// version_before and version_after are format versions.
+	NumberFormat Type = "number_format"
+	// TenantSetting is a tenant-level setting such as tenants.time_zone
+	// (S18, TICK-854, ADR-005 §3.6; domain config): subject_id is the tenant
+	// id, version_before and version_after are NULL (settings are not
+	// versioned), and content_sha256 is the SHA-256 of the after document,
+	// e.g. {"time_zone": "Asia/Kolkata"} (R3).
+	TenantSetting Type = "tenant_setting"
 	// WorkflowDefinition is a workflow definition and its published
 	// versions (S11b, P3-40; domain config): subject_id is the workflow
 	// definition id, version_before and version_after are its versions.
@@ -52,6 +62,8 @@ func All() []Type {
 		CascadeKey,
 		EntityDefinition,
 		ACLPolicy,
+		NumberFormat,
+		TenantSetting,
 		WorkflowDefinition,
 		AuditExport,
 		AuditChain,

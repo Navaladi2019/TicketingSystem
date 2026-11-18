@@ -1,0 +1,52 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/number-formats",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "117",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-05f4e98b-letter",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"key\": \"s18n_letter_05f4e98b\",\n  \"document\": {\n    \"template\": \"{prefix}X{seq:4}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:number_format_prefix_required",
+      "title": "Number format must start with the prefix",
+      "status": 422,
+      "code": "number_format_prefix_required",
+      "detail": "The template must start with {prefix}, and the token after it must not produce letters. See errors for the field and position.",
+      "instance": "urn:nava:request:bf92a8c492bfce4c2f2e06f431f9dfe0",
+      "errors": [
+        {
+          "pointer": "/document/template",
+          "rule": "position:8"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 422",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code number_format_prefix_required",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    },
+    {
+      "test": "names position 8 of /document/template",
+      "status": "pass"
+    }
+  ]
+}

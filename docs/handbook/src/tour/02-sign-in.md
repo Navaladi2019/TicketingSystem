@@ -62,5 +62,4 @@ The platform checks the token's signature, issuer and audience, then looks up th
 ## Not built yet
 
 - There is no sign-in screen. The password flow used here is for the local stack only; a real tenant signs in through its own company login.
-- The local stack has no stand-in company login for a newly onboarded tenant. Its first admin signs in only with platform-staff help (the S28 kit's stand-in). We revisit this when a test company login is added to the stack or a human timed run is planned.
 - There is no way to revoke a token before it expires except disabling the user, which the platform notices within one group-sync cycle (step 4).

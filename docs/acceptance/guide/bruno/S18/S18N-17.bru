@@ -1,0 +1,40 @@
+meta {
+  name: S18N.17 AC2: {prefix}X{seq:4} is refused: 422 number_format_prefix_required
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-letter
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_letter_{{s18n_run}}",
+    "document": {
+      "template": "{prefix}X{seq:4}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_prefix_required', 422);
+  test('names position 8 of /document/template', () => {
+    expect(N.json().errors[0].pointer).to.eql('/document/template');
+    expect(N.json().errors[0].rule).to.eql('position:8');
+  });
+}
+
+docs {
+  The token after `{prefix}` produces a letter, at byte 8.
+}

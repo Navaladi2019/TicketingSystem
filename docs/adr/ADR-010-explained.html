@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 explained: composable access rules</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--accbg:#ddf4ff;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--accbg:#0c2d6b;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.banner{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pill{font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left;overflow-wrap:break-word}
+th{background:var(--soft)}
+table.front th{width:120px}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-top:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:44px}
+h3{font-size:18px;margin-top:28px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure.diagram{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure.diagram svg{width:100%;min-width:600px;height:auto;display:block;margin:0 auto;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap}
+.tag.red{color:var(--bad);background:var(--badbg);border:1px solid var(--bad)}
+.tag.green{color:var(--good);background:var(--goodbg);border:1px solid var(--good)}
+.tag.amber{color:var(--warn);background:var(--warnbg);border:1px solid var(--warn)}
+.callout{border:1px solid var(--warn);background:var(--warnbg);border-radius:8px;padding:10px 14px;margin:14px 0}
+dl.gloss{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:6px 18px}
+dl.gloss dt{font-weight:700} dl.gloss dd{margin:0}
+@media (max-width:640px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+@media print{table{display:table}}
+</style>
+</head>
+<body><main>
+<div class="banner"><span class="pill">READING GUIDE &middot; ADR-010 ACCEPTED</span>
+<span class="src">This page explains <code>docs/adr/ADR-010-composable-access-rules.md</code> and changes nothing itself. If this page and the ADR disagree, the ADR is correct. The discussion that led to it is archived in <code>docs/adr/ADR-010/rfc/</code> (RFC-022 rev 0 and rev 1).</span></div>
+<table class="front"><tbody>
+<tr><th>Question</th><td>How can tenant admins build ticket and workflow access rules from reusable pieces (AND, OR, NOT), without code, while keeping the database filter and the single-ticket check giving the same answer?</td></tr>
+<tr><th>Decision</th><td>Admins write named conditions and combine them into named policies, all stored as one versioned document per ticket type. Rules only ever <i>grant</i> access. A broken rule is refused when it is saved, and if one ever reached the database it would grant nothing.</td></tr>
+<tr><th>Not decided here</th><td>Whether the later workflow expression language (Epic 10) builds on this format (open, owner: CTO). Rules on tenant-defined fields wait for TICK-900.</td></tr>
+<tr><th>Issue</th><td>TICK-901 &middot; RFC-022 &middot; Epic 06 (TICK-9)</td></tr>
+<tr><th>Status</th><td><b>ACCEPTED</b>, 2026-11-15, by the Solution Architect (PR #716), after the Technical Architect approved the design and its one wording finding on the ADR was fixed.</td></tr>
+<tr><th>Reviews</th><td>Technical Architect: CHANGES in round 1 (3 blocking items), then APPROVE on re-check. The Technical Lead decided who sets a ticket's org unit. No dissent.</td></tr>
+</tbody></table>
+
+<h2>1. In plain words</h2>
+<h3>Goal: what are we trying to do?</h3>
+<p>Let each customer's admin decide who may see and work on which tickets by combining simple, named building blocks. For example, the admin can write "managers in the assigned group may work on a withdrawal request, <b>but not</b> if they raised it themselves", without anyone writing code.</p>
+<h3>Today: how is it done now, and what are the limits?</h3>
+<p>Today a rule is a flat list: "these people may see tickets where all of these things hold". There is no "or" and no "not", so separation of duties cannot be written. Nothing can be reused, so the same idea has to be copied into every rule. Adding these later without a design would mean rewriting the code that applies rules, and the test that proves the database and the program agree.</p>
+<h3>What's new, and why we expect it to work</h3>
+<p>Admins name a condition once, such as <i>is_requester</i>, and use it in many policies. A policy combines conditions with AND, OR and NOT. Every rule only adds access, so the outcome never depends on the order of the rules. The rules are a small, fixed set of building blocks, and each block has exactly one translation into a database filter and one into a program check. That is why the two can be tested against each other on thousands of random cases, which we already do for today's rules.</p>
+<h3>Who is affected</h3>
+<p><b>Tenant admins</b> get composition, reuse and clearer explanations. <b>Support agents and the people who raise tickets</b> see no change until an admin edits rules: existing rules are converted automatically and behave the same. <b>Operators</b>, the people who run the platform, get three new counters on their dashboards and a small change to the directory sync, the job that copies users, groups and org units from the login system every few minutes. <b>Engineers</b> on Epic 03 and Epic 06 build the pieces in the plan.</p>
+<h3>Risks: what could go wrong, and what we accept</h3>
+<p>Region-based access ("tickets from my part of the organisation") could be slow for very large organisations. A short experiment, a spike, measures this before we build. A user who moves between org units keeps their old region access until the next directory sync, which is within 10 minutes, the same as for groups today. Size limits on rules could block an unusually large policy.</p>
+<h3>How we'll know it worked</h3>
+<p><b>Mid-way:</b> two spikes, one on region access speed and one on the save-time check's cost. <b>At the end:</b> the random agreement test passes, including the new NOT and empty-value cases. Every existing rule gives the same answers and the same database filter as today. The 800,000-ticket benchmark stays within 150 ms. A deleted org unit no longer stops the directory sync.</p>
+
+<dl class="gloss">
+<dt>Condition</dt><dd>A named yes/no test about a ticket and the person asking, such as "I raised this ticket".</dd>
+<dt>Policy</dt><dd>A named rule that grants an action (read or write) when its combination of conditions is true.</dd>
+<dt>Allow-only</dt><dd>Rules can only add access, never take it away. You get access when any policy says yes.</dd>
+<dt>Database filter (SQL predicate)</dt><dd>The rule translated into the "WHERE" part of a database query, so a list only ever contains tickets you may see.</dd>
+<dt>Agreement test</dt><dd>A test that builds thousands of random rules, users and tickets and checks that the database filter and the single-ticket check in the program always agree.</dd>
+<dt>Tombstone</dt><dd>Marking a row as deleted instead of removing it, so things that point at it keep working.</dd>
+<dt>Org unit</dt><dd>A branch of the customer's organisation chart, such as a region or an office. Units form a tree: "my region" means my unit and everything under it.</dd>
+<dt>Directory sync</dt><dd>The job that copies users, groups and org units from the login system into the platform every few minutes.</dd>
+<dt>Explainer</dt><dd>The admin screen that answers "can this user see this ticket, and why".</dd>
+<dt>Spike</dt><dd>A short, time-boxed experiment that measures something before we commit to building it.</dd>
+</dl>
+
+<h2>2. How a rule is built and checked</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 270" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Conditions combine into policies, which are checked at save time and then evaluated two ways">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<g font-size="13" fill="#1f2328">
+<rect x="10" y="20" width="170" height="34" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="42" text-anchor="middle">is_requester</text>
+<rect x="10" y="66" width="170" height="34" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="88" text-anchor="middle">in_assigned_group</text>
+<rect x="10" y="112" width="170" height="34" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="134" text-anchor="middle">in_my_region</text>
+<text x="95" y="170" text-anchor="middle" fill="#59636e" font-size="12">named conditions</text>
+<rect x="230" y="50" width="220" height="70" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="340" y="76" text-anchor="middle" font-weight="700">pf_manager_work</text><text x="340" y="98" text-anchor="middle" font-size="12">in_assigned_group AND NOT is_requester</text>
+<text x="340" y="140" text-anchor="middle" fill="#59636e" font-size="12">policy (grants read, write)</text>
+<line x1="180" y1="83" x2="228" y2="83" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="180" y1="37" x2="228" y2="70" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="500" y="20" width="250" height="40" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="625" y="45" text-anchor="middle">Save: refused if broken (422)</text>
+<rect x="500" y="80" width="250" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="625" y="105" text-anchor="middle">Lists: one database filter</text>
+<rect x="500" y="140" width="250" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="625" y="165" text-anchor="middle">One ticket: program check</text>
+<line x1="450" y1="70" x2="498" y2="42" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="450" y1="85" x2="498" y2="100" stroke="#59636e" marker-end="url(#a)"/>
+<line x1="450" y1="100" x2="498" y2="158" stroke="#59636e" marker-end="url(#a)"/>
+<text x="625" y="210" text-anchor="middle" font-size="12" fill="#59636e">The agreement test proves these two</text>
+<text x="625" y="226" text-anchor="middle" font-size="12" fill="#59636e">give the same answer on every case</text>
+</g></svg>
+<figcaption>One saved document per ticket type holds the conditions and the policies. Editing a condition changes every policy that uses it in one new version.</figcaption>
+</figure>
+
+<h2>3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Result</th><th>Why</th></tr></thead><tbody>
+<tr><td>Named conditions and allow-only policies in one versioned document per ticket type</td><td><span class="tag green">chosen</span></td><td>No new table or cache. A condition change is one atomic version, and everything reuses today's proven engine.</td></tr>
+<tr><td>One condition library shared across all ticket types</td><td><span class="tag red">rejected</span></td><td>One edit would spread across many documents and versions, and need another table and publish path. We revisit if admins copy the same condition across more than 3 types.</td></tr>
+<tr><td>"Deny" rules that override "allow" rules</td><td><span class="tag red">rejected</span></td><td>Ranking rules is a new way for the database filter and the program check to disagree. "Allow, AND NOT x" covers every case in the brief.</td></tr>
+<tr><td>A text rule language typed by admins</td><td><span class="tag red">rejected</span></td><td>It would put a parser in the security path and need its own "safe subset" checker. A friendly text form can be added later on top of this format.</td></tr>
+<tr><td>Region checks by joining an org-tree table inside each query</td><td><span class="tag amber">fallback</span></td><td>Kept as plan B if the spike shows the chosen approach is too slow.</td></tr>
+</tbody></table>
+
+<h2>4. The decisions that close the review findings</h2>
+<table><thead><tr><th>Finding</th><th>Risk</th><th>Fix</th></tr></thead><tbody>
+<tr><td>B1: a broken building block under NOT</td><td>"NOT broken" could have read as "NOT false", which is <i>true</i>, and that would grant every ticket.</td><td>A broken block voids the whole policy, which then grants nothing. "Broken" is never treated as true or false.</td></tr>
+<tr><td>B2: deleting an org unit</td><td>With a ticket still pointing at the deleted unit, the directory sync would fail every time, and removed users would keep their access.</td><td>Org units are marked deleted (tombstoned), never removed. Tickets under a deleted unit lose region access.</td></tr>
+<tr><td>B3: speed of existing rules</td><td>Converted rules would lose today's fast list plan: 38 to 166 ms per page instead of 2 to 4 ms.</td><td>Converted rules are split exactly as today. A test checks the database filter text is unchanged, up to a limit the spike measures.</td></tr>
+</tbody></table>
+<p><b>Who sets a ticket's org unit:</b> it is set when the ticket is created, from the requester's main org unit. After that it is an ordinary stored field, protected and audited like any other. Tickets do not move when a person changes unit; moving them is a workflow step.</p>
+
+<h2>5. Migration of today's rules</h2>
+<p>Nothing stored is rewritten. When an old rule is read, it is translated in memory into a policy with the same name and the same meaning. The next save stores the new format. A test runs every old rule shape through both engines and requires identical answers and an identical database filter.</p>
+
+<h2>6. What we accept</h2>
+<table><thead><tr><th>Residual</th><th>Owner</th><th>When we look again</th></tr></thead><tbody>
+<tr><td>Region access may be slow for very large org trees</td><td>Technical Architect (spike SP-1)</td><td>The spike exceeds 150 ms. Then add an index, and after that plan B.</td></tr>
+<tr><td>Moving a person between org units takes effect at the next sync (within 10 minutes)</td><td>Security &amp; Multi-Tenancy Reviewer</td><td>A requirement for faster revocation</td></tr>
+<tr><td>Size limits (for example 64 policies per document) may block a large policy</td><td>Solution Architect</td><td>An admin reports one</td></tr>
+<tr><td>A voided policy removes access the admin expected</td><td>Technical Lead</td><td>The new metric shows any voided policy</td></tr>
+<tr><td>One condition format or two, once workflows get expressions</td><td>CTO</td><td>Epic 10's expression design starts</td></tr>
+</tbody></table>
+
+<h2>7. Evidence</h2>
+<ul>
+<li>The review, revision and re-check are on TICK-901 and archived in <code>docs/adr/ADR-010/rfc/</code>.</li>
+<li>The cost of losing the fast list plan was measured earlier: <code>docs/data/records-list-indexes.md</code> (2.0 to 4.0 ms against 38 to 166 ms).</li>
+<li>Today's list headroom is in <code>docs/quality/acl-perf-800k.md</code>.</li>
+<li>Not measured yet: region access speed (SP-1) and save-time check cost (SP-2). Both are scheduled ahead of the stories that depend on them. Until they report, these numbers are targets, not results.</li>
+</ul>
+</main></body></html>

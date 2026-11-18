@@ -104,6 +104,16 @@ func auditWriter(rel, kind, table, sql string) bool {
 		kind == "update" && rel == "internal/audit/erasetest/erasetest.go" && eraseColumnsOnly(sql)
 }
 
+// counterPurger reports whether the file at rel may run a write of kind on
+// table because it is the mandatory period-counter purge (ADR-005 §4.3, P6-10,
+// TICK-675): internal/purge/purge.go may DELETE FROM record_counters and
+// nothing else. It runs as nava_purge, whose record_counters_purge policy
+// limits it to period rows more than 2 days past period_end; it never takes or
+// changes a number, so it is not a write D-3-6 routes through the pipeline.
+func counterPurger(rel, kind, table string) bool {
+	return rel == "internal/purge/purge.go" && kind == "delete" && table == "record_counters"
+}
+
 // sealColumn reports whether col is one of the four columns of the R11 seal
 // transition (ADR-004 R11).
 func sealColumn(col string) bool {
@@ -505,7 +515,7 @@ func scanFile(fset *token.FileSet, rel string, f *ast.File, pkg packageStrings, 
 
 	report := func(n ast.Node, s string) {
 		for _, w := range sqlWrites(s) {
-			if !auditWriter(rel, w[0], w[1], s) {
+			if !auditWriter(rel, w[0], w[1], s) && !counterPurger(rel, w[0], w[1]) {
 				out = append(out, finding{rel, fset.Position(n.Pos()).Line, w[0], w[1]})
 			}
 		}
@@ -879,6 +889,26 @@ func TestRecordWritersOnlyInPipeline(t *testing.T) {
 	for i, k := range known {
 		if !seen[i] {
 			t.Errorf("known violation %s %s in %s is gone: remove it from knownViolations", k.op, k.table, k.file)
+		}
+	}
+}
+
+// The purge allowance is one file, one verb, one table.
+func TestCounterPurgerAllowance(t *testing.T) {
+	for _, c := range []struct {
+		rel, kind, table string
+		want             bool
+	}{
+		{"internal/purge/purge.go", "delete", "record_counters", true},
+		{"internal/purge/other.go", "delete", "record_counters", false},
+		{"internal/purge/purge.go", "update", "record_counters", false},
+		{"internal/purge/purge.go", "insert", "record_counters", false},
+		{"internal/purge/purge.go", "truncate", "record_counters", false},
+		{"internal/purge/purge.go", "delete", "records", false},
+		{"internal/purge/purge.go", "delete", "audit_log", false},
+	} {
+		if got := counterPurger(c.rel, c.kind, c.table); got != c.want {
+			t.Errorf("counterPurger(%s, %s, %s) = %v, want %v", c.rel, c.kind, c.table, got, c.want)
 		}
 	}
 }

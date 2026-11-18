@@ -1,0 +1,37 @@
+meta {
+  name: S18N.29 AC5: admin@tenant-b links tenant A's format to tenant B's incident type: 422 number_format_not_found
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-b-link
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const tok = bru.getVar('admin_b_token');
+  const cur = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident'), method: 'GET', headers: { Authorization: 'Bearer ' + tok } });
+  if (cur.status !== 200) throw new Error('GET incident: HTTP ' + cur.status);
+  bru.setVar('s18n_cur_incident', String(cur.data.version));
+  req.setBody({ definition: { schema: cur.data.schema, fixed_columns: cur.data.fixed_columns, states: cur.data.states }, number_format: { id: bru.getVar('s18n_visa_fmt'), version: 1 } });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_not_found', 422);
+  bru.setVar('s18n_422_a', JSON.stringify({ detail: N.json().detail, errors: N.json().errors }));
+  N.noLeak('{yyyy}');
+}

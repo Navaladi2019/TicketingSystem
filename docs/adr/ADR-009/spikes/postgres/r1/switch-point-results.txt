@@ -1,0 +1,6 @@
+k=1000 run1:     1000 == OR page  Execution Time: 5.908 ms == OR count  Execution Time: 78.498 ms == UNION page  Execution Time: 11.231 ms == UNION count  Execution Time: 10.368 ms
+k=1000 run2:     1000 == OR page  Execution Time: 5.339 ms == OR count  Execution Time: 85.572 ms == UNION page  Execution Time: 9.162 ms == UNION count  Execution Time: 10.316 ms
+k=5000 run1:     5000 == OR page  Execution Time: 1.003 ms == OR count  Execution Time: 12.900 ms == UNION page  Execution Time: 25.077 ms == UNION count  Execution Time: 5.865 ms
+k=5000 run2:     5000 == OR page  Execution Time: 1.184 ms == OR count  Execution Time: 14.219 ms == UNION page  Execution Time: 21.790 ms == UNION count  Execution Time: 5.988 ms
+k=20000 run1:    20000 == OR page  Execution Time: 0.354 ms == OR count  Execution Time: 4.463 ms == UNION page  Execution Time: 117.160 ms == UNION count  Execution Time: 89.228 ms
+k=20000 run2:    20000 == OR page  Execution Time: 0.345 ms == OR count  Execution Time: 5.190 ms == UNION page  Execution Time: 119.712 ms == UNION count  Execution Time: 86.867 ms
