@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/records/visa/01a1df4d-d328-71b3-a89a-9cc3ad5019f2",
+    "url": "http://127.0.0.1:28080/api/v1/records/visa/01a1ef56-1c63-7a6b-84dd-ad83322bf7ce",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -15,16 +15,16 @@
   "response": {
     "status": 200,
     "body": {
-      "created_at": "2026-11-15T13:03:01.92901Z",
+      "created_at": "2026-11-18T15:46:00.421644Z",
       "data": {
         "short_description": "S18 pre-upgrade visa A agent 1",
         "state": "new"
       },
-      "id": "01a1df4d-d328-71b3-a89a-9cc3ad5019f2",
+      "id": "01a1ef56-1c63-7a6b-84dd-ad83322bf7ce",
       "number": "VISA0000002",
       "schema_version": 1,
       "state": "new",
-      "updated_at": "2026-11-15T13:03:01.92901Z",
+      "updated_at": "2026-11-18T15:46:00.421644Z",
       "version": 1
     }
   },

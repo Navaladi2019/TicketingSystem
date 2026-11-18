@@ -1,4 +1,4 @@
-== counters on the S17 build, before the upgrade (2026-11-15T13:03:02Z)
+== counters on the S17 build, before the upgrade (2026-11-18T15:46:01Z)
               tenant_id               |   key    | number_prefix | scope_key | period_end | next | records 
 --------------------------------------+----------+---------------+-----------+------------+------+---------
  00000000-0000-4000-8000-0000000000a1 | incident | INC           |           |            |    3 |       2

@@ -1,18 +1,18 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/entity-types/permit/versions",
+    "url": "http://127.0.0.1:28080/api/v1/entity-types/permit/versions",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "910",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-b0b7d2de-tiny-link",
+      "Idempotency-Key": "s18n-05f4e98b-tiny-link",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"definition\": {\n    \"schema\": {\n      \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"short_description\",\n        \"state\"\n      ],\n      \"properties\": {\n        \"short_description\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"maxLength\": 160\n        },\n        \"state\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"new\",\n            \"closed\"\n          ],\n          \"default\": \"new\"\n        }\n      }\n    },\n    \"fixed_columns\": {\n      \"state\": \"state\"\n    },\n    \"states\": {\n      \"initial\": \"new\",\n      \"states\": [\n        \"new\",\n        \"closed\"\n      ],\n      \"transitions\": [\n        {\n          \"from\": \"new\",\n          \"to\": \"closed\"\n        }\n      ]\n    }\n  },\n  \"number_format\": {\n    \"id\": \"b5e7341e-9b3e-4fc0-acae-420c7a131b09\",\n    \"version\": 1\n  }\n}"
+    "body": "{\n  \"definition\": {\n    \"schema\": {\n      \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"short_description\",\n        \"state\"\n      ],\n      \"properties\": {\n        \"short_description\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"maxLength\": 160\n        },\n        \"state\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"new\",\n            \"closed\"\n          ],\n          \"default\": \"new\"\n        }\n      }\n    },\n    \"fixed_columns\": {\n      \"state\": \"state\"\n    },\n    \"states\": {\n      \"initial\": \"new\",\n      \"states\": [\n        \"new\",\n        \"closed\"\n      ],\n      \"transitions\": [\n        {\n          \"from\": \"new\",\n          \"to\": \"closed\"\n        }\n      ]\n    }\n  },\n  \"number_format\": {\n    \"id\": \"5ff59c4d-d46c-4792-8197-2e336ee865ef\",\n    \"version\": 1\n  }\n}"
   },
   "response": {
     "status": 201,
@@ -66,10 +66,10 @@
       },
       "compat": "compatible",
       "number_format": {
-        "id": "b5e7341e-9b3e-4fc0-acae-420c7a131b09",
+        "id": "5ff59c4d-d46c-4792-8197-2e336ee865ef",
         "version": 1
       },
-      "published_at": "2026-11-15T13:12:17.404813Z"
+      "published_at": "2026-11-18T16:00:51.03874Z"
     }
   },
   "tests": [

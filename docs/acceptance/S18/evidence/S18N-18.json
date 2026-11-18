@@ -1,24 +1,24 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/number-formats",
+    "url": "http://127.0.0.1:28080/api/v1/number-formats",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "119",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-b0b7d2de-short",
+      "Idempotency-Key": "s18n-05f4e98b-short",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"key\": \"s18n_short_b0b7d2de\",\n  \"document\": {\n    \"template\": \"{prefix}{yy}{seq:3}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+    "body": "{\n  \"key\": \"s18n_short_05f4e98b\",\n  \"document\": {\n    \"template\": \"{prefix}{yy}{seq:3}\",\n    \"overflow\": \"refuse\"\n  }\n}"
   },
   "response": {
     "status": 201,
     "body": {
-      "id": "20378772-3d03-4191-80bb-b16e2593e075",
-      "key": "s18n_short_b0b7d2de",
+      "id": "1c5725ee-3bf0-4cb7-9feb-ecf9177f4d19",
+      "key": "s18n_short_05f4e98b",
       "version": 1,
       "current_version": 1,
       "document": {
@@ -38,8 +38,8 @@
         "CompiledSHA256": "3b6b645b77c6646d8611321bfb774db09b424cfd7be075d31b204c0647dbcce3"
       },
       "compiled_sha256": "3b6b645b77c6646d8611321bfb774db09b424cfd7be075d31b204c0647dbcce3",
-      "created_at": "2026-11-15T13:12:16.55431Z",
-      "created_by": "3cd3d09b-32d4-42b3-8784-a4f3345b5f00"
+      "created_at": "2026-11-18T16:00:49.095137Z",
+      "created_by": "d5e91a97-428f-444c-a5b5-49d8fa9dec83"
     }
   },
   "tests": [

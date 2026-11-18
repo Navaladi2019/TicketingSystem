@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/entity-types/permit",
+    "url": "http://127.0.0.1:28080/api/v1/entity-types/permit",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -64,10 +64,10 @@
       },
       "compat": "compatible",
       "number_format": {
-        "id": "b5e7341e-9b3e-4fc0-acae-420c7a131b09",
+        "id": "5ff59c4d-d46c-4792-8197-2e336ee865ef",
         "version": 1
       },
-      "published_at": "2026-11-15T13:12:17.404813Z"
+      "published_at": "2026-11-18T16:00:51.03874Z"
     }
   },
   "tests": [

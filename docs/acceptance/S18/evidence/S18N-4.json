@@ -1,12 +1,12 @@
 {
   "request": {
     "method": "GET",
-    "url": "http://127.0.0.1:18080/api/v1/me",
+    "url": "http://127.0.0.1:28080/api/v1/me",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
       "content-type": null
     },
@@ -17,16 +17,16 @@
     "body": {
       "group_paths": [
         {
-          "id": "7288e23c-89f9-4f70-82c3-f02e9176cd59",
+          "id": "b2bf63df-7110-4552-8051-360974be2089",
           "path": "/admins"
         }
       ],
       "groups": [
-        "7288e23c-89f9-4f70-82c3-f02e9176cd59"
+        "b2bf63df-7110-4552-8051-360974be2089"
       ],
       "idp_alias": "",
       "tenant_id": "00000000-0000-4000-8000-0000000000b1",
-      "user_id": "e37bf581-39fe-4495-b57b-a3681303d5c4"
+      "user_id": "93c9fb75-22c3-43eb-a0e2-63e13a08c125"
     }
   },
   "tests": [

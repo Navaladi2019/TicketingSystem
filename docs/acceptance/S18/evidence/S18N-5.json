@@ -1,15 +1,15 @@
 {
   "request": {
     "method": "PUT",
-    "url": "http://127.0.0.1:18080/api/v1/tenant/settings/time-zone",
+    "url": "http://127.0.0.1:28080/api/v1/tenant/settings/time-zone",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "39",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-b0b7d2de-tz",
+      "Idempotency-Key": "s18n-05f4e98b-tz",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"time_zone\": \"Pacific/Kiritimati\"\n}"

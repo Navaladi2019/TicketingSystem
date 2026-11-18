@@ -1,18 +1,18 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/number-formats",
+    "url": "http://127.0.0.1:28080/api/v1/number-formats",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "117",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-b0b7d2de-nopfx",
+      "Idempotency-Key": "s18n-05f4e98b-nopfx",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"key\": \"s18n_nopfx_b0b7d2de\",\n  \"document\": {\n    \"template\": \"{yyyy}{MM}{seq:4}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+    "body": "{\n  \"key\": \"s18n_nopfx_05f4e98b\",\n  \"document\": {\n    \"template\": \"{yyyy}{MM}{seq:4}\",\n    \"overflow\": \"refuse\"\n  }\n}"
   },
   "response": {
     "status": 422,
@@ -22,7 +22,7 @@
       "status": 422,
       "code": "number_format_prefix_required",
       "detail": "The template must start with {prefix}, and the token after it must not produce letters. See errors for the field and position.",
-      "instance": "urn:nava:request:6737cddc5e89be5d7c01071563544d1a",
+      "instance": "urn:nava:request:868d5ec3cae82e9d5f41b5c4c4becffe",
       "errors": [
         {
           "pointer": "/document/template",

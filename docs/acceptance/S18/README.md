@@ -1,6 +1,6 @@
 # S18 acceptance kit: a tenant admin defines a number format and links it to a ticket type (TICK-669)
 
-Kit task TICK-677 (PLAN-006 P6-12). Story branch `TICK-669/number-formats` at `26651ace` (every S18 task merged, TICK-868 / #705 and the `main` merge #708 included). Design: ADR-005 (§3, §4.2), ADR-005-E2, ADR-004-E9 (PLAN-005-E9 D-E9-5). Runbook: [`docs/data/record-counters-scope-key.md`](../../data/record-counters-scope-key.md). Verified on 2026-11-15 at 13:12Z on a fresh stack that started on the S17 build and was upgraded to S18.
+Kit task TICK-677 (PLAN-006 P6-12). Story branch `TICK-669/number-formats` at `eb2a2ef0` (every S18 task merged, plus the `main` merge of #714, #718, #719, #720 and #723). Design: ADR-005 (§3, §4.2), ADR-005-E2, ADR-004-E9 (PLAN-005-E9 D-E9-5). Runbook: [`docs/data/record-counters-scope-key.md`](../../data/record-counters-scope-key.md). Verified on 2026-11-18 at 16:01Z on a fresh stack that started on the S17 build and was upgraded to S18. That run used host ports `NAVA_CORE_PORT=28080`, `KEYCLOAK_PORT=28081` (issuer `http://localhost:28081`), `OPENOBSERVE_PORT=25080` and `PROMETHEUS_PORT=29091`, because another stack held the defaults, so the evidence URLs show those ports.
 
 **Result: PASS.** All five acceptance criteria and the E9 check pass. The run had 38 requests and 100 tests, all passed (`evidence/run-summary.json`). The forced-failure run (below) exits 1, as it must.
 

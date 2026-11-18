@@ -1,18 +1,18 @@
 {
   "request": {
     "method": "POST",
-    "url": "http://127.0.0.1:18080/api/v1/records/permit",
+    "url": "http://127.0.0.1:28080/api/v1/records/permit",
     "headers": {
       "Accept": "application/json, text/plain, */*",
       "User-Agent": "bruno-runtime/4.3.0",
       "Content-Length": "72",
       "Accept-Encoding": "gzip, compress, deflate, br",
-      "Host": "127.0.0.1:18080",
+      "Host": "127.0.0.1:28080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s18n-b0b7d2de-exhausted",
+      "Idempotency-Key": "s18n-05f4e98b-exhausted",
       "Content-Type": "application/json"
     },
-    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 b0b7d2de one too many\"\n  }\n}"
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 05f4e98b one too many\"\n  }\n}"
   },
   "response": {
     "status": 409,
@@ -22,7 +22,7 @@
       "status": 409,
       "code": "number_space_exhausted",
       "detail": "The entity type's number format has no number left in this numbering scope. Nothing was created. A retry fails the same way until the scope changes or a wider format is published. See errors for the scope.",
-      "instance": "urn:nava:request:8f3f9131662d38c7113023e1327ac539",
+      "instance": "urn:nava:request:c40301bb7cc9d523672e087bafd72787",
       "errors": [
         {
           "pointer": "/entity",
