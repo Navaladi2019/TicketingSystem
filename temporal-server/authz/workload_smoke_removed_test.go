@@ -29,8 +29,9 @@ func TestSmokeTypesDenied(t *testing.T) {
 	}
 }
 
-// Every allow-listed type passes the relay's start and signal-with-start, and
-// a worker's child and continue-as-new unless it is start-only (TICK-438),
+// Every allow-listed type passes the relay's start and signal-with-start
+// unless it is child-only (TICK-745), and a worker's child and continue-as-new
+// unless it is start-only (TICK-438),
 // with the tenantA prefix and header. A start-only type is denied as a child
 // or continue-as-new.
 func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
@@ -41,10 +42,16 @@ func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
 	tok := taskToken(t, wfA)
 	for _, wt := range types {
 		t.Run(wt, func(t *testing.T) {
-			requireWorkloadAllow(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt))
-			requireWorkloadAllow(t, Relay, wf+"SignalWithStartWorkflowExecution", &workflowservice.SignalWithStartWorkflowExecutionRequest{
+			sws := &workflowservice.SignalWithStartWorkflowExecutionRequest{
 				Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
-				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()})
+				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}
+			if inSet(childOnlyWorkflowTypes(), wt) {
+				requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt), ReasonWorkflowType)
+				requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", sws, ReasonWorkflowType)
+			} else {
+				requireWorkloadAllow(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt))
+				requireWorkloadAllow(t, Relay, wf+"SignalWithStartWorkflowExecution", sws)
+			}
 			child := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
 			child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
 			can := interpreterContinueAsNew(jsonString("tenantA"))

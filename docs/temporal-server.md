@@ -72,14 +72,23 @@ So a platform identity must never name a workflow type or task queue it does not
 own (S1: a relay start of `temporal-sys-batch-workflow` terminated another
 tenant's workflow). A request is allowed only if **every** workflow type, task
 queue and workflow id it names is on the compiled-in allow-list in
-`authz/policy.go` (`platformWorkflowTypes = {audit.seal, nava.interpreter}`,
+`authz/policy.go` (`platformWorkflowTypes = {audit.seal, field_index.backfill.run, field_index.coordinator, nava.interpreter}`,
 `platformTaskQueues = {nava-tq}`; `nava.interpreter` is the one generic type every
 workflow definition runs as, PLAN-003 D-3-11). `audit.seal` is the ADR-004 R16
 audit sealer (R18, TICK-438). It is also the one entry of
 `startOnlyWorkflowTypes`: only a relay start may name it, and a worker's
 `StartChildWorkflowExecution` or `ContinueAsNewWorkflowExecution` of it is
 denied (TICK-449), because the sealer reschedules through the outbox
-(`authz/workload_audit_seal_test.go`). The two M1 smoke types were
+(`authz/workload_audit_seal_test.go`). `field_index.coordinator` and
+`field_index.backfill.run` are the ADR-006 D10 field-index backfill (PLAN-007
+D-7-12, TICK-745). The coordinator is one workflow per tenant,
+`t:<tenant>:field_index.coordinator`: `nava-relay` signal-with-starts it from a
+`field_index.backfill` outbox row, and it continues as new, so it is not
+start-only. `field_index.backfill.run` is the one entry of
+`childOnlyWorkflowTypes`: only a worker's child (or continue-as-new) may name it,
+and a relay `StartWorkflowExecution` or `SignalWithStartWorkflowExecution` of it
+is denied, so no backfill runs around the coordinator's one-per-tenant rule
+(`authz/workload_field_index_test.go`). The two M1 smoke types were
 removed in TICK-374: the stack
 tests register their own bodies as `nava.interpreter`, so CI-6 runs the
 allow-list we ship, and `authz/workload_smoke_removed_test.go` asserts that the
@@ -92,6 +101,7 @@ prints both sets.
 | D9a | `nava-relay` `StartWorkflowExecution`, `SignalWithStartWorkflowExecution` | type not in the set (empty included) | `workflow_type_not_allowed` |
 | | | queue kind not NORMAL / UNSPECIFIED | `task_queue_kind_not_allowed` |
 | | | queue name not in the set | `task_queue_not_allowed` |
+| | | type in `childOnlyWorkflowTypes` (`field_index.backfill.run`; TICK-745) | `workflow_type_not_allowed` |
 | | | workflow id without `t:<tenant>:` | `workflow_id_no_tenant` |
 | | | `CronSchedule` set (any non-empty string; TICK-573) | `start_cron` |
 | | | workflow `RetryPolicy` set (any, an empty one included; TICK-573) | `start_retry_policy` |
