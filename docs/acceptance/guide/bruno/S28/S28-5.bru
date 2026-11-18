@@ -1,40 +1,25 @@
 meta {
-  name: S28.5 Stand-in: add the user to the tenant's organization: 201
+  name: S28.5 The platform user came from the first brokered login: userinfo
   type: http
   seq: 5
 }
 
-post {
-  url: {{keycloak_url}}/admin/realms/{{realm}}/organizations/{{s28_org}}/members
-  body: json
+get {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/userinfo
+  body: none
   auth: none
 }
 
 headers {
-  Authorization: Bearer {{kc_admin_token}}
-  Content-Type: application/json
-}
-
-body:json {
-  "{{s28_user}}"
-}
-
-script:pre-request {
-  const N = require('./lib/nava')({ bru });
-  await N.kcAdmin();
-
-  const o = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/organizations?search=t-{{s28_tenant}}&exact=true'),
-    method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
-  const org = (o.data || []).find(x => x.alias === 't-' + bru.getVar('s28_tenant'));
-  if (!org) throw new Error('S28.5: no organization t-' + bru.getVar('s28_tenant') + ' (HTTP ' + o.status + ')');
-  bru.setVar('s28_org', org.id);
+  Authorization: Bearer {{s28_admin_token}}
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(201);
+  N.status(200);
+  test('email is the invited one', () => expect(N.json().email).to.eql(bru.getVar('s28_admin_email')));
 }
 
 docs {
-  Local stack only, platform staff (F1). The first-login flow adds the new user to the tenant's organization (`t-<tenant_id>`), which puts the `organization` claim in their token.
+  The platform user carries the invited email. It was created by `nava-first-broker-login`, not by an admin call.
 }

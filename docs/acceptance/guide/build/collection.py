@@ -149,6 +149,55 @@ module.exports = ({ test, expect, res, bru } = {}) => {
       if (r.status !== 200) throw new Error('Keycloak admin token failed: HTTP ' + r.status);
       bru.setVar('kc_admin_token', r.data.access_token);
     },
+    // A browser-less sign-in through a company login (S28): follows redirects
+    // by hand with a small cookie jar, so no master-realm credential is used.
+    // stop(url) says where the walk ends (the sign-in's redirect_uri).
+    browser(stop) {
+      const jar = [];
+      const decode = (x) => x.replace(/&amp;/g, '&').replace(/&#61;/g, '=').replace(/&quot;/g, '"');
+      const cookieHeader = (u) => jar.filter(c => u.pathname.startsWith(c.path)).map(c => c.name + '=' + c.value).join('; ');
+      const keep = (r) => {
+        for (const sc of [].concat(r.headers['set-cookie'] || [])) {
+          const [kv, ...attrs] = sc.split(';').map(x => x.trim());
+          const i = kv.indexOf('=');
+          const path = ((attrs.find(a => /^path=/i.test(a)) || 'path=/').split('=')[1]) || '/';
+          const k = jar.findIndex(c => c.name === kv.slice(0, i) && c.path === path);
+          if (k >= 0) jar.splice(k, 1);
+          if (kv.slice(i + 1) !== '') jar.push({ name: kv.slice(0, i), value: kv.slice(i + 1), path });
+        }
+      };
+      return {
+        // Opens url (POSTs form when given) and follows redirects up to stop(url).
+        async go(url, form) {
+          let method = form ? 'POST' : 'GET';
+          let data = form ? N.form(form) : undefined;
+          for (let hop = 0; hop < 20; hop++) {
+            if (stop(url)) return { stopped: url, html: '' };
+            const u = new URL(url);
+            const r = await N.send({ url, method, data, maxRedirects: 0, validateStatus: () => true, timeout: 20000,
+              headers: Object.assign({ Cookie: cookieHeader(u) }, data ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) });
+            keep(r);
+            if (r.status >= 300 && r.status < 400 && r.headers.location) {
+              url = new URL(r.headers.location, url).toString(); method = 'GET'; data = undefined; continue;
+            }
+            return { status: r.status, url, html: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+          }
+          throw new Error('too many redirects');
+        },
+        // The action of the first <form> whose tag matches re.
+        formAction(html, re) {
+          const m = (html.match(/<form\b[^>]*>/gi) || []).find(t => re.test(t));
+          const a = m && /action="([^"]+)"/.exec(m);
+          return a ? decode(a[1]) : null;
+        },
+        // The href of the first <a> whose tag matches re.
+        link(html, re) {
+          const m = (html.match(/<a\b[^>]*>/gi) || []).find(t => re.test(t));
+          const a = m && /href="([^"]+)"/.exec(m);
+          return a ? decode(a[1]) : null;
+        },
+      };
+    },
     // Polling: repeat this request (Runner and CLI) until done() holds or the
     // poll limit passes, then run final() once.
     poll(name, done, final, sinceVar = 'change_at') {
@@ -3442,13 +3491,22 @@ def s28():
             {"key": "done", "type": "end"},
         ],
     }
+    # The local stack's stand-in company login (realm standin-company): its
+    # browser-facing address and its in-container back-channel address are the two
+    # hosts NAVA_ONBOARD_DEV_IDP_HOSTS allows in compose.yaml (TICK-967).
+    standin_idp = {"display_name": "Stand-in company login", "config": {
+        "clientId": "nava-broker", "clientSecret": "dev-only-broker-secret", "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18081/realms/standin-company/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/token",
+        "jwksUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/certs",
+        "useJwksUrl": "true", "defaultScope": "openid email profile"}}
     fresh = """
 // One run id per pass: a new domain, so a new tenant, every time.
 const run = Math.random().toString(16).slice(2, 10);
 bru.setVar('s28_run', run);
 bru.setVar('s28_domain', `s28-${run}.test`);
 bru.setVar('s28_admin_email', `admin@s28-${run}.test`);
-// The stand-in IdP user's password: dev-only, made up per run, never stored.
+// The password the admin chooses at the stand-in company login: dev-only, made up per run, never stored.
 bru.setVar('s28_admin_password', `dev-only-s28-${run}`);"""
     # Polls GET /me as the new admin until group sync has placed them in
     # /admins, or s28_place_limit_s passes (default 360 s: one default 5 min
@@ -3457,10 +3515,12 @@ bru.setVar('s28_admin_password', `dev-only-s28-${run}`);"""
 const limit = Number(N.v('s28_place_limit_s') || 360) * 1000;
 const t0 = Date.now();
 for (;;) {
-  // A token lives 5 min, shorter than one default cycle: sign in again each round.
+  // A token lives 5 min, shorter than one default cycle: renew it each round with the refresh token.
   // Each call is bounded (15 s); a timeout counts as "not yet", the loop's own bound decides.
-  const t = await N.token(N.v('s28_admin_email'), N.v('s28_admin_password'), { timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
-  if (t.status === 200) bru.setVar('s28_admin_token', t.data.access_token);
+  const t = await N.send({ url: N.url('{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token'), method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    data: N.form({ grant_type: 'refresh_token', client_id: 'nava-web', refresh_token: bru.getVar('s28_admin_refresh') }), timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+  if (t.status === 200) { bru.setVar('s28_admin_token', t.data.access_token); bru.setVar('s28_admin_refresh', t.data.refresh_token); }
   const r = await N.send({ url: N.url('{{core_url}}/api/v1/me'), method: 'GET', headers: """ + admin_hdr + """, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
   const paths = r.status === 200 ? (r.data.group_paths || []).map(g => g.path) : [];
   if (paths.includes('/admins') || Date.now() - t0 > limit) break;
@@ -3478,24 +3538,18 @@ for (;;) {
   await bru.sleep(1000);
 }
 bru.setVar('s28_routed_after_s', String(Math.round((Date.now() - t0) / 1000)));"""
-    org_pre = """
-const o = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/organizations?search=t-{{s28_tenant}}&exact=true'),
-  method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
-const org = (o.data || []).find(x => x.alias === 't-' + bru.getVar('s28_tenant'));
-if (!org) throw new Error('S28.5: no organization t-' + bru.getVar('s28_tenant') + ' (HTTP ' + o.status + ')');
-bru.setVar('s28_org', org.id);"""
     return {
         "dir": "S28", "name": "S28 first routed record (M-X1a)",
         "desc": ("Story S28, TICK-879; kit P9-05 (TICK-884), ADR-008 X1a / M-X1a. A tenant onboarded in this run (not a seeded one): its first admin publishes a type from the handbook example `docs/handbook/examples/incident.json`, publishes a workflow written from the handbook's example (tour step 8), creates an incident and waits for the workflow to route it. "
                  "The clock starts at S28.2's 201 and stops at the `source: workflow` history entry (S28.13), which logs the total. "
                  "Needs the stack and `tools/tunnels.sh up` (nava-onboard publishes no port); no `tools/seed.sh`. "
-                 "S28.3 to S28.5 are a **local-stack stand-in for the customer's company login** and use the Keycloak master admin (a platform-staff action): the stack has no customer IdP, so the brokered first login that creates the admin's user is replayed through the admin API. A timed run counts them as `needed help` (finding F1 of `docs/quality/x1a-first-routed-record.md`). "
+                 "S28.3 to S28.6 sign the admin in through the local stack's **stand-in company login** (realm `standin-company`, dev only): the admin creates their own user there with the invited email and a password they choose, and the first brokered login creates the platform user. No master-realm credential and no platform-staff help is used (finding F1 of `docs/quality/x1a-first-routed-record.md`, fixed by TICK-967). "
                  "S28.7 waits for one group-sync cycle (up to `s28_place_limit_s`, default 360 s; set `NAVA_GROUPSYNC_INTERVAL=15s` for seconds). S28.12 waits up to 300 s after the create for the route (the workflow waits one minute). Runs again on the same stack: every pass onboards a new tenant."),
         "items": [
             token("S28.1 Sign in as the operator", "operator_username", "operator_password", "s28_operator_token",
                   client="nava-operator-cli"),
             req("S28.2 Onboard a new tenant: 201 (the clock starts)", "POST", "{{onboard_url}}/api/v1/operator/tenants",
-                auth="s28_operator_token", pre=fresh, headers=key("onboard"), body=onboard_body("s28_domain"),
+                auth="s28_operator_token", pre=fresh, headers=key("onboard"), body=onboard_body("s28_domain", idp=standin_idp),
                 desc="Tour step 1. A new domain each pass, so a new tenant. The clock of M-X1a starts when this call returns.",
                 tests="""N.status(201);
 const b = N.json();
@@ -3506,30 +3560,61 @@ test('tenant_id is a uuid, state active', () => {
 bru.setVar('s28_tenant', b.tenant_id);
 bru.setVar('s28_t0', String(Date.now()));
 console.log('S28.2 clock start', new Date().toISOString(), 'tenant', b.tenant_id);"""),
-            kc_admin("S28.3 Stand-in for the company login: create the admin's user: 201", "POST", "/users",
-                     desc="Local stack only, platform staff (F1). What the tenant's company login does at the admin's first sign-in (`nava-first-broker-login`): a user with the invited email, the IdP's `email_verified` copied to `nava_idp_email_verified`, and (for the password grant in S28.6) a dev-only password made up for this run.",
-                     body={"username": "{{s28_admin_email}}", "email": "{{s28_admin_email}}", "emailVerified": True,
-                           "enabled": True, "firstName": "First", "lastName": "Admin",
-                           "attributes": {"nava_idp_email_verified": ["true"]},
-                           "credentials": [{"type": "password", "value": "{{s28_admin_password}}", "temporary": False}]},
-                     tests="""N.status(201);
-const loc = N.header('Location') || '';
-test('Location names the new user', () => expect(loc).to.match(/\\/users\\/[0-9a-f-]{36}$/));
-bru.setVar('s28_user', loc.split('/').pop());"""),
-            kc_admin("S28.4 Stand-in: link the user to the tenant's IdP: 204", "POST",
-                     "/users/{{s28_user}}/federated-identity/idp-{{s28_tenant}}",
-                     desc="Local stack only, platform staff (F1). The federated link the brokered login would create, to the IdP onboarding bound to the tenant (`idp-<tenant_id>`). Group sync places only a user whose every link is a bound IdP.",
-                     body={"identityProvider": "idp-{{s28_tenant}}", "userId": "s28-{{s28_run}}", "userName": "{{s28_admin_email}}"},
-                     tests="N.status(204);"),
-            kc_admin("S28.5 Stand-in: add the user to the tenant's organization: 201", "POST",
-                     "/organizations/{{s28_org}}/members", pre_extra=org_pre,
-                     desc="Local stack only, platform staff (F1). The first-login flow adds the new user to the tenant's organization (`t-<tenant_id>`), which puts the `organization` claim in their token.",
-                     body='"{{s28_user}}"', tests="N.status(201);"),
-            token("S28.6 The new admin signs in", "s28_admin_email", "s28_admin_password", "s28_admin_token",
-                  extra="""test('the token names exactly the organization of the new tenant', () => {
-  const orgs = c.organization || {};
-  expect(Object.keys(orgs)).to.eql(['t-' + bru.getVar('s28_tenant')]);
-  expect(orgs['t-' + bru.getVar('s28_tenant')].id).to.eql(bru.getVar('s28_org'));
+            req("S28.3 The admin registers at the company login and signs in through it: 200", "POST",
+                "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token",
+                desc="Tour step 2, first sign-in on the local stack. The admin opens the platform's sign-in with the tenant's IdP (`kc_idp_hint=idp-<tenant_id>`), is sent to the stand-in company login (realm `standin-company`), creates their own user there with the invited email and a password they choose, and is sent back: Keycloak creates the platform user at the first brokered login (`nava-first-broker-login`) and adds it to the tenant's organization. The request script walks those redirects as a browser would; the request itself trades the resulting code for tokens. No master-realm credential is used.",
+                form=[("grant_type", "authorization_code"), ("client_id", "nava-web"), ("code", "{{s28_code}}"),
+                      ("redirect_uri", "http://localhost:3000/cb")],
+                pre=LOAD_PRE + r"""
+const cb = 'http://localhost:3000/cb';
+const B = N.browser((u) => u.startsWith(cb));
+const email = N.v('s28_admin_email'), pw = N.v('s28_admin_password');
+const auth = N.url('{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/auth') + '?' + N.form({
+  client_id: 'nava-web', redirect_uri: cb, response_type: 'code', scope: 'openid', kc_idp_hint: 'idp-' + bru.getVar('s28_tenant') });
+const login = await B.go(auth);
+const reg = B.link(login.html, /registration/);
+if (!reg) throw new Error('S28.3: the stand-in login page has no registration link (HTTP ' + login.status + ')');
+const form = await B.go(new URL(reg, login.url).toString());
+const action = B.formAction(form.html, /register/i);
+if (!action) throw new Error('S28.3: no registration form at the stand-in (HTTP ' + form.status + ')');
+const done = await B.go(new URL(action, form.url).toString(), {
+  email, firstName: 'First', lastName: 'Admin', password: pw, 'password-confirm': pw });
+if (!done.stopped) throw new Error('S28.3: registration did not lead back to the platform (HTTP ' + done.status + ')');
+const code = new URL(done.stopped).searchParams.get('code');
+if (!code) throw new Error('S28.3: the platform sign-in returned no code');
+bru.setVar('s28_code', code);""",
+                tests="""test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+const tok = N.json();
+test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+bru.setVar('s28_admin_token', tok.access_token);
+bru.setVar('s28_admin_refresh', tok.refresh_token);
+const c = N.jwt(tok.access_token);
+test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+test('the token names exactly the organization of the new tenant', () => {
+  expect(Object.keys(c.organization || {})).to.eql(['t-' + bru.getVar('s28_tenant')]);
+});"""),
+            req("S28.4 The admin signs in at the company login again with the password they chose: 200", "POST",
+                "{{keycloak_url}}/realms/standin-company/protocol/openid-connect/token",
+                desc="Shows the company login user exists because the admin created it: it takes the admin's own email and password, and nobody else's credential was needed.",
+                form=[("grant_type", "password"), ("client_id", "nava-broker"), ("client_secret", "dev-only-broker-secret"),
+                      ("scope", "openid"), ("username", "{{s28_admin_email}}"), ("password", "{{s28_admin_password}}")],
+                tests="""N.status(200);
+test('the company login issued a token for the admin', () => expect(N.json().access_token).to.be.a('string'));"""),
+            req("S28.5 The platform user came from the first brokered login: userinfo", "GET",
+                "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/userinfo", auth="s28_admin_token",
+                desc="The platform user carries the invited email. It was created by `nava-first-broker-login`, not by an admin call.",
+                tests="""N.status(200);
+test('email is the invited one', () => expect(N.json().email).to.eql(bru.getVar('s28_admin_email')));"""),
+            req("S28.6 The admin's token is renewed without a password: 200", "POST",
+                "{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token",
+                desc="The refresh token from S28.3 gives a new access token. The brokered user has no platform password, so this is how the kit keeps the admin signed in.",
+                form=[("grant_type", "refresh_token"), ("client_id", "nava-web"), ("refresh_token", "{{s28_admin_refresh}}")],
+                tests="""N.status(200);
+const t = N.json();
+bru.setVar('s28_admin_token', t.access_token);
+bru.setVar('s28_admin_refresh', t.refresh_token);
+test('the renewed token still names exactly the new tenant', () => {
+  expect(Object.keys(N.jwt(t.access_token).organization || {})).to.eql(['t-' + bru.getVar('s28_tenant')]);
 });"""),
             req("S28.7 After one group-sync cycle the admin is in /admins", "GET", core + "/me", auth="s28_admin_token",
                 pre=wait_placed,

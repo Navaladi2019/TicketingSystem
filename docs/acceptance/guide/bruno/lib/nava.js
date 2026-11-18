@@ -122,6 +122,55 @@ module.exports = ({ test, expect, res, bru } = {}) => {
       if (r.status !== 200) throw new Error('Keycloak admin token failed: HTTP ' + r.status);
       bru.setVar('kc_admin_token', r.data.access_token);
     },
+    // A browser-less sign-in through a company login (S28): follows redirects
+    // by hand with a small cookie jar, so no master-realm credential is used.
+    // stop(url) says where the walk ends (the sign-in's redirect_uri).
+    browser(stop) {
+      const jar = [];
+      const decode = (x) => x.replace(/&amp;/g, '&').replace(/&#61;/g, '=').replace(/&quot;/g, '"');
+      const cookieHeader = (u) => jar.filter(c => u.pathname.startsWith(c.path)).map(c => c.name + '=' + c.value).join('; ');
+      const keep = (r) => {
+        for (const sc of [].concat(r.headers['set-cookie'] || [])) {
+          const [kv, ...attrs] = sc.split(';').map(x => x.trim());
+          const i = kv.indexOf('=');
+          const path = ((attrs.find(a => /^path=/i.test(a)) || 'path=/').split('=')[1]) || '/';
+          const k = jar.findIndex(c => c.name === kv.slice(0, i) && c.path === path);
+          if (k >= 0) jar.splice(k, 1);
+          if (kv.slice(i + 1) !== '') jar.push({ name: kv.slice(0, i), value: kv.slice(i + 1), path });
+        }
+      };
+      return {
+        // Opens url (POSTs form when given) and follows redirects up to stop(url).
+        async go(url, form) {
+          let method = form ? 'POST' : 'GET';
+          let data = form ? N.form(form) : undefined;
+          for (let hop = 0; hop < 20; hop++) {
+            if (stop(url)) return { stopped: url, html: '' };
+            const u = new URL(url);
+            const r = await N.send({ url, method, data, maxRedirects: 0, validateStatus: () => true, timeout: 20000,
+              headers: Object.assign({ Cookie: cookieHeader(u) }, data ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) });
+            keep(r);
+            if (r.status >= 300 && r.status < 400 && r.headers.location) {
+              url = new URL(r.headers.location, url).toString(); method = 'GET'; data = undefined; continue;
+            }
+            return { status: r.status, url, html: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+          }
+          throw new Error('too many redirects');
+        },
+        // The action of the first <form> whose tag matches re.
+        formAction(html, re) {
+          const m = (html.match(/<form\b[^>]*>/gi) || []).find(t => re.test(t));
+          const a = m && /action="([^"]+)"/.exec(m);
+          return a ? decode(a[1]) : null;
+        },
+        // The href of the first <a> whose tag matches re.
+        link(html, re) {
+          const m = (html.match(/<a\b[^>]*>/gi) || []).find(t => re.test(t));
+          const a = m && /href="([^"]+)"/.exec(m);
+          return a ? decode(a[1]) : null;
+        },
+      };
+    },
     // Polling: repeat this request (Runner and CLI) until done() holds or the
     // poll limit passes, then run final() once.
     poll(name, done, final, sinceVar = 'change_at') {

@@ -45,7 +45,7 @@ const (
 // buildSpec validates the request and returns the spec to create. It pins
 // validateSignature=true and syncMode=IMPORT whatever the request says. The
 // returned string is the JSON pointer of the first failing field.
-func buildSpec(ctx context.Context, res Resolver, in IdPRequest) (keycloak.IdPSpec, string) {
+func buildSpec(ctx context.Context, res Resolver, devHosts []string, in IdPRequest) (keycloak.IdPSpec, string) {
 	if in.ProviderID != "oidc" && in.ProviderID != "saml" {
 		return keycloak.IdPSpec{}, "/identity_provider/provider_id"
 	}
@@ -66,7 +66,9 @@ func buildSpec(ctx context.Context, res Resolver, in IdPRequest) (keycloak.IdPSp
 		if len(v) > maxConfigValue {
 			return keycloak.IdPSpec{}, "/identity_provider/config"
 		}
-		if urlKeys[k] {
+		// The default-off dev allowance: only an exact listed host skips the
+		// public-https check; every other URL still goes through it.
+		if urlKeys[k] && !keycloak.DevIdPHostAllowed(v, devHosts) {
 			if err := checkPublicHTTPS(ctx, res, v); err != nil {
 				return keycloak.IdPSpec{}, "/identity_provider/config"
 			}
