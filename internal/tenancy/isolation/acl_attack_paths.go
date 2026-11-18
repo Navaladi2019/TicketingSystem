@@ -156,6 +156,15 @@ func s10Setup(ctx context.Context, e *etIso) (*s10Fixture, error) {
 	if err := s10Publish(ctx, e, s10Rules()); err != nil {
 		return nil, err
 	}
+	// A list filters a data field only when the registry flags it (ADR-006
+	// D6, P7-06): cost and note are ready before any record, so the trigger
+	// indexes every write below.
+	if _, err := e.super.Exec(ctx, `INSERT INTO record_index_fields (tenant_id, id, entity_definition_id, field_key, value_type, state, progress, requested_version)
+		SELECT d.tenant_id, gen_random_uuid(), d.id, v.k, v.t, 'ready', 100, 1
+		FROM entity_definitions d, (VALUES ('cost', 'num'), ('note', 'text')) v(k, t)
+		WHERE d.tenant_id = $1 AND d.key = $2`, TenantA, s10Key); err != nil {
+		return nil, fmt.Errorf("control: flagging cost and note: %w", err)
+	}
 	if code, body := e.do(ctx, http.MethodPost, "/api/v1/entity-types", etCallerBAdmin, s10TypeBody("ISY"), nil); code != http.StatusCreated {
 		return nil, fmt.Errorf("control: tenant B creating its own %s = %d %s, want 201", s10Key, code, body)
 	}
@@ -225,6 +234,12 @@ func s10Cleanup(ctx context.Context, e *etIso) error {
 		`SET LOCAL session_replication_role = replica`,
 		`DELETE FROM record_shares s USING records r, entity_definitions d
 			WHERE r.tenant_id = s.tenant_id AND r.id = s.record_id AND d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id AND d.key LIKE 'iso\_et\_%'`,
+		`DELETE FROM rfv_text v USING record_index_fields f, entity_definitions d
+			WHERE f.tenant_id = v.tenant_id AND f.id = v.field_id AND d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key LIKE 'iso\_et\_%'`,
+		`DELETE FROM rfv_num v USING record_index_fields f, entity_definitions d
+			WHERE f.tenant_id = v.tenant_id AND f.id = v.field_id AND d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key LIKE 'iso\_et\_%'`,
+		`DELETE FROM record_index_fields f USING entity_definitions d
+			WHERE d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key LIKE 'iso\_et\_%'`,
 		`DELETE FROM principals WHERE keycloak_user_id = '` + s10Forged + `'`,
 		`DELETE FROM groups WHERE keycloak_group_id = '` + s10Forged + `'`,
 	} {

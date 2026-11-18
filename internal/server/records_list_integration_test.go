@@ -173,6 +173,7 @@ func TestListRecordsUnderTheACL(t *testing.T) {
 // nor total, whatever the paging and the filter.
 func TestListRecordsHidesUnreadableFromPageAndTotal(t *testing.T) {
 	e := newRecEnv(t)
+	e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
 	secret := e.mustCreateRec(t, "admin-a", "ticket", "u1", `{"short_description": "private"}`)
 	mine := e.mustCreateRec(t, "admin-a", "ticket", "u2", fmt.Sprintf(`{"short_description": "mine", "requester": %q}`, e.a.user.PrincipalID))
 	e.publishACL(t, e.a.id, "ticket",
@@ -225,7 +226,7 @@ func TestListRecordsErrors(t *testing.T) {
 	for _, q := range []string{"filter[cost]=1", "sort=assignee", "filter[triage][in]=a,b"} {
 		m.mustList(t, "lookalike-a", "job", q)
 	}
-	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][gt]=1", "filter[assignee]=x", "filter[token]=x"} {
+	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][like]=1", "filter[triage][gt]=a", "filter[assignee]=x", "filter[token]=x"} {
 		rec, _ := m.list(t, "lookalike-a", "job", q)
 		listCode(t, rec, http.StatusBadRequest, "validation_failed")
 	}
@@ -573,6 +574,7 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 	e.serviceDeskACL(t, "ticket")
 	user := e.a.user.PrincipalID
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: e.pool}, pipeline.SystemClock{})
+	e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
 	const rows = totalCap + 5
 	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
 		for i := range rows {
@@ -606,17 +608,18 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 
 // covers: listRecords 422
 //
-// TICK-647: a data-filter list runs under a statement timeout. A superuser
+// TICK-647: a legacy-scan list (a seed type's unflagged allow-listed field,
+// PLAN-007 D-7-6) runs under a statement timeout. A superuser
 // connection holds ACCESS EXCLUSIVE on records, so the list blocks until the
 // timeout (a lock wait counts) and answers 422 filter_too_expensive. A list
 // without a data filter is not bound by it, and the pool serves the next
 // request once the lock is released.
 func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	e := newETEnvWith(t)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
+	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", incidentTypeBody()); rec.Code != http.StatusCreated {
 		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
 	}
-	e.mustCreateRec(t, "admin-a", "ticket", "k1", `{"short_description": "x"}`)
+	e.mustCreateRec(t, "admin-a", "incident", "k1", `{"short_description": "x", "priority": 1}`)
 	// One connection: the setting the timed-out request leaves on it shows below.
 	e.onOneConn(t, server.WithDataFilterTimeout(300*time.Millisecond))
 	baseline := e.showStatementTimeout(t)
@@ -635,7 +638,7 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	rec, _ := e.list(t, "admin-a", "ticket", "filter[short_description]=x")
+	rec, _ := e.list(t, "admin-a", "incident", "filter[priority]=1")
 	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("timed-out list took %s, want about the 300 ms timeout", d)
@@ -652,7 +655,7 @@ func TestListDataFilterTimeoutAnswers422(t *testing.T) {
 	}
 	released = true
 
-	p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=x")
+	p := e.mustList(t, "admin-a", "incident", "filter[priority]=1")
 	if p.Total != 1 {
 		t.Errorf("list after the timeout: total %d, want 1", p.Total)
 	}
@@ -733,4 +736,12 @@ func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 	if got := e.logs.String(); !strings.Contains(got, "57014") {
 		t.Errorf("error logs do not show the 57014 cancel: %s", got)
 	}
+}
+
+// incidentTypeBody is the seed type key incident with an integer priority, the
+// shape of the seed template: priority is on fieldindex.LegacyScanFields, so
+// an unflagged filter on it still takes the JSONB scan and its timeout.
+func incidentTypeBody() string {
+	return strings.Replace(recTypeBody("incident", "INC"), `"requester": {"type": "string", "format": "uuid"}`,
+		`"requester": {"type": "string", "format": "uuid"}, "priority": {"type": "integer"}`, 1)
 }

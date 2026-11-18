@@ -3829,7 +3829,24 @@ func (response ListRecords404ApplicationProblemPlusJSONResponse) VisitListRecord
 	return err
 }
 
-type ListRecords422ApplicationProblemPlusJSONResponse Problem
+type ListRecords422ApplicationProblemPlusJSONResponse struct {
+	Code string `json:"code"`
+
+	// Detail Fixed text per code; never carries request input.
+	Detail string `json:"detail"`
+
+	// Errors Present on validation_failed. Never carries request input.
+	Errors        *[]FieldError `json:"errors,omitempty"`
+	IndexProgress *int          `json:"index_progress,omitempty"`
+
+	// Instance `urn:nava:request:<request id>`, the X-Request-Id of the response.
+	Instance string `json:"instance"`
+	Status   int    `json:"status"`
+	Title    string `json:"title"`
+
+	// Type A URN naming the problem type, `urn:nava:problem:<code>`.
+	Type string `json:"type"`
+}
 
 func (response ListRecords422ApplicationProblemPlusJSONResponse) VisitListRecordsResponse(w http.ResponseWriter) error {
 

@@ -1510,10 +1510,10 @@ N.noLeak('s10-internal-' + bru.getVar('s10_run'));"""),
             auth="alice_token", headers={**key("alice-prio"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 1}},
             desc="`default-service-desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.",
             tests="N.status(200);\ntest('version 2, no description', () => {\n  expect(N.json().version).to.eql(2);\n  expect(N.json().data).to.not.have.property('description');\n});"),
-        req("S10.60 C4: the admin filters on description: 200, the one incident, description unchanged", "GET",
+        req("S10.60 C4: the admin filters on description: not masked, 400 field_not_filterable (description is not flagged)", "GET",
             inc + "?filter[description]=s10-internal-{{s10_run}}", auth="admin_a_token",
-            tests="N.status(200);\n" + ids + """test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
-test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));"""),
+            desc="The mask admits the admin, so the answer is the registry's, not `masked_field` (S10.56 is Alice's). Since ADR-006 D6 a data filter needs the field flagged `x-nava-filterable`, and `description` is on neither the flag nor the legacy allow-list (`incident.priority` only). The value is unchanged: S10.55 shows the admin reads it. Flagging it needs the P7-05 backfill to reach `ready`; the kit adds that step when it lands.",
+            tests="N.problem('field_not_filterable', 400);\nN.fieldError('/filter/description');"),
         # ---- criterion 5: the explainer
         req("S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, masked fields listed", "GET",
             ex("s10_sd_rec", "s10_alice"), auth="admin_a_token",

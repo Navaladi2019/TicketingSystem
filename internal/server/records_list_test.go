@@ -71,16 +71,13 @@ func TestPlanListValidation(t *testing.T) {
 		"unknown filter field":        {q: "filter[nope]=1"},
 		"secret field":                {q: "filter[token]=x"},
 		"nested path":                 {q: "filter[a.b]=1"},
-		"unknown operator":            {q: "filter[cost][gt]=1"},
+		"unknown operator":            {q: "filter[cost][like]=1"},
+		"range on a fixed column":     {q: "filter[state][gt]=a"},
+		"range on a group":            {q: "filter[group][lt]=" + "x"},
 		"bare filter":                 {q: "filter=1"},
 		"repeated value":              {q: "filter[cost]=1&filter[cost]=2"},
 		"non-uuid group":              {q: "filter[group]=x"},
-		"integer given text":          {q: "filter[count]=1.5"},
-		"number given hex":            {q: "filter[cost]=0x10"},
-		"boolean given yes":           {q: "filter[urgent]=yes"},
-		"array property":              {q: "filter[tags]=a"},
 		"empty state":                 {q: "filter[state]="},
-		"in with one bad value":       {q: "filter[count][in]=1,x"},
 		"in with too many values":     {q: "filter[short_description][in]=" + strings.Repeat("a,", maxInValues) + "a"},
 		"sort on a data property":     {sort: "cost"},
 		"sort on an unknown property": {sort: "-nope"},
@@ -99,19 +96,19 @@ func TestPlanListValidation(t *testing.T) {
 func TestPlanListAccepts(t *testing.T) {
 	t.Parallel()
 	def := listTestDef(t)
-	pl, perr := planList(def, qs(t, "filter[state]=new&filter[count][in]=1,2&filter[urgent]=true&filter[cost]=1.50&filter[group]="+uuid.NewString()), strp("-state"), nil)
+	pl, perr := planList(def, qs(t, "filter[state]=new&filter[state][in]=a,b&filter[group]="+uuid.NewString()), strp("-state"), nil)
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if pl.sortProp != "state" || pl.sortCol != metadata.ColumnState || !pl.desc || pl.limit != defaultRecordsLimit || len(pl.filters) != 5 {
+	if pl.sortProp != "state" || pl.sortCol != metadata.ColumnState || !pl.desc || pl.limit != defaultRecordsLimit || len(pl.filters) != 3 {
 		t.Fatalf("plan = %+v", pl)
 	}
 	sql, args := pl.where(4)
 	if want := "$5::"; !strings.Contains(sql, want) || strings.Contains(sql, "$4") {
 		t.Errorf("placeholders must start after the base: %s", sql)
 	}
-	if len(args) != 6 {
-		t.Errorf("args = %d, want 6 (cost, count x2, group, state, urgent)", len(args))
+	if len(args) != 3 {
+		t.Errorf("args = %d, want 3 (group, state, state in)", len(args))
 	}
 	// The default sort is -updated_at.
 	pl, _ = planList(def, qs(t, ""), nil, nil)
@@ -119,9 +116,14 @@ func TestPlanListAccepts(t *testing.T) {
 		t.Fatalf("default plan = %+v", pl)
 	}
 	// A value is data, never SQL.
-	pl, _ = planList(def, qs(t, "filter[short_description]="+url.QueryEscape("x' OR 1=1 --")), nil, nil)
+	pl, _ = planList(def, qs(t, "filter[state]="+url.QueryEscape("x' OR 1=1 --")), nil, nil)
 	if sql, _ := pl.where(0); strings.Contains(sql, "OR 1=1") {
 		t.Errorf("filter value reached the SQL text: %s", sql)
+	}
+	// A data filter is parsed after the registry check, not by planList.
+	pl, perr = planList(def, qs(t, "filter[cost][gte]=1&filter[count][in]=1,x"), nil, nil)
+	if perr != nil || len(pl.filters) != 2 || pl.filters[0].op != "gte" || len(pl.filters[1].raws) != 2 {
+		t.Fatalf("data filters = %+v, %v", pl.filters, perr)
 	}
 }
 

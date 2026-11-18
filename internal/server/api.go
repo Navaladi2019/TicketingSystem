@@ -97,6 +97,12 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			metric.WithUnit("{request}")); err != nil {
 			return nil, err
 		}
+		if h.listIndexed, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Float64Histogram(
+			"nava.records.list.indexed.duration",
+			metric.WithDescription("Duration of record lists that filter on a field-index field, by selectivity band of the matched rows and by whether the row ACL narrows the list (ADR-006 D13, R-a). No tenant label."),
+			metric.WithUnit("s")); err != nil {
+			return nil, err
+		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
 		allocMetrics, err := pipeline.NewAllocMetrics(tel.MeterProvider)
 		if err != nil {
@@ -222,6 +228,9 @@ type handlers struct {
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
+	// listIndexed times a list that filters through the field index (ADR-006
+	// D13, R-a); nil records nothing.
+	listIndexed metric.Float64Histogram
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -263,6 +272,11 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		var pe *problemError
+		var nr *notReadyError
+		if errors.As(err, &nr) {
+			h.reg.WriteNotReady(w, r, nr.progress)
+			return
+		}
 		if errors.As(err, &pe) {
 			// The 4xx codes that name fields. Each is a constant, so the
 			// registry guard sees a client error; any other code, fields or
@@ -319,6 +333,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.SearchableNotAvailable:
 					h.reg.Write(w, r, problem.SearchableNotAvailable, pe.fields...)
+					return
+				case problem.FieldNotFilterable:
+					h.reg.Write(w, r, problem.FieldNotFilterable, pe.fields...)
 					return
 				case problem.FilterableFieldRemovalUnavailable:
 					h.reg.Write(w, r, problem.FilterableFieldRemovalUnavailable, pe.fields...)
