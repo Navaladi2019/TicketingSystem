@@ -81,7 +81,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -212,9 +212,12 @@ type handlers struct {
 	pool              *pgxpool.Pool
 	cursors           *cursor.Keyring
 	dataFilterTimeout time.Duration
-	store             entitytypes.Store
-	nfStore           numberformats.Store
-	tsStore           tenantsettings.Store
+	// listDataTerm replaces the list's data-filter term; nil in every
+	// production build (see listPlan.dataTerm).
+	listDataTerm func(arg string) string
+	store        entitytypes.Store
+	nfStore      numberformats.Store
+	tsStore      tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
 	// typePublishCheck is the right to publish one entity type's definition;
