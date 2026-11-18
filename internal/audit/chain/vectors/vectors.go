@@ -208,9 +208,6 @@ type chainInput struct {
 	erasureRef *string
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func mustUUID(s string) uuid.UUID { return uuid.MustParse(s) }
 
 func mustTime(s string) time.Time {
@@ -258,7 +255,7 @@ func chainInputs() []chainInput {
 				TenantID: tenant, ID: mustUUID("0190f3a0-0000-7000-8000-000000000101"),
 				OccurredAt: mustTime("2026-11-02T10:00:00.000000Z"),
 				Domain:     "config", Action: "create", SubjectType: "entity_definition", SubjectID: defID,
-				VersionAfter: ptr[int64](1), ActorPrincipalID: &principal, Source: "user",
+				VersionAfter: new(int64(1)), ActorPrincipalID: &principal, Source: "user",
 				ContentSHA256: &content,
 			},
 			diff: &diffCreate, salt: salt,
@@ -269,7 +266,7 @@ func chainInputs() []chainInput {
 				TenantID: tenant, ID: mustUUID("0190f3a0-0000-7000-8000-000000000102"),
 				OccurredAt: mustTime("2026-11-02T10:00:01.123456Z"),
 				Domain:     "record", Action: "update", SubjectType: "record", SubjectID: record,
-				EntityDefinitionID: &defID, VersionBefore: ptr[int64](1), VersionAfter: ptr[int64](2),
+				EntityDefinitionID: &defID, VersionBefore: new(int64(1)), VersionAfter: new(int64(2)),
 				ActorPrincipalID: &principal, Source: "ai",
 				SourceRef:      new("0190f3a0-0000-7000-8000-0000000000c1"),
 				ChangeSetID:    new(mustUUID("0190f3a0-0000-7000-8000-0000000000c2")),
@@ -285,7 +282,7 @@ func chainInputs() []chainInput {
 				TenantID: tenant, ID: mustUUID("0190f3a0-0000-7000-8000-000000000103"),
 				OccurredAt: mustTime("2026-11-02T10:00:02.000001Z"),
 				Domain:     "record", Action: "state_change", SubjectType: "record", SubjectID: record,
-				VersionBefore: ptr[int64](2), VersionAfter: ptr[int64](3),
+				VersionBefore: new(int64(2)), VersionAfter: new(int64(3)),
 				ActorSystem: new("workflow"), Source: "workflow",
 				// Quote, backslash, the short escapes, a bare control character,
 				// DEL, non-ASCII, an astral code point, U+2028 and HTML
@@ -300,7 +297,7 @@ func chainInputs() []chainInput {
 				OccurredAt: mustTime("1999-12-31T23:59:59.999999Z"),
 				Domain:     "config", Action: "publish", SubjectType: "entity_definition", SubjectID: defID,
 				// integer column bounds
-				VersionBefore: ptr[int64](2147483646), VersionAfter: ptr[int64](2147483647),
+				VersionBefore: new(int64(2147483646)), VersionAfter: new(int64(2147483647)),
 				ActorSystem: new("onboarding"), Source: "system", CausationDepth: 32767,
 				Backfilled: true, ContentSHA256: &content,
 			},
@@ -311,7 +308,7 @@ func chainInputs() []chainInput {
 				TenantID: tenant, ID: mustUUID("0190f3a0-0000-7000-8000-000000000105"),
 				OccurredAt: mustTime("2026-11-02T10:00:04.500000Z"),
 				Domain:     "record", Action: "update", SubjectType: "record", SubjectID: record,
-				EntityDefinitionID: &defID, VersionBefore: ptr[int64](3), VersionAfter: ptr[int64](4),
+				EntityDefinitionID: &defID, VersionBefore: new(int64(3)), VersionAfter: new(int64(4)),
 				ActorPrincipalID: &principal, Source: "user", DiffTruncated: true,
 			},
 			diff: &diffTruncated, salt: salt,
@@ -325,7 +322,7 @@ func chainInputs() []chainInput {
 				TenantID: tenant, ID: mustUUID(erasedEntryID),
 				OccurredAt: mustTime("2026-11-02T10:00:05.000000Z"),
 				Domain:     "record", Action: "update", SubjectType: "record", SubjectID: record,
-				EntityDefinitionID: &defID, VersionBefore: ptr[int64](4), VersionAfter: ptr[int64](5),
+				EntityDefinitionID: &defID, VersionBefore: new(int64(4)), VersionAfter: new(int64(5)),
 				ActorPrincipalID: &principal, Source: "user",
 			},
 			diff: &diffErased, salt: salt,

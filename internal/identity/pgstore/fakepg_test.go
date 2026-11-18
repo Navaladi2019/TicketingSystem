@@ -29,9 +29,6 @@ type result struct {
 	err  string      // non-empty: an ERROR response
 }
 
-//go:fix inline
-func s(v string) *string { return new(v) }
-
 // fakePG is a PostgreSQL wire-protocol server (simple query protocol) whose
 // answers a test scripts per statement. It lets the tests drive pgstore's
 // defensive branches (rows the schema forbids, such as a nil tenant or two

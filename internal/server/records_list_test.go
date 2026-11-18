@@ -54,9 +54,6 @@ func qs(t *testing.T, raw string) url.Values {
 	return v
 }
 
-//go:fix inline
-func strp(s string) *string { return new(s) }
-
 func wantProblemCode(t *testing.T, err error, code problem.Code) {
 	t.Helper()
 	var pe *problemError

@@ -86,9 +86,6 @@ func newFakeLogWith(t *testing.T, n int, edit func(*read.Entry)) *fakeLog {
 func padHex(i int) string { return strings.Repeat("0", 12-len(itoa(i))) + itoa(i) }
 func itoa(i int) string   { b, _ := json.Marshal(i); return string(b) }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func envOf(r read.ExportRow) chain.Envelope {
 	e := r.Entry
 	h := func(b []byte) *[32]byte {

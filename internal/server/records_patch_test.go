@@ -19,9 +19,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func TestIfMatchVersions(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {

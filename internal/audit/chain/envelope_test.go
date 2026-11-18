@@ -18,9 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func baseEnvelope() Envelope {
 	return Envelope{
 		TenantID:    uuid.MustParse("0190f3a0-0000-7000-8000-000000000001"),
@@ -74,8 +71,8 @@ var mutators = map[string]func(*Envelope){
 	"SubjectType":        func(e *Envelope) { e.SubjectType = "entity_definition" },
 	"SubjectID":          func(e *Envelope) { e.SubjectID = uuid.MustParse("0190f3a0-0000-7000-8000-0000000000e2") },
 	"EntityDefinitionID": func(e *Envelope) { e.EntityDefinitionID = new(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000d1")) },
-	"VersionBefore":      func(e *Envelope) { e.VersionBefore = ptr[int64](0) },
-	"VersionAfter":       func(e *Envelope) { e.VersionAfter = ptr[int64](0) },
+	"VersionBefore":      func(e *Envelope) { e.VersionBefore = new(int64(0)) },
+	"VersionAfter":       func(e *Envelope) { e.VersionAfter = new(int64(0)) },
 	"ActorPrincipalID":   func(e *Envelope) { e.ActorPrincipalID = new(uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1")) },
 	"ActorSystem":        func(e *Envelope) { e.ActorSystem = nil },
 	"Source":             func(e *Envelope) { e.Source = "system" },

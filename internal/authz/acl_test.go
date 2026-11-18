@@ -28,9 +28,6 @@ func me() identity.Principal {
 	return identity.Principal{TenantID: tenant(), PrincipalID: caller(), Groups: []uuid.UUID{g1(), g2()}}
 }
 
-//go:fix inline
-func ptr(id uuid.UUID) *uuid.UUID { return new(id) }
-
 func pol(rules ...authz.Rule) *authz.Policy { return &authz.Policy{Version: 1, Rules: rules} }
 
 func rw(id string, who authz.Subject, where ...authz.Cond) authz.Rule {

@@ -136,6 +136,3 @@ func TestErrAtVersionIsTransparent(t *testing.T) {
 		t.Errorf("errors.Is does not reach the cause")
 	}
 }
-
-//go:fix inline
-func ptrTo[T any](v T) *T { return new(v) }

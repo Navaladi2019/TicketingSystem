@@ -51,9 +51,6 @@ func (r fakeRow) Scan(dest ...any) error {
 	return nil
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func testTenant() uuid.UUID    { return uuid.MustParse("0190f3a0-0000-7000-8000-00000000000b") }
 func testPrincipal() uuid.UUID { return uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1") }
 
@@ -62,7 +59,7 @@ func validEntry() Entry {
 	return Entry{
 		Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord,
 		SubjectID:    uuid.MustParse("0190f3a0-0000-7000-8000-0000000000d2"),
-		VersionAfter: ptr[int64](2),
+		VersionAfter: new(int64(2)),
 		Actor:        Actor{PrincipalID: new(testPrincipal())},
 		Source:       SourceUser,
 		Diff:         []byte(`[{"op":"replace","path":"/status","value":"open"}]`),
@@ -100,7 +97,7 @@ func TestAppendInvalidEntryRunsNoSQL(t *testing.T) {
 		"empty source_ref":         func(e *Entry) { e.SourceRef = new("") },
 		"NUL in actor_system":      func(e *Entry) { e.Actor = Actor{System: new("a\x00b")} },
 		"invalid UTF-8 request_id": func(e *Entry) { e.RequestID = new("\xff") },
-		"version past 2^53-1":      func(e *Entry) { e.VersionAfter = ptr[int64](chain.MaxSafeInteger + 1) },
+		"version past 2^53-1":      func(e *Entry) { e.VersionAfter = new(int64(chain.MaxSafeInteger + 1)) },
 		"diff not a patch":         func(e *Entry) { e.Diff = []byte(`{"op":"add"}`) },
 		"empty diff":               func(e *Entry) { e.Diff = []byte{} },
 		"bad secret path":          func(e *Entry) { e.SecretPaths = []patchwalk.Pointer{"no-slash"} },
