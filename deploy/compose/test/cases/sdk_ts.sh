@@ -26,11 +26,11 @@ pass "seeded"
 # index. Publish the flag as tenant A's admin, then mark the index ready here.
 # TODO(TODO-TICK-972-01): nothing on the story branch runs the backfill that moves a field from
 # backfilling to ready until TICK-745 lands; remove this UPDATE then (tracked in TICK-973).
-# Safe now: the field has no values yet, and the index trigger writes side rows for backfilling
-# fields too, so records the tests create afterwards are indexed.
-NAVA_CORE_URL="http://127.0.0.1:${NAVA_CORE_PORT:-18080}" \
-NAVA_KEYCLOAK_URL="http://127.0.0.1:${KEYCLOAK_PORT:-18081}" \
-    sh -c 'cd sdk/ts && node --experimental-strip-types test/integration/flag-fields.ts' || fail "flagging incident.short_description failed"
+# Records created before the flag (by earlier cases) are NOT in the side table: marking the index
+# ready skips their backfill. The tests stay correct because every filter uses this run's own
+# marker and the records are created after the flag, when the index trigger writes side rows for
+# backfilling fields too. Nothing may rely on older rows being indexed.
+NAVA_CORE_URL="http://127.0.0.1:${NAVA_CORE_PORT:-18080}" NAVA_KEYCLOAK_URL="http://127.0.0.1:${KEYCLOAK_PORT:-18081}"     make --no-print-directory sdk-flag-fields || fail "flagging incident.short_description failed"
 n=$(psql_super nava "WITH u AS (UPDATE record_index_fields f SET state = 'ready', progress = 100, updated_at = now() FROM entity_definitions d WHERE f.tenant_id = '$A' AND d.tenant_id = f.tenant_id AND d.id = f.entity_definition_id AND d.key = 'incident' AND f.field_key = 'short_description' AND f.state = 'backfilling' RETURNING 1) SELECT count(*) FROM u" | tr -d '\r ')
 case $n in 0|1) ;; *) fail "marking incident.short_description ready changed $n rows, want at most 1" ;; esac
 pass "incident.short_description is flagged filterable and its index is ready"
