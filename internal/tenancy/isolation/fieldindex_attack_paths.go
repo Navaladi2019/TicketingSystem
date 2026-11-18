@@ -816,6 +816,35 @@ func s21RuntimeRoles() ([]string, error) {
 	return out, nil
 }
 
+// s21RecordWritersReadRegistry is D14's last bullet: every runtime role the
+// manifest lets write records holds the registry SELECT of D14, so the
+// records trigger, which runs as the writer (D4, SECURITY INVOKER), can read
+// the flagged fields. s21RoleProbe then proves each such SELECT works and
+// reaches tenant A's rows only.
+func s21RecordWritersReadRegistry(roles []string) error {
+	m, err := grants.Parse(db.Grants())
+	if err != nil {
+		return err
+	}
+	var writers []string
+	for _, role := range roles {
+		recs := m.Roles[role].Tables["records"]
+		_, ins := recs["INSERT"]
+		_, upd := recs["UPDATE"]
+		if !ins && !upd {
+			continue
+		}
+		writers = append(writers, role)
+		if _, ok := d14Registry()[role]["SELECT"]; !ok {
+			return fmt.Errorf("%s writes records but D14 gives it no SELECT on record_index_fields", role)
+		}
+	}
+	if !slices.Contains(writers, "nava_app") || !slices.Contains(writers, "nava_worker") {
+		return fmt.Errorf("control: the records writers %v miss nava_app or nava_worker", writers)
+	}
+	return nil
+}
+
 // s21SideRows are, per side table, tenant A's and tenant B's own field on
 // their own record, and a value literal.
 func s21SideRows() []struct{ table, fieldA, fieldB, value string } {
@@ -838,6 +867,9 @@ func s21SideRows() []struct{ table, fieldA, fieldB, value string } {
 func s21RoleGrants(ctx context.Context, c Cluster) error {
 	roles, err := s21RuntimeRoles()
 	if err != nil {
+		return err
+	}
+	if err := s21RecordWritersReadRegistry(roles); err != nil {
 		return err
 	}
 	super, err := c.Super()
