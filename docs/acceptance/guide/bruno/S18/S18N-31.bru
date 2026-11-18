@@ -1,0 +1,31 @@
+meta {
+  name: S18N.31 AC5: tenant B's incident type still numbers by default: INC0000004
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-inc-b4
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} inc-b4"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('number INC0000004', () => expect(N.json().number).to.eql('INC0000004'));
+}

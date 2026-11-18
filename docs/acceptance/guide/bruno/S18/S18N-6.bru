@@ -1,0 +1,41 @@
+meta {
+  name: S18N.6 AC1: admin@tenant-a writes and publishes {prefix}-{yyyy}{MM}{seq:4}
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-visa
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_visa_{{s18n_run}}",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}{seq:4}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('version 1 of {prefix}-{yyyy}{MM}{seq:4} (refuse)', () => {
+    expect(N.json().version).to.eql(1);
+    expect(N.json().document.template).to.eql('{prefix}-{yyyy}{MM}{seq:4}');
+  });
+  bru.setVar('s18n_visa_fmt', N.json().id);
+}
+
+docs {
+  A date-then-sequence format must use `refuse` (ADR-005-E2).
+}

@@ -1,0 +1,31 @@
+100k D7 (b100, savepoints, FOR SHARE with grant+policy, pause 0, 4 live writers)
+SEED 100000 records in 42.6s; avg pg_column_size(data)=983
+PROBE D8 FOR SHARE as nava_worker: ERROR: permission denied for table entity_definitions (SQLSTATE 42501)
+PROBE after GRANT UPDATE(current_version), no UPDATE policy: rows=0 err=<nil>
+PROBE after GRANT + UPDATE policy: rows=1 err=<nil>
+PUBLISH baseline (v2, idle) 31.1ms | mid-run (v3) 3.336s
+LIVE baseline n=1778 p50=19.9ms p95=32.3ms p99=59.2ms max=150ms conflicts=0
+BACKFILL wall=27m24.077s batches=669 written=66799 conflicts=0 failed=0 left=0
+BACKFILL per-record=24.6ms batch p50=1.636s p95=7.469s max=22.742s
+BACKFILL WAL=1,174,421,544 B (incl. 70,932 live writes)
+BACKFILL records 204->318 MiB; audit_log 53->161 MiB; n_tup_upd +137701 hot +0; deadlocks +0
+BACKFILL lock-wait samples 4171/64846 (6.4%); max subxact_count=64 overflowed=true
+LIVE during n=70932 p50=28.9ms p95=166.7ms p99=492.5ms max=18.45s conflicts(412)=73
+
+R3 100k (p95, store.List count+page, 5 warm-up + 30 reps)
+open-0%  plain  channel=email 197.9ms total=0 | fallback 7.0ms total=1000
+open-0%  plain  email&priority=high 112.4ms total=0 | fallback 63.9ms total=1000
+open-0%  channel=sms 173.4ms / 232.1ms (no fallback applies)
+closed   plain email 50.0ms | fallback 10.2ms ; email&high 416.5 / 115.4ms (cache noise; both Seq Scan)
+
+20k, live load, pause 0          D7 (b100,SP,FOR SHARE)   per-record tx (sync off)
+live p95 baseline -> during      33.8 -> 43.4ms (+28%)    48.3 -> 49.1ms (+1.7%)
+live p99 / max during            95.6ms / 1.567s          87.5ms / 867ms
+conflicts(412) on live writes    63                       2
+lock-wait samples                24.6%                    0.1%
+subxact overflow                 yes                      no
+publish mid-run                  7.73s (idle 24ms)        49ms (idle 20ms)
+per-record / wall                12.3ms / 2m41s           14.0ms / 2m58s
+
+20k, no load: SP b100 10.6ms/rec (overflow) | no-SP b100 7.3ms/rec | SP b50 9.9ms/rec (max subxact 50, no overflow); WAL 3997-4113 B/rec
+Paginator, no live writers, UUIDv7 order: seen 18001 of 20001; updated_at in last hour = 20001

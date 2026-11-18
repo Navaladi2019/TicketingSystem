@@ -51,6 +51,18 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 			undo:  "ALTER POLICY idempotency_purge ON idempotency_keys USING (expires_at < now())",
 		},
 		{
+			// P6-10 (TICK-675): the counter purge's grant and policy, each on
+			// its own (security finding 2 on PR #642).
+			name: "nava_purge granted record_counters.next", path: counterPurgePath, table: "public.record_counters",
+			apply: "GRANT SELECT (next) ON record_counters TO nava_purge",
+			undo:  "REVOKE SELECT (next) ON record_counters FROM nava_purge",
+		},
+		{
+			name: "counter purge SELECT policy stops testing the grace", path: counterPurgePath, table: "public.record_counters",
+			apply: "ALTER POLICY record_counters_purge_select ON record_counters USING (true)",
+			undo:  "ALTER POLICY record_counters_purge_select ON record_counters USING (period_end < now() - interval '2 days')",
+		},
+		{
 			name: "tenants_activate stops testing provisioning", path: "nava_onboard cannot write to a non-provisioning tenant", table: "public.tenants",
 			apply: "ALTER POLICY tenants_activate ON tenants USING (id = " + tenantSetting + ")",
 			undo:  activate,
