@@ -130,9 +130,12 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
     assert.equal(e.status, 404);
     assert.equal(e.code, "not_found");
 
-    let n = 0;
-    for await (const _ of client.records.list(ENTITY, { filter: { short_description: `sdk-it ${RUN} get` } })) n++;
-    assert.equal(n, 0, "tenant A's record is not in tenant B's list");
+    // Tenant B has no flagged data field (flags are per tenant, ADR-006), so the filter is the legacy
+    // allow-listed priority, which matches alicesRecord's priority. The iterator walks every page,
+    // so a leak on any page fails this.
+    const seen: string[] = [];
+    for await (const r of client.records.list(ENTITY, { filter: { priority: 2 }, pageSize: 200 })) seen.push(r.id);
+    assert.ok(!seen.includes(alicesRecord.id), "tenant A's record is not in any page of tenant B's list");
   });
 
   test("a filter on a field that is not flagged filterable is a 400 field_not_filterable", async () => {
