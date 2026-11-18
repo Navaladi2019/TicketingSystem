@@ -1,0 +1,44 @@
+meta {
+  name: S18.4 Create a format: 201, version 1
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-create
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{s18_fmt}}",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}-{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 201, ETag W/"1", version 1', () => {
+    expect(res.getStatus()).to.eql(201);
+    expect(N.header('ETag')).to.eql('W/"1"');
+    expect(N.json().version).to.eql(1);
+    expect(N.json().key).to.eql(bru.getVar('s18_fmt'));
+    expect(N.json().compiled_sha256).to.match(/^[0-9a-f]{64}$/);
+  });
+  bru.setVar('s18_id', N.json().id);
+  N.status(201);
+}
+
+docs {
+  `{key, document}`. The document is validated and compiled; the reply has the stored document, the compiled form and its SHA-256.
+}

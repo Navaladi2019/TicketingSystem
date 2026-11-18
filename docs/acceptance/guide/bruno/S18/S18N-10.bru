@@ -1,0 +1,62 @@
+meta {
+  name: S18N.10 AC1: the next Visa ticket is VISA-<yyyymm>0001
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/records/visa
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-visa1
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} visa1"
+    }
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  // S18_FORCE_FAIL=1 (run-kit.sh): a second client takes the first formatted
+  // Visa number before this create, so it gets ...0002 and the kit must fail.
+  if (N.v('s18_force_fail') === '1') {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/visa'), method: 'POST',
+      headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token'), 'Content-Type': 'application/json', 'Idempotency-Key': 's18n-' + bru.getVar('s18n_run') + '-force' },
+      data: { data: { short_description: 'S18 forced failure: one extra Visa create' } } });
+    console.log('S18 FORCED FAILURE: an extra Visa create took', r.data && r.data.number);
+  }
+
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  bru.setVar('s18n_ym_before', ym(N.v('s18_tz')));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const ym = (tz) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    return p.year + p.month;
+  };
+  N.status(201);
+  const n = N.json().number;
+  const months = [bru.getVar('s18n_ym_before'), ym(N.v('s18_tz'))];
+  test(`number VISA-<yyyymm in ${N.v('s18_tz')}>0001: ${n}`, () => expect(months.map(m => 'VISA-' + m + '0001')).to.include(n));
+  bru.setVar('s18n_visa1_id', N.json().id);
+  bru.setVar('s18n_visa1_number', n);
+  console.log('S18 visa1:', n);
+}
+
+docs {
+  admin@tenant-a creates a Visa ticket. The month is the month now in the tenant's time zone.
+}

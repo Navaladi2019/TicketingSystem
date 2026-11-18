@@ -1,0 +1,25 @@
+meta {
+  name: S18N.38 E9: admin@tenant-b asks for tenant A's permit type's timeline: an empty page
+  type: http
+  seq: 38
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?subject_type=entity_definition&subject_id={{s18n_permit_def}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('no entries', () => expect(N.json().items).to.eql([]));
+}
+
+docs {
+  The same filter as S18N.36, as tenant B's admin. The tenant comes from the token, so tenant A's entry is not there.
+}

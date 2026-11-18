@@ -1,0 +1,14 @@
+== record_counters after the upgrade (M3) (2026-11-18T15:58:00Z)
+       conname        |                           def                            
+----------------------+----------------------------------------------------------
+ record_counters_pkey | PRIMARY KEY (tenant_id, entity_definition_id, scope_key)
+
+         indexname          |                                                          indexdef                                                           
+----------------------------+-----------------------------------------------------------------------------------------------------------------------------
+ record_counters_period_end | CREATE INDEX record_counters_period_end ON public.record_counters USING btree (period_end) WHERE (period_end IS NOT NULL)
+ record_counters_pkey       | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id, scope_key)
+
+ s18_migrations 
+----------------
+             15
+

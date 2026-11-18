@@ -29,7 +29,7 @@ const TenantP = "0d000000-0000-4000-8000-00000000000d"
 // contract. Every DB path first proves its positive control, so a denial
 // cannot come from a broken statement or connection.
 func rolePaths() []Path {
-	return []Path{
+	return append([]Path{
 		{Name: "nava_relay cannot read records", Case: "CI-9", Role: "nava_relay", DB: relayCannotReadRecords},
 		{Name: "nava_purge cannot read data columns or unexpired rows, and its purge deletes expired rows", Case: "CI-9", Role: "nava_purge", DB: purgeReach},
 		{Name: "nava_onboard cannot write to a non-provisioning tenant", Case: "CI-9", Role: "nava_onboard", DB: onboardCannotWriteActive},
@@ -37,7 +37,7 @@ func rolePaths() []Path {
 		{Name: "nava_onboard cannot bind an active tenant", Case: "CI-9", Role: "nava_onboard", DB: onboardCannotBindActive},
 		{Name: "nava_onboard cannot move an active tenant back to provisioning", Case: "CI-9", Role: "nava_onboard", DB: onboardCannotDeactivate},
 		{Name: seedActivePath, Case: "CI-9", Role: "nava_onboard", DB: onboardCannotSeedActive},
-	}
+	}, counterPurgePaths()...)
 }
 
 // errRollback ends a tenancy.InTenantTx callback so its writes are rolled back.

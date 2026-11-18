@@ -1,0 +1,36 @@
+meta {
+  name: S18N.7 AC1: agent@tenant-a cannot write a format: 403
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-alice-fmt
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_alice_{{s18n_run}}",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}{seq:4}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Formats are for tenant admins.
+}

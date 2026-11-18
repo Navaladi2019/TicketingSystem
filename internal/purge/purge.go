@@ -1,5 +1,6 @@
-// Package purge deletes expired rows from idempotency_keys, outbox and
-// workflow_ref, connected as nava_purge (ADR-001 A.3, D28). The role can
+// Package purge deletes expired rows from idempotency_keys, outbox,
+// workflow_ref and record_counters, connected as nava_purge (ADR-001 A.3,
+// D28; ADR-005 §4.3). The role can
 // select only the key and expiry columns and delete only the rows its paired
 // *_purge policies match, so the windows here can narrow what is deleted but
 // never widen it.
@@ -27,6 +28,7 @@ const (
 	TableIdempotencyKeys = "idempotency_keys"
 	TableOutbox          = "outbox"
 	TableWorkflowRef     = "workflow_ref"
+	TableRecordCounters  = "record_counters"
 )
 
 // Beginner starts the transaction of one batch. *pgxpool.Pool and *pgx.Conn
@@ -131,6 +133,19 @@ func targetList() []target {
 			        SELECT tenant_id, outbox_id FROM workflow_ref
 			        WHERE closed_at < now() - make_interval(secs => $2) LIMIT $1)`,
 			args: func(batch int, w Windows) []any { return []any{batch, secs(w.WorkflowRef)} },
+		},
+		{
+			// P6-10 (TICK-675, ADR-005 §4.3): period counters more than 2
+			// days past period_end, through the partial index
+			// record_counters_period_end. The 2-day grace exceeds the widest
+			// UTC-offset span (26 h) and is fixed, as the record_counters_purge
+			// policies are, so it takes no window. Field-only and default-scope
+			// rows (period_end NULL) never match.
+			table: TableRecordCounters,
+			sql: `DELETE FROM record_counters WHERE (tenant_id, entity_definition_id, scope_key) IN (
+			        SELECT tenant_id, entity_definition_id, scope_key FROM record_counters
+			        WHERE period_end < now() - interval '2 days' LIMIT $1)`,
+			args: func(batch int, _ Windows) []any { return []any{batch} },
 		},
 	}
 }

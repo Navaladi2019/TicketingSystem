@@ -244,6 +244,19 @@ type fakeDefs struct {
 	curVersion int
 	curErr     error
 	verErr     error
+	// format is the number format; the zero value is numbering.Default().
+	format    *numbering.Compiled
+	formatErr error
+}
+
+func (d fakeDefs) NumberFormat(context.Context, pgx.Tx, string, int) (numbering.Compiled, error) {
+	if d.formatErr != nil {
+		return numbering.Compiled{}, d.formatErr
+	}
+	if d.format != nil {
+		return *d.format, nil
+	}
+	return numbering.Default(), nil
 }
 
 func (d fakeDefs) Version(context.Context, pgx.Tx, string, int) (*metadata.Compiled, error) {
@@ -352,7 +365,21 @@ func (r *numberRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.U
 	if err != nil {
 		return pipeline.Allocation{}, err
 	}
-	a := pipeline.Allocation{Tenant: tenant, Definition: def, ScopeKey: format.ScopeKey(), Epoch: format.Epoch, Number: r.next, Instant: allocInstant()}
+	scope, err := format.Scope()
+	if err != nil {
+		return pipeline.Allocation{}, err
+	}
+	key := scope.KeyPrefix
+	if scope.Dated() {
+		// What PostgreSQL computes from now() in the zone: the instant's
+		// date parts in UTC here.
+		part, err := format.DatePart(allocInstant())
+		if err != nil {
+			return pipeline.Allocation{}, err
+		}
+		key += part
+	}
+	a := pipeline.Allocation{Tenant: tenant, Definition: def, ScopeKey: key, Epoch: format.Epoch, Number: r.next, Instant: allocInstant()}
 	r.calls = append(r.calls, a)
 	if r.err != nil {
 		return pipeline.Allocation{}, fmt.Errorf("records/store: take record number: %w", r.err)
