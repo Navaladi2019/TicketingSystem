@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -46,5 +48,22 @@ func TestCollectIndexFieldsReportsReadFailures(t *testing.T) {
 	got, err := collectIndexFields(&fakeRows{rows: 2})
 	if err != nil || len(got) != 1 { // both scripted rows scan to the zero key
 		t.Errorf("clean read = %v, %v", got, err)
+	}
+}
+
+// failingTx is a pgx.Tx whose Query fails before it reaches the server, as it
+// does on a closed transaction.
+type failingTx struct {
+	pgx.Tx
+	err error
+}
+
+func (f failingTx) Query(context.Context, string, ...any) (pgx.Rows, error) { return nil, f.err }
+
+func TestIndexFieldsWrapsAQueryFailure(t *testing.T) {
+	t.Parallel()
+	got, err := IndexFields(t.Context(), failingTx{err: pgx.ErrTxClosed}, uuid.New(), uuid.New())
+	if got != nil || !errors.Is(err, pgx.ErrTxClosed) || !strings.Contains(err.Error(), "records/store: read field index registry") {
+		t.Errorf("IndexFields = %v, %v; want a wrapped pgx.ErrTxClosed and no rows", got, err)
 	}
 }
