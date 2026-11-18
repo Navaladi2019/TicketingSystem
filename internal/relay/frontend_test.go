@@ -35,6 +35,7 @@ type frontend struct {
 	executions map[string]*execution // by workflow id
 	starts     []*workflowservice.StartWorkflowExecutionRequest
 	signals    []*workflowservice.SignalWorkflowExecutionRequest
+	sws        []*workflowservice.SignalWithStartWorkflowExecutionRequest
 	// fail, when set, answers a call before the semantics above; a nil
 	// return carries on.
 	fail  func(method string, workflowID string) error
@@ -87,6 +88,25 @@ func (f *frontend) StartWorkflowExecution(ctx context.Context, req *workflowserv
 func (f *frontend) SignalWorkflowExecution(ctx context.Context, req *workflowservice.SignalWorkflowExecutionRequest) (*workflowservice.SignalWorkflowExecutionResponse, error) {
 	resp, err := f.signal(ctx, req)
 	return resp, grpcErr(err)
+}
+
+// SignalWithStartWorkflowExecution signals the open execution of the id, or
+// starts one (a completed one is replaced, as ALLOW_DUPLICATE does).
+func (f *frontend) SignalWithStartWorkflowExecution(ctx context.Context, req *workflowservice.SignalWithStartWorkflowExecutionRequest) (*workflowservice.SignalWithStartWorkflowExecutionResponse, error) {
+	f.mu.Lock()
+	f.sws = append(f.sws, req)
+	f.mu.Unlock()
+	if err := f.inject(ctx, "signal_with_start", req.GetWorkflowId()); err != nil {
+		return nil, grpcErr(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, ok := f.executions[req.GetWorkflowId()]
+	if !ok || e.completed {
+		e = &execution{runID: uuid.NewString(), kind: req.GetWorkflowType().GetName()}
+		f.executions[req.GetWorkflowId()] = e
+	}
+	return &workflowservice.SignalWithStartWorkflowExecutionResponse{RunId: e.runID, Started: !ok}, nil
 }
 
 func (f *frontend) start(ctx context.Context, req *workflowservice.StartWorkflowExecutionRequest) (*workflowservice.StartWorkflowExecutionResponse, error) {

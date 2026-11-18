@@ -1,0 +1,639 @@
+//go:build integration
+
+package backfill_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
+	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
+)
+
+// openWriter is a nava_app transaction that has inserted one record of f
+// (its trigger has run) and has not committed: the R1 writer caught across
+// the flip. It runs in tenancy.InTenantTx on its own goroutine until commit.
+type openWriter struct {
+	id      uuid.UUID
+	xid     string // its transaction id
+	release chan struct{}
+	done    chan error
+	once    sync.Once
+}
+
+func beginWriter(t *testing.T, e itEnv, f fixture) *openWriter {
+	t.Helper()
+	w := &openWriter{id: uuid.Must(uuid.NewV7()), release: make(chan struct{}), done: make(chan error, 1)}
+	ready := make(chan error, 1)
+	go func() {
+		ctx := context.Background()
+		w.done <- tenancy.InTenantTx(ctx, e.app, f.tenant, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, insertRecordSQL, f.tenant, w.id, f.def, "INC-OPEN", recordData(f, 7777))
+			if err == nil {
+				err = tx.QueryRow(ctx, "SELECT pg_current_xact_id()::text").Scan(&w.xid)
+			}
+			ready <- err
+			if err != nil {
+				return err
+			}
+			<-w.release
+			return nil
+		})
+	}()
+	if err := <-ready; err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// commit lets the transaction commit and waits for it.
+func (w *openWriter) commit(t *testing.T) {
+	t.Helper()
+	w.once.Do(func() {
+		close(w.release)
+		if err := <-w.done; err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+// CI-5 R1 (deterministic half): a record inserted before the flip to
+// backfilling and committed only after the backfill has passed its id is
+// copied, because the barrier waits for its transaction. With the barrier
+// replaced by a no-op (the seam), the same schedule leaves it missing: the
+// test bites.
+func TestR1WriterAcrossTheFlip(t *testing.T) {
+	e := migrated(t)
+	for _, barrierOn := range []bool{true, false} {
+		name := map[bool]string{true: "barrier", false: "no barrier"}[barrierOn]
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, e, "num", "")
+			insertRecords(t, e, f, 5)
+			w := beginWriter(t, e, f) // its trigger saw no registry row
+			f.register(t, e, "num", fieldindex.StateBackfilling)
+
+			var committed atomic.Bool
+			commit := func() {
+				if committed.CompareAndSwap(false, true) {
+					w.commit(t)
+				}
+			}
+			o := runOptions{acts: &backfill.Activities{Pool: e.worker}}
+			if barrierOn {
+				// The barrier waits on w: commit it later, as a slow writer would.
+				go func() { time.Sleep(1500 * time.Millisecond); commit() }()
+			} else {
+				// The seam: the backfill passes w's id, and flips ready, before
+				// w commits.
+				o.barrier = func(context.Context) error { return nil }
+			}
+			r := newRun(t, f.tenant, o)
+			r.signal(item(f, 1), 0)
+			if err := r.coordinate(workerguard.RunInput{}); err != nil {
+				t.Fatal(err)
+			}
+			commit()
+			r.requireGuardClean()
+
+			if got := registry(t, e, f); got.state != "ready" || got.progress != 100 {
+				t.Fatalf("registry %+v, want ready at 100", got)
+			}
+			got := diffOf(t, e, f)
+			switch {
+			case barrierOn && got != noDiff:
+				t.Fatalf("with the barrier: %s, want %s", got, noDiff)
+			case !barrierOn && got != "1 missing, 0 extra":
+				t.Fatalf("without the barrier: %s, want the R1 miss (1 missing): the test does not bite", got)
+			}
+		})
+	}
+}
+
+// CI-5 R1 (load half): writers insert and update records continuously
+// across the flip to backfilling and the flip to ready; after ready the side
+// rows equal a recompute, with none missing.
+func TestR1WritersAcrossBothFlips(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	ids := insertRecords(t, e, f, 120)
+
+	ctx, stop := context.WithCancel(context.Background())
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		live   = slices.Clone(ids)
+		writes atomic.Int64
+		errs   = make(chan error, 4)
+	)
+	for wi := range 3 {
+		wg.Go(func() {
+			for n := 0; ctx.Err() == nil; n++ {
+				var err error
+				if n%2 == 0 {
+					id := uuid.Must(uuid.NewV7())
+					err = writeRecord(ctx, e, f, id, 10_000*(wi+1)+n)
+					if err == nil {
+						mu.Lock()
+						live = append(live, id)
+						mu.Unlock()
+					}
+				} else {
+					mu.Lock()
+					id := live[(n*7+wi)%len(live)]
+					mu.Unlock()
+					err = tenancy.InTenantTx(ctx, e.app, f.tenant, func(tx pgx.Tx) error {
+						_, err := tx.Exec(ctx, updateRecordSQL, f.tenant, id, n, f.key)
+						return err
+					})
+				}
+				if err != nil && ctx.Err() == nil {
+					errs <- err
+					return
+				}
+				writes.Add(1)
+			}
+		})
+	}
+	// Let the writers run before the flip, flip, and keep them running
+	// through the backfill and the flip to ready.
+	time.Sleep(300 * time.Millisecond)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	before := writes.Load()
+
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker, BatchSize: 25}})
+	r.signal(item(f, 1), 0)
+	err := r.coordinate(workerguard.RunInput{})
+	time.Sleep(300 * time.Millisecond) // writes after ready
+	stop()
+	wg.Wait()
+	close(errs)
+	for werr := range errs {
+		t.Fatalf("writer: %v", werr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if writes.Load()-before < 10 {
+		t.Fatalf("only %d writes overlapped the backfill: the race was not exercised", writes.Load()-before)
+	}
+	if got := registry(t, e, f); got.state != "ready" || got.progress != 100 {
+		t.Fatalf("registry %+v, want ready at 100", got)
+	}
+	if got := diffOf(t, e, f); got != noDiff {
+		t.Fatalf("side rows differ from the recompute: %s", got)
+	}
+	if r.batches[backfillChild(f, 1)] < 5 {
+		t.Errorf("%d batches, want several (batch size 25)", r.batches[backfillChild(f, 1)])
+	}
+}
+
+// Barrier: a transaction open at the snapshot delays ready until it ends,
+// a transaction opened after the snapshot does not hold it, and the slow
+// alert fires once per waiting barrier under a shortened threshold.
+func TestBarrierWaitsForTheSnapshotOnly(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 3)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	held := beginWriter(t, e, newFixture(t, e, "num", "")) // another tenant's long transaction
+
+	reader := sdkmetric.NewManualReader()
+	m, err := backfill.NewMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		later               *openWriter
+		readyWhileLaterOpen atomic.Bool
+		done                = make(chan struct{})
+	)
+	go func() {
+		// After the first barrier's snapshot: a transaction that stays open
+		// until the field is ready. It must not hold that barrier.
+		time.Sleep(500 * time.Millisecond)
+		later = beginWriter(t, e, newFixture(t, e, "num", ""))
+		time.Sleep(time.Second)
+		held.commit(t)
+		for {
+			select {
+			case <-done:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			if registry(t, e, f).state == "ready" {
+				// The second barrier (after ready) does wait on it.
+				readyWhileLaterOpen.Store(true)
+				later.commit(t)
+				return
+			}
+		}
+	}()
+	acts := &backfill.Activities{Pool: e.worker, Metrics: m, SlowAfter: time.Millisecond}
+	r := newRun(t, f.tenant, runOptions{acts: acts})
+	r.signal(item(f, 1), 0)
+	start := time.Now()
+	err = r.coordinate(workerguard.RunInput{})
+	close(done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if time.Since(start) < 1500*time.Millisecond {
+		t.Error("ready came before the held transaction ended")
+	}
+	if !readyWhileLaterOpen.Load() {
+		t.Fatal("the field was not ready while the later transaction was open: the barrier waited on a transaction outside its snapshot")
+	}
+	if got := registry(t, e, f); got.state != "ready" {
+		t.Fatalf("registry %+v, want ready", got)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var slow int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, mt := range sm.Metrics {
+			if mt.Name == "field_index_barrier_slow" {
+				for _, dp := range mt.Data.(metricdata.Sum[int64]).DataPoints {
+					slow += dp.Value
+					if dp.Attributes.Len() != 0 {
+						t.Errorf("field_index_barrier_slow has attributes %v, want none", dp.Attributes)
+					}
+				}
+			}
+		}
+	}
+	// The first barrier waited past the 1 ms threshold for seconds, across
+	// several polls: it fired once. The second may or may not have caught the
+	// later transaction still open. Never more than once per barrier.
+	if slow < 1 || slow > 2 {
+		t.Errorf("field_index_barrier_slow = %d, want 1 or 2 (once per waiting barrier, not per poll)", slow)
+	}
+}
+
+// A registry row set to removing mid-backfill stops the workflow at the next
+// batch with no further writes, and it is not flipped to ready.
+func TestRemovingMidBackfillStops(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 50)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	var flipped atomic.Bool
+	var after registryState
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker, BatchSize: 10},
+		onBatch: func(string) {
+			if flipped.CompareAndSwap(false, true) {
+				mustExec(t, e.super, `UPDATE record_index_fields SET state = 'removing' WHERE tenant_id = $1 AND id = $2`, f.tenant, f.field)
+				after = registry(t, e, f)
+			}
+		}})
+	r.signal(item(f, 1), 0)
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if got := sideRows(t, e, f); got != "10" {
+		t.Errorf("%s side rows, want the first batch's 10 only", got)
+	}
+	got := registry(t, e, f)
+	if got.state != "removing" || got.progress != after.progress || !got.updatedAt.Equal(after.updatedAt) {
+		t.Errorf("registry %+v after the flip, want it untouched since %+v", got, after)
+	}
+	if n := r.batches[backfillChild(f, 1)]; n != 2 {
+		t.Errorf("%d batches, want 2 (one copied, one found removing)", n)
+	}
+}
+
+// QA item 3: requested_version bumped while a child runs. The running child
+// (pinned to version 1) stops at its next batch and writes no progress for
+// the old version; the version-2 item then runs the field to ready.
+func TestVersionBumpMidBackfill(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 50)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	v1, v2 := backfillChild(f, 1), backfillChild(f, 2)
+	var bumped atomic.Bool
+	var atBump registryState
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker, BatchSize: 10},
+		onBatch: func(id string) {
+			switch {
+			case id == v1 && bumped.CompareAndSwap(false, true):
+				mustExec(t, e.super, `UPDATE record_index_fields SET requested_version = 2 WHERE tenant_id = $1 AND id = $2`, f.tenant, f.field)
+				atBump = registry(t, e, f)
+			}
+		}})
+	r.signal(item(f, 1), 0)
+	r.signal(item(f, 2), time.Millisecond)
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if n := r.batches[v1]; n != 2 {
+		t.Errorf("the version-1 child ran %d batches, want 2 (one copied, one found the bump)", n)
+	}
+	// The version-1 child's second batch wrote nothing: its only progress
+	// write was before the bump, so the row's progress at the bump is the
+	// first batch's, and the v2 child then wrote its own.
+	if atBump.progress != 20 {
+		t.Errorf("progress at the bump %d, want the first batch's 20", atBump.progress)
+	}
+	if got := registry(t, e, f); got.state != "ready" || got.version != 2 {
+		t.Fatalf("registry %+v, want ready at version 2", got)
+	}
+	if got := diffOf(t, e, f); got != noDiff {
+		t.Fatalf("side rows: %s", got)
+	}
+	log := r.childLog()
+	if i, j := slices.Index(log, "done "+v1), slices.Index(log, "start "+v2); i < 0 || j < 0 || i > j {
+		t.Errorf("children %v: the version-2 child must start after the version-1 child ends", log)
+	}
+}
+
+// Coordinator: field A flagged, then field B while A runs. Both reach ready,
+// B's child starts only after A's finishes, and a replay of A's outbox row
+// (same outbox id) runs nothing.
+func TestCoordinatorRunsOneChildAtATime(t *testing.T) {
+	e := migrated(t)
+	a := newFixture(t, e, "num", "")
+	b := fixture{tenant: a.tenant, def: a.def, field: uuid.New(), key: "f_text"}
+	insertRecords(t, e, a, 40)
+	a.register(t, e, "num", fieldindex.StateBackfilling)
+	b.register(t, e, "text", fieldindex.StateBackfilling)
+	r := newRun(t, a.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker, BatchSize: 10}})
+	itA := item(a, 1)
+	r.signal(itA, 0)
+	// A runs four batches with 500 ms pauses (test time): B and the replay
+	// arrive while A's child is running.
+	r.signal(item(b, 1), 700*time.Millisecond)
+	r.signal(itA, 1200*time.Millisecond) // the relay delivering A's row again
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	want := []string{"start " + backfillChild(a, 1), "done " + backfillChild(a, 1), "start " + backfillChild(b, 1), "done " + backfillChild(b, 1)}
+	if got := r.childLog(); !slices.Equal(got, want) {
+		t.Fatalf("children %v, want %v", got, want)
+	}
+	for _, f := range []fixture{a, b} {
+		if got := registry(t, e, f); got.state != "ready" {
+			t.Errorf("field %s: %+v, want ready", f.key, got)
+		}
+		if got := diffOf(t, e, f); got != noDiff {
+			t.Errorf("field %s: %s", f.key, got)
+		}
+	}
+}
+
+// QA item 1, and the replay race: a replay of a finished item from outside
+// the coordinator's Seen window (a new coordinator run, empty Seen) runs no
+// child; and a backfill child run on a ready row writes no batch and no
+// progress.
+func TestStaleReplayIsANoOp(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 15)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	it := item(f, 1)
+	first := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}})
+	first.signal(it, 0)
+	if err := first.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	done := registry(t, e, f)
+	if done.state != "ready" {
+		t.Fatalf("registry %+v, want ready", done)
+	}
+	ctids := queryString(t, e.super, `SELECT string_agg(ctid::text, ',' ORDER BY record_id) FROM rfv_num WHERE tenant_id = $1 AND field_id = $2`, f.tenant, f.field)
+
+	replay := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}})
+	replay.signal(it, 0)
+	if err := replay.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	replay.requireGuardClean()
+	if got := replay.childLog(); len(got) != 0 {
+		t.Errorf("the stale replay started children %v, want none", got)
+	}
+
+	// The child itself, on the ready row, as a defence in depth.
+	direct := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}, workflowID: backfillChild(f, 1)})
+	direct.env.ExecuteWorkflow(fieldindex.BackfillWorkflowType, backfill.Input{FieldID: f.field})
+	if err := direct.env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	direct.requireGuardClean()
+	if len(direct.results) != 1 || direct.results[0].Cursor != nil {
+		t.Errorf("batch results %v, want one empty result", direct.results)
+	}
+	if got := registry(t, e, f); got != done {
+		t.Errorf("registry %+v, want it untouched (%+v)", got, done)
+	}
+	if got := queryString(t, e.super, `SELECT string_agg(ctid::text, ',' ORDER BY record_id) FROM rfv_num WHERE tenant_id = $1 AND field_id = $2`, f.tenant, f.field); got != ctids {
+		t.Error("the replay rewrote side rows")
+	}
+}
+
+// QA item 2, and "continue-as-new with a queued item loses nothing": with
+// one item per run, a coordinator queued with A, B and C continues as new
+// after A carrying [B, C] in order. B is set to removing between the runs, so
+// the continued run classifies it as a removal; C is backfilled.
+func TestContinueAsNewKeepsQueueOrderAndReadsOp(t *testing.T) {
+	e := migrated(t)
+	a := newFixture(t, e, "num", "")
+	b := fixture{tenant: a.tenant, def: a.def, field: uuid.New(), key: "f_b"}
+	c := fixture{tenant: a.tenant, def: a.def, field: uuid.New(), key: "f_c"}
+	insertRecords(t, e, a, 5)
+	a.register(t, e, "num", fieldindex.StateBackfilling)
+	b.register(t, e, "num", fieldindex.StateBackfilling)
+	c.register(t, e, "num", fieldindex.StateBackfilling)
+
+	coord := &backfill.Coordinator{MaxItems: 1}
+	var removed []uuid.UUID
+	remove := func(_ workflow.Context, in backfill.FieldRef) error {
+		removed = append(removed, in.FieldID)
+		return nil
+	}
+	first := newRun(t, a.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}, coordinator: coord, remove: remove})
+	first.signal(item(a, 1), 0)
+	first.signal(item(b, 1), 0)
+	first.signal(item(c, 1), 0)
+	err := first.coordinate(workerguard.RunInput{})
+	var can *workflow.ContinueAsNewError
+	if !errors.As(err, &can) {
+		t.Fatalf("first run: %v, want continue-as-new", err)
+	}
+	first.requireGuardClean()
+	var next workerguard.RunInput
+	if err := json.Unmarshal(can.Input.GetPayloads()[0].GetData(), &next); err != nil {
+		t.Fatal(err)
+	}
+	var refs struct {
+		Pending []uuid.UUID `json:"pending"`
+	}
+	if err := json.Unmarshal(next.Refs, &refs); err != nil || !slices.Equal(refs.Pending, []uuid.UUID{b.field, c.field}) {
+		t.Fatalf("continued refs %s (%v), want pending [B C]", next.Refs, err)
+	}
+	if next.Seen.Len() != 3 {
+		t.Errorf("Seen carries %d outbox ids, want 3", next.Seen.Len())
+	}
+	mustExec(t, e.super, `UPDATE record_index_fields SET state = 'removing' WHERE tenant_id = $1 AND id = $2`, b.tenant, b.field)
+
+	second := newRun(t, a.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}, coordinator: &backfill.Coordinator{MaxItems: 10}, remove: remove})
+	if err := second.coordinate(next); err != nil {
+		t.Fatal(err)
+	}
+	second.requireGuardClean()
+	removeB := backfill.ChildID(b.tenant, fieldindex.RemoveWorkflowType, b.field, 0)
+	want := []string{"start " + removeB, "done " + removeB, "start " + backfillChild(c, 0), "done " + backfillChild(c, 0)}
+	if got := second.childLog(); !slices.Equal(got, want) {
+		t.Fatalf("continued children %v, want %v", got, want)
+	}
+	if !slices.Equal(removed, []uuid.UUID{b.field}) {
+		t.Errorf("removed %v, want [B]", removed)
+	}
+	if got := registry(t, e, c); got.state != "ready" {
+		t.Errorf("C: %+v, want ready", got)
+	}
+	// A replay of A's row in the continued run is dropped on its outbox id.
+	if got := registry(t, e, a); got.state != "ready" {
+		t.Errorf("A: %+v, want ready", got)
+	}
+}
+
+// CI-5c: no record id beyond the cursor, and no field value, appears in any
+// payload the runs recorded: every argument, result, child input, heartbeat
+// and signal (the test environment's view of the history).
+func TestHistoryCarriesReferencesOnly(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	ids := insertRecords(t, e, f, 35)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker, BatchSize: 10}})
+	r.signal(item(f, 1), 0)
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+
+	cursors := map[string]bool{}
+	for _, c := range r.results {
+		if c.Cursor != nil {
+			cursors[c.Cursor.String()] = true
+		}
+	}
+	records := map[string]bool{}
+	for _, id := range ids {
+		records[id.String()] = true
+	}
+	uuidRE := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.ledger) < 10 {
+		t.Fatalf("only %d payloads recorded: the ledger missed the run", len(r.ledger))
+	}
+	for _, p := range r.ledger {
+		s := string(p)
+		if strings.Contains(s, valueSecret) || strings.Contains(s, "INC-") {
+			t.Errorf("payload %s carries a field value", s)
+		}
+		for _, id := range uuidRE.FindAllString(s, -1) {
+			if records[id] && !cursors[id] {
+				t.Errorf("payload %s carries record id %s, which is not a cursor", s, id)
+			}
+		}
+	}
+	if len(cursors) != 3 {
+		t.Errorf("%d cursors, want 3 (35 records, batches of 10)", len(cursors))
+	}
+}
+
+// A retried barrier resumes the snapshot in its heartbeat details, never a
+// new one: given details that name only a finished transaction it returns at
+// once although another transaction is open now, and given details that name
+// an open one it keeps waiting.
+func TestBarrierResumesItsSnapshot(t *testing.T) {
+	e := migrated(t)
+	open := beginWriter(t, e, newFixture(t, e, "num", ""))
+	defer open.commit(t)
+	openXID := open.xid
+	var finishedXID string
+	if err := e.super.QueryRow(context.Background(), "SELECT pg_current_xact_id()::text").Scan(&finishedXID); err != nil {
+		t.Fatal(err)
+	}
+	acts := &backfill.Activities{Pool: e.worker}
+	run := func(xip []string, timeout time.Duration) error {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestActivityEnvironment()
+		env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		env.SetTestTimeout(timeout)
+		env.SetWorkerOptions(worker.Options{BackgroundActivityContext: ctx})
+		env.SetHeartbeatDetails(map[string]any{"xip": xip, "since": time.Now(), "slow": false})
+		_, err := env.ExecuteActivity(backfill.BarrierActivity)
+		return err
+	}
+	if err := run([]string{finishedXID}, 10*time.Second); err != nil {
+		t.Fatalf("resumed snapshot of a finished transaction: %v, want done at once", err)
+	}
+	if err := run([]string{openXID}, 2500*time.Millisecond); err == nil {
+		t.Fatal("resumed snapshot of an open transaction returned; want it to keep waiting")
+	}
+}
+
+// Replay race: a batch whose activity fails after its transaction committed
+// (a worker lost before reporting) is retried from the same cursor; the
+// retry rewrites the same records, and the field still ends equal to the
+// recompute.
+func TestBatchRetriedAfterCommit(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 30)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	acts := &backfill.Activities{Pool: e.worker, BatchSize: 10}
+	var calls atomic.Int64
+	r := newRun(t, f.tenant, runOptions{acts: acts})
+	r.env.RegisterActivityWithOptions(func(ctx context.Context, in backfill.Cursor) (backfill.Cursor, error) {
+		out, err := acts.Batch(ctx, in)
+		if err == nil && calls.Add(1) == 2 {
+			return backfill.Cursor{}, errors.New("worker lost after the batch committed")
+		}
+		return out, err
+	}, activity.RegisterOptions{Name: backfill.BatchActivity})
+	r.signal(item(f, 1), 0)
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() < 4 {
+		t.Fatalf("%d batch calls, want the failed one retried", calls.Load())
+	}
+	if got := registry(t, e, f); got.state != "ready" {
+		t.Fatalf("registry %+v, want ready", got)
+	}
+	if got := diffOf(t, e, f); got != noDiff {
+		t.Fatalf("side rows after a retried batch: %s", got)
+	}
+}

@@ -29,6 +29,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/health"
@@ -227,12 +228,18 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		closeAll()
 		return nil, nil, nil, err
 	}
+	fm, err := backfill.NewMetrics(tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
 
 	// The sealer is registered unless WorkflowsEnv is off (a stack-only
 	// activity worker), so the worker polls workflow tasks on nava-tq.
 	w := worker.New(c, taskQueue, workerOptions(g, workflows, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
 	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log}, workflows)
+	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Log: log}, workflows)
 	registerInterpreter(w, acts)
 	return w, mon, closeAll, nil
 }
@@ -331,6 +338,16 @@ func recovered(fn func() error) (err error) {
 func registerSealer(w worker.Registry, acts *seal.Activities, workflows bool) {
 	if workflows {
 		seal.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+
+// registerFieldIndex registers the field-index coordinator and
+// FieldIndexBackfill (ADR-006 D10, TICK-745) when workflows is set, and
+// their activities always, like registerSealer.
+func registerFieldIndex(w worker.Registry, acts *backfill.Activities, workflows bool) {
+	if workflows {
+		backfill.RegisterWorkflow(w)
 	}
 	acts.Register(w)
 }
