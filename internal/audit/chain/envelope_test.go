@@ -357,9 +357,9 @@ func TestParseHex(t *testing.T) {
 // network packages.
 func TestImportBoundary(t *testing.T) {
 	allowed := map[string]bool{
-		"bytes": true, "crypto/sha256": true, "encoding/hex": true, "encoding/json": true,
+		"bytes": true, "crypto/sha256": true, "encoding": true, "encoding/hex": true, "encoding/json": true,
 		"errors": true, "fmt": true, "strings": true, "io": true, "slices": true, "strconv": true,
-		"time": true, "unicode/utf16": true, "unicode/utf8": true,
+		"reflect": true, "time": true, "unicode/utf16": true, "unicode/utf8": true,
 		"github.com/google/uuid": true,
 	}
 	files, err := filepath.Glob("*.go")
@@ -387,6 +387,15 @@ func TestImportBoundary(t *testing.T) {
 	}
 }
 
+// reasonMatches compares an error text with want; a want ending in "*"
+// matches any text with that prefix and a non-empty rest.
+func reasonMatches(got, want string) bool {
+	if p, ok := strings.CutSuffix(want, "*"); ok {
+		return strings.HasPrefix(got, p) && len(got) > len(p)
+	}
+	return got == want
+}
+
 // TestUnmarshalRejectsWithReason pins the error each strict-parse refusal
 // reports for an edited canonical envelope: the verifier passes these
 // details through as the malformed_line finding, so a reader can tell what
@@ -410,11 +419,13 @@ func TestUnmarshalRejectsWithReason(t *testing.T) {
 		want string
 	}{
 		{"invalid-utf8", edit(`"source":"workflow"`, "\"source\":\"work\xffflow\""), "chain: invalid envelope: invalid UTF-8"},
-		{"empty", []byte(``), "chain: invalid envelope: EOF"},
-		{"non-string-key", []byte(`{1:2}`), "chain: invalid envelope: invalid character '1'"},
-		{"member-value-invalid", edit(`"source":"workflow"`, `"source":}`),
-			"chain: invalid envelope: source: invalid character '}' looking for beginning of value"},
-		{"unterminated-object", []byte(strings.TrimSuffix(canon, "}")), "chain: invalid envelope: EOF"},
+		// A JSON syntax error carries encoding/json's own text after our
+		// prefix, and that text differs between Go releases (TICK-970), so
+		// these four pin the prefix and the member only (a trailing "*").
+		{"empty", []byte(``), "chain: invalid envelope: *"},
+		{"non-string-key", []byte(`{1:2}`), "chain: invalid envelope: *"},
+		{"member-value-invalid", edit(`"source":"workflow"`, `"source":}`), "chain: invalid envelope: source: *"},
+		{"unterminated-object", []byte(strings.TrimSuffix(canon, "}")), "chain: invalid envelope: *"},
 		// Year 0000 and U+0000 parse, but the encoder refuses them, so the
 		// round-trip check rejects the envelope rather than hash it.
 		{"year-zero", edit(`"occurred_at":"2026-`, `"occurred_at":"0000-`),
@@ -442,7 +453,7 @@ func TestUnmarshalRejectsWithReason(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var e Envelope
 			err := e.UnmarshalJSON(c.in)
-			if !errors.Is(err, ErrInvalidEnvelope) || err.Error() != c.want {
+			if !errors.Is(err, ErrInvalidEnvelope) || !reasonMatches(err.Error(), c.want) {
 				t.Fatalf("err = %v, want %s", err, c.want)
 			}
 			if !reflect.DeepEqual(e, Envelope{}) {

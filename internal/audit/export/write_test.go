@@ -40,6 +40,13 @@ func base() time.Time  { return time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC) }
 
 func newFakeLog(t *testing.T, n int) *fakeLog {
 	t.Helper()
+	return newFakeLogWith(t, n, nil)
+}
+
+// newFakeLogWith is newFakeLog with edit applied to each entry before it is
+// hashed.
+func newFakeLogWith(t *testing.T, n int, edit func(*read.Entry)) *fakeLog {
+	t.Helper()
 	l := &fakeLog{tenant: uuid.MustParse("0190f3a0-0000-7000-8000-000000000001")}
 	prev := chain.Genesis
 	for i := 1; i <= n; i++ {
@@ -57,6 +64,9 @@ func newFakeLog(t *testing.T, n int) *fakeLog {
 		salt := [16]byte{byte(i)}
 		d := chain.DiffSHA256(salt, diff)
 		e.DiffSHA256, e.Diff, e.DiffSalt = d[:], diff, salt[:]
+		if edit != nil {
+			edit(&e)
+		}
 		row := read.ExportRow{TenantID: l.tenant, Entry: e}
 		env := envOf(row)
 		sha, err := chain.EnvelopeSHA256(env)
