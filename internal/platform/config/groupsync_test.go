@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -15,9 +16,7 @@ func groupsyncEnv(extra map[string]string) config.LookupFunc {
 		"NAVA_GROUPSYNC_CLIENT_ID":     "nava-groupsync",
 		"NAVA_GROUPSYNC_CLIENT_SECRET": "s3cret",
 	}
-	for k, v := range extra {
-		m[k] = v
-	}
+	maps.Copy(m, extra)
 	return env(m)
 }
 

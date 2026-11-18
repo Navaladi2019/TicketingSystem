@@ -31,7 +31,8 @@ type scripted struct {
 	cons string      // constraint name of the error
 }
 
-func sp(v string) *string { return &v }
+//go:fix inline
+func sp(v string) *string { return new(v) }
 
 // fakePGServer is a PostgreSQL wire-protocol server (simple query protocol) whose
 // answers a test scripts per statement. It lets the tests drive pgstore's

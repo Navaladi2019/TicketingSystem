@@ -70,8 +70,7 @@ func TestCancelDuringWait(t *testing.T) {
 	h.env.RegisterDelayedCallback(h.env.CancelWorkflow, time.Hour)
 	h.start(version, record)
 	err := h.env.GetWorkflowError()
-	var canceled *temporal.CanceledError
-	if !errors.As(err, &canceled) {
+	if _, ok := errors.AsType[*temporal.CanceledError](err); !ok {
 		t.Fatalf("workflow error %v, want a CanceledError", err)
 	}
 	if c := h.calls(); len(c) != 0 {

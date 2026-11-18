@@ -261,8 +261,7 @@ func (h *handlers) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 // hands every other error to the shared handler.
 func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
-		var pe *problemError
-		if errors.As(err, &pe) {
+		if pe, ok := errors.AsType[*problemError](err); ok {
 			// The 4xx codes that name fields. Each is a constant, so the
 			// registry guard sees a client error; any other code, fields or
 			// not, goes through WriteError.

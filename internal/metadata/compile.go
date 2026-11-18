@@ -144,9 +144,7 @@ func Compile(d Definition) (*Compiled, error) {
 	slices.Sort(unique)
 
 	fixed := make(map[string]string, len(d.FixedColumns))
-	for k, v := range d.FixedColumns {
-		fixed[k] = v
-	}
+	maps.Copy(fixed, d.FixedColumns)
 	return &Compiled{
 		key:           d.Key,
 		numberPrefix:  d.NumberPrefix,

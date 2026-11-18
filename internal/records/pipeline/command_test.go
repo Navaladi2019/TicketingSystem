@@ -58,12 +58,12 @@ func TestWriteRefusesBadCommands(t *testing.T) {
 		// UUID; no other write names one.
 		"ai write, no source_ref": func(c *pipeline.Command) { c.Actor, c.Source = system, pipeline.SourceAI },
 		"ai write, source_ref not a uuid": func(c *pipeline.Command) {
-			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, ptrTo("decision-1")
+			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, new("decision-1")
 		},
 		"ai write, uppercase source_ref": func(c *pipeline.Command) {
-			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, ptrTo(strings.ToUpper(uuid.NewString()))
+			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, new(strings.ToUpper(uuid.NewString()))
 		},
-		"user write naming a source_ref": func(c *pipeline.Command) { c.SourceRef = ptrTo(uuid.NewString()) },
+		"user write naming a source_ref": func(c *pipeline.Command) { c.SourceRef = new(uuid.NewString()) },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -137,4 +137,5 @@ func TestErrAtVersionIsTransparent(t *testing.T) {
 	}
 }
 
-func ptrTo[T any](v T) *T { return &v }
+//go:fix inline
+func ptrTo[T any](v T) *T { return new(v) }

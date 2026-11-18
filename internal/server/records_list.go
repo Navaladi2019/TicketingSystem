@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -233,8 +234,7 @@ func checkPlan(pol *authz.Policy, p identity.Principal, pl *listPlan) error {
 }
 
 func maskedFieldError(err error) error {
-	var mf *authz.ErrMaskedField
-	if errors.As(err, &mf) {
+	if mf, ok := errors.AsType[*authz.ErrMaskedField](err); ok {
 		return &problemError{problem.MaskedField, []problem.FieldError{invalid("/"+escapePointer(mf.Field), "masked")}, err}
 	}
 	return err
@@ -410,9 +410,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 	}
 	q, _ := ctx.Value(rawQueryKey{}).(url.Values)
 	cq := url.Values{}
-	for k, v := range q {
-		cq[k] = v
-	}
+	maps.Copy(cq, q)
 	cq.Set("_entity", req.Entity)
 	claims, err := cursor.ClaimsFor(ctx, listRecordsRoute, cq)
 	if err != nil {

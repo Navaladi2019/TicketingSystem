@@ -123,12 +123,7 @@ func overlaps(p patchwalk.Pointer, masked []patchwalk.Pointer) bool {
 }
 
 func under(p patchwalk.Pointer, masked []patchwalk.Pointer) bool {
-	for _, m := range masked {
-		if p.HasPrefix(m) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(masked, p.HasPrefix)
 }
 
 // rawOp is one op in its output order. From is a pointer so an absent member

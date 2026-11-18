@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,7 +89,7 @@ func checkMigrationVersions(fsys fs.FS) error {
 		}
 		timestamps = append(timestamps, stamped{name, v})
 	}
-	sort.Slice(sequential, func(i, j int) bool { return sequential[i] < sequential[j] })
+	slices.Sort(sequential)
 	for i, v := range sequential {
 		if want := int64(i + 1); v != want {
 			problems = append(problems, fmt.Sprintf("sequential versions are not contiguous from 00001: %s has version %05d, want %05d "+

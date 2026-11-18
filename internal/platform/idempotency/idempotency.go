@@ -76,6 +76,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -228,8 +229,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		if err != nil {
 			m.count(ctx, resultRejected)
 			rule := "unreadable"
-			var tooBig *http.MaxBytesError
-			if errors.As(err, &tooBig) {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				rule = "max_size"
 			}
 			m.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/body", Rule: rule})
@@ -548,9 +548,7 @@ func (c *captured) storable() bool { return c.status < http.StatusInternalServer
 // the status, none without a body.
 func (c *captured) flush(w http.ResponseWriter) {
 	h := w.Header()
-	for k, v := range c.header {
-		h[k] = v
-	}
+	maps.Copy(h, c.header)
 	h.Del("Content-Type")
 	if len(c.body) > 0 {
 		h.Set("Content-Type", ContentTypeFor(c.status))

@@ -95,8 +95,7 @@ func CheckSchemaSecrets(schema json.RawMessage) error {
 		return fmt.Errorf("entitytypes: diff schema: %w", err)
 	}
 	if err := secrets.Check(whole, paths, secrets.DomainConfig); err != nil {
-		var sec *secrets.ErrSecretInDiff
-		if errors.As(err, &sec) {
+		if sec, ok := errors.AsType[*secrets.ErrSecretInDiff](err); ok {
 			return &SecretInContentError{Path: string(sec.Path), Reason: string(sec.Reason)}
 		}
 		return fmt.Errorf("entitytypes: check schema secrets: %w", err)
@@ -163,8 +162,7 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 		e.RequestID = &id
 	}
 	if _, err := audit.Append(ctx, tx, e); err != nil {
-		var sec *secrets.ErrSecretInDiff
-		if errors.As(err, &sec) {
+		if sec, ok := errors.AsType[*secrets.ErrSecretInDiff](err); ok {
 			return &SecretInContentError{Path: string(sec.Path), Reason: string(sec.Reason)}
 		}
 		return fmt.Errorf("entitytypes: audit version: %w", err)

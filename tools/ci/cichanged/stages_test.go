@@ -197,7 +197,7 @@ func testDockerfileChangeBuildsRealImages(t *testing.T, dir, base string) {
 		// scenario does not check, to stay inside go test's 10 minutes
 		// under task test (TICK-597). CI_ALL=1 runs no cichanged at all.
 		out := ciStages(t, dir, base, append([]string{"CI_AREAS_ALL=1"}, env...)...)
-		for _, l := range strings.Split(out, "\n") {
+		for l := range strings.SplitSeq(out, "\n") {
 			if v, ok := strings.CutPrefix(l, "images="); ok {
 				return v
 			}

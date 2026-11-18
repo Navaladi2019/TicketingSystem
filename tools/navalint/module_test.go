@@ -34,7 +34,7 @@ func TestXToolsStaysOutOfProduction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
-	for _, pkg := range strings.Fields(string(out)) {
+	for pkg := range strings.FieldsSeq(string(out)) {
 		if pkg == xtools || strings.HasPrefix(pkg, xtools+"/") {
 			t.Errorf("a production package or test imports %s", pkg)
 		}

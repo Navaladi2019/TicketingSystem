@@ -195,18 +195,14 @@ func (a *Manifest) TableNames() []string { return slices.Sorted(maps.Keys(a.Audi
 func (a *Manifest) MergeGrants(m *grants.Manifest) (*grants.Manifest, error) {
 	out := *m
 	out.Roles = make(map[string]grants.Role, len(m.Roles))
-	for name, r := range m.Roles {
-		out.Roles[name] = r
-	}
+	maps.Copy(out.Roles, m.Roles)
 	for _, w := range a.Writers() {
 		r, ok := out.Roles[w]
 		if !ok {
 			return nil, fmt.Errorf("audited-tables manifest: writer role %q is not a role in db/grants.yaml", w)
 		}
 		tables := make(map[string]map[string][]string, len(r.Tables)+1)
-		for t, privs := range r.Tables {
-			tables[t] = privs
-		}
+		maps.Copy(tables, r.Tables)
 		privs := make(map[string][]string, len(tables[LogTable])+2)
 		for p, cols := range tables[LogTable] {
 			privs[p] = slices.Clone(cols)

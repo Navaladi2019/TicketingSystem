@@ -96,7 +96,7 @@ func run(configDir, env, zone string, boot bool) error {
 // dynamicConfigClient reads the dynamic config file the config names, relative
 // to configDir. With none named there are no values, and checkSecurityConfig
 // refuses to start (D6-K needs explicit values).
-func dynamicConfigClient(cfg *config.Config, configDir string, logger log.Logger, done <-chan interface{}) (dynamicconfig.Client, error) {
+func dynamicConfigClient(cfg *config.Config, configDir string, logger log.Logger, done <-chan any) (dynamicconfig.Client, error) {
 	if cfg.DynamicConfigClient == nil {
 		return dynamicconfig.NewNoopClient(), nil
 	}

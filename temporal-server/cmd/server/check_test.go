@@ -210,7 +210,7 @@ func TestShippedDynamicConfigStarts(t *testing.T) {
 		filepath.Join("..", "..", "..", "deploy", "compose", "temporal", "config", "dynamicconfig", "compose.yaml"),
 	} {
 		t.Run(path, func(t *testing.T) {
-			done := make(chan interface{})
+			done := make(chan any)
 			defer close(done)
 			dc, err := dynamicconfig.NewFileBasedClient(&dynamicconfig.FileBasedClientConfig{
 				Filepath: path, PollInterval: time.Minute,
@@ -243,7 +243,7 @@ func TestGuardedClientPinsD6KKeysAtRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	const poll = 5 * time.Second // the file client's minimum
-	done := make(chan interface{})
+	done := make(chan any)
 	defer close(done)
 	file, err := dynamicconfig.NewFileBasedClient(&dynamicconfig.FileBasedClientConfig{
 		Filepath: path, PollInterval: poll,

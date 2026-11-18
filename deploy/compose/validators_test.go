@@ -37,7 +37,7 @@ func loadModule(root string) (map[string]*goPkg, error) {
 		return nil, err
 	}
 	var mod string
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if f := strings.Fields(l); len(f) == 2 && f[0] == "module" {
 			mod = f[1]
 		}

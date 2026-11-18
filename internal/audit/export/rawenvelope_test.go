@@ -21,7 +21,7 @@ const trickyText = "a\u2028b\u2029c<d>e&f"
 // and U+2029 there, which the verifier then rejects as non-canonical).
 func TestEntryLineCarriesCanonicalEnvelopeBytes(t *testing.T) {
 	t.Parallel()
-	l := newFakeLogWith(t, 3, func(e *read.Entry) { e.ActorSystem = ptr(trickyText) })
+	l := newFakeLogWith(t, 3, func(e *read.Entry) { e.ActorSystem = new(trickyText) })
 	b, err := run(t, l, 2, export.Request{Stubs: true})
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestEntryLineCarriesCanonicalEnvelopeBytes(t *testing.T) {
 // Envelope encodes to exactly its MarshalJSON bytes.
 func TestEnvelopeLineEqualsMarshalJSON(t *testing.T) {
 	t.Parallel()
-	l := newFakeLogWith(t, 1, func(e *read.Entry) { e.ActorSystem = ptr(trickyText) })
+	l := newFakeLogWith(t, 1, func(e *read.Entry) { e.ActorSystem = new(trickyText) })
 	env := envOf(l.rows[0])
 	canon, err := env.MarshalJSON()
 	if err != nil {
