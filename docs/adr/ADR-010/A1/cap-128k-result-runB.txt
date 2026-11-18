@@ -1,0 +1,101 @@
+cap=131072; postgres:16.10; host: MINGW64_NT-10.0-26300 3.3.6-bec3d608-341.x86_64 x86_64; docker: 16 vCPUs, 26260877312 bytes; other running containers: 32
+ setseed 
+---------
+ 
+(1 row)
+
+  cap   
+--------
+ 131072
+(1 row)
+
+== documents: text bytes, stored bytes, ids, problem at the SP-2 caps (NULL = valid), A1 CHECK
+        variant        | docs | max_text_bytes | masks_bytes | avg_stored_bytes | ids_per_doc | problem | a1_check 
+-----------------------+------+----------------+-------------+------------------+-------------+---------+----------
+ a f1_6rules           |   30 |           4500 |           2 |             3134 |          71 |         | t
+ b sp2_caps_k1         |   30 |          10783 |           2 |             4029 |          51 | valid   | t
+ c sp2_caps_ids_cap    |   10 |         131023 |           2 |           134216 |        2000 | valid   | t
+ d sp2_caps_unused_cap |   10 |         130982 |           2 |            42789 |         514 | valid   | t
+ e nodes_cap           |   10 |         130968 |           2 |             4528 |           0 | valid   | t
+ f refs_cap            |   10 |         130870 |           2 |             7183 |           0 | valid   | t
+ g ids_dense_cap       |   10 |         130913 |           2 |           130976 |        3270 | valid   | t
+ h masks_cap           |   10 |          10783 |      130432 |             4017 |          51 | valid   | t
+ i refs_cap+masks_cap  |   10 |         130870 |      130432 |             7183 |           0 | valid   | t
+ z 1mib_refused        |    5 |        1018613 |           2 |           429740 |        4621 | valid   | t
+ z masks_1mib_refused  |    5 |          10783 |     1033364 |             4042 |          52 | valid   | t
+(11 rows)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+== single-row insert, ms (3 passes over the pool)
+        variant        |      setup      |                outcome                 | n  |  p50  |  p95   |  max   
+-----------------------+-----------------+----------------------------------------+----+-------+--------+--------
+ a f1_6rules           | 1 none          | inserted                               | 90 |  0.03 |   0.14 |   0.89
+ a f1_6rules           | 2 check         | inserted                               | 90 |  0.54 |   2.00 |   3.91
+ a f1_6rules           | 3 check+trigger | inserted                               | 90 |  0.90 |   1.85 |   4.24
+ b sp2_caps_k1         | 1 none          | inserted                               | 90 |  0.03 |   0.06 |   0.08
+ b sp2_caps_k1         | 2 check         | inserted                               | 90 |  3.74 |   8.95 |  11.61
+ b sp2_caps_k1         | 3 check+trigger | inserted                               | 90 |  3.07 |   5.32 |   6.74
+ c sp2_caps_ids_cap    | 1 none          | inserted                               | 30 |  4.69 |   5.21 |  11.35
+ c sp2_caps_ids_cap    | 2 check         | inserted                               | 30 | 22.35 |  34.84 |  37.29
+ c sp2_caps_ids_cap    | 3 check+trigger | inserted                               | 30 | 20.52 |  28.28 |  29.11
+ d sp2_caps_unused_cap | 1 none          | inserted                               | 30 |  0.15 |   0.22 |   0.29
+ d sp2_caps_unused_cap | 2 check         | inserted                               | 30 | 34.27 |  60.12 |  66.44
+ d sp2_caps_unused_cap | 3 check+trigger | inserted                               | 30 | 33.73 |  49.60 |  54.36
+ e nodes_cap           | 1 none          | inserted                               | 30 |  0.03 |   0.06 |   0.13
+ e nodes_cap           | 2 check         | inserted                               | 30 | 40.09 |  91.55 | 107.23
+ e nodes_cap           | 3 check+trigger | inserted                               | 30 | 37.39 |  49.13 |  52.43
+ f refs_cap            | 1 none          | inserted                               | 30 |  0.04 |   0.06 |   0.08
+ f refs_cap            | 2 check         | inserted                               | 30 | 70.01 |  82.85 |  87.27
+ f refs_cap            | 3 check+trigger | inserted                               | 30 | 60.36 |  90.35 | 128.81
+ g ids_dense_cap       | 1 none          | inserted                               | 30 |  4.66 |   4.94 |   5.01
+ g ids_dense_cap       | 2 check         | inserted                               | 30 | 12.76 |  14.89 |  15.56
+ g ids_dense_cap       | 3 check+trigger | inserted                               | 30 | 22.54 |  30.41 |  30.71
+ h masks_cap           | 1 none          | inserted                               | 30 |  4.62 |   4.93 |   5.75
+ h masks_cap           | 2 check         | inserted                               | 30 | 13.51 |  15.54 |  15.75
+ h masks_cap           | 3 check+trigger | inserted                               | 30 | 23.55 |  29.32 |  30.97
+ i refs_cap+masks_cap  | 1 none          | inserted                               | 30 |  4.68 |   5.35 |   8.93
+ i refs_cap+masks_cap  | 2 check         | inserted                               | 30 | 70.97 | 102.74 | 115.15
+ i refs_cap+masks_cap  | 3 check+trigger | inserted                               | 30 | 78.06 | 102.49 | 113.37
+ z 1mib_refused        | 1 none          | inserted                               | 15 |  1.68 |   7.18 |  19.35
+ z 1mib_refused        | 2 check         | refused acl_versions_bytes_rules_check | 15 | 39.95 |  47.87 |  48.92
+ z 1mib_refused        | 3 check+trigger | refused acl_versions_bytes_rules_check | 15 | 25.26 |  34.03 |  34.26
+ z masks_1mib_refused  | 1 none          | inserted                               | 15 | 41.21 |  62.07 | 101.54
+ z masks_1mib_refused  | 2 check         | refused acl_versions_bytes_masks_check | 15 | 28.55 |  33.75 |  34.18
+ z masks_1mib_refused  | 3 check+trigger | refused acl_versions_bytes_masks_check | 15 | 17.24 |  26.43 |  29.79
+(33 rows)
+
+== the gate alone: octet_length(rules::text) per call, ms
+        variant        |  p50   |  max   
+-----------------------+--------+--------
+ a f1_6rules           |  0.064 |  0.264
+ b sp2_caps_k1         |  0.190 |  0.382
+ c sp2_caps_ids_cap    |  1.555 |  1.671
+ d sp2_caps_unused_cap |  2.333 |  4.195
+ e nodes_cap           |  2.176 |  2.622
+ f refs_cap            |  2.672 |  4.441
+ g ids_dense_cap       |  1.449 |  1.838
+ h masks_cap           |  0.189 |  0.290
+ i refs_cap+masks_cap  |  2.743 |  3.820
+ z 1mib_refused        | 17.084 | 24.974
+ z masks_1mib_refused  |  0.206 |  0.235
+(11 rows)
+
+== size boundary at insert (A1-2a form, all constraints and the trigger in place): cap is inserted, cap + 1 is refused
+psql:/bench/cap_bench.sql:271: NOTICE:  rules at cap + 0: inserted
+psql:/bench/cap_bench.sql:271: NOTICE:  masks at cap + 0: inserted
+psql:/bench/cap_bench.sql:271: NOTICE:  rules at cap + 1: refused by acl_versions_bytes_rules_check
+psql:/bench/cap_bench.sql:271: NOTICE:  masks at cap + 1: refused by acl_versions_bytes_masks_check
