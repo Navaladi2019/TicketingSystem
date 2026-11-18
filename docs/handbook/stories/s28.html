@@ -17,10 +17,9 @@
 </aside>
 <main>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a)</span></nav>
-<p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a)</h1>
-<p>Story TICK-879 (kit and first run TICK-884, this page TICK-885; PLAN-009 D-9-3). Status: <strong>in progress</strong>. The kit and the agent-proxy run are merged into the story branch <code>TICK-879/first-routed-record</code> (PR #706). The acceptance run (run 2) is recorded (TICK-885); the Technical Lead's verdict on TICK-879 is still to come.</p>
+<p>Story TICK-879 (kit and first run TICK-884, this page TICK-885; PLAN-009 D-9-3). Status: <strong>delivered</strong>. The kit and the agent-proxy run (PR #706), the acceptance run and handbook pages (PR #713) and the stand-in company login that removed the platform-staff sign-in step (TICK-967, PRs #725 and #728) are in the story branch <code>TICK-879/first-routed-record</code>.</p>
 <h2 id="what-a-user-can-now-do">What a user can now do</h2>
 <p>Anyone can time how long a brand-new customer's first administrator takes to get from "the tenant was just created" to "a new incident was routed by a workflow I published myself", using only the handbook and the kit. This is ADR-008's axis <strong>X1a</strong>, measured by method <strong>M-X1a</strong>. The target is 8 hours, the aim 4.</p>
 <ul>
@@ -64,10 +63,10 @@
 </tr>
 </tbody>
 </table>
-<p>Both are an agent's time: it sends each request right after reading the page. It shows the handbook path works end to end on a new tenant, with one platform-staff step. It does not show how long a person takes. Until a human run exists, every X1a number is labelled <code>agent proxy</code>.</p>
+<p>Both are an agent's time: it sends each request right after reading the page. It shows the handbook path works end to end on a new tenant. Both runs predate TICK-967, so each logged sign-in as a platform-staff step (F1); that step is now self-service, verified on a fresh stack in CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/44344844066">44344844066</a>. It does not show how long a person takes. Until a human run exists, every X1a number is labelled <code>agent proxy</code>.</p>
 <h2 id="flow">Flow</h2>
 <figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
-  onboard[&quot;1 Onboard: 201, clock starts&quot;] --&gt; signin[&quot;2 Sign in: stand-in, platform staff&quot;]
+  onboard[&quot;1 Onboard: 201, clock starts&quot;] --&gt; signin[&quot;2 Sign in: stand-in company login, self-registered&quot;]
   signin --&gt; me[&quot;/me in /admins after one group-sync cycle&quot;]
   me --&gt; type[&quot;3 incident v2 from the example&quot;]
   type --&gt; wf[&quot;4 Publish a workflow on incident&quot;]
@@ -98,7 +97,7 @@
 </tr>
 <tr>
 <td>4 No database command, platform-staff action or operator route</td>
-<td>Every step but sign-in used the public API only. Sign-in on the local stack needs platform staff (F1, deferred)</td>
+<td>Every step uses the public API only. Sign-in goes through the stand-in company login (TICK-967); <code>S28.3</code> makes no master-admin call. Fresh stack: CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/44344844066">44344844066</a></td>
 </tr>
 </tbody>
 </table>
@@ -115,7 +114,7 @@
 <tr>
 <td>F1</td>
 <td>The local stack has no company login, so the new admin signs in only through the kit's platform-staff stand-in</td>
-<td>Deferred. <a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">2. Sign in</a> now says so. Revisit when a test company login is added to the stack or a human run is planned</td>
+<td>TICK-967: the stand-in company login and a default-off onboarding host list. <a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">2. Sign in</a></td>
 </tr>
 <tr>
 <td>F2</td>
@@ -168,7 +167,7 @@
 <ul>
 <li>A human timed run (optional; the verdict does not wait for one).</li>
 <li>X1b, the timed pilot go-live, and M-X4, the cost model.</li>
-<li>A real brokered sign-in on the local stack (F1).</li>
+<li>A customer's own company login on the local stack; the stand-in realm takes its place there.</li>
 </ul>
 <p>See also <a href="../adr/adr-008.html">ADR-008</a>.</p>
 </article>

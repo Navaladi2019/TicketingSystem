@@ -250,7 +250,10 @@ stories:
   - id: S28
     issue: TICK-879
     title: A new tenant's time to its first workflow-routed ticket is measured (ADR-008 X1a)
-    status: in-progress
+    status: delivered
+    verdict: READY
+    date: 2026-11-18
+    verdict_comment: "TICK-879 VERDICT: ACCEPTED after the story -> main CI run"
     bruno:
       - S28
     evidence:
