@@ -1,0 +1,83 @@
+postgres:16.10; host: MINGW64_NT-10.0-26300 3.3.6-bec3d608-341.x86_64 x86_64; docker: 16 vCPUs, 26260877312 bytes; other running containers: 32
+ setseed 
+---------
+ 
+(1 row)
+
+== documents: text bytes, stored bytes, ids, problem at the SP-2 caps (NULL = valid), A1 CHECK
+        variant        | docs | max_text_bytes | avg_stored_bytes | ids_per_doc | problem | a1_check 
+-----------------------+------+----------------+------------------+-------------+---------+----------
+ a f1_6rules           |   30 |           4500 |             3134 |          71 |         | t
+ b sp2_caps_k1         |   30 |          10783 |             4029 |          51 | valid   | t
+ c sp2_caps_ids_32k    |   10 |          32383 |            22513 |         438 | valid   | t
+ d sp2_caps_unused_32k |   10 |          32045 |            10921 |         149 | valid   | t
+ e nodes_32k           |   10 |          32493 |             1225 |           0 | valid   | t
+ f refs_32k            |   10 |          32608 |             2009 |           0 | valid   | t
+ g ids_dense_32k       |   10 |          32713 |            32776 |         815 | valid   | t
+ z 1mib_refused        |    5 |        1018613 |           430145 |        4610 | valid   | f
+(8 rows)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+== single-row insert, ms (3 passes over the pool)
+        variant        |      setup      | n  |  p50  |  p95  |  max   
+-----------------------+-----------------+----+-------+-------+--------
+ a f1_6rules           | 1 none          | 90 |  0.05 |  0.27 |   1.41
+ a f1_6rules           | 2 check         | 90 |  0.62 |  1.26 |   3.22
+ a f1_6rules           | 3 check+trigger | 90 |  1.07 |  2.37 |   5.08
+ b sp2_caps_k1         | 1 none          | 90 |  0.05 |  0.13 |   0.17
+ b sp2_caps_k1         | 2 check         | 90 |  3.77 |  5.68 |   7.77
+ b sp2_caps_k1         | 3 check+trigger | 90 |  3.63 |  6.39 |   7.79
+ c sp2_caps_ids_32k    | 1 none          | 30 |  0.17 | 19.91 | 674.42
+ c sp2_caps_ids_32k    | 2 check         | 30 |  6.15 |  7.87 |   8.25
+ c sp2_caps_ids_32k    | 3 check+trigger | 30 |  6.53 | 10.54 |  11.62
+ d sp2_caps_unused_32k | 1 none          | 30 |  0.12 |  0.25 |   0.33
+ d sp2_caps_unused_32k | 2 check         | 30 |  8.34 | 12.54 |  13.69
+ d sp2_caps_unused_32k | 3 check+trigger | 30 |  8.62 | 15.70 |  17.10
+ e nodes_32k           | 1 none          | 30 |  0.02 |  0.18 |   0.32
+ e nodes_32k           | 2 check         | 30 |  8.10 | 13.22 |  15.47
+ e nodes_32k           | 3 check+trigger | 30 |  9.49 | 15.56 |  17.97
+ f refs_32k            | 1 none          | 30 |  0.04 |  0.99 |   1.63
+ f refs_32k            | 2 check         | 30 | 18.91 | 31.77 |  35.03
+ f refs_32k            | 3 check+trigger | 30 | 16.89 | 24.05 |  24.82
+ g ids_dense_32k       | 1 none          | 30 |  2.32 |  4.39 |   5.11
+ g ids_dense_32k       | 2 check         | 30 |  3.79 |  4.89 |   5.12
+ g ids_dense_32k       | 3 check+trigger | 30 |  5.85 |  9.64 |  11.97
+ z 1mib_refused        | 1 none          | 15 |  2.62 | 68.18 |  76.53
+ z 1mib_refused        | 2 check         | 15 | 42.94 | 53.86 |  55.47
+ z 1mib_refused        | 3 check+trigger | 15 | 28.77 | 39.51 |  39.97
+(24 rows)
+
+== the gate alone: octet_length(rules::text) per call, ms
+        variant        |  p50   |  max   
+-----------------------+--------+--------
+ a f1_6rules           |  0.053 |  0.201
+ b sp2_caps_k1         |  0.168 |  0.337
+ c sp2_caps_ids_32k    |  0.448 |  0.900
+ d sp2_caps_unused_32k |  0.539 |  0.715
+ e nodes_32k           |  0.519 |  2.571
+ f refs_32k            |  0.582 |  1.643
+ g ids_dense_32k       |  0.295 |  0.383
+ z 1mib_refused        | 15.604 | 17.899
+(8 rows)
+
+== gate boundary: 32,768 bytes is valid, 32,769 is refused
+ n_bytes | a1_check 
+---------+----------
+   32768 | t
+   32769 | f
+(2 rows)
+
