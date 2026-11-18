@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -636,34 +637,40 @@ func TestTracerHeaderHasNoBaggage(t *testing.T) {
 
 // The crash seam pauses a start until released, writing the marker first.
 func TestStdinPause(t *testing.T) {
-	r, w := io.Pipe()
-	var out syncBuffer
-	pause := StdinPause(r, &out)
-	c := startRow()
-	done := make(chan struct{})
-	go func() { pause(context.Background(), c); close(done) }()
-	waitFor(t, func() bool { return strings.Contains(out.String(), PauseMarker+" "+c.ID.String()) })
-	select {
-	case <-done:
-		t.Fatal("the seam did not pause")
-	case <-time.After(50 * time.Millisecond):
-	}
-	_, _ = w.Write([]byte("release\n"))
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a line on stdin did not release the seam")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		r, w := io.Pipe()
+		defer func() { _ = w.Close() }() // EOF ends the seam's stdin reader
+		var out syncBuffer
+		pause := StdinPause(r, &out)
+		c := startRow()
+		done := make(chan struct{})
+		go func() { pause(context.Background(), c); close(done) }()
+		synctest.Wait()
+		if !strings.Contains(out.String(), PauseMarker+" "+c.ID.String()) {
+			t.Fatalf("output %q, want the pause marker for %s", out.String(), c.ID)
+		}
+		if isClosed(done) {
+			t.Fatal("the seam did not pause")
+		}
+		_, _ = w.Write([]byte("release\n"))
+		synctest.Wait()
+		if !isClosed(done) {
+			t.Fatal("a line on stdin did not release the seam")
+		}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done = make(chan struct{})
-	go func() { pause(ctx, c); close(done) }()
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a cancelled context did not release the seam")
-	}
+		ctx, cancel := context.WithCancel(context.Background())
+		done = make(chan struct{})
+		go func() { pause(ctx, c); close(done) }()
+		synctest.Wait()
+		if isClosed(done) {
+			t.Fatal("the seam did not pause a second start")
+		}
+		cancel()
+		synctest.Wait()
+		if !isClosed(done) {
+			t.Fatal("a cancelled context did not release the seam")
+		}
+	})
 }
 
 func TestErrorCode(t *testing.T) {

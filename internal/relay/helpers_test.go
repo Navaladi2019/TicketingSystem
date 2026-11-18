@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -71,7 +72,26 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// waitFor polls cond for up to 10 s.
+// advance moves a synctest bubble's fake clock on by d, then waits until
+// every goroutine in the bubble is blocked again. Call it only inside
+// synctest.Test; it takes no wall-clock time.
+func advance(d time.Duration) {
+	<-time.After(d)
+	synctest.Wait()
+}
+
+// isClosed reports whether ch is closed, without blocking.
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitFor polls cond for up to 10 s. Integration tests only: a unit test
+// waits with synctest.Wait instead.
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
