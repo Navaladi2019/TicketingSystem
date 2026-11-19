@@ -13,6 +13,7 @@
     {
       "clientId": "nava-broker",
       "name": "Nava realm broker client (stand-in company login)",
+      "description": "Deliberately has NO email scope (defaultClientScopes is explicit): the email claims come from the protocol mappers below. Do not add the email scope back.",
       "enabled": true,
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",

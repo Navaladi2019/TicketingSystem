@@ -820,3 +820,41 @@ func TestIdPConfigDevHosts(t *testing.T) {
 		}
 	}
 }
+
+// The path prefix (TICK-986): a listed host is allowed only under the
+// stand-in realm, so a request cannot aim a URL at another realm.
+func TestIdPConfigDevHostsPathPrefix(t *testing.T) {
+	t.Parallel()
+	mk := func(u string) IdPSpec {
+		return IdPSpec{ProviderID: "oidc", Config: map[string]string{"clientId": "x", "tokenUrl": u, "jwksUrl": u}}
+	}
+	hosts := []string{"keycloak:8080"}
+	for _, u := range []string{
+		"http://keycloak:8080/realms/standin-company/protocol/openid-connect/certs",
+		"http://keycloak:8080/realms/standin-company/",
+	} {
+		if err := checkIdPConfigWith(mk(u), hosts); err != nil {
+			t.Errorf("%q refused: %v", u, err)
+		}
+	}
+	for _, u := range []string{
+		"http://keycloak:8080/realms/master/protocol/openid-connect/token",
+		"http://keycloak:8080/realms/standin-company",
+		"http://keycloak:8080/realms/standin-company-evil/x",
+		"http://keycloak:8080/realms/standin-company/../master/x",
+		"http://keycloak:8080/realms/standin-company/%2e%2e/master/x",
+		"http://keycloak:8080/realms/standin-company/..%2fmaster/x",
+		"http://keycloak:8080/realms/standin-company/..;/master/x",
+		"http://keycloak:8080/realms/standin%2Dcompany/x",
+		"http://keycloak:8080/%72ealms/standin-company/x",
+		"http://keycloak:8080/realms//standin-company/x",
+		"http://keycloak:8080/Realms/standin-company/x",
+		"http://keycloak:8080/",
+		"http://keycloak:8080",
+		"http://keycloak:8080/admin/realms/standin-company/x",
+	} {
+		if err := checkIdPConfigWith(mk(u), hosts); !errors.Is(err, identity.ErrInvalidInput) {
+			t.Errorf("%q accepted: err = %v, want ErrInvalidInput", u, err)
+		}
+	}
+}

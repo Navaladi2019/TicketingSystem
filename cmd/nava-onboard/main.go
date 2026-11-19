@@ -93,6 +93,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		{"operator", server.New(cfg.Addr, cfg.HTTP, handler, log)},
 		{"admin", telemetry.NewAdminServer(cfg.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel, mon.Routes), log)},
 	}
+	warnDevIdPHosts(ctx, log, cfg.DevIdPHosts)
 	log.InfoContext(ctx, "nava-onboard listening", slog.String("addr", cfg.Addr), slog.String("admin_addr", cfg.AdminAddr))
 
 	stopCtx, stopAll := context.WithCancel(ctx)
@@ -112,6 +113,17 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		log.WarnContext(ctx, "telemetry shutdown failed", slog.Any("error", telErr))
 	}
 	return errors.Join(append(errs, telErr)...)
+}
+
+// warnDevIdPHosts logs one WARN naming the dev-allowed IdP hosts when the list
+// is not empty. There is no production marker in the config to refuse on, so
+// the warning is the only guard.
+func warnDevIdPHosts(ctx context.Context, log *slog.Logger, hosts []string) {
+	if len(hosts) == 0 {
+		return
+	}
+	log.WarnContext(ctx, "dev IdP allow-list is on: http private IdP hosts are accepted under "+keycloak.DevIdPPathPrefix+"; never set this in production",
+		slog.Any("hosts", hosts))
 }
 
 // backends are the database stores and Keycloak adapters both the operator
