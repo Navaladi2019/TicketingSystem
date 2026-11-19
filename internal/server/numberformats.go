@@ -223,9 +223,9 @@ type numberFormatInput struct {
 // the template when the compiler gives one. No input is echoed.
 func parseNumberFormat(raw json.RawMessage, create bool) (numberFormatInput, *problemError) {
 	var in numberFormatInput
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return in, formatProblem(problem.NumberFormatInvalid, "", "type")
+	fields, bodyFE := decodeBody(raw)
+	if bodyFE != nil {
+		return in, formatProblem(problem.NumberFormatInvalid, bodyFE.Pointer, bodyFE.Rule)
 	}
 	if create {
 		rawKey, present := fields["key"]
