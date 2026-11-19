@@ -194,12 +194,22 @@ func compileRead(planned []plannedPolicy, c *compiler) string {
 	return "(" + strings.Join(ors, " OR ") + ")"
 }
 
+// maxReadBranches is the SP-2 total-branch threshold (ADR-010 D6, PLAN-011 C6;
+// docs/data/acl-format2-caps.md §3, TICK-933): up to 16 branches the
+// index-per-branch form wins whenever one branch is heavy, and above 16 the OR
+// form wins in every case measured, because planning the branched statement
+// grows with the square of the branch count. Above it ReadBranches returns no
+// branch, so the caller uses CompileRead, and counts
+// authz_read_branches_fallback_total.
+const maxReadBranches = 16
+
 // ReadPredicate is the list read path's predicate from one plan: the
-// ReadBranches branches when there are at least two, else no branch and
-// CompileRead's predicate in where. Placeholders and arguments follow
-// CompileRead's contract. It plans once, so one call counts each voided policy
-// once (D5b), where ReadBranches followed by a CompileRead fallback would
-// count it twice.
+// ReadBranches branches when there are at least two (and at most
+// maxReadBranches), else no branch and CompileRead's predicate in where.
+// Placeholders and arguments follow CompileRead's contract. It plans once, so
+// one call counts each voided policy once (D5b), where ReadBranches followed
+// by a CompileRead fallback would count it twice; a fallback above the
+// threshold is counted once too.
 func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, where string, args []any) {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadPredicate alias %q is not a plain identifier", alias))
@@ -207,7 +217,11 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 	planned := plan(pol, p, OpRead)
 	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
-	if branches = readBranches(planned, c); len(branches) >= 2 {
+	branches, over := readBranches(planned, c)
+	if over {
+		countReadFallback(pol)
+	}
+	if len(branches) >= 2 {
 		return branches, "", c.args
 	}
 	c = &compiler{alias: alias, base: argBase}
@@ -225,18 +239,28 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 // folded tree: a top-level any gives one branch per child, and a top-level all
 // with exactly one any child gives one branch per child of that any, each
 // ANDed with the all's other children (today's per-subject disjuncts of a
-// converted format-1 rule). A policy whose tree folds to true admits every
-// row, so the whole predicate is the single branch "true". No branch means no
-// policy can match; callers fall back to CompileRead when there are fewer
-// than two branches. A caller that wants that fallback uses ReadPredicate,
-// which plans once and so counts a voided policy once (D5b). The SP-2 total-branch threshold is TICK-938 P11-06's.
+// converted format-1 rule; at most MaxChildren, 16, per policy). A policy
+// whose tree folds to true admits every row, so the whole predicate is the
+// single branch "true". No branch means no policy can match, or more than
+// maxReadBranches (SP-2) in total, which is counted in
+// authz_read_branches_fallback_total; callers fall back to CompileRead when
+// there are fewer than two branches. A caller that wants that fallback uses
+// ReadPredicate, which plans once and so counts a voided policy once (D5b).
 //
-// Exclusion needs every term to be two-valued: the planner never renders a
-// term that can be NULL (plan.go), so NOT d_j is true exactly when d_j is false
-// and no row is dropped by "AND NOT". A term that could be NULL would silently
-// remove its rows from every later branch (Security review risk 2); keep new
-// terms two-valued. The text grows with the square of the number of branches
-// (branch i repeats the i-1 before it).
+// Exclusion needs every term to be two-valued, so that NOT d_j is true exactly
+// when d_j is false and no row is dropped by "AND NOT". A uuid cmp carries
+// "IS NOT NULL AND" and shared is an EXISTS, so those are two-valued on any
+// row. A state cmp is not guarded: it renders "(r.state = ANY(...))", and
+// records.state is nullable (PLAN-001's bare rows). It is two-valued only
+// because every caller restricts the rows to one entity type
+// (r.entity_definition_id = $2, internal/records/store/list.go), and
+// records_pipeline_all_or_none_check makes state non-NULL whenever
+// entity_definition_id is set. A caller without that filter must not use these
+// branches. The SQL is left as it is on purpose: adding the guard would change
+// the CI-6 text (ADR-010-E1). A term that could be NULL would silently remove
+// its rows from every later branch (Security review risk 2); keep new terms
+// two-valued. The text grows with the square of the number of branches
+// (branch i repeats the i-1 before it), which is why the threshold exists.
 func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, args []any) {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadBranches alias %q is not a plain identifier", alias))
@@ -244,15 +268,30 @@ func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) 
 	planned := plan(pol, p, OpRead)
 	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
-	return readBranches(planned, c), c.args
+	branches, over := readBranches(planned, c)
+	if over {
+		countReadFallback(pol)
+	}
+	return branches, c.args
 }
 
-// readBranches is ReadBranches over an existing plan; it counts nothing.
-func readBranches(planned []plannedPolicy, c *compiler) []string {
+// readBranches is ReadBranches over an existing plan; it counts nothing. over
+// reports that the plan has more than maxReadBranches branches: then it
+// returns none and binds no argument (it counts before it renders).
+func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over bool) {
 	for _, pp := range planned {
 		if pp.err == nil && pp.tree.op == pTrue {
-			return []string{"true"}
+			return []string{"true"}, false
 		}
+	}
+	total := 0
+	for _, pp := range planned {
+		if pp.err == nil {
+			total += pp.tree.disjunctCount()
+		}
+	}
+	if total > maxReadBranches {
+		return nil, true
 	}
 	var plain []string
 	for _, pp := range planned {
@@ -260,7 +299,7 @@ func readBranches(planned []plannedPolicy, c *compiler) []string {
 			plain = append(plain, pp.tree.disjuncts(c)...)
 		}
 	}
-	branches := make([]string, 0, len(plain))
+	branches = make([]string, 0, len(plain))
 	for i, d := range plain {
 		b := d
 		for _, prev := range plain[:i] {
@@ -268,52 +307,100 @@ func readBranches(planned []plannedPolicy, c *compiler) []string {
 		}
 		branches = append(branches, "("+b+")")
 	}
-	return branches
+	return branches, false
+}
+
+// splitAt is the index of a top-level all's only any child, the one D6
+// distributes; -1 when n is not an all or has no or several any children.
+func (n pnode) splitAt() int {
+	if n.op != pAll {
+		return -1
+	}
+	at := -1
+	for i, k := range n.kids {
+		if k.op == pAny {
+			if at >= 0 {
+				return -1
+			}
+			at = i
+		}
+	}
+	return at
+}
+
+// disjunctCount is len(n.disjuncts(c)), without rendering anything.
+func (n pnode) disjunctCount() int {
+	if n.op == pAny {
+		return len(n.kids)
+	}
+	if at := n.splitAt(); at >= 0 {
+		return len(n.kids[at].kids)
+	}
+	return 1
+}
+
+// disjunctTrees are the trees n.disjuncts renders, in the same order: their
+// OR is n. The tests evaluate them; the SQL is rendered by disjuncts, which
+// binds the shared children of a distributed all once.
+func (n pnode) disjunctTrees() []pnode {
+	if n.op == pAny {
+		return n.kids
+	}
+	at := n.splitAt()
+	if at < 0 {
+		return []pnode{n}
+	}
+	out := make([]pnode, len(n.kids[at].kids))
+	for i, s := range n.kids[at].kids {
+		kids := slices.Clone(n.kids)
+		kids[at] = s
+		out[i] = pnode{op: pAll, kids: kids}
+	}
+	return out
 }
 
 // disjuncts is the tree's SQL split as ReadBranches describes; their OR is
 // n.sql. The other children of a distributed all are rendered, and their
 // arguments bound, once, and their text shared.
 func (n pnode) disjuncts(c *compiler) []string {
-	switch n.op {
-	case pAny:
+	if n.op == pAny {
 		out := make([]string, len(n.kids))
 		for i, k := range n.kids {
-			out[i] = k.sql(c)
-		}
-		return out
-	case pAll:
-		at := -1
-		for i, k := range n.kids {
-			if k.op == pAny {
-				if at >= 0 {
-					return []string{n.sql(c)}
-				}
-				at = i
-			}
-		}
-		if at < 0 {
-			return []string{n.sql(c)}
-		}
-		subjects := make([]string, len(n.kids[at].kids))
-		for i, k := range n.kids[at].kids {
-			subjects[i] = k.sql(c)
-		}
-		rest := make([]string, len(n.kids))
-		for i, k := range n.kids {
-			if i != at {
-				rest[i] = k.sql(c)
-			}
-		}
-		out := make([]string, len(subjects))
-		for i, s := range subjects {
-			terms := slices.Clone(rest)
-			terms[at] = s
-			out[i] = "(" + strings.Join(terms, " AND ") + ")"
+			out[i] = k.branchSQL(c)
 		}
 		return out
 	}
-	return []string{n.sql(c)}
+	at := n.splitAt()
+	if at < 0 {
+		return []string{n.branchSQL(c)}
+	}
+	subjects := make([]string, len(n.kids[at].kids))
+	for i, k := range n.kids[at].kids {
+		subjects[i] = k.sql(c)
+	}
+	rest := make([]string, len(n.kids))
+	for i, k := range n.kids {
+		if i != at {
+			rest[i] = k.sql(c)
+		}
+	}
+	out := make([]string, len(subjects))
+	for i, s := range subjects {
+		terms := slices.Clone(rest)
+		terms[at] = s
+		out[i] = "(" + strings.Join(terms, " AND ") + ")"
+	}
+	return out
+}
+
+// branchSQL is n.sql as one disjunct: always one parenthesized term. An all
+// already renders as one; anything else is wrapped, as S10's disjuncts wrapped
+// a lone subject (CI-6: the same SQL text for a converted format-1 policy).
+func (n pnode) branchSQL(c *compiler) string {
+	if n.op == pAll {
+		return n.sql(c)
+	}
+	return "(" + n.sql(c) + ")"
 }
 
 var identRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
