@@ -16,9 +16,9 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
-	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 )
 
 // uncoercedTotals sums nava_field_index_uncoerced from reader by
@@ -91,7 +91,7 @@ func TestBackfillCountsUncoercedValues(t *testing.T) {
 	g.register(t, e, "num", fieldindex.StateBackfilling)
 
 	reader := sdkmetric.NewManualReader()
-	m, err := pipeline.NewFieldIndexMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	m, err := recordports.NewUncoercedCounter(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	if err != nil {
 		t.Fatal(err)
 	}
