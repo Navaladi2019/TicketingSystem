@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
@@ -45,4 +46,22 @@ func productionActivities(pool, pipePool *pgxpool.Pool, mp metric.MeterProvider)
 		Waits:       workerguard.WaitTracker{Pool: pool},
 		Causes:      workerguard.CauseTracker{Pool: pool},
 	}, nil
+}
+
+// uncoercedCounter is the backfill's UncoercedCounter: the counter the
+// interpreter's recordports.Writer registered when there is one, so the
+// worker registers nava_field_index_uncoerced once; otherwise (workflows
+// off, or the interptest fakes) one registered on mp. This package does not
+// import internal/records/pipeline (D-3-6).
+func uncoercedCounter(acts *interp.Activities, mp metric.MeterProvider) (backfill.UncoercedCounter, error) {
+	if acts != nil {
+		if w, ok := acts.Writer.(recordports.Writer); ok && w.FieldIndex != nil {
+			return w.FieldIndex, nil
+		}
+	}
+	m, err := recordports.NewUncoercedCounter(mp)
+	if err != nil || m == nil {
+		return nil, err
+	}
+	return m, nil
 }

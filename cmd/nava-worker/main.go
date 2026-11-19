@@ -36,7 +36,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/temporaltls"
-	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
@@ -235,8 +234,9 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		return nil, nil, nil, err
 	}
 	// The backfill's uncoerced values go to the counter the records
-	// trigger's do (nava_field_index_uncoerced_total, ADR-006 R5, TICK-974).
-	um, err := pipeline.NewFieldIndexMetrics(tel.MeterProvider)
+	// trigger's do (nava_field_index_uncoerced_total, ADR-006 R5, TICK-974):
+	// the interpreter writer's instance, registered once.
+	um, err := uncoercedCounter(acts, tel.MeterProvider)
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, err

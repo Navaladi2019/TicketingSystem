@@ -16,7 +16,6 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
-	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
@@ -76,12 +75,23 @@ type Activities struct {
 	// Uncoerced counts the values a batch skips because they do not coerce,
 	// on the counter the records trigger's count goes to
 	// (nava_field_index_uncoerced_total{entity_definition}, ADR-006 R5).
-	Uncoerced *pipeline.FieldIndexMetrics
+	Uncoerced UncoercedCounter
 	Log       *slog.Logger
 	// BatchSize is the records one batch copies; 0 is DefaultBatchSize.
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
 	SlowAfter time.Duration
+}
+
+// UncoercedCounter is where a batch reports the values it skipped because
+// they do not coerce: nava_field_index_uncoerced_total{entity_definition}.
+// The worker passes the records pipeline's *pipeline.FieldIndexMetrics,
+// the instance the trigger's count goes to, through
+// internal/workflow/recordports: this package may not import the pipeline
+// (D-3-6, TestRecordWritersOnlyInPipeline). AddUncoerced is called only
+// after the batch's transaction has committed, with n > 0.
+type UncoercedCounter interface {
+	AddUncoerced(ctx context.Context, entityDefinition uuid.UUID, n int64)
 }
 
 // Register adds the activities to r under their fixed names.
@@ -300,7 +310,9 @@ func (a *Activities) Batch(ctx context.Context, in Cursor) (Cursor, error) {
 	if err != nil {
 		return Cursor{}, fmt.Errorf("field index batch: %w", err)
 	}
-	a.Uncoerced.AddUncoerced(ctx, res.entityDefinition, res.uncoerced)
+	if a.Uncoerced != nil && res.uncoerced > 0 {
+		a.Uncoerced.AddUncoerced(ctx, res.entityDefinition, res.uncoerced)
+	}
 	return Cursor{Cursor: res.next}, nil
 }
 
