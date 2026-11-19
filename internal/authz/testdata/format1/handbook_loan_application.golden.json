@@ -1,0 +1,104 @@
+{
+  "format": 2,
+  "conditions": [],
+  "policies": [
+    {
+      "name": "admins",
+      "ops": [
+        "read",
+        "write"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "member_of": {
+                  "groups": [
+                    "11111111-1111-4111-8111-111111111111"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "auditors_read",
+      "legacy_id": "auditors-read",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "member_of": {
+                  "groups": [
+                    "33333333-3333-4333-8333-333333333333"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "applicant_read",
+      "legacy_id": "applicant-read",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "applicant_edit_submitted",
+      "legacy_id": "applicant-edit-submitted",
+      "ops": [
+        "read",
+        "write"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          },
+          {
+            "cmp": {
+              "column": "state",
+              "op": "eq",
+              "values": [
+                "submitted"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

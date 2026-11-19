@@ -1,0 +1,1 @@
+[{"id":"s","ops":["read"],"who":{"shared":true}},{"id":"w","ops":["write"],"who":{"assignee":true,"shared":true},"where":[{"column":"state","op":"in","values":["closed"]}]},{"id":"nobody","ops":["read"],"who":{}}]
