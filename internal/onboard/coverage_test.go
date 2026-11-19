@@ -221,7 +221,7 @@ func TestBuildSpecRefusals(t *testing.T) {
 	} {
 		r := base()
 		mut(&r)
-		if _, ptr := buildSpec(t.Context(), okResolver, r); ptr == "" {
+		if _, ptr := buildSpec(t.Context(), okResolver, nil, r); ptr == "" {
 			t.Errorf("%s: want a refusal", name)
 		}
 	}
@@ -229,7 +229,7 @@ func TestBuildSpecRefusals(t *testing.T) {
 	r := base()
 	r.Config["validateSignature"] = "false"
 	r.Config["syncMode"] = "FORCE"
-	spec, ptr := buildSpec(t.Context(), okResolver, r)
+	spec, ptr := buildSpec(t.Context(), okResolver, nil, r)
 	if ptr != "" || spec.Config["validateSignature"] != "true" || spec.Config["syncMode"] != "IMPORT" {
 		t.Fatalf("spec = %+v, %q", spec, ptr)
 	}

@@ -720,3 +720,80 @@ func TestOnboardSeedFailureLeavesProvisioningAndRetryFinishes(t *testing.T) {
 		t.Errorf("active=%v chain=%v afterActivate=%v", st.active[id], st.chains[id], st.chainAfterActivate)
 	}
 }
+
+// The dev allowance (TICK-967): default off, exact hosts only.
+const standinPath = "/realms/standin-company/protocol/openid-connect/"
+
+func standinConfig(host string) map[string]string {
+	return map[string]string{
+		"clientId": "c", "clientSecret": "s",
+		"authorizationUrl": "http://" + host + standinPath + "auth", "tokenUrl": "http://" + host + standinPath + "token",
+		"jwksUrl": "http://" + host + standinPath + "jwks",
+	}
+}
+
+func TestBuildSpecDevHosts(t *testing.T) {
+	ctx := t.Context()
+	in := func(cfg map[string]string) IdPRequest { return IdPRequest{ProviderID: "oidc", Config: cfg} }
+	res := fakeResolver{"keycloak": {"10.1.2.3"}}
+
+	// Unset: the stand-in host is refused, as before.
+	for _, hosts := range [][]string{nil, {}} {
+		if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080"))); ptr == "" {
+			t.Errorf("hosts %v: stand-in host accepted with the setting unset", hosts)
+		}
+	}
+	// On: the named host is accepted.
+	hosts := []string{"keycloak:8080"}
+	if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080"))); ptr != "" {
+		t.Errorf("named host refused at %s", ptr)
+	}
+	// On: every other private, loopback, link-local or look-alike host is still refused.
+	for _, h := range []string{
+		"keycloak", "keycloak:8081", "keycloak.:8080", "KEYCLOAK2:8080", "10.0.0.5", "10.0.0.5:8080", "127.0.0.1:8080", "localhost:8080",
+		"[::1]:8080", "169.254.169.254", "169.254.169.254:8080", "192.168.1.1", "100.64.0.1", "evil.keycloak:8080", "keycloak:8080@10.0.0.5",
+	} {
+		if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig(h))); ptr == "" {
+			t.Errorf("host %q accepted with only keycloak:8080 allowed", h)
+		}
+	}
+	// Mixed: one listed URL does not excuse another URL in the same config.
+	mixed := standinConfig("keycloak:8080")
+	mixed["jwksUrl"] = "http://10.0.0.5/jwks"
+	if _, ptr := buildSpec(ctx, res, hosts, in(mixed)); ptr == "" {
+		t.Error("an unlisted private jwksUrl was accepted next to listed URLs")
+	}
+	// The pinned settings still hold on the allowed path.
+	spec, _ := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080")))
+	if spec.Config["validateSignature"] != "true" || spec.Config["syncMode"] != "IMPORT" {
+		t.Errorf("spec not pinned: %v", spec.Config)
+	}
+}
+
+// The path prefix (TICK-986): the listed host is accepted only under the
+// stand-in realm. The admin-API path case lives in the keycloak package
+// test (navalint forbids that literal here); both gates share the helper.
+func TestBuildSpecDevHostsPathPrefix(t *testing.T) {
+	ctx := t.Context()
+	res := fakeResolver{"keycloak": {"10.1.2.3"}}
+	hosts := []string{"keycloak:8080"}
+	for _, key := range []string{"authorizationUrl", "tokenUrl", "jwksUrl"} {
+		for _, path := range []string{
+			"/realms/master/protocol/openid-connect/certs",
+			"/realms/standin-company",
+			"/realms/standin-company-evil/x",
+			"/realms/standin-company/../master/x",
+			"/realms/standin-company/%2e%2e/master/x",
+			"/realms/standin-company/..;/master/x",
+			"/realms/standin%2Dcompany/x",
+			"/",
+			"",
+		} {
+			cfg := standinConfig("keycloak:8080")
+			cfg[key] = "http://keycloak:8080" + path
+			if _, ptr := buildSpec(ctx, res, hosts, IdPRequest{ProviderID: "oidc", Config: cfg}); ptr == "" {
+				t.Errorf("%s path %q accepted", key, path)
+			}
+		}
+	}
+}

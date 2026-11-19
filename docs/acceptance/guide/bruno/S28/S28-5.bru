@@ -1,0 +1,25 @@
+meta {
+  name: S28.5 The platform user came from the first brokered login: userinfo
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/userinfo
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('email is the invited one', () => expect(N.json().email).to.eql(bru.getVar('s28_admin_email')));
+}
+
+docs {
+  The platform user carries the invited email. It was created by `nava-first-broker-login`, not by an admin call.
+}

@@ -146,6 +146,9 @@ type Options struct {
 	ACL      ACLPublisher
 	Specs    *Specs
 	Resolver Resolver
+	// DevIdPHosts is the default-off dev allowance (exact host[:port] list)
+	// for the local stack's stand-in company IdP. Empty in production.
+	DevIdPHosts []string
 	// Issuer is the realm issuer written to tenant_identity_binding.
 	Issuer string
 	Log    *slog.Logger
@@ -408,7 +411,7 @@ func (s *Service) validate(ctx context.Context, req Request) ([]string, keycloak
 	if !seen[strings.ToLower(req.AdminEmail[at+1:])] {
 		return fail("/admin_email")
 	}
-	spec, ptr := buildSpec(ctx, s.o.Resolver, req.IdP)
+	spec, ptr := buildSpec(ctx, s.o.Resolver, s.o.DevIdPHosts, req.IdP)
 	if ptr != "" {
 		return fail(ptr)
 	}
