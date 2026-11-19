@@ -420,7 +420,7 @@ class GoRegistry:
     workflows() is the closed kind list in internal/outbox/outbox.go (each kind
     with the Enqueue* function that alone may start it), plus the types of
     GO_NON_KIND_WORKFLOWS, which another workflow or the relay starts. activities() is every
-    name the Register functions of seal, interp and workerguard register. Each
+    name the Register functions of seal, interp, workerguard and backfill register. Each
     name is resolved through the packages' const declarations, so it is the
     string the worker registers. load() fails when it finds nothing, when a
     name does not resolve, or when a registered workflow type is not a kind (or
