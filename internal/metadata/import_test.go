@@ -16,7 +16,7 @@ import (
 func TestNoDatabaseOrNetworkImports(t *testing.T) {
 	direct := goList(t, "{{join .Imports \"\\n\"}}", ".")
 	allowed := []string{
-		"bytes", "cmp", "embed", "encoding/json", "errors", "fmt", "io", "io/fs", "maps",
+		"bytes", "cmp", "embed", "encoding/json", "encoding/json/jsontext", "errors", "fmt", "io", "io/fs", "maps",
 		"path", "reflect", "regexp", "slices", "strconv", "strings",
 		"github.com/santhosh-tekuri/jsonschema/v6", "github.com/santhosh-tekuri/jsonschema/v6/kind",
 	}

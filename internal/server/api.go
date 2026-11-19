@@ -41,6 +41,35 @@ const baseURL = ""
 // fails if the generated router's pattern ever differs.
 const createRecordPattern = "POST " + baseURL + "/api/v1/records/{entity}"
 
+// strictBodyRefusals answers, per operation with a request body, a body with
+// a duplicate member name or invalid UTF-8 (TICK-964): a 422 with the code the
+// operation already uses for a body it does not accept. A test fails if an
+// operation of the contract with a request body is missing here, or if an
+// entry answers anything but a registered 422 the operation declares.
+func strictBodyRefusals(reg *problem.Registry) map[string]apihttp.BodyRefusal {
+	invalidDefinition := func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+		reg.Write(w, r, problem.InvalidDefinition, fe)
+	}
+	recordInvalid := func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+		reg.Write(w, r, problem.RecordInvalid, fe)
+	}
+	return map[string]apihttp.BodyRefusal{
+		"POST " + baseURL + "/api/v1/operator/tenants": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.InvalidIdPConfig, fe)
+		},
+		"POST " + baseURL + "/api/v1/entity-types":                invalidDefinition,
+		"POST " + baseURL + "/api/v1/entity-types/{key}/versions": invalidDefinition,
+		"PUT " + baseURL + "/api/v1/entity-types/{key}/access": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.InvalidAccessPolicy, fe)
+		},
+		"POST " + baseURL + "/api/v1/workflow-definitions/{key}/versions": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.WorkflowDefinitionInvalid, fe)
+		},
+		createRecordPattern: recordInvalid,
+		"PATCH " + baseURL + "/api/v1/records/{entity}/{id}": recordInvalid,
+	}
+}
+
 // newAPI registers the /api/v1 routes of the embedded contract on mux and
 // returns the handler to serve. Authentication (routeAuth) wraps the whole
 // mux, outside the generated router: the generated wrapper binds path, query
@@ -78,7 +107,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		return nil, err
 	}
 
-	a := apihttp.New(spec, reg, log, baseURL)
+	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
 	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,

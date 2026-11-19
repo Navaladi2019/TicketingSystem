@@ -176,6 +176,15 @@ func decodeSchema(raw json.RawMessage, bad *problems) (map[string]any, bool) {
 		bad.add("schema")
 		return nil, false
 	}
+	// encoding/json v1 below turns invalid UTF-8 and a lone surrogate escape
+	// into U+FFFD without an error, so the stored bytes and the compiled
+	// schema would differ; the encoding/json/v2 policy refuses them first
+	// (TICK-964). Duplicate keys are left to scanSchema, which reports
+	// every one, not only the first.
+	if ptr, invalid := invalidUTF8At(raw); invalid {
+		*bad = append(*bad, "/schema"+ptr)
+		return nil, false
+	}
 	if !scanSchema(raw, bad) {
 		return nil, false
 	}

@@ -181,6 +181,16 @@ func TestCompileRefuses(t *testing.T) {
 			want: "/schema/properties/title/type",
 		},
 		{
+			name: "lone surrogate in a schema string (TICK-964)",
+			raw:  `{"type":"object","properties":{"state":{"type":"string","enum":["open","closed"]},"title":{"type":"string","description":"\ud800"},"requester":{"type":"string","format":"uuid"}}}`,
+			want: "/schema/properties/title/description",
+		},
+		{
+			name: "invalid UTF-8 in a schema string (TICK-964)",
+			raw:  "{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]},\"title\":{\"type\":\"string\",\"description\":\"\xc0\xaf\"},\"requester\":{\"type\":\"string\",\"format\":\"uuid\"}}}",
+			want: "/schema/properties/title/description",
+		},
+		{
 			name: "(e) duplicate key at the root",
 			raw:  `{"type":"object","type":"object","properties":{"state":{"type":"string","enum":["open","closed"]},"requester":{"type":"string","format":"uuid"}}}`,
 			want: "/schema/type",

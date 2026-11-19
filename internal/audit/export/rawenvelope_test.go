@@ -2,6 +2,7 @@ package export_test
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -76,5 +77,54 @@ func TestEnvelopeLineEqualsMarshalJSON(t *testing.T) {
 	}
 	if want := append(canon, '\n'); !bytes.Equal(got, want) {
 		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestCSVCarriesEnvelopeTextRaw is the CSV writer's half of the TICK-970
+// guard (QA on PR #736, TICK-964): an escape-prone envelope value reaches its
+// cell as the raw text, the meta cells are the JSONL lines byte for byte, and
+// each entry's envelope_sha256 cell is the hash of the canonical bytes.
+func TestCSVCarriesEnvelopeTextRaw(t *testing.T) {
+	t.Parallel()
+	l := newFakeLogWith(t, 3, func(e *read.Entry) { e.ActorSystem = new(trickyText) })
+	l.unsealed = nil
+	jb, cb := runBoth(t, l, 2, export.Request{Stubs: true})
+	mustPass(t, jb)
+	if escaped := "\\" + "u2028"; bytes.Contains(cb, []byte(escaped)) {
+		t.Fatalf("CSV escaped U+2028: %q", cb)
+	}
+	recs := readCSV(t, cb)
+	col := map[string]int{}
+	for i, name := range recs[0] {
+		col[name] = i
+	}
+	jl := lines(jb)
+	entries := 0
+	for i, r := range recs[1:] {
+		switch r[0] {
+		case "header", "trailer":
+			if got := r[col["meta"]]; got != jl[i] {
+				t.Errorf("%s meta cell\n got %q\nwant %q", r[0], got, jl[i])
+			}
+		case "entry":
+			seq, err := strconv.Atoi(r[col["seq"]])
+			if err != nil || seq < 1 || seq > len(l.rows) {
+				t.Fatalf("entry row seq %q", r[col["seq"]])
+			}
+			if got := r[col["actor_system"]]; got != trickyText {
+				t.Errorf("entry %d actor_system cell = %q, want %q", seq, got, trickyText)
+			}
+			sum, err := chain.EnvelopeSHA256(envOf(l.rows[seq-1]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := r[col["envelope_sha256"]]; got != chain.Hex(sum[:]) {
+				t.Errorf("entry %d envelope_sha256 cell = %q, want %q", seq, got, chain.Hex(sum[:]))
+			}
+			entries++
+		}
+	}
+	if entries != 3 {
+		t.Fatalf("found %d entry rows, want 3", entries)
 	}
 }
