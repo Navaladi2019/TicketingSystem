@@ -167,19 +167,45 @@ func CompileRead(pol *Policy, p identity.Principal, alias string, argBase int) (
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: CompileRead alias %q is not a plain identifier", alias))
 	}
+	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
+	return compileRead(planned, c), c.args
+}
+
+// compileRead is CompileRead over an existing plan; it counts nothing, so a
+// caller that plans once counts each voided policy once (D5b).
+func compileRead(planned []plannedPolicy, c *compiler) string {
 	var ors []string
-	for _, pp := range plan(pol, p, OpRead) {
-		if pp.err != nil {
-			countInvalid(pol, pp)
-			continue
+	for _, pp := range planned {
+		if pp.err == nil {
+			ors = append(ors, pp.tree.sql(c))
 		}
-		ors = append(ors, pp.tree.sql(c))
 	}
 	if len(ors) == 0 {
-		return "false", nil
+		return "false"
 	}
-	return "(" + strings.Join(ors, " OR ") + ")", c.args
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+// ReadPredicate is the list read path's predicate from one plan: the
+// ReadBranches branches when there are at least two, else no branch and
+// CompileRead's predicate in where. Placeholders and arguments follow
+// CompileRead's contract. It plans once, so one call counts each voided policy
+// once (D5b), where ReadBranches followed by a CompileRead fallback would
+// count it twice.
+func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, where string, args []any) {
+	if !identRE.MatchString(alias) {
+		panic(fmt.Sprintf("authz: ReadPredicate alias %q is not a plain identifier", alias))
+	}
+	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
+	c := &compiler{alias: alias, base: argBase}
+	if branches = readBranches(planned, c); len(branches) >= 2 {
+		return branches, "", c.args
+	}
+	c = &compiler{alias: alias, base: argBase}
+	return nil, compileRead(planned, c), c.args
 }
 
 // ReadBranches is CompileRead's predicate split into branches for a query that
@@ -196,7 +222,8 @@ func CompileRead(pol *Policy, p identity.Principal, alias string, argBase int) (
 // converted format-1 rule). A policy whose tree folds to true admits every
 // row, so the whole predicate is the single branch "true". No branch means no
 // policy can match; callers fall back to CompileRead when there are fewer
-// than two branches. The SP-2 total-branch threshold is TICK-938 P11-06's.
+// than two branches. A caller that wants that fallback uses ReadPredicate,
+// which plans once and so counts a voided policy once (D5b). The SP-2 total-branch threshold is TICK-938 P11-06's.
 //
 // Exclusion needs every term to be two-valued: the planner never renders a
 // term that can be NULL (plan.go), so NOT d_j is true exactly when d_j is false
@@ -208,26 +235,26 @@ func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) 
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadBranches alias %q is not a plain identifier", alias))
 	}
-	c := &compiler{alias: alias, base: argBase}
 	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
+	c := &compiler{alias: alias, base: argBase}
+	return readBranches(planned, c), c.args
+}
+
+// readBranches is ReadBranches over an existing plan; it counts nothing.
+func readBranches(planned []plannedPolicy, c *compiler) []string {
 	for _, pp := range planned {
 		if pp.err == nil && pp.tree.op == pTrue {
-			for _, q := range planned {
-				if q.err != nil {
-					countInvalid(pol, q)
-				}
-			}
-			return []string{"true"}, nil
+			return []string{"true"}
 		}
 	}
 	var plain []string
 	for _, pp := range planned {
-		if pp.err != nil {
-			countInvalid(pol, pp)
-			continue
+		if pp.err == nil {
+			plain = append(plain, pp.tree.disjuncts(c)...)
 		}
-		plain = append(plain, pp.tree.disjuncts(c)...)
 	}
+	branches := make([]string, 0, len(plain))
 	for i, d := range plain {
 		b := d
 		for _, prev := range plain[:i] {
@@ -235,7 +262,7 @@ func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) 
 		}
 		branches = append(branches, "("+b+")")
 	}
-	return branches, c.args
+	return branches
 }
 
 // disjuncts is the tree's SQL split as ReadBranches describes; their OR is

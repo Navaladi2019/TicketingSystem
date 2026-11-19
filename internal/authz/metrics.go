@@ -12,7 +12,11 @@ import (
 )
 
 // PolicyInvalidMetric counts the policies the planner voided, once per
-// evaluation (ADR-010 D5b, R7). The Prometheus exporter adds the _total
+// evaluation (ADR-010 D5b, R7). An evaluation is one plan: one Allows, one
+// CompileRead, one ReadBranches or one ReadPredicate call. The list read path
+// uses ReadPredicate, so a list request counts each voided policy once. A
+// write (ACL.CanWrite) evaluates the before and the after row separately, so
+// an update counts a voided write policy twice and a create once. The Prometheus exporter adds the _total
 // suffix: authz_policy_invalid_total{entity_type}. It carries no tenant
 // (TICK-93): the log line does not either, and an operator finds the tenant
 // by the entity type and the version.
@@ -36,6 +40,15 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	}
 	invalidCounter.Store(&c)
 	return nil
+}
+
+// countVoided records one evaluation of each voided policy in planned.
+func countVoided(pol *Policy, planned []plannedPolicy) {
+	for _, pp := range planned {
+		if pp.err != nil {
+			countInvalid(pol, pp)
+		}
+	}
 }
 
 // countInvalid records one evaluation of a voided policy.

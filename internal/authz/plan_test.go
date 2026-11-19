@@ -526,3 +526,43 @@ var ptReader = sync.OnceValue(func() *sdkmetric.ManualReader {
 	}
 	return reader
 })
+
+// The list read path (ReadPredicate) counts a voided policy once per request,
+// whether it splits into branches or falls back to CompileRead's predicate
+// (D5b). ReadBranches followed by CompileRead counted it twice.
+func TestReadPredicateCountsVoidedOnce(t *testing.T) {
+	t.Parallel()
+	bad := `{"name":"bad","ops":["read"],"when":{"ref":"missing"}}`
+	cases := []struct {
+		name, policies string
+		branches       int
+	}{
+		{"voided beside a one-branch policy", bad + `,{"name":"ok","ops":["read"],"when":` + isRequester() + `}`, 0},
+		{"all voided", bad, 0},
+		{"voided beside a split policy", bad + `,{"name":"ok","ops":["read"],"when":{"any":[` + isRequester() + `,` + stateOpen() + `]}}`, 2},
+	}
+	for _, c := range cases {
+		pol := ptDoc(t, `{"format":2,"conditions":[],"policies":[`+c.policies+`]}`)
+		pol.EntityType = "pt_readpredicate_" + strings.ReplaceAll(c.name, " ", "_")
+		before := ptInvalidCount(t, pol.EntityType)
+		branches, where, args := ReadPredicate(pol, ptMe(), "r", 2)
+		if after := ptInvalidCount(t, pol.EntityType); after != before+1 {
+			t.Errorf("%s: authz_policy_invalid_total went %d -> %d, want +1", c.name, before, after)
+		}
+		if len(branches) != c.branches {
+			t.Errorf("%s: %d branches, want %d: %q", c.name, len(branches), c.branches, branches)
+		}
+		// The fallback is exactly CompileRead's predicate and arguments.
+		if c.branches == 0 {
+			sql, sqlArgs := CompileRead(pol, ptMe(), "r", 2)
+			if where != sql || fmt.Sprint(args) != fmt.Sprint(sqlArgs) {
+				t.Errorf("%s: where %q %v, want CompileRead's %q %v", c.name, where, args, sql, sqlArgs)
+			}
+		} else {
+			br, brArgs := ReadBranches(pol, ptMe(), "r", 2)
+			if where != "" || !slices.Equal(branches, br) || fmt.Sprint(args) != fmt.Sprint(brArgs) {
+				t.Errorf("%s: branches %q %v where %q, want ReadBranches' %q %v", c.name, branches, args, where, br, brArgs)
+			}
+		}
+	}
+}
