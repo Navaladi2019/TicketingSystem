@@ -2,6 +2,8 @@ package isolation
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -12,13 +14,21 @@ import (
 // before 20261119100000, and ids whose group or user was tombstoned after
 // the publish. The read path must grant nothing on them, and these paths
 // prove it. The suite runs its paths one at a time.
+//
+// The DISABLE is committed (fn writes on another connection, which an open
+// ALTER TABLE would block), so while fn runs the trigger is off for the whole
+// cluster: the isolation suite's own, throwaway one. Only the table owner or
+// a superuser can do it (TestRuntimeRolesCannotSkipTheTenantIDTrigger), and
+// only this package's tests reach it (TestLegacyACLInsertIsTestOnly). A
+// failed ENABLE is always returned, joined to fn's error, never dropped
+// (TICK-943 finding F2).
 func legacyACLInsert(ctx context.Context, super *pgx.Conn, fn func() error) (err error) {
 	if _, err := super.Exec(ctx, "ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_tenant_ids"); err != nil {
 		return err
 	}
 	defer func() {
-		if _, e := super.Exec(context.WithoutCancel(ctx), "ALTER TABLE acl_versions ENABLE TRIGGER acl_versions_tenant_ids"); e != nil && err == nil {
-			err = e
+		if _, e := super.Exec(context.WithoutCancel(ctx), "ALTER TABLE acl_versions ENABLE TRIGGER acl_versions_tenant_ids"); e != nil {
+			err = errors.Join(err, fmt.Errorf("legacyACLInsert: re-enable acl_versions_tenant_ids: %w", e))
 		}
 	}()
 	return fn()
