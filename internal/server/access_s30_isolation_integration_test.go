@@ -282,7 +282,8 @@ func TestS30ExplainerStaysInItsTenantUnderFormat2(t *testing.T) {
 // version). Nothing is written in either tenant. Timing: both keys take the
 // same path, one lookup of (tenant_id, key) that finds nothing; there is no
 // second query to time.
-// covers: getEntityTypeAccess 404 putEntityTypeAccess 404
+// covers: getEntityTypeAccess 404
+// covers: putEntityTypeAccess 404
 func TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut(t *testing.T) {
 	e := newPatchEnv(t)
 	e.noTestACL = true

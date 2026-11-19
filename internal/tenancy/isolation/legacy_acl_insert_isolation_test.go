@@ -11,6 +11,7 @@ package isolation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -61,6 +62,14 @@ func TestLegacyACLInsertAlwaysReenablesTheTrigger(t *testing.T) {
 				_ = legacyACLInsert(context.Background(), super, fn)
 			}()
 			<-done
+			// Read on this goroutine, after the helper's goroutine ended.
+			var after string
+			if err := super.QueryRow(context.Background(), tenantIDTriggerSQL).Scan(&after); err != nil {
+				return err
+			}
+			if after != "O" {
+				return fmt.Errorf("after Goexit: trigger is %q, want O", after)
+			}
 			return nil
 		}, func(*testing.T) error { runtime.Goexit(); return nil }},
 		// The caller's context ends inside fn: the ENABLE does not use it.
@@ -147,10 +156,14 @@ func TestRuntimeRolesCannotSkipTheTenantIDTrigger(t *testing.T) {
 			} {
 				_, err := conn.Exec(context.Background(), sql)
 				var pe *pgconn.PgError
-				// 42501: not the owner, not a superuser. 42P01: the role
-				// cannot even see the table (pgbouncer_auth).
-				if !errors.As(err, &pe) || (pe.Code != "42501" && pe.Code != "42P01") {
-					t.Errorf("%s: %s = %v, want 42501 or 42P01", role, sql, err)
+				// 42501: not the owner, not a superuser. pgbouncer_auth alone
+				// cannot even see the table: 42P01 for its ALTERs.
+				want := "42501"
+				if role == "pgbouncer_auth" && strings.HasPrefix(sql, "ALTER") {
+					want = "42P01"
+				}
+				if !errors.As(err, &pe) || pe.Code != want {
+					t.Errorf("%s: %s = %v, want %s", role, sql, err, want)
 				}
 			}
 			if s := tenantIDTrigger(t, suite.superConn(t)); s != "O" {
