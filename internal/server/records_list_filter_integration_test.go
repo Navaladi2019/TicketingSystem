@@ -689,3 +689,22 @@ func TestListFilterRangeOnArrayFieldNeedsOneElementForEveryBound(t *testing.T) {
 	}
 	_, _ = split, outside
 }
+
+// covers: listRecords 200, 400
+//
+// Two comparisons on one array field are one EXISTS, so one element must meet
+// both: eq and in with different values match nothing, with a shared value they
+// match; the same key twice is refused as repeated.
+func TestListFilterTwoEqualitiesOnOneFieldArePinned(t *testing.T) {
+	e := newFilterEnv(t)
+	both := e.mustCreateRec(t, "admin-a", "asset", "eq-0", `{"short_description": "s0", "scores": [1, 2]}`)
+	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	if p := e.mustList(t, "admin-a", "asset", "filter[scores]=1&filter[scores][in]=2,3"); len(p.Items) != 0 || p.Total != 0 {
+		t.Errorf("eq 1 + in (2,3) on [1,2]: %d items, total %d, want none", len(p.Items), p.Total)
+	}
+	wantIDs(t, "eq+in shared", e.mustList(t, "admin-a", "asset", "filter[scores]=1&filter[scores][in]=1,3").Items, both)
+	rec, _ := e.list(t, "admin-a", "asset", "filter[scores]=1&filter[scores]=2")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("repeated key = %d: %s", rec.Code, rec.Body)
+	}
+}
