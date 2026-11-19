@@ -1046,13 +1046,25 @@ func (e *fiEnv) backfillPhase(t *testing.T, clients int) {
 	// values, as nava_app does (db/grants.yaml). The pool is reset so every
 	// connection starts with the role setting.
 	e.exec(t, "ALTER ROLE nava_worker SET plan_cache_mode = force_custom_plan")
+	// The RESET runs once: inline before the closing control, and from
+	// t.Cleanup if the test stops first, so a kept container (BENCH_KEEP=1)
+	// never keeps the setting. t.Context() is done by cleanup time.
+	var resetOnce sync.Once
+	resetRole := func() {
+		resetOnce.Do(func() {
+			if _, err := e.super.Exec(context.Background(), "ALTER ROLE nava_worker RESET plan_cache_mode"); err != nil {
+				t.Errorf("reset nava_worker plan_cache_mode: %v", err)
+			}
+			e.worker.Reset()
+		})
+	}
+	t.Cleanup(resetRole)
 	e.worker.Reset()
 	e.resetField(t, tenant, field)
 	r3 := e.runBackfill(t, b, tenant, field, version, fix)
 	e.resetField(t, tenant, field)
 	l4 := e.underLoad(t, b, clients, creates, mine, tenant, field, version, fix, liveMax)
-	e.exec(t, "ALTER ROLE nava_worker RESET plan_cache_mode")
-	e.worker.Reset()
+	resetRole()
 	alone2, errs5 := e.liveFor(t, clients, live, creates, mine)
 
 	e.w("| Live mix | Window | ops/s | p50 ms | p95 ms | p99 ms | create p95 | patch p95 |")
