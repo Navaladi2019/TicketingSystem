@@ -12,7 +12,7 @@
 <a class="brand" href="../index.html">Nava handbook</a>
 <div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
 <nav aria-label="Sections">
-<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows (not built)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group" open><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details open><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li class="current"><a href="../security/accepted-risks.html" aria-current="page">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group"><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li></ul></details></li></ul></details></li><li><details><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows (not built)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group" open><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details open><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li class="current"><a href="../security/accepted-risks.html" aria-current="page">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group"><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><details><summary><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></summary><ul><li><a href="../adr/adr-006-e1.html">E1: the D9 barrier also waits on running xids at or above xmax (proposed)</a></li></ul></details></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li></ul></details></li></ul></details></li><li><details><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
 </nav>
 </aside>
 <main>
@@ -871,6 +871,303 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td><code>main</code> starts requiring reviews, the repository gains collaborators, the image is used outside CI, or the package gains other writers. Remedy then: build-provenance attestation in the publish workflow (<code>actions/attest-build-provenance</code>) and <code>gh attestation verify</code> on the image at pull time, building from source when it does not verify (Security &amp; Multi-Tenancy Reviewer, finding 2)</td>
 <td><a href="../../../docs/quality/ci-pipeline.md#published-ci-images-tick-641-tick-693">CI pipeline</a></td>
 </tr>
+<tr>
+<td>AR-TICK-628-01 (thin CI images)</td>
+<td>🟡 Low †</td>
+<td>A pull request's <code>stack</code> run builds the seven Go services' images, and the interpreter cases' <code>nava-worker-interptest</code>, from <code>deploy/compose/Dockerfile.ci</code> over binaries built on the runner (<code>make ci-binaries</code>, <code>make image-ci IMAGE_THIN=1</code>), so it no longer exercises the real Dockerfiles' build stage (<code>go mod download</code>, the <code>COPY</code> of <code>cmd</code>, <code>internal</code>, <code>api</code>, <code>db</code>, the in-Docker <code>go build</code>). A change that breaks only that stage passes its PR and fails on the push to <code>main</code>, where <code>main-red</code> opens a P0. Bounded by: the real Dockerfiles on every push to <code>main</code> and on any PR touching a Dockerfile, <code>Dockerfile.ci</code>, <code>.dockerignore</code>, <code>go.mod</code>, <code>go.sum</code> or a compose <code>build:</code> block (<code>cichanged -images</code>); <code>TestDockerfileCIMatchesRealFinalStages</code> keeps base image, UID, user, binary path, entrypoint and ports equal.</td>
+<td>Accepted (TICK-628, 2026-11-08)</td>
+<td>Quality, Testing &amp; CI Advisor</td>
+<td>A red <code>main</code> from a real-image build that its PR's thin run passed; a real Dockerfile gains a build input outside <code>cmd</code>, <code>internal</code>, <code>api</code>, <code>db</code> (then add it to the <code>cichanged -images</code> rule); or a stage the check does not compare (<code>ENV</code>, <code>HEALTHCHECK</code>, <code>VOLUME</code>) in a real final stage</td>
+<td><a href="../../../docs/quality/ci-pipeline.md#thin-ci-images-tick-628">TICK-628 PR</a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-01 (numbers issued before a mask)</td>
+<td>🟡 Low</td>
+<td>A number format with a <code>{field:…}</code> token prints the field's code into every number. If that field is masked later, numbers already issued keep showing it in audit rows, outbox events, sent emails and external references; they cannot be recalled. The same holds for <code>number_space_exhausted</code> audit entries (ADR-004-E9), which carry the scope key and are never field-masked. New numbers stop carrying it because a mask on a referenced field must be published together with a format that drops it.</td>
+<td>Accepted (ADR-005, 2026-11-10; Security round 1 on RFC-014)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A tenant asks to recall issued numbers, a regulated tenant masks a field already used in numbers, or reference-code tokens ship (ADR-004-E9 RS-E9-2)</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §3.4, §8</a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-02 (per-scope volume)</td>
+<td>🟡 Low</td>
+<td>A per-scope counter (for example per branch and month) reveals the number of records in that scope to anyone who can read one record in it. Within the tenant only; the per-type counter already does the same per type.</td>
+<td>Accepted (ADR-005, 2026-11-10)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A tenant treats per-scope volume as confidential</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §8</a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-03 (L2s relies on WAL prefix replay)</td>
+<td>🟡 Low</td>
+<td>The number allocator commits with <code>synchronous_commit = off</code>. It cannot put one number on two records only because WAL is replayed as a prefix (crash recovery, physical replicas, PITR): a record's synchronous commit flushes the earlier counter advance. Spike S1: 3 of 3 forced crashes, 0 duplicates.</td>
+<td>Accepted (ADR-005, 2026-11-10; CTO ruling)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+<td>Logical replication on <code>record_counters</code> reopens ADR-005</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §2.2, §8</a></td>
+</tr>
+<tr>
+<td>AR-TICK-653-04 (allocator pool)</td>
+<td>⚪ Info</td>
+<td>The dedicated number-allocator pool adds 4 <code>nava_app</code> connections per API replica to <code>max_connections</code> and PgBouncer sizing.</td>
+<td>Accepted (ADR-005, 2026-11-10)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+<td>More than ~10 API replicas, or connection pressure on PostgreSQL</td>
+<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §2.2, §8</a></td>
+</tr>
+<tr>
+<td>AR-TICK-641-01 (published temporal-server and keycloak images in CI)</td>
+<td>🟡 Low †</td>
+<td>The ci workflow's <code>stack</code> job runs whatever image <code>ghcr.io/navaladi2019/nava-temporal-server:&lt;tree&gt;</code> (and, since TICK-693, <code>ghcr.io/navaladi2019/nava-keycloak:&lt;key&gt;</code>) holds when that tag exists, instead of building it itself. A tag is mutable: anyone with <code>packages: write</code> on the package could replace it, and the stack cases would test that image. That includes the repository's admins, and any workflow run in this repository that requests <code>packages: write</code>: only the <code>prebuilt-images</code> workflow (main only; <code>temporal-server-image</code> before TICK-693) <em>should</em> hold it, but GitHub lets a workflow on any same-repo branch request it, so this is a convention, not an enforced control (Security &amp; Multi-Tenancy Reviewer, finding 1). Bounded by: CI only (no deployment pulls it); by convention only the main-only publish workflow requests <code>packages: write</code>, and today the repository has a single owner and no other collaborators; <code>make prebuilt-pull</code> rejects an image whose key label (<code>nava.temporal-server.tree</code>, <code>nava.keycloak.key</code>) differs from the checkout's key (a consistency check, not a signature); a pull request that changes a key input builds from source.</td>
+<td>Accepted (TICK-641, 2026-11-09)</td>
+<td>Quality, Testing &amp; CI Advisor</td>
+<td><code>main</code> starts requiring reviews, the repository gains collaborators, the image is used outside CI, or the package gains other writers. Remedy then: build-provenance attestation in the publish workflow (<code>actions/attest-build-provenance</code>) and <code>gh attestation verify</code> on the image at pull time, building from source when it does not verify (Security &amp; Multi-Tenancy Reviewer, finding 2)</td>
+<td><a href="../../../docs/quality/ci-pipeline.md#published-ci-images-tick-641-tick-693">CI pipeline</a></td>
+</tr>
+<tr>
+<td>AR-S17-01 (first create races in the counter-key window)</td>
+<td>🟡 Low</td>
+<td>Between ADR-005 migration M2 (<code>record_counters_scoped_key</code> built) and M3 (it becomes the primary key), <code>record_counters</code> has two unique indexes, and <code>ON CONFLICT</code> absorbs only its arbiter. Two concurrent <strong>first</strong> creates of one (tenant, type) make the loser fail with 23505 on the other index. R1 retries once (TICK-666); an R0 binary still running during the R1 rollout has no retry. Existing counters are unaffected; no number is duplicated; M3 closes it.</td>
+<td>Accepted (ADR-005-E1, 2026-11-12; Technical Lead decision on TICK-665)</td>
+<td>Technical Lead</td>
+<td>The R1 rollout or the R1-to-M3 gap exceeds one deploy cycle, or a tenant reports a failed first create</td>
+<td><a href="../../../docs/adr/ADR-005-E1-first-create-race-in-expand-window.md">ADR-005-E1</a></td>
+</tr>
+<tr>
+<td>AR-S18-01 (republish report could name a type the caller cannot list)</td>
+<td>🟠 Medium</td>
+<td><code>POST /api/v1/number-formats/{id}/republish-linked</code> reports one line per linked type, including <code>forbidden</code> lines that carry the type key. C13 holds today only because publishing and listing types both require a tenant admin, who can list every type. Once a per-type publish or list right exists, an unfiltered report would leak the keys of types the caller cannot list.</td>
+<td>Accepted (Technical Lead decision on TICK-673, 2026-11-14)</td>
+<td>Technical Lead</td>
+<td>A per-type publish or list right is specified: filter <code>LinkedBelow</code> by the caller's list right before the loop, plus an adversarial test (TICK-859)</td>
+<td><a href="../../../docs/delivery/decisions/2026-11-14-tick-673-review-risks.md">decision 2026-11-14</a></td>
+</tr>
+<tr>
+<td>AR-TICK-792-01 (host page can read the embedded user's token)</td>
+<td>🟠 Medium †</td>
+<td>The <code>&lt;nava-records&gt;</code> web component runs in the host app's origin and gets its token from the host's <code>getToken()</code>, so any script on the host page can read the user's access token. Bounded by: lifetime 5 minutes or less, audience <code>nava-api</code> only, refused unless the token's <code>azp</code> is enabled for the tenant and the <code>Origin</code> is listed (ADR-007 D2, D3); ACLs and masks still apply; the host already holds the user's session.</td>
+<td>Accepted (ADR-007, 2026-11-14)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A host with untrusted third-party scripts on the embedding page; then the iframe option</td>
+<td><a href="../../../docs/adr/ADR-007-embedding-widget-and-sdk.md#residuals">ADR-007 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-792-02 (leaked integration client secret)</td>
+<td>🟡 Low †</td>
+<td>A leaked <code>client_credentials</code> secret for a host backend acts as that integration principal, under its ACLs, in its one tenant, until disabled. Bounded by: one organization per service account (two → 401), least-privilege groups, <code>state = disabled</code> takes effect on the next request, every write audited with <code>via_client_id</code>.</td>
+<td>Accepted (ADR-007, 2026-11-14)</td>
+<td>Technical Lead</td>
+<td>A request for an integration principal spanning tenants (refused)</td>
+<td><a href="../../../docs/adr/ADR-007-embedding-widget-and-sdk.md#residuals">ADR-007 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-792-03 (no origin check without an Origin header)</td>
+<td>⚪ Info</td>
+<td>A request with no <code>Origin</code> header (a server caller) skips the ADR-007 D3 origin check. The token is still bound by the client gate (D2) and its lifetime.</td>
+<td>Accepted (ADR-007, 2026-11-14)</td>
+<td>Solution Architect</td>
+<td>Evidence of browser-issued tokens replayed from servers</td>
+<td><a href="../../../docs/adr/ADR-007-embedding-widget-and-sdk.md#residuals">ADR-007 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-843-01 (brokered user stranded on Keycloak's form by a wrong alias without a hint)</td>
+<td>⚪ Info</td>
+<td>ADR-007-A1 RR-A1-1. A host that sends <code>organization:&lt;alias&gt;</code> of an org the user is not in, and no <code>kc_idp_hint</code>, leaves a brokered user on the realm's username/password form: no token, no way back to the host. Bounded by: no token is issued (isolation holds); with the hint (D1-A1.2) the host gets a claimless token and a 401 instead; the host gets the right pair from D13.</td>
+<td>Accepted (ADR-007-A1, 2026-11-14)</td>
+<td>Technical Lead</td>
+<td>First host support case; then a login-theme "back to app" link</td>
+<td><a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md#residuals">ADR-007-A1 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-843-02 (first-party multi-org first sign-in gets 401)</td>
+<td>⚪ Info</td>
+<td>ADR-007-A1 RR-A1-2. <code>nava-web</code> keeps bare <code>organization</code>; a user in two orgs gets a claimless token and 401 on a first brokered sign-in (the S1 defect). Bounded by: fail-closed; no known user is multi-org.</td>
+<td>Accepted (ADR-007-A1, 2026-11-14)</td>
+<td>Solution Architect</td>
+<td>The first user who is a member of two orgs</td>
+<td><a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md#residuals">ADR-007-A1 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-843-03 (second org needs the brokering IdP in its binding)</td>
+<td>⚪ Info</td>
+<td>ADR-007-A1 RR-A1-3. A brokered user resolves in a second org only if that org's <code>tenant_identity_binding</code> also lists the brokering IdP (ADR-001 A.1 step 3). Existing behaviour, recorded because it limits multi-tenant hosts.</td>
+<td>Accepted (ADR-007-A1, 2026-11-14)</td>
+<td>Solution Architect</td>
+<td>A tenant asks to share users across orgs with different IdPs</td>
+<td><a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md#residuals">ADR-007-A1 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-843-04 (username prompt without kc_idp_hint)</td>
+<td>⚪ Info</td>
+<td>ADR-007-A1 RR-A1-4. Without <code>kc_idp_hint</code>, a user with only an IdP session sees Keycloak's username form once (FAIL-UX, ADR-007 S1 rule).</td>
+<td>Accepted (ADR-007-A1, 2026-11-14)</td>
+<td>Technical Lead</td>
+<td>A host that cannot send the hint; then a spike of <code>kc.org.broker.redirect.mode.email-matches</code></td>
+<td><a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md#residuals">ADR-007-A1 Residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-843-05 (seed tenants do not follow the derived alias)</td>
+<td>⚪ Info</td>
+<td>ADR-007-A1 RR-A1-6. The dev seed tenants in <code>realm-nava.json</code> use <code>tenant-a</code>/<code>idp-tenant-a</code>, so the D1-A1.3 derived pair (<code>t-&lt;uuid&gt;</code>, <code>idp-&lt;uuid&gt;</code>) names no org for them and Keycloak answers <code>invalid_scope</code> (fails closed). CI-E16 and the S23/S26 kits use onboarded tenants.</td>
+<td>Accepted (ADR-007-A1, 2026-11-14)</td>
+<td>Technical Lead</td>
+<td>A kit or test that needs a seeded tenant as a host; then rename the seeds</td>
+<td><a href="../../../docs/adr/ADR-007-A1-org-alias-mandatory.md#fixtures-seeded-vs-onboarded-tenants-cto-ruling-final">ADR-007-A1 Fixtures</a></td>
+</tr>
+<tr>
+<td>AR-TICK-857-01 (speed 10x claim has no competitor baseline)</td>
+<td>⚪ Info</td>
+<td>ADR-008 R3. Competitors publish no latency numbers, so axis X3 is "budget met, 10x unproven"; no ADR may cite a speed multiplier.</td>
+<td>Accepted (ADR-008, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>Q2 answered: no → X3 becomes a parity axis; yes → spike CG-SP-1</td>
+<td><a href="../../../docs/adr/ADR-008-competitive-gate.md#risks-and-residuals">ADR-008 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-857-02 (competitor register rests mostly on grade C sources)</td>
+<td>⚪ Info</td>
+<td>ADR-008 R5. Most pain-point sources are consultancy, reseller or competitor blogs; D3 lets a C-only entry support "avoids" but never a send-back.</td>
+<td>Accepted (ADR-008, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>6-monthly register review; replace with A/B sources</td>
+<td><a href="../../../docs/adr/ADR-008-competitive-gate.md#risks-and-residuals">ADR-008 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-857-03 (gate decays into boilerplate)</td>
+<td>⚪ Info</td>
+<td>ADR-008 R1. Authors may copy gate text without measuring.</td>
+<td>Accepted (ADR-008, 2026-11-15)</td>
+<td>Technical Architect</td>
+<td>Two consecutive ADRs with identical gate text → Solution Architect audits the claims</td>
+<td><a href="../../../docs/adr/ADR-008-competitive-gate.md#risks-and-residuals">ADR-008 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-901-01 (org-unit and group changes reach region access only at the next sync)</td>
+<td>🟡 Low</td>
+<td>ADR-010 R3. A user moved out of an org unit keeps <code>under</code> (in_my_region) access until the next group-sync cycle, the same lag as AR-S8-01 for groups. Org units are tombstoned, never hard-deleted, so a deleted unit cannot stop sync (D7).</td>
+<td>Accepted (ADR-010, 2026-11-15)</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A faster-revocation requirement</td>
+<td><a href="../../../docs/adr/ADR-010-composable-access-rules.md#risks-and-residuals">ADR-010 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-901-02 (a voided access policy silently removes access)</td>
+<td>🟡 Low</td>
+<td>ADR-010 R7. A policy with an invalid node grants nothing (D5b, fail closed), so users lose access the admin expected. Publish and the CHECK refuse invalid nodes first, so this needs a drift between them.</td>
+<td>Accepted (ADR-010, 2026-11-15)</td>
+<td>Technical Lead</td>
+<td><code>authz_policy_invalid_total</code> above zero</td>
+<td><a href="../../../docs/adr/ADR-010-composable-access-rules.md#risks-and-residuals">ADR-010 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-901-03 (oversized org subtree fails that user's lists)</td>
+<td>🟡 Low</td>
+<td>ADR-010 R8. A caller whose org-unit subtree exceeds 10,000 ids gets a typed 500 on lists that use <code>under</code>, instead of a silent deny.</td>
+<td>Accepted (ADR-010, 2026-11-15)</td>
+<td>Technical Lead</td>
+<td><code>groupsync_org_subtree_max</code> near the cap</td>
+<td><a href="../../../docs/adr/ADR-010-composable-access-rules.md#risks-and-residuals">ADR-010 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-01 (schema backfill write burst)</td>
+<td>🟡 Low</td>
+<td>ADR-009 R1. Each record a backfill rewrites costs about 4 KB of WAL plus one audit row (≈400 MB WAL per 100k records). The 100k run with per-record transactions is not measured.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+<td>CI-12: live p95 &gt; +25% at pause 0, or &gt; 30 min for 100k</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-02 (412 on an open edit form during a backfill)</td>
+<td>⚪ Info</td>
+<td>ADR-009 R2. The backfill bumps <code>version</code>, so a client holding the old ETag gets one <code>412 version_conflict</code> and must re-read.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>Support reports, or the embed SDK lacks re-read on 412</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-03 (defaulted-field filter cost grows with type size)</td>
+<td>🟡 Low</td>
+<td>ADR-009 R3. Above the 1,000-remaining switch, the <code>OR &lt;f absent&gt;</code> shape's capped count walks the type: about 80 ms at 100k, about 4× at 400k (inferred).</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Technical Architect</td>
+<td>S21 measures &gt; 150 ms at 400k for either D12 shape</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-04 (sort order while a backfill window is open)</td>
+<td>⚪ Info</td>
+<td>ADR-009 R4. Sorting on a defaulted field puts records that lack it in the null position until they are materialised.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>Any tenant-visible report. Fix: <code>COALESCE</code> in the sort key while the window is open</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-05 (sealer lag from per-record backfill audit)</td>
+<td>🟡 Low</td>
+<td>ADR-009 R5. 100k audit rows per backfill. Sealer lag not measured.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+<td>CI-12 sealer lag &gt; the ADR-004 SLO</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-06 (failed_records keeps records unmaterialised)</td>
+<td>⚪ Info</td>
+<td>ADR-009 R6. Records that fail checks stay without the stored default. Filters stay correct (D12). No retry path until Plan ADR-009 decides OQ-4.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Technical Lead</td>
+<td>Any type in <code>failed_records</code> &gt; 7 days</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-07 (design assumes published defaults never change)</td>
+<td>⚪ Info</td>
+<td>ADR-009 R7. The read rule (D11) and the filter rule (D12) depend on 'change or remove a default' staying Breaking.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>Any RFC that makes changing or removing a default non-Breaking</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-08 (version moves while updated_at does not)</td>
+<td>⚪ Info</td>
+<td>ADR-009 R8. <code>OpMaterialize</code> keeps <code>updated_at</code>, so a client that infers change from <code>updated_at</code> misses a rewrite whose effective value is unchanged.</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Solution Architect</td>
+<td>An integration that relies on the two moving together</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-897-09 (schema backfill must fit one Temporal history)</td>
+<td>🟡 Low</td>
+<td>ADR-009 R9. <code>schema.backfill</code> is start-only, so it cannot continue-as-new. The history is estimated at about 8k events per 100k records (assumption, not spiked).</td>
+<td>Accepted (ADR-009, 2026-11-15)</td>
+<td>Technical Architect</td>
+<td>CI-12 counts &gt; 25k events for 100k. Remedy: time-boxed multi-page activities; fallback: reschedule through the outbox</td>
+<td><a href="../../../docs/adr/ADR-009-schema-version-backfill.md#risks-and-residuals">ADR-009 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-971-01 (crafted access-rules row costs up to ~90 ms per publish at the default byte limit, ~340 ms at the ceiling)</td>
+<td>🟡 Low</td>
+<td>ADR-010-A1 A1-R1. Within every cap, a row of unused <code>ref</code> chains plus masks at the limit costs 23–42 ms p50 and up to ~90 ms p95 (CHECKs + tenant-id trigger) at the 32 KiB default, and 78–252 ms p50, up to ~340 ms p95, at the 128 KiB ceiling the operator may set (<code>NAVA_ACL_MAX_DOCUMENT_BYTES</code>). It falls on the admin's own tenant. Before the cap it was 0.15–0.6 s.</td>
+<td>Accepted (ADR-010-A1, 2026-11-19)</td>
+<td>Postgres &amp; Data Modeling Specialist</td>
+<td>The worst row's p95 above 10× row b's at 32 KiB, or above 50× at 128 KiB, in the same <code>cap_bench.sh</code> run; or a tenant publishing more than once a second for a minute</td>
+<td><a href="../../../docs/adr/ADR-010-A1-sp2-caps-size-cap-app-only-publish.md#risks-and-residuals">ADR-010-A1 Risks and residuals</a></td>
+</tr>
+<tr>
+<td>AR-TICK-745-01 (field-index barrier assumes READ COMMITTED writers)</td>
+<td>🟡 Low</td>
+<td>The ADR-006 D9 barrier (as corrected by E1) waits on the snapshot's xip plus in-progress xids in <code>[xmax, fence)</code>; xids after the fence are safe only because records writers run at READ COMMITTED and the D4 trigger reads the registry with a fresh statement snapshot. A records write path, or a role/database <code>default_transaction_isolation</code>, at REPEATABLE READ or above could write a record across a flip without a side row: a mis-filter within the same tenant, no cross-tenant effect.</td>
+<td>Proposed (ADR-006-E1, 2026-11-19; pending Solution Architect verdict)</td>
+<td>Technical Lead</td>
+<td>A proposal to raise isolation on a records write path, or a side-row recompute mismatch</td>
+<td><a href="../../../docs/adr/ADR-006-E1-d9-barrier-waits-past-xmax.md">ADR-006-E1</a></td>
+</tr>
 </tbody>
 </table>
 <h2 id="adding-a-row">Adding a row</h2>
@@ -880,7 +1177,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ c276a374dab5 (2026-11-15)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ fe663a5aa67b (2026-11-19)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
