@@ -119,6 +119,13 @@ func TestFieldIndexBackfillMalformedRowIsDead(t *testing.T) {
 		"nil field": func(c *Claimed) {
 			c.Payload = json.RawMessage(`{"tenant_id":"` + tenantAID + `","field_id":"00000000-0000-0000-0000-000000000000"}`)
 		},
+		// TICK-748: the payload names another tenant than the row.
+		"payload tenant differs": func(c *Claimed) {
+			c.Payload = json.RawMessage(`{"tenant_id":"0192aaaa-0000-7000-8000-00000000000b","field_id":"` + fieldAID + `"}`)
+		},
+		"payload tenant upper case": func(c *Claimed) {
+			c.Payload = json.RawMessage(`{"tenant_id":"0192AAAA-0000-7000-8000-00000000000A","field_id":"` + fieldAID + `"}`)
+		},
 		"extra key": func(c *Claimed) {
 			c.Payload = json.RawMessage(`{"tenant_id":"` + tenantAID + `","field_id":"` + fieldAID + `","x":"` + fieldAID + `"}`)
 		},

@@ -238,6 +238,13 @@ func (c *Coordinator) Run(ctx workflow.Context, in workerguard.RunInput) error {
 	if err != nil {
 		return temporal.NewNonRetryableApplicationError("field index: coordinator id has no tenant", ErrTypeNoChild, nil)
 	}
+	// The tenant is the workflow id's, which the relay built from the outbox
+	// row. A start payload naming another tenant is refused, fail closed,
+	// before anything is read or written (TICK-748 review condition; the
+	// relay refuses such a row first).
+	if !payloadTenantMatches(in.Payload, tenant) {
+		return temporal.NewNonRetryableApplicationError("field index: start payload names another tenant", ErrTypeNoChild, nil)
+	}
 	maxItems, idle := c.MaxItems, c.IdleTimeout
 	if maxItems <= 0 {
 		maxItems = DefaultMaxItems
@@ -379,4 +386,19 @@ func runItem(ctx workflow.Context, tenant uuid.UUID, q queued) error {
 		return workflow.ExecuteChildWorkflow(cctx, fieldindex.RemoveWorkflowType, FieldRef{FieldID: q.field}).Get(cctx, nil)
 	}
 	return nil
+}
+
+// payloadTenantMatches reports whether a start payload's tenant_id, when it
+// has one, is tenant. A continued run's payload is {} and matches.
+func payloadTenantMatches(payload json.RawMessage, tenant uuid.UUID) bool {
+	if len(payload) == 0 {
+		return true
+	}
+	var p struct {
+		TenantID *string `json:"tenant_id"`
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		return false
+	}
+	return p.TenantID == nil || *p.TenantID == tenant.String()
 }

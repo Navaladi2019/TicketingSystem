@@ -637,3 +637,101 @@ func TestBatchRetriedAfterCommit(t *testing.T) {
 		t.Fatalf("side rows after a retried batch: %s", got)
 	}
 }
+
+// Security condition 2 (PR #734 review): the coordinator's tenant is its
+// workflow id's. An item naming tenant B's field reaches tenant A's
+// coordinator: Classify finds no row under A's RLS, so no child runs and
+// nothing is written; a child of A started directly with B's field id finds
+// no registry row either and writes nothing.
+func TestOtherTenantsFieldWritesNothing(t *testing.T) {
+	e := migrated(t)
+	a := newFixture(t, e, "num", "")
+	b := newFixture(t, e, "num", "")
+	insertRecords(t, e, b, 12)
+	b.register(t, e, "num", fieldindex.StateBackfilling)
+	before := registry(t, e, b)
+
+	r := newRun(t, a.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}})
+	r.signal(item(b, 1), 0) // B's field id, to A's coordinator
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if got := r.childLog(); len(got) != 0 {
+		t.Fatalf("A's coordinator started children %v for B's field", got)
+	}
+
+	child := backfill.ChildID(a.tenant, fieldindex.BackfillWorkflowType, b.field, 1)
+	direct := newRun(t, a.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}, workflowID: child})
+	direct.env.ExecuteWorkflow(fieldindex.BackfillWorkflowType, backfill.Input{FieldID: b.field})
+	if err := direct.env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	direct.requireGuardClean()
+	if len(direct.results) != 1 || direct.results[0].Cursor != nil {
+		t.Errorf("batch results %v, want one empty result", direct.results)
+	}
+	if got := registry(t, e, b); got != before {
+		t.Errorf("B's registry row changed: %+v, was %+v", got, before)
+	}
+	if got := sideRows(t, e, b); got != "0" {
+		t.Errorf("B's field has %s side rows, want 0", got)
+	}
+	for _, f := range []fixture{a, b} {
+		if n := queryString(t, e.super, `SELECT count(*)::text FROM rfv_num WHERE tenant_id = $1`, f.tenant); n != "0" {
+			t.Errorf("tenant %s has %s side rows, want 0", f.tenant, n)
+		}
+	}
+}
+
+// A removal during the barrier's wait ends it at the next poll, not when the
+// long transaction ends; the backfill then writes nothing.
+func TestRemovalDuringBarrierWaitEndsIt(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 5)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	held := beginWriter(t, e, newFixture(t, e, "num", ""))
+	defer held.commit(t)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		mustExec(t, e.super, `UPDATE record_index_fields SET state = 'removing' WHERE tenant_id = $1 AND id = $2`, f.tenant, f.field)
+	}()
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: e.worker}})
+	r.signal(item(f, 1), 0)
+	start := time.Now()
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if waited := time.Since(start); waited > 8*time.Second {
+		t.Errorf("the barrier waited %v after the removal; want the next poll (at most 2 s)", waited)
+	}
+	if got := sideRows(t, e, f); got != "0" {
+		t.Errorf("%s side rows, want 0", got)
+	}
+	if got := registry(t, e, f); got.state != "removing" || got.progress != 0 {
+		t.Errorf("registry %+v, want removing and untouched", got)
+	}
+}
+
+// A cancel during the wait ends the barrier promptly with the cancel error.
+func TestBarrierCancelEndsTheWait(t *testing.T) {
+	e := migrated(t)
+	held := beginWriter(t, e, newFixture(t, e, "num", ""))
+	defer held.commit(t)
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestActivityEnvironment()
+	acts := &backfill.Activities{Pool: e.worker}
+	env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
+	ctx, cancel := context.WithCancel(context.Background())
+	env.SetWorkerOptions(worker.Options{BackgroundActivityContext: ctx})
+	go func() { time.Sleep(1500 * time.Millisecond); cancel() }()
+	start := time.Now()
+	if _, err := env.ExecuteActivity(backfill.BarrierActivity); err == nil {
+		t.Fatal("the barrier returned without error while its snapshot's transaction is open")
+	}
+	if waited := time.Since(start); waited > 4*time.Second {
+		t.Errorf("the barrier ended %v after start; want soon after the cancel at 1.5 s", waited)
+	}
+}

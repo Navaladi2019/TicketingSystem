@@ -373,11 +373,17 @@ func coordinatorOptions(workflowID string, tenant uuid.UUID) client.StartWorkflo
 // payload admits UUIDs only), and the row's own id for the coordinator's
 // dedupe. Nothing else is read. A field id that is not a canonical UUID, or
 // a version out of range, is not dispatched.
+//
+// The tenant is the row's (tenant_id, written under RLS), never the
+// payload's: the payload's tenant_id must equal it, or the row is refused,
+// fail closed, before any Temporal call (TICK-748 review condition). A forged
+// payload naming another tenant never reaches a coordinator.
 func enqueueItem(c Claimed) (fieldindex.EnqueueItem, bool) {
 	var p struct {
-		FieldID string `json:"field_id"`
+		TenantID string `json:"tenant_id"`
+		FieldID  string `json:"field_id"`
 	}
-	if json.Unmarshal(c.Payload, &p) != nil {
+	if json.Unmarshal(c.Payload, &p) != nil || p.TenantID != c.TenantID.String() {
 		return fieldindex.EnqueueItem{}, false
 	}
 	f, err := uuid.Parse(p.FieldID)

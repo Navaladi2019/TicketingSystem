@@ -96,12 +96,24 @@ type barrierState struct {
 }
 
 const (
-	// snapshotSQL is the set of transactions in progress now. A transaction
+	// snapshotSQL and fenceSQL, run in that order in one transaction, give
+	// the set of transactions in progress at the snapshot. A transaction
 	// that started after it sees every registry change committed before it
 	// (records writers run READ COMMITTED, and the trigger's registry read is
 	// a statement of a volatile plpgsql function, so it takes its own
 	// snapshot).
-	snapshotSQL = `SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(pg_current_snapshot()) x`
+	//
+	// pg_snapshot_xip alone is not that set: it lists only xids below the
+	// snapshot's xmax, and when the newest assigned xid is still running,
+	// xmax is that xid, so it is not listed (found in TICK-745 testing: a
+	// snapshot 1869:1869: with 1869 in progress). fenceSQL assigns this
+	// transaction an xid M, after the snapshot, and the barrier also waits on
+	// every xid in [xmax, M) still in progress: the few xids handed out
+	// between the two statements, which include any such newest one.
+	snapshotSQL = `SELECT (SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(s.s) x), pg_snapshot_xmax(s.s)::text
+		FROM (SELECT pg_current_snapshot() AS s) s`
+	fenceSQL = `SELECT coalesce(array_agg(x::text), '{}') FROM generate_series($1::text::bigint, pg_current_xact_id()::text::bigint - 1) g(n)
+		CROSS JOIN LATERAL (SELECT n::text::xid8 AS x) v WHERE pg_xact_status(v.x) = 'in progress'`
 	// openSQL counts the ones still open. pg_xact_status needs no grant.
 	openSQL = `SELECT count(*) FROM unnest($1::text[]) x WHERE pg_xact_status(x::xid8) = 'in progress'`
 )
@@ -123,15 +135,31 @@ const (
 func (a *Activities) Barrier(ctx context.Context) error {
 	var st barrierState
 	if !activity.HasHeartbeatDetails(ctx) || activity.GetHeartbeatDetails(ctx, &st) != nil || st.Since.IsZero() {
-		var xip []string
-		if err := a.Pool.QueryRow(ctx, snapshotSQL).Scan(&xip); err != nil {
+		xip, err := takeSnapshot(ctx, a.Pool)
+		if err != nil {
 			return fmt.Errorf("field index barrier: snapshot: %w", err)
 		}
 		st = barrierState{XIP: xip, Since: time.Now()}
 		activity.RecordHeartbeat(ctx, st)
 	}
+	c, isBackfill := childOf(ctx)
 	wait := barrierFirstPoll
 	for {
+		// A backfill child's barrier stops waiting once its registry row is
+		// removed, set to removing, or moved to another requested_version:
+		// the next batch, or the flip to ready, writes nothing then, and a
+		// removal runs its own barrier (D11). So a removal or a version bump
+		// during a long wait ends it at the next poll, not when the long
+		// transaction ends.
+		if isBackfill == nil {
+			gone, err := superseded(ctx, a.Pool, c)
+			if err != nil {
+				return fmt.Errorf("field index barrier: registry: %w", err)
+			}
+			if gone {
+				return nil
+			}
+		}
 		var open int64
 		if len(st.XIP) > 0 {
 			if err := a.Pool.QueryRow(ctx, openSQL, st.XIP).Scan(&open); err != nil {
@@ -158,6 +186,49 @@ func (a *Activities) Barrier(ctx context.Context) error {
 		}
 		wait = min(wait*2, barrierMaxPoll)
 	}
+}
+
+// takeSnapshot returns the ids of the transactions in progress now: the
+// snapshot's xip and the in-progress xids from its xmax up to a fence xid
+// this transaction takes after it (see snapshotSQL). The transaction is
+// rolled back; its only effect is the one xid it consumed.
+func takeSnapshot(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var xip []string
+	var xmax string
+	if err := tx.QueryRow(ctx, snapshotSQL).Scan(&xip, &xmax); err != nil {
+		return nil, err
+	}
+	var late []string
+	if err := tx.QueryRow(ctx, fenceSQL, xmax).Scan(&late); err != nil {
+		return nil, err
+	}
+	return append(xip, late...), nil
+}
+
+// supersededSQL reads the child's registry row, if any.
+const supersededSQL = `SELECT state, requested_version FROM record_index_fields WHERE tenant_id = $1 AND id = $2`
+
+// superseded reports whether c's registry row is gone, removing, or at
+// another requested_version than c's pin. ready is not superseded: the
+// barrier after the flip to ready still waits.
+func superseded(ctx context.Context, pool *pgxpool.Pool, c child) (bool, error) {
+	var state string
+	var version int
+	err := tenancy.InTenantTx(ctx, pool, c.tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, supersededSQL, c.tenant, c.field).Scan(&state, &version)
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return true, nil
+	case err != nil:
+		return false, err
+	}
+	return fieldindex.State(state) == fieldindex.StateRemoving || (c.version != 0 && version != c.version), nil
 }
 
 // The barrier's poll interval: 1 s, doubling to 10 s (D9).
