@@ -194,10 +194,14 @@ func (Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in Publ
 	// Create the definition if it is new. A concurrent first publish of the
 	// same key waits on the unique index, does nothing, and queues on the row
 	// lock below with every later publish.
+	newDefID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("workflowdefs: definition id: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO workflow_definitions (tenant_id, id, key, entity_definition_id, current_version, created_by)
 VALUES ($1, $2, $3, $4, 1, $5)
-ON CONFLICT (tenant_id, key) DO NOTHING`, tenantID, uuid.New(), in.Key, entityID, in.PublishedBy); err != nil {
+ON CONFLICT (tenant_id, key) DO NOTHING`, tenantID, newDefID, in.Key, entityID, in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("workflowdefs: create definition: %w", err)
 	}
 	var (
@@ -234,17 +238,24 @@ SELECT step_ids, body::jsonb::text FROM workflow_definition_versions WHERE defin
 		}
 		prevRaw = []byte(prevBody)
 	}
-	stepIDs := def.AssignStepIDs(d, prevIDs)
+	stepIDs, err := def.AssignStepIDs(d, prevIDs)
+	if err != nil {
+		return nil, fmt.Errorf("workflowdefs: assign step ids: %w", err)
+	}
 	ids, err := json.Marshal(stepIDs)
 	if err != nil {
 		return nil, fmt.Errorf("workflowdefs: encode step ids: %w", err)
 	}
 	sum := sha256.Sum256(in.Body)
+	verID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("workflowdefs: version id: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO workflow_definition_versions
   (tenant_id, id, definition_id, version, body, body_sha256, step_ids, trigger_on, trigger_entity_definition_id, published_by)
 VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8, $9, $10)`,
-		tenantID, uuid.New(), defID, number, string(in.Body), sum[:], string(ids), d.Trigger.On, entityID, in.PublishedBy); err != nil {
+		tenantID, verID, defID, number, string(in.Body), sum[:], string(ids), d.Trigger.On, entityID, in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("workflowdefs: insert version: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
