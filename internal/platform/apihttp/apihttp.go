@@ -14,14 +14,21 @@
 //     request and response handlers, the validator's ErrorHandlerWithOpts and
 //     a 404/405 wrapper around the mux all write problem+json instead.
 //
+// Before the validator reads a body, StrictBody refuses one with a duplicate
+// member name or invalid UTF-8 (TICK-964): the validator decodes with
+// encoding/json v1, which keeps the last duplicate and replaces bad bytes, so
+// it would judge a different document from the one a strict reader sees.
+//
 // The validator is a per-route middleware (StdHTTPServerOptions.Middlewares),
 // so it runs after ServeMux set r.Pattern and a 400 keeps its http.route.
 package apihttp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -31,6 +38,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 )
 
 // API holds what the error contract needs.
@@ -39,12 +47,23 @@ type API struct {
 	reg     *problem.Registry
 	log     *slog.Logger
 	baseURL string
+	// bodyCodes maps a route pattern to the 422 code its strict-JSON
+	// refusal answers with (WithBodyCodes).
+	bodyCodes map[string]problem.Code
 }
 
 // New returns an API for spec. baseURL must equal the BaseURL given to the
 // generated StdHTTPServerOptions: it is the validator's Options.Prefix.
 func New(spec *openapi3.T, reg *problem.Registry, log *slog.Logger, baseURL string) *API {
 	return &API{spec: spec, reg: reg, log: log, baseURL: baseURL}
+}
+
+// WithBodyCodes sets, per route pattern ("POST /api/v1/records/{entity}"),
+// the registered 422 code StrictBody answers with: each operation keeps the
+// code it already uses for an unacceptable body. It returns a.
+func (a *API) WithBodyCodes(codes map[string]problem.Code) *API {
+	a.bodyCodes = codes
+	return a
 }
 
 // Middleware returns the request validator, for StdHTTPServerOptions.Middlewares.
@@ -64,7 +83,7 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 		ErrorHandlerWithOpts: a.validationError,
 	})
 	return func(next http.Handler) http.Handler {
-		validated := validate(next)
+		validated := a.StrictBody(validate(next))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodHead {
 				validated.ServeHTTP(w, r)
@@ -78,6 +97,39 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 			validated.ServeHTTP(headWriter{w}, get)
 		})
 	}
+}
+
+// StrictBody refuses a request body with a duplicate object member name or
+// invalid UTF-8, anywhere in the document, before next reads it. The answer
+// is the route's code from WithBodyCodes (a 422) with one error: the JSON
+// pointer under /body and the rule, duplicate or invalid_utf8. A route with
+// no code configured answers validation_failed, so a missing entry still
+// refuses the body. Any other body goes on to next byte-identical; a syntax
+// error stays the validator's to answer. The body is already bounded where it
+// is first read (the idempotency and operator middlewares).
+func (a *API) StrictBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		if err != nil {
+			a.internal(w, r, fmt.Errorf("read request body: %w", err))
+			return
+		}
+		if v, bad := strictjson.Check(body); bad {
+			code, ok := a.bodyCodes[r.Pattern]
+			if !ok {
+				code = problem.ValidationFailed
+			}
+			a.reg.Write(w, r, code, problem.FieldError{Pointer: "/body" + v.Pointer, Rule: v.Rule})
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // headWriter drops the body of a HEAD response and keeps status and headers.

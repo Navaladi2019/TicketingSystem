@@ -76,7 +76,7 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { _ = tel.Shutdown(t.Context()) })
 
 	log := slog.New(slog.DiscardHandler)
-	a := apihttp.New(spec, reg, log, "")
+	a := apihttp.New(spec, reg, log, "").WithBodyCodes(map[string]problem.Code{"POST /api/v1/items": problem.RecordInvalid})
 	mux := http.NewServeMux()
 	apitest.HandlerWithOptions(
 		apitest.NewStrictHandlerWithOptions(fixture{}, nil, apitest.StrictHTTPServerOptions{

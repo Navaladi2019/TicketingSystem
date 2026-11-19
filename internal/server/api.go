@@ -41,6 +41,22 @@ const baseURL = ""
 // fails if the generated router's pattern ever differs.
 const createRecordPattern = "POST " + baseURL + "/api/v1/records/{entity}"
 
+// strictBodyCodes is the 422 code each operation with a request body answers
+// when the body has a duplicate member name or invalid UTF-8 (TICK-964): the
+// code the operation already uses for a body it does not accept. A test fails
+// if an operation of the contract with a request body is missing here.
+func strictBodyCodes() map[string]problem.Code {
+	return map[string]problem.Code{
+		"POST " + baseURL + "/api/v1/operator/tenants":                    problem.InvalidIdPConfig,
+		"POST " + baseURL + "/api/v1/entity-types":                        problem.InvalidDefinition,
+		"POST " + baseURL + "/api/v1/entity-types/{key}/versions":         problem.InvalidDefinition,
+		"PUT " + baseURL + "/api/v1/entity-types/{key}/access":            problem.InvalidAccessPolicy,
+		"POST " + baseURL + "/api/v1/workflow-definitions/{key}/versions": problem.WorkflowDefinitionInvalid,
+		createRecordPattern: problem.RecordInvalid,
+		"PATCH " + baseURL + "/api/v1/records/{entity}/{id}": problem.RecordInvalid,
+	}
+}
+
 // newAPI registers the /api/v1 routes of the embedded contract on mux and
 // returns the handler to serve. Authentication (routeAuth) wraps the whole
 // mux, outside the generated router: the generated wrapper binds path, query
@@ -78,7 +94,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 		return nil, err
 	}
 
-	a := apihttp.New(spec, reg, log, baseURL)
+	a := apihttp.New(spec, reg, log, baseURL).WithBodyCodes(strictBodyCodes())
 	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,
