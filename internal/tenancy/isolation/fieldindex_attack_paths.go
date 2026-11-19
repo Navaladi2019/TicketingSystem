@@ -69,12 +69,27 @@ func fieldIndexAttackPaths() []Path {
 		db("CI-2", "3: publish writes registry and outbox rows for the caller's own tenant only; the backfill's statements, run as tenant A with tenant B's field id, read, write and flip nothing", s21Publish),
 		{Name: "S21 attack 4: no runtime role can UPDATE a side table or write another tenant's side or registry row; registry column grants are exactly ADR-006 D14", Case: "CI-2", Role: "nava_app", DB: s21RoleGrants},
 		db("CI-2", "5: field_not_ready carries the registry's percentage and nothing else: the same bytes for every value, caller and record count, whatever tenant B's progress", s21NotReadyNoCounts),
-		{Name: "S21 attack 3b: FieldIndexBackfill started from tenant A's outbox row naming tenant B (payload tenant_id or field_id) binds the tenant from the row (relay header), never from the payload, and writes nothing", Case: "CI-2", Role: "nava_worker",
-			DB: func(context.Context, Cluster) error {
-				return errors.New("TICK-745: write this row against FieldIndexBackfill before removing Pending")
-			},
-			Pending: "TICK-745 (the backfill workflow; until it lands row 3 proves the database refuses every D10 statement it would run)"},
+		db("CI-2", "3b: FieldIndexBackfill started from tenant A's outbox row naming tenant B (payload tenant_id or field_id) binds the tenant from the row (relay header), never from the payload, and writes nothing", s21Backfill3bRow),
 	}
+}
+
+// backfillAttacker is the suite's Cluster when it can run row 3b's check:
+// the check drives the real coordinator and FieldIndexBackfill, whose
+// workflow types only internal/fieldindex may name outside tests
+// (TestOnlyFieldindexNamesItsWorkflowTypes), so
+// fieldindex_backfill_isolation_test.go gives the suite's cluster the method.
+type backfillAttacker interface {
+	S21Backfill3b(context.Context, *etIso, *s21Fixture) error
+}
+
+// s21Backfill3bRow is row 3b (P7-08b, TICK-975): see s21Backfill3b in
+// fieldindex_backfill_isolation_test.go.
+func s21Backfill3bRow(ctx context.Context, e *etIso, fx *s21Fixture) error {
+	ba, ok := e.cluster.(backfillAttacker)
+	if !ok {
+		return errors.New("row 3b is not linked: fieldindex_backfill_isolation_test.go builds only under the integration tag")
+	}
+	return ba.S21Backfill3b(ctx, e, fx)
 }
 
 const (
@@ -748,8 +763,8 @@ func s21BackfillAsA(ctx context.Context, e *etIso, fx *s21Fixture) error {
 	}
 	// A crafted start: the only enqueue path stamps the transaction's
 	// tenant into the payload, so a row of tenant A can name tenant B's
-	// field but never tenant B. The workflow must then find the field
-	// missing in tenant A (above) and stop (3b, P7-05).
+	// field but never tenant B. The workflow then finds the field missing
+	// in tenant A (above) and stops: row 3b runs it.
 	app, err := e.cluster.Pool("nava_app")
 	if err != nil {
 		return err
