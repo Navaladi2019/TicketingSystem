@@ -408,3 +408,29 @@ func TestTheByteLimitSettingIsNotExposed(t *testing.T) {
 		}
 	}
 }
+
+// A format-2 version the route stored is read back through the records path:
+// the reader decodes it, enforces it, and the explainer names its policy.
+// covers: putEntityTypeAccess 200
+func TestPutAccessFormat2VersionIsEnforcedOnTheRecordsPath(t *testing.T) {
+	e := newPatchEnv(t)
+	rec := e.mustCreateRec(t, "user-a", "job", "f2-records", `{"short_description": "one"}`)
+	doc := `{"format": 2, "conditions": [{"name": "desk", "expr": {"member_of": {"users": [` + uuidList(e.a.admin.PrincipalID, e.a.user.PrincipalID) + `]}}}],
+		"policies": [{"name": "desk_reads", "ops": ["read", "write"], "when": {"ref": "desk"}}]}`
+	if put := e.access(t, http.MethodPut, accessPath, "admin-a", "f2-records-put", `W/"1"`, `{"rules": `+doc+`}`); put.Code != http.StatusOK {
+		t.Fatalf("publish = %d: %s", put.Code, put.Body)
+	}
+	if typ, _ := e.storedFormat(t, 2); typ != "object" {
+		t.Fatalf("stored %s, want an object", typ)
+	}
+	if r := e.do(t, http.MethodGet, "/api/v1/records/job/"+rec.ID, "user-a", "", ""); r.Code != http.StatusOK {
+		t.Errorf("a user the policy names reads the record = %d: %s", r.Code, r.Body)
+	}
+	if r := e.do(t, http.MethodGet, "/api/v1/records/job/"+rec.ID, "lookalike-a", "", ""); r.Code != http.StatusNotFound {
+		t.Errorf("a user it does not name reads the record = %d, want 404", r.Code)
+	}
+	x := decodeExplanation(t, e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()))
+	if x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "desk_reads" || x.ACLVersion != 2 {
+		t.Errorf("explain = %+v, want allow by desk_reads at version 2", x)
+	}
+}

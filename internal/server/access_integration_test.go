@@ -433,8 +433,8 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("explain = %d: %s", got.Code, got.Body)
 	}
-	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r-desk" || x.ACLVersion != 2 {
-		t.Errorf("allow = %+v, want allow by r-desk at version 2", x)
+	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r_desk" || x.ACLVersion != 2 {
+		t.Errorf("allow = %+v, want allow by r_desk (the stored name of format-1 rule r-desk) at version 2", x)
 	}
 	// The user is hidden note (not in the admins group) and code (not in the
 	// lookalike group); the admin cannot read code itself, so only note shows.

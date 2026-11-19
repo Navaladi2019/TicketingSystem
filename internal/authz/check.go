@@ -28,15 +28,11 @@ import (
 // testdata/format2_invalid.json asserts it).
 
 // The caps of A1-1: platform limits, not settings. MaxChildren is in
-// document.go. They are the database's constants (acl2_problem) as well.
+// document.go; MaxDepth and MaxPolicyLeaves are in plan.go. They are the
+// database's constants (acl2_problem) as well.
 const (
-	// MaxDepth is the deepest a policy's tree may be after refs expand. A lone
-	// leaf has depth 1; all, any and not add one.
-	MaxDepth = 8
 	// MaxPolicies is the most policies a document holds.
 	MaxPolicies = 64
-	// MaxPolicyLeaves is the most leaves one policy has after refs expand.
-	MaxPolicyLeaves = 128
 	// MaxDocumentLeaves is the most leaves the policies of a document have in
 	// all, after refs expand. Conditions no policy uses are not counted.
 	MaxDocumentLeaves = 128
