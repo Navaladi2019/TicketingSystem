@@ -358,6 +358,8 @@ GO_PACKAGES = {
     "workerguard": "internal/workerguard",
     "seal": "internal/audit/seal",
     "interp": "internal/workflow/interp",
+    "backfill": "internal/fieldindex/backfill",
+    "fieldindex": "internal/fieldindex",
 }
 # The closed kind list: notOwnEntryPointStart's array of {kind, Enqueue* entry point}.
 GO_KIND_FILE = "internal/outbox/outbox.go"
@@ -369,7 +371,20 @@ GO_REGISTER_FUNCS = [
     ("interp", "func RegisterWorkflow(", "workflow"),
     ("interp", "func (a *Activities) Register(", "activity"),
     ("workerguard", "func (a *Activities) Register(", "activity"),
+    ("backfill", "func RegisterWorkflow(", "workflow"),
+    ("backfill", "func (a *Activities) Register(", "activity"),
 ]
+# Workflow types that no outbox kind starts directly, with how they start
+# (TICK-745). Every other registered type must be a kind of GO_KIND_FILE. The
+# relay signal-with-starts the field-index coordinator for a
+# field_index.backfill row, which is an outbox kind but not a workflow type,
+# and only the coordinator starts the backfill, as a child (PLAN-007 D-7-12,
+# temporal-server/authz childOnlyWorkflowTypes). An entry that no
+# RegisterWorkflow registers fails the build, so the list cannot go stale.
+GO_NON_KIND_WORKFLOWS = {
+    "field_index.coordinator": "the relay's SignalWithStart of a field_index.backfill outbox row",
+    "field_index.backfill.run": "a child of field_index.coordinator only",
+}
 # The worker's package main, scanned so no registration bypasses GO_REGISTER_FUNCS.
 GO_WORKER_DIR = "cmd/nava-worker"
 GO_WORKER_CALL = re.compile(r"(\(&[\w.]+\{[^{}]*\}\)|[A-Za-z_][\w.]*)\.(Register|RegisterWorkflow)\(\s*\w+\s*\)")
@@ -402,8 +417,9 @@ class GoRegistry:
     """The workflow and activity names, parsed from the Go source with the
     standard library (TICK-727: docs only, no Go code is added or run).
 
-    workflows() is the closed kind list in internal/outbox/outbox.go: each kind
-    with the Enqueue* function that alone may start it. activities() is every
+    workflows() is the closed kind list in internal/outbox/outbox.go (each kind
+    with the Enqueue* function that alone may start it), plus the types of
+    GO_NON_KIND_WORKFLOWS, which another workflow or the relay starts. activities() is every
     name the Register functions of seal, interp and workerguard register. Each
     name is resolved through the packages' const declarations, so it is the
     string the worker registers. load() fails when it finds nothing, when a
@@ -541,13 +557,15 @@ class GoRegistry:
                     raise ValueError("workflow registry: %s: %s...) registers a %s" % (frel, sig, kind.lower()))
                 registered[what].add(self.resolve(alias, expr))
         problems = self.check_worker_calls()
-        for wf in sorted(registered["workflow"] - set(self.kinds)):
+        for wf in sorted(registered["workflow"] - set(self.kinds) - set(GO_NON_KIND_WORKFLOWS)):
             problems.append("workflow registry: workflow type %r is registered but is not a kind in %s" % (wf, rel))
+        for wf in sorted(set(GO_NON_KIND_WORKFLOWS) - registered["workflow"]):
+            problems.append("workflow registry: GO_NON_KIND_WORKFLOWS lists %r, which no RegisterWorkflow registers" % wf)
         for k in sorted(set(self.kinds) - registered["workflow"]):
             problems.append("workflow registry: kind %r is registered by no RegisterWorkflow" % k)
         if problems:
             raise ValueError("\n".join(problems))
-        self._workflows = sorted(self.kinds)
+        self._workflows = sorted(set(self.kinds) | set(GO_NON_KIND_WORKFLOWS))
         self._activities = sorted(registered["activity"])
 
 
