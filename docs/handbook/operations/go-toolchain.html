@@ -46,9 +46,9 @@
 </tr>
 <tr>
 <td><code>tools/navalint</code>, <code>tools/workflowcheck</code></td>
-<td>follow the root floor</td>
-<td></td>
-<td>not built into an image; <code>task lint</code> runs them</td>
+<td><code>go 1.27.0</code> (each in its own <code>go.mod</code>)</td>
+<td><code>go1.27.4</code></td>
+<td>not built into an image; <code>task lint</code> runs them. A toolchain bump edits these two <code>go.mod</code> files too</td>
 </tr>
 </tbody>
 </table>
@@ -105,7 +105,7 @@ task lint                  # golangci-lint, navalint (uuidv7 among them), workfl
 <h2 id="what-changed-with-go-127">What changed with Go 1.27</h2>
 <ul>
 <li><strong><code>go fix</code> modernizers</strong> ran once over the code (TICK-962): mechanical rewrites across 125 files, mostly <code>strings.SplitSeq</code>, <code>maps.Copy</code>, <code>slices.Contains</code> and <code>new(value)</code> for pointers to values. No hand edits, no behaviour change.</li>
-<li><strong><code>encoding/json</code> v1 now runs on the v2 engine.</strong> Output is the same except for one case the audit export hit: an <code>Encoder</code> with <code>SetEscapeHTML(false)</code> now escapes U+2028 and U+2029. The export writes canonical envelope bytes directly so the chain hash does not move (TICK-970); see <a href="../security/10-audit-chain.html">Audit chain and offline verify</a>.</li>
+<li><strong><code>encoding/json</code> v1 now runs on the v2 engine.</strong> Output is the same except for one case the audit export hit: a <code>json.Encoder</code> now escapes U+2028 and U+2029 inside the bytes a <code>MarshalJSON</code> method returns (Go 1.26 left them raw). RFC 8785 keeps them raw, so a 1.27-built exporter wrote envelopes that <code>nava audit verify</code> rejected as non-canonical. The export now writes the canonical envelope bytes directly, so exported envelopes stay RFC 8785 canonical and pass <code>nava audit verify</code>; the hashes were never affected (TICK-970). See <a href="../security/10-audit-chain.html">Audit chain and offline verify</a>.</li>
 <li><strong><code>encoding/json/v2</code> is used at the request boundary</strong>: a body with a duplicate member name or invalid UTF-8 is refused with a 422. See <a href="../system/api-errors.html">API errors and strict JSON bodies</a>. Hashed and stored JSON is still written with v1 (recorded deferral, below).</li>
 <li><strong><code>testing/synctest</code></strong>: timing-dependent unit tests run in a synctest bubble with a fake clock instead of sleeping (TICK-968).</li>
 <li><strong>Ids</strong>: every persisted id is a UUIDv7 and a lint rule stops new v4 ids. See <a href="../system/id-generation.html">Id generation</a>.</li>

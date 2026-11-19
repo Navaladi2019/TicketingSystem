@@ -48,7 +48,7 @@
 </ol>
 <h2 id="invariants-kept">Invariants kept</h2>
 <ul>
-<li><strong>Determinism.</strong> The audit chain hash is hand-written RFC 8785 JCS and passes <code>internal/audit/chain/vectors</code> unchanged. Go 1.27's v1 encoder escapes U+2028/U+2029 under <code>SetEscapeHTML(false)</code>; TICK-970 makes the export write the canonical bytes directly, and untagged tests now push those characters through every envelope writer.</li>
+<li><strong>Determinism.</strong> The audit chain hash is hand-written RFC 8785 JCS and passes <code>internal/audit/chain/vectors</code> unchanged. Go 1.27's <code>json.Encoder</code> escapes U+2028/U+2029 inside the bytes a <code>MarshalJSON</code> returns, which made exported envelopes non-canonical (the hashes were never affected); TICK-970 makes the export write the canonical bytes directly, and untagged tests now push those characters through every envelope writer.</li>
 <li><strong>Idempotency (I7).</strong> The request hash is still computed with v1 over the same bytes; no golden value changed.</li>
 <li><strong>Tenant wall (I1).</strong> The isolation suites stayed green on every task PR.</li>
 </ul>

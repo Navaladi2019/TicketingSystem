@@ -15,7 +15,7 @@ The Go version every module builds with, what a developer installs to build and 
 |---|---|---|---|
 | Platform (`go.mod`, root) | `go 1.27.0` | `go1.27.4` | `golang:1.27.4-alpine` (every `deploy/compose/*/Dockerfile`) |
 | `temporal-server` | `go 1.27.0` | `go1.27.4` | `golang:1.27.4-bookworm` |
-| `tools/navalint`, `tools/workflowcheck` | follow the root floor | | not built into an image; `task lint` runs them |
+| `tools/navalint`, `tools/workflowcheck` | `go 1.27.0` (each in its own `go.mod`) | `go1.27.4` | not built into an image; `task lint` runs them. A toolchain bump edits these two `go.mod` files too |
 
 `go 1.27.0` is the floor: an older Go refuses to build the module. The `toolchain` line makes Go 1.21 or later download and use go1.27.4 when the installed Go is older (`GOTOOLCHAIN=auto`, the default). The reason for every raise is in `docs/pins.md` ("Toolchain and CI tools").
 
@@ -44,7 +44,7 @@ Never run `make ci*` or `make stack-*` to verify a change: open a PR and read th
 ## What changed with Go 1.27
 
 - **`go fix` modernizers** ran once over the code (TICK-962): mechanical rewrites across 125 files, mostly `strings.SplitSeq`, `maps.Copy`, `slices.Contains` and `new(value)` for pointers to values. No hand edits, no behaviour change.
-- **`encoding/json` v1 now runs on the v2 engine.** Output is the same except for one case the audit export hit: an `Encoder` with `SetEscapeHTML(false)` now escapes U+2028 and U+2029. The export writes canonical envelope bytes directly so the chain hash does not move (TICK-970); see [Audit chain and offline verify](../security/10-audit-chain.md).
+- **`encoding/json` v1 now runs on the v2 engine.** Output is the same except for one case the audit export hit: a `json.Encoder` now escapes U+2028 and U+2029 inside the bytes a `MarshalJSON` method returns (Go 1.26 left them raw). RFC 8785 keeps them raw, so a 1.27-built exporter wrote envelopes that `nava audit verify` rejected as non-canonical. The export now writes the canonical envelope bytes directly, so exported envelopes stay RFC 8785 canonical and pass `nava audit verify`; the hashes were never affected (TICK-970). See [Audit chain and offline verify](../security/10-audit-chain.md).
 - **`encoding/json/v2` is used at the request boundary**: a body with a duplicate member name or invalid UTF-8 is refused with a 422. See [API errors and strict JSON bodies](../system/api-errors.md). Hashed and stored JSON is still written with v1 (recorded deferral, below).
 - **`testing/synctest`**: timing-dependent unit tests run in a synctest bubble with a fake clock instead of sleeping (TICK-968).
 - **Ids**: every persisted id is a UUIDv7 and a lint rule stops new v4 ids. See [Id generation](../system/id-generation.md).
