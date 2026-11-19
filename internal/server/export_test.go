@@ -39,5 +39,5 @@ func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, va
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args)) + "::" + cast
 	}
-	return existsTerm(listFilter{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}, next), args
+	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next), args
 }

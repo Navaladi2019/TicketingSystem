@@ -66,6 +66,7 @@ func assetTypeBody(key, prefix string) string {
     "qty": {"type": "number"},
     "due": {"type": "string", "format": "date-time"},
     "vip": {"type": "boolean"},
+    "scores": {"type": "array", "items": {"type": "number"}},
     "priority": {"type": "integer"}`, 1)
 }
 
@@ -666,4 +667,25 @@ func TestListFilterRegistryReadFailureIsA500(t *testing.T) {
 	if rec, _ := e.list(t, "admin-a", "asset", "filter[state]=new"); rec.Code != http.StatusOK {
 		t.Errorf("a list with no data filter = %d, want 200", rec.Code)
 	}
+}
+
+// covers: listRecords 200
+//
+// ADR-006 D7: all comparisons on one field sit inside one EXISTS, so on an
+// array field ONE element must satisfy every bound. [1, 9] has an element >= 5
+// and another < 3 but none in between, and is not in [2, 6).
+func TestListFilterRangeOnArrayFieldNeedsOneElementForEveryBound(t *testing.T) {
+	e := newFilterEnv(t)
+	mk := func(i int, scores string) recBody {
+		return e.mustCreateRec(t, "admin-a", "asset", fmt.Sprintf("arr-%d", i),
+			fmt.Sprintf(`{"short_description": "s%d", "scores": %s}`, i, scores))
+	}
+	split, inside, outside := mk(0, "[1, 9]"), mk(1, "[1, 4]"), mk(2, "[7, 8]")
+	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	p := e.mustList(t, "admin-a", "asset", "filter[scores][gte]=2&filter[scores][lt]=6")
+	wantIDs(t, "array range", p.Items, inside)
+	if p.Total != 1 {
+		t.Errorf("total %d, want 1", p.Total)
+	}
+	_, _ = split, outside
 }

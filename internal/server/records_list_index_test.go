@@ -91,7 +91,7 @@ func TestExistsTermShape(t *testing.T) {
 		}
 		// The field id is the first argument, so the value is $2.
 		f := listFilter{prop: "f", op: c.op, values: c.vals, idx: &pipeline.IndexField{ID: id, ValueType: c.vt}}
-		sql := existsTerm(f, next)
+		sql := existsTerm([]listFilter{f}, next)
 		for _, want := range []string{"EXISTS (SELECT 1 FROM " + c.table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = $1::uuid AND ", c.wantIn} {
 			if !strings.Contains(sql, want) {
 				t.Errorf("%s %s: %s lacks %q", c.vt, c.op, sql, want)
@@ -100,6 +100,40 @@ func TestExistsTermShape(t *testing.T) {
 		if len(args) != 2 || args[0] != id.String() {
 			t.Errorf("%s %s: args = %v", c.vt, c.op, args)
 		}
+	}
+}
+
+func TestRangeOnOneFieldCompilesToOneExists(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		vt       fieldindex.ValueType
+		table    string
+		lo, hi   any
+		wantCmps string
+	}{
+		{fieldindex.TypeTS, "rfv_ts", time.Now(), time.Now().Add(time.Hour), `v.value >= $2::timestamptz AND v.value < $3::timestamptz`},
+		{fieldindex.TypeNum, "rfv_num", 1.0, 5.0, `v.value >= $2::double precision AND v.value < $3::double precision`},
+	} {
+		id := uuid.New()
+		pl := &listPlan{filters: []listFilter{
+			{prop: "f", op: "gte", values: []any{c.lo}, idx: &pipeline.IndexField{ID: id, ValueType: c.vt}},
+			{prop: "f", op: "lt", values: []any{c.hi}, idx: &pipeline.IndexField{ID: id, ValueType: c.vt}},
+		}}
+		sql, args := pl.where(0)
+		if n := strings.Count(sql, "EXISTS"); n != 1 {
+			t.Errorf("%s: %d EXISTS in %s", c.vt, n, sql)
+		}
+		if !strings.Contains(sql, c.wantCmps) || len(args) != 3 {
+			t.Errorf("%s: sql %s args %v", c.vt, sql, args)
+		}
+	}
+	// Two different fields stay two EXISTS.
+	pl := &listPlan{filters: []listFilter{
+		{prop: "a", op: "gte", values: []any{1.0}, idx: &pipeline.IndexField{ID: uuid.New(), ValueType: fieldindex.TypeNum}},
+		{prop: "b", op: "lt", values: []any{2.0}, idx: &pipeline.IndexField{ID: uuid.New(), ValueType: fieldindex.TypeNum}},
+	}}
+	if sql, _ := pl.where(0); strings.Count(sql, "EXISTS") != 2 {
+		t.Errorf("two fields: %s", sql)
 	}
 }
 

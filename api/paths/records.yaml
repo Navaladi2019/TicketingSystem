@@ -34,7 +34,9 @@ paths:
         offset or a `YYYY-MM-DD` day, a text of at most 2,000 bytes); a value
         of the wrong type, an operator the type does not take or more than
         100 `in` values is 400 `validation_failed`. Text compares bytewise
-        (`COLLATE "C"`). Until S22 P7-12, the seed fields `incident.priority`,
+        (`COLLATE "C"`). Several filters on one field (a range such as
+        `filter[f][gte]=a&filter[f][lt]=b`) are ANDed inside one `EXISTS`, so on
+        an array field one element must satisfy every bound. Until S22 P7-12, the seed fields `incident.priority`,
         `request.priority` and `change.risk` stay filterable through the
         legacy scan while unflagged (equality and `in` only).
         An unknown property, an unsortable property, a value that does not fit

@@ -231,11 +231,24 @@ func (pl *listPlan) where(base int) (string, []any) {
 		args = append(args, v)
 		return "$" + strconv.Itoa(base+len(args)) + "::" + cast
 	}
+	done := map[uuid.UUID]bool{}
 	for _, f := range pl.filters {
 		switch f.col {
 		case "":
 			if f.idx != nil {
-				terms = append(terms, existsTerm(f, next))
+				// One EXISTS per field: every comparison of the field is ANDed
+				// inside it, so one element must satisfy them all (ADR-006 D7).
+				if done[f.idx.ID] {
+					continue
+				}
+				done[f.idx.ID] = true
+				var group []listFilter
+				for _, g := range pl.filters {
+					if g.col == "" && g.idx != nil && g.idx.ID == f.idx.ID {
+						group = append(group, g)
+					}
+				}
+				terms = append(terms, existsTerm(group, next))
 				continue
 			}
 			ors := make([]string, 0, len(f.values))
