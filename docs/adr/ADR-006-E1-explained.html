@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-19</span> <span class="src">ADR-006-E1 · issue TICK-745 · amends ADR-006 D9 · source: PR #738 integration testing</span>
+<span class="pill">PROPOSED · rev 1 · 2026-11-19</span> <span class="src">ADR-006-E1 · issue TICK-745 · amends ADR-006 D9 · source: PR #738 integration testing</span>
 
 <h1>The backfill "wait for everyone in flight" step could miss the newest write</h1>
 
@@ -72,8 +72,9 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>4. The decision</h2>
 <dl>
-<dt>E1-1: wait set</dt><dd>In one transaction: snapshot first, then fence M. Wait on the snapshot's list plus every running number in <code>[xmax, M)</code>. Waiting on a save that started just after the snapshot is harmless; it only waits a little longer.</dd>
-<dt>E1-2: a rule that was implicit is now written down</dt><dd>Saves numbered after M began after the switch, and they see it because saves run at the database's default isolation level, READ COMMITTED: each statement looks at the latest committed data. If a save ran at a stricter level (REPEATABLE READ), it could keep an old view and slip past. The old design had the same hole. Rule: no code or operator setting may raise the isolation level for record saves.</dd>
+<dt>E1-1: wait set</dt><dd>In one transaction: snapshot first, then fence M. Wait on the snapshot's list plus every running number in <code>[xmax, M)</code>. Waiting on a save that started just after the snapshot is harmless; it only waits a little longer. Usually only a few numbers are involved. A save that uses many <em>savepoints</em> (sub-steps inside one transaction) adds one number per savepoint, though: the architect's test reached 100,000. So the job may store just the two end points of the range instead of the full list.</dd>
+<dt>E1-2: a rule that was implicit is now written down</dt><dd>Saves numbered after M began after the switch, and they see it because saves run at the database's default isolation level, READ COMMITTED: each statement looks at the latest committed data. If a save ran at a stricter level (REPEATABLE READ), it could keep an old view and slip past. The old design had the same hole. This also depends on the copy step running <em>after</em> the record row is written. Rule: no code or operator setting may raise the isolation level for record saves, and the copy step must stay an after-write step.</dd>
+<dt>E1-5: make the rule enforce itself</dt><dd>A small check at the start of the copy step refuses any save that is not at READ COMMITTED. A wrong setting then causes a visible error instead of a silently missing search entry. It ships as a follow-up change, with its cost measured in the existing write-speed test.</dd>
 <dt>E1-3: a test that pins it</dt><dd>This test creates the "newest save still running" case on purpose. It checks that the barrier waits for it, and it fails when the fence is removed. The erratum is not accepted until that test is merged.</dd>
 <dt>E1-4: removal too</dt><dd>Removing a filterable field uses the same barrier, so it gets the fix for free.</dd>
 </dl>
@@ -83,14 +84,15 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>6. What we are accepting</h2>
 <table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th></tr></thead><tbody>
-<tr><td>AR-TICK-745-01</td><td>Low</td><td>The guarantee assumes record saves run at READ COMMITTED. A future code path or a database setting at a stricter level could leave one record out of a filter, inside the same tenant only, until it is saved again. No other tenant is affected.</td></tr>
+<tr><td>AR-TICK-745-01</td><td>Low</td><td>The guarantee assumes record saves run at READ COMMITTED. A future code path or a database setting at a stricter level could leave one record out of a filter, inside the same tenant only, until it is saved again. No other tenant is affected. Once E1-5 lands, such a save is refused instead.</td></tr>
 </tbody></table>
 
 <h2>7. Evidence</h2>
 <ul>
 <li>Spike script and output: <code>docs/adr/ADR-006/spikes/solution-architect/e1-newest-xid/</code>.</li>
 <li>Original finding: TICK-745, PR #738, <code>docs/data/field-index-backfill.md</code> (Barrier row).</li>
-<li>The CI race test (CI-5 R1) passes with the fenced barrier and fails when the barrier is disabled. The direct newest-save test (E1-3) is pending.</li>
+<li>The CI race test (CI-5 R1) passes with the fenced barrier and fails when the barrier is disabled. The direct newest-save test (E1-3) is in PR #743. It fails without the fence and passes with it.</li>
+<li>The Technical Architect reproduced the problem and the fix independently, using the production query, and confirmed the READ COMMITTED rule (8 of 8 runs).</li>
 <li>PostgreSQL 16 manual, Snapshot Information Functions: <code>xmax</code> is one past the highest completed transaction ID. Active IDs above it may exist.</li>
 </ul>
 </main></body></html>
