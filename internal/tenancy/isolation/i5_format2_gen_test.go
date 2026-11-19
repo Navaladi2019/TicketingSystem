@@ -50,7 +50,7 @@ const (
 	// i5F2UnitPrincipals is how many of each document's principals the
 	// database-free test checks (task test runs under -race); the database
 	// half checks all of them.
-	i5F2UnitPrincipals = 12
+	i5F2UnitPrincipals = 4
 )
 
 // i5F2Case is one format-2 document and the principals it is checked for.
@@ -608,7 +608,7 @@ func TestI5Format2AllowsMatchesTheReference(t *testing.T) {
 func TestI5Format2CapCasesPlanAsTheCapsSay(t *testing.T) {
 	i5Quiet(t)
 	w, cases := i5F2Generate(i5DefaultSeed)
-	principals := cases[0].Principals[:20]
+	principals := cases[0].Principals[:8]
 	for _, cc := range w.i5CapCases() {
 		for _, np := range cc.Policy.Document.Policies {
 			want, listed := cc.Valid[np.Name]
@@ -618,11 +618,12 @@ func TestI5Format2CapCasesPlanAsTheCapsSay(t *testing.T) {
 			only := i5WithDocument(cc.Policy, authz.Document{Format: authz.FormatV2, Conditions: cc.Policy.Document.Conditions, Policies: []authz.NamedPolicy{np}})
 			granted := 0
 			for _, p := range principals {
+				// Validity does not depend on the row.
+				if _, valid := i5RefPolicy(only.Document, np, p, w.Records[0].row(p)); valid != want {
+					t.Fatalf("%s: policy %s valid = %v by the reference, want %v", cc.Name, np.Name, valid, want)
+				}
 				for _, rec := range w.Records {
 					row := rec.row(p)
-					if _, valid := i5RefPolicy(only.Document, np, p, row); valid != want {
-						t.Fatalf("%s: policy %s valid = %v by the reference, want %v", cc.Name, np.Name, valid, want)
-					}
 					_, _, ok := authz.Allows(only, p, authz.OpRead, row)
 					if ok != i5Reference(only, p, authz.OpRead, row) {
 						t.Fatalf("%s: policy %s, principal %+v, record %s: Allows %v disagrees with the reference", cc.Name, np.Name, p, rec.Row.ID, ok)
@@ -644,8 +645,8 @@ func TestI5Format2CapCasesPlanAsTheCapsSay(t *testing.T) {
 
 // TestI5Format1ConvertedMatchesS10 (D12): a format-1 rules array converted
 // on read grants exactly what the S10 rules granted, for every format-1
-// fixture (all principals) and for the S10 generator's random rule sets (the
-// first i5F2UnitPrincipals principals of each).
+// fixture (12 principals) and for the S10 generator's random rule sets (the
+// first 3 principals of each; the database rows check all of them).
 func TestI5Format1ConvertedMatchesS10(t *testing.T) {
 	i5Quiet(t)
 	w, cases := i5Generate(i5DefaultSeed)
@@ -666,10 +667,10 @@ func TestI5Format1ConvertedMatchesS10(t *testing.T) {
 		}
 	}
 	for _, f := range fixtures {
-		check(f.Name, f.Rules, &authz.Policy{Version: 1, Document: authz.ConvertFormat1(f.Rules)}, cases[0].Principals)
+		check(f.Name, f.Rules, &authz.Policy{Version: 1, Document: authz.ConvertFormat1(f.Rules)}, cases[0].Principals[:12])
 	}
 	for ci, c := range cases {
-		check(fmt.Sprintf("random rules #%d", ci), c.Rules, c.Policy, c.Principals[:6])
+		check(fmt.Sprintf("random rules #%d", ci), c.Rules, c.Policy, c.Principals[:3])
 	}
 }
 

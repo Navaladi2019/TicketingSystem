@@ -237,7 +237,7 @@ var i5Guarded = regexp.MustCompile(`\b[a-z_]+\.(requester_id|assignee_id|assignm
 
 // i5SentinelCaller is a principal id no world holds: shared_nil_caller
 // compiles with it so the user-share half matches nothing.
-var i5SentinelCaller = uuid.MustParse("0f000000-0000-4000-8000-00000000f2f2")
+func i5SentinelCaller() uuid.UUID { return uuid.MustParse("0f000000-0000-4000-8000-00000000f2f2") }
 
 // i5F2Mutants are deliberately broken compilers, each the bug a guard in the
 // planner or compiler exists to prevent. Each breaks the SQL side only, so
@@ -295,7 +295,7 @@ func i5F2Mutants() map[string]i5F2Compiler {
 				return authz.CompileRead(c.Policy, p, alias, argBase)
 			}
 			q := p
-			q.PrincipalID = i5SentinelCaller
+			q.PrincipalID = i5SentinelCaller()
 			return authz.CompileRead(i5WithDocument(c.Policy, i5MapDocument(c.Policy.Document, func(n authz.Node) authz.Node {
 				if n.Cmp != nil && n.Cmp.Caller == authz.CallerSelf {
 					if _, bad := i5RefCmp(*n.Cmp, p, authz.Row{}); !bad {
@@ -527,7 +527,7 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 				return allows(c.Policy, p, rec.row(p))
 			}
 			q := p
-			q.PrincipalID = i5SentinelCaller
+			q.PrincipalID = i5SentinelCaller()
 			d := c.Policy.Document
 			return allows(i5WithDocument(c.Policy, i5MapDocument(d, func(n authz.Node) authz.Node {
 				if n.Cmp != nil && n.Cmp.Caller == authz.CallerSelf {
