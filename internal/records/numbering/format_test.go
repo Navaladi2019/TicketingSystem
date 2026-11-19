@@ -34,6 +34,11 @@ func TestParseFormatRefuses(t *testing.T) {
 		`{"template":"{prefix}{seq:7}","overflow":"grow","time_zone":"1/x"}`:          "/time_zone",
 		`{"template":"{prefix}{seq:7}","overflow":"grow","time_zone":"Mars/Olympus"}`: "time_zone",
 		`{"template":"{prefix}X{seq:7}","overflow":"grow"}`:                           "template",
+		// Strict JSON (TICK-964): a stored document is never one that two
+		// readers could resolve two ways.
+		`{"template":"{prefix}{seq:7}","overflow":"grow","overflow":"refuse"}`:                "/",
+		`{"template":"{prefix}{seq:7}","overflow":"grow","time_zone":"\ud800"}`:               "/",
+		"{\"template\":\"{prefix}{seq:7}\",\"overflow\":\"grow\",\"time_zone\":\"\xc0\xaf\"}": "/",
 	} {
 		_, err := numbering.ParseFormat([]byte(doc))
 		var fe *numbering.FormatError

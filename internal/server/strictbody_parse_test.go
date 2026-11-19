@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
@@ -16,10 +17,19 @@ func TestParsersRefuseNonStrictJSON(t *testing.T) {
 		code  problem.Code
 		parse func([]byte) *problemError
 	}{
-		"create entity type": {problem.InvalidDefinition, func(b []byte) *problemError { _, pe := parseCreate(b); return pe }},
-		"publish version":    {problem.InvalidDefinition, func(b []byte) *problemError { _, pe := parsePublish(b); return pe }},
-		"create record":      {problem.RecordInvalid, func(b []byte) *problemError { _, pe := parseRecordBody(b); return pe }},
-		"patch record":       {problem.RecordInvalid, func(b []byte) *problemError { _, pe := parsePatchBody(b, "state"); return pe }},
+		"create entity type":    {problem.InvalidDefinition, func(b []byte) *problemError { _, pe := parseCreate(b); return pe }},
+		"publish version":       {problem.InvalidDefinition, func(b []byte) *problemError { _, pe := parsePublish(b); return pe }},
+		"create record":         {problem.RecordInvalid, func(b []byte) *problemError { _, pe := parseRecordBody(b); return pe }},
+		"patch record":          {problem.RecordInvalid, func(b []byte) *problemError { _, pe := parsePatchBody(b, "state"); return pe }},
+		"create number format":  {problem.NumberFormatInvalid, func(b []byte) *problemError { _, pe := parseNumberFormat(b, true); return pe }},
+		"publish number format": {problem.NumberFormatInvalid, func(b []byte) *problemError { _, pe := parseNumberFormat(b, false); return pe }},
+		"republish linked types": {problem.NumberFormatInvalid, func(b []byte) *problemError {
+			_, err := parseRepublishVersion(b)
+			var pe *problemError
+			errors.As(err, &pe)
+			return pe
+		}},
+		"put tenant time zone": {problem.InvalidTimeZone, func(b []byte) *problemError { _, pe := parseTimeZone(b); return pe }},
 	}
 	bodies := []struct {
 		name, body, pointer, rule string

@@ -107,15 +107,9 @@ func (h *handlers) RepublishLinkedTypes(ctx context.Context, req api.RepublishLi
 		if _, err = h.nfStore.CurrentVersion(ctx, tx, id); err != nil {
 			return err
 		}
-		fields, fe := decodeBody(raw)
-		if fe != nil {
-			return formatProblem(problem.NumberFormatInvalid, fe.Pointer, fe.Rule)
+		if target, err = parseRepublishVersion(raw); err != nil {
+			return err
 		}
-		var version *int
-		if v, ok := fields["version"]; !ok || json.Unmarshal(v, &version) != nil || version == nil || *version < 1 {
-			return formatProblem(problem.NumberFormatInvalid, "/version", "invalid")
-		}
-		target = *version
 		if _, err = h.nfStore.GetVersion(ctx, tx, id, target); errors.Is(err, numberformats.ErrNotFound) {
 			// A new error, not err: the sentinel would read as the 404 below.
 			return &problemError{problem.NumberFormatNotFound, []problem.FieldError{invalid("/version", "not_found")}, errors.New("number format version not found")}
@@ -215,3 +209,18 @@ func (h *handlers) refusal(ctx context.Context, p identity.Principal, res republ
 }
 
 var errNoLongerLinked = errors.New("entity type is no longer linked below the target version")
+
+// parseRepublishVersion reads {version}, a format version of 1 or more. The
+// body is decoded with encoding/json/v2 (decodeBody), so a duplicate member
+// name or invalid UTF-8 is refused with its pointer and rule (TICK-964).
+func parseRepublishVersion(raw json.RawMessage) (int, error) {
+	fields, fe := decodeBody(raw)
+	if fe != nil {
+		return 0, formatProblem(problem.NumberFormatInvalid, fe.Pointer, fe.Rule)
+	}
+	var version *int
+	if v, ok := fields["version"]; !ok || json.Unmarshal(v, &version) != nil || version == nil || *version < 1 {
+		return 0, formatProblem(problem.NumberFormatInvalid, "/version", "invalid")
+	}
+	return *version, nil
+}
