@@ -1162,6 +1162,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <tr>
 <td>AR-TICK-745-01 (field-index barrier assumes READ COMMITTED writers)</td>
 <td>🟡 Low</td>
+<td>The ADR-006 D9 barrier (as corrected by E1) waits on the snapshot's xip plus in-progress xids in <code>[xmax, fence)</code>; xids after the fence are safe only because records writers run at READ COMMITTED and the D4 trigger reads the registry with a fresh statement snapshot. A records write path, or a role/database <code>default_transaction_isolation</code>, at REPEATABLE READ or above could write a record across a flip without a side row: a mis-filter within the same tenant, no cross-tenant effect. E1-5 (trigger guard, follow-up) turns it into a refused write.</td>
+<td>Proposed (ADR-006-E1 rev 1, 2026-11-19; pending Solution Architect verdict)</td>
+<td>Technical Lead</td>
+<td>A proposal to raise isolation on a records write path, or a side-row recompute mismatch</td>
+<td><a href="../../../docs/adr/ADR-006-E1-d9-barrier-waits-past-xmax.md">ADR-006-E1</a></td>
+</tr>
+<tr>
+<td>AR-TICK-745-01 (field-index barrier assumes READ COMMITTED writers)</td>
+<td>🟡 Low</td>
 <td>The ADR-006 D9 barrier (as corrected by E1) waits on the snapshot's xip plus in-progress xids in <code>[xmax, fence)</code>; xids after the fence are safe only because records writers run at READ COMMITTED and the D4 trigger reads the registry with a fresh statement snapshot. A records write path, or a role/database <code>default_transaction_isolation</code>, at REPEATABLE READ or above could write a record across a flip without a side row: a mis-filter within the same tenant, no cross-tenant effect.</td>
 <td>Proposed (ADR-006-E1, 2026-11-19; pending Solution Architect verdict)</td>
 <td>Technical Lead</td>
