@@ -53,16 +53,18 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 	if pol != nil {
 		out.Version = pol.Version
 	}
-	out.Policy, out.Trace, out.Allow = Allows(pol, target, OpRead, row)
+	// One plan feeds the decision, the trace and the invalid list, so they
+	// describe the same trees Allows judged. A voided policy is counted once.
+	planned := plan(pol, target, OpRead)
+	countVoided(pol, planned)
+	out.Policy, out.Trace, out.Allow = firstGrant(planned, row)
 	out.RuleID = ruleID(pol, out.Policy)
 	out.Invalid = []InvalidPolicy{}
-	if pol != nil {
-		for _, pp := range plan(pol, target, OpRead) {
-			if pp.err != nil {
-				out.Invalid = append(out.Invalid, invalidOf(pol, pp))
-			} else if !out.Allow {
-				out.Trace = append(out.Trace, pp.trace(row)...)
-			}
+	for _, pp := range planned {
+		if pp.err != nil {
+			out.Invalid = append(out.Invalid, invalidOf(pol, pp))
+		} else if !out.Allow {
+			out.Trace = append(out.Trace, pp.trace(row)...)
 		}
 	}
 	out.MaskedFields = []string{}

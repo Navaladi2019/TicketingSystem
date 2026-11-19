@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
@@ -431,8 +432,12 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r-desk" || x.ACLVersion != 2 {
 		t.Errorf("allow = %+v, want allow by r-desk at version 2", x)
 	}
-	if x := decodeExplanation(t, got); x.Policy == nil || *x.Policy == "" || x.Trace == nil || x.Invalid == nil || len(x.Invalid) != 0 {
-		t.Errorf("allow = %+v, want a policy name, a trace list and an empty invalid list", x)
+	// The policy is the converted rule's name, which the format-1 id r-desk
+	// is not (a hyphen is not a valid name): it is derived, and r-desk stays
+	// as rule_id.
+	wantPolicy := authz.ConvertFormat1([]authz.Rule{{ID: "r-desk"}}).Policies[0].Name
+	if x := decodeExplanation(t, got); x.Policy == nil || *x.Policy != wantPolicy || x.Invalid == nil || len(x.Invalid) != 0 {
+		t.Errorf("allow = %+v, want policy %q and an empty invalid list", x, wantPolicy)
 	}
 	// The user is hidden note (not in the admins group) and code (not in the
 	// lookalike group); the admin cannot read code itself, so only note shows.
@@ -451,8 +456,8 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	if x := decodeExplanation(t, deny); deny.Code != http.StatusOK || x.Decision != "deny" || x.RuleID != nil || x.ACLVersion != 2 {
 		t.Errorf("deny = %d %+v, want deny with a null rule at version 2", deny.Code, x)
 	}
-	if x := decodeExplanation(t, deny); x.Policy != nil || x.Invalid == nil {
-		t.Errorf("deny = %+v, want no policy and an empty invalid list", x)
+	if x := decodeExplanation(t, deny); x.Policy != nil || x.Invalid == nil || x.Trace == nil {
+		t.Errorf("deny = %+v, want no policy and empty, non-null trace and invalid lists", x)
 	}
 	if !strings.Contains(deny.Body.String(), `"rule_id":null`) {
 		t.Errorf("deny body = %s, want rule_id null", deny.Body)

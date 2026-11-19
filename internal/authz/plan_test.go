@@ -581,7 +581,7 @@ func TestExplainPolicyTraceAndInvalid(t *testing.T) {
 	if !ex.Allow || ex.Policy != "first" || ex.RuleID != "first" || !slices.Equal(ex.Invalid, wantInvalid) {
 		t.Fatalf("allow: %+v", ex)
 	}
-	if len(ex.Trace) != 2 || ex.Trace[0] != (TraceStep{"first", "mine", true}) {
+	if want := []TraceStep{{"first", "mine", true}, {"first", "open", true}}; !slices.Equal(ex.Trace, want) {
 		t.Fatalf("allow trace = %v", ex.Trace)
 	}
 	ex = Explain(pol, ptMe(), ptMe(), ptRows()["closed, all NULL"])
