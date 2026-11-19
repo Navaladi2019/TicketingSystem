@@ -668,7 +668,7 @@ PAGES = [
 PREREQ = ("Prerequisites", "Do these once per fresh stack, from a clone of `main`. About 10 minutes, most of it the first image build.", [
     ("h3", "You need"),
     ("ul", ["Docker Desktop (or Docker Engine with compose v2), with about 8 GB of memory for it.",
-            "Go 1.26 (for `make dev-ca`, `make demo-outbox` and the optional harnesses).",
+            "Go 1.27 (for `make dev-ca`, `make demo-outbox` and the optional harnesses).",
             "Git Bash on Windows, or any POSIX shell. `make`.",
             "Bruno (desktop app, [usebruno.com](https://www.usebruno.com/downloads)) to click through. For the headless run, Node.js, verified with 22 (`npx` fetches the pinned Bruno CLI, `@usebruno/cli@4.3.0`)."]),
     ("h3", "1. Clone and configure"),

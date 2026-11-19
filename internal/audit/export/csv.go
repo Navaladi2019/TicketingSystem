@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/chain"
 )
 
 // csvEnvelope are the envelope members in column order (audit-export-v1.md
@@ -52,14 +54,12 @@ func (e *Exporter) WriteCSV(ctx context.Context, w io.Writer, flush func(), s Se
 
 // csvRow flattens one JSONL line into the cells of csvColumns.
 func csvRow(v any) ([]string, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	line, err := chain.MarshalJSONL(v)
+	if err != nil {
 		return nil, err
 	}
 	obj := map[string]any{}
-	dec := json.NewDecoder(bytes.NewReader(buf.Bytes()))
+	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.UseNumber()
 	if err := dec.Decode(&obj); err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func csvRow(v any) ([]string, error) {
 	row := make([]string, len(cols))
 	if kind == "header" || kind == "trailer" {
 		row[0] = kind
-		row[len(row)-1] = strings.TrimSuffix(buf.String(), "\n")
+		row[len(row)-1] = strings.TrimSuffix(string(line), "\n")
 		return row, nil
 	}
 	env, _ := obj["envelope"].(map[string]any)

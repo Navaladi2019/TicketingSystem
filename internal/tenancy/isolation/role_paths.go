@@ -45,8 +45,7 @@ var errRollback = errors.New("rollback")
 
 // sqlState returns err's SQLSTATE, or "" when it is not a server error.
 func sqlState(err error) string {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code
 	}
 	return ""

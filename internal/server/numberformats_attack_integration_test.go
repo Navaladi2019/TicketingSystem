@@ -323,11 +323,22 @@ func TestNumberFormatAttackForgedFieldsInEveryFormatBody(t *testing.T) {
 
 	// republish: the forged fields ride along with the version.
 	e.publishFormat(t, id, 2, linkMonthly)
-	rp := e.do(t, http.MethodPost, nfPath+"/"+id+"/republish-linked", "admin-a", linkKey("rl"), `{`+forge+`,"version":3}`)
+	// forge carries its own "version":7; the body names version once (a
+	// duplicate member is refused, TICK-964), so drop it from the forged set.
+	forgeNoVersion := strings.Replace(forge, `"version":7,`, "", 1)
+	rp := e.do(t, http.MethodPost, nfPath+"/"+id+"/republish-linked", "admin-a", linkKey("rl"), `{`+forgeNoVersion+`,"version":3}`)
 	if r := decodeRepublish(t, rp); len(r.Results) != 1 || r.Results[0].Status != "published" {
 		t.Fatalf("republish = %s", rp.Body)
 	}
 	e.wantPublishedBy(t, "incident", e.pinOf(t, "incident").version)
+
+	// A body that names version twice is refused at the boundary, and
+	// nothing is republished.
+	dup := e.do(t, http.MethodPost, nfPath+"/"+id+"/republish-linked", "admin-a", linkKey("rl2"), `{`+forge+`,"version":3}`)
+	pd := wantProblem(t, dup, http.StatusUnprocessableEntity, problem.NumberFormatInvalid)
+	if len(pd.Errors) != 1 || pd.Errors[0].Pointer != "/body/version" || pd.Errors[0].Rule != "duplicate" {
+		t.Errorf("duplicate version: errors = %+v, want /body/version duplicate", pd.Errors)
+	}
 
 	var bRows int
 	if err := e.super.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM number_formats WHERE tenant_id = $1)

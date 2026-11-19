@@ -107,7 +107,7 @@ func makeTargets(t *testing.T) map[string]bool {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, line := range strings.Split(string(raw), "\n") {
+		for line := range strings.SplitSeq(string(raw), "\n") {
 			if name, _, ok := strings.Cut(line, ":"); ok && name != "" && !strings.ContainsAny(name, " \t=$#.%") {
 				out[name] = true
 			}

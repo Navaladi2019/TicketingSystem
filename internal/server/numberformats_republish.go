@@ -18,6 +18,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -110,7 +111,7 @@ func (h *handlers) RepublishLinkedTypes(ctx context.Context, req api.RepublishLi
 		var body struct {
 			Version *int `json:"version"`
 		}
-		if json.Unmarshal(raw, &body) != nil || body.Version == nil || *body.Version < 1 {
+		if strictjson.Unmarshal(raw, &body) != nil || body.Version == nil || *body.Version < 1 {
 			return formatProblem(problem.NumberFormatInvalid, "/version", "invalid")
 		}
 		target = *body.Version

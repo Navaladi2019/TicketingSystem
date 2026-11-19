@@ -23,6 +23,7 @@ package isolation
 
 import (
 	"context"
+	"maps"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -275,9 +276,7 @@ func Exemptions() []Exemption {
 // its own Idempotency-Key (keys under iso-ci2- are removed after the call).
 func forgedWrite(key, body string, header http.Header) HTTPCall {
 	h := http.Header{"Idempotency-Key": {key}}
-	for k, vs := range header {
-		h[k] = vs
-	}
+	maps.Copy(h, header)
 	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA,
 		Unknown: "/api/v1/records/iso_et_none"}
 }

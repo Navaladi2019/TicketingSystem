@@ -1,0 +1,51 @@
+{
+  "step": "iso-entity-types-list-b",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/entity-types",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "current_version": 1,
+          "key": "change",
+          "name": "Change",
+          "number_prefix": "CHG",
+          "numbering_mode": "gaps",
+          "updated_at": "2026-11-19T12:51:11.591992Z"
+        },
+        {
+          "current_version": 1,
+          "key": "incident",
+          "name": "Incident",
+          "number_prefix": "INC",
+          "numbering_mode": "gaps",
+          "updated_at": "2026-11-19T12:51:11.591992Z"
+        },
+        {
+          "current_version": 1,
+          "key": "request",
+          "name": "Request",
+          "number_prefix": "REQ",
+          "numbering_mode": "gaps",
+          "updated_at": "2026-11-19T12:51:11.591992Z"
+        },
+        {
+          "current_version": 1,
+          "key": "t961_b_mwnjuz8g",
+          "name": "T961 B",
+          "number_prefix": "TNB",
+          "numbering_mode": "gaps",
+          "updated_at": "2026-11-19T12:52:06.212972Z"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

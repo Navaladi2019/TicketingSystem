@@ -256,6 +256,10 @@ stories:
     verdict_comment: "Acceptance kit s27-competitive-gate.md (TICK-882), status ready"
     evidence:
       - docs/acceptance/s27-competitive-gate.md
+  - id: GO127
+    issue: TICK-961
+    title: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies
+    status: in-progress
   - id: S28
     issue: TICK-879
     title: A new tenant's time to its first workflow-routed ticket is measured (ADR-008 X1a)

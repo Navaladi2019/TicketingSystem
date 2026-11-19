@@ -226,7 +226,7 @@ type extraActivityBeforeTimer struct {
 const replayGateChangeID = "replay-gate-extra-activity"
 
 func (e *extraActivityBeforeTimer) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &extraInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, versioned: e.versioned}
+	return &extraInbound{Next: next, versioned: e.versioned}
 }
 
 type extraInbound struct {
@@ -235,7 +235,7 @@ type extraInbound struct {
 }
 
 func (i *extraInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
-	return i.Next.Init(&extraOutbound{WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound}, versioned: i.versioned})
+	return i.Next.Init(&extraOutbound{Next: outbound, versioned: i.versioned})
 }
 
 type extraOutbound struct {

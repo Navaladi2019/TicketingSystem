@@ -44,8 +44,7 @@ func ParseFormat(b []byte) (Compiled, error) {
 		return Compiled{}, err
 	}
 	if err := sch.Validate(doc); err != nil {
-		var ve *jsonschema.ValidationError
-		if errors.As(err, &ve) {
+		if ve, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
 			return Compiled{}, invalid(firstLeaf(ve), -1, "the document does not match the number format schema")
 		}
 		return Compiled{}, fmt.Errorf("numbering: validate: %w", err)

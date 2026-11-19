@@ -28,8 +28,6 @@ func me() identity.Principal {
 	return identity.Principal{TenantID: tenant(), PrincipalID: caller(), Groups: []uuid.UUID{g1(), g2()}}
 }
 
-func ptr(id uuid.UUID) *uuid.UUID { return &id }
-
 func pol(rules ...authz.Rule) *authz.Policy { return &authz.Policy{Version: 1, Rules: rules} }
 
 func rw(id string, who authz.Subject, where ...authz.Cond) authz.Rule {
@@ -51,9 +49,9 @@ func callerCond(column, op, ref string) authz.Cond {
 // nothing). Each case also checks CompileRead agrees on "no rule can match".
 func TestAllows(t *testing.T) {
 	open := authz.Row{ID: uuid.New(), State: "open"}
-	withReq := func(id uuid.UUID) authz.Row { r := open; r.RequesterID = ptr(id); return r }
-	withAsg := func(id uuid.UUID) authz.Row { r := open; r.AssigneeID = ptr(id); return r }
-	withGroup := func(id uuid.UUID) authz.Row { r := open; r.AssignmentGroupID = ptr(id); return r }
+	withReq := func(id uuid.UUID) authz.Row { r := open; r.RequesterID = new(id); return r }
+	withAsg := func(id uuid.UUID) authz.Row { r := open; r.AssigneeID = new(id); return r }
+	withGroup := func(id uuid.UUID) authz.Row { r := open; r.AssignmentGroupID = new(id); return r }
 	shared := func(ids ...uuid.UUID) authz.Row { r := open; r.SharedWith = ids; return r }
 	nobody := identity.Principal{TenantID: tenant()} // a principal with no id
 
@@ -264,7 +262,7 @@ func (f fakePolicies) Current(_ context.Context, _ pgx.Tx, key string) (*authz.P
 func TestACLCanRead(t *testing.T) {
 	ctx := context.Background()
 	tx := tenantTx{tenant: tenant().String()}
-	row := authz.Row{ID: uuid.New(), State: "open", RequesterID: ptr(caller())}
+	row := authz.Row{ID: uuid.New(), State: "open", RequesterID: new(caller())}
 	var key string
 	a := authz.ACL{Policies: fakePolicies{pol: pol(rw("req", authz.Subject{Requester: true})), key: &key}}
 	if err := a.CanRead(ctx, tx, me(), "incident", row); err != nil || key != "incident" {
@@ -296,9 +294,9 @@ func TestACLCanWrite(t *testing.T) {
 	// The service desk writes what is assigned to one of its groups.
 	desk := authz.ACL{Policies: fakePolicies{pol: pol(rw("desk", authz.Subject{Groups: []uuid.UUID{g1()}},
 		callerCond("assignment_group_id", "in", "my_groups")))}}
-	mine := &authz.Row{ID: uuid.New(), State: "open", AssignmentGroupID: ptr(g2())}
-	alsoMine := &authz.Row{ID: mine.ID, State: "open", AssignmentGroupID: ptr(g1())}
-	notMine := &authz.Row{ID: mine.ID, State: "open", AssignmentGroupID: ptr(g3())}
+	mine := &authz.Row{ID: uuid.New(), State: "open", AssignmentGroupID: new(g2())}
+	alsoMine := &authz.Row{ID: mine.ID, State: "open", AssignmentGroupID: new(g1())}
+	notMine := &authz.Row{ID: mine.ID, State: "open", AssignmentGroupID: new(g3())}
 
 	if err := desk.CanWrite(ctx, tx, me(), "incident", nil, mine); err != nil {
 		t.Fatalf("create in scope: %v", err)

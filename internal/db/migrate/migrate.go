@@ -214,8 +214,7 @@ func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, 
 			results = append(results, r...)
 			break
 		}
-		var partial *goose.PartialError
-		if errors.As(err, &partial) {
+		if partial, ok := errors.AsType[*goose.PartialError](err); ok {
 			results = append(results, partial.Applied...)
 		}
 		if !isLockTimeout(err) || attempt >= opt.DDLAttempts {

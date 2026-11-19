@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ const realmPath = "/realms/nava"
 
 func splitList(v string) []string {
 	var out []string
-	for _, p := range strings.Split(v, ",") {
+	for p := range strings.SplitSeq(v, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}
@@ -197,12 +198,7 @@ func checkIssuers(files map[string]composeFile, base string) []string {
 }
 
 func isValidator(name string) bool {
-	for _, v := range tokenValidators() {
-		if v == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(tokenValidators(), name)
 }
 
 // loadStackFiles reads compose.yaml and every overlay in deploy/compose, the

@@ -1,0 +1,85 @@
+{
+  "step": "b-publish-workflow",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/workflow-definitions/t961_b_mwnjuz8g/versions",
+    "headers": {},
+    "body": {
+      "format": "nava.workflow/v1",
+      "trigger": {
+        "on": "record.created",
+        "entity": "t961_b_mwnjuz8g"
+      },
+      "start": "wait",
+      "steps": [
+        {
+          "key": "wait",
+          "type": "timer",
+          "duration": "PT1H",
+          "next": "mark"
+        },
+        {
+          "key": "mark",
+          "type": "update_record",
+          "set": {
+            "short_description": "triaged"
+          },
+          "next": "done"
+        },
+        {
+          "key": "done",
+          "type": "end"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "t961_b_mwnjuz8g",
+      "entity": "t961_b_mwnjuz8g",
+      "version": 1,
+      "current": true,
+      "version_id": "01a1f3dd-4292-7ac0-b648-6e56dfc88131",
+      "body": {
+        "format": "nava.workflow/v1",
+        "trigger": {
+          "on": "record.created",
+          "entity": "t961_b_mwnjuz8g"
+        },
+        "start": "wait",
+        "steps": [
+          {
+            "key": "wait",
+            "type": "timer",
+            "duration": "PT1H",
+            "next": "mark"
+          },
+          {
+            "key": "mark",
+            "type": "update_record",
+            "set": {
+              "short_description": "triaged"
+            },
+            "next": "done"
+          },
+          {
+            "key": "done",
+            "type": "end"
+          }
+        ]
+      },
+      "body_sha256": "609649c14ff807d33737d5ea9a466a548139c19ef49bf337c49ee96c304d2cdf",
+      "step_ids": {
+        "done": "01a1f3dd-4292-7a32-ad23-33aae4d2183c",
+        "mark": "01a1f3dd-4292-7a2e-95f2-4a96c5675c71",
+        "wait": "01a1f3dd-4292-7a25-83a9-4055d15f09bd"
+      },
+      "published_at": "2026-11-19T12:52:06.404881Z"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

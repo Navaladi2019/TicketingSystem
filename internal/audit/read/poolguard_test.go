@@ -536,7 +536,7 @@ func TestReaderPoolGuardFixture(t *testing.T) {
 				r, _ := filepath.Rel(dir, p)
 				for i, l := range strings.Split(string(b), "\n") {
 					for _, m := range wantRE.FindAllStringSubmatch(l, -1) {
-						for _, w := range strings.Fields(m[1]) {
+						for w := range strings.FieldsSeq(m[1]) {
 							want = append(want, poolRef{filepath.ToSlash(r), i + 1, w})
 						}
 					}

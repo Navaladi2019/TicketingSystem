@@ -72,7 +72,7 @@ type commandRecorder struct {
 }
 
 func (r *commandRecorder) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &recInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, r: r}
+	return &recInbound{Next: next, r: r}
 }
 
 type recInbound struct {
@@ -81,7 +81,7 @@ type recInbound struct {
 }
 
 func (i *recInbound) Init(out interceptor.WorkflowOutboundInterceptor) error {
-	return i.Next.Init(&recOutbound{WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: out}, r: i.r})
+	return i.Next.Init(&recOutbound{Next: out, r: i.r})
 }
 
 type recOutbound struct {
@@ -168,8 +168,7 @@ func TestWorkflowStartsNoChildAndNeverContinuesAsNew(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rec := &commandRecorder{}
 			err := runWorkflow(t, f, rec)
-			var can *workflow.ContinueAsNewError
-			if errors.As(err, &can) {
+			if _, ok := errors.AsType[*workflow.ContinueAsNewError](err); ok {
 				t.Fatalf("the workflow continued as new: %v", err)
 			}
 			if len(rec.children) != 0 || rec.continues != 0 {

@@ -170,7 +170,7 @@ func TestPGStoreTenantStateAndHasAuditorGroup(t *testing.T) {
 	id := uuid.New()
 	t.Run("state found", func(t *testing.T) {
 		t.Parallel()
-		st := scriptedStore(t, map[string]scripted{"SELECT state FROM tenants": {cols: []uint32{oidText}, rows: [][]*string{{sp("active")}}}}, unbound{})
+		st := scriptedStore(t, map[string]scripted{"SELECT state FROM tenants": {cols: []uint32{oidText}, rows: [][]*string{{new("active")}}}}, unbound{})
 		if s, ok, err := st.TenantState(t.Context(), id); err != nil || !ok || s != "active" {
 			t.Fatalf("= %q %v %v", s, ok, err)
 		}
@@ -191,7 +191,7 @@ func TestPGStoreTenantStateAndHasAuditorGroup(t *testing.T) {
 	})
 	t.Run("has row", func(t *testing.T) {
 		t.Parallel()
-		st := scriptedStore(t, map[string]scripted{"FROM tenant_auditor_group": {cols: []uint32{16}, rows: [][]*string{{sp("t")}}}}, unbound{})
+		st := scriptedStore(t, map[string]scripted{"FROM tenant_auditor_group": {cols: []uint32{16}, rows: [][]*string{{new("t")}}}}, unbound{})
 		if has, err := st.HasAuditorGroup(t.Context(), id); err != nil || !has {
 			t.Fatalf("= %v %v", has, err)
 		}

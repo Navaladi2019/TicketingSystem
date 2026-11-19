@@ -190,7 +190,7 @@ func temporalCeiling(t *testing.T) (perService, services int) {
 		t.Fatal(err)
 	}
 	inServices := false
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if m := regexp.MustCompile(`^\s+maxConns:\s*(\d+)`).FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[1])
 			perService += n

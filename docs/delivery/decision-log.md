@@ -7,6 +7,7 @@ Delivery decisions that change a task's contract, newest first.
 <!-- docindex:start -->
 
 - [2026-11-19: PLAN-011 folds ADR-010-A1 into S30's existing tasks; no separate plan](decisions/2026-11-19-plan-011-folds-adr-010-a1.md)
+- [2026-11-15: TICK-961, Go 1.27 upgrade ships the toolchain, UUIDv7 ids and strict JSON decode; the stdlib `uuid` move is cut to its own story](decisions/2026-11-15-tick-961-go-1-27-upgrade.md)
 - [2026-11-15: PLAN-011 drafted: ADR-010 lands as SP-1 and SP-2 now, S30 (composition) after TICK-900, then S31 (regions) and S32 (workflow references)](decisions/2026-11-15-plan-011-adr-010.md)
 - [2026-11-15: PLAN-010 drafted: ADR-009 lands as one story, S29, after S21 and S22 merge; OQ-4 retry deferred](decisions/2026-11-15-plan-010-adr-009.md)
 - [2026-11-15: PLAN-009 drafted: ADR-008 lands as S27 (CI gates) now, S28 (X1a timed run) after S11b, and an X4 cost model](decisions/2026-11-15-plan-009-adr-008.md)

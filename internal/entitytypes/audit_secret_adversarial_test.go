@@ -61,8 +61,7 @@ func advCompile(t *testing.T, schema string, wantRefused bool) bool {
 		},
 	})
 	if wantRefused {
-		var inv *metadata.ErrInvalidDefinition
-		if !errors.As(err, &inv) {
+		if _, ok := errors.AsType[*metadata.ErrInvalidDefinition](err); !ok {
 			t.Fatalf("Compile accepted a schema that holds a secret at a marked location (err = %v)", err)
 		}
 		return true
@@ -146,7 +145,7 @@ func TestAdversarialSecretDefaultIsRefused(t *testing.T) {
 // advChain returns $defs a0 -> a1 -> ... -> a<n-1> -> secret.
 func advChain(n int) string {
 	var b strings.Builder
-	for i := 0; i < n; i++ {
+	for i := range n {
 		next := fmt.Sprintf("#/$defs/a%d", i+1)
 		if i == n-1 {
 			next = "#/$defs/secret"

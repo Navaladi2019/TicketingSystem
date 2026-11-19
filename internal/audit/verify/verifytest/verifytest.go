@@ -258,13 +258,14 @@ func (f *File) Rehash(i int) {
 
 // Bytes serialises the file: one line each, "\n" line ends.
 func (f *File) Bytes() []byte {
+	// Not json.Encoder: it may re-escape the envelope bytes (TICK-970).
 	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
 	for _, l := range append(append([]Line{f.Header}, f.Body...), f.Trailer) {
-		if err := enc.Encode(l); err != nil {
+		line, err := chain.MarshalJSONL(l)
+		if err != nil {
 			panic(err)
 		}
+		b.Write(line)
 	}
 	return b.Bytes()
 }

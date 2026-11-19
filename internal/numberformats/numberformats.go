@@ -101,8 +101,11 @@ func (Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewIn
 	if in.CreatedBy == uuid.Nil {
 		return nil, ErrNoPublisher
 	}
-	id := uuid.New()
-	_, err := tx.Exec(ctx, `
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("numberformats: format id: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
 INSERT INTO number_formats (tenant_id, id, key, current_version) VALUES ($1, $2, $3, 1)`,
 		tenantID, id, in.Key)
 	var pg *pgconn.PgError

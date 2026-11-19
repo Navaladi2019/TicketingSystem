@@ -171,7 +171,7 @@ func setColumnsOnly(sql string, allowed func(string) bool) bool {
 		return false // an UPDATE of audit_log whose SET list this cannot find
 	}
 	for _, h := range heads {
-		for _, a := range strings.Split(topLevelSetList(s[h[1]:]), ",") {
+		for a := range strings.SplitSeq(topLevelSetList(s[h[1]:]), ",") {
 			col, _, ok := strings.Cut(a, "=")
 			col = strings.TrimSpace(col)
 			if i := strings.LastIndexByte(col, '.'); i >= 0 {
@@ -431,7 +431,7 @@ func sqlWrites(s string) [][2]string {
 		add(strings.Fields(m[1])[0], m[2])
 	}
 	for _, m := range truncateRE.FindAllStringSubmatch(s, -1) {
-		for _, ref := range strings.Split(m[1], ",") {
+		for ref := range strings.SplitSeq(m[1], ",") {
 			add("truncate", ref)
 		}
 	}

@@ -88,7 +88,7 @@ func TestRealCaseAreas(t *testing.T) {
 	}
 	got := map[string]string{}
 	var name string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
 		if v, ok := strings.CutPrefix(line, "name: "); ok {
 			name = v

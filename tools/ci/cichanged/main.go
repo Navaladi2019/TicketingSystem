@@ -309,7 +309,7 @@ func changedFiles(base string) ([]string, error) {
 		return nil, err
 	}
 	var out []string
-	for _, l := range strings.Split(diff+"\n"+untracked, "\n") {
+	for l := range strings.SplitSeq(diff+"\n"+untracked, "\n") {
 		if l = strings.TrimSpace(l); l != "" && !slices.Contains(out, l) {
 			out = append(out, l)
 		}
@@ -413,7 +413,7 @@ func dirs(root string, args ...string) (map[string]bool, error) {
 		return nil, fmt.Errorf("go list %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	m := map[string]bool{}
-	for _, l := range strings.Split(string(out), "\n") {
+	for l := range strings.SplitSeq(string(out), "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" {
 			continue

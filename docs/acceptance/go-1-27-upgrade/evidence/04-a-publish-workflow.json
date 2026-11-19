@@ -1,0 +1,85 @@
+{
+  "step": "a-publish-workflow",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/workflow-definitions/t961_a_mwnjuz8g/versions",
+    "headers": {},
+    "body": {
+      "format": "nava.workflow/v1",
+      "trigger": {
+        "on": "record.created",
+        "entity": "t961_a_mwnjuz8g"
+      },
+      "start": "wait",
+      "steps": [
+        {
+          "key": "wait",
+          "type": "timer",
+          "duration": "PT1H",
+          "next": "mark"
+        },
+        {
+          "key": "mark",
+          "type": "update_record",
+          "set": {
+            "short_description": "triaged"
+          },
+          "next": "done"
+        },
+        {
+          "key": "done",
+          "type": "end"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "t961_a_mwnjuz8g",
+      "entity": "t961_a_mwnjuz8g",
+      "version": 1,
+      "current": true,
+      "version_id": "01a1f3dd-407b-7976-8cd4-8168d9d48a09",
+      "body": {
+        "format": "nava.workflow/v1",
+        "trigger": {
+          "on": "record.created",
+          "entity": "t961_a_mwnjuz8g"
+        },
+        "start": "wait",
+        "steps": [
+          {
+            "key": "wait",
+            "type": "timer",
+            "duration": "PT1H",
+            "next": "mark"
+          },
+          {
+            "key": "mark",
+            "type": "update_record",
+            "set": {
+              "short_description": "triaged"
+            },
+            "next": "done"
+          },
+          {
+            "key": "done",
+            "type": "end"
+          }
+        ]
+      },
+      "body_sha256": "cc0e47b9add4c05efe3ad4b553ae2e7553f259891b4b15ec3e668edf0857f7ca",
+      "step_ids": {
+        "done": "01a1f3dd-407b-7893-a01f-b6dffa8a30ca",
+        "mark": "01a1f3dd-407b-788e-a868-b37d3e71819d",
+        "wait": "01a1f3dd-407b-7883-988b-e46868f954ea"
+      },
+      "published_at": "2026-11-19T12:52:05.860726Z"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}
