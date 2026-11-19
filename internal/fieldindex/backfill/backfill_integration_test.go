@@ -735,3 +735,62 @@ func TestBarrierCancelEndsTheWait(t *testing.T) {
 		t.Errorf("the barrier ended %v after start; want soon after the cancel at 1.5 s", waited)
 	}
 }
+
+// ADR-006-E1 (E1-3), the red-to-green evidence: a writer that holds the
+// newest assigned xid is the snapshot's xmax and is not in its xip, so a
+// barrier that waits on pg_snapshot_xip alone waits on nothing. The barrier
+// waits on it (the fence), and returns only after it commits. With the fence
+// query removed from takeSnapshot this test fails: the barrier returns at
+// once.
+func TestBarrierWaitsForTheNewestXID(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	var w *openWriter
+	for attempt := 0; ; attempt++ {
+		w = beginWriter(t, e, newFixture(t, e, "num", ""))
+		var xmax string
+		var xip []string
+		if err := e.worker.QueryRow(ctx, `SELECT pg_snapshot_xmax(s.s)::text,
+			(SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(s.s) x)
+			FROM (SELECT pg_current_snapshot() AS s) s`).Scan(&xmax, &xip); err != nil {
+			t.Fatal(err)
+		}
+		if xmax == w.xid && len(xip) == 0 {
+			break // the E1 case: the running writer is xmax, the xip is empty
+		}
+		w.commit(t)
+		if attempt == 20 {
+			t.Fatalf("could not make the writer the newest xid (xmax %s, xip %v, writer %s): another transaction keeps running",
+				xmax, xip, w.xid)
+		}
+	}
+	defer w.commit(t)
+
+	acts := &backfill.Activities{Pool: e.worker}
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestActivityEnvironment()
+	env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
+	done := make(chan error, 1)
+	go func() {
+		_, err := env.ExecuteActivity(backfill.BarrierActivity)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the barrier returned (%v) while the newest-xid writer was still running: it waited on the xip only", err)
+	case <-time.After(2500 * time.Millisecond):
+	}
+	committed := time.Now()
+	w.commit(t)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("barrier: %v", err)
+		}
+		if waited := time.Since(committed); waited > 12*time.Second {
+			t.Errorf("the barrier returned %v after the commit; want the next poll (at most 10 s)", waited)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the barrier did not return after the writer committed")
+	}
+}

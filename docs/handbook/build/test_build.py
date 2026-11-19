@@ -505,14 +505,22 @@ class TestReferences(Base):
         self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "field_index.Barrier", "field_index.Batch",
                                           "nava.interpreter.ApplyStep", "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
 
-    def test_go_registry_non_kind_workflows_are_closed(self):
-        # A registered type that is neither a kind nor listed is refused, and a
-        # listed type that nothing registers is a stale entry.
-        write(self.root, "internal/fieldindex/coordinator.go",
-              'package fieldindex\n\nconst (\n\tCoordinatorWorkflowType = "field_index.coordinator"\n'
-              '\tBackfillWorkflowType = "field_index.sneaky"\n)\n')
-        self.fails("workflow type 'field_index.sneaky' is registered but is not a kind",
-                   "GO_NON_KIND_WORKFLOWS lists 'field_index.backfill.run', which no RegisterWorkflow registers")
+    def test_go_registry_refuses_an_unlisted_non_kind_workflow(self):
+        # A registered type that is neither a kind nor in GO_NON_KIND_WORKFLOWS.
+        write(self.root, "internal/fieldindex/backfill/workflow.go",
+              "package backfill\n\nconst sneakyType = \"field_index.sneaky\"\n\n"
+              "func RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})\n"
+              "\tr.RegisterWorkflowWithOptions(backfillRun, workflow.RegisterOptions{Name: fieldindex.BackfillWorkflowType})\n"
+              "\tr.RegisterWorkflowWithOptions(sneakyRun, workflow.RegisterOptions{Name: sneakyType})\n}\n")
+        self.fails("workflow type 'field_index.sneaky' is registered but is not a kind")
+
+    def test_go_registry_refuses_a_stale_non_kind_entry(self):
+        # A GO_NON_KIND_WORKFLOWS type that no RegisterWorkflow registers.
+        write(self.root, "internal/fieldindex/backfill/workflow.go",
+              "package backfill\n\nfunc RegisterWorkflow(r worker.WorkflowRegistry) {\n"
+              "\tr.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})\n}\n")
+        self.fails("GO_NON_KIND_WORKFLOWS lists 'field_index.backfill.run', which no RegisterWorkflow registers")
 
     def test_go_registry_resolves_front_matter(self):
         page(self.root, "workflows/a.md", "A", "workflows",
