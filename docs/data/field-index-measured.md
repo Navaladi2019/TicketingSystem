@@ -22,11 +22,11 @@ output: `docs/data/field-index-measured/`.
 | Bool planning at statistics target 10,000 | reported | **7–29 ms per statement with an ACL, 1.6–3.2 ms without**. A list plans two statements, so up to 55 ms per request (spike: 5–11 ms). `ANALYZE rfv_bool`: 16.3 s at 3.2M rows. |
 | E1-5 guard | reported | **0.78 µs per fired row** |
 
-Fix tasks on the story: **F1** (a range compiles to one `EXISTS` per field),
-**F2** (`nava_worker` plans with `force_custom_plan`), **F3** (the adaptive
-pause and the per-batch progress count), **F4** (re-run lists and the
-backfill delta on an idle host after F1–F3, and decide the 2% band without
-an ACL).
+Fix tasks on the story: **F1, TICK-989** (a range compiles to one `EXISTS`
+per field), **F2, TICK-990** (`nava_worker` plans with `force_custom_plan`),
+**F3, TICK-991** (the adaptive pause and the per-batch progress count), **F4,
+TICK-992** (score lists and the backfill delta on an idle host after F1–F3,
+and decide the 2% band without an ACL).
 
 ## Setup
 
