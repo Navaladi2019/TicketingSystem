@@ -273,7 +273,7 @@ func (n pnode) disjuncts(c *compiler) []string {
 	case pAny:
 		out := make([]string, len(n.kids))
 		for i, k := range n.kids {
-			out[i] = k.sql(c)
+			out[i] = k.branchSQL(c)
 		}
 		return out
 	case pAll:
@@ -307,7 +307,17 @@ func (n pnode) disjuncts(c *compiler) []string {
 		}
 		return out
 	}
-	return []string{n.sql(c)}
+	return []string{n.branchSQL(c)}
+}
+
+// branchSQL is n.sql as one disjunct: always one parenthesized term. An all
+// already renders as one; anything else is wrapped, as S10's disjuncts wrapped
+// a lone subject (CI-6: the same SQL text for a converted format-1 policy).
+func (n pnode) branchSQL(c *compiler) string {
+	if n.op == pAll {
+		return n.sql(c)
+	}
+	return "(" + n.sql(c) + ")"
 }
 
 var identRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
