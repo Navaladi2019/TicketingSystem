@@ -1,0 +1,1072 @@
+{
+  "run": "mwnjuz8g",
+  "passed": 55,
+  "failed": 0,
+  "results": [
+    {
+      "id": "AC2.A",
+      "what": "tenant A number format id 01a1f3dd-40c2-78b7-b56f-358286a9a3ca is v7",
+      "ok": true,
+      "detail": {
+        "id": "01a1f3dd-40c2-78b7-b56f-358286a9a3ca"
+      }
+    },
+    {
+      "id": "AC2.A",
+      "what": "tenant A record id 01a1f3dd-4114-7f2d-a21d-983d16bd9a69 is v7",
+      "ok": true,
+      "detail": {
+        "id": "01a1f3dd-4114-7f2d-a21d-983d16bd9a69"
+      }
+    },
+    {
+      "id": "AC2.A",
+      "what": "tenant A entity type t961_a_mwnjuz8g: definition id 01a1f3dd-3f9a-76b9-8f41-fecc1024dc3b and version id 01a1f3dd-3f9a-76c2-a2d7-43880f21dbff are v7",
+      "ok": true,
+      "detail": {
+        "d": "01a1f3dd-3f9a-76b9-8f41-fecc1024dc3b",
+        "v": "01a1f3dd-3f9a-76c2-a2d7-43880f21dbff"
+      }
+    },
+    {
+      "id": "AC2.A",
+      "what": "tenant A workflow definition 01a1f3dd-4072-7ea7-bdba-7203baca65c3, version 01a1f3dd-407b-7976-8cd4-8168d9d48a09 and 3 step ids are v7",
+      "ok": true,
+      "detail": {
+        "wid": "01a1f3dd-4072-7ea7-bdba-7203baca65c3",
+        "wvid": "01a1f3dd-407b-7976-8cd4-8168d9d48a09",
+        "stepIds": [
+          "01a1f3dd-407b-7893-a01f-b6dffa8a30ca",
+          "01a1f3dd-407b-788e-a868-b37d3e71819d",
+          "01a1f3dd-407b-7883-988b-e46868f954ea"
+        ]
+      }
+    },
+    {
+      "id": "AC2.B",
+      "what": "tenant B number format id 01a1f3dd-42d7-7e4a-a588-0346fee211ac is v7",
+      "ok": true,
+      "detail": {
+        "id": "01a1f3dd-42d7-7e4a-a588-0346fee211ac"
+      }
+    },
+    {
+      "id": "AC2.B",
+      "what": "tenant B record id 01a1f3dd-4346-7b41-9206-79f7386ccb30 is v7",
+      "ok": true,
+      "detail": {
+        "id": "01a1f3dd-4346-7b41-9206-79f7386ccb30"
+      }
+    },
+    {
+      "id": "AC2.B",
+      "what": "tenant B entity type t961_b_mwnjuz8g: definition id 01a1f3dd-41cc-748d-b7db-3d98e9d049f1 and version id 01a1f3dd-41cc-7498-a2fb-ed649bd207bd are v7",
+      "ok": true,
+      "detail": {
+        "d": "01a1f3dd-41cc-748d-b7db-3d98e9d049f1",
+        "v": "01a1f3dd-41cc-7498-a2fb-ed649bd207bd"
+      }
+    },
+    {
+      "id": "AC2.B",
+      "what": "tenant B workflow definition 01a1f3dd-428e-7cc7-a042-52bbc61d4088, version 01a1f3dd-4292-7ac0-b648-6e56dfc88131 and 3 step ids are v7",
+      "ok": true,
+      "detail": {
+        "wid": "01a1f3dd-428e-7cc7-a042-52bbc61d4088",
+        "wvid": "01a1f3dd-4292-7ac0-b648-6e56dfc88131",
+        "stepIds": [
+          "01a1f3dd-4292-7a32-ad23-33aae4d2183c",
+          "01a1f3dd-4292-7a2e-95f2-4a96c5675c71",
+          "01a1f3dd-4292-7a25-83a9-4055d15f09bd"
+        ]
+      }
+    },
+    {
+      "id": "AC2.groups",
+      "what": "all 6 groups rows (minted by nava-groupsync on this build) are v7",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "id": "AC2.db",
+      "what": "no row minted on this stack (seed templates incident/request/change excluded) has a non-v7 id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "AC3",
+      "what": "createEntityType with duplicate: 422 invalid_definition, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:205b690499fb2688878bf2061ed058a9",
+          "errors": [
+            {
+              "pointer": "/body/name",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createEntityType with invalid-utf8-byte: 422 invalid_definition, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:162f852291647af7180a3f8bb6ccc71d",
+          "errors": [
+            {
+              "pointer": "/body/name",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createEntityType with lone-surrogate: 422 invalid_definition, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:47dee297804bec4d48d7546e34620ff4",
+          "errors": [
+            {
+              "pointer": "/body/name",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishEntityTypeVersion with duplicate: 422 invalid_definition, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:b33a3d9855e2e1655de15f8b74335660",
+          "errors": [
+            {
+              "pointer": "/body/definition/fixed_columns",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishEntityTypeVersion with invalid-utf8-byte: 422 invalid_definition, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:684e7da382e6d8e6099f94f4a62b0f0d",
+          "errors": [
+            {
+              "pointer": "/body/definition/fixed_columns",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishEntityTypeVersion with lone-surrogate: 422 invalid_definition, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_definition",
+          "title": "Invalid entity definition",
+          "status": 422,
+          "code": "invalid_definition",
+          "detail": "The entity type is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:d1e198e743fe745e03f0c2aa3b195305",
+          "errors": [
+            {
+              "pointer": "/body/definition/fixed_columns/state",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putEntityTypeAccess with duplicate: 422 invalid_access_policy, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_access_policy",
+          "title": "Invalid access policy",
+          "status": 422,
+          "code": "invalid_access_policy",
+          "detail": "The access policy is not accepted. Nothing was published. See errors for the failing fields.",
+          "instance": "urn:nava:request:809d8832afe1786a81a10e4a81c465a3",
+          "errors": [
+            {
+              "pointer": "/body/rules/0/id",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putEntityTypeAccess with invalid-utf8-byte: 422 invalid_access_policy, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_access_policy",
+          "title": "Invalid access policy",
+          "status": 422,
+          "code": "invalid_access_policy",
+          "detail": "The access policy is not accepted. Nothing was published. See errors for the failing fields.",
+          "instance": "urn:nava:request:63f233817a952ed67f8cc3acca6bf0cf",
+          "errors": [
+            {
+              "pointer": "/body/rules/0/id",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putEntityTypeAccess with lone-surrogate: 422 invalid_access_policy, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_access_policy",
+          "title": "Invalid access policy",
+          "status": 422,
+          "code": "invalid_access_policy",
+          "detail": "The access policy is not accepted. Nothing was published. See errors for the failing fields.",
+          "instance": "urn:nava:request:e7c36126edb9ea81545605bb6778eaeb",
+          "errors": [
+            {
+              "pointer": "/body/rules/0/id",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishWorkflowDefinitionVersion with duplicate: 422 workflow_definition_invalid, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:workflow_definition_invalid",
+          "title": "Workflow definition invalid",
+          "status": 422,
+          "code": "workflow_definition_invalid",
+          "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+          "instance": "urn:nava:request:7c5dcea0f2bd93c54c3177255a4ee797",
+          "errors": [
+            {
+              "pointer": "/body/start",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishWorkflowDefinitionVersion with invalid-utf8-byte: 422 workflow_definition_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:workflow_definition_invalid",
+          "title": "Workflow definition invalid",
+          "status": 422,
+          "code": "workflow_definition_invalid",
+          "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+          "instance": "urn:nava:request:dad349cf7c8578d30bbff754db9c52fa",
+          "errors": [
+            {
+              "pointer": "/body/start",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "publishWorkflowDefinitionVersion with lone-surrogate: 422 workflow_definition_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:workflow_definition_invalid",
+          "title": "Workflow definition invalid",
+          "status": 422,
+          "code": "workflow_definition_invalid",
+          "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+          "instance": "urn:nava:request:51a616aceeda7255406971697aba312e",
+          "errors": [
+            {
+              "pointer": "/body/start",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createNumberFormat with duplicate: 422 number_format_invalid, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:5cc5e3001792653d6487f37ce57b654e",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createNumberFormat with invalid-utf8-byte: 422 number_format_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:7b78dca881ca5f813374adb3f8568049",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createNumberFormat with lone-surrogate: 422 number_format_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:493ce16f4ec64f5e7f0d1e8304fc4f49",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putNumberFormat with duplicate: 422 number_format_invalid, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:cbd8fa61df9c786e6864235722814556",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putNumberFormat with invalid-utf8-byte: 422 number_format_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:0d8ee05366c0fc21a2f2c715b9580b75",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putNumberFormat with lone-surrogate: 422 number_format_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:number_format_invalid",
+          "title": "Invalid number format",
+          "status": 422,
+          "code": "number_format_invalid",
+          "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+          "instance": "urn:nava:request:472a9ad1ed1412129a3171e877a9d32e",
+          "errors": [
+            {
+              "pointer": "/body/document/overflow",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putTenantTimeZone with duplicate: 422 invalid_time_zone, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_time_zone",
+          "title": "Invalid time zone",
+          "status": 422,
+          "code": "invalid_time_zone",
+          "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+          "instance": "urn:nava:request:8dff55de6b15ebc5b7542bb9bfffaa3f",
+          "errors": [
+            {
+              "pointer": "/body/time_zone",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putTenantTimeZone with invalid-utf8-byte: 422 invalid_time_zone, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_time_zone",
+          "title": "Invalid time zone",
+          "status": 422,
+          "code": "invalid_time_zone",
+          "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+          "instance": "urn:nava:request:e0ed23820b18011c6e20bd858d01085e",
+          "errors": [
+            {
+              "pointer": "/body/time_zone",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "putTenantTimeZone with lone-surrogate: 422 invalid_time_zone, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:invalid_time_zone",
+          "title": "Invalid time zone",
+          "status": 422,
+          "code": "invalid_time_zone",
+          "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+          "instance": "urn:nava:request:fb8bcd5add98e63ef1122fd2d01ed4d0",
+          "errors": [
+            {
+              "pointer": "/body/time_zone",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createRecord with duplicate: 422 record_invalid, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:b98e61e307203eb8c93c72bdc48892ee",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createRecord with invalid-utf8-byte: 422 record_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:70b7fdae4a36876ff4111b642382c41c",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "createRecord with lone-surrogate: 422 record_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:4c85cffeb1e4b4c363fd683890d876fa",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "patchRecord with duplicate: 422 record_invalid, errors[0].rule=duplicate",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:55306521a2af3377c6e09972198a7cc2",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "duplicate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "patchRecord with invalid-utf8-byte: 422 record_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:56bb322c81a03ab48271677aaa91526c",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3",
+      "what": "patchRecord with lone-surrogate: 422 record_invalid, errors[0].rule=invalid_utf8",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:record_invalid",
+          "title": "Record invalid",
+          "status": 422,
+          "code": "record_invalid",
+          "detail": "The record is not accepted. See errors for the failing fields.",
+          "instance": "urn:nava:request:c0c7848b9e15c1df7d859a6c94de2541",
+          "errors": [
+            {
+              "pointer": "/body/data/short_description",
+              "rule": "invalid_utf8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "AC3.nothing-written",
+      "what": "tenant A row counts unchanged after 27 refused bodies (entity_definitions|entity_definition_versions|acl_versions|workflow_definition_versions|number_formats|number_format_versions|records|audit_log|outbox)",
+      "ok": true,
+      "detail": {
+        "beforeA": "4|4|2|1|1|1|1|6|11",
+        "afterA": "4|4|2|1|1|1|1|6|11"
+      }
+    },
+    {
+      "id": "AC3.nothing-written",
+      "what": "tenant A time zone unchanged",
+      "ok": true,
+      "detail": {
+        "tzNow": {
+          "time_zone": "UTC"
+        },
+        "tzAfter": {
+          "time_zone": "UTC"
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b GET entity-type of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b GET entity-type-access of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b GET workflow-definition of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b GET number-format of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b PUT number-format-put of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b GET record of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b PATCH record-patch of tenant A: 404, same as a made-up one (404)",
+      "ok": true,
+      "detail": {
+        "a": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        },
+        "fake": {
+          "status": 404,
+          "body": {
+            "type": "urn:nava:problem:not_found",
+            "title": "Not found",
+            "status": 404,
+            "code": "not_found",
+            "detail": "The resource does not exist."
+          },
+          "headers": {
+            "content-type": "application/problem+json"
+          }
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "tenant B's number-format list does not contain tenant A's format",
+      "ok": true,
+      "detail": {
+        "items": [
+          {
+            "id": "01a1f3dd-42d7-7e4a-a588-0346fee211ac",
+            "key": "t961_b_mwnjuz8g",
+            "current_version": 1,
+            "created_at": "2026-11-19T12:52:06.48592Z",
+            "updated_at": "2026-11-19T12:52:06.48592Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "tenant B's entity-type list does not contain tenant A's type",
+      "ok": true,
+      "detail": {
+        "items": [
+          {
+            "current_version": 1,
+            "key": "change",
+            "name": "Change",
+            "number_prefix": "CHG",
+            "numbering_mode": "gaps",
+            "updated_at": "2026-11-19T12:51:11.591992Z"
+          },
+          {
+            "current_version": 1,
+            "key": "incident",
+            "name": "Incident",
+            "number_prefix": "INC",
+            "numbering_mode": "gaps",
+            "updated_at": "2026-11-19T12:51:11.591992Z"
+          },
+          {
+            "current_version": 1,
+            "key": "request",
+            "name": "Request",
+            "number_prefix": "REQ",
+            "numbering_mode": "gaps",
+            "updated_at": "2026-11-19T12:51:11.591992Z"
+          },
+          {
+            "current_version": 1,
+            "key": "t961_b_mwnjuz8g",
+            "name": "T961 B",
+            "number_prefix": "TNB",
+            "numbering_mode": "gaps",
+            "updated_at": "2026-11-19T12:52:06.212972Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "admin@tenant-b publishing a workflow under tenant A's type key is refused (no such type in tenant B): 422",
+      "ok": true,
+      "detail": {
+        "status": 422,
+        "body": {
+          "type": "urn:nava:problem:workflow_definition_invalid",
+          "title": "Workflow definition invalid",
+          "status": 422,
+          "code": "workflow_definition_invalid",
+          "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+          "instance": "urn:nava:request:fd962c66f016ec135385cda1834f012a",
+          "errors": [
+            {
+              "pointer": "/trigger/entity",
+              "rule": "unknown_entity"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/problem+json"
+        }
+      }
+    },
+    {
+      "id": "AC5",
+      "what": "tenant A's workflow versions, record and number format are unchanged after tenant B's attempts",
+      "ok": true,
+      "detail": {
+        "wfA": "01a1f3dd-407b-7976-8cd4-8168d9d48a09|1",
+        "wfA2": "01a1f3dd-407b-7976-8cd4-8168d9d48a09|1",
+        "recA": "01a1f3dd-4114-7f2d-a21d-983d16bd9a69|{\"short_description\": \"T961 A record line sep para sep\"}|1",
+        "recA2": "01a1f3dd-4114-7f2d-a21d-983d16bd9a69|{\"short_description\": \"T961 A record line sep para sep\"}|1",
+        "nfA": "01a1f3dd-40c2-78b7-b56f-358286a9a3ca|1"
+      }
+    },
+    {
+      "id": "AC4.sealed",
+      "what": "every audit entry of both tenants is sealed before the export",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "id": "AC4.export",
+      "what": "admin@tenant-a.test export: HTTP 200, 11112 bytes",
+      "ok": true,
+      "detail": 200
+    },
+    {
+      "id": "AC4.export",
+      "what": "tenant A export holds U+2028 and U+2029 (raw: false, escaped \\u2028: true)",
+      "ok": true,
+      "detail": {
+        "raw2028": false,
+        "raw2029": false,
+        "esc": true
+      }
+    },
+    {
+      "id": "AC4.export",
+      "what": "admin@tenant-b.test export: HTTP 200, 11084 bytes",
+      "ok": true,
+      "detail": 200
+    },
+    {
+      "id": "AC5",
+      "what": "tenant B's export names none of tenant A's new rows",
+      "ok": true,
+      "detail": null
+    }
+  ]
+}

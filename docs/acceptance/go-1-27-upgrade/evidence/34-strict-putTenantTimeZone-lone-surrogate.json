@@ -1,0 +1,33 @@
+{
+  "step": "strict-putTenantTimeZone-lone-surrogate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/tenant/settings/time-zone",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b2274696d655f7a6f6e65223a225c7564383030227d",
+      "raw_latin1": "{\"time_zone\":\"\\ud800\"}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:invalid_time_zone",
+      "title": "Invalid time zone",
+      "status": 422,
+      "code": "invalid_time_zone",
+      "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+      "instance": "urn:nava:request:fb8bcd5add98e63ef1122fd2d01ed4d0",
+      "errors": [
+        {
+          "pointer": "/body/time_zone",
+          "rule": "invalid_utf8"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

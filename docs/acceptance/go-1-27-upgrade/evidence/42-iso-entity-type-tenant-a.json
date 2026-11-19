@@ -1,0 +1,22 @@
+{
+  "step": "iso-entity-type-tenant-a",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/entity-types/t961_a_mwnjuz8g",
+    "headers": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "step": "a-create-type",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/entity-types",
+    "headers": {},
+    "body": {
+      "key": "t961_a_mwnjuz8g",
+      "name": "T961 A line sep para sep",
+      "number_prefix": "TNA",
+      "definition": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "short_description",
+            "state"
+          ],
+          "properties": {
+            "short_description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "new",
+                "closed"
+              ],
+              "default": "new"
+            }
+          }
+        },
+        "fixed_columns": {
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "closed"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "t961_a_mwnjuz8g",
+      "name": "T961 A line sep para sep",
+      "number_prefix": "TNA",
+      "numbering_mode": "gaps",
+      "version": 1,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          }
+        }
+      },
+      "schema_sha256": "3583e718cfec4afb5726dc2a7ca203808cdac6d667b1eef573427a8f002efda9",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "initial",
+      "number_format": null,
+      "published_at": "2026-11-19T12:52:05.636378Z"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

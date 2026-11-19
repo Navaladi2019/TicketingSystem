@@ -1,0 +1,45 @@
+{
+  "step": "a-create-number-format",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/number-formats",
+    "headers": {},
+    "body": {
+      "key": "t961_a_mwnjuz8g",
+      "document": {
+        "template": "{prefix}-{seq:6}",
+        "overflow": "refuse"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "01a1f3dd-40c2-78b7-b56f-358286a9a3ca",
+      "key": "t961_a_mwnjuz8g",
+      "version": 1,
+      "current_version": 1,
+      "document": {
+        "overflow": "refuse",
+        "template": "{prefix}-{seq:6}"
+      },
+      "compiled": {
+        "Head": "{prefix}-",
+        "Tail": "",
+        "Epoch": -1,
+        "Width": 6,
+        "Overflow": "refuse",
+        "TimeZone": "",
+        "ScopeParts": null,
+        "CompiledSHA256": "ca1b011cfece60f287e0a0c266d7104de9c7dc78216425d06e191d9859bffe2e"
+      },
+      "compiled_sha256": "ca1b011cfece60f287e0a0c266d7104de9c7dc78216425d06e191d9859bffe2e",
+      "created_at": "2026-11-19T12:52:05.946589Z",
+      "created_by": "01a1f3d6-5c8d-7bda-968c-b6bb41611ab2"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}
