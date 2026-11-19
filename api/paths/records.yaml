@@ -14,7 +14,7 @@ paths:
         on a property mapped to a fixed column or a top-level scalar `data`
         property. `sort=<property>` or `sort=-<property>` on a property mapped
         to a fixed column, or on `created_at` or `updated_at`; the default is
-        `-updated_at`; ties break on `id`. There is no sort or range on `data`.
+        `-updated_at`; ties break on `id`. There is no sort on `data`.
         Only sorts on `created_at`, `updated_at` and `state` are index-ordered
         (answered by an index scan, no `Sort`) and inside the list p95 target.
         A sort on `assignee`, `requester` or `assignment_group` is allowed but
@@ -34,7 +34,10 @@ paths:
         offset or a `YYYY-MM-DD` day, a text of at most 2,000 bytes); a value
         of the wrong type, an operator the type does not take or more than
         100 `in` values is 400 `validation_failed`. Text compares bytewise
-        (`COLLATE "C"`). Until S22 P7-12, the seed fields `incident.priority`,
+        (`COLLATE "C"`). Several filters on one field (a range such as
+        `filter[f][gte]=a&filter[f][lt]=b`) are ANDed inside one `EXISTS`, so on
+        an array field one element must satisfy every bound (`filter[f]=1&filter[f][in]=2,3`
+        matches nothing); the same filter key twice is 400. Until S22 P7-12, the seed fields `incident.priority`,
         `request.priority` and `change.risk` stay filterable through the
         legacy scan while unflagged (equality and `in` only).
         An unknown property, an unsortable property, a value that does not fit

@@ -171,9 +171,13 @@ func sqlOp(op string) string {
 
 // existsTerm renders a ready data filter as a correlated EXISTS on the typed
 // side table (ADR-006 D7). The table name comes from fieldindex.SideTable's
-// fixed set, never from the request. A text value is compared under COLLATE
+// fixed set, never from the request. fs are all the filters of one field: their
+// comparisons are ANDed inside the one EXISTS, so on an array field a single
+// element must satisfy every bound (ADR-006 D7), and the planner sees one
+// range, not two unselective halves. A text value is compared under COLLATE
 // "C", the column's own collation, so the value index serves it.
-func existsTerm(f listFilter, next func(v any, cast string) string) string {
+func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
+	f := fs[0]
 	table, _ := f.idx.ValueType.SideTable()
 	cast := map[fieldindex.ValueType]string{
 		fieldindex.TypeText: "text", fieldindex.TypeNum: "double precision",
@@ -184,12 +188,15 @@ func existsTerm(f listFilter, next func(v any, cast string) string) string {
 		collate = ` COLLATE "C"`
 	}
 	fieldArg := next(f.idx.ID.String(), "uuid")
-	var cmp string
-	if f.op == "in" {
-		cmp = "v.value = ANY(" + next(arrayOf(f.values), cast+"[]") + ")"
-	} else {
-		cmp = "v.value " + sqlOp(f.op) + " " + next(f.values[0], cast) + collate
+	cmps := make([]string, 0, len(fs))
+	for _, f := range fs {
+		if f.op == "in" {
+			cmps = append(cmps, "v.value = ANY("+next(arrayOf(f.values), cast+"[]")+")")
+		} else {
+			cmps = append(cmps, "v.value "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
+		}
 	}
+	cmp := strings.Join(cmps, " AND ")
 	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
 }
 

@@ -66,6 +66,7 @@ func assetTypeBody(key, prefix string) string {
     "qty": {"type": "number"},
     "due": {"type": "string", "format": "date-time"},
     "vip": {"type": "boolean"},
+    "scores": {"type": "array", "items": {"type": "number"}},
     "priority": {"type": "integer"}`, 1)
 }
 
@@ -665,5 +666,45 @@ func TestListFilterRegistryReadFailureIsA500(t *testing.T) {
 	listCode(t, rec, http.StatusInternalServerError, "internal_error")
 	if rec, _ := e.list(t, "admin-a", "asset", "filter[state]=new"); rec.Code != http.StatusOK {
 		t.Errorf("a list with no data filter = %d, want 200", rec.Code)
+	}
+}
+
+// covers: listRecords 200
+//
+// ADR-006 D7: all comparisons on one field sit inside one EXISTS, so on an
+// array field ONE element must satisfy every bound. [1, 9] has an element >= 5
+// and another < 3 but none in between, and is not in [2, 6).
+func TestListFilterRangeOnArrayFieldNeedsOneElementForEveryBound(t *testing.T) {
+	e := newFilterEnv(t)
+	mk := func(i int, scores string) recBody {
+		return e.mustCreateRec(t, "admin-a", "asset", fmt.Sprintf("arr-%d", i),
+			fmt.Sprintf(`{"short_description": "s%d", "scores": %s}`, i, scores))
+	}
+	split, inside, outside := mk(0, "[1, 9]"), mk(1, "[1, 4]"), mk(2, "[7, 8]")
+	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	p := e.mustList(t, "admin-a", "asset", "filter[scores][gte]=2&filter[scores][lt]=6")
+	wantIDs(t, "array range", p.Items, inside)
+	if p.Total != 1 {
+		t.Errorf("total %d, want 1", p.Total)
+	}
+	_, _ = split, outside
+}
+
+// covers: listRecords 200 400
+//
+// Two comparisons on one array field are one EXISTS, so one element must meet
+// both: eq and in with different values match nothing, with a shared value they
+// match; the same key twice is refused as repeated.
+func TestListFilterTwoEqualitiesOnOneFieldArePinned(t *testing.T) {
+	e := newFilterEnv(t)
+	both := e.mustCreateRec(t, "admin-a", "asset", "eq-0", `{"short_description": "s0", "scores": [1, 2]}`)
+	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	if p := e.mustList(t, "admin-a", "asset", "filter[scores]=1&filter[scores][in]=2,3"); len(p.Items) != 0 || p.Total != 0 {
+		t.Errorf("eq 1 + in (2,3) on [1,2]: %d items, total %d, want none", len(p.Items), p.Total)
+	}
+	wantIDs(t, "eq+in shared", e.mustList(t, "admin-a", "asset", "filter[scores]=1&filter[scores][in]=1,3").Items, both)
+	rec, _ := e.list(t, "admin-a", "asset", "filter[scores]=1&filter[scores]=2")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("repeated key = %d: %s", rec.Code, rec.Body)
 	}
 }
