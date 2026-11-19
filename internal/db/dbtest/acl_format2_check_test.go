@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 // TICK-940 (S30 P11-08; ADR-010 D4, amendment A1): the database backstop for
@@ -28,6 +31,28 @@ const (
 	// bytesCeiling is ADR-010-A1 A1-2b's constant.
 	bytesCeiling = 131072
 )
+
+// beforeFormat2Checks returns m without the acl2_* function grants (TICK-940)
+// when fsys lacks the migration that creates them, so a run that stops at an
+// earlier version applies only grants on functions it has created.
+func beforeFormat2Checks(fsys fs.FS, m *grants.Manifest) *grants.Manifest {
+	if _, err := fs.Stat(fsys, format2Migration); err == nil {
+		return m
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		functions := make(map[string][]string, len(r.Functions))
+		for fn, privs := range r.Functions {
+			if !strings.HasPrefix(fn, "public.acl2_") {
+				functions[fn] = privs
+			}
+		}
+		r.Functions = functions
+		gm.Roles[name] = r
+	}
+	return &gm
+}
 
 // aclDetail is the DETAIL of a refusal: {"column", "code", "pointer"}.
 type aclDetail struct {

@@ -253,6 +253,7 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m = beforeFormat2Checks(fsys, m)
 	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)
@@ -296,8 +297,9 @@ func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*gran
 
 // Acceptance (P3-35, TICK-620; ADR-004 CI-A3): acl_versions carries the audit
 // commit check. A publish with no audit entry for its entity type in the same
-// transaction is refused at COMMIT with audit_missing, for both writer roles,
-// and the same insert with its entry commits.
+// transaction is refused at COMMIT with audit_missing, and the same insert
+// with its entry commits. nava_app is the one writer since ADR-010-A1 A1-3
+// (TICK-940); nava_worker is refused by its grant before any commit check.
 func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -306,19 +308,19 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 
 	const bare = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
 		VALUES ($1, $2, $3, '[]', '[]', $4)`
-	for i, role := range []string{"nava_app", "nava_worker"} {
-		conn := asRole(t, role)
-		_, err := execIn(conn, tenantA, bare, tenantA, tenantA, 2+i*2, tenantA)
-		if code, constraint := pgErrDetail(err); code != "23514" || constraint != "acl_versions_audit_commit_check" {
-			t.Errorf("%s publishes with no audit entry: err = %v (constraint %q), want 23514 from acl_versions_audit_commit_check", role, err, constraint)
-		}
-		if _, err := execIn(conn, tenantA, insertACL, tenantA, tenantA, 3+i*2, tenantA); err != nil {
-			t.Errorf("%s publishes with its audit entry: %v", role, err)
-		}
+	app := asRole(t, "nava_app")
+	_, err := execIn(app, tenantA, bare, tenantA, tenantA, 2, tenantA)
+	if code, constraint := pgErrDetail(err); code != "23514" || constraint != "acl_versions_audit_commit_check" {
+		t.Errorf("nava_app publishes with no audit entry: err = %v (constraint %q), want 23514 from acl_versions_audit_commit_check", err, constraint)
 	}
+	if _, err := execIn(app, tenantA, insertACL, tenantA, tenantA, 3, tenantA); err != nil {
+		t.Errorf("nava_app publishes with its audit entry: %v", err)
+	}
+	_, err = execIn(asRole(t, "nava_worker"), tenantA, insertACL, tenantA, tenantA, 5, tenantA)
+	wantSQLState(t, "nava_worker publishes with its audit entry", err, "42501")
 	if got := queryString(t, super, `SELECT string_agg(version::text, ',' ORDER BY version) FROM acl_versions
-		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3,5" {
-		t.Errorf("versions after the refused publishes = %s, want 1,3,5 (the bare ones wrote nothing)", got)
+		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3" {
+		t.Errorf("versions after the refused publishes = %s, want 1,3 (the refused ones wrote nothing)", got)
 	}
 }
 
