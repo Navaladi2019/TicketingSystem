@@ -554,12 +554,23 @@ func TestI5Format2GeneratorCoversTheRiskyShapes(t *testing.T) {
 // i5F2Agree compares authz.Allows with the reference over the first n
 // principals of every case. It returns the first disagreement and how many
 // cases admit a proper subset of the records.
+//
+// The last of the n principals is always a caller with no id but with groups
+// (the shared_nil_caller shape), and its rows carry the record's group shares
+// for those groups: a hand-built Row that SharesFor would leave empty. D5 says
+// shared is false for it all the same, so a planner that lets shared hold for
+// a caller with no id grants a row the reference refuses.
 func i5F2Agree(w *i5World, cases []i5F2Case, n int) (proper, total int, err error) {
 	for ci, c := range cases {
-		for ki, p := range c.Principals[:n] {
+		principals := slices.Clone(c.Principals[:n])
+		principals[n-1] = i5NoIDCaller(w, c.Principals[n-1])
+		for ki, p := range principals {
 			admitted := 0
 			for _, rec := range w.Records {
 				row := rec.row(p)
+				if p.PrincipalID == uuid.Nil {
+					row.SharedWith = rec.groupShares(p)
+				}
 				_, _, got := authz.Allows(c.Policy, p, authz.OpRead, row)
 				if want := i5Reference(c.Policy, p, authz.OpRead, row); got != want {
 					j, _ := json.Marshal(c.Policy)
@@ -577,6 +588,28 @@ func i5F2Agree(w *i5World, cases []i5F2Case, n int) (proper, total int, err erro
 		}
 	}
 	return proper, total, nil
+}
+
+// i5NoIDCaller is p with no id, in p's groups or, when p has none, in the
+// first two of the tenant's groups.
+func i5NoIDCaller(w *i5World, p identity.Principal) identity.Principal {
+	q := identity.Principal{TenantID: p.TenantID, Groups: slices.Clone(p.Groups)}
+	if len(q.Groups) == 0 {
+		q.Groups = slices.Clone(w.Groups[:2])
+	}
+	return q
+}
+
+// groupShares is the ids of the record's group shares that name one of p's
+// groups, whatever p's id.
+func (rec i5Record) groupShares(p identity.Principal) []uuid.UUID {
+	var out []uuid.UUID
+	for _, s := range rec.Shares {
+		if s.Kind == "group" && slices.Contains(p.Groups, s.ID) {
+			out = append(out, s.ID)
+		}
+	}
+	return out
 }
 
 // TestI5Format2AllowsMatchesTheReference: authz.Allows, the Go rendering of
