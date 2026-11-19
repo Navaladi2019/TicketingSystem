@@ -1,4 +1,4 @@
-# Field index measured on the merged S21 code (P7-07)
+# Field index measured on the merged S21 code (P7-07, TICK-992)
 
 TICK-747, S21 (TICK-739). ADR-006 D10, D13, R-a, R-b, R12. Measured on the
 story branch `TICK-739/filterable-fields` at `c29c3361`, after TICK-745,
@@ -11,7 +11,135 @@ Harness: `TestFieldIndexPerf800k`
 `integration perf`), run by `scratch/field-index-measured/run.sh`. Raw
 output: `docs/data/field-index-measured/`.
 
-## Verdict
+## TICK-992: scored on the reference machine (2026-11-19)
+
+**Host condition: `nava` stack running at idle, waived by the Technical Lead
+on TICK-992.** These numbers were not taken on a fully empty host. The
+`nava-s18` stack (TICK-669, done) was stopped first (`docker compose -p
+nava-s18 down`, volumes kept). The owner's `nava` stack (15 containers) kept
+running. A `docker stats` sample before each run put it at 21% of one core
+(`tick992-nava-stats.txt`). Across the 318 samples taken during the runs it
+used a p50 of 32% and a p95 of 78% of one core, with a maximum of 117%
+(`tick992-*.contention`). No other `nava-*`, `nava-it-*` or bench container
+ran. Transport floor (`SELECT 1`, 8 clients): p50 1.48 ms at the start of
+the list run and 1.1–2.7 ms before every cell; 1.15 ms at the start of the
+backfill run. That is under P3-36's 3 ms gate throughout. The no-filter list
+control read **92.7 / 99.4 ms before and 89.2 / 85.9 ms after** (ACL / no
+ACL). P3-36's fully idle figure is 73 ms, so read every list cell as up to
+about 1.3× inflated.
+
+Code: story head `9ec4e1f5` (F1 TICK-989, F2 TICK-990, F3 TICK-991
+merged), plus two harness-only fixes on this branch. (1) With F1 a range is
+already one `EXISTS`, so the "as compiled vs one `EXISTS`" comparison is
+removed: it stopped the list phase. (2) `NAVA_PERF_*_BATCHES=0` now runs the
+backfill to the end; `perfEnvInt` used to drop 0 and keep the 60-batch cap.
+Lists and inserts ran at `ea1b1785`, 2026-11-19 20:00Z. The backfill ran at
+`ed028d69`, 20:53Z. Same machine and settings as § Setup.
+
+Scoring rule (Technical Lead, TICK-992):
+
+- **Final:** the cell passes its budget by more than 10%.
+- **Provisional:** the cell misses, or passes by 10% or less. A provisional
+  cell may be rerun on a fully empty host.
+
+### Verdict
+
+| Requirement | Target | Result | Status |
+| --- | --- | --- | --- |
+| D13 list p95, 40 cells | ≤ 150 ms; 2% + ACL ≤ 350 ms | 26 pass by more than 10%; 2 pass by 10% or less; **12 miss** | 26 final, 14 provisional |
+| D13: 2% band, no ACL | ≤ 150 ms | **Misses in all 5 operators: 236.6–267.6 ms** (single-client server time 84–97 ms) | Provisional; decision for the Technical Lead (scope item 3, options below) |
+| D13: 40% band, with ACL | ≤ 150 ms | **Misses in all 5 operators: 176.1–327.6 ms.** The capped count is the cost (32–94 ms single-client) | Provisional; new finding |
+| D10 live-write p95 delta, whole backfill | ≤ +25% | **−7.4%** (117.2 against 126.6 ms); +4.8% against the lower control after (111.8 ms) | **Final, meets** |
+| TICK-990: batch p50, backfill alone | < 400 ms | **163 ms** (417 batches, whole run) | **Final, meets** |
+| Backfill time, 400k field | reported | **8 min 14 s alone, 10 min 26 s under the live mix**; diff = 0 (missing 0, surplus 0) in both | — |
+| Insert tps, 5 flagged fields | ≥ 40% | **83%** (157.7 against 190.9 tps, 3 rounds) | Final, meets |
+| E1-5 guard | reported | 0.19 µs per fired row | — |
+
+### Lists: p95 ms, 8 clients, 20 s per cell, ACL / no ACL
+
+**Bold** marks a miss. *Italics* mark a pass by 10% or less: under 150
+but over 135 ms, or with an ACL in the 2% band, under 350 but over 315 ms.
+
+| Operator | 40% | 2% (ACL ≤ 350) | 0.25% | 0.01% |
+| --- | --- | --- | --- | --- |
+| text `eq` | **176.1** / 117.8 | *317.6* / **247.6** | 114.2 / 115.0 | 66.7 / 85.4 |
+| text `in` (2 values) | **327.6** / 100.1 | 223.9 / **267.6** | **160.9** / **152.8** | 84.8 / 93.9 |
+| num `lt` | **290.3** / 121.6 | 238.3 / **236.6** | 109.1 / 117.8 | 60.7 / 88.6 |
+| ts range | **280.9** / 110.1 | 223.1 / **260.2** | 129.1 / 110.6 | 47.9 / 83.7 |
+| bool `eq` | **181.7** / 118.0 | 233.7 / **238.2** | *143.5* / 124.7 | 82.3 / 72.3 |
+
+F1 fixed the ts range. Its cells were 1,079–13,418 ms in P7-07 and now
+fall in line with the other operators: 47.9–280.9 ms.
+
+Single-client server time per request. This is the planning plus execution
+of the count and the page, from one EXPLAIN (ANALYZE) each, in ms
+(`tick992-explain.md`):
+
+| Cell | count | page | total |
+| --- | --- | --- | --- |
+| 2%, no ACL (5 operators) | 23–27 | 60–73 | **84–97** |
+| 40%, ACL, `in` / `lt` / ts | 89–94 | 6–8 | **96–102** |
+| 40%, ACL, `eq` text / bool | 32–34 | 9–14 | 42–48 |
+| 0.25%, `in`, ACL / no ACL | 22 / 11 | 13 / 19 | 35 / 29 |
+
+- **2% without an ACL.** The page drives from the side index: 7,980 ids,
+  then 7,980 `records_pkey` lookups (32,000 buffer hits, 44 ms) and a top-N
+  sort for 51 rows. F1–F3 cut the server time from 120–145 ms to 84–97 ms.
+  At 8 clients it still reads 2.4–2.8× that. Even with the whole 1.3×
+  control inflation taken off, the band would read 182–206 ms, which still
+  misses 150 ms.
+- **40% with an ACL (new).** The capped count's first `UNION ALL` arm takes
+  4,910 group-visible records from `records_list_group`. The planner then
+  hash-semi-joins them against every side row of the 40% value: 160,258 rows
+  from `rfv_num_value`, 82 ms, and the hash spills to disk (2 batches). A
+  probe of the side table's primary key `(tenant_id, record_id, field_id,
+  ord)` for each of the 4,910 records was not chosen. `eq` on text and bool
+  costs 32–34 ms, because the planner's estimate is different there. This is
+  the spike's recommendation 5 (counts with an ACL at 40%), now the only
+  miss outside the 2% band.
+- **0.25% `in`**: 160.9 / 152.8 ms. This is a borderline miss with 29–35 ms
+  of server time, within the host's inflation.
+
+### Backfill and live writes (D10), whole run
+
+| Live mix, 8 clients | Window | ops/s | p50 ms | **p95 ms** | p99 ms |
+| --- | --- | --- | --- | --- | --- |
+| alone, before | 180 s | 118.3 | 70.3 | **126.6** | 166.0 |
+| with the whole backfill (`force_custom_plan`) | 626 s | 114.0 | 66.6 | **117.2** | 171.6 |
+| alone, after | 180 s | 101.4 | 54.9 | **111.8** | 158.8 |
+
+| Backfill, whole run | Duration | Batches | Batch min / p50 / avg / p95 / max ms | Pauses | WAL | Diff |
+| --- | --- | --- | --- | --- | --- | --- |
+| alone | 8 min 14 s | 417 | 59 / **163** / 166 / 195 / 1,222 | 500 ms ×416 | 1,386 MB | missing 0, surplus 0 (416,297) |
+| under the live mix | 10 min 26 s | 420 | 212 / 449 / 444 / 583 / 799 | 500 ms ×419 | 2,642 MB | missing 0, surplus 0 (454,441) |
+
+The two controls differ by 13% (P7-07's differed by 53%). The delta is −7.4%
+against the control before and +4.8% against the control after, so both are
+well inside +25%. With F3 the pause stays at its 500 ms floor on every
+batch, and with F2 the custom plan holds the batch at a p50 of 163 ms alone.
+A 400k field now takes 8–10 minutes, against about an hour in P7-07. The
+harness's "as merged" arm, 40 batches, reads the same: batch p50 157 ms
+alone. The role setting from `db/grants.yaml` already applies there, so the
+extra `ALTER ROLE` is a no-op.
+
+### Options for the 2% band without an ACL (decision: Technical Lead)
+
+These are from the spike's recommendation 2, with the measured numbers:
+
+| Option | What it costs | Expected effect (not measured here) |
+| --- | --- | --- |
+| (a) The compiler picks the shape by the planner's estimate. A selective filter drives from the side index; a broad one walks `records_list_updated` and probes. | Compiler work, plus one planning-only `EXPLAIN` per list (1–3 ms measured here without an ACL) or a per-field histogram kept by the backfill | Walking the order index needs about 51 / 0.02 = 2,550 probes for a page, against 7,980 heap fetches now. This needs a spike before it is a fix. |
+| (b) A promoted column for the fields that need this band | Per-field DDL. It breaks the schema-less goal for those fields. | The same ordered walk as P3-01 (d): single-digit ms |
+| (c) A D13 variance: the 2% band without an ACL ≤ 350 ms, like 2% with an ACL | No code | 236.6–267.6 ms measured, 24–32% inside 350 ms |
+
+My recommendation is (c) now, with (a) as a follow-up spike. Every 2% cell,
+with or without an ACL, is between 224 and 318 ms. The band's cost is the
+side-index fan-out, which an ACL does not change. (b) is expensive to
+reverse once data lands.
+
+## Verdict (P7-07, shared host)
+
+Superseded by TICK-992 above for lists, D10 and backfill time; kept as history.
 
 | Requirement (P7-07) | Target | Result |
 | --- | --- | --- |
@@ -286,7 +414,7 @@ pauses in order, per run).
 ```sh
 sh scratch/field-index-measured/run.sh                      # every phase, about 90 min plus the backfill caps
 NAVA_PERF_PHASES=lists sh scratch/field-index-measured/run.sh   # the idle-host D13 re-run
-NAVA_PERF_PHASES=backfill NAVA_PERF_FIX_BATCHES=0 sh scratch/field-index-measured/run.sh   # a whole fix-candidate backfill, with the diff
+NAVA_PERF_PHASES=backfill NAVA_PERF_FIX_BATCHES=0 sh scratch/field-index-measured/run.sh   # a whole fix-candidate backfill, with the diff (0 works from TICK-992 on)
 ```
 
 Env: `NAVA_PERF_LIST_SECONDS` (20), `NAVA_PERF_WRITE_SECONDS` (60),

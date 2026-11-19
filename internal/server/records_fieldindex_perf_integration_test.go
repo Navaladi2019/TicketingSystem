@@ -72,7 +72,6 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
-	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // The ADR-006 targets this run is scored against (PLAN-007 P7-07).
@@ -367,7 +366,7 @@ func (e *fiEnv) lists(t *testing.T, clients int) {
 	e.w("")
 	e.w("| Operator | 40%% | 2%% | 0.25%% | 0.01%% |")
 	e.w("| --- | --- | --- | --- | --- |")
-	var misses, plans, explains, floors, merged []string
+	var misses, plans, explains, floors []string
 	for _, op := range fiOps() {
 		row := "| " + op.op + " |"
 		for _, band := range fiBands() {
@@ -377,9 +376,6 @@ func (e *fiEnv) lists(t *testing.T, clients int) {
 			n, rn := runOne(op.op+" "+band+", no ACL", admin, q)
 			row += fmt.Sprintf(" %.1f / %.1f |", a.p95, n.p95)
 			floors = append(floors, fmt.Sprintf("%s %s %.1f", op.op, band, pct(fl, .5)))
-			if op.field == "opened" {
-				merged = append(merged, e.mergedRange(t, op.op+" "+band, clients, ra, rn)...)
-			}
 			target := fiListTargetMS
 			if band == "2%" {
 				target = fiListACL2TargetMS
@@ -410,14 +406,6 @@ func (e *fiEnv) lists(t *testing.T, clients int) {
 	e.w("Control after: ACL p95 %.1f / no ACL p95 %.1f", ctlACL2.p95, ctlAdm2.p95)
 	e.w("")
 	e.w("Transport floor p50 (SELECT 1, %d clients) before each cell, ms: %s", clients, strings.Join(floors, "; "))
-	e.w("")
-	e.w("### ts range: the captured statements as direct SQL, as compiled (two EXISTS) and with both bounds in one EXISTS")
-	e.w("")
-	e.w("| Cell | as compiled p95 / p50 ms | one EXISTS p95 / p50 ms | page statement EXPLAIN execution, as compiled / one EXISTS |")
-	e.w("| --- | --- | --- | --- |")
-	for _, m := range merged {
-		e.w("%s", m)
-	}
 	e.w("")
 	e.w("Targets (D13): p95 <= %.0f ms in every cell, except 2%% with ACL <= %.0f ms.", fiListTargetMS, fiListACL2TargetMS)
 	if len(misses) == 0 {
@@ -974,6 +962,15 @@ func (e *fiEnv) underLoad(t *testing.T, b *fiBackfill, clients int, creates []pe
 	return out
 }
 
+// fiBatchCap reads a backfill batch cap. Unlike perfEnvInt it keeps 0, which
+// runs the backfill to the end and diffs its side rows.
+func fiBatchCap(name string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(name)); err == nil && v >= 0 {
+		return v
+	}
+	return def
+}
+
 // backfillPhase: priority (text, 5 values) is flagged late through the real
 // publish. FieldIndexBackfill then runs four times, each from no side rows:
 // as merged, alone and under the live mix; then with the fix candidate,
@@ -1026,8 +1023,8 @@ func (e *fiEnv) backfillPhase(t *testing.T, clients int) {
 	}
 	live := time.Duration(perfEnvInt("NAVA_PERF_LIVE_SECONDS", 180)) * time.Second
 	liveMax := time.Duration(perfEnvInt("NAVA_PERF_LIVE_MAX", 1200)) * time.Second
-	asis := perfEnvInt("NAVA_PERF_ASIS_BATCHES", 40)
-	fix := perfEnvInt("NAVA_PERF_FIX_BATCHES", 60)
+	asis := fiBatchCap("NAVA_PERF_ASIS_BATCHES", 40)
+	fix := fiBatchCap("NAVA_PERF_FIX_BATCHES", 60)
 
 	b := e.startTemporal(t)
 	e.w("")
@@ -1108,127 +1105,6 @@ func (e *fiEnv) backfillPhase(t *testing.T, clients int) {
 	for _, q := range e.seqs {
 		e.w("%s", q)
 	}
-}
-
-// fiRangePair matches the two EXISTS the list builder emits for a gte and an
-// lt filter on one ts field (records_list_index.go existsTerm, one per
-// filter).
-var fiRangePair = regexp.MustCompile(`AND v\.value >= (\$\d+)::timestamptz\) AND EXISTS \(SELECT 1 FROM rfv_ts v WHERE v\.tenant_id = r\.tenant_id AND v\.record_id = r\.id AND v\.field_id = (\$\d+)::uuid AND v\.value < (\$\d+)::timestamptz\)`)
-
-// mergeRange rewrites the pair into one EXISTS with both bounds. The second
-// field parameter is kept, compared with itself, so the parameter list stays
-// the same.
-func mergeRange(sql string) (string, bool) {
-	out := fiRangePair.ReplaceAllString(sql, `AND v.value >= $1::timestamptz AND v.value < $3::timestamptz AND $2::uuid IS NOT NULL)`)
-	return out, out != sql
-}
-
-// mergedRange loads the list statements each ts cell captured (count and
-// page, in one tenant transaction, as nava_app) as compiled and merged, for
-// the same time each, and EXPLAINs both page statements once.
-func (e *fiEnv) mergedRange(t *testing.T, cell string, clients int, rs ...*perfResult) []string {
-	t.Helper()
-	d := time.Duration(perfEnvInt("NAVA_PERF_LIST_SECONDS", 20)) * time.Second / 2
-	var out []string
-	for _, r := range rs {
-		var orig, merged []perfStmt
-		for _, s := range r.stmtSQL {
-			if !strings.Contains(s.SQL, "rfv_ts") {
-				continue
-			}
-			m, ok := mergeRange(s.SQL)
-			if !ok {
-				t.Fatalf("%s: the ts statement has no range pair to merge: %s", r.sc.name, s.SQL)
-			}
-			orig = append(orig, s)
-			merged = append(merged, perfStmt{SQL: m, Args: s.Args})
-		}
-		if len(orig) == 0 {
-			continue
-		}
-		tenant := e.tokens[r.sc.reqs[0].token].TenantID
-		lo := e.sqlLoad(t, tenant, orig, clients, d)
-		lm := e.sqlLoad(t, tenant, merged, clients, d)
-		page := len(orig) - 1
-		out = append(out, fmt.Sprintf("| %s | %.1f / %.1f | %.1f / %.1f | %s / %s |", r.sc.name, pct(lo, .95), pct(lo, .5), pct(lm, .95), pct(lm, .5),
-			e.explainExec(t, tenant, orig[page]), e.explainExec(t, tenant, merged[page])))
-	}
-	return out
-}
-
-// sqlLoad runs stmts in one tenant transaction per iteration, clients at a
-// time, for d, and returns each iteration's duration.
-func (e *fiEnv) sqlLoad(t *testing.T, tenant uuid.UUID, stmts []perfStmt, clients int, d time.Duration) []time.Duration {
-	t.Helper()
-	var (
-		mu  sync.Mutex
-		wg  sync.WaitGroup
-		out []time.Duration
-	)
-	deadline := time.Now().Add(d)
-	for range clients {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var lat []time.Duration
-			for time.Now().Before(deadline) {
-				t0 := time.Now()
-				err := tenancy.InTenantTx(t.Context(), e.pool, tenant, func(tx pgx.Tx) error {
-					for _, s := range stmts {
-						rows, err := tx.Query(t.Context(), s.SQL, s.Args...)
-						if err != nil {
-							return err
-						}
-						rows.Close()
-						if err := rows.Err(); err != nil {
-							return err
-						}
-					}
-					return nil
-				})
-				if err != nil {
-					t.Error(err)
-					return
-				}
-				lat = append(lat, time.Since(t0))
-			}
-			mu.Lock()
-			out = append(out, lat...)
-			mu.Unlock()
-		}()
-	}
-	wg.Wait()
-	return out
-}
-
-// explainExec is the planning and execution time of one EXPLAIN (ANALYZE) of
-// s as nava_app in tenant.
-func (e *fiEnv) explainExec(t *testing.T, tenant uuid.UUID, s perfStmt) string {
-	t.Helper()
-	var plan []string
-	if err := tenancy.InTenantTx(t.Context(), e.pool, tenant, func(tx pgx.Tx) error {
-		rows, err := tx.Query(t.Context(), "EXPLAIN (ANALYZE, BUFFERS) "+s.SQL, s.Args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var l string
-			if err := rows.Scan(&l); err != nil {
-				return err
-			}
-			plan = append(plan, l)
-		}
-		return rows.Err()
-	}); err != nil {
-		t.Fatalf("explain: %v", err)
-	}
-	x := strings.Join(plan, "\n")
-	pl, ex := fiPlanning.FindStringSubmatch(x), fiExecution.FindStringSubmatch(x)
-	if pl == nil || ex == nil {
-		return "?"
-	}
-	return ex[1] + " ms (planning " + pl[1] + ")"
 }
 
 // probe runs the live mix for a few seconds and reports its errors: a
