@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/sdk/activity"
@@ -971,5 +972,65 @@ wait:
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the barrier did not return after the held xid committed")
+	}
+}
+
+// typeCounter is a pgx tracer that counts the statements counting a whole
+// entity type's records (the backfill's progress count).
+type typeCounter struct{ n atomic.Int64 }
+
+var typeCountSQL = regexp.MustCompile(`(?s)count\(\*\).*FROM records\s+WHERE tenant_id = \$1 AND entity_definition_id = \$2\s*$`)
+
+func (c *typeCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	if typeCountSQL.MatchString(d.SQL) {
+		c.n.Add(1)
+	}
+	return ctx
+}
+
+func (*typeCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+// TICK-991: a batch no longer counts the whole type. A five-batch backfill
+// counts it once, on its first batch, and still writes the progress of each
+// batch: 20, 40, 60, 80, then 99 until the flip to ready writes 100.
+func TestBackfillCountsTheTypeOnce(t *testing.T) {
+	e := migrated(t)
+	f := newFixture(t, e, "num", "")
+	insertRecords(t, e, f, 50)
+	f.register(t, e, "num", fieldindex.StateBackfilling)
+	tc := &typeCounter{}
+	cfg := e.worker.Config()
+	cfg.ConnConfig.Tracer = tc
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var mu sync.Mutex
+	var seen []int16
+	r := newRun(t, f.tenant, runOptions{acts: &backfill.Activities{Pool: pool, BatchSize: 10},
+		onBatch: func(string) {
+			p := registry(t, e, f).progress
+			mu.Lock()
+			seen = append(seen, p)
+			mu.Unlock()
+		}})
+	r.signal(item(f, 1), 0)
+	if err := r.coordinate(workerguard.RunInput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.requireGuardClean()
+	if n := tc.n.Load(); n != 1 {
+		t.Errorf("the type was counted %d times, want once", n)
+	}
+	// Six batches: five copy ten records each, the sixth finds none.
+	if want := []int16{20, 40, 60, 80, 99, 99}; !slices.Equal(seen, want) {
+		t.Errorf("progress after each batch %v, want %v", seen, want)
+	}
+	if got := registry(t, e, f); got.state != "ready" || got.progress != 100 {
+		t.Fatalf("registry %+v, want ready at 100", got)
+	}
+	if got := diffOf(t, e, f); got != noDiff {
+		t.Fatalf("side rows: %s", got)
 	}
 }

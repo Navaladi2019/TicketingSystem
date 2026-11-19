@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,6 +82,9 @@ type Activities struct {
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
 	SlowAfter time.Duration
+
+	// progress is the worker's progress memo (see batch.go (d)).
+	progress progressMemo
 
 	// afterSnapshot, when set, runs between the barrier's snapshot and its
 	// fence (test-only: it widens [lo, hi)).
@@ -319,10 +323,11 @@ func (a *Activities) Batch(ctx context.Context, in Cursor) (Cursor, error) {
 	if err != nil {
 		return Cursor{}, err
 	}
-	res, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize())
+	res, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize(), a.progress.get(c))
 	if err != nil {
 		return Cursor{}, fmt.Errorf("field index batch: %w", err)
 	}
+	a.progress.put(c, res)
 	if a.Uncoerced != nil && res.uncoerced > 0 {
 		a.Uncoerced.AddUncoerced(ctx, res.entityDefinition, res.uncoerced)
 	}
@@ -341,6 +346,43 @@ func (a *Activities) Ready(ctx context.Context) error {
 		return fmt.Errorf("field index ready: %w", err)
 	}
 	return nil
+}
+
+// progressMemo holds, per child, the progress counts after its last batch
+// on this worker, so the next batch adds its records to them instead of
+// counting the type (TICK-991). It is a cache, never workflow state: a miss
+// (another worker, a restart, a retried batch, a full memo) costs one count
+// of the type. A child's entry goes when its last batch returns no cursor.
+// One backfill runs per tenant at a time, so it holds about one entry per
+// tenant backfilling; past progressMemoMax entries it is cleared.
+type progressMemo struct {
+	mu sync.Mutex
+	m  map[child]progressCounts
+}
+
+const progressMemoMax = 4096
+
+func (p *progressMemo) get(c child) *progressCounts {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pc, ok := p.m[c]
+	if !ok {
+		return nil
+	}
+	return &pc
+}
+
+func (p *progressMemo) put(c child, res batchResult) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if res.next == nil || res.progress == nil {
+		delete(p.m, c)
+		return
+	}
+	if p.m == nil || len(p.m) >= progressMemoMax {
+		p.m = map[child]progressCounts{}
+	}
+	p.m[c] = *res.progress
 }
 
 func (a *Activities) batchSize() int {

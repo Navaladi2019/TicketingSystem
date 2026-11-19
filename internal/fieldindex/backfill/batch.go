@@ -25,7 +25,13 @@ import (
 //	(c) for those records, DELETE the field's side rows, then INSERT the
 //	    record_field_coerce rows: the one coercion (D5), in SQL; record data
 //	    never reaches Go.
-//	(d) progress, a whole percentage below 100, on the registry row.
+//	(d) progress, a whole percentage below 100, on the registry row. The
+//	    records of the type are counted once per child per worker (progressSQL,
+//	    an index-only scan of the whole type), then carried in the worker's
+//	    progress memo with the done count: a batch adds its own records to it
+//	    instead of counting the type again (TICK-991: 159 ms a batch at 400k,
+//	    O(N²) over a backfill). The cursor cannot carry the counts: activity
+//	    arguments and results are references only (CI-7).
 //
 // The side table name and value column come from fieldindex.ValueType's
 // fixed set, never from the row, so they may be spliced into the SQL.
@@ -58,6 +64,8 @@ const (
 			FROM records r WHERE r.tenant_id = $1 AND r.id = ANY($3::uuid[])
 		)
 		SELECT coalesce((SELECT sum(n) FROM vals), 0)::bigint - (SELECT count(*) FROM ins)`
+	// progressSQL counts the records of the type up to the batch's last id
+	// and in all: run once per child per worker, on a progress memo miss.
 	progressSQL = `SELECT count(*) FILTER (WHERE id <= $3), count(*) FROM records
 		WHERE tenant_id = $1 AND entity_definition_id = $2`
 	setProgressSQL = `UPDATE record_index_fields SET progress = $3, updated_at = now()
@@ -97,21 +105,43 @@ func (r registryRow) fills(c child) bool {
 }
 
 // batchResult is what one committed batch reports to its activity: the
-// next cursor, and the count of values it skipped because they did not
-// coerce, with their entity definition, for nava_field_index_uncoerced_total.
-// Only the cursor goes into the activity result (CI-5c): the count is a
-// metric, never a payload.
+// next cursor, the count of values it skipped because they did not coerce,
+// with their entity definition, for nava_field_index_uncoerced_total, and
+// the progress counts at its last record. Only the cursor goes into the
+// activity result (CI-5c): the rest are a metric and the worker's memo,
+// never a payload.
 type batchResult struct {
 	next             *uuid.UUID
 	entityDefinition uuid.UUID
 	uncoerced        int64
+	progress         *progressCounts
+}
+
+// progressCounts are a child's progress counts after a batch: last, the
+// batch's last record id; done, the type's records up to it; total, the
+// type's records when they were counted.
+type progressCounts struct {
+	last        uuid.UUID
+	done, total int64
+}
+
+// after returns the counts after a batch that copied n records ending at
+// last, from known, the counts at the batch's cursor, when known is for that
+// cursor. Otherwise it returns false and the batch counts the type.
+func (known *progressCounts) after(cursor *uuid.UUID, last uuid.UUID, n int) (progressCounts, bool) {
+	if known == nil || cursor == nil || known.last != *cursor {
+		return progressCounts{}, false
+	}
+	return progressCounts{last: last, done: known.done + int64(n), total: known.total}, true
 }
 
 // copyBatch runs one batch of c's field after cursor (nil: from the start)
 // and returns the new cursor, or nil when the field is done or no longer
-// c's to fill, with the batch's uncoerced count. Nothing is written when it
+// c's to fill, with the batch's uncoerced count and progress counts. known
+// are the counts at cursor from an earlier batch, or nil; when they do not
+// match cursor the batch counts the type. Nothing is written when it
 // returns nil without copying.
-func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UUID, size int) (batchResult, error) {
+func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UUID, size int, known *progressCounts) (batchResult, error) {
 	var res batchResult
 	err := tenancy.InTenantTx(ctx, pool, c.tenant, func(tx pgx.Tx) error {
 		res = batchResult{}
@@ -160,11 +190,15 @@ func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UU
 		res.entityDefinition, res.uncoerced = row.entityDefinition, uncoerced
 
 		last := ids[len(ids)-1]
-		var done, total int64
-		if err := tx.QueryRow(ctx, progressSQL, c.tenant, row.entityDefinition, last).Scan(&done, &total); err != nil {
-			return fmt.Errorf("progress: %w", err)
+		pc, ok := known.after(cursor, last, len(ids))
+		if !ok {
+			pc.last = last
+			if err := tx.QueryRow(ctx, progressSQL, c.tenant, row.entityDefinition, last).Scan(&pc.done, &pc.total); err != nil {
+				return fmt.Errorf("progress: %w", err)
+			}
 		}
-		if _, err := tx.Exec(ctx, setProgressSQL, c.tenant, c.field, progressPercent(done, total)); err != nil {
+		res.progress = &pc
+		if _, err := tx.Exec(ctx, setProgressSQL, c.tenant, c.field, progressPercent(pc.done, pc.total)); err != nil {
 			return fmt.Errorf("set progress: %w", err)
 		}
 		if len(ids) == size {
@@ -179,7 +213,8 @@ func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UU
 }
 
 // progressPercent is done/total as a whole percentage, at most 99: only the
-// flip to ready writes 100 (D10.6).
+// flip to ready writes 100 (D10.6). done can pass total when records are
+// created after the type was counted; the cap holds then too.
 func progressPercent(done, total int64) int16 {
 	if total <= 0 || done <= 0 {
 		return 0
