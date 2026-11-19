@@ -38,11 +38,12 @@ func DevIdPHostAllowed(raw string, hosts []string) bool {
 }
 
 // devPathAllowed accepts a path that starts with DevIdPPathPrefix, as written:
-// no percent-encoding (so nothing is decoded into a different path), no empty
+// no percent-encoding (so nothing is decoded into a different path), no `;`
+// (a path parameter such as `..;/` is read as `..` by some servers), no empty
 // or dot segment, and a query or fragment cannot move it.
 func devPathAllowed(u *url.URL) bool {
 	p := u.EscapedPath()
-	if strings.Contains(p, "%") || !strings.HasPrefix(p, DevIdPPathPrefix) {
+	if strings.ContainsAny(p, "%;") || !strings.HasPrefix(p, DevIdPPathPrefix) {
 		return false
 	}
 	segs := strings.Split(strings.TrimPrefix(p, DevIdPPathPrefix), "/")

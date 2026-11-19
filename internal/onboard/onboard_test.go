@@ -784,6 +784,7 @@ func TestBuildSpecDevHostsPathPrefix(t *testing.T) {
 			"/realms/standin-company-evil/x",
 			"/realms/standin-company/../master/x",
 			"/realms/standin-company/%2e%2e/master/x",
+			"/realms/standin-company/..;/master/x",
 			"/realms/standin%2Dcompany/x",
 			"/",
 			"",

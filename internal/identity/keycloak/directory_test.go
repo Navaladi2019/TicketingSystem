@@ -844,6 +844,7 @@ func TestIdPConfigDevHostsPathPrefix(t *testing.T) {
 		"http://keycloak:8080/realms/standin-company/../master/x",
 		"http://keycloak:8080/realms/standin-company/%2e%2e/master/x",
 		"http://keycloak:8080/realms/standin-company/..%2fmaster/x",
+		"http://keycloak:8080/realms/standin-company/..;/master/x",
 		"http://keycloak:8080/realms/standin%2Dcompany/x",
 		"http://keycloak:8080/%72ealms/standin-company/x",
 		"http://keycloak:8080/realms//standin-company/x",
