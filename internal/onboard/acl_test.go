@@ -81,6 +81,29 @@ func TestDefaultIncidentRulesPassPublishValidation(t *testing.T) {
 	}
 }
 
+// The default goes through the route's own check (authz.Prepare, the one check
+// function PublishIfNone runs) and is far under the lowest allowed byte limit,
+// so it passes at every setting of NAVA_ACL_MAX_DOCUMENT_BYTES (A1-2c).
+func TestDefaultIncidentRulesAreUnderTheLowestByteLimit(t *testing.T) {
+	t.Parallel()
+	for name, desk := range map[string][]uuid.UUID{"with a service desk": {uuid.New()}, "without": nil} {
+		body, err := json.Marshal(map[string]any{"rules": DefaultIncidentRules(uuid.New(), desk), "masks": []authz.Mask{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, ps := authz.Prepare(body, authz.DefaultMaxDocumentBytes)
+		if len(ps) > 0 {
+			t.Fatalf("%s: Prepare refuses the default: %v", name, ps)
+		}
+		if len(p.Rules) >= 16384 || len(p.Masks) >= 16384 {
+			t.Errorf("%s: the default is %d bytes of rules, want under 16,384", name, len(p.Rules))
+		}
+		if p.Format != 1 || len(p.Document.Policies) == 0 {
+			t.Errorf("%s: format %d, %d policies", name, p.Format, len(p.Document.Policies))
+		}
+	}
+}
+
 // The default decides as the contract says: admins everything, the service
 // desk the incidents of its own groups, a requester its own (read always,
 // write while new),

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit"
@@ -31,18 +32,43 @@ import (
 
 // accessBody is the JSON of an AccessPolicy.
 type accessBody struct {
-	Version     int          `json:"version"`
-	Rules       []authz.Rule `json:"rules"`
-	Masks       []authz.Mask `json:"masks"`
-	PublishedBy *uuid.UUID   `json:"published_by"`
-	PublishedAt time.Time    `json:"published_at"`
+	Version     int             `json:"version"`
+	Rules       json.RawMessage `json:"rules"`
+	Masks       []authz.Mask    `json:"masks"`
+	PublishedBy *uuid.UUID      `json:"published_by"`
+	PublishedAt time.Time       `json:"published_at"`
+	Warnings    []warningBody   `json:"warnings,omitempty"`
 }
 
-// accessResponse is a 200 AccessPolicy with its ETag.
-type accessResponse struct{ pub *authz.Published }
+// warningBody is one lint of a publish that was accepted.
+type warningBody struct {
+	Pointer string `json:"pointer"`
+	Code    string `json:"code"`
+}
+
+// accessResponse is a 200 AccessPolicy with its ETag. warnings are the lints
+// of a publish; a read has none.
+type accessResponse struct {
+	pub      *authz.Published
+	warnings []authz.Warning
+}
 
 func (r accessResponse) write(w http.ResponseWriter) error {
-	b, err := json.Marshal(accessBody{r.pub.Version, r.pub.Rules, r.pub.Masks, r.pub.PublishedBy, r.pub.PublishedAt.UTC()})
+	// Rules are always format 2: a stored format-1 version is converted on read
+	// (D12), and a format-2 version reads back as published.
+	rules, err := authz.Encode(r.pub.Document)
+	if err != nil {
+		return err
+	}
+	masks := r.pub.Masks
+	if masks == nil {
+		masks = []authz.Mask{}
+	}
+	body := accessBody{Version: r.pub.Version, Rules: rules, Masks: masks, PublishedBy: r.pub.PublishedBy, PublishedAt: r.pub.PublishedAt.UTC()}
+	for _, wn := range r.warnings {
+		body.Warnings = append(body.Warnings, warningBody{wn.Pointer, wn.Code})
+	}
+	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
@@ -118,7 +144,7 @@ func (h *handlers) GetEntityTypeAccess(ctx context.Context, req api.GetEntityTyp
 	case err != nil:
 		return nil, err
 	}
-	return accessResponse{pub}, nil
+	return accessResponse{pub: pub}, nil
 }
 
 // aclIfMatch reads an If-Match header into the ACL versions it names. Unlike a
@@ -149,11 +175,49 @@ func (h *handlers) invalidPolicy(ctx context.Context, ps []authz.Problem) *probl
 	fields := make([]problem.FieldError, len(ps))
 	for i, pr := range ps {
 		fields[i] = invalid(pr.Pointer, pr.Rule)
+		if pr.Rule == authz.RuleDocumentTooLarge {
+			fields[i].Detail = fmt.Sprintf("The %s exceed the platform's configured limit of %d bytes, measured on the stored form.", strings.TrimPrefix(pr.Pointer, "/"), h.aclLimit())
+		}
 	}
 	// Pointers and rules only: the body never reaches the log.
 	h.log.WarnContext(ctx, "access policy refused",
 		slog.String("code", string(problem.InvalidAccessPolicy)), slog.Int("problems", len(ps)))
 	return &problemError{problem.InvalidAccessPolicy, fields, errors.New("invalid access policy")}
+}
+
+// aclLimit is the byte limit on rules and on masks.
+func (h *handlers) aclLimit() int {
+	if h.aclMaxBytes > 0 {
+		return h.aclMaxBytes
+	}
+	return authz.DefaultMaxDocumentBytes
+}
+
+// pgCheckProblem maps a 23514 from acl_versions to the 422 it stands for: the
+// byte constraints to document_too_large, a check or trigger refusal with the
+// JSON DETAIL of TICK-940 to its code and pointer. Any other 23514 is a 422
+// with no pointer. The route checks first, so this is the backstop; it never
+// answers 500.
+func pgCheckProblem(err error) ([]authz.Problem, bool) {
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "23514" {
+		return nil, false
+	}
+	switch pe.ConstraintName {
+	case "acl_versions_bytes_rules_check":
+		return []authz.Problem{{Pointer: "/rules", Rule: authz.RuleDocumentTooLarge}}, true
+	case "acl_versions_bytes_masks_check":
+		return []authz.Problem{{Pointer: "/masks", Rule: authz.RuleDocumentTooLarge}}, true
+	}
+	var d struct {
+		Column  string `json:"column"`
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+	}
+	if json.Unmarshal([]byte(pe.Detail), &d) == nil && d.Code != "" && (d.Column == "rules" || d.Column == "masks") {
+		return []authz.Problem{{Pointer: "/" + d.Column + d.Pointer, Rule: d.Code}}, true
+	}
+	return []authz.Problem{{Pointer: "", Rule: authz.RuleValue}}, true
 }
 
 // PutEntityTypeAccess serves PUT /api/v1/entity-types/{key}/access.
@@ -170,6 +234,12 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 		raw = *req.Body
 	}
 	store := authz.PolicyStore{}
+	// The limit and every check that needs no database come before the
+	// transaction opens: a refused body costs no connection (A1-2c).
+	if problems := authz.CheckSize(raw, h.aclLimit()); len(problems) > 0 {
+		return nil, h.invalidPolicy(ctx, problems)
+	}
+	var prep *authz.Prepared
 	var resp accessResponse
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
@@ -193,27 +263,34 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 		if !contains(versions, have) {
 			return &authz.ConflictError{Current: have}
 		}
-		rules, masks, refs, problems := authz.ParsePolicy(raw)
-		if len(problems) > 0 {
+		// The rest of the body checks, after the checks that come first in the
+		// documented order (403, 404, 428, 412).
+		var problems []authz.Problem
+		if prep, problems = authz.Prepare(raw, h.aclLimit()); len(problems) > 0 {
 			return &accessPolicyError{problems}
 		}
 		props, err := h.schemaProperties(ctx, tx, req.Key)
 		if err != nil {
 			return err
 		}
-		problems = authz.CheckMaskFields(masks, props)
-		scope, err := authz.NotInTenant(ctx, tx, refs)
+		fieldProblems := authz.CheckMaskFields(prep.MaskList, props)
+		scope, err := authz.NotInTenant(ctx, tx, prep.Refs)
 		if err != nil {
 			return err
 		}
-		if problems = append(problems, scope...); len(problems) > 0 {
-			return &accessPolicyError{problems}
+		if prep.Format == 2 {
+			for i := range scope {
+				scope[i].Rule = authz.RuleForeignID
+			}
 		}
-		pub, err := store.Publish(ctx, tx, req.Key, have, authz.Publisher{Principal: &p.PrincipalID, Source: audit.SourceUser}, rules, masks)
+		if all := append(fieldProblems, scope...); len(all) > 0 {
+			return &accessPolicyError{all}
+		}
+		pub, err := store.PublishPrepared(ctx, tx, req.Key, have, authz.Publisher{Principal: &p.PrincipalID, Source: audit.SourceUser}, prep)
 		if err != nil {
 			return err
 		}
-		resp = accessResponse{pub}
+		resp = accessResponse{pub: pub, warnings: prep.Warnings}
 		// The key completes in this transaction, with the write (TICK-482).
 		return idempotency.CompleteInTx(ctx, tx, resp.VisitPutEntityTypeAccessResponse)
 	})
@@ -232,12 +309,21 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 		return h.versionConflict(ctx, int64(conflict.Current)), nil
 	case errors.As(err, &bad):
 		return nil, h.invalidPolicy(ctx, bad.problems)
-	case err != nil:
+	}
+	if ps, ok := pgCheckProblem(err); ok {
+		h.log.WarnContext(ctx, "access policy refused by the database backstop", slog.String("code", ps[0].Rule))
+		return nil, h.invalidPolicy(ctx, ps)
+	}
+	if err != nil {
 		return nil, err
+	}
+	for _, wn := range resp.warnings {
+		h.log.WarnContext(ctx, "access policy lint", slog.String("code", wn.Code), slog.String("pointer", wn.Pointer),
+			slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", req.Key))
 	}
 	h.log.InfoContext(ctx, "access policy published",
 		slog.String("tenant_id", p.TenantID.String()), slog.String("entity_key", req.Key),
-		slog.Int("version", resp.pub.Version), slog.Int("rules", len(resp.pub.Rules)), slog.Int("masks", len(resp.pub.Masks)))
+		slog.Int("version", resp.pub.Version), slog.Int("policies", len(resp.pub.Document.Policies)), slog.Int("masks", len(resp.pub.Masks)))
 	return resp, nil
 }
 
@@ -326,6 +412,25 @@ func (h *handlers) ExplainAccess(ctx context.Context, req api.ExplainAccessReque
 	if ex.Allow {
 		out.Decision = "allow"
 		out.RuleId = &ex.RuleID
+		out.Policy = &ex.Policy
 	}
+	trace := make([]struct {
+		Condition string `json:"condition"`
+		Policy    string `json:"policy"`
+		Value     bool   `json:"value"`
+	}, len(ex.Trace))
+	for i, t := range ex.Trace {
+		trace[i].Condition, trace[i].Policy, trace[i].Value = t.Condition, t.Policy, t.Value
+	}
+	out.Trace = &trace
+	invalid := make([]struct {
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+		Policy  string `json:"policy"`
+	}, len(ex.Invalid))
+	for i, v := range ex.Invalid {
+		invalid[i].Code, invalid[i].Pointer, invalid[i].Policy = v.Code, v.Pointer, v.Policy
+	}
+	out.Invalid = &invalid
 	return api.ExplainAccess200JSONResponse(out), nil
 }

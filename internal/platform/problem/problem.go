@@ -98,6 +98,7 @@ type Entry struct {
 type FieldError struct {
 	Pointer string `json:"pointer"`
 	Rule    string `json:"rule,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // Registry maps a Code to its status, title and fixed detail text.

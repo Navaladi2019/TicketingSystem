@@ -81,7 +81,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL)
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -211,6 +211,7 @@ type handlers struct {
 	// 501 not_implemented.
 	pool              *pgxpool.Pool
 	cursors           *cursor.Keyring
+	aclMaxBytes       int // the access policy byte limit (A1-2a)
 	dataFilterTimeout time.Duration
 	// listDataTerm replaces the list's data-filter term; nil in every
 	// production build (see listPlan.dataTerm).

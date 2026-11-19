@@ -62,10 +62,14 @@ type aclDetail struct {
 }
 
 type format2Fixture struct {
-	Name     string          `json:"name"`
-	GoOnly   bool            `json:"go_only"`
-	Doc      json.RawMessage `json:"doc"`
-	Problems []struct {
+	Name   string `json:"name"`
+	GoOnly bool   `json:"go_only"`
+	// RouteOnly marks a case only the publish route refuses (not_available, ids of
+	// the tenant, the configured byte limit): the database accepts it or refuses it
+	// elsewhere.
+	RouteOnly bool            `json:"route_only"`
+	Doc       json.RawMessage `json:"doc"`
+	Problems  []struct {
 		Pointer string `json:"pointer"`
 		Code    string `json:"code"`
 	} `json:"problems"`
@@ -137,7 +141,7 @@ func TestTICK940Format2Fixtures(t *testing.T) {
 	// go_only cases (duplicate keys) are invisible to jsonb.
 	n := 0
 	for _, f := range readFormat2Fixtures(t, "format2_invalid.json") {
-		if f.GoOnly {
+		if f.GoOnly || f.RouteOnly {
 			continue
 		}
 		n++

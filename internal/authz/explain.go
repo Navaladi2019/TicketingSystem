@@ -19,11 +19,29 @@ type Explanation struct {
 	// RuleID names the first policy, in declared order, that grants read
 	// (for a converted format-1 rule, its stored rule id); empty for a deny.
 	RuleID string
+	// Policy is the name of the first policy, in declared order, that grants
+	// read; empty for a deny (D10). RuleID is its format-1 id when it has one.
+	Policy string
+	// Trace is the value on the row of each named condition reached: those of
+	// the granting policy on an allow, those of every valid policy that grants
+	// read on a deny (why none passed). The planner orders them.
+	Trace []TraceStep
+	// Invalid lists the policies granting read that the planner voided; they
+	// grant nothing.
+	Invalid []InvalidPolicy
 	// Version is the ACL version evaluated; 0 when none is published.
 	Version int
 	// MaskedFields are the fields the policy hides from the target, leaving
 	// out every field the asking admin cannot read itself.
 	MaskedFields []string
+}
+
+// InvalidPolicy is a policy voided by the planner: its name, the problem code
+// and the JSON pointer of the policy in the document.
+type InvalidPolicy struct {
+	Policy  string
+	Code    string
+	Pointer string
 }
 
 // Explain decides read for target on row under pol with the same Allows a
@@ -35,13 +53,41 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 	if pol != nil {
 		out.Version = pol.Version
 	}
-	var policy string
-	policy, _, out.Allow = Allows(pol, target, OpRead, row)
-	out.RuleID = ruleID(pol, policy)
+	// One plan feeds the decision, the trace and the invalid list, so they
+	// describe the same trees Allows judged. A voided policy is counted once.
+	planned := plan(pol, target, OpRead)
+	countVoided(pol, planned)
+	out.Policy, out.Trace, out.Allow = firstGrant(planned, row)
+	out.RuleID = ruleID(pol, out.Policy)
+	out.Invalid = []InvalidPolicy{}
+	for _, pp := range planned {
+		if pp.err != nil {
+			out.Invalid = append(out.Invalid, invalidOf(pol, pp))
+		} else if !out.Allow {
+			out.Trace = append(out.Trace, pp.trace(row)...)
+		}
+	}
 	out.MaskedFields = []string{}
 	for _, f := range MaskedFields(pol, target) {
 		if Readable(pol, admin, f) {
 			out.MaskedFields = append(out.MaskedFields, f)
+		}
+	}
+	return out
+}
+
+// invalidOf describes a voided policy; the pointer is its index in the
+// document, never a value from it.
+func invalidOf(pol *Policy, pp plannedPolicy) InvalidPolicy {
+	var pe *PlanError
+	out := InvalidPolicy{Policy: pp.name}
+	if errors.As(pp.err, &pe) {
+		out.Code = pe.Rule
+	}
+	for i, np := range pol.Document.Policies {
+		if np.Name == pp.name {
+			out.Pointer = fmt.Sprintf("/policies/%d", i)
+			break
 		}
 	}
 	return out

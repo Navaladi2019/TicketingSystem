@@ -142,16 +142,22 @@ type Row struct {
 // reported. A voided policy grants nothing and is counted. A nil policy
 // allows nothing.
 func Allows(pol *Policy, p identity.Principal, op string, r Row) (policy string, trace []TraceStep, ok bool) {
-	for _, pp := range plan(pol, p, op) {
-		if pp.err != nil {
-			countInvalid(pol, pp)
-			continue
-		}
-		if !ok && pp.tree.eval(r) {
-			policy, trace, ok = pp.name, pp.trace(r), true
+	planned := plan(pol, p, op)
+	countVoided(pol, planned)
+	return firstGrant(planned, r)
+}
+
+// firstGrant is Allows over an existing plan: the first valid policy, in declared
+// order, whose tree holds on r, and its trace. It counts nothing, so a caller
+// that plans once counts each voided policy once; the explainer reads the
+// rest of its answer from the same slice.
+func firstGrant(planned []plannedPolicy, r Row) (policy string, trace []TraceStep, ok bool) {
+	for _, pp := range planned {
+		if pp.err == nil && pp.tree.eval(r) {
+			return pp.name, pp.trace(r), true
 		}
 	}
-	return policy, trace, ok
+	return "", nil, false
 }
 
 // CompileRead returns a boolean SQL predicate over the records row aliased
