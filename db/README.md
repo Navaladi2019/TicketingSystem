@@ -45,7 +45,7 @@ serves OLTP only.
 
 - **Why:**
   - A custom plan (`nava_app` runs `force_custom_plan` with pgx
-    `QueryExecModeExec`) is JIT-compiled again on every execution once its
+    `QueryExecModeExec`; `nava_worker` too since TICK-990) is JIT-compiled again on every execution once its
     cost passes `jit_above_cost` (100k).
   - On P3-01's 800k shape that added 200–990 ms to each list statement
     (P3-36, TICK-640), against a statement budget of 50–150 ms. No platform
