@@ -357,7 +357,7 @@ func s10ForeignGroupRule(ctx context.Context, e *etIso, fx *s10Fixture) error {
 	// nava_app is refused with foreign_id; the stored row is a legacy one.
 	if err := s10PublishChecked(ctx, e, s10Rules()); err == nil ||
 		!strings.Contains(err.Error(), "SQLSTATE 23514") || !strings.Contains(err.Error(), "not a live group or user") {
-		return fmt.Errorf("publishing tenant B's ids in tenant A's policy as nava_app: %v, want 23514 from acl_versions_tenant_ids", err)
+		return fmt.Errorf("publishing tenant B's ids in tenant A's policy as nava_app: %w, want 23514 from acl_versions_tenant_ids", err)
 	}
 	// Control: the stored policy does name tenant B's ids.
 	var named bool
