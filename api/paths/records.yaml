@@ -109,6 +109,12 @@ paths:
         and writes nothing; a default the server applies is not the caller's
         write. A unique value another record already holds is a 409
         `unique_violation` naming the property only, never that record.
+        A type whose number format refuses overflow answers 409
+        `number_space_exhausted` once the counter of the create's numbering
+        scope has outgrown the format's width (ADR-005 §3.5): one error,
+        pointer `/entity`, rule `scope:<scope key>` (for example
+        `scope:e1|d:202611`). Nothing is created; a retry fails the same way
+        until the scope changes or a wider format is published.
         The 201 body is shaped by the caller's field masks as getRecord's is.
         In it a top-level property the entity type's published
         ACL masks from the caller is absent from `data`; if it is the state

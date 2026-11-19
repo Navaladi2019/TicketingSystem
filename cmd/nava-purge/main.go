@@ -1,5 +1,6 @@
-// Command nava-purge deletes expired idempotency_keys, outbox and workflow_ref
-// rows on a ticker, connected as nava_purge (ADR-001 A.3), and counts dead
+// Command nava-purge deletes expired idempotency_keys, outbox, workflow_ref
+// and period record_counters rows (ADR-005 §4.3) on a ticker, connected as
+// nava_purge (ADR-001 A.3), and counts dead
 // audit seal lineages (ADR-004 R17, audit_dead_lineages; TICK-590). It serves
 // /metrics, /healthz and /readyz on the admin listener.
 package main

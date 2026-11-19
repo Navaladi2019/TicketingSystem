@@ -26,9 +26,10 @@ const (
 	insertRecord = `INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state,
 		requester_id, assignee_id, assignment_group_id, created_by)
 		VALUES ($1, $2, $3, 1, $4, 'new', $5, $6, $7, $8)`
-	// nextNumber is the D-3-9 upsert: tenant $1, type $2.
-	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, next) VALUES ($1, $2, 2)
-		ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET next = record_counters.next + 1
+	// nextNumber is the D-3-9 upsert of the default scope, on the key M3
+	// (TICK-670) made the primary key: tenant $1, type $2.
+	nextNumber = `INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)
+		ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1
 		RETURNING next - 1`
 )
 
@@ -126,9 +127,23 @@ func TestP309RecordNumberFixed(t *testing.T) {
 			"DELETE FROM records WHERE tenant_id = $1",
 			"DELETE FROM record_counters WHERE tenant_id = $1",
 		} {
-			_, err := execIn(conn, tenantA, q, tenantA)
+			n, err := execIn(conn, tenantA, q, tenantA)
+			// P6-10 (TICK-675, ADR-005 §4.3): nava_purge may DELETE from
+			// record_counters, but only through record_counters_purge, which
+			// matches only period rows more than 2 days past period_end. The
+			// pipeline's counter is default scope (period_end NULL), so the
+			// DELETE runs and reaches nothing.
+			if role == "nava_purge" && q == "DELETE FROM record_counters WHERE tenant_id = $1" {
+				if err != nil || n != 0 {
+					t.Errorf("%s: %s: %d rows, err %v; want 0 rows, no error", role, q, n, err)
+				}
+				continue
+			}
 			wantSQLState(t, role+": "+q, err, "42501")
 		}
+	}
+	if got := queryString(t, super, "SELECT count(*)::text FROM record_counters WHERE tenant_id = '"+tenantA+"'"); got == "0" {
+		t.Error("record_counters lost tenant A's counter")
 	}
 	for _, role := range []string{"nava_app", "nava_worker"} {
 		conn := asRole(t, role)

@@ -1,0 +1,15 @@
+== record_counters on the S17 build, before the upgrade (2026-11-15T05:14:24Z)
+       conname        |                      def                      
+----------------------+-----------------------------------------------
+ record_counters_pkey | PRIMARY KEY (tenant_id, entity_definition_id)
+
+         indexname          |                                                             indexdef                                                              
+----------------------------+-----------------------------------------------------------------------------------------------------------------------------------
+ record_counters_period_end | CREATE INDEX record_counters_period_end ON public.record_counters USING btree (period_end) WHERE (period_end IS NOT NULL)
+ record_counters_pkey       | CREATE UNIQUE INDEX record_counters_pkey ON public.record_counters USING btree (tenant_id, entity_definition_id)
+ record_counters_scoped_key | CREATE UNIQUE INDEX record_counters_scoped_key ON public.record_counters USING btree (tenant_id, entity_definition_id, scope_key)
+
+ s18_migrations 
+----------------
+              0
+

@@ -115,6 +115,7 @@ write used.
 | `*ErrUniqueViolation` | 409 | `unique_violation` (names the property only) |
 | `ErrVersionConflict` | 412 | `version_conflict` (current `ETag` re-read) |
 | `ErrRetryable` (deadlock, serialization failure, allocation timeout) | 503 | `retry_later` |
+| `*ErrNumberSpaceExhausted` (`overflow: refuse`, the scope is full; S18) | 409 | `number_space_exhausted` (`errors` `/entity`, `scope:<scope key>`). The handler appends one audit entry after the create's transaction has ended: see [core-numbering](core-numbering.md) |
 | foreign-key `23503` on a fixed column | 422 | `record_invalid` (rule `reference`) |
 | `ErrInvalidCommand`, `*ErrIdempotencyConflict`, `outbox.ErrCascadeTooDeep` | 500 | `internal_error`: the HTTP handlers never send a key or causation, so these are system-writer results only |
 
