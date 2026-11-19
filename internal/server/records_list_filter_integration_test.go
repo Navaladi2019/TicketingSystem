@@ -690,7 +690,7 @@ func TestListFilterRangeOnArrayFieldNeedsOneElementForEveryBound(t *testing.T) {
 	_, _ = split, outside
 }
 
-// covers: listRecords 200, 400
+// covers: listRecords 200 400
 //
 // Two comparisons on one array field are one EXISTS, so one element must meet
 // both: eq and in with different values match nothing, with a shared value they
