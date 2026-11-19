@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · rev 2 · 2026-11-19</span> <span class="src">ADR-006-E1 · issue TICK-745 · amends ADR-006 D9 · source: PR #738 integration testing</span>
+<span class="pill">ACCEPTED · rev 2 · 2026-11-19</span> <span class="src">ADR-006-E1 · issue TICK-745 · amends ADR-006 D9 · source: PR #738 integration testing</span>
 
 <h1>The backfill "wait for everyone in flight" step could miss the newest write</h1>
 
@@ -75,7 +75,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <dt>E1-1: wait set</dt><dd>In one transaction: snapshot first, then fence M. Wait on the snapshot's list plus every running number in <code>[xmax, M)</code>. Waiting on a save that started just after the snapshot is harmless; it only waits a little longer. Usually only a few numbers are involved. A save that uses many <em>savepoints</em> (sub-steps inside one transaction) adds one number per savepoint, though: the architect's test reached 100,000. So the job may store just the two end points of the range instead of the full list. The fence costs one transaction number per barrier attempt, which is negligible. If the job is ever pointed at a read-only replica, the fence step errors and the job retries, rather than quietly trusting the replica.</dd>
 <dt>E1-2: a rule that was implicit is now written down</dt><dd>Saves numbered after M began after the switch, and they see it because saves run at the database's default isolation level, READ COMMITTED: each statement looks at the latest committed data. If a save ran at a stricter level (REPEATABLE READ), it could keep an old view and slip past. The old design had the same hole. This also depends on the copy step running <em>after</em> the record row is written. Rule: no code or operator setting may raise the isolation level for record saves, and the copy step must stay an after-write step.</dd>
 <dt>E1-5: make the rule enforce itself</dt><dd>A small check at the start of the copy step refuses any save that is not at READ COMMITTED. A wrong setting then causes a visible error instead of a silently missing search entry. It ships as a follow-up change, with its cost measured in the existing write-speed test. A second test in that change checks the database catalogue and fails if anyone turns the copy step into a before-write step.</dd>
-<dt>E1-3: a test that pins it</dt><dd>This test creates the "newest save still running" case on purpose. It checks that the barrier waits for it, and it fails when the fence is removed. The erratum is not accepted until that test is merged.</dd>
+<dt>E1-3: a test that pins it</dt><dd>This test creates the "newest save still running" case on purpose. It checks that the barrier waits for it, and it fails when the fence is removed. That test was merged (PR #743) before the erratum was accepted.</dd>
 <dt>E1-4: removal too</dt><dd>Removing a filterable field uses the same barrier, so it gets the fix for free.</dd>
 </dl>
 

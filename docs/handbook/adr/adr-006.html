@@ -23,7 +23,7 @@
 <h1 class="page-title">ADR-006: filterable tenant fields</h1>
 <p>Status: <strong>ACCEPTED</strong>, 2026-11-12, by the Solution Architect under the merge policy, after the Technical Architect's APPROVE (round 2), the Security &amp; Multi-Tenancy Reviewer's APPROVE and the CTO's rulings on S1 to S3 (TICK-714); no dissent. <strong>Nothing in this ADR is delivered on <code>main</code> yet:</strong> it is accepted but not implemented. Normative text: <a href="../../../docs/adr/ADR-006-filterable-tenant-fields.md">ADR-006-filterable-tenant-fields.md</a>; explainer: <a href="../../../docs/adr/ADR-006-explained.html">ADR-006-explained.html</a>. Sources: <a href="../../../docs/adr/ADR-006/rfc">rfc/</a>, <a href="../../../docs/adr/ADR-006/spikes">spikes/</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
-<p>Errata: <a href="../adr/adr-006-e1.html">E1</a> (PROPOSED, 2026-11-19): the D9 barrier also waits on running xids at or above the snapshot's <code>xmax</code>, found with a fence xid.</p>
+<p>Errata: <a href="../adr/adr-006-e1.html">E1</a> (ACCEPTED, 2026-11-19): the D9 barrier also waits on running xids at or above the snapshot's <code>xmax</code>, found with a fence xid.</p>
 <h2 id="what-is-on-main">What is on main</h2>
 <table>
 <thead>

@@ -1109,7 +1109,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>AR-TICK-745-01 (field-index barrier assumes READ COMMITTED writers and an AFTER ROW sync trigger)</td>
 <td>🟡 Low</td>
 <td>The ADR-006 D9 barrier (as corrected by E1) waits on the snapshot's xip plus in-progress xids in <code>[xmax, fence)</code>. Xids after the fence are safe only because records writers run at READ COMMITTED, and the D4 trigger is AFTER ROW and reads the registry with a fresh statement snapshot. Each of these could write a record across a flip without a side row: a records write path at REPEATABLE READ or above, a role or database <code>default_transaction_isolation</code> at REPEATABLE READ or above, or a state-reading BEFORE ROW trigger on <code>records</code>. The result is a mis-filter within the same tenant, with no cross-tenant effect. No runtime detector exists; only the CI-4/CI-5 harness checks side rows. Until E1-5 ships, this is an operator and code-review rule. E1-5 (trigger guard plus catalogue test, follow-up) turns a higher isolation level into a refused write and pins the trigger timing.</td>
-<td>Proposed (ADR-006-E1 rev 2, 2026-11-19; pending Solution Architect verdict)</td>
+<td>Accepted (ADR-006-E1, 2026-11-19)</td>
 <td>Technical Lead</td>
 <td>A proposal to raise isolation on a records write path, a change of D4 trigger timing or a new state-reading trigger on <code>records</code>, or an E1-5 guard error in logs</td>
 <td><a href="../../../docs/adr/ADR-006-E1-d9-barrier-waits-past-xmax.md">ADR-006-E1</a></td>
