@@ -178,24 +178,6 @@ logged as is) and AR-010 (<code>error.type</code> export shape) apply here.</p>
 <td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §3.4, §8</a></td>
 </tr>
 <tr>
-<td>AR-TICK-653-01 (numbers issued before a mask)</td>
-<td>🟡 Low</td>
-<td>A number format with a <code>{field:…}</code> token prints the field's code into every number. If that field is masked later, numbers already issued keep showing it in audit rows, outbox events, sent emails and external references; they cannot be recalled. The same holds for <code>number_space_exhausted</code> audit entries (ADR-004-E9), which carry the scope key and are never field-masked. New numbers stop carrying it because a mask on a referenced field must be published together with a format that drops it.</td>
-<td>Accepted (ADR-005, 2026-11-10; Security round 1 on RFC-014)</td>
-<td>Security &amp; Multi-Tenancy Reviewer</td>
-<td>A tenant asks to recall issued numbers, a regulated tenant masks a field already used in numbers, or reference-code tokens ship (ADR-004-E9 RS-E9-2)</td>
-<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §3.4, §8</a></td>
-</tr>
-<tr>
-<td>AR-TICK-653-02 (per-scope volume)</td>
-<td>🟡 Low</td>
-<td>A per-scope counter (for example per branch and month) reveals the number of records in that scope to anyone who can read one record in it. Within the tenant only; the per-type counter already does the same per type.</td>
-<td>Accepted (ADR-005, 2026-11-10)</td>
-<td>Security &amp; Multi-Tenancy Reviewer</td>
-<td>A tenant treats per-scope volume as confidential</td>
-<td><a href="../../../docs/adr/ADR-005-record-numbering.md">ADR-005 §8</a></td>
-</tr>
-<tr>
 <td>AR-TICK-653-02 (per-scope volume)</td>
 <td>🟡 Low</td>
 <td>A per-scope counter (for example per branch and month) reveals the number of records in that scope to anyone who can read one record in it. Within the tenant only; the per-type counter already does the same per type.</td>
