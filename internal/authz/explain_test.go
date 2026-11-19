@@ -13,12 +13,12 @@ import (
 func TestExplainAllowNamesTheGrantingRule(t *testing.T) {
 	t.Parallel()
 	g := uuid.New()
-	pol := &authz.Policy{Version: 4, Rules: []authz.Rule{
+	pol := &authz.Policy{Version: 4, Document: authz.ConvertFormat1([]authz.Rule{
 		{ID: "nobody", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{uuid.New()}}},
 		{ID: "write-only", Ops: []string{authz.OpWrite}, Who: authz.Subject{Groups: []uuid.UUID{g}}},
 		{ID: "readers", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{g}}},
 		{ID: "later", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{g}}},
-	}}
+	})}
 	target := identity.Principal{PrincipalID: uuid.New(), Groups: []uuid.UUID{g}}
 	ex := authz.Explain(pol, identity.Principal{}, target, authz.Row{ID: uuid.New()})
 	if !ex.Allow || ex.RuleID != "readers" || ex.Version != 4 {
@@ -28,9 +28,9 @@ func TestExplainAllowNamesTheGrantingRule(t *testing.T) {
 
 func TestExplainDenyHasNoRule(t *testing.T) {
 	t.Parallel()
-	pol := &authz.Policy{Version: 2, Rules: []authz.Rule{
+	pol := &authz.Policy{Version: 2, Document: authz.ConvertFormat1([]authz.Rule{
 		{ID: "r", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{uuid.New()}}},
-	}}
+	})}
 	ex := authz.Explain(pol, identity.Principal{}, identity.Principal{PrincipalID: uuid.New()}, authz.Row{})
 	if ex.Allow || ex.RuleID != "" || ex.Version != 2 || ex.MaskedFields == nil {
 		t.Fatalf("explanation = %+v, want deny with no rule, version 2, and a non-nil (empty) masked list", ex)
@@ -48,14 +48,14 @@ func TestExplainWithNoPolicyDeniesAtVersionZero(t *testing.T) {
 func TestExplainMatchesTheEnforcementOnState(t *testing.T) {
 	t.Parallel()
 	g := uuid.New()
-	pol := &authz.Policy{Version: 1, Rules: []authz.Rule{{
+	pol := &authz.Policy{Version: 1, Document: authz.ConvertFormat1([]authz.Rule{{
 		ID: "open-only", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{g}},
 		Where: []authz.Cond{{Column: "state", Op: authz.CondEq, Values: []string{"open"}}},
-	}}}
+	}})}
 	target := identity.Principal{PrincipalID: uuid.New(), Groups: []uuid.UUID{g}}
 	for state, want := range map[string]bool{"open": true, "closed": false} {
 		row := authz.Row{State: state}
-		_, enforced := authz.Allows(pol, target, authz.OpRead, row)
+		_, _, enforced := authz.Allows(pol, target, authz.OpRead, row)
 		if ex := authz.Explain(pol, identity.Principal{}, target, row); ex.Allow != want || ex.Allow != enforced {
 			t.Errorf("state %s: explain %v, enforcement %v, want %v", state, ex.Allow, enforced, want)
 		}

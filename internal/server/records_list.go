@@ -461,13 +461,9 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		}
 		// A rule that ORs subjects (requester, assignee, share) is read as one
 		// index-ordered branch per subject (TICK-644); CompileRead is the single
-		// statement when there is nothing to split.
-		branches, readArgs := authz.ReadBranches(pol, p, "r", 2)
-		var readSQL string
-		if len(branches) < 2 {
-			branches = nil
-			readSQL, readArgs = authz.CompileRead(pol, p, "r", 2)
-		}
+		// statement when there is nothing to split. One plan for both, so a
+		// voided policy is counted once per request (ADR-010 D5b).
+		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,

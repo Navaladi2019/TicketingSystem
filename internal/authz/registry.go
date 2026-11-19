@@ -50,12 +50,22 @@ func LookupKind(name string) (NodeKind, bool) {
 }
 
 // sqlRendered and goRendered are the kinds the format-2 tree renders in SQL
-// and in Go. The tree planner (TICK-937 P11-05) adds a kind to both in the
-// same change that renders it; the agreement generator (TICK-942 P11-10) lists
-// the kinds it builds in the test-only generatedKinds.
-func sqlRendered() map[string]bool { return map[string]bool{} }
+// and in Go (plan.go, TICK-937 P11-05): all, any, not, cmp and shared render
+// node for node in pnode.sql and pnode.eval; ref is expanded and member_of
+// folded to a constant by the one planner both renderings share, so both
+// renderings cover them by construction. A new kind is added to both in the
+// change that renders it. The agreement generator (TICK-942 P11-10) lists the
+// kinds it builds in the test-only generatedKinds.
+func sqlRendered() map[string]bool { return plannedKinds() }
 
-func goRendered() map[string]bool { return map[string]bool{} }
+func goRendered() map[string]bool { return plannedKinds() }
+
+func plannedKinds() map[string]bool {
+	return map[string]bool{
+		NodeAll: true, NodeAny: true, NodeNot: true, NodeRef: true,
+		NodeMemberOf: true, NodeCmp: true, NodeShared: true,
+	}
+}
 
 // RegistryGap is a SQLSafe, Available kind missing one rendering.
 type RegistryGap struct {

@@ -88,7 +88,7 @@ func TestDefaultIncidentRulesPassPublishValidation(t *testing.T) {
 func TestDefaultIncidentRulesDecide(t *testing.T) {
 	t.Parallel()
 	adminsG, deskG, otherG := uuid.New(), uuid.New(), uuid.New()
-	pol := &authz.Policy{Version: 1, Rules: DefaultIncidentRules(adminsG, []uuid.UUID{deskG})}
+	pol := &authz.Policy{Version: 1, Document: authz.ConvertFormat1(DefaultIncidentRules(adminsG, []uuid.UUID{deskG}))}
 	admin := identity.Principal{PrincipalID: uuid.New(), Groups: []uuid.UUID{adminsG}}
 	agent := identity.Principal{PrincipalID: uuid.New(), Groups: []uuid.UUID{deskG}}
 	user := identity.Principal{PrincipalID: uuid.New()}
@@ -122,7 +122,7 @@ func TestDefaultIncidentRulesDecide(t *testing.T) {
 		{"admin triages an unassigned one", admin, authz.OpWrite, raised, true},
 		{"stranger reads nothing", user, authz.OpRead, theirs, false},
 	} {
-		if _, ok := authz.Allows(pol, tc.p, tc.op, tc.row); ok != tc.allow {
+		if _, _, ok := authz.Allows(pol, tc.p, tc.op, tc.row); ok != tc.allow {
 			t.Errorf("%s: allowed = %v, want %v", tc.name, ok, tc.allow)
 		}
 	}

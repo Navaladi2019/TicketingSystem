@@ -39,7 +39,7 @@ func TestI5BranchesAgreement(t *testing.T) {
 					return fmt.Errorf("policy #%d principal #%d: %w", pi, ki, err)
 				}
 				for _, rec := range w.Records {
-					_, want := authz.Allows(c.Policy, p, authz.OpRead, rec.row(p))
+					_, _, want := authz.Allows(c.Policy, p, authz.OpRead, rec.row(p))
 					switch n := got[rec.Row.ID]; {
 					case n > 1:
 						t.Errorf("seed %d policy #%d principal #%d: record %s returned %d times by %q", seed, pi, ki, rec.Row.ID, n, branches)

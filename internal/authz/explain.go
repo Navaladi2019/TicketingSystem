@@ -16,7 +16,8 @@ import (
 // may read a record under the entity type's newest ACL, and why.
 type Explanation struct {
 	Allow bool
-	// RuleID names the first rule that grants read; empty for a deny.
+	// RuleID names the first policy, in declared order, that grants read
+	// (for a converted format-1 rule, its stored rule id); empty for a deny.
 	RuleID string
 	// Version is the ACL version evaluated; 0 when none is published.
 	Version int
@@ -34,7 +35,9 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 	if pol != nil {
 		out.Version = pol.Version
 	}
-	out.RuleID, out.Allow = Allows(pol, target, OpRead, row)
+	var policy string
+	policy, _, out.Allow = Allows(pol, target, OpRead, row)
+	out.RuleID = ruleID(pol, policy)
 	out.MaskedFields = []string{}
 	for _, f := range MaskedFields(pol, target) {
 		if Readable(pol, admin, f) {
@@ -42,6 +45,21 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 		}
 	}
 	return out
+}
+
+// ruleID is the explainer's name for a granting policy (D10: RuleID stays for
+// one release): the stored rule id of a policy converted from a format-1 rule
+// whose id is not a valid name, the policy name otherwise.
+func ruleID(pol *Policy, name string) string {
+	if pol == nil || name == "" {
+		return ""
+	}
+	for _, np := range pol.Document.Policies {
+		if np.Name == name && np.LegacyID != "" {
+			return np.LegacyID
+		}
+	}
+	return name
 }
 
 const targetSQL = `

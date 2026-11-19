@@ -233,7 +233,7 @@ func i5Agree(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5Case, compile
 			for _, rec := range w.Records {
 				st.checks++
 				row := rec.row(p)
-				_, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
 				sqlOK := bySQL[ki][rec.Row.ID]
 				if goOK {
 					admitted++
