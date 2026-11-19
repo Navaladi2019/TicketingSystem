@@ -58,7 +58,8 @@ func TestEveryTenantWriteRefusesNonStrictJSONAndWritesNothing(t *testing.T) {
 		for _, v := range variants {
 			bad := op
 			bad.body = strings.Replace(op.body, "{", "{"+v.member, 1)
-			rec := e.send(t, bad, "admin-a", "strict-"+op.id+"-"+v.name)
+			// The key must be printable ASCII without spaces (idempotency.validKey).
+			rec := e.send(t, bad, "admin-a", "strict-"+op.id+"-"+strings.ReplaceAll(v.name, " ", "-"))
 			p := wantProblem(t, rec, http.StatusUnprocessableEntity, code)
 			if len(p.Errors) != 1 || p.Errors[0].Pointer != v.pointer || p.Errors[0].Rule != v.rule {
 				t.Errorf("%s %s: errors = %+v, want %s (%s)", op.id, v.name, p.Errors, v.pointer, v.rule)
