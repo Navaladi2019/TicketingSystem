@@ -29,7 +29,8 @@ Where to look first, by symptom. The acceptance guide's [troubleshooting page](.
 |---|---|---|
 | 401 `invalid_token` on a fresh token | The token's issuer is not `KEYCLOAK_PUBLIC_URL/realms/nava`: Keycloak was reached through another host or port | Use the shipped URLs, or change `KEYCLOAK_PORT` and `KEYCLOAK_PUBLIC_URL` together and restart |
 | 401 `invalid_token` after a while | Access tokens live 5 minutes | Sign in again |
-| 401 `tenant_unresolved` | The tenants are not seeded, or no group sync has run since | `sh docs/acceptance/guide/tools/seed.sh` |
+| 401 `tenant_unresolved` for a demo user (`tenant-a.test`, `tenant-b.test`) | The demo tenants are not seeded, or no group sync has run since | `sh docs/acceptance/guide/tools/seed.sh` |
+| 401 `tenant_unresolved` for the first admin of a tenant you onboarded | Group sync has not yet placed the admin's invite in `/admins` | Wait one group-sync cycle (default 5 min, `NAVA_GROUPSYNC_INTERVAL` in `.env`), sign in again and retry. Do not run `seed.sh` ([2. Sign in](../tour/02-sign-in.md#a-newly-onboarded-tenants-first-admin)) |
 | 403 `forbidden` on `/api/v1/operator/tenants` | A tenant token was sent | Use the operator sign-in (client `nava-operator-cli`) |
 | Connection refused on `18082`, `19090` to `19095` or `18233` | The tunnels are not running; they stop when the stack is recreated | `sh docs/acceptance/guide/tools/tunnels.sh up` |
 | `18233` only | The Temporal UI is not started | Start with the `operator` profile (`task stack:up`), then the tunnels again |

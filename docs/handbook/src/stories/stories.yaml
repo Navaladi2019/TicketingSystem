@@ -260,6 +260,18 @@ stories:
     issue: TICK-961
     title: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies
     status: in-progress
+  - id: S28
+    issue: TICK-879
+    title: A new tenant's time to its first workflow-routed ticket is measured (ADR-008 X1a)
+    status: delivered
+    verdict: READY
+    date: 2026-11-18
+    verdict_comment: "TICK-879 VERDICT: ACCEPTED after the story -> main CI run"
+    bruno:
+      - S28
+    evidence:
+      - docs/quality/x1a-first-routed-record.md
+      - docs/acceptance/s28-first-routed-record.md
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story

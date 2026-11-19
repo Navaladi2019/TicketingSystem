@@ -1,0 +1,42 @@
+meta {
+  name: S28.12 The workflow routes the record: in_progress within 300 s
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s28_rec}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  // No record (S28.11 failed): one read, no wait. Otherwise until 300 s after the create.
+  const t0 = Number(bru.getVar('s28_rec_at')) || 0;
+  for (;;) {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s28_rec}}'), method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('s28_admin_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+    if (!bru.getVar('s28_rec') || (r.status === 200 && r.data.state === 'in_progress') || Date.now() - t0 > 300 * 1000) break;
+    await bru.sleep(1000);
+  }
+  bru.setVar('s28_routed_after_s', String(Math.round((Date.now() - t0) / 1000)));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('state in_progress, version 2', () => {
+    expect(b.state).to.eql('in_progress');
+    expect(b.version).to.eql(2);
+  });
+  console.log('S28.12 routed after', bru.getVar('s28_routed_after_s'), 's');
+}
+
+docs {
+  Polls once a second for up to 300 s after S28.11 (the kit's poll timeout), then fails rather than hang.
+}

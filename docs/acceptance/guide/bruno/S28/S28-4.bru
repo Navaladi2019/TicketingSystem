@@ -1,0 +1,30 @@
+meta {
+  name: S28.4 The admin signs in at the company login again with the password they chose: 200
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{keycloak_url}}/realms/standin-company/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: nava-broker
+  client_secret: dev-only-broker-secret
+  scope: openid
+  username: {{s28_admin_email}}
+  password: {{s28_admin_password}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the company login issued a token for the admin', () => expect(N.json().access_token).to.be.a('string'));
+}
+
+docs {
+  Shows the company login user exists because the admin created it: it takes the admin's own email and password, and nobody else's credential was needed.
+}

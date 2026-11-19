@@ -560,6 +560,11 @@ services:
       NAVA_KEYCLOAK_REALM: nava
       NAVA_DIRECTORY_CLIENT_ID: nava-platform
       NAVA_DIRECTORY_CLIENT_SECRET: ${NAVA_PLATFORM_CLIENT_SECRET:-dev-only-platform-secret}
+      # Local stack only (TICK-967): the exact hosts of the stand-in company
+      # login (realm standin-company), which onboarding may accept although
+      # they are http and loopback. Default off everywhere else: unset means
+      # every private address is refused. Never set it in a production config.
+      NAVA_ONBOARD_DEV_IDP_HOSTS: localhost:18081,localhost:8080
       NAVA_ONBOARD_CLIENT_ID: nava-onboarding
       NAVA_ONBOARD_CLIENT_SECRET: ${NAVA_ONBOARD_CLIENT_SECRET:-dev-only-onboarding-secret}
       NAVA_LOG_FORMAT: json
