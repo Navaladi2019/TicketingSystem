@@ -350,7 +350,7 @@ func TestP309PlanCacheModeFromDBRoles(t *testing.T) {
 			t.Errorf("%s plan_cache_mode after converging = %s, want force_custom_plan", r, got)
 		}
 	}
-	if got := queryString(t, conn, `SELECT coalesce(string_agg(r.rolname || coalesce('@' || d.datname, '') || '=' || array_to_string(s.setconfig, ','), ' ' ORDER BY 1), '')
+	if got := queryString(t, conn, `SELECT coalesce(string_agg(r.rolname || coalesce('@' || d.datname, '') || '=' || array_to_string(s.setconfig, ','), ' ' ORDER BY r.rolname, d.datname NULLS FIRST), '')
 		FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole LEFT JOIN pg_database d ON d.oid = s.setdatabase
 		WHERE r.rolname = ANY ($1)`, m.RoleNames()); got != wantRoleSettings {
 		t.Errorf("manifest role settings = %q, want only %q", got, wantRoleSettings)
