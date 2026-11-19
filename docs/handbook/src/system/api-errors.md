@@ -60,6 +60,8 @@ The answer is `422` with the code the operation already uses for a bad body; no 
 | `createEntityType`, `publishEntityTypeVersion` | `invalid_definition` |
 | `putEntityTypeAccess` | `invalid_access_policy` |
 | `publishWorkflowDefinitionVersion` | `workflow_definition_invalid` |
+| `createNumberFormat`, `publishNumberFormatVersion`, `republishLinkedTypes` | `number_format_invalid` |
+| `putTenantTimeZone` | `invalid_time_zone` |
 | `createRecord`, `patchRecord` | `record_invalid` |
 
 ```mermaid
