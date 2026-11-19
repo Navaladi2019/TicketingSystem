@@ -184,6 +184,11 @@ roles:
   nava_worker:
     attributes: [LOGIN]
     pgbouncer_login: true
+    # TICK-990 (P7-07, ADR-006 D10): the backfill's keyset step on a pgx
+    # cached statement switched to a generic plan after five runs (est. 2
+    # rows; 200,430 rows read and sorted on disk, 821 ms against 17 ms
+    # custom). Same setting as nava_app (P3-01). db-roles applies it.
+    settings: { plan_cache_mode: force_custom_plan }
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:

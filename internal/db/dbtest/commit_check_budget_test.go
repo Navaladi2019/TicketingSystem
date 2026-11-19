@@ -230,7 +230,7 @@ func budgetPerCall(t *testing.T, super *pgx.Conn, arm budgetArm, n int) float64 
 }
 
 // budgetImport is one import run: on a fresh young fixture, a new
-// nava_worker session (plan_cache_mode left at the default) writes 10,000
+// nava_worker session (the role's plan_cache_mode; the function's own SET wins) writes 10,000
 // subjects for a new tenant, absent from the statistics, and their entries
 // in one transaction. It returns COMMIT time / 10,000 in µs.
 func budgetImport(t *testing.T, super *pgx.Conn, arm budgetArm, k int) float64 {
