@@ -1,0 +1,22 @@
+{
+  "step": "iso-number-format-made-up",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/number-formats/0192f0c0-0000-7000-8000-000000000961",
+    "headers": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}
