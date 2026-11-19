@@ -22,6 +22,15 @@ import (
 // by the entity type and the version.
 const PolicyInvalidMetric = "authz.policy.invalid"
 
+// ReadBranchesFallbackMetric counts the ReadBranches and ReadPredicate calls
+// whose plan has more branches than the SP-2 threshold (maxReadBranches), so
+// the list falls back to CompileRead's OR form (ADR-010 D6). One call counts
+// once. Prometheus: authz_read_branches_fallback_total{entity_type}. No tenant,
+// as for authz_policy_invalid_total. It should stay at zero: the D6 check at
+// planning confirms no published document is above the threshold
+// (ReadBranchBound), so a rise means a document published since needs a look.
+const ReadBranchesFallbackMetric = "authz.read_branches.fallback"
+
 // invalidCounter is the registered counter; nil records nothing. Allows and
 // CompileRead are pure functions called from many places, so the counter is
 // registered once per process (RegisterMetrics) rather than passed in.
@@ -29,16 +38,29 @@ const PolicyInvalidMetric = "authz.policy.invalid"
 //nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
 var invalidCounter atomic.Pointer[metric.Int64Counter]
 
+// fallbackCounter is the registered ReadBranchesFallbackMetric counter; nil
+// records nothing.
+//
+//nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
+var fallbackCounter atomic.Pointer[metric.Int64Counter]
+
 // RegisterMetrics registers the authorizer's metrics on mp. A process that
 // evaluates policies calls it once at start; until it does, nothing is
 // counted (the log line is still written).
 func RegisterMetrics(mp metric.MeterProvider) error {
-	c, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/authz").Int64Counter(PolicyInvalidMetric,
+	meter := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/authz")
+	c, err := meter.Int64Counter(PolicyInvalidMetric,
 		metric.WithDescription("Access policies voided by the planner because a node is invalid (unresolved ref, cycle, cap, unavailable kind), once per evaluation (ADR-010 D5b)."))
 	if err != nil {
 		return fmt.Errorf("authz: %s: %w", PolicyInvalidMetric, err)
 	}
+	f, err := meter.Int64Counter(ReadBranchesFallbackMetric,
+		metric.WithDescription("List reads whose access predicate has more branches than the SP-2 threshold and so use the OR form (ADR-010 D6)."))
+	if err != nil {
+		return fmt.Errorf("authz: %s: %w", ReadBranchesFallbackMetric, err)
+	}
 	invalidCounter.Store(&c)
+	fallbackCounter.Store(&f)
 	return nil
 }
 
@@ -65,5 +87,13 @@ func countInvalid(pol *Policy, pp plannedPolicy) {
 		slog.String("policy", pp.name), slog.String("problem", rule))
 	if c := invalidCounter.Load(); c != nil {
 		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
+	}
+}
+
+// countReadFallback records one read that fell back to CompileRead because its
+// plan is above the SP-2 total-branch threshold.
+func countReadFallback(pol *Policy) {
+	if c := fallbackCounter.Load(); c != nil {
+		(*c).Add(context.Background(), 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
 	}
 }

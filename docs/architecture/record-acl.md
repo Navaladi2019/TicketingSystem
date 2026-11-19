@@ -58,7 +58,22 @@ flowchart LR
   named condition it reaches (`TraceStep`, for the explainer).
 - **Branches (D6).** `ReadBranches` splits on the OR across policies, a
   top-level `any`, and a top-level `all` with exactly one `any` child (a
-  converted rule's subjects). The SP-2 threshold is TICK-938.
+  converted rule's subjects). Above SP-2's total-branch threshold of 16
+  (`maxReadBranches`, `docs/data/acl-format2-caps.md` item 3) it returns no
+  branch, the list uses `CompileRead`'s OR form, and
+  `authz_read_branches_fallback_total{entity_type}` counts it. The threshold
+  is checked before any SQL is rendered. `ReadBranchBound(document)` is the
+  most branches a document can give any caller (folding included); the D6
+  check at planning compares it with the threshold (TICK-938).
+
+```mermaid
+flowchart LR
+    P["plan (one per call)"] --> Q{"a policy<br/>folds to true?"}
+    Q -- yes --> T["[true]"]
+    Q -- no --> C{"total disjuncts<br/>&gt; 16?"}
+    C -- no --> B["branches, each AND NOT the ones before"]
+    C -- yes --> F["no branch: CompileRead OR form<br/>+1 authz_read_branches_fallback_total"]
+```
 
 ## Shares are pair-matched (AR-S10-01)
 
