@@ -313,9 +313,9 @@ func (h *handlers) PublishEntityTypeVersion(ctx context.Context, req api.Publish
 // or both, and never a number_prefix, which does not change after create. The
 // definition itself is compiled by the store against the stored key and prefix.
 func parsePublish(raw json.RawMessage) (publishRequest, *problemError) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return publishRequest{}, unprocessable(invalid("", "type"))
+	fields, fe := decodeBody(raw)
+	if fe != nil {
+		return publishRequest{}, unprocessable(*fe)
 	}
 	var bad []problem.FieldError
 	if _, present := fields["number_prefix"]; present {
@@ -385,9 +385,9 @@ func invalid(pointer, rule string) problem.FieldError {
 // is a 422 invalid_definition naming JSON pointers into the request.
 func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 	var cr createRequest
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return cr, unprocessable(invalid("", "type"))
+	fields, fe := decodeBody(raw)
+	if fe != nil {
+		return cr, unprocessable(*fe)
 	}
 	var bad []problem.FieldError
 	str := func(name string) (string, bool) {

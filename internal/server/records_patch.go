@@ -201,9 +201,9 @@ func (h *handlers) currentVersion(ctx context.Context, tenant, id uuid.UUID) (in
 // takes. A top-level state is the state property's value and wins over the
 // same property inside data.
 func parsePatchBody(raw json.RawMessage, stateProp string) (map[string]any, *problemError) {
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &env); err != nil || env == nil {
-		return nil, recordInvalid(invalid("", "type"))
+	env, fe := decodeBody(raw)
+	if fe != nil {
+		return nil, recordInvalid(*fe)
 	}
 	d, hasData := env["data"]
 	s, hasState := env["state"]

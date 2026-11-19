@@ -355,9 +355,9 @@ func recordBody(r *pipeline.Record, data map[string]any) api.Record {
 
 // parseRecordBody reads `{data: {...}}`. Numbers stay exact.
 func parseRecordBody(raw json.RawMessage) (map[string]any, *problemError) {
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &env); err != nil || env == nil {
-		return nil, recordInvalid(invalid("", "type"))
+	env, fe := decodeBody(raw)
+	if fe != nil {
+		return nil, recordInvalid(*fe)
 	}
 	d, present := env["data"]
 	if !present {
