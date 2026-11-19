@@ -29,3 +29,9 @@ func TestExemptPaths(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), uuidv7.Analyzer, mod+p)
 	}
 }
+
+// TestIsolationSiblingIsReported: the isolation exemption is by path segment,
+// so internal/tenancy/isolationx is reported.
+func TestIsolationSiblingIsReported(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), uuidv7.Analyzer, mod+"internal/tenancy/isolationx")
+}

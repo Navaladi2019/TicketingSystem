@@ -42,7 +42,7 @@ func inScope(pkgPath string) bool {
 	if !strings.HasPrefix(rest, "internal/") && !strings.HasPrefix(rest, "cmd/") {
 		return false
 	}
-	if strings.HasPrefix(rest, "internal/tenancy/isolation") {
+	if rest == "internal/tenancy/isolation" || strings.HasPrefix(rest, "internal/tenancy/isolation/") {
 		return false
 	}
 	for _, seg := range strings.Split(rest, "/") {
