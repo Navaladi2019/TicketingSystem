@@ -1,0 +1,11 @@
+## 2026-11-14: TICK-673 review risks: mode-only If-Match is fixed in S18; the C13 republish-report filter is an accepted risk until per-type rights exist
+
+- **Decided by:** the Technical Lead, on TICK-673 (PLAN-006 P6-08, PR #669). The human asked for a decision on the reviewers' at-scale risks.
+- **Context:** PR #669 merged into `TICK-669/number-formats` after `VERDICT: APPROVE` from the Principal Software Engineer and the Security & Multi-Tenancy Reviewer, with CI green (run 43598479825). Neither reviewer found a blocking or exploitable gap. Each raised the same two risks.
+- **Risk 1 (Security risk 1, PSE follow-up 2), accepted with a trigger.** `POST /api/v1/number-formats/{id}/republish-linked` reports one line per linked type, including `forbidden` lines that carry the type key. Today publishing and listing types both need a tenant admin, who can list every type, so C13 ("the report lists no type the caller could not list") holds.
+  - **Register:** AR-S18-01 in `docs/security/accepted-risks.md`.
+  - **Why accept, not fix now:** a filter on a list right that does not exist has nothing to check against and cannot be tested adversarially. A placeholder would be untested code that looks like a guarantee.
+  - **Trigger:** a per-type publish or list right is specified and scheduled. That design must then filter `LinkedBelow` by the caller's list right before the per-type loop and add the adversarial test "publish on X, cannot list Y, no line and no key for Y". TICK-859 holds that work in `backlog`. When the trigger holds, the Technical Lead moves it into the story that ships the right. That story is not accepted without it.
+- **Risk 2 (Security risk 2, PSE follow-up 1), fixed in S18.** A mode-only publish (TICK-660) ignores `If-Match`, so a stale client can still switch `gaps`/`gapless`. It stays inside one tenant, but a precondition the client sent is silently dropped, and the change alters allocation. The fix is small: TICK-858 makes a mode-only call answer 412 on a stale ETag. It runs in parallel with TICK-674 and must merge before S18 is accepted.
+- **Not taken up:** the CI advisor's Preference for an end-to-end `internal_error` case in the republish loop. **Trigger:** the next change to `republishOne`'s loop adds it.
+- **Dissent:** none.

@@ -109,6 +109,39 @@ flowchart TD
   mode change applies to creates that start after it, and both paths upsert
   the same row, so no number is used twice (ADR-005 §2.1.1,
   `TestModeSwitchNeverReusesANumber`).
+- **Linked number formats (ADR-005 A7, §3.5, §3.6, §4.1; TICK-674).** A
+  create reads its format from the snapshot on the definition version it
+  already read (`entity_definition_versions.number_compiled`, the default
+  when null; `entitytypes.Store.NumberFormat` answers from the prefetched
+  read), never from `number_formats`. For a format with date parts the
+  upsert itself computes the scope key (`e<epoch>|d:<digits>`, one `to_char`
+  per date token) and the INSERT arm's `period_end` from `now() AT TIME ZONE`
+  the format's zone, else the tenant's `time_zone`, read in the same
+  statement under RLS; Go passes the key prefix, the patterns and the period
+  unit (`numbering.Scope`). The UPDATE arm still sets `next` only. The `gaps`
+  path renders the number from the date digits PostgreSQL put in the key
+  (`RenderParts`) and stores the allocation's `now()` as `created_at`; the
+  `gapless` INSERT renders the number in SQL from the same `now()` and
+  stores `now()` as `created_at`. So the number's date and `created_at`
+  agree at midnight too (`TestFormatMidnightDateMatchesCreatedAt`). A format
+  with no date part uses the unchanged default statement with key
+  `e<epoch>`. Statements per create and the counter's hold time are those of
+  TICK-657 on both paths. Under `refuse`, a counter past the width fails the
+  create with `*ErrNumberSpaceExhausted` (409 `number_space_exhausted`, rule
+  `scope:<key>`); a `gapless` refusal rolls back and gives the value back.
+  The refusal is audited (see "The refused-create audit entry" below).
+  Every number taken under `refuse` records `nava_numbering_fill_ratio`;
+  `NumberSpaceNearlyExhausted` alerts above 90 %. A `records_number_key`
+  violation is `*ErrNumberTaken`: logged with type, epoch and scope, 500,
+  never retried.
+
+```mermaid
+flowchart LR
+  V[definition version<br/>number_compiled] --> S["numbering.Scope<br/>key prefix, to_char patterns,<br/>period unit, zone"]
+  S --> U["record_counters upsert<br/>now() AT TIME ZONE coalesce(format zone, tenants.time_zone)<br/>INSERT arm: scope_key, period_end<br/>UPDATE arm: next"]
+  U -->|"next - 1, scope_key, now()"| G["gaps: RenderParts(date digits of scope_key)<br/>created_at = now()"]
+  U --> L["gapless: INSERT renders the number in SQL<br/>created_at = now()"]
+```
 - **Allocator pool (ADR-005 A3, A5, A8).** The allocation needs a connection
   while the create's own transaction holds one, so nava-core gives it a pool
   of its own (`cmd/nava-core/allocator.go`, 4 connections, `pool_max_conns`
@@ -172,6 +205,56 @@ sequenceDiagram
   `AssignmentGroupRemoved`; the API returns it as
   `assignment_group: {id, removed}`. Nothing clears or reassigns the field.
 
+## The refused-create audit entry (ADR-004-E9, TICK-865)
+
+A create refused with `number_space_exhausted` writes one ADR-004 R2b entry,
+action `number_space_exhausted`. `Write` builds it and writes nothing:
+`*ErrNumberSpaceExhausted` carries it (`Entry`) with `Epoch` and `Counter`
+next to the type, scope and width. The caller appends it.
+
+- **Shape.** Domain `record`, subject `entity_definition`/D (the type, read
+  under RLS in the prefetch), `entity_definition_id` D, versions NULL,
+  `content_sha256` NULL; actor, source, `source_ref`, causation and request
+  id from the refused command. The diff is one `add` of `/number_space`:
+  `{epoch, scope_key, width, counter}`. Never record data, a candidate field
+  value or the idempotency key.
+- **Sites.** `gaps`: after `allocate`, at the `Fits` check
+  (`pipeline.go`), `counter` = the allocated number (already committed).
+  `gapless`: `writeCreate`'s refusal branch (`batch.go`), `counter` =
+  `numbered.N`, given back by the rollback. `InsertAtCommit` is reached only
+  after `Fits`, so it is not a site.
+- **Placement.** `CreateRecord` (`internal/server/records.go`) appends the
+  entry after the create's `tenancy.InTenantTx` has returned and released its
+  connection, in a `tenancy.InTenantTx` of its own on the API pool, under
+  the token's tenant, holding only that entry. Never on the allocator pool
+  (spike S1: a synchronous commit there slowed other tenants' allocations
+  32×) and never while a create transaction is open (hold-and-wait,
+  TICK-657). It runs on `context.WithoutCancel` of the request context,
+  bounded by the request's deadline, or 5 s when the request has none, so a
+  client that disconnects after the refusal does not drop the entry.
+- **Failure.** A failed append answers the refusal joined with the audit
+  error (`errors.Join`), still 409, and logs `audit of a refused record
+  create failed`. The create never commits.
+- **Signals.** `records_number_space_exhausted_total` (no tenant or
+  definition label) counts each refusal; the log line `record create
+  refused: number space exhausted` names the tenant and type, never the
+  scope key.
+
+```mermaid
+sequenceDiagram
+    participant H as CreateRecord
+    participant API as API pool
+    participant A as allocator pool
+    H->>API: InTenantTx (create)
+    API->>A: gaps only: AllocTx (counter n, committed)
+    API-->>H: ErrNumberSpaceExhausted{Entry}; rollback, connection released
+    H->>API: InTenantTx (WithoutCancel, request deadline): audit.Append(Entry), COMMIT
+    H-->>H: 409 number_space_exhausted (joined with any audit error)
+```
+
+`rejectTooDeep` still writes `cascade_too_deep` on the TxRunner (RS-E9-3):
+moving it to this placement needs the caller to append, more than one line.
+
 ## Errors
 
 | Error | Meaning |
@@ -185,6 +268,7 @@ sequenceDiagram
 | `ErrAssignmentGroupRemoved` | `assignment_group_id` set or changed to a group that is not live in the tenant (422 `assignment_group_removed`) |
 | `ErrVersionConflict` | Not at `ExpectedVersion` |
 | `*ErrIdempotencyConflict{Concurrent}` | Key held by another write (409), or a concurrent duplicate: roll back and retry |
+| `*ErrNumberSpaceExhausted` | A `refuse` format's counter outgrew its width (409 `number_space_exhausted`); carries the R2b entry the caller appends |
 
 ## Stubs and later tasks
 

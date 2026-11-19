@@ -29,6 +29,7 @@ func AllowList() map[string]Policy {
 	outboxExpired := "((dispatched_at < (now() - '7 days'::interval)) OR (dead_at < (now() - '30 days'::interval)))"
 	refExpired := "(closed_at < (now() - '30 days'::interval))"
 	keyExpired := "(expires_at < now())"
+	periodExpired := "(period_end < (now() - '2 days'::interval))"
 	return map[string]Policy{
 		"public.outbox.outbox_relay_select":                {"SELECT", "nava_relay", "true", ""},
 		"public.outbox.outbox_relay_update":                {"UPDATE", "nava_relay", pending, "true"},
@@ -42,6 +43,9 @@ func AllowList() map[string]Policy {
 		"public.workflow_ref.workflow_ref_purge_select":    {"SELECT", "nava_purge", refExpired, ""},
 		// P5-34f (TICK-590): R17's predicate, shared with the chain:reseed gate.
 		"public.audit_chain_head.audit_chain_head_purge_select": {"SELECT", "nava_purge", lineage.PolicyQual, ""},
+		// P6-10 (TICK-675, ADR-005 §4.3): period counters past the 2-day grace.
+		"public.record_counters.record_counters_purge":        {"DELETE", "nava_purge", periodExpired, ""},
+		"public.record_counters.record_counters_purge_select": {"SELECT", "nava_purge", periodExpired, ""},
 	}
 }
 

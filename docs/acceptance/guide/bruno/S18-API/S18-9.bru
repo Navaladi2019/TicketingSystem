@@ -1,0 +1,36 @@
+meta {
+  name: S18.9 Alice (not an admin) creates: 403
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick672-{{s18_run}}-alice
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{s18_fmt}}_b",
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}-{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  The admin check runs first.
+}

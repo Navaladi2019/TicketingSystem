@@ -1,0 +1,52 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/entity-types/incident/versions",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "1189",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-d690e1dc-b-ghost",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}},\"number_format\":{\"id\":\"00000000-0000-4000-8000-00000000f18f\",\"version\":1}}"
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:number_format_not_found",
+      "title": "Number format not found",
+      "status": 422,
+      "code": "number_format_not_found",
+      "detail": "The number format and version do not exist in this tenant. Nothing was published. See errors for the field.",
+      "instance": "urn:nava:request:04d119ead6db03c8b688478fe4358ec1",
+      "errors": [
+        {
+          "pointer": "/number_format",
+          "rule": "not_found"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 422",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code number_format_not_found",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    },
+    {
+      "test": "the same detail and errors as for tenant A's format",
+      "status": "pass"
+    }
+  ]
+}
