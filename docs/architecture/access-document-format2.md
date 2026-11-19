@@ -78,6 +78,7 @@ The converter stays for as long as any stored format-1 row exists
 `authz.Kinds()` lists every node kind with `SQLSafe` and `Available`. Today
 `under` is `SQLSafe` but not `Available` (S31). `TestRegistryKindsAreRendered`
 fails when a kind that is SQLSafe and Available is missing a SQL rendering, a
-Go rendering or agreement-generator coverage. Until TICK-937 and TICK-942
-land, the known gaps are listed in `pendingRenderings` (TODO-S30-01). That
-list can only shrink.
+Go rendering or agreement-generator coverage. Since TICK-942 there is no
+allowed gap (`pendingRenderings` is empty, TODO-S30-01 fixed): the format-2
+I5 generator builds every available kind, and
+`TestI5Format2GeneratorCoversTheRiskyShapes` fails if it stops.

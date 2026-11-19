@@ -5,27 +5,24 @@ import (
 	"testing"
 )
 
-// generatedKinds are the node kinds the I5 agreement generator builds. The
-// generator is test code (TICK-942 P11-10), so its coverage is listed here, in
-// the same change that teaches it a kind.
-func generatedKinds() map[string]bool { return map[string]bool{} }
-
-// pendingRenderings are the registry gaps allowed until the agreement suite
-// lands: TICK-937 P11-05 rendered every S30 kind in SQL and Go, and the
-// generator covers none before TICK-942 P11-10. The list may only shrink.
-// TestRegistryKindsAreRendered fails both when a SQLSafe, Available kind is
-// missing a rendering that is not listed here and when a listed gap has been
-// filled but is still listed, so it cannot hide a new kind or go stale.
-//
-// TODO(TODO-S30-01): TICK-942 empties the generator entries; S30 is not
-// accepted while this list is non-empty.
-func pendingRenderings() []RegistryGap {
-	var out []RegistryGap
-	for _, k := range []string{NodeAll, NodeAny, NodeNot, NodeRef, NodeMemberOf, NodeCmp, NodeShared} {
-		out = append(out, RegistryGap{k, "generator"})
+// generatedKinds are the node kinds the I5 agreement generator builds
+// (TICK-942 P11-10). The generator is test code in another package
+// (internal/tenancy/isolation, i5_format2_gen_test.go), so its coverage is
+// listed here; TestI5Format2GeneratorCoversTheRiskyShapes fails when the
+// default seed's run builds no node of a SQLSafe, Available kind, so this
+// list cannot claim a kind the generator does not build.
+func generatedKinds() map[string]bool {
+	return map[string]bool{
+		NodeAll: true, NodeAny: true, NodeNot: true, NodeRef: true,
+		NodeMemberOf: true, NodeCmp: true, NodeShared: true,
 	}
-	return out
 }
+
+// pendingRenderings are the registry gaps allowed. It is empty since
+// TICK-942 P11-10 (TODO-S30-01, fixed): every SQLSafe, Available kind has a
+// SQL rendering, a Go rendering and generator coverage. A gap may never be
+// added back here; a new kind lands with all three.
+func pendingRenderings() []RegistryGap { return nil }
 
 // CI-11 (RFC-022 §5, ADR-010 D11): a SQLSafe, Available kind without a SQL
 // rendering, a Go rendering and generator coverage fails the build.

@@ -68,13 +68,16 @@ func TestI5Agreement(t *testing.T) {
 	if m := os.Getenv(i5MutantEnv); m != "" {
 		mc, ok := i5Mutants()[m]
 		_, isFilter := i5FilterMutants()[m]
+		_, isFormat2 := i5F2Mutants()[m]
 		switch {
 		case ok:
 			compile, compiler = mc, "mutant "+m
 		case isFilter:
 			filterMutant = m // the data filters row runs against it (TICK-900)
+		case isFormat2:
+			// TestI5Format2Agreement runs its agreement row against it (TICK-942).
 		default:
-			t.Fatalf("%s=%q: not one of %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames())
+			t.Fatalf("%s=%q: not one of %v, %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames(), i5F2MutantNames())
 		}
 	}
 
