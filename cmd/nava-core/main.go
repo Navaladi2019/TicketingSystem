@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
@@ -57,6 +58,10 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	// With OTEL_EXPORTER_OTLP_ENDPOINT set, records also go to the Collector.
 	// Unset, log is unchanged.
 	log = logging.WithExport(log, tel.LogHandler("nava-core"), cfg.Log.Level)
+	if err := authz.RegisterMetrics(tel.MeterProvider); err != nil {
+		_ = tel.Shutdown(context.WithoutCancel(ctx))
+		return err
+	}
 	// The allocator pool comes first: readiness waits for it to hold a
 	// connection (TICK-778).
 	allocPool, err := newAllocatorPool(ctx, tel, cfg)

@@ -10,21 +10,19 @@ import (
 // the same change that teaches it a kind.
 func generatedKinds() map[string]bool { return map[string]bool{} }
 
-// pendingRenderings are the registry gaps allowed until the format-2 planner
-// and its agreement suite land: the S30 kinds have no tree rendering before
-// TICK-937 P11-05 and no generator before TICK-942 P11-10. The list may only
-// shrink. TestRegistryKindsAreRendered fails both when a SQLSafe, Available
-// kind is missing a rendering that is not listed here and when a listed gap has
-// been filled but is still listed, so it cannot hide a new kind or go stale.
+// pendingRenderings are the registry gaps allowed until the agreement suite
+// lands: TICK-937 P11-05 rendered every S30 kind in SQL and Go, and the
+// generator covers none before TICK-942 P11-10. The list may only shrink.
+// TestRegistryKindsAreRendered fails both when a SQLSafe, Available kind is
+// missing a rendering that is not listed here and when a listed gap has been
+// filled but is still listed, so it cannot hide a new kind or go stale.
 //
-// TODO(TODO-S30-01): TICK-937 empties the sql and go entries and TICK-942 the
-// generator entries; S30 is not accepted while this list is non-empty.
+// TODO(TODO-S30-01): TICK-942 empties the generator entries; S30 is not
+// accepted while this list is non-empty.
 func pendingRenderings() []RegistryGap {
 	var out []RegistryGap
 	for _, k := range []string{NodeAll, NodeAny, NodeNot, NodeRef, NodeMemberOf, NodeCmp, NodeShared} {
-		for _, m := range []string{"sql", "go", "generator"} {
-			out = append(out, RegistryGap{k, m})
-		}
+		out = append(out, RegistryGap{k, "generator"})
 	}
 	return out
 }

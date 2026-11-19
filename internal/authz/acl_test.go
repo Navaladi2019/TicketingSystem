@@ -30,7 +30,9 @@ func me() identity.Principal {
 
 func ptr(id uuid.UUID) *uuid.UUID { return &id }
 
-func pol(rules ...authz.Rule) *authz.Policy { return &authz.Policy{Version: 1, Rules: rules} }
+func pol(rules ...authz.Rule) *authz.Policy {
+	return &authz.Policy{Version: 1, Document: authz.ConvertFormat1(rules)}
+}
 
 func rw(id string, who authz.Subject, where ...authz.Cond) authz.Rule {
 	return authz.Rule{ID: id, Ops: []string{authz.OpRead, authz.OpWrite}, Who: who, Where: where}
@@ -139,7 +141,7 @@ func TestAllows(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			id, ok := authz.Allows(c.pol, c.p, c.op, c.row)
+			id, _, ok := authz.Allows(c.pol, c.p, c.op, c.row)
 			if ok != (c.wantID != "") || id != c.wantID {
 				t.Fatalf("Allows = %q, %v; want %q, %v", id, ok, c.wantID, c.wantID != "")
 			}
@@ -215,7 +217,7 @@ func TestCompileReadNoRuleIsFalse(t *testing.T) {
 			t.Errorf("%s: CompileRead = %q, %v; want false and no args", name, sql, args)
 		}
 	}
-	if sql, args := authz.CompileRead(pol(rw("r", everyone())), me(), "r", 0); sql != "(((true)))" || len(args) != 0 {
+	if sql, args := authz.CompileRead(pol(rw("r", everyone())), me(), "r", 0); sql != "(true)" || len(args) != 0 {
 		t.Errorf("everyone, no conditions: %q %v", sql, args)
 	}
 }
