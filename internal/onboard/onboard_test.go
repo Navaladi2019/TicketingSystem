@@ -720,3 +720,49 @@ func TestOnboardSeedFailureLeavesProvisioningAndRetryFinishes(t *testing.T) {
 		t.Errorf("active=%v chain=%v afterActivate=%v", st.active[id], st.chains[id], st.chainAfterActivate)
 	}
 }
+
+// The dev allowance (TICK-967): default off, exact hosts only.
+func standinConfig(host string) map[string]string {
+	return map[string]string{
+		"clientId": "c", "clientSecret": "s",
+		"authorizationUrl": "http://" + host + "/auth", "tokenUrl": "http://" + host + "/token", "jwksUrl": "http://" + host + "/jwks",
+	}
+}
+
+func TestBuildSpecDevHosts(t *testing.T) {
+	ctx := t.Context()
+	in := func(cfg map[string]string) IdPRequest { return IdPRequest{ProviderID: "oidc", Config: cfg} }
+	res := fakeResolver{"keycloak": {"10.1.2.3"}}
+
+	// Unset: the stand-in host is refused, as before.
+	for _, hosts := range [][]string{nil, {}} {
+		if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080"))); ptr == "" {
+			t.Errorf("hosts %v: stand-in host accepted with the setting unset", hosts)
+		}
+	}
+	// On: the named host is accepted.
+	hosts := []string{"keycloak:8080"}
+	if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080"))); ptr != "" {
+		t.Errorf("named host refused at %s", ptr)
+	}
+	// On: every other private, loopback, link-local or look-alike host is still refused.
+	for _, h := range []string{
+		"keycloak", "keycloak:8081", "keycloak.:8080", "KEYCLOAK2:8080", "10.0.0.5", "10.0.0.5:8080", "127.0.0.1:8080", "localhost:8080",
+		"[::1]:8080", "169.254.169.254", "169.254.169.254:8080", "192.168.1.1", "100.64.0.1", "evil.keycloak:8080", "keycloak:8080@10.0.0.5",
+	} {
+		if _, ptr := buildSpec(ctx, res, hosts, in(standinConfig(h))); ptr == "" {
+			t.Errorf("host %q accepted with only keycloak:8080 allowed", h)
+		}
+	}
+	// Mixed: one listed URL does not excuse another URL in the same config.
+	mixed := standinConfig("keycloak:8080")
+	mixed["jwksUrl"] = "http://10.0.0.5/jwks"
+	if _, ptr := buildSpec(ctx, res, hosts, in(mixed)); ptr == "" {
+		t.Error("an unlisted private jwksUrl was accepted next to listed URLs")
+	}
+	// The pinned settings still hold on the allowed path.
+	spec, _ := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080")))
+	if spec.Config["validateSignature"] != "true" || spec.Config["syncMode"] != "IMPORT" {
+		t.Errorf("spec not pinned: %v", spec.Config)
+	}
+}

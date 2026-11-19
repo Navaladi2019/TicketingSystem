@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -55,6 +56,11 @@ type Onboard struct {
 	// (NAVA_INVITE_TTL, default 168h). An invitee who has not signed in by
 	// then needs a new onboarding call.
 	InviteTTL time.Duration
+	// DevIdPHosts is NAVA_ONBOARD_DEV_IDP_HOSTS: exact host[:port] entries
+	// whose IdP URLs onboarding accepts although they are http or private.
+	// Default off (empty). Set only in the local compose stack, for its
+	// stand-in company IdP; never in a production config.
+	DevIdPHosts []string
 }
 
 // DefaultInviteTTL and MaxInviteTTL bound NAVA_INVITE_TTL.
@@ -96,6 +102,13 @@ func LoadOnboard(lookup LookupFunc) (Onboard, error) {
 		OnboardClientID:     r.str("NAVA_ONBOARD_CLIENT_ID"),
 		OnboardClientSecret: r.str("NAVA_ONBOARD_CLIENT_SECRET"),
 		InviteTTL:           r.duration("NAVA_INVITE_TTL", DefaultInviteTTL),
+	}
+	if v, ok := r.lookup("NAVA_ONBOARD_DEV_IDP_HOSTS"); ok {
+		hosts, err := parseDevIdPHosts(v)
+		if err != nil {
+			r.errs = append(r.errs, errors.New("NAVA_ONBOARD_DEV_IDP_HOSTS: "+err.Error()))
+		}
+		cfg.DevIdPHosts = hosts
 	}
 	if cfg.KeycloakRealm == "" {
 		cfg.KeycloakRealm = "nava"
@@ -148,4 +161,27 @@ func (r *reader) operators(key string) []OperatorEntry {
 		out = append(out, OperatorEntry{Issuer: iss, Subject: strings.TrimSpace(sub)})
 	}
 	return out
+}
+
+// parseDevIdPHosts reads a comma-separated list of exact host[:port] entries.
+// It lower-cases them and refuses anything that is not one: a scheme, a path,
+// userinfo, a wildcard, a CIDR range or a blank entry. An empty value is no
+// list at all (the default).
+func parseDevIdPHosts(v string) ([]string, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" || strings.ContainsAny(s, "*/@?#\\ \t") || strings.Contains(s, "://") {
+			return nil, errors.New("want comma-separated exact host or host:port entries")
+		}
+		u, err := url.Parse("http://" + s)
+		if err != nil || u.Host != s || u.Hostname() == "" {
+			return nil, errors.New("want comma-separated exact host or host:port entries")
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
