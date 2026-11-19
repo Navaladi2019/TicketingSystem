@@ -37,6 +37,7 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 )
@@ -110,17 +111,22 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 // pointer under /body and the rule, duplicate or invalid_utf8. A route with
 // no refusal configured answers validation_failed, so a missing entry still
 // refuses the body. Any other body goes on to next byte-identical; a syntax
-// error stays the validator's to answer. The body is already bounded where it
-// is first read (the idempotency and operator middlewares).
+// error stays the validator's to answer. The body is read through a bound of
+// idempotency.MaxBodySize, so no method, a GET included, can make it buffer
+// more; past it the answer is validation_failed at /body, rule max_size.
 func (a *API) StrictBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body == nil || r.Body == http.NoBody {
 			next.ServeHTTP(w, r)
 			return
 		}
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, idempotency.MaxBodySize))
 		_ = r.Body.Close()
 		if err != nil {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				a.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/body", Rule: "max_size"})
+				return
+			}
 			a.internal(w, r, fmt.Errorf("read request body: %w", err))
 			return
 		}

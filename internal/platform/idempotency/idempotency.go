@@ -103,8 +103,9 @@ const (
 	// TTL is how long a key is remembered (expires_at).
 	TTL = 24 * time.Hour
 
-	maxKeyLen   = 255
-	maxBodySize = 1 << 20
+	maxKeyLen = 255
+	// MaxBodySize bounds any request body read before a handler runs.
+	MaxBodySize = 1 << 20
 	// completeTimeout bounds storing the response after the handler ran, which
 	// must survive the client hanging up.
 	completeTimeout = 5 * time.Second
@@ -225,7 +226,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/header/" + Header, Rule: "required"})
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodySize))
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodySize))
 		if err != nil {
 			m.count(ctx, resultRejected)
 			rule := "unreadable"

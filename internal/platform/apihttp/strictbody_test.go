@@ -12,6 +12,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 )
 
@@ -105,5 +106,48 @@ func TestStrictBodyUnmappedRoute(t *testing.T) {
 	}
 	if p.Code != problem.ValidationFailed || len(p.Errors) != 1 || p.Errors[0].Rule != "duplicate" {
 		t.Errorf("problem = %+v, want validation_failed with rule duplicate", p)
+	}
+}
+
+// countingReader serves n zero-free filler bytes and counts what was read.
+type countingReader struct{ left, read int }
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	if c.left == 0 {
+		return 0, io.EOF
+	}
+	n := min(len(p), c.left)
+	for i := range p[:n] {
+		p[i] = ' '
+	}
+	c.left -= n
+	c.read += n
+	return n, nil
+}
+
+// TestStrictBodyBounded: a body is read no further than the idempotency
+// middleware's limit, on a GET as on a POST, and an oversized body is refused.
+func TestStrictBodyBounded(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	const huge = 64 << 20
+	for _, tt := range []struct{ method, target string }{
+		{"GET", "/api/v1/items/" + goodID},
+		{"POST", "/api/v1/items"},
+	} {
+		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
+			body := &countingReader{left: huge}
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, body)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.handler.ServeHTTP(rec, req)
+			if limit := idempotency.MaxBodySize; body.read > limit+(64<<10) {
+				t.Errorf("read %d bytes, want at most about %d", body.read, limit)
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body)
+			}
+		})
 	}
 }
