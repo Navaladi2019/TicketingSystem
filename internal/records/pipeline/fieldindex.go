@@ -73,6 +73,17 @@ func (m *FieldIndexMetrics) observe(ctx context.Context, value string) {
 	}
 }
 
+// AddUncoerced adds n values of def's flagged fields that did not coerce to
+// the counter. It is for writers outside the pipeline that coerce in SQL
+// themselves, the P7-05 backfill batch (ADR-006 D10): call it only once the
+// transaction that skipped the values has committed. n <= 0 adds nothing.
+func (m *FieldIndexMetrics) AddUncoerced(ctx context.Context, def uuid.UUID, n int64) {
+	if m == nil || n <= 0 || def == uuid.Nil {
+		return
+	}
+	m.uncoerced.Add(context.WithoutCancel(ctx), n, metric.WithAttributes(attribute.String("entity_definition", def.String())))
+}
+
 // fieldIndexMetrics is the FieldIndexMetrics of the pipeline's runner, when
 // it is a PoolRunner (or embeds one); nil, which records nothing, otherwise.
 func (p *Pipeline) fieldIndexMetrics() *FieldIndexMetrics {

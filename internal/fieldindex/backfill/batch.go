@@ -37,10 +37,27 @@ const (
 		WHERE tenant_id = $1 AND entity_definition_id = $2 AND id > $3
 		ORDER BY id LIMIT $4 FOR SHARE`
 	deleteSideSQL = `DELETE FROM %s WHERE tenant_id = $1 AND field_id = $2 AND record_id = ANY($3::uuid[])`
-	insertSideSQL = `INSERT INTO %[1]s (tenant_id, field_id, record_id, ord, value)
-		SELECT r.tenant_id, $2, r.id, c.ord, c.%[2]s
-		FROM records r CROSS JOIN LATERAL record_field_coerce(r.data -> $4::text, $5::text) c
-		WHERE r.tenant_id = $1 AND r.id = ANY($3::uuid[])`
+	// insertSideSQL inserts the side rows and returns how many of the
+	// batch's values it skipped because they did not coerce: the non-null
+	// values (a top-level array's non-null elements, else 1 for a non-null
+	// scalar) minus the rows written, as the records trigger counts them
+	// (db/migrations/20261115130000_field_index_trigger.sql). Only that
+	// integer leaves the database.
+	insertSideSQL = `WITH ins AS (
+			INSERT INTO %[1]s (tenant_id, field_id, record_id, ord, value)
+			SELECT r.tenant_id, $2, r.id, c.ord, c.%[2]s
+			FROM records r CROSS JOIN LATERAL record_field_coerce(r.data -> $4::text, $5::text) c
+			WHERE r.tenant_id = $1 AND r.id = ANY($3::uuid[])
+			RETURNING 1
+		), vals AS (
+			SELECT CASE
+				WHEN r.data -> $4::text IS NULL OR jsonb_typeof(r.data -> $4::text) = 'null' THEN 0
+				WHEN jsonb_typeof(r.data -> $4::text) = 'array' THEN
+					(SELECT count(*) FROM jsonb_array_elements(r.data -> $4::text) x WHERE jsonb_typeof(x) <> 'null')
+				ELSE 1 END AS n
+			FROM records r WHERE r.tenant_id = $1 AND r.id = ANY($3::uuid[])
+		)
+		SELECT coalesce((SELECT sum(n) FROM vals), 0)::bigint - (SELECT count(*) FROM ins)`
 	progressSQL = `SELECT count(*) FILTER (WHERE id <= $3), count(*) FROM records
 		WHERE tenant_id = $1 AND entity_definition_id = $2`
 	setProgressSQL = `UPDATE record_index_fields SET progress = $3, updated_at = now()
@@ -79,13 +96,25 @@ func (r registryRow) fills(c child) bool {
 	return r.state == fieldindex.StateBackfilling && (c.version == 0 || r.version == c.version)
 }
 
+// batchResult is what one committed batch reports to its activity: the
+// next cursor, and the count of values it skipped because they did not
+// coerce, with their entity definition, for nava_field_index_uncoerced_total.
+// Only the cursor goes into the activity result (CI-5c): the count is a
+// metric, never a payload.
+type batchResult struct {
+	next             *uuid.UUID
+	entityDefinition uuid.UUID
+	uncoerced        int64
+}
+
 // copyBatch runs one batch of c's field after cursor (nil: from the start)
 // and returns the new cursor, or nil when the field is done or no longer
-// c's to fill. Nothing is written when it returns nil without copying.
-func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UUID, size int) (*uuid.UUID, error) {
-	var next *uuid.UUID
+// c's to fill, with the batch's uncoerced count. Nothing is written when it
+// returns nil without copying.
+func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UUID, size int) (batchResult, error) {
+	var res batchResult
 	err := tenancy.InTenantTx(ctx, pool, c.tenant, func(tx pgx.Tx) error {
-		next = nil
+		res = batchResult{}
 		var row registryRow
 		var vt, state string
 		err := tx.QueryRow(ctx, lockFieldSQL, c.tenant, c.field).
@@ -124,9 +153,11 @@ func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UU
 		if _, err := tx.Exec(ctx, fmt.Sprintf(deleteSideSQL, table), c.tenant, c.field, ids); err != nil {
 			return fmt.Errorf("delete side rows: %w", err)
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(insertSideSQL, table, col), c.tenant, c.field, ids, row.key, vt); err != nil {
+		var uncoerced int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(insertSideSQL, table, col), c.tenant, c.field, ids, row.key, vt).Scan(&uncoerced); err != nil {
 			return fmt.Errorf("insert side rows: %w", err)
 		}
+		res.entityDefinition, res.uncoerced = row.entityDefinition, uncoerced
 
 		last := ids[len(ids)-1]
 		var done, total int64
@@ -137,14 +168,14 @@ func copyBatch(ctx context.Context, pool *pgxpool.Pool, c child, cursor *uuid.UU
 			return fmt.Errorf("set progress: %w", err)
 		}
 		if len(ids) == size {
-			next = &last
+			res.next = &last
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return batchResult{}, err
 	}
-	return next, nil
+	return res, nil
 }
 
 // progressPercent is done/total as a whole percentage, at most 99: only the

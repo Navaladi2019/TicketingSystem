@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
@@ -67,11 +68,16 @@ type Classified struct {
 }
 
 // Activities are the coordinator's and FieldIndexBackfill's activities on a
-// nava_worker pool. Register them with Register. Metrics and Log may be nil.
+// nava_worker pool. Register them with Register. Metrics, Uncoerced and Log
+// may be nil.
 type Activities struct {
 	Pool    *pgxpool.Pool
 	Metrics *Metrics
-	Log     *slog.Logger
+	// Uncoerced counts the values a batch skips because they do not coerce,
+	// on the counter the records trigger's count goes to
+	// (nava_field_index_uncoerced_total{entity_definition}, ADR-006 R5).
+	Uncoerced *pipeline.FieldIndexMetrics
+	Log       *slog.Logger
 	// BatchSize is the records one batch copies; 0 is DefaultBatchSize.
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
@@ -280,17 +286,22 @@ func childOf(ctx context.Context) (child, error) {
 
 // Batch copies the next batch of the child's field (D10.2): one
 // InTenantTx, see batch.go. The field and the pinned version come from the
-// workflow id; the argument is only the cursor.
+// workflow id; the argument is only the cursor. Once the batch has
+// committed, the values it skipped because they do not coerce are added to
+// Uncoerced; the count never goes into the result (CI-5c). A retry of a
+// batch that committed but whose result was lost recopies the same records
+// and counts them again: the counter is an alerting rate, at least once.
 func (a *Activities) Batch(ctx context.Context, in Cursor) (Cursor, error) {
 	c, err := childOf(ctx)
 	if err != nil {
 		return Cursor{}, err
 	}
-	next, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize())
+	res, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize())
 	if err != nil {
 		return Cursor{}, fmt.Errorf("field index batch: %w", err)
 	}
-	return Cursor{Cursor: next}, nil
+	a.Uncoerced.AddUncoerced(ctx, res.entityDefinition, res.uncoerced)
+	return Cursor{Cursor: res.next}, nil
 }
 
 // Ready flips the child's registry row to ready with progress 100 (D10.6),

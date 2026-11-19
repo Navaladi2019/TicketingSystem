@@ -169,6 +169,11 @@ transaction, a rollback and a good write. nava-core wires the metric in
 `internal/server/api.go`. nava-worker wires it through
 `recordports.NewWriter`.
 
+The P7-05 backfill batch counts the values it skips on the same counter,
+from its own INSERT, after its transaction commits
+(`pipeline.FieldIndexMetrics.AddUncoerced`, TICK-974;
+`TestBackfillCountsUncoercedValues`).
+
 A records write that does not go through `tenancy.InTenantTx` and the
 pipeline still gets correct side rows, but is not counted.
 

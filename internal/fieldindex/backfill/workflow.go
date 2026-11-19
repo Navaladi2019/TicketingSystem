@@ -309,7 +309,7 @@ func (c *Coordinator) Run(ctx workflow.Context, in workerguard.RunInput) error {
 			if errors.Is(ctx.Err(), workflow.ErrCanceled) {
 				return err
 			}
-			log.Warn("field index child failed; the field stays as it is", "field_id", item.field.String())
+			log.Warn("field index child failed; the field stays as it is", "field_id", item.field.String(), "alert", true)
 		}
 		handled++
 	}
