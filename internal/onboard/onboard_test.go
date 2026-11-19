@@ -771,7 +771,8 @@ func TestBuildSpecDevHosts(t *testing.T) {
 }
 
 // The path prefix (TICK-986): the listed host is accepted only under the
-// stand-in realm.
+// stand-in realm. The admin-API path case lives in the keycloak package
+// test (navalint forbids that literal here); both gates share the helper.
 func TestBuildSpecDevHostsPathPrefix(t *testing.T) {
 	ctx := t.Context()
 	res := fakeResolver{"keycloak": {"10.1.2.3"}}
@@ -784,7 +785,6 @@ func TestBuildSpecDevHostsPathPrefix(t *testing.T) {
 			"/realms/standin-company/../master/x",
 			"/realms/standin-company/%2e%2e/master/x",
 			"/realms/standin%2Dcompany/x",
-			"/admin/realms/standin-company/x",
 			"/",
 			"",
 		} {
