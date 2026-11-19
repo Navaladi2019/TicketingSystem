@@ -125,6 +125,20 @@ sequenceDiagram
   then pass at the end of the statement.
 - **A `removing` field is skipped.** Its rows are deleted by the D11 removal
   workflow, not here.
+- **READ COMMITTED only (ADR-006-E1 E1-5, TICK-979).** The first statement of
+  `record_field_values_sync()` raises SQLSTATE `25000`
+  (`invalid_transaction_state`) when `current_setting('transaction_isolation')`
+  is not `read committed`. The message names ADR-006-E1. The D9 barrier is
+  sound only for a writer whose registry read takes a fresh snapshot, so a
+  REPEATABLE READ, SERIALIZABLE or READ UNCOMMITTED write (including one set
+  by `default_transaction_isolation`) is refused instead of slipping past it.
+  The check runs before the registry read, so it also refuses writes to a
+  type with no flagged field. An `UPDATE` that does not name `data` does not
+  fire the trigger and is not checked. Migration
+  `20261119013700_field_index_sync_read_committed.sql`.
+- **The trigger stays AFTER ROW, and is the only `records` trigger that reads
+  the registry** (E1-2). `TestP705cRecordsTriggerCatalog` pins both from
+  `pg_trigger.tgtype` and each trigger function's `prosrc`.
 
 ## The uncoerced counter (R5): the mechanism
 
@@ -205,6 +219,8 @@ Windows 11 host with Docker Desktop.
 | CI-9 coercion across sessions | `TestP702CoerceRulesAcrossSessions`, `TestP702CoerceLongArray` | 58 cases (including `1e400`, `"1"`, `"NaN"` and a date-time with no offset) in 4 sessions, as both roles |
 | CI-8 audit bytes unchanged | `TestP702AuditBytesUnchanged` | The same INSERT and UPDATE, with the same ids, are run without and then with flagged fields, and each run rolls back. The `records` row, the readable columns of both `audit_log` entries and the `audit_chain_head` count are byte-identical. The chain hash is built from those columns |
 | Non-coercing write succeeds and counts | `TestP702UncoercedValuesAreCounted`, `TestUncoercedValueIsCountedNotRaised` | See the counter section above |
+| E1-5 READ COMMITTED guard | `TestP705cRecordsWriteRequiresReadCommitted` | As `nava_app` and `nava_worker`, on a type with flagged fields and one without: INSERT and UPDATE of `data` at READ COMMITTED succeed and write their side rows; at REPEATABLE READ, SERIALIZABLE and READ UNCOMMITTED, and under `default_transaction_isolation = 'repeatable read'`, they fail with `25000` naming ADR-006-E1 and leave no record. With the guard removed, 26 assertions fail |
+| E1-5 trigger catalogue | `TestP705cRecordsTriggerCatalog` | The sync trigger is the only one calling `record_field_values_sync`, and is AFTER ROW (`tgtype`); no other `records` trigger function's `prosrc` reads `record_index_fields`. In rolled-back transactions it catches the sync trigger redefined BEFORE ROW and AFTER STATEMENT, and a second registry-reading trigger |
 | Catalogue | `TestP702Catalog`, `TestP702MigrationDownUp` | `SECURITY INVOKER`, the `SET` list, volatility, the trigger events, the `EXECUTE` grants, and down then up |
 
 This task adds no benchmark. The write cost with 5 flagged fields was

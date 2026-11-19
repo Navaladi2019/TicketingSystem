@@ -902,6 +902,10 @@
     {
       "file": "20261115130000_field_index_trigger.sql",
       "on_main": false
+    },
+    {
+      "file": "20261119013700_field_index_sync_read_committed.sql",
+      "on_main": false
     }
   ]
 }
