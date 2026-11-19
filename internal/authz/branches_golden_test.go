@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,10 +44,12 @@ func goldenPrincipals() map[string]identity.Principal {
 }
 
 // Every stored format-1 document, the D-3-27 seed allow-all ACL among them,
-// gives the same ReadBranches branches and arguments as main before S30
-// (TICK-938 P11-06, ADR-010 D6). The golden file was written by this test run
-// on main (2277d6b0) and must not be regenerated on the story branch to make a
-// diff pass: a diff here is a format-1 regression.
+// gives the same ReadBranches branches and bind arguments as main before S30
+// (TICK-938 P11-06, ADR-010 D6, CI-6 as amended by ADR-010-E1), in every case,
+// after main's golden is normalized by exactly the two rewrites E1 allows
+// (e1Normalize). The golden file was written by this test run on main
+// (2277d6b0) and must not be regenerated on the story branch to make a diff
+// pass: a diff here is a format-1 regression.
 func TestReadBranchesFormat1Golden(t *testing.T) {
 	t.Parallel()
 	inputs, err := filepath.Glob("testdata/format1/*.json")
@@ -53,6 +57,7 @@ func TestReadBranchesFormat1Golden(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := map[string]map[string]goldenBranches{}
+	rules := map[string][]authz.Rule{}
 	for _, in := range inputs {
 		if strings.HasSuffix(in, ".golden.json") {
 			continue
@@ -62,6 +67,11 @@ func TestReadBranchesFormat1Golden(t *testing.T) {
 			t.Fatal(err)
 		}
 		pol := format1Policy(t, raw)
+		var rs []authz.Rule
+		if err := json.Unmarshal(raw, &rs); err != nil {
+			t.Fatal(err)
+		}
+		rules[filepath.Base(in)] = rs
 		byCaller := map[string]goldenBranches{}
 		for name, p := range goldenPrincipals() {
 			br, args := authz.ReadBranches(pol, p, "r", 2)
@@ -99,6 +109,7 @@ func TestReadBranchesFormat1Golden(t *testing.T) {
 	if len(want) != len(got) {
 		t.Fatalf("golden has %d fixtures, the test %d", len(want), len(got))
 	}
+	normalized := map[string]bool{}
 	for file, byCaller := range want {
 		for caller, w := range byCaller {
 			g, ok := got[file][caller]
@@ -110,29 +121,92 @@ func TestReadBranchesFormat1Golden(t *testing.T) {
 				t.Errorf("%s %s: %d branches, main had %d", file, caller, len(g.Branches), len(w.Branches))
 				continue
 			}
-			if ci6TextPending(file, caller) {
-				continue
+			n, changed := e1Normalize(t, w, rules[file], goldenPrincipals()[caller].PrincipalID)
+			if changed {
+				normalized[file+" "+caller] = true
 			}
-			if !slices.Equal(g.Branches, w.Branches) || !slices.Equal(g.Args, w.Args) {
-				t.Errorf("%s %s: SQL text differs from main\n got %q %q\nwant %q %q", file, caller, g.Branches, g.Args, w.Branches, w.Args)
+			if !slices.Equal(g.Branches, n.Branches) || !slices.Equal(g.Args, n.Args) {
+				t.Errorf("%s %s: SQL text or arguments differ from main after the ADR-010-E1 rewrites\n got %q %q\nwant %q %q", file, caller, g.Branches, g.Args, n.Branches, n.Args)
 			}
 		}
 	}
+	// The rewrites touch exactly the 8 cases ADR-010-E1 lists, and no other:
+	// a rewrite that starts matching elsewhere would hide a regression there.
+	wantNormalized := []string{"onboard_default_incident.json service_desk_group"}
+	for _, c := range []string{"admin_group", "auditor_group", "id_no_groups", "listed_user", "listed_user_group", "other_group", "service_desk_group"} {
+		wantNormalized = append(wantNormalized, "every_subject.json "+c)
+	}
+	for _, k := range wantNormalized {
+		if !normalized[k] {
+			t.Errorf("%s: ADR-010-E1 lists it, but no rewrite applied", k)
+		}
+		delete(normalized, k)
+	}
+	for k := range normalized {
+		t.Errorf("%s: an ADR-010-E1 rewrite applied to a case E1 does not list", k)
+	}
 }
 
-// ci6TextPending are the cases whose branch count matches main but whose text
-// does not yet, pending the Technical Lead's CI-6 decision on TICK-938: a
-// where cmp with caller self renders "= $n::uuid" (main: "= ANY($n::uuid[])"),
-// and a matched member_of beside conditions folds away (main: "(true AND
-// ...)"). Both are equivalent predicates. Remove a case once its text matches.
-func ci6TextPending(file, caller string) bool {
-	switch file {
-	case "every_subject.json":
-		return true
-	case "onboard_default_incident.json":
-		return caller == "service_desk_group"
+// e1SelfAny is main's rendering of a uuid cmp against a one-element set.
+var e1SelfAny = regexp.MustCompile(`\(r\.(\w+) IS NOT NULL AND r\.(\w+) = ANY\(\$(\d+)::uuid\[\]\)\)`)
+
+// e1Normalize applies to main's golden w exactly the two rewrites ADR-010-E1
+// (E1-3) allows, for the fixture's rules and the caller's id, and reports
+// whether either applied:
+//
+//	(a) the constant true conjunct is removed: "(true AND " becomes "(";
+//	(b) a where cmp with caller: self, which main rendered as
+//	    "= ANY($n::uuid[])" bound to []string{caller}, becomes "= $n::uuid"
+//	    bound to the caller's uuid.UUID.
+//
+// (b) applies only on a column the fixture compares with caller: self in a
+// where, and only to the argument equal to the caller's id. A column that
+// also has a literal where condition holding the caller's id is ambiguous and
+// fails the test: E1-3 forbids a blind rewrite of every one-element ANY, which
+// would hide an "in" list regressing to a scalar.
+func e1Normalize(t *testing.T, w goldenBranches, rules []authz.Rule, caller uuid.UUID) (goldenBranches, bool) {
+	t.Helper()
+	selfCols, literal := map[string]bool{}, map[string]bool{}
+	for _, r := range rules {
+		for _, c := range r.Where {
+			switch {
+			case c.Caller == authz.CallerSelf:
+				selfCols[c.Column] = true
+			case caller != uuid.Nil && slices.Contains(c.Values, caller.String()):
+				literal[c.Column] = true
+			}
+		}
 	}
-	return false
+	for col := range selfCols {
+		if literal[col] {
+			t.Fatalf("ADR-010-E1 (b) is ambiguous: %s has both caller: self and a literal %s", col, caller)
+		}
+	}
+	out := goldenBranches{Branches: make([]string, len(w.Branches)), Args: slices.Clone(w.Args)}
+	changed := false
+	for i, b := range w.Branches {
+		if strings.Contains(b, "(true AND ") {
+			b = strings.ReplaceAll(b, "(true AND ", "(")
+			changed = true
+		}
+		b = e1SelfAny.ReplaceAllStringFunc(b, func(m string) string {
+			sub := e1SelfAny.FindStringSubmatch(m)
+			col, n := sub[1], sub[3]
+			at, err := strconv.Atoi(n)
+			if err != nil || col != sub[2] || !selfCols[col] || caller == uuid.Nil {
+				return m
+			}
+			at -= 3 // ReadBranches(..., argBase 2): $3 is Args[0]
+			if at < 0 || at >= len(w.Args) || w.Args[at] != "[]string ["+caller.String()+"]" {
+				return m
+			}
+			out.Args[at] = "uuid.UUID " + caller.String()
+			changed = true
+			return "(r." + col + " IS NOT NULL AND r." + col + " = $" + n + "::uuid)"
+		})
+		out.Branches[i] = b
+	}
+	return out, changed
 }
 
 // format1Policy is a stored format-1 rules column as the read path loads it:

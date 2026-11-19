@@ -247,11 +247,19 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 // there are fewer than two branches. A caller that wants that fallback uses
 // ReadPredicate, which plans once and so counts a voided policy once (D5b).
 //
-// Exclusion needs every term to be two-valued: the planner never renders a
-// term that can be NULL (plan.go), so NOT d_j is true exactly when d_j is false
-// and no row is dropped by "AND NOT". A term that could be NULL would silently
-// remove its rows from every later branch (Security review risk 2); keep new
-// terms two-valued. The text grows with the square of the number of branches
+// Exclusion needs every term to be two-valued, so that NOT d_j is true exactly
+// when d_j is false and no row is dropped by "AND NOT". A uuid cmp carries
+// "IS NOT NULL AND" and shared is an EXISTS, so those are two-valued on any
+// row. A state cmp is not guarded: it renders "(r.state = ANY(...))", and
+// records.state is nullable (PLAN-001's bare rows). It is two-valued only
+// because every caller restricts the rows to one entity type
+// (r.entity_definition_id = $2, internal/records/store/list.go), and
+// records_pipeline_all_or_none_check makes state non-NULL whenever
+// entity_definition_id is set. A caller without that filter must not use these
+// branches. The SQL is left as it is on purpose: adding the guard would change
+// the CI-6 text (ADR-010-E1). A term that could be NULL would silently remove
+// its rows from every later branch (Security review risk 2); keep new terms
+// two-valued. The text grows with the square of the number of branches
 // (branch i repeats the i-1 before it), which is why the threshold exists.
 func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, args []any) {
 	if !identRE.MatchString(alias) {
