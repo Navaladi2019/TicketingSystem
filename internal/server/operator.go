@@ -54,6 +54,8 @@ type options struct {
 	// the database.
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
+	// aclMaxBytes is the access policy byte limit; 0 is the default.
+	aclMaxBytes int
 	// dataFilterTimeout overrides the data-filter list timeout; zero keeps the default.
 	dataFilterTimeout time.Duration
 	// listDataTerm replaces the list's data-filter term; only
@@ -118,6 +120,11 @@ func WithDataFilterTimeout(d time.Duration) Option {
 // WithCursors sets the keyring that signs list cursors. Without it the list
 // endpoints answer 501 not_implemented.
 func WithCursors(k *cursor.Keyring) Option { return func(o *options) { o.cursors = k } }
+
+// WithACLMaxDocumentBytes sets the platform-wide byte limit on an access
+// policy's rules and masks (NAVA_ACL_MAX_DOCUMENT_BYTES). Without it the route
+// uses the 32 KiB default.
+func WithACLMaxDocumentBytes(n int) Option { return func(o *options) { o.aclMaxBytes = n } }
 
 // OperatorOnly restricts the handler to the operator routes.
 func OperatorOnly() Option { return func(o *options) { o.operatorOnly = true } }

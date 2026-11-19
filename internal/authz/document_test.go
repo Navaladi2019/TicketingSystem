@@ -30,10 +30,18 @@ type validFixture struct {
 // Doc is kept raw so a duplicate key survives loading. GoOnly marks a case the
 // CHECK cannot see, because jsonb has already dropped the duplicate.
 type invalidFixture struct {
-	Name     string          `json:"name"`
-	GoOnly   bool            `json:"go_only"`
-	Doc      json.RawMessage `json:"doc"`
-	Problems []struct {
+	Name   string `json:"name"`
+	GoOnly bool   `json:"go_only"`
+	// Check marks a case Decode accepts and the save-time checks (Prepare, D4)
+	// refuse; the database CHECK refuses it too unless RouteOnly. NeedsTenant
+	// marks a case that needs the tenant's ids; MaxBytes is the byte limit the
+	// case is checked against, 0 for the default.
+	Check       bool            `json:"check"`
+	RouteOnly   bool            `json:"route_only"`
+	NeedsTenant bool            `json:"needs_tenant"`
+	MaxBytes    int             `json:"max_bytes"`
+	Doc         json.RawMessage `json:"doc"`
+	Problems    []struct {
 		Pointer string `json:"pointer"`
 		Code    string `json:"code"`
 	} `json:"problems"`
@@ -98,6 +106,9 @@ func TestDecodeFormat2RoundTrips(t *testing.T) {
 func TestDecodeInvalidFixturesYieldExactlyTheirProblems(t *testing.T) {
 	t.Parallel()
 	for _, f := range load[invalidFixture](t, "testdata/format2_invalid.json") {
+		if f.Check {
+			continue // Decode accepts it; TestPrepareRefusesTheFixture covers it
+		}
 		t.Run(f.Name, func(t *testing.T) {
 			t.Parallel()
 			d, err := authz.Decode(f.Doc)
