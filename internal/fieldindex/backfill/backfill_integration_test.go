@@ -8,6 +8,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
@@ -573,7 +575,8 @@ func TestHistoryCarriesReferencesOnly(t *testing.T) {
 // A retried barrier resumes the snapshot in its heartbeat details, never a
 // new one: given details that name only a finished transaction it returns at
 // once although another transaction is open now, and given details that name
-// an open one it keeps waiting.
+// an open one, in the xip or in the [lo, hi) range, it keeps waiting. Details
+// without lo and hi (written before ADR-006-E1 E1-1) wait on the xip alone.
 func TestBarrierResumesItsSnapshot(t *testing.T) {
 	e := migrated(t)
 	open := beginWriter(t, e, newFixture(t, e, "num", ""))
@@ -584,7 +587,7 @@ func TestBarrierResumesItsSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	acts := &backfill.Activities{Pool: e.worker}
-	run := func(xip []string, timeout time.Duration) error {
+	run := func(details map[string]any, timeout time.Duration) error {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestActivityEnvironment()
 		env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
@@ -592,15 +595,27 @@ func TestBarrierResumesItsSnapshot(t *testing.T) {
 		defer cancel()
 		env.SetTestTimeout(timeout)
 		env.SetWorkerOptions(worker.Options{BackgroundActivityContext: ctx})
-		env.SetHeartbeatDetails(map[string]any{"xip": xip, "since": time.Now(), "slow": false})
+		details["since"], details["slow"] = time.Now(), false
+		env.SetHeartbeatDetails(details)
 		_, err := env.ExecuteActivity(backfill.BarrierActivity)
 		return err
 	}
-	if err := run([]string{finishedXID}, 10*time.Second); err != nil {
-		t.Fatalf("resumed snapshot of a finished transaction: %v, want done at once", err)
+	next := func(xid string) string { return queryString(t, e.super, `SELECT ($1::bigint + 1)::text`, xid) }
+	for name, details := range map[string]map[string]any{
+		"xip only":       {"xip": []string{finishedXID}},
+		"range finished": {"xip": []string{}, "lo": finishedXID, "hi": next(finishedXID)},
+	} {
+		if err := run(details, 10*time.Second); err != nil {
+			t.Fatalf("%s: resumed snapshot of a finished transaction: %v, want done at once", name, err)
+		}
 	}
-	if err := run([]string{openXID}, 2500*time.Millisecond); err == nil {
-		t.Fatal("resumed snapshot of an open transaction returned; want it to keep waiting")
+	for name, details := range map[string]map[string]any{
+		"xip only":   {"xip": []string{openXID}},
+		"range open": {"xip": []string{}, "lo": openXID, "hi": next(openXID)},
+	} {
+		if err := run(details, 2500*time.Millisecond); err == nil {
+			t.Fatalf("%s: resumed snapshot of an open transaction returned; want it to keep waiting", name)
+		}
 	}
 }
 
@@ -736,45 +751,95 @@ func TestBarrierCancelEndsTheWait(t *testing.T) {
 	}
 }
 
+// heartbeat is one barrier heartbeat as the test reads it: the raw JSON
+// details and the wait-set bounds in them.
+type heartbeat struct {
+	raw []byte
+	XIP []string `json:"xip"`
+	Lo  string   `json:"lo"`
+	Hi  string   `json:"hi"`
+}
+
+// barrierEnv runs acts.Barrier in a test activity environment under ctx and
+// sends every heartbeat it records to the returned channel (buffered; a
+// heartbeat is dropped when it is full).
+func barrierEnv(ctx context.Context, t *testing.T, acts *backfill.Activities) (*testsuite.TestActivityEnvironment, <-chan heartbeat) {
+	t.Helper()
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestActivityEnvironment()
+	env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
+	env.SetWorkerOptions(worker.Options{BackgroundActivityContext: ctx})
+	hbs := make(chan heartbeat, 64)
+	env.SetOnActivityHeartbeatListener(func(_ *activity.Info, details converter.EncodedValues) {
+		var raw json.RawMessage
+		if err := details.Get(&raw); err != nil {
+			t.Errorf("heartbeat details: %v", err)
+			return
+		}
+		hb := heartbeat{raw: raw}
+		if err := json.Unmarshal(raw, &hb); err != nil {
+			t.Errorf("heartbeat details %s: %v", raw, err)
+			return
+		}
+		select {
+		case hbs <- hb:
+		default:
+		}
+	})
+	return env, hbs
+}
+
 // ADR-006-E1 (E1-3), the red-to-green evidence: a writer that holds the
 // newest assigned xid is the snapshot's xmax and is not in its xip, so a
 // barrier that waits on pg_snapshot_xip alone waits on nothing. The barrier
 // waits on it (the fence), and returns only after it commits. With the fence
-// query removed from takeSnapshot this test fails: the barrier returns at
-// once.
+// removed from takeSnapshot (hi equal to lo) this test fails: the barrier
+// returns at once.
+//
+// The precondition is read from the barrier's own first heartbeat, its lo
+// and xip (TICK-980), not from a separate snapshot taken before it: a
+// transaction that takes an xid between the two would put the writer in the
+// barrier's xip, and the test would then pass without the fence.
 func TestBarrierWaitsForTheNewestXID(t *testing.T) {
 	e := migrated(t)
-	ctx := context.Background()
-	var w *openWriter
+	acts := &backfill.Activities{Pool: e.worker}
+	var (
+		w      *openWriter
+		done   chan error
+		cancel context.CancelFunc
+		first  heartbeat
+	)
 	for attempt := 0; ; attempt++ {
 		w = beginWriter(t, e, newFixture(t, e, "num", ""))
-		var xmax string
-		var xip []string
-		if err := e.worker.QueryRow(ctx, `SELECT pg_snapshot_xmax(s.s)::text,
-			(SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(s.s) x)
-			FROM (SELECT pg_current_snapshot() AS s) s`).Scan(&xmax, &xip); err != nil {
-			t.Fatal(err)
+		var ctx context.Context
+		ctx, cancel = context.WithCancel(context.Background())
+		env, hbs := barrierEnv(ctx, t, acts)
+		done = make(chan error, 1)
+		go func() {
+			_, err := env.ExecuteActivity(backfill.BarrierActivity)
+			done <- err
+		}()
+		select {
+		case first = <-hbs:
+		case err := <-done:
+			t.Fatalf("the barrier returned (%v) before its first heartbeat", err)
+		case <-time.After(30 * time.Second):
+			t.Fatal("no heartbeat from the barrier")
 		}
-		if xmax == w.xid && len(xip) == 0 {
-			break // the E1 case: the running writer is xmax, the xip is empty
+		if first.Lo == w.xid && !slices.Contains(first.XIP, w.xid) {
+			break // the E1 case: the running writer is the barrier's xmax, not in its xip
 		}
+		cancel()
+		<-done
 		w.commit(t)
 		if attempt == 20 {
-			t.Fatalf("could not make the writer the newest xid (xmax %s, xip %v, writer %s): another transaction keeps running",
-				xmax, xip, w.xid)
+			t.Fatalf("could not make the writer the barrier's xmax (lo %s, xip %v, writer %s): another transaction keeps running",
+				first.Lo, first.XIP, w.xid)
 		}
 	}
+	defer cancel()
 	defer w.commit(t)
 
-	acts := &backfill.Activities{Pool: e.worker}
-	var s testsuite.WorkflowTestSuite
-	env := s.NewTestActivityEnvironment()
-	env.RegisterActivityWithOptions(acts.Barrier, activity.RegisterOptions{Name: backfill.BarrierActivity})
-	done := make(chan error, 1)
-	go func() {
-		_, err := env.ExecuteActivity(backfill.BarrierActivity)
-		done <- err
-	}()
 	select {
 	case err := <-done:
 		t.Fatalf("the barrier returned (%v) while the newest-xid writer was still running: it waited on the xip only", err)
@@ -792,5 +857,119 @@ func TestBarrierWaitsForTheNewestXID(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the barrier did not return after the writer committed")
+	}
+}
+
+// ADR-006-E1 E1-1 (TICK-980): the heartbeat keeps the bounds of the wait set,
+// not the expanded xid list. Thousands of xids are handed out between the
+// barrier's snapshot and its fence, two thousand of them (one transaction and
+// its subtransactions) still running: the barrier waits on them (the range is
+// checked in SQL), and every heartbeat it records stays a few hundred bytes.
+// Before E1-1 the details listed each running xid of the range, about 20 KB
+// here.
+func TestBarrierHeartbeatKeepsWaitSetBounds(t *testing.T) {
+	e := migrated(t)
+	ctx := context.Background()
+	const (
+		burned       = 5000 // committed xids handed out between the snapshot and the fence
+		heldSubxacts = 2000 // xids of one transaction still running at the fence
+	)
+	var (
+		held    pgx.Tx
+		heldXID string
+		hookErr error
+	)
+	consume := `DO $$ BEGIN FOR i IN 1..` + strconv.Itoa(burned/2) + ` LOOP PERFORM pg_current_xact_id(); COMMIT; END LOOP; END $$`
+	acts := &backfill.Activities{Pool: e.worker}
+	backfill.SetAfterSnapshot(acts, func(ctx context.Context) {
+		if _, hookErr = e.super.Exec(ctx, consume); hookErr != nil {
+			return
+		}
+		if held, hookErr = e.super.Begin(ctx); hookErr != nil {
+			return
+		}
+		if hookErr = held.QueryRow(ctx, "SELECT pg_current_xact_id()::text").Scan(&heldXID); hookErr != nil {
+			return
+		}
+		// Each exception block is a subtransaction whose insert takes an xid
+		// of its own: subxids in progress until held ends. An expanded list
+		// of the running xids in the range would hold them all.
+		if _, hookErr = held.Exec(ctx, `CREATE TEMP TABLE burn (i int) ON COMMIT DROP`); hookErr != nil {
+			return
+		}
+		if _, hookErr = held.Exec(ctx, `DO $$ BEGIN FOR i IN 1..`+strconv.Itoa(heldSubxacts)+` LOOP
+			BEGIN INSERT INTO burn VALUES (i); EXCEPTION WHEN division_by_zero THEN NULL; END;
+			END LOOP; END $$`); hookErr != nil {
+			return
+		}
+		_, hookErr = e.super.Exec(ctx, consume)
+	})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	env, hbs := barrierEnv(runCtx, t, acts)
+	done := make(chan error, 1)
+	go func() {
+		_, err := env.ExecuteActivity(backfill.BarrierActivity)
+		done <- err
+	}()
+	var first heartbeat
+	select {
+	case first = <-hbs:
+	case err := <-done:
+		t.Fatalf("the barrier returned (%v) before its first heartbeat; hook: %v", err, hookErr)
+	case <-time.After(60 * time.Second):
+		t.Fatal("no heartbeat from the barrier")
+	}
+	if hookErr != nil {
+		t.Fatal(hookErr)
+	}
+	defer func() { _ = held.Rollback(context.Background()) }()
+	width, err := strconv.Atoi(queryString(t, e.super, `SELECT ($2::bigint - $1::bigint)::text`, first.Lo, first.Hi))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width < burned {
+		t.Fatalf("heartbeat range [%s, %s) is %d xids wide, want at least %d", first.Lo, first.Hi, width, burned)
+	}
+	inRange := queryString(t, e.super, `SELECT ($1::bigint <= $2::bigint AND $2::bigint < $3::bigint)::text`, first.Lo, heldXID, first.Hi)
+	if inRange != "true" || slices.Contains(first.XIP, heldXID) {
+		t.Fatalf("held xid %s: in [%s, %s) %s, in xip %v; want it in the range only", heldXID, first.Lo, first.Hi, inRange, first.XIP)
+	}
+
+	const maxDetails = 512 // bytes: the xip, two xids, a timestamp and a flag
+	check := func(hb heartbeat) {
+		if len(hb.raw) > maxDetails {
+			t.Errorf("heartbeat details are %d bytes, want at most %d: %.200s", len(hb.raw), maxDetails, hb.raw)
+		}
+		if hb.Lo != first.Lo || hb.Hi != first.Hi {
+			t.Errorf("heartbeat bounds [%s, %s), want the snapshot's [%s, %s)", hb.Lo, hb.Hi, first.Lo, first.Hi)
+		}
+	}
+	check(first)
+	// The barrier keeps waiting on the held xid across polls (1 s, then 2 s).
+	// The SDK throttles repeat heartbeats, so a poll's heartbeat may not
+	// arrive here; any that does is checked.
+	deadline := time.After(3500 * time.Millisecond)
+wait:
+	for {
+		select {
+		case hb := <-hbs:
+			check(hb)
+		case err := <-done:
+			t.Fatalf("the barrier returned (%v) while xid %s in its range was running", err, heldXID)
+		case <-deadline:
+			break wait
+		}
+	}
+	if err := held.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("barrier: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the barrier did not return after the held xid committed")
 	}
 }

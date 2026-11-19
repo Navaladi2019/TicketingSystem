@@ -76,6 +76,10 @@ type Activities struct {
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
 	SlowAfter time.Duration
+
+	// afterSnapshot, when set, runs between the barrier's snapshot and its
+	// fence (test-only: it widens [lo, hi)).
+	afterSnapshot func(context.Context)
 }
 
 // Register adds the activities to r under their fixed names.
@@ -86,11 +90,19 @@ func (a *Activities) Register(r worker.ActivityRegistry) {
 	r.RegisterActivityWithOptions(a.Ready, activity.RegisterOptions{Name: ReadyActivity})
 }
 
-// barrierState is the barrier's heartbeat details: the snapshot's in-progress
-// transaction ids, taken once on the first attempt (D9), when that was, and
-// whether the slow alert has fired. Transaction ids are not tenant data.
+// barrierState is the barrier's heartbeat details: the bounds of the wait set
+// taken once on the first attempt (D9), when that was, and whether the slow
+// alert has fired. The wait set is XIP ∪ [Lo, Hi): the snapshot's xip, and
+// every xid from its xmax (Lo) up to the fence xid (Hi), exclusive. The range
+// is kept as its bounds, never expanded, so the details stay a fixed size
+// however many xids were handed out between the snapshot and the fence
+// (ADR-006-E1 E1-1). Lo and Hi are empty in details written before E1-1,
+// whose XIP already held the expanded range; an empty range waits on nothing.
+// Transaction ids are not tenant data.
 type barrierState struct {
 	XIP   []string  `json:"xip"`
+	Lo    string    `json:"lo,omitempty"`
+	Hi    string    `json:"hi,omitempty"`
 	Since time.Time `json:"since"`
 	Slow  bool      `json:"slow"`
 }
@@ -108,19 +120,22 @@ const (
 	// xmax is that xid, so it is not listed (found in TICK-745 testing: a
 	// snapshot 1869:1869: with 1869 in progress). fenceSQL assigns this
 	// transaction an xid M, after the snapshot, and the barrier also waits on
-	// every xid in [xmax, M) still in progress: the few xids handed out
-	// between the two statements, which include any such newest one.
+	// every xid in [xmax, M) still in progress: the xids handed out between
+	// the two statements, which include any such newest one.
 	snapshotSQL = `SELECT (SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(s.s) x), pg_snapshot_xmax(s.s)::text
 		FROM (SELECT pg_current_snapshot() AS s) s`
-	fenceSQL = `SELECT coalesce(array_agg(x::text), '{}') FROM generate_series($1::text::bigint, pg_current_xact_id()::text::bigint - 1) g(n)
-		CROSS JOIN LATERAL (SELECT n::text::xid8 AS x) v WHERE pg_xact_status(v.x) = 'in progress'`
-	// openSQL counts the ones still open. pg_xact_status needs no grant.
-	openSQL = `SELECT count(*) FROM unnest($1::text[]) x WHERE pg_xact_status(x::xid8) = 'in progress'`
+	fenceSQL = `SELECT pg_current_xact_id()::text`
+	// openSQL counts the xids of XIP ∪ [Lo, Hi) still in progress; the range
+	// is expanded here, per poll, never in Go. An empty Lo or Hi is an empty
+	// range. pg_xact_status needs no grant.
+	openSQL = `SELECT (SELECT count(*) FROM unnest($1::text[]) x WHERE pg_xact_status(x::xid8) = 'in progress')
+		+ (SELECT count(*) FROM generate_series(nullif($2, '')::bigint, nullif($3, '')::bigint - 1) g(n)
+			WHERE pg_xact_status(n::text::xid8) = 'in progress')`
 )
 
 // Barrier is the snapshot barrier (D9, R11). It takes pg_current_snapshot()
-// once and keeps its in-progress transaction ids in the heartbeat details,
-// then polls them with pg_xact_status, once per poll, 1 s apart backing off
+// and a fence xid once and keeps the bounds of the wait set in the heartbeat
+// details, then polls it with pg_xact_status, once per poll, 1 s apart backing off
 // to 10 s, until none is still open. Nothing sleeps in SQL, and no
 // connection is held between polls. Past SlowAfter it raises
 // field_index_barrier_slow once (metric and log, no tenant data) and keeps
@@ -135,11 +150,10 @@ const (
 func (a *Activities) Barrier(ctx context.Context) error {
 	var st barrierState
 	if !activity.HasHeartbeatDetails(ctx) || activity.GetHeartbeatDetails(ctx, &st) != nil || st.Since.IsZero() {
-		xip, err := takeSnapshot(ctx, a.Pool)
-		if err != nil {
+		var err error
+		if st, err = a.takeSnapshot(ctx); err != nil {
 			return fmt.Errorf("field index barrier: snapshot: %w", err)
 		}
-		st = barrierState{XIP: xip, Since: time.Now()}
 		activity.RecordHeartbeat(ctx, st)
 	}
 	c, isBackfill := childOf(ctx)
@@ -161,10 +175,8 @@ func (a *Activities) Barrier(ctx context.Context) error {
 			}
 		}
 		var open int64
-		if len(st.XIP) > 0 {
-			if err := a.Pool.QueryRow(ctx, openSQL, st.XIP).Scan(&open); err != nil {
-				return fmt.Errorf("field index barrier: status: %w", err)
-			}
+		if err := a.Pool.QueryRow(ctx, openSQL, st.XIP, st.Lo, st.Hi).Scan(&open); err != nil {
+			return fmt.Errorf("field index barrier: status: %w", err)
 		}
 		if open == 0 {
 			return nil
@@ -188,26 +200,27 @@ func (a *Activities) Barrier(ctx context.Context) error {
 	}
 }
 
-// takeSnapshot returns the ids of the transactions in progress now: the
-// snapshot's xip and the in-progress xids from its xmax up to a fence xid
-// this transaction takes after it (see snapshotSQL). The transaction is
-// rolled back; its only effect is the one xid it consumed.
-func takeSnapshot(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
-	tx, err := pool.Begin(ctx)
+// takeSnapshot returns the wait set of the transactions in progress now: the
+// snapshot's xip, its xmax as Lo, and as Hi a fence xid this transaction
+// takes after it (see snapshotSQL). The transaction is rolled back; its only
+// effect is the one xid it consumed.
+func (a *Activities) takeSnapshot(ctx context.Context) (barrierState, error) {
+	tx, err := a.Pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return barrierState{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	var xip []string
-	var xmax string
-	if err := tx.QueryRow(ctx, snapshotSQL).Scan(&xip, &xmax); err != nil {
-		return nil, err
+	st := barrierState{Since: time.Now()}
+	if err := tx.QueryRow(ctx, snapshotSQL).Scan(&st.XIP, &st.Lo); err != nil {
+		return barrierState{}, err
 	}
-	var late []string
-	if err := tx.QueryRow(ctx, fenceSQL, xmax).Scan(&late); err != nil {
-		return nil, err
+	if a.afterSnapshot != nil {
+		a.afterSnapshot(ctx)
 	}
-	return append(xip, late...), nil
+	if err := tx.QueryRow(ctx, fenceSQL).Scan(&st.Hi); err != nil {
+		return barrierState{}, err
+	}
+	return st, nil
 }
 
 // supersededSQL reads the child's registry row, if any.
