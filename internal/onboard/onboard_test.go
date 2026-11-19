@@ -722,10 +722,13 @@ func TestOnboardSeedFailureLeavesProvisioningAndRetryFinishes(t *testing.T) {
 }
 
 // The dev allowance (TICK-967): default off, exact hosts only.
+const standinPath = "/realms/standin-company/protocol/openid-connect/"
+
 func standinConfig(host string) map[string]string {
 	return map[string]string{
 		"clientId": "c", "clientSecret": "s",
-		"authorizationUrl": "http://" + host + "/auth", "tokenUrl": "http://" + host + "/token", "jwksUrl": "http://" + host + "/jwks",
+		"authorizationUrl": "http://" + host + standinPath + "auth", "tokenUrl": "http://" + host + standinPath + "token",
+		"jwksUrl": "http://" + host + standinPath + "jwks",
 	}
 }
 
@@ -764,5 +767,32 @@ func TestBuildSpecDevHosts(t *testing.T) {
 	spec, _ := buildSpec(ctx, res, hosts, in(standinConfig("keycloak:8080")))
 	if spec.Config["validateSignature"] != "true" || spec.Config["syncMode"] != "IMPORT" {
 		t.Errorf("spec not pinned: %v", spec.Config)
+	}
+}
+
+// The path prefix (TICK-986): the listed host is accepted only under the
+// stand-in realm.
+func TestBuildSpecDevHostsPathPrefix(t *testing.T) {
+	ctx := t.Context()
+	res := fakeResolver{"keycloak": {"10.1.2.3"}}
+	hosts := []string{"keycloak:8080"}
+	for _, key := range []string{"authorizationUrl", "tokenUrl", "jwksUrl"} {
+		for _, path := range []string{
+			"/realms/master/protocol/openid-connect/certs",
+			"/realms/standin-company",
+			"/realms/standin-company-evil/x",
+			"/realms/standin-company/../master/x",
+			"/realms/standin-company/%2e%2e/master/x",
+			"/realms/standin%2Dcompany/x",
+			"/admin/realms/standin-company/x",
+			"/",
+			"",
+		} {
+			cfg := standinConfig("keycloak:8080")
+			cfg[key] = "http://keycloak:8080" + path
+			if _, ptr := buildSpec(ctx, res, hosts, IdPRequest{ProviderID: "oidc", Config: cfg}); ptr == "" {
+				t.Errorf("%s path %q accepted", key, path)
+			}
+		}
 	}
 }
