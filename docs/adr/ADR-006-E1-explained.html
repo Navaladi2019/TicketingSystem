@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 erratum E1 explained: the backfill barrier must also wait for the newest running write</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-19</span> <span class="src">ADR-006-E1 · issue TICK-745 · amends ADR-006 D9 · source: PR #738 integration testing</span>
+
+<h1>The backfill "wait for everyone in flight" step could miss the newest write</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) When an admin marks a field filterable after data exists, a background job copies old records into a search table. Before it starts, it waits for every save that was already running when the switch was flipped.
+(2) The database list we used to find those running saves leaves out the newest one, so the job could start while that save was still running and miss its record.
+(3) The fix takes a second marker number right after the list, and also waits on any save numbered between the two. The code in PR #738 already does this; this erratum makes the design say the same thing.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>Every database change runs inside a <em>transaction</em>, a unit of work that is saved all at once or not at all. PostgreSQL numbers each writing transaction with a <em>transaction id</em> (xid), counting up. ADR-006 keeps a filterable field's values in a <em>side table</em>. A database <em>trigger</em> fills it on every save, and only once the field's switch is on.</p>
+<p>When the switch flips, a save that started a moment earlier may not have seen it, so it writes no side row. The <em>barrier</em> (ADR-006 D9) exists for exactly this: it takes a <em>snapshot</em>, the database's own list of "who is running right now", and waits until all of them finish. Only then does the backfill copy the old records.</p>
+<p>The snapshot has an upper mark called <code>xmax</code>, which means "one past the newest <em>finished</em> transaction". Its list of running transactions (<code>xip</code>) only covers numbers <em>below</em> that mark. If the newest-numbered transaction is still running, it sits exactly on the mark and is not on the list. The PostgreSQL manual says so: "there might be active IDs higher than xmax".</p>
+
+<figure><svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#59636e"/></marker></defs>
+<line x1="20" y1="60" x2="660" y2="60" stroke="#59636e" marker-end="url(#a)"/><text x="640" y="48" font-size="11" fill="#59636e">xid</text>
+<rect x="60" y="45" width="40" height="30" fill="#dafbe1" stroke="#1a7f37"/><text x="80" y="65" text-anchor="middle">729</text>
+<rect x="110" y="45" width="40" height="30" fill="#dafbe1" stroke="#1a7f37"/><text x="130" y="65" text-anchor="middle">730</text>
+<rect x="260" y="45" width="40" height="30" fill="#ffebe9" stroke="#cf222e"/><text x="280" y="65" text-anchor="middle">731</text>
+<rect x="420" y="45" width="40" height="30" fill="#ddf4ff" stroke="#0969da"/><text x="440" y="65" text-anchor="middle">732</text>
+<text x="105" y="100" text-anchor="middle" font-size="12">finished</text>
+<text x="280" y="100" text-anchor="middle" font-size="12">running save</text>
+<text x="440" y="100" text-anchor="middle" font-size="12">fence M</text>
+<line x1="258" y1="30" x2="258" y2="120" stroke="#9a6700" stroke-dasharray="4 3"/><text x="258" y="24" text-anchor="middle" fill="#9a6700">xmax = 731</text>
+<rect x="20" y="135" width="240" height="34" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="140" y="157" text-anchor="middle">old D9: list below xmax → empty</text>
+<rect x="258" y="135" width="200" height="34" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="358" y="157" text-anchor="middle">E1: also check [xmax, M)</text>
+<text x="340" y="200" text-anchor="middle" font-size="12" fill="#59636e">E1 waits on 731; the old rule waited on nothing</text>
+</svg><figcaption>The measured case from the spike: snapshot <code>731:731:</code> while 731 is still running.</figcaption></figure>
+
+<h2>2. How we know</h2>
+<table><thead><tr><th>Where</th><th>Snapshot (xmin:xmax:list)</th><th>Old rule waits on</th><th>New rule waits on</th></tr></thead><tbody>
+<tr><td>TICK-745 integration test (PR #738)</td><td><code>1869:1869:</code></td><td class="bad">nothing</td><td class="good">1869</td></tr>
+<tr><td>Architect spike, PostgreSQL 16.10</td><td><code>731:731:</code></td><td class="bad">nothing</td><td class="good">731</td></tr>
+</tbody></table>
+<p>The earlier design spikes passed because other saves kept finishing after the held one, which moved the mark past it. The "held save is the newest" case was never set up. An engineer found it while testing PR #738.</p>
+
+<h2>3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>Keep the list only (D9 as written)</td><td class="bad">Rejected: it misses the newest running save, as shown twice.</td></tr>
+<tr><td><strong>List + fence: take a marker number M right after the snapshot, and also wait on running numbers from <code>xmax</code> up to M</strong></td><td class="good">Chosen: exact, usually only a few numbers to check, no new permission.</td></tr>
+<tr><td>Check every number from the oldest running one up to M</td><td>Rejected: also correct, but slower when one long transaction is open; the list already covers that range.</td></tr>
+<tr><td>Read running transactions from the activity view (<code>pg_stat_activity</code>)</td><td>Rejected: needs a broader monitoring permission, and still needs the same marker.</td></tr>
+<tr><td>Make every save take a lock the switch waits for</td><td>Rejected: adds a cost to every save for a rare event; ADR-006 already chose the barrier instead.</td></tr>
+</tbody></table>
+
+<h2>4. The decision</h2>
+<dl>
+<dt>E1-1: wait set</dt><dd>In one transaction: snapshot first, then fence M. Wait on the snapshot's list plus every running number in <code>[xmax, M)</code>. Waiting on a save that started just after the snapshot is harmless; it only waits a little longer.</dd>
+<dt>E1-2: a rule that was implicit is now written down</dt><dd>Saves numbered after M began after the switch, and they see it because saves run at the database's default isolation level, READ COMMITTED: each statement looks at the latest committed data. If a save ran at a stricter level (REPEATABLE READ), it could keep an old view and slip past. The old design had the same hole. Rule: no code or operator setting may raise the isolation level for record saves.</dd>
+<dt>E1-3: a test that pins it</dt><dd>This test creates the "newest save still running" case on purpose. It checks that the barrier waits for it, and it fails when the fence is removed. The erratum is not accepted until that test is merged.</dd>
+<dt>E1-4: removal too</dt><dd>Removing a filterable field uses the same barrier, so it gets the fix for free.</dd>
+</dl>
+
+<h2>5. The fix and migration</h2>
+<p>No migration. PR #738 already ships the fenced barrier (<code>internal/fieldindex/backfill/activities.go</code>). Nothing has been released with the old rule: the backfill workflow is new in that PR. This erratum aligns the design text with the code.</p>
+
+<h2>6. What we are accepting</h2>
+<table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th></tr></thead><tbody>
+<tr><td>AR-TICK-745-01</td><td>Low</td><td>The guarantee assumes record saves run at READ COMMITTED. A future code path or a database setting at a stricter level could leave one record out of a filter, inside the same tenant only, until it is saved again. No other tenant is affected.</td></tr>
+</tbody></table>
+
+<h2>7. Evidence</h2>
+<ul>
+<li>Spike script and output: <code>docs/adr/ADR-006/spikes/solution-architect/e1-newest-xid/</code>.</li>
+<li>Original finding: TICK-745, PR #738, <code>docs/data/field-index-backfill.md</code> (Barrier row).</li>
+<li>The CI race test (CI-5 R1) passes with the fenced barrier and fails when the barrier is disabled. The direct newest-save test (E1-3) is pending.</li>
+<li>PostgreSQL 16 manual, Snapshot Information Functions: <code>xmax</code> is one past the highest completed transaction ID. Active IDs above it may exist.</li>
+</ul>
+</main></body></html>
