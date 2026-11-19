@@ -112,6 +112,21 @@ type Writer struct {
 	// connection while the write's transaction is open): NewWriter gives it
 	// a pool of its own (docs/budgets.md, "Worker pipeline pool").
 	Pipeline *pipeline.Pipeline
+	// FieldIndex is the uncoerced-value counter NewWriter registered on its
+	// meter provider, nil without one. The worker hands this same instance
+	// to the field-index backfill (TICK-974), which may not import the
+	// pipeline (D-3-6), so the process registers the counter once.
+	FieldIndex *pipeline.FieldIndexMetrics
+}
+
+// NewUncoercedCounter registers nava_field_index_uncoerced on mp
+// (pipeline.NewFieldIndexMetrics) for a worker that builds no Writer, so the
+// backfill still counts (TICK-974). A nil mp gives nil, which counts none.
+func NewUncoercedCounter(mp metric.MeterProvider) (*pipeline.FieldIndexMetrics, error) {
+	if mp == nil {
+		return nil, nil //nolint:nilnil // nil counts none, as documented
+	}
+	return pipeline.NewFieldIndexMetrics(mp)
 }
 
 // NewWriter is the worker's Writer: the records pipeline with the real
@@ -120,15 +135,12 @@ type Writer struct {
 // mp, when not nil, gets the pipeline's count of flagged values a workflow
 // write stores that do not coerce (ADR-006 R5).
 func NewWriter(pool, pipePool *pgxpool.Pool, mp metric.MeterProvider) (Writer, error) {
-	runner := pipeline.PoolRunner{Pool: pipePool}
-	if mp != nil {
-		m, err := pipeline.NewFieldIndexMetrics(mp)
-		if err != nil {
-			return Writer{}, err
-		}
-		runner.FieldIndex = m
+	m, err := NewUncoercedCounter(mp)
+	if err != nil {
+		return Writer{}, err
 	}
-	return Writer{Pool: pool, Pipeline: pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{},
+	runner := pipeline.PoolRunner{Pool: pipePool, FieldIndex: m}
+	return Writer{Pool: pool, FieldIndex: m, Pipeline: pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{},
 		eventsink.Sink{}, runner, pipeline.SystemClock{})}, nil
 }
 

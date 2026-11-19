@@ -67,11 +67,16 @@ type Classified struct {
 }
 
 // Activities are the coordinator's and FieldIndexBackfill's activities on a
-// nava_worker pool. Register them with Register. Metrics and Log may be nil.
+// nava_worker pool. Register them with Register. Metrics, Uncoerced and Log
+// may be nil.
 type Activities struct {
 	Pool    *pgxpool.Pool
 	Metrics *Metrics
-	Log     *slog.Logger
+	// Uncoerced counts the values a batch skips because they do not coerce,
+	// on the counter the records trigger's count goes to
+	// (nava_field_index_uncoerced_total{entity_definition}, ADR-006 R5).
+	Uncoerced UncoercedCounter
+	Log       *slog.Logger
 	// BatchSize is the records one batch copies; 0 is DefaultBatchSize.
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
@@ -80,6 +85,17 @@ type Activities struct {
 	// afterSnapshot, when set, runs between the barrier's snapshot and its
 	// fence (test-only: it widens [lo, hi)).
 	afterSnapshot func(context.Context)
+}
+
+// UncoercedCounter is where a batch reports the values it skipped because
+// they do not coerce: nava_field_index_uncoerced_total{entity_definition}.
+// The worker passes the records pipeline's *pipeline.FieldIndexMetrics,
+// the instance the trigger's count goes to, through
+// internal/workflow/recordports: this package may not import the pipeline
+// (D-3-6, TestRecordWritersOnlyInPipeline). AddUncoerced is called only
+// after the batch's transaction has committed, with n > 0.
+type UncoercedCounter interface {
+	AddUncoerced(ctx context.Context, entityDefinition uuid.UUID, n int64)
 }
 
 // Register adds the activities to r under their fixed names.
@@ -293,17 +309,24 @@ func childOf(ctx context.Context) (child, error) {
 
 // Batch copies the next batch of the child's field (D10.2): one
 // InTenantTx, see batch.go. The field and the pinned version come from the
-// workflow id; the argument is only the cursor.
+// workflow id; the argument is only the cursor. Once the batch has
+// committed, the values it skipped because they do not coerce are added to
+// Uncoerced; the count never goes into the result (CI-5c). A retry of a
+// batch that committed but whose result was lost recopies the same records
+// and counts them again: the counter is an alerting rate, at least once.
 func (a *Activities) Batch(ctx context.Context, in Cursor) (Cursor, error) {
 	c, err := childOf(ctx)
 	if err != nil {
 		return Cursor{}, err
 	}
-	next, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize())
+	res, err := copyBatch(ctx, a.Pool, c, in.Cursor, a.batchSize())
 	if err != nil {
 		return Cursor{}, fmt.Errorf("field index batch: %w", err)
 	}
-	return Cursor{Cursor: next}, nil
+	if a.Uncoerced != nil && res.uncoerced > 0 {
+		a.Uncoerced.AddUncoerced(ctx, res.entityDefinition, res.uncoerced)
+	}
+	return Cursor{Cursor: res.next}, nil
 }
 
 // Ready flips the child's registry row to ready with progress 100 (D10.6),

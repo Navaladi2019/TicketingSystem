@@ -233,13 +233,21 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		closeAll()
 		return nil, nil, nil, err
 	}
+	// The backfill's uncoerced values go to the counter the records
+	// trigger's do (nava_field_index_uncoerced_total, ADR-006 R5, TICK-974):
+	// the interpreter writer's instance, registered once.
+	um, err := uncoercedCounter(acts, tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
 
 	// The sealer is registered unless WorkflowsEnv is off (a stack-only
 	// activity worker), so the worker polls workflow tasks on nava-tq.
 	w := worker.New(c, taskQueue, workerOptions(g, workflows, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
 	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log}, workflows)
-	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Log: log}, workflows)
+	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Uncoerced: um, Log: log}, workflows)
 	registerInterpreter(w, acts)
 	return w, mon, closeAll, nil
 }

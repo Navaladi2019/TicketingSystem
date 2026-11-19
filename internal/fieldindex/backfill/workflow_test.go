@@ -1,6 +1,7 @@
 package backfill
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	tlog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
@@ -48,6 +50,8 @@ type stubs struct {
 	backfill     *Backfill
 	// failing names the activity (Barrier, Ready, Classify) that fails.
 	failing string
+	// log, when set, receives the workflows' log lines.
+	log *slog.Logger
 }
 
 func (s *stubs) fail(name string) error {
@@ -60,6 +64,9 @@ func (s *stubs) fail(name string) error {
 func newEnv(t *testing.T, s *stubs, workflowID string) *testsuite.TestWorkflowEnvironment {
 	t.Helper()
 	var suite testsuite.WorkflowTestSuite
+	if s.log != nil {
+		suite.SetLogger(tlog.NewStructuredLogger(s.log))
+	}
 	env := suite.NewTestWorkflowEnvironment()
 	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: workflowID})
 	env.SetTestTimeout(time.Minute)
@@ -186,6 +193,38 @@ func TestCoordinatorContinuesPastAFailedChild(t *testing.T) {
 	}
 	if len(s.children) != 2 {
 		t.Fatalf("children %v, want both", s.children)
+	}
+}
+
+// A failed child's Warn line carries alert=true and the field id (TICK-974,
+// from the PR #738 reviews); a successful child logs no such line.
+func TestCoordinatorAlertsOnAFailedChild(t *testing.T) {
+	a, b := uuid.New(), uuid.New()
+	var buf bytes.Buffer
+	s := &stubs{classify: map[uuid.UUID]Classified{a: {Backfill: &a}, b: {Backfill: &b}}, failOn: map[uuid.UUID]bool{a: true},
+		log: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))}
+	env := newEnv(t, s, coordinatorID())
+	enqueue(env, a, 1, uuid.Must(uuid.NewV7()).String(), 0)
+	enqueue(env, b, 1, uuid.Must(uuid.NewV7()).String(), 0)
+	env.ExecuteWorkflow(fieldindex.CoordinatorWorkflowType, start())
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var failed []map[string]any
+	for line := range bytes.Lines(buf.Bytes()) {
+		var m map[string]any
+		if err := json.Unmarshal(line, &m); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if m["msg"] == "field index child failed; the field stays as it is" {
+			failed = append(failed, m)
+		}
+	}
+	if len(failed) != 1 {
+		t.Fatalf("%d child-failed lines, want 1 (only field a failed): %s", len(failed), buf.String())
+	}
+	if failed[0]["level"] != "WARN" || failed[0]["alert"] != true || failed[0]["field_id"] != a.String() {
+		t.Errorf("child-failed line %v, want level WARN, alert true, field_id %s", failed[0], a)
 	}
 }
 
