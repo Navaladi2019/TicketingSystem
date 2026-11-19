@@ -1211,12 +1211,15 @@ bru.setVar('s10_alice_groups', JSON.stringify(N.json().groups));"""),
             req("S10.9 Bob's principal id", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
                 tests=f"N.me('{B}');\nbru.setVar('s10_bob', N.json().user_id);"),
             req("S10.10 The admin reads the incident access policy: 200 with its ETag", "GET", et, auth="admin_a_token",
-                desc="The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
+                desc="The newest published version, `{version, rules, masks, published_by, published_at}`, where `rules` is always the format-2 document `{format: 2, policies, conditions}` (ADR-010 D12), with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
                 tests="""N.status(200);
 const b = N.json();
-test('version, rules, masks, published_at', () => {
+test('version, rules (format 2), masks, published_at', () => {
   expect(b.version).to.be.a('number');
-  expect(b.rules).to.be.an('array');
+  expect(b.rules).to.be.an('object');
+  expect(b.rules.format).to.eql(2);
+  expect(b.rules.policies).to.be.an('array');
+  expect(b.rules.conditions).to.be.an('array');
   expect(b.masks).to.be.an('array');
   expect(b.published_at).to.be.a('string');
 });
@@ -1417,7 +1420,7 @@ test('the admin sees description', () => expect(N.json().data.description).to.eq
 test('state in_progress', () => expect(N.json().state).to.eql('in_progress'));"""),
         req("S10.38 A3: the requester raises its own incident: 201, requester is the caller", "POST", inc, auth="req_a_token",
             headers=key("req"), body={"data": {"short_description": "S10 {{s10_run}} raised by the requester"}},
-            desc="`default-requester-new` lets a requester create an incident while it is `new`; the pipeline sets `requester` to the caller (A4).",
+            desc="`default_requester_new` lets a requester create an incident while it is `new`; the pipeline sets `requester` to the caller (A4).",
             tests=created("s10_req_rec") + """
 test('requester is the caller, state new', () => {
   expect(N.json().data.requester).to.eql(bru.getVar('s10_requester'));
@@ -1441,7 +1444,7 @@ test("the /service-desk items are exactly Alice's total", () => {
 test('more than Alice sees', () => expect(N.json().total).to.be.above(Number(bru.getVar('s10_alice_sd_total'))));"""),
         req("S10.41 C1: Alice's whole list: only her groups' incidents and her own, total matches", "GET", inc + "?limit=200",
             auth="alice_token",
-            desc="Every item is assigned to one of Alice's groups (`default-service-desk`) or names Alice as requester (S9 and S10.17 raise incidents for her). The admins, unassigned and requester incidents are not there.",
+            desc="Every item is assigned to one of Alice's groups (`default_service_desk`) or names Alice as requester (S9 and S10.17 raise incidents for her). The admins, unassigned and requester incidents are not there.",
             tests="N.status(200);\n" + ids + has("s10_sd_rec") + hasnt("s10_adm_rec") + hasnt("s10_un_rec") + hasnt("s10_req_rec")
             + hasnt("s10_req2_rec") + exact_total + """
 test('every item: one of her groups, or she is the requester', () => {
@@ -1461,11 +1464,11 @@ test('its in_progress incident is listed (read in every state)', () => {
 });"""),
         req("S10.43 A3: the requester edits its own new incident: 200", "PATCH", inc + "/{{s10_req_rec}}", auth="req_a_token",
             headers={**key("req-edit"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 2}},
-            desc="`default-requester-new`: read and write while `state` is `new`.",
+            desc="`default_requester_new`: read and write while `state` is `new`.",
             tests="N.status(200);\ntest('version 2', () => expect(N.json().version).to.eql(2));"),
         req("S10.44 A3: the requester edits its in_progress incident: 403, it can still read it", "PATCH", inc + "/{{s10_req2_rec}}",
             auth="req_a_token", headers={**key("req2-edit"), **mp, "If-Match": 'W/"2"'}, body={"data": {"priority": 2}},
-            desc="Past `new` only `default-requester` (read) admits it: the record is readable, so the answer is 403, not 404. Nothing is written.",
+            desc="Past `new` only `default_requester` (read) admits it: the record is readable, so the answer is 403, not 404. Nothing is written.",
             tests="N.problem('forbidden', 403);"),
         # ---- criterion 3: the same 404
         req("S10.45 C3: Alice opens an id that does not exist: 404", "GET", missing, auth="alice_token",
@@ -1508,27 +1511,27 @@ N.noLeak('s10-internal-' + bru.getVar('s10_run'));"""),
             tests="N.problem('field_not_writable', 422);\nN.fieldError('/data/description');"),
         req("S10.59 C4: Alice writes an unmasked field of the same incident: 200", "PATCH", inc + "/{{s10_sd_rec}}",
             auth="alice_token", headers={**key("alice-prio"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 1}},
-            desc="`default-service-desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.",
+            desc="`default_service_desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.",
             tests="N.status(200);\ntest('version 2, no description', () => {\n  expect(N.json().version).to.eql(2);\n  expect(N.json().data).to.not.have.property('description');\n});"),
         req("S10.60 C4: the admin filters on description: 200, the one incident, description unchanged", "GET",
             inc + "?filter[description]=s10-internal-{{s10_run}}", auth="admin_a_token",
             tests="N.status(200);\n" + ids + """test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
 test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));"""),
         # ---- criterion 5: the explainer
-        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, masked fields listed", "GET",
+        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default_service_desk, masked fields listed", "GET",
             ex("s10_sd_rec", "s10_alice"), auth="admin_a_token",
-            tests=explain("allow", "default-service-desk") + "\ntest('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));"),
+            tests=explain("allow", "default_service_desk") + "\ntest('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));"),
         req("S10.62 C5: explain (Alice, admins incident): deny, no granting rule", "GET", ex("s10_adm_rec", "s10_alice"),
             auth="admin_a_token", desc="Rules are allow-only, so a deny names no rule: `rule_id` is null (api/paths/access.yaml).",
             tests=explain("deny", None)),
         req("S10.63 C5: explain (Alice, unassigned incident): deny", "GET", ex("s10_un_rec", "s10_alice"), auth="admin_a_token",
             tests=explain("deny", None)),
-        req("S10.64 C5: explain (admin, unassigned incident): allow by default-admins (A3 triage)", "GET",
+        req("S10.64 C5: explain (admin, unassigned incident): allow by default_admins (A3 triage)", "GET",
             ex("s10_un_rec", "s10_admin"), auth="admin_a_token",
-            tests=explain("allow", "default-admins") + "\ntest('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));"),
-        req("S10.65 C5: explain (requester, its in_progress incident): allow by default-requester", "GET",
+            tests=explain("allow", "default_admins") + "\ntest('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));"),
+        req("S10.65 C5: explain (requester, its in_progress incident): allow by default_requester", "GET",
             ex("s10_req2_rec", "s10_requester"), auth="admin_a_token",
-            tests=explain("allow", "default-requester")),
+            tests=explain("allow", "default_requester")),
         # ---- cleanup
         req("S10.66 The admin removes the masks again: 200, the rules unchanged", "PUT", et, auth="admin_a_token",
             headers=key("unmask"), body={"rules": []}, pre=unmask_pre,

@@ -1,5 +1,5 @@
 meta {
-  name: S10.65 C5: explain (requester, its in_progress incident): allow by default-requester
+  name: S10.65 C5: explain (requester, its in_progress incident): allow by default_requester
   type: http
   seq: 65
 }
@@ -19,6 +19,6 @@ tests {
   N.status(200);
   const b = N.json();
   test('decision allow', () => expect(b.decision).to.eql('allow'));
-  test('rule_id default-requester', () => expect(b.rule_id).to.eql('default-requester'));
+  test('rule_id default_requester', () => expect(b.rule_id).to.eql('default_requester'));
   test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Number(bru.getVar('s10_mask_version'))));
 }
