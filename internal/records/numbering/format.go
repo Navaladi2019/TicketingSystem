@@ -3,7 +3,8 @@ package numbering
 import (
 	"bytes"
 	_ "embed" // format.schema.json is the shape contract
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,6 +36,15 @@ type Format struct {
 // CompileFormat. A document the schema refuses is a *FormatError with
 // CodeInvalid naming the failing JSON pointer.
 func ParseFormat(b []byte) (Compiled, error) {
+	// The document is stored as sent, so it is read under the strict JSON
+	// policy (TICK-964): a duplicate member name or invalid UTF-8 is refused,
+	// never resolved one way here and another way by PostgreSQL.
+	if !jsontext.Value(b).IsValid() {
+		if _, err := jsonschema.UnmarshalJSON(bytes.NewReader(b)); err == nil {
+			return Compiled{}, invalid("/", -1, "the document has a duplicate member name or invalid UTF-8")
+		}
+		return Compiled{}, invalid("/", -1, "the document is not JSON")
+	}
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(b))
 	if err != nil {
 		return Compiled{}, invalid("/", -1, "the document is not JSON")

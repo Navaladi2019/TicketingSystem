@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/records/visa",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "65",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-d690e1dc-visa1",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"data\": {\n    \"short_description\": \"S18 d690e1dc visa1\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-15T05:15:36.749177Z",
+      "data": {
+        "short_description": "S18 d690e1dc visa1",
+        "state": "new"
+      },
+      "id": "01a1dda1-e3ac-7743-9089-fc93a48c5f62",
+      "number": "VISA-2026110002",
+      "schema_version": 2,
+      "state": "new",
+      "updated_at": "2026-11-15T05:15:36.749177Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "number VISA-<yyyymm in Pacific/Kiritimati>0001: VISA-2026110002",
+      "status": "fail",
+      "error": "expected [ Array(2) ] to include 'VISA-2026110002'"
+    },
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    }
+  ]
+}

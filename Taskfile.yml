@@ -115,6 +115,11 @@ tasks:
     cmds:
       - python -I docs/handbook/build/test_build.py
 
+  test:handbook-coverage:
+    desc: Run only the handbook page-coverage gate (the TestHandbook* tests in api/), the same as make test-handbook-coverage and the lint job's step (TICK-960)
+    cmds:
+      - go test -count=1 -run '^TestHandbook' ./api/
+
   handbook:check:
     desc: Fail when the committed handbook HTML is stale (rebuilt in memory, footer stamp ignored), the stamped sha is not an ancestor of HEAD, or mermaid.min.js differs from docs/pins.md
     cmds:

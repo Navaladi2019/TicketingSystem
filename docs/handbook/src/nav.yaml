@@ -219,6 +219,9 @@
             label: "E2: grow is refused when a digit touches {seq:N}"
       - page: adr/adr-006.md
         label: "ADR-006 Filterable tenant fields"
+        children:
+          - page: adr/adr-006-e1.md
+            label: "E1: the D9 barrier also waits on running xids at or above xmax (proposed)"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
         children:
@@ -230,6 +233,9 @@
         label: "ADR-009 Records catch up when a default is added"
       - page: adr/adr-010.md
         label: "ADR-010 Composable access rules"
+        children:
+          - page: adr/adr-010-a1.md
+            label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
     - page: stories/index.md
       label: "Stories"
       children:
@@ -267,6 +273,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/s18.md
+            label: "Number formats on ticket types"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
           - page: stories/s25.md

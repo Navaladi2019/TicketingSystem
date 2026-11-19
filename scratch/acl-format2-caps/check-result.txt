@@ -1,0 +1,106 @@
+postgres:16.10; host: MINGW64_NT-10.0-26300 3.3.6-bec3d608-341.x86_64 x86_64; docker: 16 vCPUs, 26260877312 bytes; other running containers: 19
+ setseed 
+---------
+ 
+(1 row)
+
+== documents: size and problem code (NULL = valid)
+     variant      | docs | avg_text_bytes | avg_stored_bytes |    problem     
+------------------+------+----------------+------------------+----------------
+ caps_k1          |   50 |          86261 |            29415 | valid
+ caps_k10         |   50 |         244661 |           160348 | valid
+ caps_k55_1mib    |   20 |        1036661 |          1062264 | valid
+ caps_refs_k10    |   50 |          11823 |             2409 | valid
+ caps_unused_1mib |   20 |        1002529 |           416070 | valid
+ doubling_refused |   50 |           4192 |              941 | depth_exceeded
+(6 rows)
+
+  variant  | docs | avg_text_bytes | valid 
+-----------+------+----------------+-------
+ f1_6rules |   50 |           4500 | t
+(1 row)
+
+== CHECK predicate alone (acl2_rules_valid), ms per document, 3 passes
+     variant      |  n  |   p50   |   p95   |   max   
+------------------+-----+---------+---------+---------
+ f1_6rules        | 150 |   0.504 |   0.835 |  10.066
+ doubling_refused | 150 |   2.942 |   7.973 |  14.771
+ caps_refs_k10    | 150 |   4.385 |   8.403 |  14.707
+ caps_k1          | 150 |  26.888 |  46.712 |  62.245
+ caps_k10         | 150 |  45.369 | 114.335 | 148.093
+ caps_k55_1mib    |  60 |  65.797 | 131.382 | 171.550
+ caps_unused_1mib |  60 | 249.158 | 517.442 | 778.379
+(7 rows)
+
+== distinct ids per document (what the trigger looks up)
+     variant      | groups | users | org_units 
+------------------+--------+-------+-----------
+ caps_k1          |     47 |   285 |         0
+ caps_k10         |     50 |  2220 |         0
+ caps_k55_1mib    |     50 |  4804 |         0
+ caps_refs_k10    |      9 |    20 |         0
+ caps_unused_1mib |     50 |  3428 |         0
+ f1_6rules        |     11 |    60 |         0
+(6 rows)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+ time_inserts 
+--------------
+ 
+(1 row)
+
+== single-row insert, ms (3 passes over the pool)
+     variant      |      setup      |  n  |   p50   |   p95    |    max    
+------------------+-----------------+-----+---------+----------+-----------
+ caps_k1          | 1 none          | 150 |   0.293 |    1.086 |     9.609
+ caps_k1          | 2 check         | 150 |  28.460 |   72.819 |   111.425
+ caps_k1          | 3 check+trigger | 150 |  42.964 |  164.608 |  1690.353
+ caps_k10         | 1 none          | 150 |   1.776 |    8.732 |   114.536
+ caps_k10         | 2 check         | 150 |  36.590 |   72.762 |    95.254
+ caps_k10         | 3 check+trigger | 150 |  68.206 |  310.345 |  3962.223
+ caps_k55_1mib    | 1 none          |  60 |  92.482 |  172.640 |   186.032
+ caps_k55_1mib    | 2 check         |  60 | 150.501 |  223.297 |   273.240
+ caps_k55_1mib    | 3 check+trigger |  60 | 426.499 | 2334.782 | 47783.787
+ caps_refs_k10    | 1 none          | 150 |   0.054 |    0.328 |     0.662
+ caps_refs_k10    | 2 check         | 150 |   6.910 |   14.509 |    20.942
+ caps_refs_k10    | 3 check+trigger | 150 |   9.228 |   17.397 |    28.520
+ caps_unused_1mib | 1 none          |  60 |   4.334 |    9.203 |   128.697
+ caps_unused_1mib | 2 check         |  60 | 301.318 |  573.801 |  1349.660
+ caps_unused_1mib | 3 check+trigger |  60 | 589.127 | 1160.811 |  3480.709
+ f1_6rules        | 1 none          | 150 |   0.067 |    0.236 |     0.440
+ f1_6rules        | 2 check         | 150 |   0.569 |    1.378 |     3.732
+ f1_6rules        | 3 check+trigger | 150 |   2.399 |    9.387 |   177.472
+(18 rows)
+
+== refusals at insert: SQLSTATE, constraint or detail
+psql:/bench/check_bench.sql:222: NOTICE:  doubling chain: SQLSTATE 23514 constraint acl_versions_rules_check code depth_exceeded
+psql:/bench/check_bench.sql:222: NOTICE:  foreign tenant ids: SQLSTATE 23514 detail foreign_id
+== cap boundaries: at the cap is valid, one over is refused with its code
+                    c                    |           code           
+-----------------------------------------+--------------------------
+ depth 8                                 | 
+ depth 9                                 | depth_exceeded
+ depth 9 through a ref                   | depth_exceeded
+ 17 children                             | child_count
+ 257 leaves through refs                 | policy_leaves_exceeded
+ 65 policies                             | policies_exceeded
+ 1,025 leaves (caps doc, last policy 13) | document_leaves_exceeded
+ self ref                                | ref_cycle
+ a-b-a cycle                             | ref_cycle
+ missing ref                             | unresolved_ref
+ fn node                                 | unknown_key
+ two keys                                | unknown_key
+ duplicate policy                        | duplicate_name
+ bad name                                | invalid_name
+ self on state                           | unknown_key
+(15 rows)
+

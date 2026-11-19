@@ -67,6 +67,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -255,6 +256,12 @@ func (NoopSink) RecordChanged(context.Context, pgx.Tx, Event) error { return nil
 type DefinitionReader interface {
 	Version(ctx context.Context, tx pgx.Tx, entityKey string, version int) (*metadata.Compiled, error)
 	Current(ctx context.Context, tx pgx.Tx, entityKey string) (*metadata.Compiled, int, error)
+	// NumberFormat is the compiled number format snapshotted on version of
+	// the entity type (ADR-005 §3.1, entity_definition_versions.
+	// number_compiled), numbering.Default() when the version links none. A
+	// create reads it for the version Current returned, never from
+	// number_formats, so formats add nothing to the create path.
+	NumberFormat(ctx context.Context, tx pgx.Tx, entityKey string, version int) (numbering.Compiled, error)
 }
 
 // TxRunner runs fn in a tenant transaction of its own, while the caller's
@@ -365,6 +372,71 @@ func (e *ErrUniqueViolation) Error() string {
 	return fmt.Sprintf("pipeline: value of unique property %q is taken", e.Field)
 }
 
+// ErrNumberSpaceExhausted is a create of a type whose number format refuses
+// overflow, when the counter of the create's scope has outgrown the format's
+// width (ADR-005 §3.5). The HTTP layer maps it to 409
+// number_space_exhausted, naming the type and the scope. Nothing is written
+// in the create's transaction, and Write writes nothing to audit_log for
+// it. errors.Is matches numbering.ErrNumberSpaceExhausted.
+//
+// Entry is the refusal's R2b audit entry (ADR-004-E9). The caller appends it
+// with audit.Append in a transaction of its own on its own (API) pool, after
+// the create's transaction has ended and its connection is released, never
+// on the TxRunner or the allocator pool (E9 placement, spike S1). The entry
+// is never queued with another refusal's.
+type ErrNumberSpaceExhausted struct {
+	// EntityKey is the type; ScopeKey the counter's scope (e<epoch>|d:...).
+	EntityKey, ScopeKey string
+	// Width is the format's {seq:N} width; Epoch the format's epoch
+	// (ADR-005 §3.3).
+	Width, Epoch int
+	// Counter is the value that did not fit: a `gaps` allocation's number,
+	// already committed, or the value a `gapless` rollback gives back.
+	Counter int64
+	// Entry is the R2b entry: domain record, subject the entity type, no
+	// versions, the refused command's actor, source and causation, and a
+	// diff of one add of /number_space. It carries no record data.
+	Entry audit.Entry
+}
+
+func (e *ErrNumberSpaceExhausted) Error() string {
+	return fmt.Sprintf("pipeline: entity type %q has no number left in scope %q (width %d)", e.EntityKey, e.ScopeKey, e.Width)
+}
+
+// Unwrap returns numbering.ErrNumberSpaceExhausted.
+func (e *ErrNumberSpaceExhausted) Unwrap() error { return numbering.ErrNumberSpaceExhausted }
+
+// ErrNumberTaken means the records unique index on (tenant_id,
+// entity_definition_id, number) refused a create's number. Epochs are
+// disjoint and counters only move forward (ADR-005 §3.3), so this is a
+// defect, never a caller error: the HTTP layer logs it with the type, epoch
+// and scope and answers 500, and nothing retries it.
+type ErrNumberTaken struct {
+	EntityKey, ScopeKey, Number string
+	Epoch                       int
+	// Err is the PostgreSQL error.
+	Err error
+}
+
+func (e *ErrNumberTaken) Error() string {
+	return fmt.Sprintf("pipeline: number %q of entity type %q (epoch %d, scope %q) is already on a record", e.Number, e.EntityKey, e.Epoch, e.ScopeKey)
+}
+
+func (e *ErrNumberTaken) Unwrap() error { return e.Err }
+
+// recordsNumberKey is the records unique constraint on the number.
+const recordsNumberKey = "records_number_key"
+
+// numberTaken returns *ErrNumberTaken when err is a violation of
+// recordsNumberKey, else nil.
+func numberTaken(err error, entityKey string, format numbering.Compiled, scopeKey, number string) error {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == recordsNumberKey {
+		return &ErrNumberTaken{EntityKey: entityKey, ScopeKey: scopeKey, Number: number, Epoch: format.Epoch, Err: err}
+	}
+	return nil
+}
+
 // ErrValidation is a payload that fails the entity type's schema. Fields are
 // sorted by path, then code.
 type ErrValidation struct {
@@ -443,6 +515,10 @@ func (p *Pipeline) Runner() TxRunner { return p.runner }
 // tenant: a write beyond the limit changes nothing in tx and writes one
 // cascade_too_deep entry on the TxRunner, committed before Write returns.
 // If that entry cannot be written, the error also wraps the cause.
+//
+// A create refused with *ErrNumberSpaceExhausted writes no audit entry: the
+// error carries it, and the caller appends it once tx has ended
+// (ADR-004-E9).
 func (p *Pipeline) Write(ctx context.Context, tx pgx.Tx, cmd Command) (Result, error) {
 	res, err := p.perform(ctx, tx, cmd)
 	if retryable(err) {
@@ -505,6 +581,11 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 	}
 	w := write{p: p, tx: tx, tenant: tenant, cmd: cmd, defID: defID, def: def, defVersion: defVersion,
 		sinkQuiet: cmd.Op == OpCreate && pre.createQuiet}
+	if cmd.Op == OpCreate {
+		if w.format, err = p.defs.NumberFormat(ctx, tx, cmd.EntityKey, defVersion); err != nil {
+			return Result{}, fmt.Errorf("pipeline: read number format: %w", err)
+		}
+	}
 	res, err := w.do(ctx)
 	if err != nil {
 		return Result{}, &ErrAtVersion{SchemaVersion: defVersion, FixedColumns: def.FixedColumns(), StateProperty: def.StateProperty(), Err: err}
@@ -615,6 +696,10 @@ type write struct {
 	defID      uuid.UUID
 	def        *metadata.Compiled
 	defVersion int
+	// format is a create's number format: the snapshot on defVersion.
+	format numbering.Compiled
+	// scopeKey is a `gaps` create's counter scope, once allocated.
+	scopeKey string
 	// sinkQuiet: a create the EventSink said, in the prefetch, it has
 	// nothing to do for (CreateTriggerQueuer). RecordChanged is not called.
 	sinkQuiet bool
@@ -686,15 +771,21 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	// (ADR-005 L1, writeCreate). The mode is the one the definition had
 	// when this create read it (§2.1.1).
 	if w.def.NumberingMode() != metadata.NumberingGapless {
-		alloc, err := w.allocate(ctx)
+		alloc, datePart, err := w.allocate(ctx)
 		if err != nil {
 			return Result{}, err
 		}
-		if rec.Number, err = w.format().Render(w.def.NumberPrefix(), alloc.Number); err != nil {
+		w.scopeKey = alloc.ScopeKey
+		if !w.format.Fits(alloc.Number) {
+			return Result{}, w.exhausted(ctx, alloc.ScopeKey, alloc.Number)
+		}
+		// The date parts are the ones PostgreSQL put in the scope key.
+		if rec.Number, err = w.format.RenderParts(w.def.NumberPrefix(), datePart, alloc.Number); err != nil {
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
-		// The record is created at the allocation's instant (A7), so a date
-		// in a number will always match created_at.
+		// The record is created at the allocation's instant (A7), the one
+		// the date parts were read at, so a date in a number always matches
+		// created_at, midnight included.
 		rec.CreatedAt, rec.UpdatedAt = alloc.Instant, alloc.Instant
 	}
 	if w.atCommit() {

@@ -20,6 +20,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/auth"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -29,6 +30,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline/eventsink"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenantsettings"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflowdefs"
 )
 
@@ -53,6 +55,9 @@ func strictBodyRefusals(reg *problem.Registry) map[string]apihttp.BodyRefusal {
 	recordInvalid := func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
 		reg.Write(w, r, problem.RecordInvalid, fe)
 	}
+	numberFormatInvalid := func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+		reg.Write(w, r, problem.NumberFormatInvalid, fe)
+	}
 	return map[string]apihttp.BodyRefusal{
 		"POST " + baseURL + "/api/v1/operator/tenants": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
 			reg.Write(w, r, problem.InvalidIdPConfig, fe)
@@ -64,6 +69,12 @@ func strictBodyRefusals(reg *problem.Registry) map[string]apihttp.BodyRefusal {
 		},
 		"POST " + baseURL + "/api/v1/workflow-definitions/{key}/versions": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
 			reg.Write(w, r, problem.WorkflowDefinitionInvalid, fe)
+		},
+		"POST " + baseURL + "/api/v1/number-formats":                       numberFormatInvalid,
+		"PUT " + baseURL + "/api/v1/number-formats/{id}":                   numberFormatInvalid,
+		"POST " + baseURL + "/api/v1/number-formats/{id}/republish-linked": numberFormatInvalid,
+		"PUT " + baseURL + "/api/v1/tenant/settings/time-zone": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.InvalidTimeZone, fe)
 		},
 		createRecordPattern: recordInvalid,
 		"PATCH " + baseURL + "/api/v1/records/{entity}/{id}": recordInvalid,
@@ -108,7 +119,10 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	if h.nfGate == nil {
+		h.nfGate = numberformats.NewGate(nil, nil)
+	}
 	if opts.pool != nil {
 		// The S10 composition (PLAN-003): the record ACL reads and writes,
 		// no events yet. S11b swaps the sink.
@@ -124,6 +138,12 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 			"nava.records.history.too_long",
 			metric.WithDescription("Record history requests refused because the record has more audit entries than the cap."),
 			metric.WithUnit("{request}")); err != nil {
+			return nil, err
+		}
+		if h.numberSpaceExhausted, err = tel.MeterProvider.Meter("github.com/Navaladi2019/TicketingSystem/internal/server").Int64Counter(
+			"records.number_space_exhausted",
+			metric.WithDescription("Record creates refused with number_space_exhausted (ADR-005 §3.5); each writes one audit entry (ADR-004-E9)."),
+			metric.WithUnit("{refusal}")); err != nil {
 			return nil, err
 		}
 		h.acl = authz.ACL{Policies: authz.PolicyStore{}}
@@ -234,7 +254,14 @@ type handlers struct {
 	// production build (see listPlan.dataTerm).
 	listDataTerm func(arg string) string
 	store        entitytypes.Store
-	workflows    workflowdefs.Store
+	nfStore      numberformats.Store
+	tsStore      tenantsettings.Store
+	// nfGate refuses a non-default number format until M3 has run.
+	nfGate *numberformats.Gate
+	// typePublishCheck is the right to publish one entity type's definition;
+	// nil is tenant admin.
+	typePublishCheck TypePublishCheck
+	workflows        workflowdefs.Store
 	// pipe serves the record endpoints; nil answers 501 not_implemented.
 	pipe *pipeline.Pipeline
 	// acl decides record reads (and, inside pipe, writes) and gives the
@@ -250,6 +277,10 @@ type handlers struct {
 	// historyTooLong counts the histories refused for their length; nil
 	// counts nothing.
 	historyTooLong metric.Int64Counter
+	// numberSpaceExhausted counts the creates refused with
+	// number_space_exhausted (records_number_space_exhausted_total, no tenant
+	// or definition label); nil counts nothing.
+	numberSpaceExhausted metric.Int64Counter
 }
 
 // errNoPrincipal means a handler ran outside the authentication middleware:
@@ -334,6 +365,24 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.MaskedField:
 					h.reg.Write(w, r, problem.MaskedField, pe.fields...)
+					return
+				case problem.InvalidTimeZone:
+					h.reg.Write(w, r, problem.InvalidTimeZone, pe.fields...)
+					return
+				case problem.NumberFormatInvalid:
+					h.reg.Write(w, r, problem.NumberFormatInvalid, pe.fields...)
+					return
+				case problem.NumberFormatPrefixRequired:
+					h.reg.Write(w, r, problem.NumberFormatPrefixRequired, pe.fields...)
+					return
+				case problem.NumberFormatOverlap:
+					h.reg.Write(w, r, problem.NumberFormatOverlap, pe.fields...)
+					return
+				case problem.NumberFormatNotFound:
+					h.reg.Write(w, r, problem.NumberFormatNotFound, pe.fields...)
+					return
+				case problem.NumberSpaceExhausted:
+					h.reg.Write(w, r, problem.NumberSpaceExhausted, pe.fields...)
 					return
 				case problem.InvalidAccessPolicy:
 					h.reg.Write(w, r, problem.InvalidAccessPolicy, pe.fields...)

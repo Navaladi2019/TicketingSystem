@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/visa/01a1ef63-a8d4-7441-bb9d-4226bd16a985",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "created_at": "2026-11-18T16:00:48.353181Z",
+      "data": {
+        "short_description": "S18 05f4e98b visa1",
+        "state": "new"
+      },
+      "id": "01a1ef63-a8d4-7441-bb9d-4226bd16a985",
+      "number": "VISA-2026110001",
+      "schema_version": 2,
+      "state": "new",
+      "updated_at": "2026-11-18T16:00:48.353181Z",
+      "version": 1
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "number still VISA-2026110001",
+      "status": "pass"
+    }
+  ]
+}
