@@ -389,6 +389,12 @@ type explanation struct {
 	RuleID       *string  `json:"rule_id"`
 	ACLVersion   int      `json:"acl_version"`
 	MaskedFields []string `json:"masked_fields"`
+	Policy       *string  `json:"policy"`
+	Trace        []struct {
+		Policy, Condition string
+		Value             bool
+	} `json:"trace"`
+	Invalid []struct{ Policy, Code, Pointer string } `json:"invalid"`
 }
 
 func decodeExplanation(t *testing.T, rec *httptest.ResponseRecorder) explanation {
@@ -425,6 +431,9 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r-desk" || x.ACLVersion != 2 {
 		t.Errorf("allow = %+v, want allow by r-desk at version 2", x)
 	}
+	if x := decodeExplanation(t, got); x.Policy == nil || *x.Policy == "" || x.Trace == nil || x.Invalid == nil || len(x.Invalid) != 0 {
+		t.Errorf("allow = %+v, want a policy name, a trace list and an empty invalid list", x)
+	}
 	// The user is hidden note (not in the admins group) and code (not in the
 	// lookalike group); the admin cannot read code itself, so only note shows.
 	if x := decodeExplanation(t, got); len(x.MaskedFields) != 1 || x.MaskedFields[0] != "note" {
@@ -441,6 +450,9 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	deny := e.explain(t, "admin-a", "job", rec.ID, e.a.lookalike.PrincipalID.String())
 	if x := decodeExplanation(t, deny); deny.Code != http.StatusOK || x.Decision != "deny" || x.RuleID != nil || x.ACLVersion != 2 {
 		t.Errorf("deny = %d %+v, want deny with a null rule at version 2", deny.Code, x)
+	}
+	if x := decodeExplanation(t, deny); x.Policy != nil || x.Invalid == nil {
+		t.Errorf("deny = %+v, want no policy and an empty invalid list", x)
 	}
 	if !strings.Contains(deny.Body.String(), `"rule_id":null`) {
 		t.Errorf("deny body = %s, want rule_id null", deny.Body)

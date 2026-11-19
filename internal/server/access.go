@@ -326,6 +326,25 @@ func (h *handlers) ExplainAccess(ctx context.Context, req api.ExplainAccessReque
 	if ex.Allow {
 		out.Decision = "allow"
 		out.RuleId = &ex.RuleID
+		out.Policy = &ex.Policy
 	}
+	trace := make([]struct {
+		Condition string `json:"condition"`
+		Policy    string `json:"policy"`
+		Value     bool   `json:"value"`
+	}, len(ex.Trace))
+	for i, t := range ex.Trace {
+		trace[i].Condition, trace[i].Policy, trace[i].Value = t.Condition, t.Policy, t.Value
+	}
+	out.Trace = &trace
+	invalid := make([]struct {
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+		Policy  string `json:"policy"`
+	}, len(ex.Invalid))
+	for i, v := range ex.Invalid {
+		invalid[i].Code, invalid[i].Pointer, invalid[i].Policy = v.Code, v.Pointer, v.Policy
+	}
+	out.Invalid = &invalid
 	return api.ExplainAccess200JSONResponse(out), nil
 }

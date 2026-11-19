@@ -418,7 +418,7 @@ func TestAllowsPolicyAndTrace(t *testing.T) {
 		{"name":"second","ops":["read"],"when":{"any":[{"ref":"open_mine"},{"shared":true}]}},
 		{"name":"third","ops":["read"],"when":{"ref":"mine"}}]}`)
 	policy, trace, ok := Allows(pol, ptMe(), OpRead, ptRows()["requested by me"])
-	want := []TraceStep{{"open_mine", true}, {"mine", true}, {"open", true}}
+	want := []TraceStep{{"second", "open_mine", true}, {"second", "mine", true}, {"second", "open", true}}
 	if !ok || policy != "second" || !slices.Equal(trace, want) {
 		t.Fatalf("Allows = %q %v %v, want second %v", policy, trace, ok, want)
 	}
@@ -564,5 +564,41 @@ func TestReadPredicateCountsVoidedOnce(t *testing.T) {
 				t.Errorf("%s: branches %q %v where %q, want ReadBranches' %q %v", c.name, branches, args, where, br, brArgs)
 			}
 		}
+	}
+}
+
+// The explainer reads the policy name and the trace from the planner: an allow
+// traces the granting policy, a deny traces every valid read policy, and a
+// voided read policy is listed as invalid and grants nothing (TICK-941).
+func TestExplainPolicyTraceAndInvalid(t *testing.T) {
+	t.Parallel()
+	pol := ptDoc(t, `{"format":2,"conditions":[`+ptCond("mine", isRequester())+`,`+ptCond("open", stateOpen())+`],"policies":[
+		{"name":"broken","ops":["read"],"when":{"ref":"nope"}},
+		{"name":"write_only","ops":["write"],"when":{"ref":"nope"}},
+		{"name":"first","ops":["read"],"when":{"all":[{"ref":"mine"},{"ref":"open"}]}}]}`)
+	ex := Explain(pol, ptMe(), ptMe(), ptRows()["requested by me"])
+	wantInvalid := []InvalidPolicy{{Policy: "broken", Code: RuleUnresolvedRef, Pointer: "/policies/0"}}
+	if !ex.Allow || ex.Policy != "first" || ex.RuleID != "first" || !slices.Equal(ex.Invalid, wantInvalid) {
+		t.Fatalf("allow: %+v", ex)
+	}
+	if len(ex.Trace) != 2 || ex.Trace[0] != (TraceStep{"first", "mine", true}) {
+		t.Fatalf("allow trace = %v", ex.Trace)
+	}
+	ex = Explain(pol, ptMe(), ptMe(), ptRows()["closed, all NULL"])
+	if ex.Allow || ex.Policy != "" || len(ex.Trace) != 2 || ex.Trace[0].Value || !slices.Equal(ex.Invalid, wantInvalid) {
+		t.Fatalf("deny: %+v", ex)
+	}
+	if ex = Explain(nil, ptMe(), ptMe(), Row{}); ex.Invalid == nil || len(ex.Trace) != 0 {
+		t.Fatalf("nil policy: %+v", ex)
+	}
+}
+
+// A converted format-1 policy shows its legacy id beside the policy name.
+func TestExplainShowsLegacyIDBesideName(t *testing.T) {
+	t.Parallel()
+	legacy := &Policy{Document: ConvertFormat1([]Rule{{ID: "Agents-1", Ops: []string{OpRead}, Who: Subject{Requester: true}}})}
+	ex := Explain(legacy, ptMe(), ptMe(), ptRows()["requested by me"])
+	if ex.Policy == "" || ex.RuleID != "Agents-1" {
+		t.Fatalf("Explain = %+v, want a policy name and RuleID Agents-1", ex)
 	}
 }

@@ -791,7 +791,7 @@ paths:
       operationId: explainAccess
       summary: Why a user can or cannot read a record (tenant admin)
       description: >
-        Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`.
+        Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`. `policy` names the first policy, in declared order, that grants read (absent for a deny); `rule_id` is its format-1 id when it was converted from one. `trace` lists the named conditions reached and their values: the granting policy's on an allow, every valid read policy's on a deny. `invalid` lists read policies the planner voided (they grant nothing) with their problem code.
 
       parameters:
         - name: entity
@@ -1412,6 +1412,32 @@ components:
           type: array
           items:
             type: string
+        policy:
+          type: string
+        trace:
+          type: array
+          items:
+            type: object
+            required: [policy, condition, value]
+            properties:
+              policy:
+                type: string
+              condition:
+                type: string
+              value:
+                type: boolean
+        invalid:
+          type: array
+          items:
+            type: object
+            required: [policy, code, pointer]
+            properties:
+              policy:
+                type: string
+              code:
+                type: string
+              pointer:
+                type: string
     ChainReseed:
       type: object
       required: [reseed_id, seal_outbox_id]
