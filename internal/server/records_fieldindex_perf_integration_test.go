@@ -962,6 +962,15 @@ func (e *fiEnv) underLoad(t *testing.T, b *fiBackfill, clients int, creates []pe
 	return out
 }
 
+// fiBatchCap reads a backfill batch cap. Unlike perfEnvInt it keeps 0, which
+// runs the backfill to the end and diffs its side rows.
+func fiBatchCap(name string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(name)); err == nil && v >= 0 {
+		return v
+	}
+	return def
+}
+
 // backfillPhase: priority (text, 5 values) is flagged late through the real
 // publish. FieldIndexBackfill then runs four times, each from no side rows:
 // as merged, alone and under the live mix; then with the fix candidate,
@@ -1014,8 +1023,8 @@ func (e *fiEnv) backfillPhase(t *testing.T, clients int) {
 	}
 	live := time.Duration(perfEnvInt("NAVA_PERF_LIVE_SECONDS", 180)) * time.Second
 	liveMax := time.Duration(perfEnvInt("NAVA_PERF_LIVE_MAX", 1200)) * time.Second
-	asis := perfEnvInt("NAVA_PERF_ASIS_BATCHES", 40)
-	fix := perfEnvInt("NAVA_PERF_FIX_BATCHES", 60)
+	asis := fiBatchCap("NAVA_PERF_ASIS_BATCHES", 40)
+	fix := fiBatchCap("NAVA_PERF_FIX_BATCHES", 60)
 
 	b := e.startTemporal(t)
 	e.w("")
