@@ -19,7 +19,7 @@ tests {
   N.status(200);
   const b = N.json();
   test('decision allow', () => expect(b.decision).to.eql('allow'));
-  test('rule_id default-admins', () => expect(b.rule_id).to.eql('default-admins'));
+  test('rule_id default_admins', () => expect(b.rule_id).to.eql('default_admins'));
   test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Number(bru.getVar('s10_mask_version'))));
   test('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));
 }

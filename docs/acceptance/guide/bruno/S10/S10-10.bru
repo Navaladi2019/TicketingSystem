@@ -18,9 +18,12 @@ tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);
   const b = N.json();
-  test('version, rules, masks, published_at', () => {
+  test('version, rules (format 2), masks, published_at', () => {
     expect(b.version).to.be.a('number');
-    expect(b.rules).to.be.an('array');
+    expect(b.rules).to.be.an('object');
+    expect(b.rules.format).to.eql(2);
+    expect(b.rules.policies).to.be.an('array');
+    expect(b.rules.conditions).to.be.an('array');
     expect(b.masks).to.be.an('array');
     expect(b.published_at).to.be.a('string');
   });
@@ -29,5 +32,5 @@ tests {
 }
 
 docs {
-  The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/"<version>"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.
+  The newest published version, `{version, rules, masks, published_by, published_at}`, where `rules` is always the format-2 document `{format: 2, policies, conditions}` (ADR-010 D12), with `ETag: W/"<version>"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.
 }
