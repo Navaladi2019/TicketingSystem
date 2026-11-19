@@ -250,13 +250,17 @@ func i5rSeed(ctx context.Context, e *etIso, recs []i5rRecord) error {
 // returns the policy as the route reads it.
 func (run *i5rRun) publish(ctx context.Context, c i5rCase) (*authz.Policy, error) {
 	var pol *authz.Policy
-	err := tenancy.InTenantTx(ctx, run.e.pool, uuid.MustParse(TenantA), func(tx pgx.Tx) error {
-		if _, err := acltest.PublishPolicy(ctx, tx, i5rKey, c.Rules, c.Masks); err != nil {
+	// The generator names a group the tenant does not have (i5_gen_test.go):
+	// a legacy row, past the tenant-id trigger (TICK-940).
+	err := legacyACLInsert(ctx, run.e.super, func() error {
+		return tenancy.InTenantTx(ctx, run.e.pool, uuid.MustParse(TenantA), func(tx pgx.Tx) error {
+			if _, err := acltest.PublishPolicy(ctx, tx, i5rKey, c.Rules, c.Masks); err != nil {
+				return err
+			}
+			var err error
+			pol, err = authz.PolicyStore{}.Current(ctx, tx, i5rKey)
 			return err
-		}
-		var err error
-		pol, err = authz.PolicyStore{}.Current(ctx, tx, i5rKey)
-		return err
+		})
 	})
 	return pol, err
 }

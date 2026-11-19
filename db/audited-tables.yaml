@@ -62,8 +62,9 @@ audited:
   # incident ACL (onboarding, nava-onboard reconcile-default-acl) are the
   # writers, and each writes its entry in the same transaction
   # (authz.PolicyStore.Publish).
+  # ADR-010-A1 A1-3 (TICK-940): nava_app alone; nava_worker reads only.
   acl_versions:
-    writer_roles: [nava_app, nava_worker]
+    writer_roles: [nava_app]
     audited_columns: []
     subject_type: acl_policy
     subject_id_column: entity_definition_id
