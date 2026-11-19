@@ -17,10 +17,17 @@ func aclPaths() []Path {
 			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantB, EntityDefinitionB1),
 		// The composite foreign key holds the tenant: tenant A cannot publish an
-		// ACL for tenant B's type, though the policy passes the row.
-		sql("acl_versions: publish an ACL in tenant A for tenant B's type", "nava_worker", Denied,
+		// ACL for tenant B's type, though the policy passes the row. As
+		// nava_app, the one role that publishes (ADR-010-A1 A1-3, TICK-940).
+		sql("acl_versions: publish an ACL in tenant A for tenant B's type", "nava_app", Denied,
 			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantA, EntityDefinitionB1),
+		// ADR-010-A1 A1-3 (TICK-940): the worker publishes nothing, even in its
+		// own tenant for its own type. Denied also accepts class 23; the
+		// database test TestTICK940WorkerCannotPublish pins 42501.
+		sql("acl_versions: nava_worker publishes an ACL in its own tenant", "nava_worker", Denied,
+			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
+			TenantA, definitionA1),
 		sql("acl_versions: rewrite tenant B's ACL", "nava_app", Denied,
 			"UPDATE acl_versions SET rules = '[]' WHERE tenant_id = $1", TenantB),
 		sql("acl_versions: delete tenant B's ACL", "nava_worker", Denied,
