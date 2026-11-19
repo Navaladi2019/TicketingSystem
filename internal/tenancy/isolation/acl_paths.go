@@ -1,5 +1,29 @@
 package isolation
 
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// legacyACLInsert runs fn with acl_versions' tenant-id trigger (TICK-940)
+// disabled, as the superuser, and always enables it again. It stores the
+// rows the trigger now refuses but a database can still hold: rows published
+// before 20261119100000, and ids whose group or user was tombstoned after
+// the publish. The read path must grant nothing on them, and these paths
+// prove it. The suite runs its paths one at a time.
+func legacyACLInsert(ctx context.Context, super *pgx.Conn, fn func() error) (err error) {
+	if _, err := super.Exec(ctx, "ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_tenant_ids"); err != nil {
+		return err
+	}
+	defer func() {
+		if _, e := super.Exec(context.WithoutCancel(ctx), "ALTER TABLE acl_versions ENABLE TRIGGER acl_versions_tenant_ids"); e != nil && err == nil {
+			err = e
+		}
+	}()
+	return fn()
+}
+
 // aclPaths are the S10 authorization tables (P3-30, TICK-615): acl_versions
 // and record_shares are per tenant, insert-only, and their composite foreign
 // keys hold the tenant. The generic CI-2 checks cover them as every role; these
