@@ -232,6 +232,8 @@
         children:
           - page: adr/adr-010-a1.md
             label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
+          - page: adr/adr-010-e1.md
+            label: "E1: CI-6 SQL text equal up to two named rewrites"
     - page: stories/index.md
       label: "Stories"
       children:

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 erratum E1 explained: the old-rules SQL test allows two named rewrites</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">ACCEPTED · 2026-11-19</span> <span class="src">ADR-010-E1 · issue TICK-993 · amends ADR-010 test list and RFC-022 CI-6 · source: PR #765 (TICK-938)</span>
+
+<h1>Converted access rules give the same answers, but two pieces of their SQL are written differently</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) ADR-010 promised that old-format access rules, converted to the new format, would produce exactly the same database query text as before, so a test could catch any accidental change.
+(2) In 8 of 48 test cases the new query is written differently in two harmless ways. It means the same thing, and in one case it lets the database pick a better index.
+(3) We change the test to allow exactly those two rewrites and nothing else, and we record that one of them can change the database's plan, measured as the same speed or faster.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>An <em>access rule</em> decides which tickets a user can see. ADR-010 introduced a new rule format. Tenants' existing rules (<em>format 1</em>) are converted to it in memory when they are read. For ticket lists, the rules become a SQL filter split into <em>branches</em>, one per alternative ("I raised it", "it is assigned to me", "it is shared with my group"), so the database can use a separate <em>index</em> (a lookup structure, like a book index) for each.</p>
+<p>The safety test <em>CI-6</em> compared the converted rules' branches with the old ones: same number of branches, same SQL text, same <em>bind arguments</em> (the values sent alongside the query, such as the user's id). In PR #765 the branch count matched in all 48 cases. The text and arguments differed in 8.</p>
+
+<figure><svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="10" width="680" height="105" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="24" y="32" font-weight="700">Rewrite (a): a constant "true" is dropped</text>
+<rect x="24" y="45" width="300" height="34" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="174" y="67" text-anchor="middle" font-family="monospace">(true AND state = 'open')</text>
+<text x="350" y="67" text-anchor="middle" font-size="20">→</text>
+<rect x="376" y="45" width="300" height="34" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="526" y="67" text-anchor="middle" font-family="monospace">(state = 'open')</text>
+<text x="350" y="104" text-anchor="middle" font-size="12" fill="#59636e">The database removes "true AND" itself before planning. Same plan in 8 of 8 measurements.</text>
+<rect x="10" y="130" width="680" height="110" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
+<text x="24" y="152" font-weight="700">Rewrite (b): "the caller" becomes a single value instead of a one-item list</text>
+<rect x="24" y="165" width="300" height="44" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="174" y="183" text-anchor="middle" font-family="monospace">assignee_id = ANY($9::uuid[])</text><text x="174" y="200" text-anchor="middle" font-size="11">argument: list ["c1…"]</text>
+<text x="350" y="190" text-anchor="middle" font-size="20">→</text>
+<rect x="376" y="165" width="300" height="44" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="526" y="183" text-anchor="middle" font-family="monospace">assignee_id = $9::uuid</text><text x="526" y="200" text-anchor="middle" font-size="11">argument: single id "c1…"</text>
+<text x="350" y="230" text-anchor="middle" font-size="12" fill="#59636e">Same rows. It can change which index the database uses: measured the same or faster.</text>
+</svg><figcaption>The only two differences in the 8 cases. Every other case is byte-identical. (The <code>state = 'open'</code> condition is illustrative.)</figcaption></figure>
+
+<h2>2. Why rewrite (b) can change the plan, and why that is fine</h2>
+<p>The database's <em>planner</em> estimates how many rows each condition keeps, then picks the cheapest index. In the affected branch, the rule says "assigned to me" twice: once as the subject, and once in an extra condition. In the old form, one was a list test (<code>= ANY</code>) and the other a plain equality, so the planner did not see that they were the same test. It counted it twice, guessed about 1 row, used the assignee index, and then threw away 1,280 rows. In the new form both are plain equalities. The planner recognises them as one test, guesses correctly, and uses the requester index instead (40 rows thrown away).</p>
+<table><thead><tr><th>Data shape (800,000 tickets)</th><th>Old SQL</th><th>New SQL</th></tr></thead><tbody>
+<tr><td>Evenly spread</td><td>1.5–12.9 ms</td><td class="good">0.32–0.97 ms (one 4.5 ms outlier)</td></tr>
+<tr><td>Skewed (one requester owns 100,040 tickets)</td><td>under 2 ms</td><td class="good">under 2 ms, same within noise (worst case 0.26 → 0.59 ms)</td></tr>
+<tr><td>Control: 248 queries whose text did not change</td><td colspan="2">0 plan differences</td></tr>
+</tbody></table>
+<p>The test host was busy with another benchmark, so only the old-versus-new difference is meaningful, not the absolute times. No tenant on the running stacks has a rule that uses "the caller" in an extra condition, so no live tenant's query plan changes today.</p>
+
+<h2>3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>A: allow exactly the two named rewrites in the test</strong></td><td class="good">Chosen: no code change, the test stays exact everywhere else, and it still catches regressions in every fixture.</td></tr>
+<tr><td>B: change the code so the text is identical</td><td class="bad">Rejected: it rewrites every converted rule, and breaks a planner rule ("constants only at the top") that both the database filter and the Go check rely on, only to keep text the database ignores or plans worse.</td></tr>
+<tr><td>Skip the 8 cases in the test</td><td class="bad">Rejected: the skipped fixture is the only one that exercises every kind of subject together, so a permanent skip would hide future bugs.</td></tr>
+<tr><td>Allow "any text that means the same"</td><td class="bad">Rejected: not testable. A reviewer could not tell an allowed change from a bug.</td></tr>
+</tbody></table>
+
+<h2>4. The decision</h2>
+<blockquote>Converted old-format rules produce the same number of branches, and the same SQL text and bind arguments, up to two rewrites: (a) a constant <code>true</code> is removed; (b) a "the caller" condition renders as <code>= $n::uuid</code> with a single-id argument, where the old code used <code>= ANY($n::uuid[])</code> with a one-item list. Rewrite (b) can change the index chosen within a branch; it was measured as neutral or faster. The test normalizes (a) and (b), and never skips a case.</blockquote>
+<dl>
+<dt>E1-1: rewrite (a) is allowed</dt><dd>The database drops it before planning. Same plan in every measurement.</dd>
+<dt>E1-2: rewrite (b) is allowed, and the plan change is admitted</dt><dd>Same rows. It may pick a different index; measured the same or faster on two data shapes.</dd>
+<dt>E1-3: the test enforces it</dt><dd>Before PR #765 merges, the "pending" skip is replaced by a comparison that rewrites the old expected text in exactly these two ways, and only for the caller's own id. Turning a real multi-value list into a single value would still fail the test.</dd>
+<dt>E1-4: no code change</dt><dd>The planner and converter stay as they are in PR #765.</dd>
+</dl>
+
+<h2>5. The fix and migration</h2>
+<p>No migration and no data change. Only the test's rule changes, inside PR #765 (TICK-938). Stored access rules are untouched.</p>
+
+<h2>6. What we are accepting</h2>
+<table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th></tr></thead><tbody>
+<tr><td>AR-TICK-993-01</td><td>Low</td><td>Rewrite (b) was measured on two data shapes. A tenant with an unusual data spread and a rule that uses "the caller" beside the same subject could see a slower list. Who can see what does not change; only speed could. Revisit if such a rule is published and its list slows down against the 800k benchmark (CI-7).</td></tr>
+</tbody></table>
+
+<h2>7. Evidence</h2>
+<ul>
+<li>Technical Architect critique and spike, archived in <code>docs/adr/ADR-010/E1/technical-architect-spike/</code>: PostgreSQL 16.10, schema and roles copied from the running stack, row-level security on, 800,000 tickets, custom and generic plans.</li>
+<li>Golden diff: <code>TestReadBranchesFormat1Golden</code> on PR #765 against main's golden file: 48 of 48 branch counts equal, 40 of 48 texts identical, and the 8 others differ only by (a) and (b).</li>
+<li>PR #765 random-rule tests: the branches together give exactly the Go check's answer, and no row matches two branches.</li>
+</ul>
+</main></body></html>
