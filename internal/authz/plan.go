@@ -63,6 +63,7 @@ func (e *PlanError) Error() string {
 // TraceStep is one named condition reached by the granting policy, and its
 // value on the row (ADR-010 D10; the explainer's Trace, TICK-941 P11-09).
 type TraceStep struct {
+	Policy    string
 	Condition string
 	Value     bool
 }
@@ -497,7 +498,7 @@ func (pp plannedPolicy) trace(r Row) []TraceStep {
 	}
 	out := make([]TraceStep, len(pp.named))
 	for i, n := range pp.named {
-		out[i] = TraceStep{Condition: n.name, Value: n.tree.eval(r)}
+		out[i] = TraceStep{Policy: pp.name, Condition: n.name, Value: n.tree.eval(r)}
 	}
 	return out
 }

@@ -309,10 +309,21 @@ func (e ExportAuditEntriesParamsFormat) Valid() bool {
 
 // AccessExplanation defines model for AccessExplanation.
 type AccessExplanation struct {
-	AclVersion   int                       `json:"acl_version"`
-	Decision     AccessExplanationDecision `json:"decision"`
-	MaskedFields []string                  `json:"masked_fields"`
-	RuleId       *string                   `json:"rule_id"`
+	AclVersion int                       `json:"acl_version"`
+	Decision   AccessExplanationDecision `json:"decision"`
+	Invalid    *[]struct {
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+		Policy  string `json:"policy"`
+	} `json:"invalid,omitempty"`
+	MaskedFields []string `json:"masked_fields"`
+	Policy       *string  `json:"policy,omitempty"`
+	RuleId       *string  `json:"rule_id"`
+	Trace        *[]struct {
+		Condition string `json:"condition"`
+		Policy    string `json:"policy"`
+		Value     bool   `json:"value"`
+	} `json:"trace,omitempty"`
 }
 
 // AccessExplanationDecision defines model for AccessExplanation.Decision.

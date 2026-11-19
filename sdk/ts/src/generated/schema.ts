@@ -295,7 +295,7 @@ export interface paths {
         };
         /**
          * Why a user can or cannot read a record (tenant admin)
-         * @description Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`.
+         * @description Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`. `policy` names the first policy, in declared order, that grants read (absent for a deny); `rule_id` is its format-1 id when it was converted from one. `trace` lists the named conditions reached and their values: the granting policy's on an allow, every valid read policy's on a deny. `invalid` lists read policies the planner voided (they grant nothing) with their problem code.
          */
         get: operations["explainAccess"];
         put?: never;
@@ -472,6 +472,17 @@ export interface components {
             rule_id: string | null;
             acl_version: number;
             masked_fields: string[];
+            policy?: string;
+            trace?: {
+                policy: string;
+                condition: string;
+                value: boolean;
+            }[];
+            invalid?: {
+                policy: string;
+                code: string;
+                pointer: string;
+            }[];
         };
         ChainReseed: {
             /**
