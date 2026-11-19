@@ -252,7 +252,9 @@ func FuzzParse(f *testing.F) {
 				}
 			}
 		}
-		_ = AssignStepIDs(d, nil)
+		if _, err := AssignStepIDs(d, nil); err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 

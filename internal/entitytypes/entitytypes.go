@@ -209,7 +209,14 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 		return nil, err
 	}
 	sum := sha256.Sum256(d.Schema)
-	defID, verID := uuid.New(), uuid.New()
+	defID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: definition id: %w", err)
+	}
+	verID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: version id: %w", err)
+	}
 	// A race with a concurrent create surfaces as a unique violation.
 	if _, err := tx.Exec(ctx, `
 INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, numbering_mode, current_version)
@@ -365,11 +372,15 @@ SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE defin
 		return nil, fmt.Errorf("entitytypes: next version: %w", err)
 	}
 	sum := sha256.Sum256(d.Schema)
+	verID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("entitytypes: version id: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO entity_definition_versions
   (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10)`,
-		tenantID, uuid.New(), defID, number, string(d.Schema), sum[:], string(fixed), string(states), class.String(), in.PublishedBy); err != nil {
+		tenantID, verID, defID, number, string(d.Schema), sum[:], string(fixed), string(states), class.String(), in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
