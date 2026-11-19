@@ -92,13 +92,10 @@ func TestS30VoidedPolicyGrantsNothingAnywhere(t *testing.T) {
 	where := strings.Repeat(`{"column": "state", "op": "in", "values": ["new"]}, `, authz.MaxChildren)
 	put := e.access(t, http.MethodPut, accessPath, "admin-a", "s30-void-put", `W/"1"`,
 		`{"rules": [{"id": "broken", "ops": ["read"], "who": {"users": [`+uuidList(e.a.user.PrincipalID)+`]}, "where": [`+strings.TrimSuffix(where, ", ")+`]}]}`)
-	// Finding F3 (docs/security/s30-composable-access-rules.md): Prepare does
-	// not apply the child cap to a converted format-1 rule, so this is a 500
-	// from the Decode in publishRaw, not a 422. It fails closed (nothing is
-	// written), which is what this test guards; tighten to 422 child_count at
-	// /rules/0 with F3's fix.
-	if put.Code < 400 {
-		t.Fatalf("the route accepted a voidable rule: %d %s", put.Code, put.Body)
+	// Finding F3, fixed by TICK-996: Prepare applies the format-2 grammar to
+	// the converted rule, so the child cap is a 422 at the rule, not a 500.
+	if ps := pointerRules(t, put); put.Code != http.StatusUnprocessableEntity || !containsStr(ps, "/rules/0 child_count") {
+		t.Fatalf("the route answered %d %s, want 422 child_count at /rules/0", put.Code, put.Body)
 	}
 	if v, n := e.s30Counts(t); v != v0 || n != n0 {
 		t.Fatalf("a refused body wrote: versions %d -> %d, entries %d -> %d", v0, v, n0, n)

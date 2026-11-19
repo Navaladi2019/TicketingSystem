@@ -229,6 +229,17 @@ func TestPrepareFormat1RuleWithNoSubjectIsChildCount(t *testing.T) {
 	}
 }
 
+// TICK-996 (F3): a format-1 rule whose converted tree breaks the child cap is
+// refused by Prepare, so Decode in publishRaw never meets it.
+func TestPrepareFormat1OverTheChildCapIsChildCount(t *testing.T) {
+	t.Parallel()
+	where := strings.TrimSuffix(strings.Repeat(`{"column":"state","op":"in","values":["new"]},`, authz.MaxChildren), ",")
+	_, ps := authz.Prepare([]byte(`{"rules":[{"id":"a","ops":["read"],"who":{"requester":true}},{"id":"b","ops":["read"],"who":{"requester":true},"where":[`+where+`]}]}`), authz.DefaultMaxDocumentBytes)
+	if got := pointersOf(ps); !slices.Equal(got, []string{"/rules/1 child_count"}) {
+		t.Errorf("problems = %q", got)
+	}
+}
+
 func TestPrepareFormat1KeepsItsOwnProblems(t *testing.T) {
 	t.Parallel()
 	_, ps := authz.Prepare([]byte(`{"rules":[{"id":"a","ops":["read"],"who":{"requester":true},"bad":1}]}`), authz.DefaultMaxDocumentBytes)
