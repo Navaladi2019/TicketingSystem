@@ -6,7 +6,7 @@
 //
 // The approved file lists breaking changes the owner of the contract accepted,
 // one per line: the exact "breaking:" text, then " # " and the issue that
-// approved it. A line without a reason, and a blank or "#" line, is ignored, so
+// approved it. A line whose reason does not start with an issue key, and a blank or "#" line, is ignored, so
 // an entry cannot be added without naming its issue. A listed change no longer
 // reported is harmless; an unlisted one still fails.
 package main
@@ -14,6 +14,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apidiff"
@@ -70,7 +71,7 @@ func withoutApproved(problems []string, approved []byte) []string {
 			continue
 		}
 		change, reason, found := strings.Cut(line, " # ")
-		if found && strings.TrimSpace(reason) != "" {
+		if found && hasIssueKey(strings.TrimSpace(reason)) {
 			ok[strings.TrimSpace(change)] = true
 		}
 	}
@@ -81,4 +82,10 @@ func withoutApproved(problems []string, approved []byte) []string {
 		}
 	}
 	return out
+}
+
+// hasIssueKey reports whether a reason starts with the issue that carries the
+// approval, such as TICK-939.
+func hasIssueKey(reason string) bool {
+	return regexp.MustCompile(`^[A-Z]+-[0-9]+\b`).MatchString(reason)
 }
