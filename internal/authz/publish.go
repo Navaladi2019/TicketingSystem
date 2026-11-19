@@ -112,8 +112,12 @@ type Publisher struct {
 }
 
 // Publish inserts rules and masks as version expected+1 of the entity type's
-// ACL, and the audit entry for it, in tx. The caller has validated them
-// (ParsePolicy). It takes the definition's row lock, so two publishes
+// ACL, and the audit entry for it, in tx.
+//
+// TEST SEAM: it skips Prepare and every D4 check and stores the rules as
+// format 1, as the S10 tests and the D12 read tests need. No production path
+// may call it: the publish route uses PublishPrepared, and onboarding uses
+// PublishIfNone, which runs the checks. It takes the definition's row lock, so two publishes
 // serialize, and returns *ConflictError when expected is not the newest
 // version. expected 0 is the first publish.
 func (PolicyStore) Publish(ctx context.Context, tx pgx.Tx, entityKey string, expected int, by Publisher, rules []Rule, masks []Mask) (*Published, error) {
@@ -159,6 +163,24 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 	if len(problems) > 0 {
 		return false, &InvalidPolicyError{Problems: problems}
 	}
+	// No caller publishes masks here, and the field check against the schema
+	// is the route's: refuse them rather than store what the route would
+	// check.
+	if len(prep.MaskList) > 0 {
+		return false, &InvalidPolicyError{Problems: []Problem{{Pointer: "/masks", Rule: RuleValue}}}
+	}
+	// The ids belong to the tenant, before the insert, so a foreign id is a
+	// named problem and not the trigger's 23514.
+	scope, err := NotInTenant(ctx, tx, prep.Refs)
+	if err != nil {
+		return false, err
+	}
+	if len(scope) > 0 {
+		for i := range scope {
+			scope[i].Rule = RuleForeignID
+		}
+		return false, &InvalidPolicyError{Problems: sortProblems(scope)}
+	}
 	_, err = PublishPrepared(ctx, tx, entityKey, 0, by, prep)
 	var ce *ConflictError
 	if errors.As(err, &ce) {
@@ -167,6 +189,8 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 	return err == nil, err
 }
 
+// publishLocked encodes format-1 rules and masks without checking them: the
+// test seam behind Publish. See Publish.
 func publishLocked(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID, expected int, by Publisher, rules []Rule, masks []Mask) (*Published, error) {
 	if rules == nil {
 		rules = []Rule{}

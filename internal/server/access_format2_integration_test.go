@@ -10,6 +10,7 @@ package server_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
@@ -181,23 +187,57 @@ func TestAccessOfAnotherTenantsKeyIsTheUnknownKeyResponse(t *testing.T) {
 	}
 }
 
-// Foreign ids in format 2 are foreign_id, with their pointer, before the insert.
+// Foreign ids in format 2 are foreign_id, with their pointer, before the
+// insert, whatever node carries them. The 422 for another tenant's id is the
+// same as the 422 for an id that does not exist: no existence oracle.
 // covers: putEntityTypeAccess 422
 func TestPutAccessFormat2ForeignIDsAreForeignID(t *testing.T) {
 	e := newPatchEnv(t)
-	for name, group := range map[string]string{"another tenant's group": e.b.adminGroup.String(), "no tenant's group": foreignGroup} {
-		doc := `{"format": 2, "conditions": [], "policies": [{"name": "p", "ops": ["read"], "when": {"member_of": {"groups": ["` + group + `"]}}}]}`
+	pol := func(when string) string {
+		return `{"rules": {"format": 2, "conditions": [], "policies": [{"name": "p", "ops": ["read"], "when": ` + when + `}]}}`
+	}
+	for _, tc := range []struct {
+		name    string
+		foreign string // the id of tenant B
+		body    func(id string) string
+		want    string
+	}{
+		{"member_of group", e.b.adminGroup.String(), func(id string) string {
+			return pol(`{"member_of": {"groups": ["` + id + `"]}}`)
+		}, "/rules/policies/0/when/member_of/groups/0 foreign_id"},
+		{"member_of user", e.b.user.PrincipalID.String(), func(id string) string {
+			return pol(`{"member_of": {"users": ["` + id + `"]}}`)
+		}, "/rules/policies/0/when/member_of/users/0 foreign_id"},
+		{"cmp on requester_id", e.b.user.PrincipalID.String(), func(id string) string {
+			return pol(`{"cmp": {"column": "requester_id", "op": "eq", "values": ["` + id + `"]}}`)
+		}, "/rules/policies/0/when/cmp/values/0 foreign_id"},
+		{"cmp on assignment_group_id", e.b.adminGroup.String(), func(id string) string {
+			return pol(`{"cmp": {"column": "assignment_group_id", "op": "in", "values": ["` + id + `"]}}`)
+		}, "/rules/policies/0/when/cmp/values/0 foreign_id"},
+		{"condition reached through ref", e.b.adminGroup.String(), func(id string) string {
+			return `{"rules": {"format": 2, "conditions": [{"name": "c", "expr": {"member_of": {"groups": ["` + id + `"]}}}],
+				"policies": [{"name": "p", "ops": ["read"], "when": {"ref": "c"}}]}}`
+		}, "/rules/conditions/0/expr/member_of/groups/0 foreign_id"},
+		{"mask group", e.b.adminGroup.String(), func(id string) string {
+			return `{"rules": {"format": 2, "conditions": [], "policies": []}, "masks": [{"field": "note", "read": {"groups": ["` + id + `"]}, "write": {}}]}`
+		}, "/masks/0/read/groups/0 foreign_id"},
+	} {
 		versions, entries := e.aclCounts(t)
-		rec := e.access(t, http.MethodPut, accessPath, "admin-a", "fid-"+name, `W/"1"`, `{"rules": `+doc+`}`)
-		wantProblem(t, rec, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
-		if got := pointerRules(t, rec); !containsStr(got, "/rules/policies/0/when/member_of/groups/0 foreign_id") {
-			t.Errorf("%s: errors %v", name, got)
+		other := e.access(t, http.MethodPut, accessPath, "admin-a", "fid-other-"+strings.ReplaceAll(tc.name, " ", "-"), `W/"1"`, tc.body(tc.foreign))
+		none := e.access(t, http.MethodPut, accessPath, "admin-a", "fid-none-"+strings.ReplaceAll(tc.name, " ", "-"), `W/"1"`, tc.body(uuid.NewString()))
+		wantProblem(t, other, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		wantProblem(t, none, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		if got := pointerRules(t, other); !containsStr(got, tc.want) {
+			t.Errorf("%s: errors %v, want %q", tc.name, got, tc.want)
 		}
-		if strings.Contains(rec.Body.String(), group) {
-			t.Errorf("%s: the 422 repeats the id", name)
+		if strings.Contains(other.Body.String(), tc.foreign) {
+			t.Errorf("%s: the 422 repeats the id", tc.name)
+		}
+		if sameProblem(t, other) != sameProblem(t, none) {
+			t.Errorf("%s: another tenant's id %s differs from an unknown id %s", tc.name, other.Body, none.Body)
 		}
 		if v, n := e.aclCounts(t); v != versions || n != entries {
-			t.Errorf("%s: wrote", name)
+			t.Errorf("%s: wrote versions %d -> %d, entries %d -> %d", tc.name, versions, v, entries, n)
 		}
 	}
 }
@@ -432,5 +472,61 @@ func TestPutAccessFormat2VersionIsEnforcedOnTheRecordsPath(t *testing.T) {
 	x := decodeExplanation(t, e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()))
 	if x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "desk_reads" || x.ACLVersion != 2 {
 		t.Errorf("explain = %+v, want allow by desk_reads at version 2", x)
+	}
+}
+
+// PublishIfNone (seed and onboarding) refuses what the route refuses, and
+// writes no version and no audit entry.
+func TestPublishIfNoneRefusesWhatTheRouteRefuses(t *testing.T) {
+	e := newPatchEnv(t)
+	e.noTestACL = true
+	if r := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "pin-widget", etBody("widget", "WGT")); r.Code != http.StatusCreated {
+		t.Fatalf("create widget = %d: %s", r.Code, r.Body)
+	}
+	publish := func(rules []authz.Rule, masks []authz.Mask) (bool, error) {
+		var done bool
+		err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+			var err error
+			done, err = authz.PolicyStore{}.PublishIfNone(t.Context(), tx, "widget", authz.Publisher{System: "onboarding", Source: audit.SourceOnboarding}, rules, masks)
+			return err
+		})
+		return done, err
+	}
+	ok := authz.Rule{ID: "ok", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{e.a.adminGroup}}}
+	for _, tc := range []struct {
+		name  string
+		rules []authz.Rule
+		masks []authz.Mask
+		want  string // "pointer rule"
+	}{
+		{"empty who", []authz.Rule{{ID: "r", Ops: []string{authz.OpRead}}}, nil, "/rules/0/who child_count"},
+		{"a mask", []authz.Rule{ok}, []authz.Mask{{Field: "note", Read: authz.Subject{Groups: []uuid.UUID{e.a.adminGroup}}}}, "/masks value"},
+		{"another tenant's group", []authz.Rule{{ID: "r", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{e.b.adminGroup}}}}, nil, "/rules/0/who/groups/0 foreign_id"},
+		{"a group of no tenant", []authz.Rule{{ID: "r", Ops: []string{authz.OpRead}, Who: authz.Subject{Groups: []uuid.UUID{uuid.MustParse(foreignGroup)}}}}, nil, "/rules/0/who/groups/0 foreign_id"},
+	} {
+		versions, entries := e.aclCounts(t)
+		done, err := publish(tc.rules, tc.masks)
+		var bad *authz.InvalidPolicyError
+		if done || !errors.As(err, &bad) {
+			t.Errorf("%s: PublishIfNone = %v, %v, want an *InvalidPolicyError", tc.name, done, err)
+			continue
+		}
+		var got []string
+		for _, p := range bad.Problems {
+			got = append(got, p.Pointer+" "+p.Rule)
+		}
+		if !containsStr(got, tc.want) {
+			t.Errorf("%s: problems %v, want %q", tc.name, got, tc.want)
+		}
+		if v, n := e.aclCounts(t); v != versions || n != entries {
+			t.Errorf("%s: wrote versions %d -> %d, entries %d -> %d", tc.name, versions, v, entries, n)
+		}
+	}
+	// A valid policy publishes once, and a second call is a no-op.
+	if done, err := publish([]authz.Rule{ok}, nil); err != nil || !done {
+		t.Fatalf("valid publish = %v, %v", done, err)
+	}
+	if done, err := publish([]authz.Rule{ok}, nil); err != nil || done {
+		t.Errorf("second publish = %v, %v, want false", done, err)
 	}
 }
