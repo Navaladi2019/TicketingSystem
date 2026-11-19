@@ -98,7 +98,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	}
 	defer auditPool.Close()
 	public, err := server.NewHandler(log, tel, resolver, paths, server.WithRateLimit(cfg.RateLimit), server.WithPool(pool),
-		server.WithAllocatorPool(allocPool), server.WithAuditReader(auditPool), server.WithCursors(cursors))
+		server.WithAllocatorPool(allocPool), server.WithAuditReader(auditPool), server.WithCursors(cursors), server.WithACLMaxDocumentBytes(cfg.ACL.MaxDocumentBytes))
 	if err != nil {
 		_ = tel.Shutdown(context.WithoutCancel(ctx))
 		return err

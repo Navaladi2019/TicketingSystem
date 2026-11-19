@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,12 +36,16 @@ func (e *ConflictError) Error() string {
 
 // Published is a stored ACL version.
 type Published struct {
-	Version      int
-	Rules        []Rule
-	Masks        []Mask
-	PublishedBy  *uuid.UUID
-	PublishedAt  time.Time
-	DefinitionID uuid.UUID
+	Version int
+	// Document is the rules as a format-2 document: a stored format-1 array
+	// is converted on read (D12).
+	Document Document
+	// RulesJSON and MasksJSON are the stored values, as read.
+	RulesJSON, MasksJSON json.RawMessage
+	Masks                []Mask
+	PublishedBy          *uuid.UUID
+	PublishedAt          time.Time
+	DefinitionID         uuid.UUID
 }
 
 const publishedSQL = `
@@ -81,9 +86,10 @@ func newest(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID) (*Published, 
 	if err != nil {
 		return nil, fmt.Errorf("authz: read acl: %w", err)
 	}
-	if err := decodeStrict(rules, &p.Rules); err != nil {
+	if p.Document, err = Decode(rules); err != nil {
 		return nil, fmt.Errorf("authz: decode acl %d rules: %w", p.Version, err)
 	}
+	p.RulesJSON, p.MasksJSON = rules, masks
 	if err := decodeStrict(masks, &p.Masks); err != nil {
 		return nil, fmt.Errorf("authz: decode acl %d masks: %w", p.Version, err)
 	}
@@ -140,7 +146,20 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 		return false, fmt.Errorf("authz: lock entity type: %w", err)
 	}
 	tenancy.Forget(tx, policyKey{entityKey})
-	_, err = publishLocked(ctx, tx, tenant, def, 0, by, rules, masks)
+	// The route's own check, so nothing is stored that the route would
+	// refuse; the policy is stored as format 2.
+	body, err := json.Marshal(struct {
+		Rules []Rule `json:"rules"`
+		Masks []Mask `json:"masks"`
+	}{nonNilRules(rules), nonNilMasks(masks)})
+	if err != nil {
+		return false, fmt.Errorf("authz: encode policy: %w", err)
+	}
+	prep, problems := Prepare(body, DefaultMaxDocumentBytes)
+	if len(problems) > 0 {
+		return false, &InvalidPolicyError{Problems: problems}
+	}
+	_, err = PublishPrepared(ctx, tx, entityKey, 0, by, prep)
 	var ce *ConflictError
 	if errors.As(err, &ce) {
 		return false, nil
@@ -149,17 +168,6 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 }
 
 func publishLocked(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID, expected int, by Publisher, rules []Rule, masks []Mask) (*Published, error) {
-	cur, err := newest(ctx, tx, tenant, def)
-	if err != nil {
-		return nil, err
-	}
-	have := 0
-	if cur != nil {
-		have = cur.Version
-	}
-	if have != expected {
-		return nil, &ConflictError{Current: have}
-	}
 	if rules == nil {
 		rules = []Rule{}
 	}
@@ -174,8 +182,30 @@ func publishLocked(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID, expect
 	if err != nil {
 		return nil, fmt.Errorf("authz: encode masks: %w", err)
 	}
+	return publishRaw(ctx, tx, tenant, def, expected, by, rb, mb)
+}
+
+// publishRaw inserts rb and mb, already encoded, as version expected+1.
+func publishRaw(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID, expected int, by Publisher, rb, mb []byte) (*Published, error) {
+	cur, err := newest(ctx, tx, tenant, def)
+	if err != nil {
+		return nil, err
+	}
+	have := 0
+	if cur != nil {
+		have = cur.Version
+	}
+	if have != expected {
+		return nil, &ConflictError{Current: have}
+	}
 	next := have + 1
-	out := &Published{Version: next, Rules: rules, Masks: masks, PublishedBy: by.Principal, DefinitionID: def}
+	out := &Published{Version: next, RulesJSON: rb, MasksJSON: mb, PublishedBy: by.Principal, DefinitionID: def}
+	if out.Document, err = Decode(rb); err != nil {
+		return nil, fmt.Errorf("authz: decode published rules: %w", err)
+	}
+	if err := decodeStrict(mb, &out.Masks); err != nil {
+		return nil, fmt.Errorf("authz: decode published masks: %w", err)
+	}
 	if err := tx.QueryRow(ctx, insertACLSQL, tenant, def, next, string(rb), string(mb), by.Principal).Scan(&out.PublishedAt); err != nil {
 		return nil, fmt.Errorf("authz: insert acl version: %w", err)
 	}
@@ -185,10 +215,10 @@ func publishLocked(ctx context.Context, tx pgx.Tx, tenant, def uuid.UUID, expect
 	return out, nil
 }
 
-func policyDoc(rules []Rule, masks []Mask) (json.RawMessage, error) {
+func policyDoc(rules, masks json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(struct {
-		Rules []Rule `json:"rules"`
-		Masks []Mask `json:"masks"`
+		Rules json.RawMessage `json:"rules"`
+		Masks json.RawMessage `json:"masks"`
 	}{rules, masks})
 }
 
@@ -198,14 +228,14 @@ func policyDoc(rules []Rule, masks []Mask) (json.RawMessage, error) {
 // version (nil for the first). The entry is built from the stored values,
 // never from the request body.
 func auditPublish(ctx context.Context, tx pgx.Tx, def uuid.UUID, before, after *Published, by Publisher) error {
-	afterDoc, err := policyDoc(after.Rules, after.Masks)
+	afterDoc, err := policyDoc(after.RulesJSON, after.MasksJSON)
 	if err != nil {
 		return fmt.Errorf("authz: encode policy: %w", err)
 	}
 	var beforeDoc json.RawMessage
 	var vBefore *int64
 	if before != nil {
-		if beforeDoc, err = policyDoc(before.Rules, before.Masks); err != nil {
+		if beforeDoc, err = policyDoc(before.RulesJSON, before.MasksJSON); err != nil {
 			return fmt.Errorf("authz: encode policy: %w", err)
 		}
 		v := int64(before.Version)
@@ -241,4 +271,54 @@ func auditPublish(ctx context.Context, tx pgx.Tx, def uuid.UUID, before, after *
 		return fmt.Errorf("authz: audit acl publish: %w", err)
 	}
 	return nil
+}
+
+func nonNilRules(r []Rule) []Rule {
+	if r == nil {
+		return []Rule{}
+	}
+	return r
+}
+
+func nonNilMasks(m []Mask) []Mask {
+	if m == nil {
+		return []Mask{}
+	}
+	return m
+}
+
+// InvalidPolicyError is a policy that Prepare refuses, on a path with no
+// request to answer 422 to (onboarding, the backfill).
+type InvalidPolicyError struct{ Problems []Problem }
+
+func (e *InvalidPolicyError) Error() string {
+	parts := make([]string, len(e.Problems))
+	for i, p := range e.Problems {
+		parts[i] = p.Rule + " at " + p.Pointer
+	}
+	return "authz: invalid access policy: " + strings.Join(parts, ", ")
+}
+
+// PublishPrepared inserts a checked policy (Prepare) as version expected+1,
+// with its audit entry, in tx. It takes the definition's row lock, and
+// returns *ConflictError when expected is not the newest version. The stored
+// values are Prepare's canonical text, never the request body.
+func (PolicyStore) PublishPrepared(ctx context.Context, tx pgx.Tx, entityKey string, expected int, by Publisher, p *Prepared) (*Published, error) {
+	return PublishPrepared(ctx, tx, entityKey, expected, by, p)
+}
+
+// PublishPrepared is PolicyStore.PublishPrepared.
+func PublishPrepared(ctx context.Context, tx pgx.Tx, entityKey string, expected int, by Publisher, p *Prepared) (*Published, error) {
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("authz: %w", err)
+	}
+	var def uuid.UUID
+	if err := tx.QueryRow(ctx, lockDefinitionSQL, tenant, entityKey).Scan(&def); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNoEntityType
+	} else if err != nil {
+		return nil, fmt.Errorf("authz: lock entity type: %w", err)
+	}
+	tenancy.Forget(tx, policyKey{entityKey})
+	return publishRaw(ctx, tx, tenant, def, expected, by, p.Rules, p.Masks)
 }

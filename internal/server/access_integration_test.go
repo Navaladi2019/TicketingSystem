@@ -51,10 +51,21 @@ func (e *etEnv) access(t *testing.T, method, path, token, idemKey, ifMatch, body
 
 type accessBody struct {
 	Version     int              `json:"version"`
-	Rules       []map[string]any `json:"rules"`
+	Rules       accessRules      `json:"rules"`
 	Masks       []map[string]any `json:"masks"`
 	PublishedBy *string          `json:"published_by"`
 	PublishedAt string           `json:"published_at"`
+	Warnings    []struct {
+		Pointer string `json:"pointer"`
+		Code    string `json:"code"`
+	} `json:"warnings"`
+}
+
+// accessRules is the format-2 document every response carries.
+type accessRules struct {
+	Format     int              `json:"format"`
+	Conditions []map[string]any `json:"conditions"`
+	Policies   []map[string]any `json:"policies"`
 }
 
 func decodeAccess(t *testing.T, rec *httptest.ResponseRecorder) accessBody {
@@ -125,7 +136,7 @@ func TestGetAccessReadsTheNewestPolicyForAnAdminOnly(t *testing.T) {
 		t.Fatalf("admin GET = %d ETag %q: %s", rec.Code, rec.Header().Get("ETag"), rec.Body)
 	}
 	b := decodeAccess(t, rec)
-	if b.Version != 1 || len(b.Rules) != 1 || b.Rules[0]["id"] != "test-allow-users" || b.Masks == nil || len(b.Masks) != 0 || b.PublishedBy != nil || b.PublishedAt == "" {
+	if b.Version != 1 || b.Rules.Format != 2 || len(b.Rules.Policies) != 1 || b.Rules.Policies[0]["name"] != "test_allow_users" || b.Masks == nil || len(b.Masks) != 0 || b.PublishedBy != nil || b.PublishedAt == "" {
 		t.Fatalf("policy = %+v, want version 1 with the test rule, no masks, no publisher", b)
 	}
 
@@ -180,7 +191,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 		t.Fatalf("first publish = %d ETag %q: %s", rec.Code, rec.Header().Get("ETag"), rec.Body)
 	}
 	b := decodeAccess(t, rec)
-	if b.Version != 1 || b.PublishedBy == nil || *b.PublishedBy != e.a.admin.PrincipalID.String() || len(b.Rules) != 1 || len(b.Masks) != 1 {
+	if b.Version != 1 || b.PublishedBy == nil || *b.PublishedBy != e.a.admin.PrincipalID.String() || len(b.Rules.Policies) != 1 || len(b.Masks) != 1 {
 		t.Fatalf("published = %+v, want version 1 by the admin with one rule and one mask", b)
 	}
 	// GET returns what was published.
