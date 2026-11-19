@@ -282,13 +282,16 @@ func TestPrepareRefsCarryBodyPointers(t *testing.T) {
 func TestPrepareWarnsOnNotOverCallerLeaves(t *testing.T) {
 	t.Parallel()
 	pol := func(when string) string {
-		return `{"format":2,"conditions":[{"name":"mine","expr":{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}},{"name":"plain","expr":{"cmp":{"column":"state","op":"eq","values":["new"]}}},{"name":"viamine","expr":{"ref":"mine"}}],"policies":[{"name":"p","ops":["read"],"when":` + when + `}]}`
+		return `{"format":2,"conditions":[{"name":"mine","expr":{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}},{"name":"plain","expr":{"cmp":{"column":"state","op":"eq","values":["new"]}}},{"name":"viamine","expr":{"ref":"mine"}},{"name":"team","expr":{"member_of":{"users":["0b0b0b0b-0000-4000-8000-000000000001"]}}}],"policies":[{"name":"p","ops":["read"],"when":` + when + `}]}`
 	}
 	for _, tc := range []struct{ name, when, want string }{
 		{"not over self", `{"not":{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}}`, "/rules/policies/0/when/not"},
 		{"not over shared", `{"all":[{"not":{"shared":true}},{"shared":true}]}`, "/rules/policies/0/when/all/0/not"},
 		{"not over a ref to a caller condition", `{"not":{"ref":"mine"}}`, "/rules/policies/0/when/not"},
 		{"not over a ref that reaches one", `{"not":{"ref":"viamine"}}`, "/rules/policies/0/when/not"},
+		{"not over member_of", `{"not":{"member_of":{"groups":["0b0b0b0b-0000-4000-8000-000000000001"]}}}`, "/rules/policies/0/when/not"},
+		{"not over a ref to a member_of condition", `{"not":{"ref":"team"}}`, "/rules/policies/0/when/not"},
+		{"member_of outside a not", `{"member_of":{"users":["0b0b0b0b-0000-4000-8000-000000000001"]}}`, ""},
 		{"not over plain data", `{"not":{"cmp":{"column":"state","op":"eq","values":["closed"]}}}`, ""},
 		{"not over a plain ref", `{"not":{"ref":"plain"}}`, ""},
 		{"caller leaf outside a not", `{"shared":true}`, ""},

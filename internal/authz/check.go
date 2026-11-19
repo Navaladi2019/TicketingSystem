@@ -524,6 +524,9 @@ func (k *docCheck) scan(n Node, ptr string, d int, in *exprInfo, outer int) {
 		sub := &policyCheck{}
 		sub.subject(kp, map[string]any{"groups": uuidTexts(n.MemberOf.Groups), "users": uuidTexts(n.MemberOf.Users)})
 		k.refs = append(k.refs, sub.refs...)
+		if outer >= 0 {
+			k.nots[outer].direct = true // member_of depends on the caller
+		}
 	case NodeCmp:
 		leaf()
 		b, _ := json.Marshal(n.Cmp)
@@ -593,7 +596,7 @@ func (k *docCheck) lintNots(d Document, idx map[string]int) {
 }
 
 // callerLeaf reports whether n holds a leaf whose value depends on the caller:
-// a cmp with a caller value (self, my_groups) or shared.
+// a cmp with a caller value (self, my_groups), shared or member_of.
 func callerLeaf(n Node) bool {
 	switch n.Kind() {
 	case NodeAll:
@@ -604,7 +607,7 @@ func callerLeaf(n Node) bool {
 		return callerLeaf(*n.Not)
 	case NodeCmp:
 		return n.Cmp.Caller != ""
-	case NodeShared:
+	case NodeShared, NodeMemberOf:
 		return true
 	}
 	return false
