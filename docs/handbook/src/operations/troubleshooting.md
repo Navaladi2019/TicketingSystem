@@ -2,7 +2,7 @@
 title: "Troubleshooting"
 section: operations
 status: delivered
-sources: [docs/acceptance/guide/troubleshooting.html, tools/adrgate/main.go, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go, docs/acceptance/s27-competitive-gate.md, deploy/compose/README.md, compose.yaml, docs/operator/onboarding.md, deploy/compose/prometheus/rules/audit.yml]
+sources: [docs/acceptance/guide/troubleshooting.html, tools/adrgate/main.go, tools/navalint/uuidv7/uuidv7.go, docs/api/strict-json-bodies.md, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go, docs/acceptance/s27-competitive-gate.md, deploy/compose/README.md, compose.yaml, docs/operator/onboarding.md, deploy/compose/prometheus/rules/audit.yml]
 evidence: [docs/acceptance/guide/troubleshooting.html]
 ---
 
@@ -35,6 +35,7 @@ Where to look first, by symptom. The acceptance guide's [troubleshooting page](.
 | `18233` only | The Temporal UI is not started | Start with the `operator` profile (`task stack:up`), then the tunnels again |
 | 502 from Keycloak | Keycloak is still importing its realm | Wait for `docker compose ps keycloak` to say healthy |
 | Every token refused (`400 unauthorized_client`) after PostgreSQL restarted | Keycloak's database connections died with it | Keycloak validates its pool on every borrow, so this should recover on its own; nava-core's `/healthz` keycloak check shows `fail` until it does |
+| 422 with `errors: [{"pointer": "/body/…", "rule": "duplicate"}]` or `"rule": "invalid_utf8"` | The body has the same member name twice in one object, or bytes that are not UTF-8 (a lone `\ud800` escape counts). Go 1.27 story branch | Send each name once and valid UTF-8; see [API errors and strict JSON bodies](../system/api-errors.md) |
 
 ## Something is slow or stuck
 
@@ -63,6 +64,8 @@ Two checks from S27 (ADR-008) fail a PR on documents and configuration, not on c
 | `CI-4: M-X… is not a method in ADR-008 "The axes"` | A method id that ADR-008 does not name | Use a method from the axes table (`M-X1a`, `M-X1b`, `M-X2`, `M-X3`, `M-X4`); a new method needs an ADR-008 amendment |
 
 Exit 2 (no findings printed, an `adrgate:` line on stderr) means `docs/adr` or ADR-008 could not be read: run from the repository root.
+
+**`uuid.New mints a random v4 id: persisted ids are UUIDv7, use uuid.NewV7 and handle the error (TICK-963)`** in `task lint` (navalint `uuidv7`, Go 1.27 story branch): a call to `uuid.New`, `uuid.NewString` or `uuid.NewRandom` in non-test code under `internal/` or `cmd/`. Use `uuid.NewV7()` and return its error; see [Id generation](../system/id-generation.md).
 
 **Upgrade-compatibility lines** (M-X2, see [8. Workflows](../tour/08-workflows.md#adding-or-removing-a-step-type)):
 

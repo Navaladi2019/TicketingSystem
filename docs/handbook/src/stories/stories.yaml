@@ -247,6 +247,10 @@ stories:
     verdict_comment: "Acceptance kit s27-competitive-gate.md (TICK-882), status ready"
     evidence:
       - docs/acceptance/s27-competitive-gate.md
+  - id: GO127
+    issue: TICK-961
+    title: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies
+    status: in-progress
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story

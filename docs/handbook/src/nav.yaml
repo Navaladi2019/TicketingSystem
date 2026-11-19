@@ -87,6 +87,10 @@
           - page: system/temporal.md
     - page: system/core-write-pipeline.md
       label: "The write pipeline"
+    - page: system/api-errors.md
+      label: "API errors and strict JSON bodies"
+    - page: system/id-generation.md
+      label: "Id generation (UUIDv7)"
     - page: workflows/outbox-relay-worker.md
       label: "Workflows: outbox, relay, worker"
     - page: workflows/nava-interpreter.md
@@ -269,6 +273,8 @@
             label: "Install the TypeScript SDK"
           - page: stories/s27.md
             label: "CI checks the Competitive Gate and the configuration surface"
+          - page: stories/go127.md
+            label: "Go 1.27, UUIDv7 ids and strict JSON"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
@@ -279,6 +285,8 @@
       label: "Operations overview"
     - page: operations/local-stack.md
       label: "Local stack"
+    - page: operations/go-toolchain.md
+      label: "Go toolchain and setup"
     - page: operations/sdk.md
       label: "Using the TypeScript SDK"
     - page: operations/observability.md

@@ -10,6 +10,7 @@ How to run the platform on one machine and see what it is doing. Everything here
 | Page | What it covers |
 |---|---|
 | [Local stack](local-stack.md) | Start, stop, reset and seed the stack; what each service is and which ports reach the host |
+| [Go toolchain and setup](go-toolchain.md) | The Go version every module builds with (1.27.4 on the Go 1.27 story branch), what to install to build, test and lint without the stack |
 | [Unpublished listeners](listeners.md) | Admin endpoints, the onboarding API and the Temporal UI publish no port. How to reach them through a tunnel or `docker compose exec` |
 | [Traces, logs and metrics](observability.md) | OpenObserve and Prometheus: finding a slow or failed request, alert rules, health endpoints |
 | [Troubleshooting](troubleshooting.md) | Where to look first when something breaks |

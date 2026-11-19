@@ -40,5 +40,6 @@ links the verdict and evidence. The step-by-step kit stays in the
 - [HB2: A first-time reader learns the product from the handbook](hb2.md)
 - [S25: A developer installs the TypeScript SDK and lists, reads and creates records](s25.md)
 - [S27: CI refuses a design record without its Competitive Gate, and a change that removes a step type or keyword](s27.md)
+- [GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies](go127.md) (in progress, story branch)
 
 S12 and S18 to S20 (planned) have no page: they are not on `main`. The table above lists them apart from the delivered stories.
