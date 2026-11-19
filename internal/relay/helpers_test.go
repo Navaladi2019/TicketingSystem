@@ -89,16 +89,3 @@ func isClosed(ch <-chan struct{}) bool {
 		return false
 	}
 }
-
-// waitFor polls cond for up to 10 s. Integration tests only: a unit test
-// waits with synctest.Wait instead.
-func waitFor(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition not met within 10 s")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
