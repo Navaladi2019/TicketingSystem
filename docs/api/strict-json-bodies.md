@@ -41,6 +41,10 @@ or `invalid_utf8`.
 | `POST /api/v1/entity-types/{key}/versions` (publishEntityTypeVersion) | `invalid_definition` |
 | `PUT /api/v1/entity-types/{key}/access` (putEntityTypeAccess) | `invalid_access_policy` |
 | `POST /api/v1/workflow-definitions/{key}/versions` (publishWorkflowDefinitionVersion) | `workflow_definition_invalid` |
+| `POST /api/v1/number-formats` (createNumberFormat) | `number_format_invalid` |
+| `PUT /api/v1/number-formats/{id}` (publishNumberFormatVersion) | `number_format_invalid` |
+| `POST /api/v1/number-formats/{id}/republish-linked` (republishLinkedTypes) | `number_format_invalid` |
+| `PUT /api/v1/tenant/settings/time-zone` (putTenantTimeZone) | `invalid_time_zone` |
 | `POST /api/v1/records/{entity}` (createRecord) | `record_invalid` |
 | `PATCH /api/v1/records/{entity}/{id}` (patchRecord) | `record_invalid` |
 
