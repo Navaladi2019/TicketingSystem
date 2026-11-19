@@ -47,10 +47,16 @@ type API struct {
 	reg     *problem.Registry
 	log     *slog.Logger
 	baseURL string
-	// bodyCodes maps a route pattern to the 422 code its strict-JSON
-	// refusal answers with (WithBodyCodes).
-	bodyCodes map[string]problem.Code
+	// refusals maps a route pattern to its strict-JSON refusal
+	// (WithBodyRefusals).
+	refusals map[string]BodyRefusal
 }
+
+// BodyRefusal answers a request whose body StrictBody refused, with the one
+// field error that names the problem. Each operation writes the registered
+// 422 code it already uses for a body it does not accept, as a constant
+// (the httperr guard requires a problem.<Const> at every Registry.Write).
+type BodyRefusal func(w http.ResponseWriter, r *http.Request, fe problem.FieldError)
 
 // New returns an API for spec. baseURL must equal the BaseURL given to the
 // generated StdHTTPServerOptions: it is the validator's Options.Prefix.
@@ -58,11 +64,10 @@ func New(spec *openapi3.T, reg *problem.Registry, log *slog.Logger, baseURL stri
 	return &API{spec: spec, reg: reg, log: log, baseURL: baseURL}
 }
 
-// WithBodyCodes sets, per route pattern ("POST /api/v1/records/{entity}"),
-// the registered 422 code StrictBody answers with: each operation keeps the
-// code it already uses for an unacceptable body. It returns a.
-func (a *API) WithBodyCodes(codes map[string]problem.Code) *API {
-	a.bodyCodes = codes
+// WithBodyRefusals sets, per route pattern ("POST /api/v1/records/{entity}"),
+// how StrictBody answers a refused body. It returns a.
+func (a *API) WithBodyRefusals(refusals map[string]BodyRefusal) *API {
+	a.refusals = refusals
 	return a
 }
 
@@ -100,10 +105,10 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 }
 
 // StrictBody refuses a request body with a duplicate object member name or
-// invalid UTF-8, anywhere in the document, before next reads it. The answer
-// is the route's code from WithBodyCodes (a 422) with one error: the JSON
+// invalid UTF-8, anywhere in the document, before next reads it. The route's
+// BodyRefusal (WithBodyRefusals, a 422) answers with one error: the JSON
 // pointer under /body and the rule, duplicate or invalid_utf8. A route with
-// no code configured answers validation_failed, so a missing entry still
+// no refusal configured answers validation_failed, so a missing entry still
 // refuses the body. Any other body goes on to next byte-identical; a syntax
 // error stays the validator's to answer. The body is already bounded where it
 // is first read (the idempotency and operator middlewares).
@@ -120,11 +125,12 @@ func (a *API) StrictBody(next http.Handler) http.Handler {
 			return
 		}
 		if v, bad := strictjson.Check(body); bad {
-			code, ok := a.bodyCodes[r.Pattern]
-			if !ok {
-				code = problem.ValidationFailed
+			fe := problem.FieldError{Pointer: "/body" + v.Pointer, Rule: v.Rule}
+			if refuse, ok := a.refusals[r.Pattern]; ok {
+				refuse(w, r, fe)
+				return
 			}
-			a.reg.Write(w, r, code, problem.FieldError{Pointer: "/body" + v.Pointer, Rule: v.Rule})
+			a.reg.Write(w, r, problem.ValidationFailed, fe)
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))

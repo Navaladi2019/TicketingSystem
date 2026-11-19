@@ -3,7 +3,7 @@ type: api-spec
 id: strict-json-bodies
 title: Strict JSON request bodies (duplicate names, invalid UTF-8)
 status: DRAFT (TICK-964, story TICK-961)
-code: internal/platform/strictjson, internal/platform/apihttp (StrictBody), internal/server/api.go (strictBodyCodes)
+code: internal/platform/strictjson, internal/platform/apihttp (StrictBody), internal/server/api.go (strictBodyRefusals)
 ---
 
 # Strict JSON request bodies
