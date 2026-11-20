@@ -59,7 +59,7 @@ flowchart LR
 - **Branches (D6).** `ReadBranches` splits on the OR across policies, a
   top-level `any`, and a top-level `all` with exactly one `any` child (a
   converted rule's subjects). Above SP-2's total-branch threshold of 16
-  (`maxReadBranches`, `docs/data/acl-format2-caps.md` item 3) it returns no
+  (`ReadBranchThreshold`, `docs/data/acl-format2-caps.md` item 3) it returns no
   branch, the list uses `CompileRead`'s OR form, and
   `authz_read_branches_fallback_total{entity_type}` counts it. The threshold
   is checked before any SQL is rendered. `ReadBranchBound(document)` is the

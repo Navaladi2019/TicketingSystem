@@ -28,13 +28,8 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 )
 
-// spTwoThreshold is authz's maxReadBranches (internal/authz/acl.go, SP-2,
-// docs/data/acl-format2-caps.md §3). It is unexported there; keep the two
-// equal.
-const spTwoThreshold = 16
-
 func main() {
-	threshold := flag.Int("threshold", spTwoThreshold, "the SP-2 total-branch threshold")
+	threshold := flag.Int("threshold", authz.ReadBranchThreshold, "the SP-2 total-branch threshold")
 	flag.Parse()
 	os.Exit(run(os.Stdin, os.Stdout, *threshold))
 }

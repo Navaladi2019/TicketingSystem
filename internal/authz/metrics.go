@@ -23,7 +23,7 @@ import (
 const PolicyInvalidMetric = "authz.policy.invalid"
 
 // ReadBranchesFallbackMetric counts the ReadBranches and ReadPredicate calls
-// whose plan has more branches than the SP-2 threshold (maxReadBranches), so
+// whose plan has more branches than the SP-2 threshold (ReadBranchThreshold), so
 // the list falls back to CompileRead's OR form (ADR-010 D6). One call counts
 // once. Prometheus: authz_read_branches_fallback_total{entity_type}. No tenant,
 // as for authz_policy_invalid_total. It should stay at zero: the D6 check at
