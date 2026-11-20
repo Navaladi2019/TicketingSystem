@@ -60,8 +60,8 @@ func stateAny(n int) string {
 // counted once per call (D5b).
 func TestReadBranchesThreshold(t *testing.T) {
 	t.Parallel()
-	if maxReadBranches != 16 {
-		t.Fatalf("maxReadBranches = %d, SP-2 (docs/data/acl-format2-caps.md item 3) measured 16", maxReadBranches)
+	if ReadBranchThreshold != 16 {
+		t.Fatalf("ReadBranchThreshold = %d, SP-2 (docs/data/acl-format2-caps.md item 3) measured 16", ReadBranchThreshold)
 	}
 	bad := `{"name":"bad","ops":["read"],"when":{"ref":"missing"}}`
 	doc := func(name string, policies ...string) *Policy {
@@ -165,7 +165,7 @@ func TestReadBranchesOnRandomTrees(t *testing.T) {
 				if !slices.Equal(branches, []string{"true"}) {
 					t.Fatalf("doc %d: %q, want [true]", i, branches)
 				}
-			case len(trees) > maxReadBranches:
+			case len(trees) > ReadBranchThreshold:
 				fellBack++
 				if branches != nil {
 					t.Fatalf("doc %d: %d branches above the threshold", i, len(branches))

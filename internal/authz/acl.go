@@ -194,18 +194,19 @@ func compileRead(planned []plannedPolicy, c *compiler) string {
 	return "(" + strings.Join(ors, " OR ") + ")"
 }
 
-// maxReadBranches is the SP-2 total-branch threshold (ADR-010 D6, PLAN-011 C6;
-// docs/data/acl-format2-caps.md §3, TICK-933): up to 16 branches the
+// ReadBranchThreshold is the SP-2 total-branch threshold (ADR-010 D6, PLAN-011
+// C6; docs/data/acl-format2-caps.md §3, TICK-933): up to 16 branches the
 // index-per-branch form wins whenever one branch is heavy, and above 16 the OR
 // form wins in every case measured, because planning the branched statement
 // grows with the square of the branch count. Above it ReadBranches returns no
 // branch, so the caller uses CompileRead, and counts
-// authz_read_branches_fallback_total.
-const maxReadBranches = 16
+// authz_read_branches_fallback_total. It is exported so that tools such as
+// tools/acceptance/acld6 check against this value rather than a copy.
+const ReadBranchThreshold = 16
 
 // ReadPredicate is the list read path's predicate from one plan: the
 // ReadBranches branches when there are at least two (and at most
-// maxReadBranches), else no branch and CompileRead's predicate in where.
+// ReadBranchThreshold), else no branch and CompileRead's predicate in where.
 // Placeholders and arguments follow CompileRead's contract. It plans once, so
 // one call counts each voided policy once (D5b), where ReadBranches followed
 // by a CompileRead fallback would count it twice; a fallback above the
@@ -242,7 +243,7 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 // converted format-1 rule; at most MaxChildren, 16, per policy). A policy
 // whose tree folds to true admits every row, so the whole predicate is the
 // single branch "true". No branch means no policy can match, or more than
-// maxReadBranches (SP-2) in total, which is counted in
+// ReadBranchThreshold (SP-2) in total, which is counted in
 // authz_read_branches_fallback_total; callers fall back to CompileRead when
 // there are fewer than two branches. A caller that wants that fallback uses
 // ReadPredicate, which plans once and so counts a voided policy once (D5b).
@@ -276,7 +277,7 @@ func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) 
 }
 
 // readBranches is ReadBranches over an existing plan; it counts nothing. over
-// reports that the plan has more than maxReadBranches branches: then it
+// reports that the plan has more than ReadBranchThreshold branches: then it
 // returns none and binds no argument (it counts before it renders).
 func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over bool) {
 	for _, pp := range planned {
@@ -290,7 +291,7 @@ func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over
 			total += pp.tree.disjunctCount()
 		}
 	}
-	if total > maxReadBranches {
+	if total > ReadBranchThreshold {
 		return nil, true
 	}
 	var plain []string
