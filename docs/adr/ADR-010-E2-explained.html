@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-20</span> <span class="src">ADR-010-E2 · issue TICK-1012 · amends the ADR-010 test table and RFC-022 §5 · source: TICK-945 (S30 handbook)</span>
+<span class="pill">ACCEPTED · 2026-11-20</span> <span class="src">ADR-010-E2 · issue TICK-1012 · amends the ADR-010 test table and RFC-022 §5 · source: TICK-945 (S30 handbook)</span>
 
 <h1>Saving access rules over someone else's newer version is refused with 412, and the ADR said 409</h1>
 
@@ -35,7 +35,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>1. The problem in plain words</h2>
 <p>An admin edits a ticket type's <em>access rules</em> (who may see or change which tickets). To stop two admins overwriting each other, the save request carries the version the admin started from, in a header called <code>If-Match</code>. If someone published a newer version in the meantime, the save is refused and the response names the current version (in the <code>ETag</code> header) so the admin can reload.</p>
-<p>An HTTP <em>status code</em> is the three-digit number a server answers with. <strong>412 Precondition Failed</strong> means "the condition you attached (the version) no longer holds". <strong>409 Conflict</strong> is a more general "clashes with the stored state". Our API uses 412 <code>version_conflict</code> for every <code>If-Match</code> refusal, and reserves 409 for other clashes, such as reusing a request's <em>idempotency key</em> (a unique id the client sends so a retried request is not applied twice) with a different body.</p>
+<p>An HTTP <em>status code</em> is the three-digit number a server answers with. <strong>412 Precondition Failed</strong> means "the condition you attached (the version) no longer holds". <strong>409 Conflict</strong> is a more general "clashes with the stored state". Our API uses 412 <code>version_conflict</code> for every <code>If-Match</code> refusal, and reserves 409 for other clashes. On this request the two 409s are both about the <em>idempotency key</em> (a unique id the client sends so a retried request is not applied twice): reusing it with a different body, and repeating it while the first request is still running.</p>
 <p>The RFC behind ADR-010 wrote "409 <code>ConflictError</code>": it read the Go error's name, <code>ConflictError</code>, as a status code. The ADR copied the 409. The S30 handbook writer noticed the mismatch.</p>
 
 <figure><svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
@@ -46,9 +46,10 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <rect x="490" y="80" width="200" height="54" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="590" y="102" text-anchor="middle">A retries: same key, same body</text><text x="590" y="122" text-anchor="middle" font-weight="700">200 replayed, no new write</text>
 <line x1="110" y1="50" x2="110" y2="80" stroke="#59636e"/><line x1="350" y1="50" x2="350" y2="80" stroke="#59636e"/><line x1="210" y1="107" x2="490" y2="107" stroke="#59636e" stroke-dasharray="4 3"/>
 <rect x="10" y="165" width="680" height="80" rx="8" fill="#f6f8fa" stroke="#d1d9e0"/>
-<text x="24" y="188" font-weight="700">The only 409 this route returns is about the idempotency key, not the version:</text>
-<text x="24" y="212">A reuses the same key with a different body → 409 idempotency_key_reuse, nothing written.</text>
-<text x="24" y="234">In every case exactly one new version and one audit entry exist.</text>
+<text x="24" y="186" font-weight="700">The only 409s this route returns (idempotency_key_reuse, idempotency_in_flight) are about the key, not the version:</text>
+<text x="24" y="206">A reuses the same key with a different body → 409 idempotency_key_reuse, nothing written.</text>
+<text x="24" y="224">A repeats the same key while its first save is still running → 409 idempotency_in_flight, Retry-After: 60.</text>
+<text x="24" y="241">In every case exactly one new version and one audit entry exist.</text>
 </svg><figcaption>Two admins saving from the same version. The ADR said B gets 409; the system answers 412.</figcaption></figure>
 
 <h2>2. Options considered</h2>
@@ -60,10 +61,10 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </tbody></table>
 
 <h2>3. The decision</h2>
-<blockquote>A save whose <code>If-Match</code> names a version that is not the newest gets <strong>412 <code>version_conflict</code></strong> with the current version in <code>ETag</code>, and writes nothing. Two saves from the same version write once: the second gets 412, whether it arrives later or at the same moment; if it repeats the first one's idempotency key and body, it gets the first one's 200 replayed instead.</blockquote>
+<blockquote>A save whose <code>If-Match</code> names a version that is not the newest gets <strong>412 <code>version_conflict</code></strong> with the current version in <code>ETag</code>, and writes nothing. Two saves from the same version write once: the second gets 412, whether it arrives later or at the same moment; if it repeats the first one's idempotency key and body, it gets the first one's 200 replayed once the first has finished, or 409 <code>idempotency_in_flight</code> (with <code>Retry-After</code>) while the first is still running. Either way, nothing more is written.</blockquote>
 <dl>
 <dt>E2-1: the code is 412 <code>version_conflict</code></dt><dd>As the route, its tests and the S10 kit already do.</dd>
-<dt>E2-2: the double-save line names both outcomes</dt><dd>412 with a new key, the replayed 200 with the same key. One version either way.</dd>
+<dt>E2-2: the double-save line names both outcomes</dt><dd>412 with a new key; with the same key, the replayed 200, or 409 <code>idempotency_in_flight</code> while the first is still running. One version either way.</dd>
 <dt>E2-3: the RFC stays as written</dt><dd>This erratum is the correction; the ADR-010 row points to it.</dd>
 </dl>
 
@@ -78,6 +79,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li><code>internal/server/access.go</code>, <code>PutEntityTypeAccess</code>: a stale <code>If-Match</code> becomes <code>ConflictError</code>, answered as 412 <code>version_conflict</code> with the current <code>ETag</code>.</li>
 <li><code>internal/authz/publish.go</code>, <code>publishLocked</code>: two simultaneous saves are serialized by a lock on the ticket type; the second re-checks the version and gets the same 412.</li>
 <li><code>internal/server/access_integration_test.go</code>: tests marked <code>covers: putEntityTypeAccess 200 412 428</code> assert 412 and the current <code>ETag</code>; <code>TestPutAccessReplayWithTheSameKeyWritesOneVersion</code> asserts one version after a replay and 409 <code>idempotency_key_reuse</code> for a reused key with another body.</li>
+<li><code>internal/platform/idempotency/idempotency.go</code>: a duplicate of a key whose first request is still running gets 409 <code>idempotency_in_flight</code> with <code>Retry-After: 60</code>.</li>
 <li>Acceptance kit <code>docs/acceptance/guide/bruno/S10/S10-14.bru</code>: "PUT with a stale If-Match: 412 and the current ETag".</li>
 </ul>
 </main></body></html>

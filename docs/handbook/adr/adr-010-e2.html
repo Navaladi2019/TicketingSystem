@@ -21,7 +21,7 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-010-E2: a stale If-Match on the access PUT is 412, not 409</h1>
-<p>Status: <strong>PROPOSED</strong>, 2026-11-20, by the Solution Architect (TICK-1012); awaiting the Technical Architect's critique and the verdict. Corrects <a href="../adr/adr-010.html">ADR-010</a>'s "API test scenarios" row for <code>PUT /api/v1/entity-types/{key}/access</code> and RFC-022 §5 bullets 3 and 4; the RFC stays archived as written. Normative text: <a href="../../../docs/adr/ADR-010-E2-access-put-stale-version-412.md">the E2 record</a>; explainer: <a href="../../../docs/adr/ADR-010-E2-explained.html">ADR-010-E2-explained.html</a>.</p>
+<p>Status: <strong>ACCEPTED</strong>, 2026-11-20, by the Solution Architect (TICK-1012) after the Technical Architect's critique (CHANGES, one blocking item: the in-flight 409, fixed). No tie-break, no dissent. Corrects <a href="../adr/adr-010.html">ADR-010</a>'s "API test scenarios" row for <code>PUT /api/v1/entity-types/{key}/access</code> and RFC-022 §5 bullets 3 and 4; the RFC stays archived as written. Normative text: <a href="../../../docs/adr/ADR-010-E2-access-put-stale-version-412.md">the E2 record</a>; explainer: <a href="../../../docs/adr/ADR-010-E2-explained.html">ADR-010-E2-explained.html</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
 <h2 id="problem">Problem</h2>
 <p>ADR-010 and RFC-022 say a PUT with a stale expected version gets 409. The route returns <code>412 version_conflict</code> with the current <code>ETag</code>, as every <code>If-Match</code> route does, and its tests and Bruno <code>S10-14</code> assert 412. The 409 came from reading the Go error name <code>ConflictError</code> as a status code.</p>
@@ -40,7 +40,7 @@
 </tr>
 <tr>
 <td>E2-2</td>
-<td>Two PUTs with the same <code>If-Match</code> write once: the second gets 412 (sequential or concurrent, via the entity-type lock), or the replayed 200 when it reuses the first one's <code>Idempotency-Key</code> and body. A reused key with another body is <code>409 idempotency_key_reuse</code>, the route's only 409.</td>
+<td>Two PUTs with the same <code>If-Match</code> write once: the second gets 412 (sequential or concurrent, via the entity-type lock), or the replayed 200 when it reuses the first one's <code>Idempotency-Key</code> and body. A reused key with another body is <code>409 idempotency_key_reuse</code>, and a duplicate with the same key while the first is still running is <code>409 idempotency_in_flight</code>; those are the route's only 409s.</td>
 </tr>
 <tr>
 <td>E2-3</td>
