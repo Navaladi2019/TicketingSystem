@@ -80,8 +80,8 @@ cp docs/acceptance/guide/reports/S21.json "$EV/.bruno-S21.json"
 echo "s21: 5. side tables against a JSON scan ($(stamp))"
 psqlf < "$T/verify.sql" | tee "$EV/verify.txt"
 # priority and due_at rows: missing, surplus and wrong are the last three columns.
-if ! awk -F'|' '$1 ~ /^ *(priority|due_at) *$/ { n++; for (i = NF - 2; i <= NF; i++) { v = $i; gsub(/ /, "", v); if (v != "0") bad = 1 } }
-                $1 ~ /tenant B side rows/ { b = $2; gsub(/ /, "", b); if (b != "0") bad = 1 }
+if ! awk -F'|' 'NF == 6 && $2 ~ /^ *[0-9]+ *$/ && $1 ~ /^ *(priority|due_at) *$/ { n++; for (i = NF - 2; i <= NF; i++) { v = $i; gsub(/[ \r]/, "", v); if (v != "0") bad = 1 } }
+                $1 ~ /tenant B side rows/ { b = $2; gsub(/[ \r]/, "", b); if (b != "0") bad = 1 }
                 END { exit (bad || n != 2) }' "$EV/verify.txt"; then
   echo "s21: verify FAILED: a side table differs from the JSON scan, or tenant B has side rows" >&2
   FAILED="$FAILED verify"

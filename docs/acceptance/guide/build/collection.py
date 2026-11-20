@@ -3894,6 +3894,7 @@ test('Alice: no items, total 0', () => { expect(N.json().items).to.eql([]); expe
 test('the same status and body as a value that exists nowhere', () => { expect(o.none.status).to.eql(200); expect(N.json()).to.eql(o.none.body); });
 test('the control value she may read: total 1', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); });"""),
             req("S21.18 AC5: tenant B's priority-1 records never match tenant A's filter", "GET", inc + "?filter[priority]=1&limit=200", auth="bob_token",
+                pre=S21_T + "\nawait T.fresh('bob_token');",
                 desc="Tenant B has 50 incidents, all priority 1. Bob's own list finds them (B flagged nothing, so `priority` is still the seed type's legacy scan there, PLAN-007 D-7-6), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.",
                 tests="""N.status(200);
 const b = N.json();
