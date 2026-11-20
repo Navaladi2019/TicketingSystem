@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 amendment A2 explained (PROPOSED): a cheap capped count decides how the database counts a broad filter</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:90%}
+.box{border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:14px 0;background:var(--soft)}
+.good{background:var(--goodbg);border-color:var(--good)}
+.bad{background:var(--badbg);border-color:var(--bad)}
+dt{font-weight:700;margin-top:8px}
+svg text{fill:var(--fg);font:13px sans-serif}
+svg .m{fill:var(--muted)}
+</style></head><body><main>
+<span class="pill">PROPOSED · rev 0 · 2026-11-21</span>
+<h1>ADR-006 amendment A2: a cheap capped count decides how the database counts a broad filter</h1>
+<p class="src">Record: <code>docs/adr/ADR-006-A2-d7-bounded-count-probe.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> · Amends ADR-006 D7 · Pending: Technical Architect critique, Security &amp; Multi-Tenancy Reviewer on the timing question.</p>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Side table (<code>rfv_text</code>, <code>rfv_num</code>, …)</dt><dd>A table holding one row per record per filterable field, so a filter such as <code>priority = 3</code> can use an index. It is shared by all tenants; row-level security (RLS) keeps each tenant to its own rows.</dd>
+<dt>Row ACL</dt><dd>The rule that decides which records a user may read. A <em>narrowing</em> ACL hides most of them (the test agent sees 6%).</dd>
+<dt>Capped count</dt><dd>The <code>total</code> a list returns, counted only up to 1,001.</dd>
+<dt>Visibility map</dt><dd>PostgreSQL's note of which table pages are known to be readable by everyone without checking each row. Vacuum sets it; edits clear it. The planner uses it to guess cost.</dd>
+<dt>Hash join</dt><dd>A plan that reads all matching rows of one side into memory first. With 192,000 rows and 4 MB of working memory it spills to disk.</dd>
+<dt>p95</dt><dd>The time 95% of requests beat.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>A support agent who can see only their group's tickets lists tickets with <code>priority = 3</code>, a value that half the tickets have. On one freshly built stack this took 34 ms; on another, built the same way, 217 ms, and 578–983 ms p95 under 8 clients. The budget is 350 ms.</p>
+<p>The page of results was always fast. The <code>total</code> was not. PostgreSQL has two ways to count it, and it chooses by guessing costs from the visibility map, which depends on when vacuum last ran. That changes after a bulk backfill and after ordinary edits, and because the side table is shared, one tenant's edits change another tenant's plan.</p>
+
+<svg viewBox="0 0 860 210" width="100%" role="img" aria-label="Two ways to count">
+<rect x="10" y="10" width="410" height="190" rx="8" fill="none" stroke="#cf222e"/>
+<text x="25" y="35" font-weight="bold">Slow: hash join (picked when vacuum is behind)</text>
+<text x="25" y="65">1. Read all 192,000 side rows with priority 3</text>
+<text x="25" y="90">2. Build a hash table (spills at 4 MB)</text>
+<text x="25" y="115">3. Match the agent's visible records against it</text>
+<text x="25" y="150" class="m">100–490 ms, depends on vacuum state</text>
+<rect x="440" y="10" width="410" height="190" rx="8" fill="none" stroke="#1a7f37"/>
+<text x="455" y="35" font-weight="bold">Fast: per-record probe</text>
+<text x="455" y="65">1. Walk the records the agent can see</text>
+<text x="455" y="90">2. Look up each one's value by primary key</text>
+<text x="455" y="115">3. Stop at 1,001 matches</text>
+<text x="455" y="150" class="m">17–27 ms in every vacuum state</text>
+</svg>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Result</th></tr>
+<tr><td>Refresh statistics (ANALYZE) when a field becomes ready</td><td>Did not help: 255 ms with it, 202 ms without. Statistics were not the cause.</td></tr>
+<tr><td>Run VACUUM when a field becomes ready</td><td>The worker is not allowed to, and edits undo it within hours.</td></tr>
+<tr><td>Tell the planner random reads are cheap (<code>random_page_cost = 1.1</code>)</td><td>Three of five broad filters still took the slow plan. Rejected.</td></tr>
+<tr><td>Always force the per-record probe for ACL users</td><td>Fixed broad values, broke rare ones: up to 8.3 s for a 2% range.</td></tr>
+<tr><td>Accept a budget exception for this band</td><td>Kept as the fallback. The slowness is avoidable, so an exception is the wrong tool.</td></tr>
+<tr><td><strong>Count first, cheaply, then decide (chosen)</strong></td><td>Holds in every band measured.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<div class="box good">
+<p>For a list where the user's ACL narrows what they see and a data field is filtered:</p>
+<ol>
+<li>Count that value's side rows in the tenant, <strong>stopping at 20,000</strong>. This costs 0.3–18 ms because it stops early.</li>
+<li>If it reached 20,000, the value is broad. Write the <code>total</code> statement so the database can only use the per-record probe. No settings or hints: the SQL shape itself rules out the hash join.</li>
+<li>Otherwise, and for the page of results always, the SQL stays exactly as today.</li>
+</ol>
+</div>
+<p>ADR-006 rule D7 said no query other than the list itself may read a side table. A2 rewrites D7 to allow exactly this one bounded count, and the code check that enforces D7 is updated to allow that one site only.</p>
+
+<h2>Evidence</h2>
+<p>Run 5 on the 400,000-ticket test type, database time per request (the host was busy, so database time is the reliable number):</p>
+<table>
+<tr><th>Filter share, ACL user</th><th>Count before</th><th>Pre-count + count after</th></tr>
+<tr><td>40% (the problem band)</td><td>32–114 ms, 3 of 5 spill to disk</td><td>11–18 + 18–26 ms</td></tr>
+<tr><td>2%</td><td>24–34 ms</td><td>5–8 + 19–41 ms</td></tr>
+<tr><td>0.25%</td><td>16–24 ms</td><td>1–2 + 14–34 ms</td></tr>
+<tr><td>0.01%</td><td>4–17 ms</td><td>0.3–1.6 + 5–18 ms</td></tr>
+</table>
+<p>The issue's own case (48% value): 17–27 ms in every vacuum state, against 102–168 ms before.</p>
+
+<h2>What must be true before the code merges</h2>
+<ul>
+<li>This amendment is accepted.</li>
+<li>A test reads the database's plan for each field type and operator and fails if a broad count still uses a hash join. This, not the SQL trick, is the guarantee; it catches a PostgreSQL upgrade that changes behaviour.</li>
+<li>A test proves the page and the count select the same records.</li>
+<li>Worst-case fixtures are measured: a broad value that none of the agent's visible records carry, at 6% and about 50% visibility. If the 50% case is slower than today, the design is revised first.</li>
+<li>The acceptance kit passes the 40% ACL cell inside 350 ms on two fresh stacks in a row.</li>
+</ul>
+
+<h2>What is being accepted</h2>
+<div class="box bad">
+<p><strong>One coarse timing signal inside a tenant (R13).</strong> The 20,000 count ignores the row ACL, so a user could notice from response time (about 15–40 ms) whether a value is common in their tenant, counting tickets they cannot open. They never see those tickets, their count or their content. Today's plan already leaks more of this through its cost, and its choice is influenced by other tenants' data; A2 makes it one bit from the user's own tenant. Nothing crosses the tenant wall. The Security &amp; Multi-Tenancy Reviewer decides whether this is acceptable; a blocking finding overrides A2.</p>
+<p><strong>The 20,000 cap is tuned for types up to about 400,000 records.</strong> The existing trigger for re-measuring (a tenant passing 400,000 records) covers re-tuning it.</p>
+<p><strong>Budgets do not change.</strong> The band keeps its 350 ms limit from A1; A2 makes it reliable, it does not claim 150 ms.</p>
+</div>
+
+<h2>Invariants</h2>
+<p>Tenant wall (I1) and tenant source (I2) hold: the count runs as the app role under row-level security with the tenant from the verified login. No new grants (I3). Results and totals are unchanged (I5), with the timing note above. Write path, workflows and cascades are untouched.</p>
+</main></body></html>
