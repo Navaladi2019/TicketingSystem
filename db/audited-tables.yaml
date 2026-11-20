@@ -36,7 +36,7 @@ audited:
   records:
     writer_roles: [nava_app, nava_worker]
     audited_columns: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                      updated_at, data, causation_origin_id, causation_depth]
+                      org_unit_id, updated_at, data, causation_origin_id, causation_depth]
     subject_type: record
     subject_id_column: id
     attached: true
@@ -160,3 +160,5 @@ exempt:
     reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
   org_units:
     reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
+  org_unit_members:
+    reason: "Mirror of the identity provider written by group sync (TICK-947, ADR-010 D7). R2 has no subject type for it (I8)."

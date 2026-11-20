@@ -61,6 +61,12 @@ const (
 	EntityDefinitionB1 = "0b000000-0000-4000-8000-0000000006b1"
 	// GroupB1 is a tenant B group that is not its admins group.
 	GroupB1 = "0b000000-0000-4000-8000-0000000004b1"
+	// PrincipalA1 is a tenant A principal, primary member of tenant A's root unit.
+	PrincipalA1 = "0a000000-0000-4000-8000-0000000003a1"
+	// OrgUnitB1 is tenant B's root org unit; OrgUnitB2 its child, which holds
+	// tenant B's record b2 (TICK-947).
+	OrgUnitB1 = "0b000000-0000-4000-8000-0000000005b1"
+	OrgUnitB2 = "0b000000-0000-4000-8000-0000000005b2"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -345,6 +351,27 @@ func Paths() []Path {
 			"UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", TenantB, GroupB1),
 		sql("groups: the worker reads tenant B's group paths", "nava_worker", Denied,
 			"SELECT tenant_id, path FROM groups WHERE tenant_id = $1", TenantB),
+		// TICK-947 (ADR-010 D7): org-unit membership and records.org_unit_id.
+		// Both tenants hold kc-ou-shared, so a lookup by it alone would find
+		// tenant B's unit; principal b1 is in two of tenant B's units.
+		sql("org_unit_members: list tenant B principal's units with tenant B's predicate", "nava_app", Denied,
+			"SELECT org_unit_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2", TenantB, PrincipalB1),
+		sql("org_unit_members: the worker reads tenant B's primary units", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, org_unit_id FROM org_unit_members WHERE is_primary"),
+		sql("org_unit_members: group sync adds tenant A's principal to tenant B's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitB2, PrincipalA1),
+		sql("org_unit_members: group sync moves tenant B's primary units", "nava_groupsync", Denied,
+			"UPDATE org_unit_members SET is_primary = NOT is_primary WHERE tenant_id = $1", TenantB),
+		sql("org_unit_members: group sync drops tenant B's memberships", "nava_groupsync", Denied,
+			"DELETE FROM org_unit_members WHERE tenant_id = $1", TenantB),
+		sql("org_units: the worker reads tenant B's unit tree", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, id, parent_id, deleted_at FROM org_units WHERE id = $1 OR parent_id = $1", OrgUnitB1),
+		sql("org_units: group sync tombstones tenant B's units", "nava_groupsync", Denied,
+			"UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1", TenantB),
+		sql("records: put tenant A's record in tenant B's unit", "nava_app", Denied,
+			"UPDATE records SET org_unit_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB2, RecordA2),
+		sql("records: the worker reads tenant B's records by unit", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM records WHERE org_unit_id = $1", OrgUnitB2),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,

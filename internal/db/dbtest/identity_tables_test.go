@@ -15,7 +15,7 @@ import (
 
 // identityTables are the tables T16 creates.
 func identityTables() []string {
-	return []string{"group_members", "groups", "org_units", "principals"}
+	return []string{"group_members", "groups", "org_unit_members", "org_units", "principals"}
 }
 
 // seedIdentity writes, as the superuser, one principal, group, membership
@@ -29,6 +29,10 @@ func seedIdentity(t *testing.T, super *pgx.Conn, tenants ...string) {
 		exec(t, super, "INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1::uuid, $1, 'kc-group', '/t/' || $1::text || '/agents')", id)
 		exec(t, super, "INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1, $1, $1)", id)
 		exec(t, super, "INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $1, 'kc-ou', 'Root')", id)
+		// TICK-947: only once a run has applied the migration that creates it.
+		if queryBool(t, super, "SELECT to_regclass('org_unit_members') IS NOT NULL") {
+			exec(t, super, "INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES ($1, $1, $1, true)", id)
+		}
 	}
 }
 
@@ -77,6 +81,7 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		{"groups", "INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1::uuid, gen_random_uuid(), 'kc-new', '/t/' || $1::text || '/new')"},
 		{"group_members", "INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1, $1, $1)"},
 		{"org_units", "INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, gen_random_uuid(), 'kc-new', 'New')"},
+		{"org_unit_members", "INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $1, $1)"},
 	} {
 		_, err := execIn(sync, tenantA, w.sql, tenantB)
 		wantSQLState(t, "A writes a B row into "+w.name, err, "42501")
@@ -89,7 +94,10 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		// Sync tombstones a group, never deletes it (ADR-004-E5, TICK-538).
 		"UPDATE groups SET deleted_at = now() WHERE tenant_id = $1",
 		"DELETE FROM group_members WHERE tenant_id = $1",
-		"DELETE FROM org_units WHERE tenant_id = $1",
+		// Sync tombstones an org unit, never deletes it (ADR-010 D7, TICK-947).
+		"UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1",
+		"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1",
+		"DELETE FROM org_unit_members WHERE tenant_id = $1",
 	} {
 		if n, err := execIn(sync, tenantA, w, tenantB); err != nil || n != 0 {
 			t.Errorf("A: %s on B: %d rows, %v; want 0, nil", w, n, err)
@@ -97,8 +105,9 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 	}
 	if left := queryString(t, super, `SELECT (SELECT count(*) FROM principals WHERE tenant_id = $1 AND enabled)
 		+ (SELECT count(*) FROM groups WHERE tenant_id = $1) + (SELECT count(*) FROM group_members WHERE tenant_id = $1)
-		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1 AND name = 'Root')`, tenantB); left != "4" {
-		t.Errorf("tenant B's identity rows after A's writes: %s of 4 intact", left)
+		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1 AND name = 'Root' AND deleted_at IS NULL)
+		+ (SELECT count(*) FROM org_unit_members WHERE tenant_id = $1 AND is_primary)`, tenantB); left != "5" {
+		t.Errorf("tenant B's identity rows after A's writes: %s of 5 intact", left)
 	}
 }
 
@@ -138,8 +147,9 @@ func TestT16ForeignKeysRejectCrossTenant(t *testing.T) {
 
 // Group sync tombstones a group, in its own tenant only, and only once its
 // memberships are gone (ADR-004-E5 D11; it may no longer delete a group,
-// TICK-538); a parent unit with children cannot be removed alone, but its
-// subtree can in one statement.
+// TICK-538). Org units likewise (ADR-010 D7, TICK-947): no DELETE, and a unit
+// is tombstoned only once its memberships are gone; a parent may be
+// tombstoned while a child is live.
 func TestT16DeletesCascadeWithinTenant(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -175,10 +185,15 @@ func TestT16DeletesCascadeWithinTenant(t *testing.T) {
 	if _, err := execIn(sync, tenantA, "INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, gen_random_uuid(), $1, 'kc-child', 'Child')", tenantA); err != nil {
 		t.Fatal(err)
 	}
-	_, err = execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1 AND id = $1", tenantA)
-	wantSQLState(t, "delete a parent unit with a child", err, "23503")
-	if n, err := execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1", tenantA); err != nil || n != 2 {
-		t.Errorf("delete A's whole tree: %d rows, %v; want 2, nil", n, err)
+	_, err = execIn(sync, tenantA, "DELETE FROM org_units WHERE tenant_id = $1", tenantA)
+	wantSQLState(t, "delete A's units", err, "42501")
+	_, err = execIn(sync, tenantA, "UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1 AND id = $1", tenantA)
+	wantSQLState(t, "tombstone A's root while it has a member", err, "23503")
+	if n, err := execIn(sync, tenantA, "DELETE FROM org_unit_members WHERE tenant_id = $1 AND org_unit_id = $1", tenantA); err != nil || n != 1 {
+		t.Fatalf("delete A's root's memberships: %d rows, %v; want 1, nil", n, err)
+	}
+	if n, err := execIn(sync, tenantA, "UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1 AND id = $1", tenantA); err != nil || n != 1 {
+		t.Errorf("tombstone A's emptied root: %d rows, %v; want 1, nil", n, err)
 	}
 }
 

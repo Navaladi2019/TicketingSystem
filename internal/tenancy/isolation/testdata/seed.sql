@@ -115,6 +115,14 @@ INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', NULL, 'kc-ou-shared', 'Root B'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B');
 
+-- TICK-947 (ADR-010 D7): org-unit membership. Principal b1 is in both of
+-- tenant B's units, b2's primary; both tenants have a primary member.
+INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000003a1', true),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000003b1', false),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000003b1', true),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000003b2', true);
+
 -- Email domains (T18a). A domain is unique realm-wide, so they cannot repeat.
 INSERT INTO tenant_email_domain (tenant_id, domain) VALUES
     ('0a000000-0000-4000-8000-00000000000a', 'tenant-a.test'),
@@ -162,11 +170,13 @@ FROM (VALUES
 -- records stay bare PLAN-001 rows, which the all-or-none CHECK allows.
 UPDATE records SET entity_definition_id = '0a000000-0000-4000-8000-0000000006a1', schema_version = 1,
        number = 'TCK0000001', state = 'new', requester_id = '0a000000-0000-4000-8000-0000000003a1',
-       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1'
+       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1',
+       org_unit_id = '0a000000-0000-4000-8000-0000000005a1'
 WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000-4000-8000-0000000000a2';
 UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1', schema_version = 2,
        number = 'TCK0000001', state = 'new', requester_id = '0b000000-0000-4000-8000-0000000003b1',
-       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
+       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1',
+       org_unit_id = '0b000000-0000-4000-8000-0000000005b2'
 WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
 
 -- ADR-004's audit_log, chain head and write keys (P5-10b). The rows land in

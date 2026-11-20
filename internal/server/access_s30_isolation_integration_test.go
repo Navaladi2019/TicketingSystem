@@ -10,6 +10,7 @@ package server_test
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
@@ -399,13 +401,13 @@ func (e *etEnv) s30InsertRaw(t *testing.T, tenant uuid.UUID, rules string) error
 	})
 }
 
-// `under` stays switched off in S30. The route refuses it with not_available
-// in both forms, a tenant-B org unit included. The CHECK does not (finding
-// F1, AR-S30-01): a direct nava_app INSERT stores it, and the org-unit ids in
-// it are checked by nothing until S31 (TICK-947). Today the planner voids it,
-// so it grants nothing on any read path; this test pins both halves, and the
-// half that pins the CHECK's acceptance must flip when TICK-947 adds the
-// refusal (then delete AR-S30-01).
+// `under` stays switched off until S31 makes it available (TICK-950). The
+// route refuses it with not_available in both forms, a tenant-B org unit
+// included. Past the route (finding F1), a direct nava_app INSERT naming
+// tenant B's unit is refused by the tenant-id trigger with foreign_id since
+// TICK-947, which closed AR-S30-01; one naming tenant A's own live unit is
+// stored, and the planner voids it while under is unavailable, so it grants
+// nothing on any read path.
 // covers: putEntityTypeAccess 422
 func TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored(t *testing.T) {
 	e := newPatchEnv(t)
@@ -431,9 +433,21 @@ func TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored(t *testing.T) {
 		t.Fatalf("a refused body wrote")
 	}
 
-	// AR-S30-01: the CHECK accepts a well-formed under, with tenant B's unit.
-	if err := e.s30InsertRaw(t, e.a.id, under(`["`+ouB.String()+`"]`)); err != nil {
-		t.Fatalf("direct insert of under = %v; if the CHECK now refuses it (TICK-947), turn this into a refusal test and delete AR-S30-01", err)
+	// AR-S30-01 (closed by TICK-947): tenant B's unit is refused past the route.
+	err := e.s30InsertRaw(t, e.a.id, under(`["`+ouB.String()+`"]`))
+	if pe := (*pgconn.PgError)(nil); !errors.As(err, &pe) || pe.Code != "23514" || !strings.Contains(pe.Detail, `"foreign_id"`) {
+		t.Fatalf("direct insert of under naming tenant B's unit = %v, want 23514 foreign_id", err)
+	}
+	if v, n := e.s30Counts(t); v != v0 || n != n0 {
+		t.Fatalf("a refused insert wrote")
+	}
+	// Tenant A's own live unit is stored.
+	ouA := uuid.New()
+	if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 's30-ou-a', 'A unit')`, e.a.id, ouA); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s30InsertRaw(t, e.a.id, under(`["`+ouA.String()+`"]`)); err != nil {
+		t.Fatalf("direct insert of under naming tenant A's unit = %v", err)
 	}
 	// It grants nothing: list, read, PATCH, explainer.
 	if p := e.mustList(t, "user-a", "job", ""); len(p.Items) != 0 {
@@ -449,7 +463,7 @@ func TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored(t *testing.T) {
 	if x.Decision != "deny" || len(x.Invalid) != 1 || x.Invalid[0].Code != authz.RuleNotAvailable || x.Invalid[0].Pointer != "/policies/0" {
 		t.Errorf("explain = %+v, want deny with unit invalid not_available at /policies/0", x)
 	}
-	if strings.Contains(e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()).Body.String(), ouB.String()) {
+	if strings.Contains(e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()).Body.String(), ouA.String()) {
 		t.Errorf("the explanation repeats the org-unit id")
 	}
 }
