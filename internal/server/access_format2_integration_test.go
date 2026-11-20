@@ -106,7 +106,12 @@ func TestPutAccessFormat1IsStoredAsFormat2(t *testing.T) {
 }
 
 // Every row of the shared fixture is a 422 with its pointer (under /rules) and
-// code, and writes no version and no audit entry.
+// code, and writes no version and no audit entry. A go_only row is a document
+// with a duplicate member name: since TICK-964 the strict-body boundary
+// (WithBodyRefusals) refuses it before the access handler runs, so the route
+// answers "duplicate" at the same place under /body/rules, not the decoder's
+// unknown_key (TICK-1018). The decoder's own answer stays covered by the authz
+// fixture tests.
 // covers: putEntityTypeAccess 422
 func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	e := newPatchEnv(t)
@@ -117,6 +122,7 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	var rows []struct {
 		Name     string          `json:"name"`
 		MaxBytes int             `json:"max_bytes"`
+		GoOnly   bool            `json:"go_only"`
 		Doc      json.RawMessage `json:"doc"`
 		Problems []struct {
 			Pointer string `json:"pointer"`
@@ -126,6 +132,7 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	if err := json.Unmarshal(b, &rows); err != nil || len(rows) < 60 {
 		t.Fatalf("fixture: %d rows, %v", len(rows), err)
 	}
+	goOnly := 0
 	for i, r := range rows {
 		if r.MaxBytes > 0 {
 			continue // the byte limit has its own test
@@ -138,13 +145,23 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 		wantProblem(t, rec, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
 		got := pointerRules(t, rec)
 		for _, p := range r.Problems {
-			if want := "/rules" + p.Pointer + " " + p.Code; !containsStr(got, want) {
+			want := "/rules" + p.Pointer + " " + p.Code
+			if r.GoOnly {
+				want = "/body/rules" + p.Pointer + " duplicate"
+			}
+			if !containsStr(got, want) {
 				t.Errorf("%s: errors %v, want %q", r.Name, got, want)
 			}
 		}
 		if v, n := e.aclCounts(t); v != versions || n != entries {
 			t.Errorf("%s: wrote versions %d -> %d, entries %d -> %d", r.Name, versions, v, entries, n)
 		}
+		if r.GoOnly {
+			goOnly++
+		}
+	}
+	if goOnly == 0 {
+		t.Error("no duplicate-key (go_only) row reached the route; the boundary refusal is unverified")
 	}
 }
 
