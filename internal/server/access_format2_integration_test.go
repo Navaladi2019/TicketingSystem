@@ -118,6 +118,7 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 		Name     string          `json:"name"`
 		MaxBytes int             `json:"max_bytes"`
 		Doc      json.RawMessage `json:"doc"`
+		Body     json.RawMessage `json:"body"`
 		Problems []struct {
 			Pointer string `json:"pointer"`
 			Code    string `json:"code"`
@@ -129,6 +130,9 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	for i, r := range rows {
 		if r.MaxBytes > 0 {
 			continue // the byte limit has its own test
+		}
+		if r.Body != nil {
+			continue // a repeated body name is refused by StrictBody before the route (TICK-964)
 		}
 		versions, entries := e.aclCounts(t)
 		rec := e.access(t, http.MethodPut, accessPath, "admin-a", fmt.Sprintf("fx-%d", i), `W/"1"`, `{"rules": `+string(r.Doc)+`}`)

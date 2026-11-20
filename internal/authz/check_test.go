@@ -35,13 +35,17 @@ func TestPrepareRefusesTheFixture(t *testing.T) {
 			if f.MaxBytes > 0 {
 				limit = f.MaxBytes
 			}
-			p, ps := authz.Prepare(body(string(f.Doc)), limit)
+			in, under := body(string(f.Doc)), "/rules"
+			if f.Body != nil {
+				in, under = f.Body, ""
+			}
+			p, ps := authz.Prepare(in, limit)
 			if p != nil {
-				t.Fatalf("Prepare accepted %s", f.Doc)
+				t.Fatalf("Prepare accepted %s", in)
 			}
 			var want []string
 			for _, w := range f.Problems {
-				want = append(want, "/rules"+w.Pointer+" "+w.Code)
+				want = append(want, under+w.Pointer+" "+w.Code)
 			}
 			got := pointersOf(ps)
 			slices.Sort(want)
@@ -380,5 +384,36 @@ func TestPrepareFormat1OverTheChildCapLeaksNothing(t *testing.T) {
 				t.Errorf("problem %q leaks %q", p.Pointer+" "+p.Rule, s)
 			}
 		}
+	}
+}
+
+// A top-level problem keeps its body pointer in both formats: an unknown key
+// is not a masks problem, and a repeated name is duplicate at that name, as
+// format 1 answers it (TICK-1017; ADR-010 C2).
+func TestPrepareTopLevelProblemsKeepTheirPointer(t *testing.T) {
+	t.Parallel()
+	const f2 = `{"format":2,"conditions":[],"policies":[]}`
+	for _, tc := range []struct{ name, body, want string }{
+		{"format 2 unknown key", `{"rules":` + f2 + `,"extra":1}`, "/extra unknown_key"},
+		{"format 1 unknown key", `{"rules":[],"extra":1}`, "/extra unknown_key"},
+		{"format 2 unknown key beside a masks duplicate", `{"rules":` + f2 + `,"extra":1,"masks":[{"field":"f","field":"g","read":{},"write":{}}]}`, "/extra unknown_key,/masks/0/field unknown_key"},
+		{"format 2 duplicate rules", `{"rules":` + f2 + `,"rules":` + f2 + `}`, "/rules duplicate"},
+		{"format 1 duplicate rules", `{"rules":[],"rules":[]}`, "/rules duplicate"},
+		{"format 2 duplicate masks", `{"rules":` + f2 + `,"masks":[],"masks":[]}`, "/masks duplicate"},
+		{"format 1 duplicate masks", `{"rules":[],"masks":[],"masks":[]}`, "/masks duplicate"},
+		{"format 2 escaped duplicate rules", `{"rules":` + f2 + `,"rules":` + f2 + `}`, "/rules duplicate"},
+		{"format 1 then format 2 rules", `{"rules":[],"rules":` + f2 + `}`, "/rules duplicate"},
+		{"format 2 then format 1 rules", `{"rules":` + f2 + `,"rules":[]}`, "/rules duplicate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, ps := authz.Prepare([]byte(tc.body), authz.DefaultMaxDocumentBytes)
+			if p != nil {
+				t.Fatalf("Prepare accepted %s", tc.body)
+			}
+			if got := strings.Join(pointersOf(ps), ","); got != tc.want {
+				t.Errorf("problems = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -109,6 +109,15 @@ func Prepare(body []byte, maxBytes int) (*Prepared, []Problem) {
 	if _, present := obj["rules"]; !present {
 		c.bad("/rules", RuleRequired)
 	}
+	// A repeated top-level name is refused before anything reads the body:
+	// the map above and the struct decode each keep the last one, and so would
+	// jsonb. Format 1 refuses it in ParsePolicy (strictjson), with the same
+	// code and pointer (C2).
+	if firstByte(raw.Rules) != '[' {
+		if ps := duplicateTopLevel(body); len(ps) > 0 {
+			return nil, sortProblems(ps)
+		}
+	}
 	var p *Prepared
 	var ps []Problem
 	switch firstByte(raw.Rules) {
@@ -242,16 +251,13 @@ func prepareFormat2(c *policyCheck, obj map[string]any, rulesRaw, masksRaw json.
 	if len(ps) > 0 {
 		return nil, ps
 	}
-	c.duplicateKeys(masksRawOrNull(masksRaw)) // pointers are relative to masks, prefixed below
-	maskProblems := c.problems
-	c.problems = nil
-	for _, p := range maskProblems {
-		if p.Rule == RuleUnknownKey && strings.HasPrefix(p.Pointer, "/") {
-			// A duplicate key inside the body's masks.
-			c.bad("/masks"+p.Pointer, p.Rule)
-			continue
-		}
-		c.bad(p.Pointer, p.Rule)
+	// A duplicate key inside the masks. The scan has its own check, so only
+	// its problems, whose pointers are relative to the masks, get /masks;
+	// the top-level problems already in c keep theirs.
+	mc := &policyCheck{}
+	mc.duplicateKeys(masksRawOrNull(masksRaw))
+	for _, p := range mc.problems {
+		c.bad("/masks"+p.Pointer, p.Rule)
 	}
 	c.masks(obj)
 	ps = slices.Clone(c.problems)
@@ -286,6 +292,33 @@ func prepareFormat2(c *policyCheck, obj map[string]any, rulesRaw, masksRaw json.
 		p.Rules = canon
 	}
 	return p, ps
+}
+
+// duplicateTopLevel returns a duplicate problem at every member name the
+// body object repeats, once per name. A body that is not an object is left to
+// the decode.
+func duplicateTopLevel(body []byte) []Problem {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	seen := map[string]int{}
+	var ps []Problem
+	for dec.More() {
+		kt, err := dec.Token()
+		if err != nil {
+			return ps
+		}
+		k, _ := kt.(string)
+		if seen[k]++; seen[k] == 2 {
+			ps = append(ps, Problem{child("", k), RuleDuplicate})
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return ps
+		}
+	}
+	return ps
 }
 
 func masksRawOrNull(m json.RawMessage) []byte {
