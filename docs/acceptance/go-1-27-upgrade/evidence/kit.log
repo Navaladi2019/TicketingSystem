@@ -1,0 +1,56 @@
+PASS AC2.A tenant A number format id 01a1f3dd-40c2-78b7-b56f-358286a9a3ca is v7
+PASS AC2.A tenant A record id 01a1f3dd-4114-7f2d-a21d-983d16bd9a69 is v7
+PASS AC2.A tenant A entity type t961_a_mwnjuz8g: definition id 01a1f3dd-3f9a-76b9-8f41-fecc1024dc3b and version id 01a1f3dd-3f9a-76c2-a2d7-43880f21dbff are v7
+PASS AC2.A tenant A workflow definition 01a1f3dd-4072-7ea7-bdba-7203baca65c3, version 01a1f3dd-407b-7976-8cd4-8168d9d48a09 and 3 step ids are v7
+PASS AC2.B tenant B number format id 01a1f3dd-42d7-7e4a-a588-0346fee211ac is v7
+PASS AC2.B tenant B record id 01a1f3dd-4346-7b41-9206-79f7386ccb30 is v7
+PASS AC2.B tenant B entity type t961_b_mwnjuz8g: definition id 01a1f3dd-41cc-748d-b7db-3d98e9d049f1 and version id 01a1f3dd-41cc-7498-a2fb-ed649bd207bd are v7
+PASS AC2.B tenant B workflow definition 01a1f3dd-428e-7cc7-a042-52bbc61d4088, version 01a1f3dd-4292-7ac0-b648-6e56dfc88131 and 3 step ids are v7
+PASS AC2.groups all 6 groups rows (minted by nava-groupsync on this build) are v7
+PASS AC2.db no row minted on this stack (seed templates incident/request/change excluded) has a non-v7 id
+PASS AC3 createEntityType with duplicate: 422 invalid_definition, errors[0].rule=duplicate
+PASS AC3 createEntityType with invalid-utf8-byte: 422 invalid_definition, errors[0].rule=invalid_utf8
+PASS AC3 createEntityType with lone-surrogate: 422 invalid_definition, errors[0].rule=invalid_utf8
+PASS AC3 publishEntityTypeVersion with duplicate: 422 invalid_definition, errors[0].rule=duplicate
+PASS AC3 publishEntityTypeVersion with invalid-utf8-byte: 422 invalid_definition, errors[0].rule=invalid_utf8
+PASS AC3 publishEntityTypeVersion with lone-surrogate: 422 invalid_definition, errors[0].rule=invalid_utf8
+PASS AC3 putEntityTypeAccess with duplicate: 422 invalid_access_policy, errors[0].rule=duplicate
+PASS AC3 putEntityTypeAccess with invalid-utf8-byte: 422 invalid_access_policy, errors[0].rule=invalid_utf8
+PASS AC3 putEntityTypeAccess with lone-surrogate: 422 invalid_access_policy, errors[0].rule=invalid_utf8
+PASS AC3 publishWorkflowDefinitionVersion with duplicate: 422 workflow_definition_invalid, errors[0].rule=duplicate
+PASS AC3 publishWorkflowDefinitionVersion with invalid-utf8-byte: 422 workflow_definition_invalid, errors[0].rule=invalid_utf8
+PASS AC3 publishWorkflowDefinitionVersion with lone-surrogate: 422 workflow_definition_invalid, errors[0].rule=invalid_utf8
+PASS AC3 createNumberFormat with duplicate: 422 number_format_invalid, errors[0].rule=duplicate
+PASS AC3 createNumberFormat with invalid-utf8-byte: 422 number_format_invalid, errors[0].rule=invalid_utf8
+PASS AC3 createNumberFormat with lone-surrogate: 422 number_format_invalid, errors[0].rule=invalid_utf8
+PASS AC3 putNumberFormat with duplicate: 422 number_format_invalid, errors[0].rule=duplicate
+PASS AC3 putNumberFormat with invalid-utf8-byte: 422 number_format_invalid, errors[0].rule=invalid_utf8
+PASS AC3 putNumberFormat with lone-surrogate: 422 number_format_invalid, errors[0].rule=invalid_utf8
+PASS AC3 putTenantTimeZone with duplicate: 422 invalid_time_zone, errors[0].rule=duplicate
+PASS AC3 putTenantTimeZone with invalid-utf8-byte: 422 invalid_time_zone, errors[0].rule=invalid_utf8
+PASS AC3 putTenantTimeZone with lone-surrogate: 422 invalid_time_zone, errors[0].rule=invalid_utf8
+PASS AC3 createRecord with duplicate: 422 record_invalid, errors[0].rule=duplicate
+PASS AC3 createRecord with invalid-utf8-byte: 422 record_invalid, errors[0].rule=invalid_utf8
+PASS AC3 createRecord with lone-surrogate: 422 record_invalid, errors[0].rule=invalid_utf8
+PASS AC3 patchRecord with duplicate: 422 record_invalid, errors[0].rule=duplicate
+PASS AC3 patchRecord with invalid-utf8-byte: 422 record_invalid, errors[0].rule=invalid_utf8
+PASS AC3 patchRecord with lone-surrogate: 422 record_invalid, errors[0].rule=invalid_utf8
+PASS AC3.nothing-written tenant A row counts unchanged after 27 refused bodies (entity_definitions|entity_definition_versions|acl_versions|workflow_definition_versions|number_formats|number_format_versions|records|audit_log|outbox)
+PASS AC3.nothing-written tenant A time zone unchanged
+PASS AC5 admin@tenant-b GET entity-type of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b GET entity-type-access of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b GET workflow-definition of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b GET number-format of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b PUT number-format-put of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b GET record of tenant A: 404, same as a made-up one (404)
+PASS AC5 admin@tenant-b PATCH record-patch of tenant A: 404, same as a made-up one (404)
+PASS AC5 tenant B's number-format list does not contain tenant A's format
+PASS AC5 tenant B's entity-type list does not contain tenant A's type
+PASS AC5 admin@tenant-b publishing a workflow under tenant A's type key is refused (no such type in tenant B): 422
+PASS AC5 tenant A's workflow versions, record and number format are unchanged after tenant B's attempts
+PASS AC4.sealed every audit entry of both tenants is sealed before the export
+PASS AC4.export admin@tenant-a.test export: HTTP 200, 11112 bytes
+PASS AC4.export tenant A export holds U+2028 and U+2029 (raw: false, escaped \u2028: true)
+PASS AC4.export admin@tenant-b.test export: HTTP 200, 11084 bytes
+PASS AC5 tenant B's export names none of tenant A's new rows
+t961: 55/55 checks pass

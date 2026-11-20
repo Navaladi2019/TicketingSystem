@@ -15,6 +15,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/numberformats"
 	"github.com/Navaladi2019/TicketingSystem/internal/onboard"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -53,8 +54,16 @@ type options struct {
 	// the database.
 	pool    *pgxpool.Pool
 	cursors *cursor.Keyring
+	// aclMaxBytes is the access policy byte limit; 0 is the default.
+	aclMaxBytes int
 	// dataFilterTimeout overrides the data-filter list timeout; zero keeps the default.
 	dataFilterTimeout time.Duration
+	// listDataTerm replaces the list's data-filter term; only
+	// WithListDataTerm (integration builds) sets it.
+	listDataTerm func(arg string) string
+	// legacyScan widens the legacy-scan allow-list; only WithLegacyScan
+	// (integration builds) sets it.
+	legacyScan func(typeKey, field string) bool
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int
@@ -70,11 +79,27 @@ type options struct {
 	auditPool *read.Pool
 	// allocPool is the record pipeline's TxRunner pool (WithAllocatorPool).
 	allocPool *pgxpool.Pool
+	// nfGate overrides the number-format publish gate; set by tests only.
+	nfGate *numberformats.Gate
+	// typePublishCheck overrides the per-type publish authorisation; set by
+	// tests only.
+	typePublishCheck TypePublishCheck
 }
 
 // WithPool gives the tenant routes their database (the nava_app pool). Tenant
 // writes also need it for the Idempotency-Key store.
 func WithPool(p *pgxpool.Pool) Option { return func(o *options) { o.pool = p } }
+
+// WithNumberFormatGate replaces the number-format publish gate (default: the
+// catalog probe, cached 60 s). Tests inject a probe and a clock.
+func WithNumberFormatGate(g *numberformats.Gate) Option { return func(o *options) { o.nfGate = g } }
+
+// WithTypePublishCheck replaces the per-type right "re-publish linked types"
+// checks (default: tenant admin, the only definition-publish right there is).
+// It exists for tests: no other right to publish one type exists yet.
+func WithTypePublishCheck(c TypePublishCheck) Option {
+	return func(o *options) { o.typePublishCheck = c }
+}
 
 // WithAllocatorPool gives the record pipeline's own transactions (a create's
 // number, D-3-9 as amended 2026-11-10; the cascade_rejected audit row) a
@@ -98,6 +123,11 @@ func WithDataFilterTimeout(d time.Duration) Option {
 // WithCursors sets the keyring that signs list cursors. Without it the list
 // endpoints answer 501 not_implemented.
 func WithCursors(k *cursor.Keyring) Option { return func(o *options) { o.cursors = k } }
+
+// WithACLMaxDocumentBytes sets the platform-wide byte limit on an access
+// policy's rules and masks (NAVA_ACL_MAX_DOCUMENT_BYTES). Without it the route
+// uses the 32 KiB default.
+func WithACLMaxDocumentBytes(n int) Option { return func(o *options) { o.aclMaxBytes = n } }
 
 // OperatorOnly restricts the handler to the operator routes.
 func OperatorOnly() Option { return func(o *options) { o.operatorOnly = true } }

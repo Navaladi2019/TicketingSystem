@@ -1,6 +1,6 @@
 // Package fieldindex names the field-index registry's value types and states
 // (ADR-006 D2, P7-01). They are the values of record_index_fields'
-// value_type and state CHECKs (db/migrations/20261115120000_field_index_tables.sql);
+// value_type and state CHECKs (db/migrations/20261120140000_field_index_tables.sql);
 // TestP701RegistryChecksMatchFieldindex in internal/db/dbtest fails when the
 // two drift apart.
 package fieldindex

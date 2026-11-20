@@ -1,0 +1,27 @@
+meta {
+  name: S30.8 Bob's /service-desk group: a group of tenant B
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+  test('Bob is in /service-desk of tenant B', () => expect(sd).to.be.an('object'));
+  bru.setVar('s30_b_sd', sd ? sd.id : '');
+}
+
+docs {
+  Its id is the other tenant's group id that S30.34 tries to publish in tenant A.
+}

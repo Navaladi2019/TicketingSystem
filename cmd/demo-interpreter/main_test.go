@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -39,9 +40,7 @@ func TestEntries(t *testing.T) {
 	} {
 		t.Run(tc.action, func(t *testing.T) {
 			m := map[string]string{"DEMO_ACTION": tc.action, tc.idVar: version}
-			for k, v := range base {
-				m[k] = v
-			}
+			maps.Copy(m, base)
 			in, err := parse(env(m))
 			if err != nil {
 				t.Fatal(err)

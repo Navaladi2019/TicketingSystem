@@ -216,7 +216,7 @@ func insertColumns(t *testing.T, sql string) []string {
 		t.Fatalf("no INSERT INTO outbox in %q", sql)
 	}
 	var cols []string
-	for _, c := range strings.Split(m[1], ",") {
+	for c := range strings.SplitSeq(m[1], ",") {
 		cols = append(cols, strings.TrimSpace(c))
 	}
 	return cols

@@ -41,8 +41,7 @@ func TestPatchingAMaskedFieldIsRefusedEvenWithItsStoredValue(t *testing.T) {
 				state: "active", data: `{"name":"the-secret"}`}
 			tx := f.tx(t, stmt{match: sqlGet, scan: rec.scan}, stmt{match: sqlPayload, err: errBoom})
 			_, err := p.Write(t.Context(), tx, f.update(rec.id, map[string]any{"name": guess}))
-			var nw *authz.ErrFieldNotWritable
-			if !errors.As(err, &nw) {
+			if _, ok := errors.AsType[*authz.ErrFieldNotWritable](err); !ok {
 				t.Fatalf("PATCH name=%q: %v, want *authz.ErrFieldNotWritable for every guess (no value oracle)", guess, err)
 			}
 		})

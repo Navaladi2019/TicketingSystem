@@ -13,7 +13,12 @@ paths:
         leaving out every field the calling admin cannot read itself. An
         unknown entity type, record or user, one that is another tenant's,
         and a malformed id give the same 404, byte for byte, with no
-        `instance`.
+        `instance`. `policy` names the first policy, in declared order, that
+        grants read (absent for a deny); `rule_id` is its format-1 id when it
+        was converted from one. `trace` lists the named conditions reached and
+        their values: the granting policy's on an allow, every valid read
+        policy's on a deny. `invalid` lists read policies the planner voided
+        (they grant nothing) with their problem code.
       parameters:
         - name: entity
           in: query
@@ -68,3 +73,29 @@ components:
           type: array
           items:
             type: string
+        policy:
+          type: string
+        trace:
+          type: array
+          items:
+            type: object
+            required: [policy, condition, value]
+            properties:
+              policy:
+                type: string
+              condition:
+                type: string
+              value:
+                type: boolean
+        invalid:
+          type: array
+          items:
+            type: object
+            required: [policy, code, pointer]
+            properties:
+              policy:
+                type: string
+              code:
+                type: string
+              pointer:
+                type: string

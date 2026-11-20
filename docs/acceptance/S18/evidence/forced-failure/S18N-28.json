@@ -1,0 +1,39 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:38080/api/v1/number-formats/00000000-0000-4000-8000-00000000f18f",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 404 problem+json, code not_found, no instance",
+      "status": "pass"
+    },
+    {
+      "test": "HTTP 404",
+      "status": "pass"
+    },
+    {
+      "test": "the same body as for tenant A's format",
+      "status": "pass"
+    }
+  ]
+}

@@ -16,12 +16,12 @@
 # The fuller upgrade path (a pre-S14 stack upgraded in place) is the kit's
 # docs/acceptance/S14/tools/upgrade-setup.sh. Serial, after s14_audit (order
 # 27), whose "reading writes nothing" check must not see this folder's writes.
-# Needs Node.js (npx) on the host.
+# Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003) on the host.
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"
 pass "seeded"

@@ -1,16 +1,15 @@
 //go:build integration
 
-// TICK-665 (S17 P6-01), ADR-005 §4.2: between M2 and M3 record_counters has
-// two unique indexes, record_counters_pkey (tenant_id, entity_definition_id)
-// and record_counters_scoped_key (tenant_id, entity_definition_id,
-// scope_key). INSERT ... ON CONFLICT absorbs a conflict on its arbiter index
-// only, so two concurrent FIRST upserts of one type can fail with 23505 on
-// the other index (docs/adr/ADR-005/spikes/postgres/e1-first-create-race/
-// README.md: 15,533 R0 and 19,829 R1 failures in 160,000 first upserts).
-// The fix is R1's allocation retrying once on that 23505 (TICK-666,
-// P6-02). It is also the guard on the
-// isolation level: at REPEATABLE READ the same race raises 40001, which is
-// not retried (ADR-005-E1).
+// TICK-665 (S17 P6-01), ADR-005 §4.2: between M2 and M3 record_counters had
+// two unique indexes, and INSERT ... ON CONFLICT absorbs a conflict on its
+// arbiter index only, so two concurrent FIRST upserts of one type could fail
+// with 23505 on the other index (docs/adr/ADR-005/spikes/postgres/
+// e1-first-create-race/README.md: 15,533 R0 and 19,829 R1 failures in
+// 160,000 first upserts); R1 retried once (TICK-666). Since M3 (TICK-670)
+// the 3-column key is the only unique index, the race cannot happen and the
+// retry is gone; this pinned test stays as the guard. Keep the create at
+// READ COMMITTED: at REPEATABLE READ the second upsert raises 40001 instead
+// of taking the UPDATE arm (ADR-005-E1).
 
 package pipeline_test
 

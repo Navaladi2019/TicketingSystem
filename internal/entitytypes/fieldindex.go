@@ -158,7 +158,10 @@ SELECT field_key, state FROM record_index_fields WHERE tenant_id = $1 AND entity
 		return &IndexQuotaError{Scope: QuotaTenant, Limit: fieldindex.TenantLimit, Paths: fresh}
 	}
 	for _, f := range create {
-		id := uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("entitytypes: field index registry id: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO record_index_fields (tenant_id, id, entity_definition_id, field_key, value_type, state, progress, requested_version)
 VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`,

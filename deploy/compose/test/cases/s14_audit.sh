@@ -9,12 +9,12 @@
 #   3. In the database: the run wrote nothing to audit_log (reading is not
 #      audited), and audit_log_v0 is gone.
 # Serial, after S9 (order 26), so the timeline has record entries to page.
-# Needs Node.js (npx) on the host.
+# Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003) on the host.
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"
 pass "seeded"

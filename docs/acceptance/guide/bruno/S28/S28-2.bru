@@ -1,0 +1,67 @@
+meta {
+  name: S28.2 Onboard a new tenant: 201 (the clock starts)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{onboard_url}}/api/v1/operator/tenants
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_operator_token}}
+  Idempotency-Key: tick884-s28-{{s28_run}}-onboard
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "admin_email": "admin@{{s28_domain}}",
+    "email_domains": [
+      "{{s28_domain}}"
+    ],
+    "identity_provider": {
+      "provider_id": "oidc",
+      "display_name": "Stand-in company login",
+      "config": {
+        "clientId": "nava-broker",
+        "clientSecret": "dev-only-broker-secret",
+        "clientAuthMethod": "client_secret_post",
+        "authorizationUrl": "http://localhost:18081/realms/standin-company/protocol/openid-connect/auth",
+        "tokenUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/token",
+        "jwksUrl": "http://localhost:8080/realms/standin-company/protocol/openid-connect/certs",
+        "useJwksUrl": "true",
+        "defaultScope": "openid profile"
+      }
+    }
+  }
+}
+
+script:pre-request {
+  // One run id per pass: a new domain, so a new tenant, every time.
+  const run = Math.random().toString(16).slice(2, 10);
+  bru.setVar('s28_run', run);
+  bru.setVar('s28_domain', `s28-${run}.test`);
+  bru.setVar('s28_admin_email', `admin@s28-${run}.test`);
+  // The password the admin chooses at the stand-in company login: dev-only, made up per run, never stored.
+  bru.setVar('s28_admin_password', `dev-only-s28-${run}`);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('tenant_id is a uuid, state active', () => {
+    expect(b.tenant_id).to.match(/^[0-9a-f-]{36}$/);
+    expect(b.state).to.eql('active');
+  });
+  bru.setVar('s28_tenant', b.tenant_id);
+  bru.setVar('s28_t0', String(Date.now()));
+  console.log('S28.2 clock start', new Date().toISOString(), 'tenant', b.tenant_id);
+}
+
+docs {
+  Tour step 1. A new domain each pass, so a new tenant. The clock of M-X1a starts when this call returns.
+}

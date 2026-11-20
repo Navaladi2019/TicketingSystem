@@ -28,8 +28,7 @@ func run(t *testing.T, dir string, env []string, args ...string) (string, int) {
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err = cmd.Run()
 	code := 0
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		code = ee.ExitCode()
 	} else if err != nil {
 		t.Fatal(err)

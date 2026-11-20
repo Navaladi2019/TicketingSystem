@@ -344,7 +344,7 @@ func TestAppendGoldenVectors(t *testing.T) {
 func recordEntry(subject uuid.UUID, version int64, diff string) Entry {
 	return Entry{
 		Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord, SubjectID: subject,
-		VersionAfter: &version, Actor: Actor{PrincipalID: ptr(testPrincipal())}, Source: SourceUser,
+		VersionAfter: &version, Actor: Actor{PrincipalID: new(testPrincipal())}, Source: SourceUser,
 		Diff: []byte(diff),
 	}
 }
@@ -596,7 +596,7 @@ func TestAppendEraseCap(t *testing.T) {
 		return tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
 			en := Entry{
 				Domain: DomainAudit, Action: ActionErase, SubjectType: SubjectErasureRequest, SubjectID: uuid.New(),
-				Actor: Actor{System: ptr("erasure")}, Source: SourceSystem, Diff: erasedIDs(n),
+				Actor: Actor{System: new("erasure")}, Source: SourceSystem, Diff: erasedIDs(n),
 			}
 			_, err := Append(context.Background(), tx, en)
 			return err

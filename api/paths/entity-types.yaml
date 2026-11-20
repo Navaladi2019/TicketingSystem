@@ -154,6 +154,24 @@ paths:
         version and answers the current version. Any other value answers 422
         `invalid_definition` at `/numbering_mode`. Numbering carries on from the
         type's counter. `Idempotency-Key` is required.
+
+        `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to
+        the new definition version: `{id, version}`, or `null` for the default
+        numbering. It needs `definition`. **A publish without the field keeps
+        the pinned version**; only an explicit value changes it. The publish
+        takes or reuses the type's numbering epoch in its own transaction: a
+        format already used by the type reuses its epoch; a new one is checked
+        against every earlier epoch of the type, epoch 0 included, and
+        answers 422 `number_format_overlap` (`errors[].rule` is
+        `overlap:<the clashing template>`) when it could render a number the
+        type already issued. A format that is not in the tenant, and another
+        tenant's, give the same 422 `number_format_not_found`.
+
+        `If-Match`, when sent, carries the `ETag` of the type's current
+        version (`W/"<current version>"`); a stale one answers 412
+        `version_conflict` and writes nothing. It also applies to a
+        mode-only call (`numbering_mode` without `definition`): a stale one
+        answers 412 and leaves the numbering mode unchanged.
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: Idempotency-Key
@@ -163,6 +181,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 255
+        - name: If-Match
+          in: header
+          required: false
+          description: The `ETag` of the current version the publish is based on. Optional. Also checked on a mode-only call.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -172,6 +196,12 @@ paths:
       responses:
         "201":
           description: The new version, now current.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -186,6 +216,17 @@ paths:
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
         "409":
           $ref: "../openapi.yaml#/components/responses/Problem"
+        "412":
+          description: The `If-Match` version is not the current one; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "../openapi.yaml#/components/schemas/Problem"
         "422":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "429":
@@ -289,6 +330,37 @@ paths:
         tenant's). A refused request writes no version and no audit entry. The
         publish writes one audit entry in the same transaction.
         `Idempotency-Key` is required.
+
+
+        `rules` is either a format-1 array (`[{id, ops, who, where?}]`) or a
+        format-2 object (`{format: 2, conditions, policies}`, see
+        `AccessDocument`). Either is stored as format 2, and every response
+        returns format 2. A format-1 rule with an empty `who` is refused
+        (`child_count` at its `who`).
+
+
+        The platform's limits on a format-2 document, checked on save, each a
+        422 with `errors[].pointer` and `rule`: a reference to a condition that
+        does not exist (`unresolved_ref`); a reference cycle (`ref_cycle`);
+        1 to 16 children in an `all` or `any` (`child_count`); depth at most 8
+        after references expand (`depth_exceeded`); at most 128 leaves in a
+        policy (`policy_leaves_exceeded`); at most 64 policies
+        (`policies_exceeded`); at most 128 leaves in all policies of a
+        document (`document_leaves_exceeded`); every group and user id belongs
+        to the tenant (`foreign_id`, for format 1 `not_in_tenant`); an unknown
+        node kind (`unknown_key`); a name that is not `^[a-z][a-z0-9_]{0,62}$`
+        or repeats (`invalid_name`, `duplicate_name`); `under` is not available
+        yet (`not_available`). `rules` and `masks` are each limited to the
+        platform's configured limit, 32 KiB by default, measured on the stored
+        form; above it the 422 is `document_too_large` at `/rules` or
+        `/masks`, and the limit is in that error's `detail`. The accepted
+        publish may carry `warnings` (`{pointer, code}`), for example
+        `not_over_caller_leaf` on a `not` over a leaf that depends on the
+        caller; a warning does not refuse the document.
+
+        A reused key is 409: `idempotency_key_reuse` (same key, different body) or
+        `idempotency_in_flight` (same key while the first request is still running;
+        `Retry-After: 60`).
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: If-Match
@@ -333,6 +405,8 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "412":
           description: The `If-Match` version is not the newest; the current `ETag` is in the header.
           headers:
@@ -375,7 +449,9 @@ components:
       x-go-type: json.RawMessage
       properties:
         rules:
-          description: "Array of `{id, ops, who, where?}`; may be empty (nobody is allowed)."
+          description: >
+            Either a format-1 array of `{id, ops, who, where?}` (may be empty:
+            nobody is allowed) or a format-2 object `AccessDocument`.
         masks:
           description: "Array of `{field, read, write}`; optional."
     AccessPolicy:
@@ -385,9 +461,7 @@ components:
         version:
           type: integer
         rules:
-          type: array
-          items:
-            type: object
+          $ref: "#/components/schemas/AccessDocument"
         masks:
           type: array
           items:
@@ -398,6 +472,55 @@ components:
         published_at:
           type: string
           format: date-time
+        warnings:
+          type: array
+          description: Lints of the publish, on the PUT response only. A warning does not refuse the document.
+          items:
+            type: object
+            required: [pointer, code]
+            properties:
+              pointer:
+                type: string
+              code:
+                type: string
+                description: For example `not_over_caller_leaf`.
+    AccessDocument:
+      type: object
+      description: >
+        The format-2 access document. Always the form a response returns,
+        whichever format was published. A node is an object with exactly one
+        key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name),
+        `member_of`, `cmp`, `shared` or `under`.
+      required: [format, conditions, policies]
+      properties:
+        format:
+          type: integer
+          enum: [2]
+        conditions:
+          type: array
+          items:
+            type: object
+            required: [name, expr]
+            properties:
+              name:
+                type: string
+              expr:
+                type: object
+        policies:
+          type: array
+          items:
+            type: object
+            required: [name, ops, when]
+            properties:
+              name:
+                type: string
+              ops:
+                type: array
+                items:
+                  type: string
+                  enum: [read, write]
+              when:
+                type: object
     CreateEntityTypeRequest:
       type: object
       description: >
@@ -429,6 +552,10 @@ components:
           description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
+        number_format:
+          description: >
+            `{id, version}` pins a number-format version, `null` returns to the
+            default numbering; absent keeps the pinned version. Needs `definition`.
     EntityTypeVersion:
       type: object
       required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
@@ -462,6 +589,16 @@ components:
         compat:
           type: string
           enum: [initial, compatible, needs_backfill]
+        number_format:
+          type: [object, "null"]
+          description: The number-format version this version pins; `null` is the default numbering.
+          required: [id, version]
+          properties:
+            id:
+              type: string
+              format: uuid
+            version:
+              type: integer
         published_at:
           type: string
           format: date-time

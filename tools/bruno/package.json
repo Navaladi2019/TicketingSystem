@@ -1,0 +1,9 @@
+{
+  "name": "nava-bruno-cli",
+  "private": true,
+  "description": "The pinned Bruno CLI for docs/acceptance/guide/tools/api-test.sh and the stack cases (TICK-1003). The version here is the single source of truth; package-lock.json pins every transitive dependency. Install with `make bruno-cli`.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@usebruno/cli": "4.3.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "step": "iso-number-format-put-tenant-a",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/number-formats/01a1f3dd-40c2-78b7-b56f-358286a9a3ca",
+    "headers": {
+      "If-Match": "W/\"1\""
+    },
+    "body": {
+      "document": {
+        "template": "{prefix}{seq:9}",
+        "overflow": "refuse"
+      }
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

@@ -19,14 +19,14 @@
 #           source=workflow entry, and tenant B has no nava.interpreter row naming it at all.
 # Order 59: after the interpreter case (58), whose crash case retires its own definition, so
 # the always-on nava-worker is back and the only nava-tq poller. Serial: it publishes and writes.
-# Needs Node.js (npx).
+# Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003).
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 A=00000000-0000-4000-8000-0000000000a1
 B=00000000-0000-4000-8000-0000000000b1
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"
 pass "seeded"

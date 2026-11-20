@@ -11,7 +11,7 @@ trap 'rm -rf "$tmp"' EXIT
 for f in api/openapi.bundled.yaml api/openapi.yaml; do
 	if git cat-file -e "$base:$f" 2>/dev/null; then
 		git show "$base:$f" > "$tmp/openapi.base.yaml"
-		go run ./cmd/openapi-compat "$tmp/openapi.base.yaml" api/openapi.bundled.yaml
+		go run ./cmd/openapi-compat "$tmp/openapi.base.yaml" api/openapi.bundled.yaml api/approved-breaking-changes.txt
 		exit $?
 	fi
 done

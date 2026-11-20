@@ -60,7 +60,7 @@ func TestReasonCodesListedInSpecDetectsMissing(t *testing.T) {
 		t.Fatalf("§4.1 has no %s row", row)
 	}
 	var kept []string
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if !strings.HasPrefix(l, row) {
 			kept = append(kept, l)
 		}
@@ -89,7 +89,7 @@ func specReasonCodes(path string) (map[string]bool, error) {
 	}
 	codes := map[string]bool{}
 	in := false
-	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(l, "### 4.1 Reason codes"):
 			in = true

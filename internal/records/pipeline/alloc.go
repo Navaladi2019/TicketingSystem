@@ -8,10 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -30,13 +28,16 @@ type Allocation struct {
 	Tenant uuid.UUID
 	// Definition is the entity type whose counter was taken.
 	Definition uuid.UUID
-	// ScopeKey is the counter's scope: '' until number formats (ADR-005 §3).
+	// ScopeKey is the counter's scope, as PostgreSQL computed it: '' for the
+	// default, e<epoch> or e<epoch>|d:<date part> for a linked format
+	// (ADR-005 §4.1).
 	ScopeKey string
-	// Epoch is the format epoch: 0, today's {prefix}{seq:7}.
+	// Epoch is the format epoch the allocation was made for.
 	Epoch int
 	// Number is the counter value taken.
 	Number int64
-	// Instant is the allocation's now(), the record's created_at (A7).
+	// Instant is the allocation's now(), the record's created_at and the
+	// instant the scope key's date part was read at (A7).
 	Instant time.Time
 }
 
@@ -51,17 +52,19 @@ type Allocator interface {
 
 // Allocate implements Allocator with tenancy.AllocTx on r.Pool, which must be
 // the dedicated allocator pool (tenancy.AllocPoolConfig): on the pool the
-// create's own transaction holds, concurrent creates can starve it. It gives
-// up after r.AllocTimeout (DefaultAllocTimeout when zero) with ErrRetryable,
-// and records r.Metrics when set.
-//
-// While both unique indexes of record_counters exist (ADR-005 M2 to M3), a
-// type's first allocation can lose the race for the counter row with 23505
-// on the index the upsert does not name (store.CounterRace, ADR-005-E1). It
-// is then retried once, in a fresh AllocTx: the winner has committed, so the
-// second upsert takes the UPDATE arm. No other error is retried, and the
-// retry runs within the same timeout.
+// create's own transaction holds, concurrent creates can starve it. The
+// statement computes the scope key, its date part and period_end from now()
+// in the numbering time zone (format.Scope, ADR-005 A7). It gives up after
+// r.AllocTimeout (DefaultAllocTimeout when zero) with ErrRetryable, and
+// records r.Metrics when set. Nothing is retried: since M3 (TICK-670)
+// record_counters has one unique index, the upsert's arbiter, so two first
+// allocations of a counter serialise on it and the second takes the UPDATE
+// arm (ADR-005-E1's race needed two).
 func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uuid.UUID, format numbering.Compiled) (Allocation, error) {
+	scope, err := format.Scope()
+	if err != nil {
+		return Allocation{}, fmt.Errorf("pipeline: %w", err)
+	}
 	timeout := r.AllocTimeout
 	if timeout <= 0 {
 		timeout = DefaultAllocTimeout
@@ -69,40 +72,30 @@ func (r PoolRunner) Allocate(ctx context.Context, createTx pgx.Tx, definition uu
 	actx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	start := time.Now()
-	scope := format.ScopeKey()
 	var got store.Allocated
-	alloc := func() (tenancy.AllocInfo, error) {
-		return tenancy.AllocTx(actx, r.Pool, createTx, func(b *pgx.Batch, tenant uuid.UUID) {
-			store.QueueAllocate(b, tenant, definition, scope, &got)
-		})
-	}
-	info, err := alloc()
-	// TODO(TODO-S17-02): remove this retry (and the gapless savepoint) with
-	// M3 (S18/R2): with one unique index left, store.CounterRace never fires.
-	if store.CounterRace(err) {
-		r.Metrics.retried(ctx, metadata.NumberingGaps)
-		var again tenancy.AllocInfo
-		again, err = alloc()
-		again.Acquire += info.Acquire
-		info = again
-	}
+	info, err := tenancy.AllocTx(actx, r.Pool, createTx, func(b *pgx.Batch, tenant uuid.UUID) {
+		store.QueueAllocate(b, tenant, definition, scope, &got)
+	})
 	timedOut := err != nil && errors.Is(actx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	r.Metrics.observe(ctx, info.Acquire, time.Since(start), timedOut)
+	if err == nil {
+		r.Metrics.fill(ctx, format, got.Number)
+	}
 	switch {
 	case timedOut:
 		return Allocation{}, fmt.Errorf("%w: the number allocation took longer than %v: %w", ErrRetryable, timeout, err)
 	case err != nil:
 		return Allocation{}, err
 	}
-	return Allocation{Tenant: info.Tenant, Definition: definition, ScopeKey: scope, Epoch: format.Epoch,
+	return Allocation{Tenant: info.Tenant, Definition: definition, ScopeKey: got.ScopeKey, Epoch: format.Epoch,
 		Number: got.Number, Instant: got.Instant}, nil
 }
 
 // AllocMetrics are the allocator's metrics (ADR-005 A8). A nil
 // *AllocMetrics records nothing. No attribute names a tenant or a type (T01).
 type AllocMetrics struct {
-	acquire, latency  metric.Float64Histogram
-	timeouts, retries metric.Int64Counter
+	acquire, latency, fillRatio metric.Float64Histogram
+	timeouts                    metric.Int64Counter
 }
 
 // allocBuckets are in seconds: the allocation's budget is 200 ms, and an
@@ -113,10 +106,8 @@ func allocBuckets() []float64 {
 
 // NewAllocMetrics registers the allocator's metrics on mp:
 // nava_numbering_alloc_acquire_seconds (the allocator pool's acquire wait),
-// nava_numbering_alloc_seconds (the whole allocation, acquire included),
-// nava_numbering_alloc_timeouts (allocations past the timeout) and
-// nava_numbering_first_create_retries (upserts retried after the expand
-// window's first-create race, by numbering mode: ADR-005-E1).
+// nava_numbering_alloc_seconds (the whole allocation, acquire included) and
+// nava_numbering_alloc_timeouts (allocations past the timeout).
 func NewAllocMetrics(mp metric.MeterProvider) (*AllocMetrics, error) {
 	m := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/records/pipeline")
 	acquire, err := m.Float64Histogram("nava_numbering_alloc_acquire_seconds",
@@ -137,13 +128,43 @@ func NewAllocMetrics(mp metric.MeterProvider) (*AllocMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
-	retries, err := m.Int64Counter("nava_numbering_first_create_retries",
-		metric.WithDescription("Record-number upserts retried once after a unique violation on the record_counters index they do not name (the first create of a counter while both unique indexes exist)."),
-		metric.WithUnit("{retry}"))
+	fillRatio, err := m.Float64Histogram("nava_numbering_fill_ratio",
+		metric.WithDescription("How full a refuse number format's {seq:N} is after a number was taken: the counter value over the largest N-digit value; above 1 the create was refused with number_space_exhausted."),
+		metric.WithUnit("1"), metric.WithExplicitBucketBoundaries(fillBuckets()...))
 	if err != nil {
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
-	return &AllocMetrics{acquire: acquire, latency: latency, timeouts: timeouts, retries: retries}, nil
+	return &AllocMetrics{acquire: acquire, latency: latency, fillRatio: fillRatio, timeouts: timeouts}, nil
+}
+
+// fillBuckets are fill ratios. NumberSpaceNearlyExhausted
+// (deploy/compose/prometheus/rules/numbering.yml) alerts on any
+// observation above the 0.9 bucket: 90 % of the width (ADR-005 §3.5).
+func fillBuckets() []float64 { return []float64{0.5, 0.75, 0.9, 0.95, 0.99, 1} }
+
+// fill records how full format's counter is at value n, for a refuse format
+// only: a growing one never runs out. Both numbering paths record it: a
+// `gaps` allocation here, a `gapless` create through FillObserver.
+func (m *AllocMetrics) fill(ctx context.Context, format numbering.Compiled, n int64) {
+	if m == nil || format.Overflow != numbering.Refuse || n < 1 {
+		return
+	}
+	largest := 1.0
+	for range format.Width {
+		largest *= 10
+	}
+	m.fillRatio.Record(context.WithoutCancel(ctx), float64(n)/(largest-1))
+}
+
+// FillObserver records the fill ratio of a number a `gapless` create took
+// inside its own transaction (ADR-005 §3.5). A PoolRunner is one.
+type FillObserver interface {
+	ObserveFill(ctx context.Context, format numbering.Compiled, n int64)
+}
+
+// ObserveFill implements FillObserver on r.Metrics.
+func (r PoolRunner) ObserveFill(ctx context.Context, format numbering.Compiled, n int64) {
+	r.Metrics.fill(ctx, format, n)
 }
 
 func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration, timedOut bool) {
@@ -159,49 +180,40 @@ func (m *AllocMetrics) observe(ctx context.Context, acquire, total time.Duration
 	}
 }
 
-// retried counts one first-create retry of a type in mode (gaps or
-// gapless). The mode is the only attribute: no tenant, no type (T01).
-func (m *AllocMetrics) retried(ctx context.Context, mode metadata.NumberingMode) {
-	if m == nil {
-		return
+// exhausted is the refusal of a create whose counter value outgrew the
+// format's width in scope (ADR-005 §3.5), carrying its R2b audit entry
+// (ADR-004-E9). It writes nothing: the caller appends the entry after the
+// create's transaction has ended.
+func (w *write) exhausted(ctx context.Context, scopeKey string, counter int64) error {
+	ex := &ErrNumberSpaceExhausted{
+		EntityKey: w.cmd.EntityKey, ScopeKey: scopeKey, Width: w.format.Width, Epoch: w.format.Epoch, Counter: counter,
 	}
-	m.retries.Add(context.WithoutCancel(ctx), 1, metric.WithAttributes(attribute.String("mode", string(mode))))
-}
-
-// allocMetrics is the AllocMetrics of the pipeline's runner, when it is a
-// PoolRunner (or embeds one); nil, which records nothing, otherwise.
-func (p *Pipeline) allocMetrics() *AllocMetrics {
-	if r, ok := p.runner.(interface{ allocMetrics() *AllocMetrics }); ok {
-		return r.allocMetrics()
+	entry, err := exhaustedEntry(ctx, w.cmd, w.defID, ex)
+	if err != nil {
+		return errors.Join(ex, err)
 	}
-	return nil
+	ex.Entry = entry
+	return ex
 }
-
-func (r PoolRunner) allocMetrics() *AllocMetrics { return r.Metrics }
 
 // allocate takes the create's number (ADR-005 L2s) on the runner and checks
-// the allocation against the create's own transaction and type (A2).
-func (w *write) allocate(ctx context.Context) (Allocation, error) {
+// the allocation against the create's own transaction, type and format
+// (A2): the scope key must be one of the format's epoch. It returns the
+// allocation and the scope key's date part.
+func (w *write) allocate(ctx context.Context) (Allocation, string, error) {
 	a, ok := w.p.runner.(Allocator)
 	if !ok {
-		return Allocation{}, errors.New("pipeline: the TxRunner cannot allocate record numbers")
+		return Allocation{}, "", errors.New("pipeline: the TxRunner cannot allocate record numbers")
 	}
-	format := w.format()
-	got, err := a.Allocate(ctx, w.tx, w.defID, format)
+	got, err := a.Allocate(ctx, w.tx, w.defID, w.format)
 	if err != nil {
-		return Allocation{}, fmt.Errorf("pipeline: %w", err)
+		return Allocation{}, "", fmt.Errorf("pipeline: %w", err)
 	}
-	if got.Tenant != w.tenant || got.Definition != w.defID || got.ScopeKey != format.ScopeKey() || got.Epoch != format.Epoch ||
+	datePart, keyErr := w.format.DatePartOf(got.ScopeKey)
+	if got.Tenant != w.tenant || got.Definition != w.defID || keyErr != nil || got.Epoch != w.format.Epoch ||
 		got.Number < 1 || got.Instant.IsZero() {
-		return Allocation{}, fmt.Errorf("pipeline: the allocation (tenant %s, type %s, scope %q, epoch %d, number %d) is not this create's (tenant %s, type %s)",
-			got.Tenant, got.Definition, got.ScopeKey, got.Epoch, got.Number, w.tenant, w.defID)
+		return Allocation{}, "", fmt.Errorf("pipeline: the allocation (tenant %s, type %s, scope %q, epoch %d, number %d) is not this create's (tenant %s, type %s, epoch %d)",
+			got.Tenant, got.Definition, got.ScopeKey, got.Epoch, got.Number, w.tenant, w.defID, w.format.Epoch)
 	}
-	return got, nil
-}
-
-// format is the create's compiled number format (ADR-005 §3.1). Every type
-// has the default until number formats ship (S18), when it is read from the
-// definition version's snapshot instead.
-func (w *write) format() numbering.Compiled {
-	return numbering.Default()
+	return got, datePart, nil
 }

@@ -78,6 +78,12 @@ commit in this page's footer (the security-relevant ids; the function also lists
 | CI-A5 | full (ADR-004, P5-19, P5-42): table bytes of audit_log and entity_definition_versions after record and S8 canaries, the controls uncompressed and under 1,900 bytes stored; export bytes in TestCIA5ExportBytesCarryNoCanary in internal/server (P5-42, make test-integration) |
 | CI-10 | full (P3-42, CTO ruling on TICK-88, 2026-11-01): (f) the start key is per tenant, here; (a)–(e) are TestCI10_* in internal/records/pipeline, (g) the signal ping-pong between two runs on R stopped at depth 9 is TestCI10_G_SignalPingPongBetweenTwoRunsStopsAtDepth9 there, through the real EventSink, and the outbox depth limit is TestCI10_* in internal/outbox, all against real PostgreSQL in make test-integration |
 
+On the S21 story branch (`TICK-739/filterable-fields`, not yet on `main`) six
+more paths are registered for filterable fields: rows 1, 3, 3b, 4 and 5 under
+CI-2 and row 2 under CI-8. All six run, including row 3b (TICK-975), which
+drives the real coordinator and backfill. They are listed on the [S21 story
+page](../stories/s21.md#attack-paths).
+
 The committed report is
 [isolation-report-ci2-ci8.md](../../../acceptance/s9-evidence/isolation-report-ci2-ci8.md)
 and [isolation-report-ci10.md](../../../acceptance/s9-evidence/isolation-report-ci10.md),

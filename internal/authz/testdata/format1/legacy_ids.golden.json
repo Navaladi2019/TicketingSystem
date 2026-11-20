@@ -1,0 +1,151 @@
+{
+  "format": 2,
+  "conditions": [],
+  "policies": [
+    {
+      "name": "a_b_2",
+      "legacy_id": "a-b",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a_b",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "assignee_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a_b_3",
+      "legacy_id": "A_B",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "shared": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "r_9lives",
+      "legacy_id": "9lives",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "shared": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "writers_only_",
+      "legacy_id": "Writers Only!",
+      "ops": [
+        "write"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "x123456789x123456789x123456789x123456789x123456789x123456789x12",
+      "legacy_id": "x123456789x123456789x123456789x123456789x123456789x123456789x1234",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "x123456789x123456789x123456789x123456789x123456789x123456789x_2",
+      "legacy_id": "x123456789x123456789x123456789x123456789x123456789x123456789x1235",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

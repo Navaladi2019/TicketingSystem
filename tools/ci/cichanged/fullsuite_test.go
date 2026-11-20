@@ -26,7 +26,7 @@ func TestFullSuite(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := filepath.Join(strings.TrimSpace(root), "scripts", "ci", "full-suite.sh")
-	green := "changes=success lint=success unit=success temporal-server=success integration=success commit-check-budget=success stack=success coverage=success sdk=success"
+	green := "changes=success lint=success unit=success temporal-server=success integration=success isolation=success commit-check-budget=success stack=success coverage=success sdk=success"
 	tsrv := func(result string) string {
 		return strings.Replace(green, "temporal-server=success", "temporal-server="+result, 1)
 	}
@@ -51,7 +51,7 @@ func TestFullSuite(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.CommandContext(context.Background(), sh, script)
-			cmd.Env = append(os.Environ(), "RESULTS="+tc.results, "TEMPORAL_SERVER="+tc.tsrv, "SDK=true")
+			cmd.Env = append(os.Environ(), "RESULTS="+tc.results, "TEMPORAL_SERVER="+tc.tsrv, "SDK=true", "FULL=true")
 			out, err := cmd.CombinedOutput()
 			if tc.ok && err != nil {
 				t.Fatalf("want success, got %v\n%s", err, out)
@@ -75,7 +75,7 @@ func TestFullSuiteSDK(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := filepath.Join(strings.TrimSpace(root), "scripts", "ci", "full-suite.sh")
-	green := "changes=success lint=success unit=success temporal-server=success integration=success commit-check-budget=success stack=success coverage=success sdk=success"
+	green := "changes=success lint=success unit=success temporal-server=success integration=success isolation=success commit-check-budget=success stack=success coverage=success sdk=success"
 	with := func(job, result string) string {
 		return strings.Replace(green, job+"=success", job+"="+result, 1)
 	}
@@ -99,7 +99,54 @@ func TestFullSuiteSDK(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.CommandContext(context.Background(), sh, script)
-			cmd.Env = append(os.Environ(), "RESULTS="+tc.results, "TEMPORAL_SERVER="+tc.tsrv, "SDK="+tc.sdk)
+			cmd.Env = append(os.Environ(), "RESULTS="+tc.results, "TEMPORAL_SERVER="+tc.tsrv, "SDK="+tc.sdk, "FULL=true")
+			out, err := cmd.CombinedOutput()
+			if tc.ok && err != nil {
+				t.Fatalf("want success, got %v\n%s", err, out)
+			}
+			if !tc.ok && err == nil {
+				t.Fatalf("want failure, got success\n%s", out)
+			}
+		})
+	}
+}
+
+// TICK-1003: the isolation job runs on a full run only, so it may be skipped
+// when the run is a fast one (FULL=false, needs.changes.outputs.full); that
+// never excuses another job, nor a failed or cancelled isolation.
+func TestFullSuiteIsolation(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on PATH")
+	}
+	root, err := git("rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(strings.TrimSpace(root), "scripts", "ci", "full-suite.sh")
+	green := "changes=success lint=success unit=success temporal-server=success integration=success isolation=success commit-check-budget=success stack=success coverage=success sdk=success"
+	with := func(job, result string) string {
+		return strings.Replace(green, job+"="+"success", job+"="+result, 1)
+	}
+	for _, tc := range []struct {
+		name    string
+		results string
+		full    string // needs.changes.outputs.full
+		ok      bool
+	}{
+		{"isolation succeeded, full run", green, "true", true},
+		{"isolation succeeded, fast run", green, "false", true},
+		{"isolation skipped, fast run", with("isolation", "skipped"), "false", true},
+		{"isolation skipped, full run", with("isolation", "skipped"), "true", false},
+		{"isolation skipped, no decision", with("isolation", "skipped"), "", false},
+		{"isolation failed, fast run", with("isolation", "failure"), "false", false},
+		{"isolation cancelled, fast run", with("isolation", "cancelled"), "false", false},
+		{"isolation missing, fast run", strings.Replace(green, " isolation=success", "", 1), "false", false},
+		{"integration skipped, fast run", with("integration", "skipped"), "false", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.CommandContext(context.Background(), sh, script)
+			cmd.Env = append(os.Environ(), "RESULTS="+tc.results, "TEMPORAL_SERVER=true", "SDK=true", "FULL="+tc.full)
 			out, err := cmd.CombinedOutput()
 			if tc.ok && err != nil {
 				t.Fatalf("want success, got %v\n%s", err, out)

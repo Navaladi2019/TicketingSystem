@@ -114,8 +114,10 @@ func s10UUIDs(ids ...string) []uuid.UUID {
 }
 
 // s10Rules is tenant A's policy for iso_et_s10. "foreign" names tenant B's
-// groups and users: the PUT route refuses it (row 8), so it is published
-// past it, as a hand-written or corrupted row would be (row 1).
+// groups and users: the PUT route refuses it (row 8), and since TICK-940 so
+// does the database (acl_versions_tenant_ids; row 1 checks it). It is stored
+// as a row from before that trigger would be (legacyACLInsert), so row 1
+// still proves the read path ignores it.
 func s10Rules() []authz.Rule {
 	return []authz.Rule{
 		{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Groups: s10UUIDs(adminGroupA)}},
@@ -199,8 +201,15 @@ func s10Setup(ctx context.Context, e *etIso) (*s10Fixture, error) {
 }
 
 // s10Publish publishes rules with s10Masks as tenant A's next ACL version of
-// iso_et_s10, past the PUT route's validation.
+// iso_et_s10, past the PUT route's validation and the tenant-id trigger.
 func s10Publish(ctx context.Context, e *etIso, rules []authz.Rule) error {
+	return legacyACLInsert(ctx, e.super, func() error {
+		return s10PublishChecked(ctx, e, rules)
+	})
+}
+
+// s10PublishChecked publishes as s10Publish does, with every database check.
+func s10PublishChecked(ctx context.Context, e *etIso, rules []authz.Rule) error {
 	return tenancy.InTenantTx(ctx, e.pool, uuid.MustParse(TenantA), func(tx pgx.Tx) error {
 		_, err := acltest.PublishPolicy(ctx, tx, s10Key, rules, s10Masks())
 		return err
@@ -359,6 +368,12 @@ func s10Unchanged(ctx context.Context, e *etIso, id, before string) error {
 // tenant B, reach none of tenant A's records: the record lookup and the list
 // run in tenant B's own transaction, and the rule is tenant A's.
 func s10ForeignGroupRule(ctx context.Context, e *etIso, fx *s10Fixture) error {
+	// TICK-940: with the tenant-id trigger in place, the same publish as
+	// nava_app is refused with foreign_id; the stored row is a legacy one.
+	if err := s10PublishChecked(ctx, e, s10Rules()); err == nil ||
+		!strings.Contains(err.Error(), "SQLSTATE 23514") || !strings.Contains(err.Error(), "not a live group or user") {
+		return fmt.Errorf("publishing tenant B's ids in tenant A's policy as nava_app: %w, want 23514 from acl_versions_tenant_ids", err)
+	}
 	// Control: the stored policy does name tenant B's ids.
 	var named bool
 	if err := e.super.QueryRow(ctx, `SELECT rules::text LIKE '%' || $3 || '%' FROM acl_versions a JOIN entity_definitions d

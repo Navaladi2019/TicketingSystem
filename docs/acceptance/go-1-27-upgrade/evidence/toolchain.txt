@@ -1,0 +1,8 @@
+commit: 79805116c0889fd0c152bf013d28e0f3f3cfa197
+host go: go version go1.27.4 windows/amd64
+go.mod: go 1.27.0
+go.mod: toolchain go1.27.4
+temporal-server/go.mod: go 1.27.0
+temporal-server/go.mod: toolchain go1.27.4
+go build ./... (root and temporal-server): ok
+nava-core: go1.27.4

@@ -1,0 +1,10 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.updated", "entity": "incident" },
+  "start": "is_high",
+  "steps": [
+    { "key": "is_high", "type": "condition", "field": "/priority", "op": "eq", "value": 1, "then": "is_open", "else": "done" },
+    { "key": "is_open", "type": "condition", "field": "/state", "op": "ne", "value": "closed", "then": "done", "else": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

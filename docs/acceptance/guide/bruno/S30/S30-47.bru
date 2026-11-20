@@ -1,0 +1,40 @@
+meta {
+  name: S30.47 The admin republishes the policy S30.9 read
+  type: http
+  seq: 47
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-restore
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {}
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s30_policy'));
+  req.setBody({ rules: cur.rules, masks: cur.masks });
+  req.setHeader('If-Match', bru.getVar('s30_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the S30.9 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s30_policy')).rules));
+}
+
+docs {
+  Leaves the decisions as S30.9 found them, so S10 and S30 run again on this stack.
+}

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 amendment A1 explained (ACCEPTED): the 350 ms list limit follows the work the database does, not who is asking</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">ACCEPTED · rev 1 · 2026-11-20</span> <span class="src">ADR-006-A1 · issue TICK-1001 · amends ADR-006 D13 and residual R-a · source: TICK-992 measurements (PR #775)</span>
+
+<h1>Two kinds of filtered list get 350 ms instead of 150 ms, because of how much they read</h1>
+
+<blockquote><strong>In plain words.</strong>
+(1) When a user filters a big ticket list on a custom field, we promised an answer in 150 ms for 95% of requests, with one exception at 350 ms: a filter matching a few percent of tickets, for a user who can only see some of them.
+(2) Measured on a 400,000-ticket tenant, the same filter is just as slow for users who can see everything, and a broad filter (40% of tickets) is slow for users who can see only some. In both cases the cause is how many matching rows the database must read, not the user's permissions.
+(3) This amendment moves the 350 ms exception to exactly the two cases we measured: a 2% filter for anyone, and a 40% filter for a user with an ACL. It keeps 150 ms everywhere else, says plainly that filters between 2% and 40% have not been measured yet, and names the alert that tells us when to build the faster query.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>Admins can mark a custom field of a ticket type as <em>filterable</em>. Its values are then copied into a <em>side table</em>, a small extra table with an <em>index</em> (a sorted lookup structure, like a book index), so filters on it are fast (ADR-006).</p>
+<p>A list page shows the 51 newest matching tickets and a count of matches (the count stops at 1,001). Some users have a <em>row ACL</em>: an access rule that hides the tickets of groups they are not in. ADR-006 decision D13 set the speed target: <em>p95</em> (the time 95% of requests beat) ≤ 150 ms, except a filter matching 0.5–5% of tickets for a user with a row ACL, which was allowed 350 ms (accepted risk R-a).</p>
+<p>The new measurement (TICK-992) shows the exception was drawn around the wrong thing:</p>
+<ul>
+<li><strong>A 2% filter, no ACL: 237–268 ms.</strong> About 8,000 tickets match. To show "the newest 51", the database fetches all 8,000, sorts them and keeps 51. Without an ACL, that is the whole cost. With an ACL, the database instead scans every ticket the user may see (24,118 in the test, 6% of the type) and matches them up. The cost then grows with how much the user can see.</li>
+<li><strong>A 40% filter, with an ACL: 176–328 ms.</strong> The page itself takes 4–14 ms. The count is the slow part: the database loads all 160,258 matching side rows into memory to compare against the tickets the user can see, and that memory overflows to disk (at the configured 4 MB of working memory).</li>
+</ul>
+
+<figure><svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+<text x="170" y="44" text-anchor="end">40%, no ACL</text>
+<rect x="300" y="32" width="26" height="16" rx="3" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="331" y="44" font-size="11" fill="#59636e">100.1–121.6</text>
+<text x="170" y="72" text-anchor="end">40%, with ACL</text>
+<rect x="391" y="60" width="182" height="16" rx="3" fill="#ddf4ff" stroke="#0969da"/>
+<text x="578" y="72" font-size="11" fill="#59636e">176.1–327.6</text>
+<text x="170" y="100" text-anchor="end">2%, no ACL</text>
+<rect x="464" y="88" width="37" height="16" rx="3" fill="#ddf4ff" stroke="#0969da"/>
+<text x="506" y="100" font-size="11" fill="#59636e">236.6–267.6</text>
+<text x="170" y="128" text-anchor="end">2%, with ACL</text>
+<rect x="448" y="116" width="113" height="16" rx="3" fill="#fff8c5" stroke="#9a6700"/>
+<text x="566" y="128" font-size="11" fill="#59636e">223.1–317.6</text>
+<text x="170" y="156" text-anchor="end">0.25%, no ACL</text>
+<rect x="313" y="144" width="51" height="16" rx="3" fill="#ffebe9" stroke="#cf222e"/>
+<text x="368" y="156" font-size="11" fill="#59636e">110.6–152.8</text>
+<text x="170" y="184" text-anchor="end">0.25%, with ACL</text>
+<rect x="311" y="172" width="62" height="16" rx="3" fill="#ffebe9" stroke="#cf222e"/>
+<text x="378" y="184" font-size="11" fill="#59636e">109.1–160.9</text>
+<text x="170" y="212" text-anchor="end">0.01%, no ACL</text>
+<rect x="267" y="200" width="26" height="16" rx="3" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="298" y="212" font-size="11" fill="#59636e">72.3–93.9</text>
+<text x="170" y="240" text-anchor="end">0.01%, with ACL</text>
+<rect x="237" y="228" width="44" height="16" rx="3" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="287" y="240" font-size="11" fill="#59636e">47.9–84.8</text>
+<line x1="360" y1="22" x2="360" y2="258" stroke="#1a7f37" stroke-dasharray="5 3"/>
+<text x="360" y="16" text-anchor="middle" font-size="11" fill="#1a7f37">150 ms (most bands)</text>
+<line x1="600" y1="22" x2="600" y2="258" stroke="#0969da" stroke-dasharray="5 3"/>
+<text x="600" y="16" text-anchor="middle" font-size="11" fill="#0969da">350 ms (R-a bands)</text>
+<line x1="180" y1="258" x2="660" y2="258" stroke="#59636e"/>
+<text x="180" y="274" text-anchor="middle" font-size="11" fill="#59636e">0</text>
+<text x="300" y="274" text-anchor="middle" font-size="11" fill="#59636e">100</text>
+<text x="420" y="274" text-anchor="middle" font-size="11" fill="#59636e">200</text>
+<text x="540" y="274" text-anchor="middle" font-size="11" fill="#59636e">300</text>
+<text x="660" y="274" text-anchor="middle" font-size="11" fill="#59636e">400</text>
+<text x="420" y="292" text-anchor="middle" font-size="11" fill="#59636e">p95 ms, 8 clients, range over 5 operators (TICK-992)</text></svg>
+<figcaption>Blue: the two measured cases A1 puts under 350 ms (2% and 40%; 5–20% not measured). Yellow: already under 350 ms in ADR-006. Red: misses 150 ms by 2–7%, not re-budgeted (A1-5). Green: passes 150 ms.</figcaption></figure>
+
+<p>The test machine was not fully idle: another stack was running at idle, approved by the Technical Lead. That can only make the numbers slower, so each one is an upper bound; we do not "correct" them by a factor. Two cells, 317.6 and 327.6 ms, pass 350 ms by less than 10%, so under the team&#39;s scoring rule they count as <em>provisional</em> passes.</p>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>(c) Move the 350 ms exception to the two measured cases where the database must read a whole set of rows</strong>, and keep the faster design as a follow-up with a trigger we can measure</td><td class="good">Chosen: no code change, no risk to isolation, and the measured cells sit 6–32% inside 350 ms.</td></tr>
+<tr><td>Keep the old 0.5–5% range for the exception</td><td class="bad">Rejected after review: only 2% was measured, and the cost grows with the number of matches, so a 5% filter would likely take 590–670 ms. A spike measures 5–20% before we promise any number for it.</td></tr>
+<tr><td>(a) An <em>adaptive query</em>: for a broad filter, walk the tickets newest-first and check each one, instead of fetching all matches</td><td>Kept as the follow-up. Estimated ~2,550 checks instead of ~8,000 fetches, but not yet measured, and a wrong guess between the two shapes could make some filters slower. A spike measures it when the trigger fires.</td></tr>
+<tr><td>(b) A real database column for each field that needs this speed</td><td class="bad">Rejected for now: single-digit milliseconds, but it means changing the database layout per field, which undoes the "admins configure fields without code" goal and is hard to reverse.</td></tr>
+<tr><td>Keep 150 ms and hold the story until (a) is built</td><td class="bad">Rejected: holds delivery on an unmeasured design, for a band already accepted at 350 ms for the same cause.</td></tr>
+<tr><td>Re-run on a fully idle machine and hope it passes</td><td class="bad">Rejected: with a single user, the database alone already takes 84–97 ms per request, before 8 users share the machine. Nothing measured suggests an idle machine would get under 150 ms.</td></tr>
+<tr><td>Raise every band to 350 ms</td><td class="bad">Rejected: would hide slowdowns in the selective filters, which run at 48–161 ms today.</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<dl>
+<dt>A1-1: the new target</dt><dd>p95 ≤ 150 ms for every filtered list, except two cases at ≤ 350 ms. The first is a filter matching 0.5–2% of a ticket type, for any user (with an ACL, as measured for a user who sees up to 6% of the type). The second is a filter matching 40% or more, for a user with a row ACL (as measured with 4 MB of working memory and about 160,000 matches). Filters matching 2–40% are <em>unmeasured</em>: their target stays 150 ms, and they do not count as passing until they are measured.</dd>
+<dt>A1-2: why these two</dt><dd>In both cases the database does work proportional to a whole set of rows: either the matches, or everything the user may see. The current query shape cannot avoid that. Extending either case, to more matches or to broader access, needs the same proof: a measured cell and its query plan.</dd>
+<dt>A1-3: the accepted risk, rewritten</dt><dd>R-a now names both cases and the conditions they were measured under. The old note that "the 40% count is a count-only miss at 538–1,255 ms" is gone: after recent fixes, the whole 40% request, count included, fits in 350 ms.</dd>
+<dt>A1-4: an alert we can act on</dt><dd>One metric, <code>nava_records_list_data_filter_seconds</code>, covers lists filtered on a custom field. Its only label says whether a row ACL applied. The alert fires when more than 1% of those requests take over 350 ms for an hour. Each slow request also writes one log line that names the tenant (never the filter value), so we can confirm that one real tenant is slow before acting. The first draft labelled requests by whether the count hit its cap. The review showed that this would miss the 2% case with an ACL (its count is 487, below the cap) and would mix in a case that must stay under 150 ms.</dd>
+<dt>A1-5: two near-misses are not excused</dt><dd>A 0.25% filter with two values missed by 2–7% (160.9 / 152.8 ms), with only 29–35 ms of database time and no fan-out. It keeps 150 ms. The Technical Lead decides whether to rerun it on an idle machine. A confirmed miss would need its own decision.</dd>
+<dt>A1-6: what the follow-up must prove</dt><dd>When the alert fires, a spike tries the adaptive query for both the page and the count. The query must force the cheaper shape itself, because left alone the database picked the slower one. It must also hold when the matching tickets are all old ones and when the user's access is narrow, with no change to tenant isolation or permission checks.</dd>
+<dt>A1-7: two measurements to fill the gaps</dt><dd>S1 measures 5%, 10% and 20% filters. S2 measures a 2% filter for users who see 6%, 25% and 50% of the type. Both run on the same test rig, the Technical Lead schedules them, and they do not hold up the story. A pass extends the 350 ms case; a miss narrows it or opens a new decision.</dd>
+<dt>A1-8: how the borderline cells are scored</dt><dd>317.6 and 327.6 ms pass 350 ms by less than 10%, so they count as provisional passes, not final ones.</dd>
+</dl>
+
+<h2>4. The fix and migration</h2>
+<p>None in code. This changes a budget: the D13 row of <code>docs/budgets.md</code> (on the S21 story branch) and the accepted-risk index. The metric in A1-4 is a follow-up task for the Technical Lead.</p>
+
+<h2>5. What we are accepting</h2>
+<table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th><th>When we revisit</th></tr></thead><tbody>
+<tr><td>R-a / AR-TICK-714-01</td><td>Low</td><td>On large ticket types, a filter matching 0.5–2% of tickets (any user), or 40% or more for a user with a row ACL, can take up to 350 ms instead of 150 ms. Filters between 2% and 40%, and users who see much more than 6% of a type, have not been measured yet. Speed only: no user sees anything they should not.</td><td>More than 1% of filtered lists take over 350 ms for an hour, and the log shows one real tenant is slow. Or a tenant passes 400,000 records. Or the S1 or S2 measurements miss. Then the adaptive-query spike runs.</td></tr>
+</tbody></table>
+<p>Competitive check (ADR-008): still a pass with accepted risk CP-FW-01 ("slow loading at high ticket volume"), now covering two bands.</p>
+
+<h2>6. Evidence</h2>
+<ul>
+<li>Raw timings, host state and background load: <code>docs/adr/ADR-006/spikes/a1-d13-bands/</code> (copied from PR #775).</li>
+<li>Technical Architect review (round 1, TICK-1001): one blocking item (the alert) and two items to measure (S1, S2), all taken in rev 1.</li>
+<li>Query plans for the two bands: <code>plans-excerpt.md</code> in the same folder. The 40%+ACL count spends 82 ms building an in-memory table of 160,258 rows that spills to disk; the 2%-no-ACL page fetches 8,098 tickets to keep 51; the 2%-with-ACL page scans the 24,118 tickets the user may see.</li>
+<li>Full write-up: PR #775, <code>docs/data/field-index-measured.md</code>, section TICK-992.</li>
+<li>There is no red-to-green test for a budget. The evidence is the measured cells against the old and new limits.</li>
+</ul>
+</main></body></html>

@@ -43,7 +43,7 @@ func (PolicyStore) Current(ctx context.Context, tx pgx.Tx, entityKey string) (*P
 	if err != nil {
 		return nil, fmt.Errorf("authz: %w", err)
 	}
-	return scanPolicy(tx.QueryRow(ctx, currentPolicySQL, tenant, entityKey))
+	return scanPolicy(tx.QueryRow(ctx, currentPolicySQL, tenant, entityKey), entityKey)
 }
 
 // policyKey is the tx memo key of an entity type's prefetched policy.
@@ -60,7 +60,7 @@ func (PolicyStore) QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, ent
 		return fmt.Errorf("authz: %w", err)
 	}
 	b.Queue(currentPolicySQL, tenant, entityKey).QueryRow(func(row pgx.Row) error {
-		pol, err := scanPolicy(row)
+		pol, err := scanPolicy(row, entityKey)
 		if err != nil {
 			return err
 		}
@@ -70,9 +70,9 @@ func (PolicyStore) QueuePolicy(ctx context.Context, tx pgx.Tx, b *pgx.Batch, ent
 	return nil
 }
 
-func scanPolicy(row pgx.Row) (*Policy, error) {
+func scanPolicy(row pgx.Row, entityKey string) (*Policy, error) {
 	var (
-		pol          Policy
+		pol          = Policy{EntityType: entityKey}
 		rules, masks []byte
 	)
 	err := row.Scan(&pol.EntityDefinitionID, &pol.Version, &rules, &masks)
@@ -82,9 +82,11 @@ func scanPolicy(row pgx.Row) (*Policy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authz: read acl: %w", err)
 	}
-	if err := decodeStrict(rules, &pol.Rules); err != nil {
+	doc, err := Decode(rules)
+	if err != nil {
 		return nil, fmt.Errorf("authz: decode acl %d rules: %w", pol.Version, err)
 	}
+	pol.Document = doc
 	if err := decodeStrict(masks, &pol.Masks); err != nil {
 		return nil, fmt.Errorf("authz: decode acl %d masks: %w", pol.Version, err)
 	}
@@ -187,7 +189,7 @@ func (a ACL) CanRead(ctx context.Context, tx pgx.Tx, p identity.Principal, entit
 	if err != nil {
 		return err
 	}
-	if _, ok := Allows(pol, p, OpRead, r); !ok {
+	if _, _, ok := Allows(pol, p, OpRead, r); !ok {
 		return ErrNotVisible
 	}
 	return nil
@@ -206,11 +208,11 @@ func (a ACL) CanWrite(ctx context.Context, tx pgx.Tx, p identity.Principal, enti
 		return err
 	}
 	if before != nil {
-		if _, ok := Allows(pol, p, OpWrite, *before); !ok {
+		if _, _, ok := Allows(pol, p, OpWrite, *before); !ok {
 			return ErrForbidden
 		}
 	}
-	if _, ok := Allows(pol, p, OpWrite, *after); !ok {
+	if _, _, ok := Allows(pol, p, OpWrite, *after); !ok {
 		return ErrForbidden
 	}
 	return nil

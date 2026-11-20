@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/number-formats",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "119",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-d690e1dc-short",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"key\": \"s18n_short_d690e1dc\",\n  \"document\": {\n    \"template\": \"{prefix}{yy}{seq:3}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "0f5e14eb-99ee-47b8-a027-66ee385d510d",
+      "key": "s18n_short_d690e1dc",
+      "version": 1,
+      "current_version": 1,
+      "document": {
+        "overflow": "refuse",
+        "template": "{prefix}{yy}{seq:3}"
+      },
+      "compiled": {
+        "Head": "{prefix}{yy}",
+        "Tail": "",
+        "Epoch": -1,
+        "Width": 3,
+        "Overflow": "refuse",
+        "TimeZone": "",
+        "ScopeParts": [
+          "{yy}"
+        ],
+        "CompiledSHA256": "3b6b645b77c6646d8611321bfb774db09b424cfd7be075d31b204c0647dbcce3"
+      },
+      "compiled_sha256": "3b6b645b77c6646d8611321bfb774db09b424cfd7be075d31b204c0647dbcce3",
+      "created_at": "2026-11-15T05:15:37.079306Z",
+      "created_by": "1cd3ec96-876d-4b7f-a884-72b2cc9e650b"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "version 1 of {prefix}{yy}{seq:3} (refuse)",
+      "status": "pass"
+    }
+  ]
+}

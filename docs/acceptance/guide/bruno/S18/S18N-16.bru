@@ -1,0 +1,40 @@
+meta {
+  name: S18N.16 AC2: {yyyy}{MM}{seq:4} is refused: 422 number_format_prefix_required
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-nopfx
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_nopfx_{{s18n_run}}",
+    "document": {
+      "template": "{yyyy}{MM}{seq:4}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_prefix_required', 422);
+  test('names position 0 of /document/template', () => {
+    expect(N.json().errors[0].pointer).to.eql('/document/template');
+    expect(N.json().errors[0].rule).to.eql('position:0');
+  });
+}
+
+docs {
+  The template does not start with `{prefix}`.
+}

@@ -1,0 +1,8 @@
+meta {
+  name: S18 number formats
+  seq: 21
+}
+
+docs {
+  Story S18, TICK-669 (kit TICK-677, docs/acceptance/S18/README.md): release R2 of ADR-005. A tenant admin writes a number format, publishes it and links it to a ticket type. Needs the stack docs/acceptance/S18/tools/run-kit.sh prepares: a fresh stack on the S17 build where tenant A has the types `visa` (VISA0000001, VISA0000002) and `permit` and incidents INC0000001..2, tenant B incidents INC0000001..2, then upgraded to the story build (M3), with admin@tenant-b.test seeded. Users: admin@tenant-a, agent@tenant-a (Alice) and admin@tenant-b. AC1 S18N.5-S18N.15, AC2 S18N.16-S18N.17, AC3 S18N.18-S18N.21, AC4 S18N.22-S18N.26, AC5 S18N.27-S18N.31, E9 S18N.32-S18N.38. Runs once per prepared stack: the exact numbers do not hold on a second pass.
+}

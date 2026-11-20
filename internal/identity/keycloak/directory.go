@@ -138,6 +138,11 @@ type DirectoryConfig struct {
 	// InviteTTL is how long a pending invite is valid. Zero is
 	// DefaultInviteTTL.
 	InviteTTL time.Duration
+	// DevIdPHosts is the default-off dev allowance: exact host[:port] entries
+	// whose IdP URLs skip the https and private-address checks. Only the local
+	// stack's stand-in company IdP is ever listed. Empty (the default) keeps
+	// every check on.
+	DevIdPHosts []string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -151,6 +156,7 @@ type Directory struct {
 	idps       IdPSource
 	invites    InviteWriter
 	inviteTTL  time.Duration
+	devHosts   []string
 	now        func() time.Time
 	log        *slog.Logger
 }
@@ -199,6 +205,7 @@ func NewDirectory(cfg DirectoryConfig, out *telemetry.OutboundClient) (*Director
 		reg:     cfg.Registry,
 		idps:    cfg.IdPs,
 		invites: cfg.Invites, inviteTTL: cfg.InviteTTL, now: time.Now,
+		devHosts: cfg.DevIdPHosts,
 	}
 	if cfg.Onboarding != nil {
 		d.onboarding = &account{creds: *cfg.Onboarding, orgs: orgAll}
@@ -870,7 +877,7 @@ func (d *Directory) CreateTenantOrg(ctx context.Context, tenantID uuid.UUID, ali
 	if spec.ProviderID != "oidc" && spec.ProviderID != "saml" {
 		return "", fmt.Errorf("%w: idp provider", identity.ErrInvalidInput)
 	}
-	if err := checkIdPConfig(spec); err != nil {
+	if err := checkIdPConfigWith(spec, d.devHosts); err != nil {
 		return "", err
 	}
 	idpAlias := TenantIdPAlias(tenantID)
@@ -1021,7 +1028,12 @@ func toSet(keys ...string) map[string]bool {
 	return m
 }
 
-func checkIdPConfig(spec IdPSpec) error {
+func checkIdPConfig(spec IdPSpec) error { return checkIdPConfigWith(spec, nil) }
+
+// checkIdPConfigWith is checkIdPConfig with the dev allowance: a URL whose
+// host is exactly one of devHosts is not put through checkIdPURL. Every other
+// URL still is.
+func checkIdPConfigWith(spec IdPSpec, devHosts []string) error {
 	allowed := oidcConfigKeys
 	if spec.ProviderID == "saml" {
 		allowed = samlConfigKeys
@@ -1033,6 +1045,9 @@ func checkIdPConfig(spec IdPSpec) error {
 	}
 	for k, v := range spec.Config {
 		if !idpURLKeys[k] {
+			continue
+		}
+		if DevIdPHostAllowed(v, devHosts) {
 			continue
 		}
 		if err := checkIdPURL(v); err != nil {

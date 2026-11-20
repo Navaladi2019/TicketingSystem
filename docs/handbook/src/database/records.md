@@ -18,7 +18,7 @@ Attributes are split two ways:
 - **`data jsonb`** holds the rest: the fields the type's JSON Schema defines.
   The service validates it against the schema version in `schema_version`.
   The diagram shows it as one attribute. Nothing indexes `data`, and there
-  are no expression indexes (PLAN-003 D25). Filterable fields, which would add typed side tables, are accepted in [ADR-006](../adr/adr-006.md) but not on `main`.
+  are no expression indexes (PLAN-003 D25). Filterable fields ([ADR-006](../adr/adr-006.md)) are built on the S21 story branch, not yet on `main`: a flagged field's values are copied into typed side tables, described in [Field index](field-index.md) and [below](#filters-on-data-fields-s21-story-branch).
 
 The list indexes all start with `(tenant_id, entity_definition_id)` and end
 with the sort key and `id`, so every allowed sort is an ordered index scan
@@ -37,3 +37,16 @@ audited.
 ## Tables
 
 <!-- gen:tables area=records -->
+
+## Filters on data fields (S21, story branch)
+
+On the `TICK-739/filterable-fields` branch (not yet on `main`), a list filter
+on a `data` field is resolved against the [field-index
+registry](field-index.md) after the masked-field check: not flagged is `400
+field_not_filterable` (except `incident.priority`, `request.priority` and
+`change.risk`, which keep the JSONB scan until S22), `backfilling` is `422
+field_not_ready` with `index_progress`, and `ready` compiles to one correlated
+`EXISTS` per field on the typed side table, inside the list statement that
+carries the row ACL (ADR-006 D6, D7; TICK-746, TICK-989). All bounds on one
+field share the one `EXISTS`, so on an array field a single element must
+satisfy every bound. See the [S21 story page](../stories/s21.md).

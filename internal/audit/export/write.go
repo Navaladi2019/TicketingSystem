@@ -3,7 +3,6 @@ package export
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -71,9 +70,16 @@ func (e *Exporter) Deadline() time.Duration {
 // the cap (R21).
 func (e *Exporter) Write(ctx context.Context, w io.Writer, flush func(), s Session) error {
 	return e.stream(ctx, w, flush, s, func(bw *bufio.Writer) (func(any) error, error) {
-		enc := json.NewEncoder(bw)
-		enc.SetEscapeHTML(false) // the canonical envelope must keep < > & raw
-		return enc.Encode, nil
+		return func(v any) error {
+			// MarshalJSONL writes the canonical envelope bytes verbatim; a
+			// json.Encoder would re-escape U+2028/U+2029 in them on Go 1.27.
+			line, err := chain.MarshalJSONL(v)
+			if err != nil {
+				return err
+			}
+			_, err = bw.Write(line)
+			return err
+		}, nil
 	})
 }
 
