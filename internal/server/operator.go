@@ -61,6 +61,9 @@ type options struct {
 	// listDataTerm replaces the list's data-filter term; only
 	// WithListDataTerm (integration builds) sets it.
 	listDataTerm func(arg string) string
+	// legacyScan widens the legacy-scan allow-list; only WithLegacyScan
+	// (integration builds) sets it.
+	legacyScan func(typeKey, field string) bool
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

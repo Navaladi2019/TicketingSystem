@@ -84,7 +84,7 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			flagged = false
 		}
 		if !flagged {
-			if !fieldindex.LegacyScan(entity, f.prop) {
+			if !fieldindex.LegacyScan(entity, f.prop) && (h.legacyScan == nil || !h.legacyScan(entity, f.prop)) {
 				return notFilterable(f.prop)
 			}
 			if f.op != "eq" && f.op != "in" {
