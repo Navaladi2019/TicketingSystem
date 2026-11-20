@@ -1683,8 +1683,9 @@ def gen_accepted_risks(f, ids):
     # row up to the first line that is not a table row. An AR line anywhere
     # else in the file (a summary table, a list) is never picked up, and a
     # row inside the register that is not an AR row fails the build.
-    header, rows = [], []
-    for line in read_text(path).split("\n"):
+    header, rows, end = [], [], None
+    lines = read_text(path).split("\n")
+    for n, line in enumerate(lines):
         if not header:
             if line.startswith("| ID |"):
                 header = [line]
@@ -1697,9 +1698,30 @@ def gen_accepted_risks(f, ids):
                 raise ValueError("%s: register row %r is not an AR row" % (RISKS_MD, line[:40]))
             rows.append(line)
         else:
+            end = n
             break
     if len(header) != 2:
         raise ValueError("%s has no register table" % RISKS_MD)
+    seen = set()
+    for r in rows:
+        if risk_id(r) in seen:
+            raise ValueError("%s: %s is in the register twice" % (RISKS_MD, risk_id(r)))
+        seen.add(risk_id(r))
+    # After the register, an AR row is allowed only inside a table of its own
+    # (a header row, then its separator). A bare AR row, for example one a
+    # merge appended under "Maintaining this register", is a register row in
+    # the wrong place: it would silently be an unknown id, so it fails the
+    # build instead (TICK-1013).
+    in_table = False
+    for n in range(end if end is not None else len(lines), len(lines)):
+        line = lines[n]
+        if not line.startswith("|"):
+            in_table = False
+        elif line.startswith("| ---") and n > 0 and lines[n - 1].startswith("|"):
+            in_table = True
+        elif risk_id(line) and not in_table:
+            raise ValueError("%s line %d: %s is outside the register table; move it into the table under "
+                             "## Register" % (RISKS_MD, n + 1, risk_id(line)))
     want = [i for i in ids.split(",") if i] if ids else []
     if want:
         known = {risk_id(r) for r in rows}
