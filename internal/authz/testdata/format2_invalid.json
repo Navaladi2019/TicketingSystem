@@ -62,6 +62,8 @@
   {"name": "under of a bad id", "doc": {"format": 2, "conditions": [], "policies": [{"name": "p", "ops": ["read"], "when": {"under": {"of": ["x", 1]}}}]}, "problems": [{"pointer": "/policies/0/when/under/of/0", "code": "value"}, {"pointer": "/policies/0/when/under/of/1", "code": "type"}]},
   {"name": "duplicate top-level key", "go_only": true, "doc": {"format": 2, "format": 2, "conditions": [], "policies": []}, "problems": [{"pointer": "/format", "code": "unknown_key"}]},
   {"name": "duplicate node key", "go_only": true, "doc": {"format": 2, "conditions": [], "policies": [{"name": "p", "ops": ["read"], "when": {"ref": "a", "ref": "b"}}]}, "problems": [{"pointer": "/policies/0/when/ref", "code": "unknown_key"}]},
+  {"name": "check: duplicate top-level rules in the body", "check": true, "go_only": true, "doc": {"format": 2, "conditions": [], "policies": []}, "body": {"rules": {"format": 2, "conditions": [], "policies": []}, "rules": {"format": 2, "conditions": [], "policies": []}}, "problems": [{"pointer": "/rules", "code": "duplicate"}]},
+  {"name": "check: duplicate top-level masks in the body", "check": true, "go_only": true, "doc": {"format": 2, "conditions": [], "policies": []}, "body": {"rules": {"format": 2, "conditions": [], "policies": []}, "masks": [], "masks": []}, "problems": [{"pointer": "/masks", "code": "duplicate"}]},
   {"name": "several problems are all reported", "doc": {"format": 2, "conditions": [{"name": "Bad", "expr": {"all": []}}], "policies": [{"name": "p", "ops": [], "when": {"fn": 1}}]}, "problems": [
     {"pointer": "/conditions/0/expr/all", "code": "child_count"},
     {"pointer": "/conditions/0/name", "code": "invalid_name"},

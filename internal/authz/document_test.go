@@ -41,7 +41,11 @@ type invalidFixture struct {
 	NeedsTenant bool            `json:"needs_tenant"`
 	MaxBytes    int             `json:"max_bytes"`
 	Doc         json.RawMessage `json:"doc"`
-	Problems    []struct {
+	// Body, when set, is the whole publish body Prepare is given instead of
+	// {"rules": Doc}, for a problem outside the rules value (a repeated
+	// top-level name). Its problems are pointers into the body, not into Doc.
+	Body     json.RawMessage `json:"body"`
+	Problems []struct {
 		Pointer string `json:"pointer"`
 		Code    string `json:"code"`
 	} `json:"problems"`
@@ -145,7 +149,7 @@ func TestInvalidFixtureCodesAreDeclared(t *testing.T) {
 		authz.RuleRequired, authz.RuleType, authz.RuleUnknownKey, authz.RuleValue, authz.RuleEmpty, authz.RuleCondition,
 		authz.RuleInvalidName, authz.RuleDuplicateName, authz.RuleUnresolvedRef, authz.RuleRefCycle, authz.RuleChildCount,
 		authz.RuleDepthExceeded, authz.RulePolicyLeavesExceeded, authz.RulePoliciesExceeded, authz.RuleDocLeavesExceeded,
-		authz.RuleForeignID, authz.RuleNotAvailable, authz.RuleDocumentTooLarge,
+		authz.RuleForeignID, authz.RuleNotAvailable, authz.RuleDocumentTooLarge, authz.RuleDuplicate,
 	}
 	for _, f := range load[invalidFixture](t, "testdata/format2_invalid.json") {
 		for _, p := range f.Problems {
