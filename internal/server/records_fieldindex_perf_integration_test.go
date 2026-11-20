@@ -38,7 +38,8 @@
 // NAVA_PERF_ASIS_BATCHES (40) and NAVA_PERF_FIX_BATCHES (60) batches of each
 // as-merged and fix-candidate backfill sample (0 runs to the end),
 // NAVA_PERF_TEMPORAL_CLI (an existing temporal CLI binary; empty downloads
-// the SDK's default).
+// the SDK's default), NAVA_PERF_CHURN_PCT and NAVA_PERF_APP_RPC (TICK-1022,
+// listConditions; off by default).
 
 package server_test
 
@@ -263,6 +264,7 @@ func TestFieldIndexPerf800k(t *testing.T) {
 		e.flagForLists(t, fiListFields()[:4], true)
 	}
 	if ph["lists"] {
+		e.listConditions(t)
 		e.lists(t, clients)
 	}
 	if ph["guard"] {
@@ -328,6 +330,34 @@ func (e *fiEnv) flagForLists(t *testing.T, fields []fiField, onlyLarge bool) {
 		pg_size_pretty(pg_table_size(c.oid)) || ' heap, ' || pg_size_pretty(pg_indexes_size(c.oid)) || ' indexes', '; ' ORDER BY c.relname)
 		FROM pg_class c WHERE c.relname IN ('rfv_text', 'rfv_num', 'rfv_ts', 'rfv_bool')`))
 	e.w("- records: %s", e.scalar(t, `SELECT pg_size_pretty(pg_table_size('records')) || ' heap, ' || pg_size_pretty(pg_indexes_size('records')) || ' indexes'`))
+}
+
+// listConditions applies TICK-1022's two list-phase conditions, both off by
+// default: NAVA_PERF_CHURN_PCT re-writes that share of every side table's
+// rows (delete and insert, spread over the heap as record edits are) and
+// analyzes, which leaves the visibility map a steady state between two
+// autovacuums has; NAVA_PERF_APP_RPC sets nava_app's random_page_cost.
+func (e *fiEnv) listConditions(t *testing.T) {
+	t.Helper()
+	if n := perfEnvInt("NAVA_PERF_CHURN_PCT", 0); n > 0 {
+		for _, tb := range []string{"rfv_text", "rfv_num", "rfv_ts", "rfv_bool"} {
+			e.exec(t, `WITH d AS (DELETE FROM `+tb+` WHERE ('x' || substr(md5(record_id::text), 1, 7))::bit(28)::int % 100 < $1
+				RETURNING tenant_id, field_id, record_id, ord, value)
+				INSERT INTO `+tb+` SELECT * FROM d`, n)
+			e.exec(t, "ANALYZE "+tb)
+		}
+		e.w("- churn: %d%% of every side table's rows deleted and inserted again, then ANALYZE; all-visible: %s", n,
+			e.scalar(t, `SELECT string_agg(relname || ' ' || round(100.0 * relallvisible / nullif(relpages, 0)) || '%', ', ' ORDER BY relname)
+				FROM pg_class WHERE relname IN ('rfv_text', 'rfv_num', 'rfv_ts', 'rfv_bool')`))
+	}
+	if v := os.Getenv("NAVA_PERF_APP_RPC"); v != "" {
+		if _, err := strconv.ParseFloat(v, 64); err != nil {
+			t.Fatalf("NAVA_PERF_APP_RPC %q: %v", v, err)
+		}
+		e.exec(t, "ALTER ROLE nava_app SET random_page_cost = "+v)
+		e.pool.Reset()
+		e.w("- nava_app random_page_cost = %s", v)
+	}
 }
 
 // fiPlanning is the "Planning Time" of an EXPLAIN (ANALYZE) output.

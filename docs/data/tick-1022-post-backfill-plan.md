@@ -9,11 +9,13 @@ also the steady state. Re-writing 5% of the side rows through edits leaves
 1% of the pages all-visible, and the count takes the slow plan again until
 autovacuum runs.
 
-**Candidate fix, not adopted yet.** Set `random_page_cost = 1.1` for
-`nava_app` (a role setting in `db/grants.yaml`). It keeps the fast plan at
-0% all-visible: 42 ms against 255 ms. It changes every plan of the app role,
-so it needs a D13 + P3-36 re-score on an idle host before it lands (next
-step below).
+**`random_page_cost = 1.1` for `nava_app` is rejected (run 3).** It held the
+fast plan in the single-field repro (42 ms). On D13's own setup (8 flagged
+fields on 400 types, side tables vacuumed) it does not. The ≥ 40% ACL counts
+of `in`, `lt` and the ts range still take the spilling Hash Semi Join:
+80–98 ms of count server time against 99–114 ms at 4. A planner setting
+only moves the threshold, so the fix has to change the count's statement
+shape (options at the end).
 
 ## What the list runs
 
@@ -121,25 +123,49 @@ statement for pk=3 after `ANALYZE`, after `VACUUM`, at 5% re-written, with
 `random_page_cost` 1.1, and never analyzed). Raw tables: `states-raw.md`,
 `sweep-raw.md`, host lines in `host.txt`.
 
+### Run 3: D13's matrix, `random_page_cost` 4 against 1.1 for `nava_app`
+
+`TestFieldIndexPerf800k`, lists phase only, two fresh containers one after
+the other on the same host (`NAVA_PERF_APP_RPC`). The side tables were
+vacuumed as D13 measures them. The host was busy: the transport floor read
+p50 7.8 ms against the 3 ms gate, and the no-filter control's p95 read
+89–562 ms against 73 ms idle. So the 8-client p95 is invalid, and this
+compares server time only: planning plus execution of one `EXPLAIN
+(ANALYZE)` of each statement, as `nava_app`.
+
+| Cell (count / page, ms) | `random_page_cost` 4 | 1.1 |
+| --- | --- | --- |
+| text eq 40%, ACL | 31.9 / 9.1 | 30.8 / 14.4 |
+| text in 40%, ACL | **108.0** / 8.5, hash spills | **91.3** / 8.2, hash spills |
+| num lt 40%, ACL | **98.7** / 7.1, hash spills | **79.8** / 12.0, hash spills |
+| ts range 40%, ACL | **114.4** / 10.9, hash spills | **97.5** / 11.3, hash spills |
+| bool eq 40%, ACL | 40.8 / 18.8 | 40.0 / 23.2 |
+
+The other 35 cells move both ways by up to 2× between the two runs, inside
+the host's noise. No cell changed plan family. All 40 cells:
+`tick-1022-post-backfill-plan/rpc-ab-server-time.md`. Raw reports:
+`rpc4-lists-raw.md` and `rpc1.1-lists-raw.md`. The two arms with 5% of the
+side rows re-written were stopped: run 3 had already rejected the setting.
+
 ## Why not the other fixes
 
 | Option | Result |
 | --- | --- |
 | `ANALYZE` the side table when the backfill flips a field to ready | Measured: no effect (255 ms against 202 ms without it). It would also need a `SECURITY DEFINER` wrapper, because `nava_worker` does not own the table and PG 16 has no `MAINTAIN` privilege. That breaks CI-1. |
-| `VACUUM` at the flip | Cannot run in a function or a transaction, and needs ownership. Not reachable from the worker. |
-| Tighter autovacuum on `rfv_*` (insert and dead-row scale factors) | Narrows the window but cannot close it: 5% re-written already leaves 1% all-visible, and autovacuum runs at most once a naptime. |
-| Force the per-record probe in the count (`OFFSET 0` in the `EXISTS`) | Fixes the ACL arm but takes away the side-index-driven plan from the selective, no-ACL filters (the 0.01% band). A compiler change to ADR-006 D7's shape. Kept as the fallback if `random_page_cost` fails the matrix. |
-| `random_page_cost = 1.1` for `nava_app` | Measured: fast plan at 0% all-visible. Matches a data set that fits in shared buffers on SSD. It changes every `nava_app` plan, so it is scored first. |
+| `VACUUM` at the flip | Cannot run in a function or a transaction block, and needs ownership. Not reachable from the worker. It would not hold either: 5% re-written leaves 1% all-visible. |
+| Tighter autovacuum on `rfv_*` | Narrows the window but cannot close it, for the same reason. |
+| `random_page_cost = 1.1` for `nava_app` | Run 3: the D13 ≥ 40% ACL counts keep the spilling hash (80–98 ms). Rejected. |
 
-## Next step
+## Remaining options (each changes the count's statement shape, ADR-006 D7)
 
-Re-score on an idle host with `random_page_cost = 1.1` for `nava_app`,
-against the current arm on the same host:
+| Option | What it does | Risk |
+| --- | --- | --- |
+| (A) Per-record probe in the ACL arms of the count: `EXISTS (… OFFSET 0)`, which PostgreSQL does not pull up into a join, so it stays a correlated probe of `rfv_*_value` per visible record | No hash plan is possible, so the visibility map and statistics stop mattering. Cost is about the number of records the ACL arm can see, until 1,001 matches. | An agent whose ACL arm sees most of the type, filtering on a rare value, probes every visible record: 200k probes at 400k. The planner avoids that today. Needs a bound, for example only arms the planner estimates under N rows. |
+| (B) The compiler picks the shape from the planner's estimate (the TICK-992 note's option (a)) | Uses (A) where the visible set is small, and the join where it is large | One planning-only `EXPLAIN` per list (1–3 ms), and more compiler code |
+| (C) A D13 variance for the ≥ 40% ACL band | No code | Accepts 100–500 ms single-client server time as the steady state |
 
-- D13's 40-cell list matrix (`TestFieldIndexPerf800k`, lists phase), with
-  the side tables vacuumed as now, and again at 5% re-written.
-- P3-36's list matrix (no data filter).
-
-If both hold, the change is one line in `db/grants.yaml` (`settings`) plus
-`random_page_cost` in `grants.AllowedSettings`. If not, the fallback is the
-compiler's per-record probe for ACL arms.
+Recommendation: spike (A) with a size bound on the TICK-1022 harness and on
+D13's matrix. It is the smallest change that removes the dependency
+outright. The statement shape belongs to the list compiler
+(`internal/server/records_list_index.go`) and ADR-006 D7, so the Solution
+Architect rules on the shape before it lands.
