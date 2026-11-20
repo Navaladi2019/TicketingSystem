@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident?filter[description]=S21%20internal%20note%201",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "urn:nava:problem:masked_field",
+      "title": "Masked field",
+      "status": 400,
+      "code": "masked_field",
+      "detail": "The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.",
+      "instance": "urn:nava:request:b9e948825b8f7a57c95f7c4b9591c867",
+      "errors": [
+        {
+          "pointer": "/description",
+          "rule": "masked"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 400",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code masked_field",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    },
+    {
+      "test": "no items and no total",
+      "status": "pass"
+    }
+  ]
+}

@@ -1,0 +1,624 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/entity-types/incident",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "etag": null,
+      "body": {
+        "key": "incident",
+        "name": "Incident",
+        "number_prefix": "INC",
+        "numbering_mode": "gaps",
+        "version": 1,
+        "current": true,
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "short_description",
+            "state"
+          ],
+          "properties": {
+            "short_description": {
+              "type": "string",
+              "title": "Short description",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "description": {
+              "type": "string",
+              "title": "Description",
+              "maxLength": 32000
+            },
+            "state": {
+              "type": "string",
+              "title": "State",
+              "enum": [
+                "new",
+                "in_progress",
+                "resolved",
+                "closed"
+              ],
+              "default": "new"
+            },
+            "priority": {
+              "type": "integer",
+              "title": "Priority",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "default": 3
+            },
+            "requester": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Requester"
+            },
+            "assignee": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignee"
+            },
+            "assignment_group": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment group"
+            },
+            "due_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Due at"
+            }
+          }
+        },
+        "schema_sha256": "3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f",
+        "fixed_columns": {
+          "assignee": "assignee_id",
+          "assignment_group": "assignment_group_id",
+          "requester": "requester_id",
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "in_progress",
+            "resolved",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "in_progress"
+            },
+            {
+              "from": "in_progress",
+              "to": "resolved"
+            },
+            {
+              "from": "resolved",
+              "to": "closed"
+            },
+            {
+              "from": "resolved",
+              "to": "in_progress"
+            }
+          ]
+        },
+        "compat": "initial",
+        "published_at": "2026-11-20T11:05:56.584893Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/entity-types/incident/versions",
+      "headers": {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-88784a2d-c8a1-4875-99d8-ef25b01ee7a3"
+      },
+      "body": {
+        "definition": {
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "short_description",
+              "state"
+            ],
+            "properties": {
+              "short_description": {
+                "type": "string",
+                "title": "Short description",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "description": {
+                "type": "string",
+                "title": "Description",
+                "maxLength": 32000
+              },
+              "state": {
+                "type": "string",
+                "title": "State",
+                "enum": [
+                  "new",
+                  "in_progress",
+                  "resolved",
+                  "closed"
+                ],
+                "default": "new"
+              },
+              "priority": {
+                "type": "integer",
+                "title": "Priority",
+                "enum": [
+                  1,
+                  2,
+                  3,
+                  4
+                ],
+                "default": 3
+              },
+              "requester": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Requester"
+              },
+              "assignee": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Assignee"
+              },
+              "assignment_group": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Assignment group"
+              },
+              "due_at": {
+                "type": "string",
+                "format": "date-time",
+                "title": "Due at"
+              }
+            }
+          },
+          "fixed_columns": {
+            "assignee": "assignee_id",
+            "assignment_group": "assignment_group_id",
+            "requester": "requester_id",
+            "state": "state"
+          },
+          "states": {
+            "initial": "new",
+            "states": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "transitions": [
+              {
+                "from": "new",
+                "to": "in_progress"
+              },
+              {
+                "from": "in_progress",
+                "to": "resolved"
+              },
+              {
+                "from": "resolved",
+                "to": "closed"
+              },
+              {
+                "from": "resolved",
+                "to": "in_progress"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "etag": null,
+      "body": {
+        "key": "incident",
+        "name": "Incident",
+        "number_prefix": "INC",
+        "numbering_mode": "gaps",
+        "version": 2,
+        "current": true,
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "short_description",
+            "state"
+          ],
+          "properties": {
+            "short_description": {
+              "type": "string",
+              "title": "Short description",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "description": {
+              "type": "string",
+              "title": "Description",
+              "maxLength": 32000
+            },
+            "state": {
+              "type": "string",
+              "title": "State",
+              "enum": [
+                "new",
+                "in_progress",
+                "resolved",
+                "closed"
+              ],
+              "default": "new"
+            },
+            "priority": {
+              "type": "integer",
+              "title": "Priority",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ],
+              "default": 3
+            },
+            "requester": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Requester"
+            },
+            "assignee": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignee"
+            },
+            "assignment_group": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment group"
+            },
+            "due_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Due at"
+            }
+          }
+        },
+        "schema_sha256": "fe434aef7a8da00b102569743e39aea564029ff48827902a8fc0bffff64a2b31",
+        "fixed_columns": {
+          "assignee": "assignee_id",
+          "assignment_group": "assignment_group_id",
+          "requester": "requester_id",
+          "state": "state"
+        },
+        "states": {
+          "initial": "new",
+          "states": [
+            "new",
+            "in_progress",
+            "resolved",
+            "closed"
+          ],
+          "transitions": [
+            {
+              "from": "new",
+              "to": "in_progress"
+            },
+            {
+              "from": "in_progress",
+              "to": "resolved"
+            },
+            {
+              "from": "resolved",
+              "to": "closed"
+            },
+            {
+              "from": "resolved",
+              "to": "in_progress"
+            }
+          ]
+        },
+        "compat": "compatible",
+        "published_at": "2026-11-20T11:06:01.203443Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "etag": null,
+      "body": {
+        "group_paths": [
+          {
+            "id": "826d4f61-53d7-418f-b095-3cf221147aff",
+            "path": "/admins"
+          }
+        ],
+        "groups": [
+          "826d4f61-53d7-418f-b095-3cf221147aff"
+        ],
+        "idp_alias": "",
+        "tenant_id": "00000000-0000-4000-8000-0000000000a1",
+        "user_id": "a1648770-d01b-49d5-9c5a-e2773eadd2e7"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/entity-types/incident/access",
+      "headers": {},
+      "body": null
+    },
+    "response": {
+      "status": 200,
+      "etag": "W/\"1\"",
+      "body": {
+        "version": 1,
+        "rules": [
+          {
+            "id": "default-admins",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            }
+          },
+          {
+            "id": "default-service-desk",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
+              ]
+            },
+            "where": [
+              {
+                "column": "assignment_group_id",
+                "op": "in",
+                "caller": "my_groups"
+              }
+            ]
+          },
+          {
+            "id": "default-requester",
+            "ops": [
+              "read"
+            ],
+            "who": {
+              "requester": true
+            }
+          },
+          {
+            "id": "default-requester-new",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "requester": true
+            },
+            "where": [
+              {
+                "column": "state",
+                "op": "eq",
+                "values": [
+                  "new"
+                ]
+              }
+            ]
+          }
+        ],
+        "masks": [],
+        "published_by": null,
+        "published_at": "2026-11-20T11:05:58.077814Z"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/api/v1/entity-types/incident/access",
+      "headers": {
+        "If-Match": "W/\"1\"",
+        "Content-Type": "application/json",
+        "Idempotency-Key": "s21-setup-3d9ada3b-7b4f-4edc-b0b2-74f59ae192a2"
+      },
+      "body": {
+        "rules": [
+          {
+            "id": "default-admins",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            }
+          },
+          {
+            "id": "default-service-desk",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
+              ]
+            },
+            "where": [
+              {
+                "column": "assignment_group_id",
+                "op": "in",
+                "caller": "my_groups"
+              }
+            ]
+          },
+          {
+            "id": "default-requester",
+            "ops": [
+              "read"
+            ],
+            "who": {
+              "requester": true
+            }
+          },
+          {
+            "id": "default-requester-new",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "requester": true
+            },
+            "where": [
+              {
+                "column": "state",
+                "op": "eq",
+                "values": [
+                  "new"
+                ]
+              }
+            ]
+          }
+        ],
+        "masks": [
+          {
+            "field": "description",
+            "read": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            },
+            "write": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "response": {
+      "status": 200,
+      "etag": "W/\"2\"",
+      "body": {
+        "version": 2,
+        "rules": [
+          {
+            "id": "default-admins",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            }
+          },
+          {
+            "id": "default-service-desk",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "groups": [
+                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
+              ]
+            },
+            "where": [
+              {
+                "column": "assignment_group_id",
+                "op": "in",
+                "caller": "my_groups"
+              }
+            ]
+          },
+          {
+            "id": "default-requester",
+            "ops": [
+              "read"
+            ],
+            "who": {
+              "requester": true
+            }
+          },
+          {
+            "id": "default-requester-new",
+            "ops": [
+              "read",
+              "write"
+            ],
+            "who": {
+              "requester": true
+            },
+            "where": [
+              {
+                "column": "state",
+                "op": "eq",
+                "values": [
+                  "new"
+                ]
+              }
+            ]
+          }
+        ],
+        "masks": [
+          {
+            "field": "description",
+            "read": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            },
+            "write": {
+              "groups": [
+                "826d4f61-53d7-418f-b095-3cf221147aff"
+              ]
+            }
+          }
+        ],
+        "published_by": "a1648770-d01b-49d5-9c5a-e2773eadd2e7",
+        "published_at": "2026-11-20T11:06:01.332539Z"
+      }
+    }
+  }
+]

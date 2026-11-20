@@ -1,0 +1,104 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:28080/api/v1/records/incident?limit=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-08-08T23:51:00Z",
+          "data": {
+            "description": "S21 internal note 119529",
+            "due_at": "2026-12-30T12:00:17Z",
+            "priority": 4,
+            "requester": "a1648770-d01b-49d5-9c5a-e2773eadd2e7",
+            "short_description": "S21 seed 119529",
+            "state": "in_progress"
+          },
+          "id": "0007315b-eca4-abdf-7a89-443eaf3d0149",
+          "number": "INC0119529",
+          "schema_version": 3,
+          "state": "in_progress",
+          "updated_at": "2026-11-20T11:29:26.702108Z",
+          "version": 2
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTExLTIwIDExOjI5OjI2LjcwMjEwOCswMCIsImkiOiIwMDA3MzE1Yi1lY2E0LWFiZGYtN2E4OS00NDNlYWYzZDAxNDkifQ.8mxOa0lDZJD2azSczUciOW4lN9MqFPlWh5KOOmxTJUw",
+      "total": 1000,
+      "total_capped": true
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 584 requests",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=1: p95 144 ms <= 350 ms (p50 93, max 186)",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 582 requests",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=3: p95 59 ms <= 150 ms (p50 31, max 187)",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 586 requests",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 69 ms <= 150 ms (p50 48, max 99)",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 581 requests",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=1: p95 153 ms <= 350 ms (p50 106, max 209)",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 585 requests",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3: p95 119 ms <= 350 ms (p50 61, max 196)",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 584 requests",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 146 ms <= 150 ms (p50 95, max 240)",
+      "status": "pass"
+    },
+    {
+      "test": "admin (none) (no filter (control, reported only)): only 200s, 585 requests",
+      "status": "pass"
+    },
+    {
+      "test": "Alice (none) (no filter (control, reported only)): only 200s, 564 requests",
+      "status": "pass"
+    }
+  ]
+}

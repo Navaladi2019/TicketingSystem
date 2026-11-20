@@ -2,7 +2,9 @@
 
 Kit task TICK-749 (PLAN-007 P7-09). Story branch `TICK-739/filterable-fields` at `7284e2f2` (every task merged: TICK-741 to TICK-748, the P7-07 fixes TICK-989 to TICK-992, and the ADR-006-A1 budget row, TICK-1001). Design: ADR-006 D1 to D10, D12, D13 as amended by ADR-006-A1, D14. Budget row: `docs/budgets.md`, "Filtering on a flagged data field (S21)".
 
-__RESULT__
+Verified on 2026-11-20 on a fresh stack (project `nava-s21`, `docker compose down -v`, images built from this branch at `d108afa8`; the commits after it change only the kit), run from 11:05Z to 11:32Z. Evidence: `evidence/` (one JSON file per request, no credentials; `run-summary.json` lists every test).
+
+**Result: PASS, with one condition found (see "Plan-dependent p95").** The Bruno folder ran 19 requests and 99 tests, all passed. `verify.sql` found both fields' index tables equal to a JSON scan of all 400,006 tenant A incidents: 0 missing, 0 surplus, 0 wrong. Tenant B has 0 index rows. An earlier fresh stack built from the same images missed the ≥ 40%-with-ACL p95 by 2×. That run, and why, is under "Plan-dependent p95". Fix task: TICK-1022.
 
 ## What you can now do
 
@@ -22,7 +24,7 @@ __RESULT__
    It deletes the stack's volumes (`docker compose down -v`), then:
    1. starts a fresh stack from this checkout and runs `docs/acceptance/guide/tools/seed.sh` (tenants A and B and their users);
    2. `tools/kit.mjs setup`: as `admin@tenant-a`, adds an optional `due_at` (date-time) to the incident type, not flagged, and masks `description` to tenant A's admins group;
-   3. `tools/seed.sql`: writes **400,000 incidents in tenant A** and 50 in tenant B, as the database superuser, in one statement per tenant (see "The seed" below; __SEED_TIME__). `tools/expect.sql` then computes what a plain JSON scan of the records gives for each of the kit's filters, and the script passes those numbers to Bruno;
+   3. `tools/seed.sql`: writes **400,000 incidents in tenant A** and 50 in tenant B, as the database superuser, in one statement per tenant (see "The seed" below; 36 s in the verified run). `tools/expect.sql` then computes what a plain JSON scan of the records gives for each of the kit's filters, and the script passes those numbers to Bruno;
    4. runs the Bruno folder **S21 filterable fields** (`docs/acceptance/guide/bruno/S21/`). It flags `priority` and `due_at`, watches the backfill, then filters;
    5. `tools/verify.sql`: compares both fields' index tables with a JSON scan of every tenant A incident (none missing, none extra, none wrong) and checks that tenant B has no index rows.
 
@@ -53,13 +55,43 @@ Tenant B gets 50 incidents, all priority 1, on its unchanged incident type.
 
 ## Acceptance criteria
 
-__AC_TABLE__
+| # | Criterion | Result | Steps | Evidence |
+|---|---|---|---|---|
+| 1 | While indexing, `filter[priority]=1` answers 422 `field_not_ready` with a whole-percentage `index_progress`; once ready, 200 with exactly the rows a JSON scan gives | ✅ | S21.9, S21.11, S21.13, S21.14; verify.sql | `S21-9.json`: 422 `field_not_ready`, `index_progress` 0 for both fields right after the publish (`S21-8.json`, version 3, `compatible`), with no items and no total. `S21-11.json`: 88 polls every 15 s. Priority went 0, 2, 4, 7, 10 … 99 and was ready at 651 s; due_at stayed at 0 until priority was done (one backfill at a time), then ready at 1,317 s. Every answer while indexing was a 422 with a whole number from 0 to 99, never decreasing. `S21-13.json`: as the admin, 3,955 records over 20 pages, the same ids as the JSON scan (`expect.txt`, md5 of the sorted ids), `total` 1,000 with `total_capped`. `S21-14.json`: as Alice, 203 records, the same ids as the scan of what she may read, `total` 203. `verify.txt`: both side tables equal the JSON scan. |
+| 2 | `filter[priority][gte]=2&filter[due_at][lt]=<date>` returns the right rows, and the list p95 for the kit's filters is within D13 as amended by ADR-006-A1 | ✅ (see the condition below) | S21.15, S21.16, S21.19 | `S21-15.json`: admin, 555 records, the scan's ids. `S21-16.json`: Alice, 25 records, the scan's ids. Every listed record has priority ≥ 2 and `due_at` before 2026-01-01T12:00:00Z. `S21-19.json`: all six scored cells inside their limits (table below). |
+| 3 | An unflagged field answers 400 `field_not_filterable`; a masked field 400 `masked_field` | ✅ | S21.5–S21.7 | `S21-5.json`: Alice filtering on `description` (masked to admins) gets 400 `masked_field`, with no items and no total. `S21-6.json`: the admin, whom the mask admits, gets 400 `field_not_filterable` with `errors[]` at `/filter/description`. `S21-7.json`: `due_at` before it is flagged also gets 400 `field_not_filterable`, never a scan. |
+| 4 | Records created or edited during and after indexing are found (no record missed across the flip) | ✅ | S21.10, S21.12; verify.sql | `S21-10.json`: while both fields were backfilling (422 before and after), 3 creates and 3 edits onto `due_at` 2026-12-30T12:00:17Z, plus one record created on it and moved to …:18Z. `S21-12.json`: after both were ready, 2 more creates and 2 more edits. The filter lists exactly the 10, `total` 10. The moved record is not among them, and …:18Z lists exactly it. `verify.txt`: 10 records on …:17Z, first write 11:07:29Z (during), last 11:29:26Z (after; priority flipped to `ready` at 11:18:13Z, due_at at 11:29:17Z). |
+| 5 | Tenant B never matches tenant A's filters; a value only in a record A's agent cannot see gives the same hits and `total` as a value that exists nowhere | ✅ | S21.17, S21.18; verify.sql | `S21-17.json`: the admin finds `due_at` 2026-12-31T23:59:59Z (`total` 1). Alice gets 200, `items: []`, `total` 0, a body identical to the one for 23:58:59Z, which no record has. Her control value 23:57:59Z gives `total` 1. `S21-18.json`: Bob lists tenant B's 50 priority-1 incidents (B flagged nothing, so this is still the legacy scan there). None of them is in the admin's 3,955; the all-tenant scan has 4,005 = 3,955 + 50. `verify.txt`: tenant B has 0 index rows. |
 
 ### The p95 cells (criterion 2)
 
 Each cell: 8 clients list with the filter for 15 s after 2 s of warm-up. They are paced to 40 requests a second in total, because the per-tenant rate limit is 50 a second and a 429 would fail the cell. Latency is measured at the client, through nava-core and PgBouncer, with the default page of 50. Limits are ADR-006 D13 as amended by ADR-006-A1: 350 ms for the 0.5–2% band, with or without a narrowing ACL, and for the ≥ 40% band with one (Alice); 150 ms for every other filter. **No 2–40% filter is asserted.** Those bands are unmeasured until TICK-1009 (S21b). The 0.25% `in` cells are not rerun here; TICK-1002 does that.
 
-__P95_TABLE__
+Verified run (`S21-19.json`), 8 clients, about 39 requests/s, only 200s:
+
+| Caller | Filter | Share of the type | Limit | p50 | p95 | Result |
+|---|---|---|---|---|---|---|
+| admin | `priority=1` | 0.99% (0.5–2%) | 350 | 93 | **144** | ✅ |
+| admin | `priority=3` | 48% (≥ 40%), no narrowing ACL | 150 | 31 | **59** | ✅ |
+| admin | `priority>=2` and `due_at<2026-01-01T12:00Z` | 0.14% | 150 | 48 | **69** | ✅ |
+| Alice | `priority=1` | 0.99%, narrowing ACL | 350 | 106 | **153** | ✅ |
+| Alice | `priority=3` | 48%, narrowing ACL | 350 | 61 | **119** | ✅ |
+| Alice | `priority>=2` and `due_at<2026-01-01T12:00Z` | 0.14%, narrowing ACL | 150 | 95 | **146** | ✅ (3% margin) |
+| admin | no filter (control) | — | reported | 26 | 47 | — |
+| Alice | no filter (control) | — | reported | 76 | 265 | — |
+
+### Plan-dependent p95 (found by this kit, not resolved)
+
+The first fresh stack (10:22Z to 10:52Z, same images, same seed, same expectations: `evidence/stack1-p95-miss/`) passed criteria 1, 3, 4 and 5 and the row checks of 2, but **missed D13 in S21.19 three times out of three**:
+
+| Caller, filter | Limit | Run (10:51Z) | Rerun 1 | Rerun 2 |
+|---|---|---|---|---|
+| Alice `priority=3` (48%, ACL) | 350 | **578** | **983** | **741** |
+| Alice two-filter range (0.14%, ACL) | 150 | **240** | **267** | **264** |
+| admin two-filter range (0.14%) | 150 | **201** | **351** | 130 |
+| admin `priority=1` (0.99%) | 350 | 330 | **494** | **618** |
+
+The reruns overlapped another stack (`nava`) on the same Docker VM (`contention-during-reruns.txt`), so their numbers are high across the board, controls included. But one probe rules out host load as the whole story. With **one client**, Alice's `priority=3` took **217 ms p50 on stack 1 against 34 ms on stack 2**, while `priority=4` (50%, the same shape) took 61 ms on stack 1 (`stack1-p95-miss/single-client.txt`, `single-client.txt`). Same code, same data, same query, a 6× difference for one value on one stack: the planner chose a different plan for it. The most likely cause is the side table statistics as they stood after the backfill. On stack 2, `rfv_num` was last autoanalyzed at 11:17:39Z, 34 s before priority flipped to `ready` (11:18:13Z), when its backfill was nearly done, and `rfv_ts` at 11:28:39Z, 38 s before due_at's flip. Stack 1's analyze times were not recorded; `verify.sql` records them from now on. **Severity: Breaks under a condition** (the statistics the planner has after a backfill). This kit cannot tell which plan a fresh stack will get. Fix task TICK-1022 (Postgres & Data Modeling Specialist): find the plan that takes 217 ms, and make the ≥ 40% ACL list stable, for example by analyzing the side table when the backfill flips the field to `ready`.
 
 ## Isolation check
 

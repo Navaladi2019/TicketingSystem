@@ -1,0 +1,1 @@
+s21: PASS; evidence in docs/acceptance/S21/evidence (2026-11-20T11:32:39Z)

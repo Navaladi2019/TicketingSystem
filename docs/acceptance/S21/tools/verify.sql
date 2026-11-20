@@ -56,3 +56,9 @@ SELECT i.data->>'due_at' AS due_at, count(*) AS records, min(r.updated_at) AS fi
   FROM s21_inc i JOIN records r ON r.id = i.id AND r.tenant_id = '00000000-0000-4000-8000-0000000000a1'
  WHERE i.data->>'due_at' IN ('2026-12-30T12:00:17Z', '2026-12-30T12:00:18Z')
  GROUP BY 1 ORDER BY 1;
+
+-- When the side tables were last analyzed, against the flip times above. The
+-- list plans of S21.19 depend on these statistics (TICK-749: one fresh stack
+-- missed the >= 40% ACL cell by 2x, the next passed it; see the README).
+SELECT relname, n_live_tup, last_analyze, last_autoanalyze, autoanalyze_count
+  FROM pg_stat_all_tables WHERE relname IN ('records', 'rfv_num', 'rfv_ts') ORDER BY relname;

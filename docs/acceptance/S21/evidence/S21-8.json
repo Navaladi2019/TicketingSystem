@@ -1,0 +1,144 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:28080/api/v1/entity-types/incident/versions",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "1230",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:28080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s21-b4eac123-flag",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"title\":\"Short description\",\"minLength\":1,\"maxLength\":160},\"description\":{\"type\":\"string\",\"title\":\"Description\",\"maxLength\":32000},\"state\":{\"type\":\"string\",\"title\":\"State\",\"enum\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"default\":\"new\"},\"priority\":{\"type\":\"integer\",\"title\":\"Priority\",\"enum\":[1,2,3,4],\"default\":3,\"x-nava-filterable\":true},\"requester\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Requester\"},\"assignee\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignee\"},\"assignment_group\":{\"type\":\"string\",\"format\":\"uuid\",\"title\":\"Assignment group\"},\"due_at\":{\"type\":\"string\",\"format\":\"date-time\",\"title\":\"Due at\",\"x-nava-filterable\":true}}},\"fixed_columns\":{\"assignee\":\"assignee_id\",\"assignment_group\":\"assignment_group_id\",\"requester\":\"requester_id\",\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"in_progress\",\"resolved\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"in_progress\"},{\"from\":\"in_progress\",\"to\":\"resolved\"},{\"from\":\"resolved\",\"to\":\"closed\"},{\"from\":\"resolved\",\"to\":\"in_progress\"}]}}}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "incident",
+      "name": "Incident",
+      "number_prefix": "INC",
+      "numbering_mode": "gaps",
+      "version": 3,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "title": "Short description",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "maxLength": 32000
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "enum": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "default": 3,
+            "x-nava-filterable": true
+          },
+          "requester": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requester"
+          },
+          "assignee": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignee"
+          },
+          "assignment_group": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment group"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due at",
+            "x-nava-filterable": true
+          }
+        }
+      },
+      "schema_sha256": "678b6c9bfca0abebeeacba4b99d257a8db32cbe05f0149913c664da1d2948616",
+      "fixed_columns": {
+        "assignee": "assignee_id",
+        "assignment_group": "assignment_group_id",
+        "requester": "requester_id",
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "in_progress",
+          "resolved",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "in_progress"
+          },
+          {
+            "from": "in_progress",
+            "to": "resolved"
+          },
+          {
+            "from": "resolved",
+            "to": "closed"
+          },
+          {
+            "from": "resolved",
+            "to": "in_progress"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "published_at": "2026-11-20T11:07:28.681338Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "the next version, compatible, current",
+      "status": "pass"
+    },
+    {
+      "test": "both properties carry the flag",
+      "status": "pass"
+    }
+  ]
+}

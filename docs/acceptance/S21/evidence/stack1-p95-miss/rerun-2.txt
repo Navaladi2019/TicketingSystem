@@ -1,0 +1,23 @@
+S21.19 admin filter[priority]=1: p50 320 p95 494 max 696 ms, 354 requests (23.6/s), {"200":354}
+S21.19 admin filter[priority]=3: p50 65 p95 111 max 205 ms, 570 requests (38/s), {"200":570}
+S21.19 admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p50 82 p95 130 max 230 ms, 577 requests (38.5/s), {"200":577}
+S21.19 Alice filter[priority]=1: p50 183 p95 286 max 389 ms, 544 requests (36.3/s), {"200":544}
+S21.19 Alice filter[priority]=3: p50 494 p95 741 max 1065 ms, 228 requests (15.2/s), {"200":228}
+S21.19 Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p50 167 p95 264 max 413 ms, 555 requests (37/s), {"200":555}
+S21.19 admin (none): p50 43 p95 89 max 168 ms, 577 requests (38.5/s), {"200":577}
+S21.19 Alice (none): p50 151 p95 268 max 429 ms, 559 requests (37.3/s), {"200":559}
+   ✕ admin filter[priority]=1: p95 494 ms <= 350 ms (p50 320, max 696)
+   ✕ Alice filter[priority]=3: p95 741 ms <= 350 ms (p50 494, max 1065)
+   ✕ Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 264 ms <= 150 ms (p50 167, max 413)
+   ✓ HTTP 200
+   ✓ admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 354 requests
+   ✓ admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 570 requests
+   ✓ admin filter[priority]=3: p95 111 ms <= 150 ms (p50 65, max 205)
+   ✓ admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 577 requests
+   ✓ admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 130 ms <= 150 ms (p50 82, max 230)
+   ✓ Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 544 requests
+   ✓ Alice filter[priority]=1: p95 286 ms <= 350 ms (p50 183, max 389)
+   ✓ Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 228 requests
+   ✓ Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 555 requests
+   ✓ admin (none) (no filter (control, reported only)): only 200s, 577 requests
+   ✓ Alice (none) (no filter (control, reported only)): only 200s, 559 requests
