@@ -26,10 +26,12 @@ import (
 // and membership of Row.OrgUnitID in S in Go: one array argument, no join
 // inside the row predicate, and a NULL org_unit_id is false on both sides.
 //
-// A tombstoned unit stops the walk: it and its whole subtree are left out of
-// S, even where a descendant is still live (parent_id keeps linking tombstoned
-// units into the tree), so whatever needs under to be true is removed (fails
-// closed), and `not under` reads those records as outside the region.
+// A tombstoned unit drops out of S with its whole subtree (D7), live
+// descendants included (parent_id keeps linking tombstoned units into the
+// tree): the walk down stops at it, and a seed with a tombstoned ancestor
+// (a caller's own live unit, or a listed one, below a removed unit) is no seed
+// at all. Whatever needs under to be true is removed (fails closed), and
+// `not under` reads those records as outside the region.
 //
 // A policy reaching an under leaf that was not resolved for the principal it
 // is planned for (ExpandUnder not called, or called for another principal) is
@@ -137,19 +139,31 @@ func needs(pol *Policy, p identity.Principal) underNeeds {
 }
 
 // expandSQL is D7's one recursive query: seeds are the caller's units
-// ($2, NULL for none) and the listed roots ($3); each is walked down over live
-// units only, so a tombstoned unit ends its branch. The tenant is filtered
-// explicitly on top of row-level security. org_units_parent (tenant_id,
-// parent_id) serves the walk; org_unit_members_principal the caller's seed.
+// ($2, NULL for none) and the listed roots ($3). up walks each seed's
+// ancestors; a seed that is tombstoned or has a tombstoned ancestor is
+// dropped. The rest are walked down over live units only, so a tombstoned
+// unit ends its branch. The tenant is filtered explicitly on top of
+// row-level security. org_units_pkey serves the walk up, org_units_parent
+// (tenant_id, parent_id) the walk down, org_unit_members_principal the
+// caller's seed. Depth is bounded (groupsync refuses a chain deeper than 8),
+// and UNION ends any cycle.
 const expandSQL = `
 WITH RECURSIVE seed(caller, root) AS (
     SELECT true, m.org_unit_id FROM org_unit_members m
     WHERE m.tenant_id = $1 AND m.principal_id = $2::uuid
     UNION
     SELECT false, x FROM unnest($3::uuid[]) x
+), up(root, id, dead) AS (
+    SELECT u.id, u.parent_id, u.deleted_at IS NOT NULL
+    FROM org_units u WHERE u.tenant_id = $1 AND u.id IN (SELECT root FROM seed)
+    UNION
+    SELECT up.root, a.parent_id, a.deleted_at IS NOT NULL
+    FROM up JOIN org_units a ON a.tenant_id = $1 AND a.id = up.id
 ), s(caller, root, id) AS (
-    SELECT seed.caller, seed.root, u.id
-    FROM seed JOIN org_units u ON u.tenant_id = $1 AND u.id = seed.root AND u.deleted_at IS NULL
+    SELECT seed.caller, seed.root, seed.root
+    FROM seed
+    WHERE EXISTS (SELECT 1 FROM up WHERE up.root = seed.root)
+      AND NOT EXISTS (SELECT 1 FROM up WHERE up.root = seed.root AND up.dead)
     UNION
     SELECT s.caller, s.root, c.id
     FROM s JOIN org_units c ON c.tenant_id = $1 AND c.parent_id = s.id AND c.deleted_at IS NULL

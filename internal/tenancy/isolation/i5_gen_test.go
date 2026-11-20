@@ -228,7 +228,9 @@ var i5Trees sync.Map
 
 // i5Subtree is set S of root in the tenant's world, from ADR-010 D7 alone: the
 // root and every unit below it, walking live units only, so a tombstoned unit
-// ends its branch. A root that is not a live unit of the world gives nothing.
+// ends its branch. A root that is not a live unit of the world, or that has a
+// tombstoned ancestor (it dropped out with that unit's subtree), gives
+// nothing.
 func i5Subtree(tenant, root uuid.UUID) []uuid.UUID {
 	v, ok := i5Trees.Load(tenant)
 	if !ok {
@@ -240,6 +242,15 @@ func i5Subtree(tenant, root uuid.UUID) []uuid.UUID {
 	}
 	if !live(root) {
 		return nil
+	}
+	for at := root; ; {
+		i := slices.IndexFunc(w.Units, func(u i5Unit) bool { return u.ID == at })
+		if i < 0 || w.Units[i].Dead {
+			return nil
+		}
+		if at = w.Units[i].Parent; at == uuid.Nil {
+			break
+		}
 	}
 	out := []uuid.UUID{root}
 	for i := 0; i < len(out); i++ {

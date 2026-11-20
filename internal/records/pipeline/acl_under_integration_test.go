@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -32,7 +33,8 @@ import (
 //	└─── L ── Lx†        Lx is tombstoned
 //
 // plus one record with no unit, and another tenant's live unit X. u1 is a
-// member of A and L, u2 of T1 (a live unit under a tombstoned one).
+// member of A and L, u2 of T1 (a live unit under a tombstoned one, so out of
+// every S: D7 drops a tombstoned unit's whole subtree).
 type underWorld struct {
 	aclWorld
 	unit   map[string]uuid.UUID // name → unit id
@@ -217,10 +219,13 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 		{"another tenant's unit: empty S", of("X"), u1, []string{}},
 		{"NULL org_unit_id and the excluded units are not under", `{"not":` + of("R") + `}`, u1, []string{"Lx", "T", "T1", "none"}},
 		{"caller: u1's units A and L", caller, u1, []string{"A", "A1", "L"}},
-		{"caller: u2 is a member of live T1 itself", caller, u2, []string{"T1"}},
+		// D7 (fail closed): T1 dropped out of S with tombstoned T's subtree,
+		// so being a direct member of it grants nothing; listing it neither.
+		{"caller: u2 is a member of live T1 below tombstoned T: excluded", caller, u2, []string{}},
+		{"a listed live unit below a tombstoned one: excluded", of("T1"), u1, []string{}},
 		{"caller with no id: false", caller, noID, []string{}},
 		{"not under caller", `{"not":` + caller + `}`, u1, []string{"Lx", "R", "T", "T1", "none"}},
-		{"under or requester: split into branches", `{"any":[` + caller + `,` + requester + `]}`, u2, []string{"T1"}},
+		{"under or requester: split into branches", `{"any":[` + caller + `,` + requester + `]}`, u1, []string{"A", "A1", "L"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bySQL, byGo, byBranches := w.rows(t, e, underDoc(t, tc.when), tc.p)
@@ -309,4 +314,61 @@ func pipelineGet(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID) (authz.Ro
 		return authz.Row{}, err
 	}
 	return pipeline.RowWith(rec, nil), nil
+}
+
+// A create under a policy whose only write grant is under (TICK-950): the
+// pipeline resolves the record's unit (the requester's primary unit) before
+// the write check, so CanWrite sees the row's real OrgUnitID. The create
+// succeeds when that unit is in S and stores it; it is refused, writing
+// nothing, when the unit is outside S or the requester has none.
+func TestCreateUnderAnUnderOnlyWriteGrant(t *testing.T) {
+	e := migrated(t)
+	f := seedTenant(t, e)
+	p := newPipeline(e, nil)
+	ctx := context.Background()
+	in, out := seedOrgUnit(t, e, f.id, "In"), seedOrgUnit(t, e, f.id, "Out")
+	child := uuid.New()
+	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, $4, 'In child')`,
+		f.id, child, in, "kc-"+child.String())
+	inTx(t, e, f.id, func(tx pgx.Tx) error {
+		prep, ps := authz.Prepare([]byte(`{"rules":{"format":2,"conditions":[],"policies":[{"name":"region","ops":["read","write"],"when":{"under":{"of":["`+in.String()+`"]}}}]}}`), authz.DefaultMaxDocumentBytes)
+		if len(ps) > 0 {
+			return fmt.Errorf("prepare: %v", ps)
+		}
+		cur, err := authz.PolicyStore{}.Newest(ctx, tx, entityKey)
+		if err != nil {
+			return err
+		}
+		_, err = authz.PolicyStore{}.PublishPrepared(ctx, tx, entityKey, cur.Version, authz.Publisher{System: "tick-950", Source: audit.SourceSystem}, prep)
+		return err
+	})
+	records := func() int {
+		return count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1`, f.id)
+	}
+
+	// The requester's primary unit is below the listed one: in S.
+	seedMember(t, e, f.id, child, f.principal.PrincipalID, true)
+	res, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "in S"}))
+	if err != nil {
+		t.Fatalf("create with the requester's unit in S: %v", err)
+	}
+	if got := recordUnit(t, e, res.RecordID); got == nil || *got != child {
+		t.Fatalf("org_unit_id = %v, want %s (the unit the check saw)", got, child)
+	}
+
+	// Primary unit outside S: refused, nothing written.
+	mustExec(t, e.super, `UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND principal_id = $2`, f.id, f.principal.PrincipalID)
+	seedMember(t, e, f.id, out, f.principal.PrincipalID, true)
+	before := records()
+	if _, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "outside S"})); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("create with the requester's unit outside S: %v, want ErrForbidden", err)
+	}
+	// No primary unit: NULL is never under.
+	mustExec(t, e.super, `UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND principal_id = $2`, f.id, f.principal.PrincipalID)
+	if _, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "no unit"})); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("create with no primary unit: %v, want ErrForbidden", err)
+	}
+	if n := records(); n != before {
+		t.Fatalf("refused creates wrote: %d records, want %d", n, before)
+	}
 }

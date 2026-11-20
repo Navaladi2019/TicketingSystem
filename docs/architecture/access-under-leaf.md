@@ -44,7 +44,7 @@ sequenceDiagram
 | --- | --- |
 | Live unit | in S with every live unit below it |
 | Tombstoned unit | out of S, and so is its whole subtree, live descendants included: the walk stops there |
-| A caller's own unit that is live below a tombstoned one | in S (it is a seed; only walks stop at tombstones) |
+| A live unit below a tombstoned one, even the caller's own unit or a listed one | out of S: it dropped out with the tombstoned unit's subtree (D7, fail closed); the query walks each seed's ancestors and drops a seed with a tombstoned one |
 | Listed id that is tombstoned, another tenant's or unknown | contributes nothing (the route refuses it at publish anyway) |
 | `org_unit_id` NULL | never under, on both sides; `not under` is true |
 | Caller with no id | `under caller` is false, no query |
@@ -63,6 +63,14 @@ ref at `/rules/.../under/of/<i>`, and `NotInTenant` checks it against the
 tenant's live `org_units`: a foreign, tombstoned or unknown unit is 422
 `foreign_id` at that pointer, the same ids `acl2_tenant_ids` (TICK-947)
 refuses past the route.
+
+## Creates
+
+A create resolves the record's unit (the requester's primary unit, ADR-010
+D8) before the write check, so `CanWrite` judges the row as it will be
+stored: the actor's primary unit rides on the prefetch's entity-type read
+(`QueueDefinitionIDAndUnit`, no extra statement), another requester costs one
+read, and the payload preview keeps that unit instead of reading it again.
 
 ## Callers
 

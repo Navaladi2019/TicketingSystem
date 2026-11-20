@@ -8,6 +8,7 @@ package store
 // the batch, wrapped as the unbatched function wraps it.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,36 @@ func QueueDefinitionIDAndFlag(b *pgx.Batch, tenantID uuid.UUID, key, flagSQL str
 		})
 }
 
+// QueueDefinitionIDAndUnit is QueueDefinitionIDAndFlag (QueueDefinitionID
+// when flagSQL is "", *flag then untouched) with the primary org unit of
+// principal (ADR-010 D8) in the same statement: *unit is it, nil when the
+// principal has none or the tenant has no such entity type. A create's write
+// check needs the record's unit before anything else is read (TICK-950); this
+// reads it without a statement of its own.
+func QueueDefinitionIDAndUnit(b *pgx.Batch, tenantID uuid.UUID, key, flagSQL string, principal uuid.UUID, dst *uuid.UUID, flag *bool, unit **uuid.UUID) {
+	if flagSQL == "" {
+		flagSQL = "false"
+	}
+	b.Queue(`SELECT e.id, (`+flagSQL+`), (SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $1 AND m.principal_id = $3 AND m.is_primary)
+		FROM entity_definitions e WHERE e.tenant_id = $1 AND e.key = $2`, tenantID, key, principal).
+		QueryRow(func(row pgx.Row) error {
+			var f bool
+			err := row.Scan(dst, &f, unit)
+			if errors.Is(err, pgx.ErrNoRows) {
+				*dst, *unit = uuid.Nil, nil
+				f = false
+				err = nil
+			}
+			if err != nil {
+				return fmt.Errorf("records/store: read entity type: %w", err)
+			}
+			if flag != nil {
+				*flag = f
+			}
+			return nil
+		})
+}
+
 // QueueGet queues Get: *dst is the record, or nil when the tenant has no
 // such pipeline record.
 func QueueGet(b *pgx.Batch, tenantID, id uuid.UUID, dst **Record) {
@@ -88,6 +119,19 @@ func QueueGet(b *pgx.Batch, tenantID, id uuid.UUID, dst **Record) {
 		return err
 	})
 }
+
+// PrimaryUnit is principal's primary org unit in the tenant, read in the
+// caller's transaction (under its RLS); nil when it has none.
+func PrimaryUnit(ctx context.Context, tx pgx.Tx, tenantID, principal uuid.UUID) (*uuid.UUID, error) {
+	var unit *uuid.UUID
+	if err := tx.QueryRow(ctx, primaryUnitSQL, tenantID, principal).Scan(&unit); err != nil {
+		return nil, fmt.Errorf("records/store: read primary unit: %w", err)
+	}
+	return unit, nil
+}
+
+// primaryUnitSQL always returns one row: the unit, or NULL.
+const primaryUnitSQL = `SELECT (SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $1 AND m.principal_id = $2 AND m.is_primary)`
 
 // QueueGroupLive queues GroupLive: *dst reports whether the tenant has group
 // id, not tombstoned.
@@ -156,19 +200,22 @@ func QueueUniqueTaken(b *pgx.Batch, tenantID, entityDefinitionID, except uuid.UU
 // its RLS, NULL with no requester or no primary unit. It sets r.OrgUnitID
 // when the batch runs, from the very row the payload was built from, so the
 // INSERT that follows stores the unit the audit entry names, in no extra
-// round trip.
-func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *json.RawMessage) error {
+// round trip. With unitResolved the caller has already set r.OrgUnitID (the
+// pipeline resolves it before the write check, TICK-950), and the statement
+// keeps that value instead of reading it again, so the unit stored is the
+// unit the check saw.
+func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, unitResolved bool, dst *json.RawMessage) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
-	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.TenantID})
+	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.TenantID, unitResolved, r.OrgUnitID})
 	if err != nil {
 		return err
 	}
 	b.Queue("SELECT ("+expr+")::text, org_unit_id FROM (SELECT $1::jsonb AS data, $2::text AS state, $3::uuid AS requester_id, "+
 		"$4::uuid AS assignee_id, $5::uuid AS assignment_group_id, "+
-		"(SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $6::uuid AND m.principal_id = $3::uuid AND m.is_primary) AS org_unit_id) AS records", args...).
+		"CASE WHEN $7::boolean THEN $8::uuid ELSE (SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $6::uuid AND m.principal_id = $3::uuid AND m.is_primary) END AS org_unit_id) AS records", args...).
 		QueryRow(func(row pgx.Row) error {
 			var s string
 			if err := row.Scan(&s, &r.OrgUnitID); err != nil {
