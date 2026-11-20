@@ -70,6 +70,9 @@ type listFilter struct {
 	// idx is the ready registry row a data filter reads through its side
 	// table; nil for a legacy-scan filter and for a fixed column.
 	idx *pipeline.IndexField
+	// broad (TICK-1022 spike) marks a ready filter whose capped side-index
+	// pre-count reached broadCap on a narrowing list: the count probes per record.
+	broad bool
 	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
 	legacy bool
 	// absentMatches is set for a legacy-scan data filter when one value equals
@@ -510,6 +513,11 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		// statement when there is nothing to split. One plan for both, so a
 		// voided policy is counted once per request (ADR-010 D5b).
 		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
+		if branches != nil || len(readArgs) > 0 || strings.Contains(readSQL, "r.") {
+			if err := pl.markBroad(ctx, tx, p.TenantID); err != nil {
+				return err
+			}
+		}
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,

@@ -184,16 +184,16 @@ func sqlOp(op string) string {
 	return "="
 }
 
-// existsTerm renders a ready data filter as a correlated EXISTS on the typed
-// side table (ADR-006 D7). The table name comes from fieldindex.SideTable's
-// fixed set, never from the request. fs are all the filters of one field: their
-// comparisons are ANDed inside the one EXISTS, so on an array field a single
-// element must satisfy every bound (ADR-006 D7), and the planner sees one
-// range, not two unselective halves. A text value is compared under COLLATE
-// "C", the column's own collation, so the value index serves it.
-func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
+// broadCap is the TICK-1022 spike's bound: a filter with at least this many
+// side rows in the tenant is broad, and a narrowing list's count probes it
+// per record instead of joining all its side rows.
+const broadCap = 20000
+
+// sideCmp renders the comparisons of one field's filters on v.value. With
+// opaque the value side is wrapped so no index of the side table can serve
+// it: the probe then seeks the primary key (tenant_id, record_id, field_id).
+func sideCmp(fs []listFilter, next func(v any, cast string) string, opaque bool) string {
 	f := fs[0]
-	table, _ := f.idx.ValueType.SideTable()
 	cast := map[fieldindex.ValueType]string{
 		fieldindex.TypeText: "text", fieldindex.TypeNum: "double precision",
 		fieldindex.TypeTS: "timestamptz", fieldindex.TypeBool: "boolean",
@@ -202,17 +202,81 @@ func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 	if f.idx.ValueType == fieldindex.TypeText {
 		collate = ` COLLATE "C"`
 	}
-	fieldArg := next(f.idx.ID.String(), "uuid")
+	col := "v.value"
+	if opaque {
+		col = map[fieldindex.ValueType]string{
+			fieldindex.TypeText: "(v.value || '')", fieldindex.TypeNum: "(v.value + 0)",
+			fieldindex.TypeTS: "(v.value + interval '0')", fieldindex.TypeBool: "(v.value OR false)",
+		}[f.idx.ValueType]
+	}
 	cmps := make([]string, 0, len(fs))
 	for _, f := range fs {
 		if f.op == "in" {
-			cmps = append(cmps, "v.value = ANY("+next(arrayOf(f.values), cast+"[]")+")")
+			cmps = append(cmps, col+" = ANY("+next(arrayOf(f.values), cast+"[]")+")")
 		} else {
-			cmps = append(cmps, "v.value "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
+			cmps = append(cmps, col+" "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
 		}
 	}
-	cmp := strings.Join(cmps, " AND ")
-	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + " /*fi*/)"
+	return strings.Join(cmps, " AND ")
+}
+
+// existsTerm renders a ready data filter as a correlated EXISTS on the typed
+// side table (ADR-006 D7). The table name comes from fieldindex.SideTable's
+// fixed set, never from the request. fs are all the filters of one field: their
+// comparisons are ANDed inside the one EXISTS, so on an array field a single
+// element must satisfy every bound (ADR-006 D7), and the planner sees one
+// range, not two unselective halves. A text value is compared under COLLATE
+// "C", the column's own collation, so the value index serves it. A broad
+// filter (spike) is opaque and carries the /*fi*/ marker, which the store's
+// count turns into OFFSET 0.
+func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
+	f := fs[0]
+	table, _ := f.idx.ValueType.SideTable()
+	fieldArg := next(f.idx.ID.String(), "uuid")
+	cmp, marker := sideCmp(fs, next, f.broad), ""
+	if f.broad {
+		marker = " /*fi*/"
+	}
+	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + marker + ")"
+}
+
+// markBroad runs, for each ready field the plan filters on, one capped count
+// of its side rows on the value index, and marks the field's filters broad when
+// it reaches broadCap.
+func (pl *listPlan) markBroad(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
+	done := map[uuid.UUID]bool{}
+	for _, f := range pl.filters {
+		if f.col != "" || f.idx == nil || done[f.idx.ID] {
+			continue
+		}
+		done[f.idx.ID] = true
+		var group []listFilter
+		for _, g := range pl.filters {
+			if g.col == "" && g.idx != nil && g.idx.ID == f.idx.ID {
+				group = append(group, g)
+			}
+		}
+		args := []any{tenant, f.idx.ID.String()}
+		next := func(v any, cast string) string {
+			args = append(args, v)
+			return "$" + strconv.Itoa(len(args)) + "::" + cast
+		}
+		table, _ := f.idx.ValueType.SideTable()
+		cmp := sideCmp(group, next, false)
+		var n int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM (SELECT 1 FROM "+table+" v WHERE v.tenant_id = $1 AND v.field_id = $2::uuid AND "+cmp+
+			" LIMIT "+strconv.Itoa(broadCap)+") c", args...).Scan(&n); err != nil {
+			return err
+		}
+		if n >= broadCap {
+			for i := range pl.filters {
+				if pl.filters[i].idx != nil && pl.filters[i].idx.ID == f.idx.ID {
+					pl.filters[i].broad = true
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.
