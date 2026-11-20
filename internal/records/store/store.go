@@ -58,6 +58,9 @@ type Record struct {
 	RequesterID        *uuid.UUID
 	AssigneeID         *uuid.UUID
 	AssignmentGroupID  *uuid.UUID
+	// OrgUnitID is the requester's primary unit when the record was created
+	// (ADR-010 D8): stored, never recomputed. nil = no unit.
+	OrgUnitID *uuid.UUID
 	// AssignmentGroupRemoved is read, never written: the record's group is
 	// tombstoned (ADR-004-E5 D7). The record keeps pointing at it.
 	AssignmentGroupRemoved bool
@@ -84,7 +87,7 @@ func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string
 
 const recordSelect = `
 SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
-       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
        r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false)
 FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
@@ -103,7 +106,7 @@ func scan(row pgx.Row) (*Record, error) {
 		data []byte
 	)
 	err := row.Scan(&r.TenantID, &r.ID, &r.EntityDefinitionID, &r.EntityKey, &r.Version, &r.SchemaVersion, &r.Number, &r.State,
-		&r.RequesterID, &r.AssigneeID, &r.AssignmentGroupID, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt,
+		&r.RequesterID, &r.AssigneeID, &r.AssignmentGroupID, &r.OrgUnitID, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt,
 		&data, &r.CausationOriginID, &r.CausationDepth, &r.AssignmentGroupRemoved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -131,6 +134,24 @@ func GroupLive(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (bool, er
 	return live, nil
 }
 
+// PrimaryOrgUnit returns the live primary org unit of principal, or nil when
+// it has none (ADR-010 D8). It reads org_unit_members in the caller's
+// transaction, filtered by tenantID, so under the tenant's RLS: another
+// tenant's membership reads as none. org_unit_members' live FK keeps the unit
+// live, and its one-primary index keeps the answer to one row.
+func PrimaryOrgUnit(ctx context.Context, tx pgx.Tx, tenantID, principal uuid.UUID) (*uuid.UUID, error) {
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT org_unit_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2 AND is_primary`,
+		tenantID, principal).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil // no primary unit is an answer, not an error
+	}
+	if err != nil {
+		return nil, fmt.Errorf("records/store: read primary org unit: %w", err)
+	}
+	return &id, nil
+}
+
 // Insert writes a new record at r.Version.
 func Insert(ctx context.Context, tx pgx.Tx, r *Record) error {
 	data, err := json.Marshal(r.Data)
@@ -140,11 +161,11 @@ func Insert(ctx context.Context, tx pgx.Tx, r *Record) error {
 	if _, err := tx.Exec(ctx, `
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
-    causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)`,
+    causation_origin_id, causation_depth, org_unit_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15, $16)`,
 		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
 		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth); err != nil {
+		r.CausationOriginID, r.CausationDepth, r.OrgUnitID); err != nil {
 		return fmt.Errorf("records/store: insert record: %w", err)
 	}
 	return nil

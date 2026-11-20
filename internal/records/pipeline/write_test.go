@@ -197,10 +197,10 @@ func (r storedRecord) scan(dest ...any) error {
 	*dest[5].(*int) = r.schemaVersion
 	*dest[6].(*string) = "AST0000001"
 	*dest[7].(*string) = r.state
-	*dest[12].(*time.Time) = now
 	*dest[13].(*time.Time) = now
-	*dest[14].(*[]byte) = []byte(r.data)
-	*dest[16].(*int16) = 0
+	*dest[14].(*time.Time) = now
+	*dest[15].(*[]byte) = []byte(r.data)
+	*dest[17].(*int16) = 0
 	return nil
 }
 

@@ -718,6 +718,9 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
+	if err := refuseOrgUnit(after); err != nil {
+		return Result{}, err
+	}
 	// The mask write check runs first, on the caller's own data: the defaults
 	// applied below are not its writes, and no other error (validation,
 	// state, row scope, unique) can come back for a masked field (P3-33).
@@ -752,6 +755,13 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	w.defaultRequester(rec, after, fixed)
+	// The record's org unit is its requester's primary unit now, in this
+	// transaction (ADR-010 D8). It is stored from here on, never recomputed.
+	if rec.RequesterID != nil {
+		if rec.OrgUnitID, err = store.PrimaryOrgUnit(ctx, w.tx, w.tenant, *rec.RequesterID); err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w", err)
+		}
+	}
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
@@ -794,6 +804,15 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	return w.writeCreate(ctx, rec, preview)
 }
 
+// refuseOrgUnit refuses a body that names org_unit_id: the column is the
+// pipeline's (ADR-010 D8), never a client's property. Nothing is written.
+func refuseOrgUnit(data map[string]any) error {
+	if _, ok := data[metadata.ColumnOrgUnitID]; ok {
+		return &authz.ErrFieldNotWritable{Fields: []string{metadata.ColumnOrgUnitID}}
+	}
+	return nil
+}
+
 // defaultRequester sets requester_id to the caller when a user or AI create
 // leaves the requester property out (contract amendment A4), before the write
 // check, so the check sees the row that would be stored. An explicit value,
@@ -817,6 +836,9 @@ func (w *write) defaultRequester(rec *store.Record, after map[string]any, fixed 
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {
+	if err := refuseOrgUnit(patch); err != nil {
+		return Result{}, err
+	}
 	rec, err := store.Get(ctx, w.tx, w.tenant, w.cmd.RecordID)
 	if err != nil {
 		return Result{}, mapNotFound(err)
