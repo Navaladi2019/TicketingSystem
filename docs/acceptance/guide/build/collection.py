@@ -4594,7 +4594,339 @@ test('the S30.9 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.ge
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, late]
+# --------------------------------------------------------------------------- S32
+def s32():
+    """Story S32 (TICK-955, kit TICK-958 P11-24): a workflow condition step
+    tests a named access policy (ADR-010 D9). One workflow key, `s32_route`,
+    gets a version per criterion, so exactly one is current at a time. Walked
+    as admin@tenant-a, agent@tenant-a (Alice, the assignee),
+    requester@tenant-a (the seeded auditor@tenant-a.test) and admin@tenant-b
+    (seeded by docs/acceptance/S18/tools/kit.mjs admin-b). The folder ends by
+    making `s32_route` a no-op and republishing both tenants' incident access
+    as it found them, so other folders and a second pass run on the same
+    stack."""
+    inc = "{{core_url}}/api/v1/records/incident"
+    et = "{{core_url}}/api/v1/entity-types/incident"
+    acc = et + "/access"
+    wf = "{{core_url}}/api/v1/workflow-definitions/s32_route/versions"
+    audit = "{{core_url}}/api/v1/audit/entries?domain=config&subject_type=acl_policy&from={{s32_t0}}&limit=500"
+    key = lambda k: {"Idempotency-Key": "tick958-s32-{{s32_run}}-" + k}
+    placeholder = {"rules": "set by the pre-request script (built from this stack's group ids)"}
+
+    def route(policy, timer=None):
+        """The S32 workflow: on create, optionally wait, then test whether the
+        incident's assignee may write it under `policy`."""
+        steps = []
+        if timer:
+            steps.append({"key": "wait", "type": "timer", "duration": timer, "next": "check"})
+        steps += [
+            {"key": "check", "type": "condition", "policy": {"entity_type": "incident", "name": policy},
+             "who": "assignee", "op": "write", "then": "triaged", "else": "needs_owner"},
+            {"key": "triaged", "type": "update_record", "set": {"state": "triaged"}, "next": "done"},
+            {"key": "needs_owner", "type": "update_record", "set": {"state": "needs_owner"}, "next": "done"},
+            {"key": "done", "type": "end"},
+        ]
+        return {"format": "nava.workflow/v1", "trigger": {"on": "record.created", "entity": "incident"},
+                "start": "wait" if timer else "check", "steps": steps}
+
+    published = """N.status(201);
+const b = N.json();
+test('current, on incident', () => { expect(b.current).to.eql(true); expect(b.entity).to.eql('incident'); });
+bru.setVar('s32_wf_version', String(b.version));"""
+
+    def create(tag, assignee):
+        return {"data": {"short_description": "S32 {{s32_run}} " + tag, "assignment_group": "{{s32_sd}}",
+                         "requester": "{{s32_req}}", "assignee": "{{%s}}" % assignee}}
+
+    def created(var):
+        return """N.status(201);
+const b = N.json();
+test('state new', () => expect(b.state).to.eql('new'));
+bru.setVar('%s', b.id);
+bru.setVar('%s_at', String(Date.now()));""" % (var, var)
+
+    # Waits until the record leaves `new` (the workflow wrote it) or 120 s
+    # pass, then the request reads it once more.
+    def wait_routed(var):
+        return LOAD_PRE + """
+const t0 = Number(bru.getVar('%s_at')) || 0;
+for (;;) {
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{%s}}'), method: 'GET',
+    headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+  if (!bru.getVar('%s') || (r.status === 200 && r.data.state !== 'new') || Date.now() - t0 > 120 * 1000) break;
+  await bru.sleep(500);
+}
+bru.setVar('%s_routed_at', String(Date.now()));""" % (var, var, var, var)
+
+    def routed(state, var):
+        return """N.status(200);
+const b = N.json();
+test('state %s, written by the workflow (version 2)', () => {
+  expect(b.state).to.eql('%s');
+  expect(b.version).to.eql(2);
+});
+console.log('%s routed to', b.state, 'after', ((Number(bru.getVar('%s_routed_at')) - Number(bru.getVar('%s_at'))) / 1000).toFixed(1), 's');""" % (state, state, var, var, var)
+
+    # Tenant A's incident access for S32: admins, agents read, `agents_write`
+    # (write for /service-desk; AC2 narrows it to the admins group alone) and
+    # requesters read their own.
+    doc_a = lambda writers: LOAD_PRE + """
+const SD = bru.getVar('s32_sd'), ADM = bru.getVar('s32_admins');
+const rules = {
+  format: 2,
+  conditions: [{ name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } }],
+  policies: [
+    { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+    { name: 'agents_read', ops: ['read'], when: { member_of: { groups: [SD] } } },
+    { name: 'agents_write', ops: ['write'], when: { member_of: { groups: [%s] } } },
+    { name: 'requesters_see_own', ops: ['read'], when: { ref: 'is_requester' } },
+  ],
+};
+req.setBody({ rules, masks: [] });
+req.setHeader('If-Match', bru.getVar('s32_etag'));""" % writers
+    acc_ok = """N.status(200);
+const b = N.json();
+test('agents_write grants write to %s', () => {
+  const p = b.rules.policies.find(x => x.name === 'agents_write');
+  expect(p.ops).to.eql(['write']);
+  expect(p.when).to.eql({ member_of: { groups: [bru.getVar('%s')] } });
+});
+bru.setVar('s32_etag', N.header('ETag'));
+bru.setVar('%s', String(Date.now()));"""
+
+    # A refused reference's audit entry: the reference is not stored, its
+    # SHA-256 is (content_sha256 of "<entity_type>/<name>").
+    def refused_entry(name, var):
+        return """N.status(200);
+const items = N.json().items;
+const want = N.sha256('incident/%s');
+const mine = items.filter(e => e.action === 'policy_ref_refused' && e.content_sha256 === want);
+test('a policy_ref_refused entry whose content_sha256 is SHA-256("incident/%s")', () => expect(mine.length).to.be.above(0));
+const e = mine[mine.length - 1] || {};
+test('domain config, subject acl_policy, actor system workflow, source workflow', () => {
+  expect(e.domain).to.eql('config');
+  expect(e.subject_type).to.eql('acl_policy');
+  expect(e.actor_system).to.eql('workflow');
+  expect(e.actor_principal_id == null).to.eql(true);
+  expect(e.source).to.eql('workflow');
+});
+const pubs = items.filter(x => x.actor_principal_id === bru.getVar('s32_admin'));
+test('its subject is the incident access policy: the subject of the admin\\'s own access publishes', () => {
+  expect(pubs.length).to.be.above(0);
+  expect(e.subject_id).to.eql(pubs[0].subject_id);
+  expect(e.entity_definition_id).to.eql(pubs[0].subject_id);
+});
+test('written after the record was created', () => expect(Date.parse(e.occurred_at)).to.be.at.least(Number(bru.getVar('%s_at')) - 2000));
+bru.setVar('%s_entry', JSON.stringify({ action: e.action, domain: e.domain, subject_type: e.subject_type, subject_id: e.subject_id, actor_system: e.actor_system, source: e.source }));
+console.log('%s entry', e.id, e.occurred_at, 'matching entries', mine.length);""" % (name, name, var, var, var)
+
+    return {
+        "dir": "S32", "name": "S32 workflow policy",
+        "desc": "Story S32, TICK-955 (kit TICK-958, PLAN-011 P11-24, ADR-010 D9). A workflow `condition` step asks \"may this incident's assignee write it under policy X?\" and branches to `triaged` or `needs_owner`. One workflow key, `s32_route`, gets one version per criterion. AC1 S32.13 to S32.18, AC2 S32.19 to S32.24 (a 20-second timer step), AC3 S32.25 to S32.28, AC4 S32.29 to S32.36; restore S32.37 to S32.39. Needs `tools/seed.sh` and admin@tenant-b (`docs/acceptance/S18/tools/kit.mjs admin-b`, then one group sync); `docs/acceptance/S32/run.sh` does both. Story users: `admin@tenant-a`, `agent@tenant-a` is Alice (`/service-desk`, the assignee), `requester@tenant-a` is the seeded `auditor@tenant-a.test`, `admin@tenant-b` is tenant B's admin. Runs again on the same stack: the restore steps leave `s32_route` a no-op and both tenants' incident access as the folder found it. Kit: `docs/acceptance/S32/`.",
+        "items": [
+            token("S32.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s32_run', Math.random().toString(16).slice(2, 10));\nbru.setVar('s32_t0', new Date(Date.now() - 5000).toISOString());\nconsole.log('S32 run', bru.getVar('s32_run'));"),
+            token("S32.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            token("S32.3 Sign in as requester@tenant-a (seeded auditor@tenant-a.test)", "auditor_a_username", "auditor_a_password", "req_a_token"),
+            token("S32.4 Sign in as admin@tenant-b", "admin_b_username", "admin_b_password", "admin_b_token",
+                  desc="admin@tenant-b.test is seeded by `docs/acceptance/S18/tools/kit.mjs admin-b` (in organization tenant-b and `/t/<B>/admins`); `run.sh` runs it and one group sync."),
+            req("S32.5 Alice's principal id and /service-desk", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+                tests=f"""N.me('{A}');
+bru.setVar('s32_alice', N.json().user_id);
+const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+test('Alice is in /service-desk', () => expect(sd, 'group_paths /service-desk').to.be.an('object'));
+bru.setVar('s32_sd', sd ? sd.id : '');"""),
+            req("S32.6 The admin's principal id and admins group", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+                tests=f"""N.me('{A}');
+bru.setVar('s32_admin', N.json().user_id);
+const g = N.json().group_paths.find(x => x.path === '/admins');
+test('the admin is in /admins', () => expect(g, 'group_paths /admins').to.be.an('object'));
+bru.setVar('s32_admins', g ? g.id : '');"""),
+            req("S32.7 The requester's principal id: not in /service-desk", "GET", "{{core_url}}/api/v1/me", auth="req_a_token",
+                tests=f"""N.me('{A}');
+bru.setVar('s32_req', N.json().user_id);
+test('not in /service-desk or /admins', () => {{
+  expect(N.paths()).to.not.include('/service-desk');
+  expect(N.paths()).to.not.include('/admins');
+}});"""),
+            req("S32.8 admin@tenant-b is tenant B's admin", "GET", "{{core_url}}/api/v1/me", auth="admin_b_token",
+                tests=f"""N.me('{B}');
+const g = N.json().group_paths.find(x => x.path === '/admins');
+test('admin@tenant-b is in /admins of tenant B', () => expect(g, 'group_paths /admins').to.be.an('object'));
+bru.setVar('s32_b_admins', g ? g.id : '');"""),
+            req("S32.9 The admin reads the incident type", "GET", et, auth="admin_a_token",
+                desc="Kept for S32.10, which adds the two states the S32 workflow writes.",
+                tests="""N.status(200);
+const b = N.json();
+test('the incident type, current', () => { expect(b.key).to.eql('incident'); expect(b.current).to.eql(true); });
+bru.setVar('s32_cur_schema', N.rawMember(N.text(), 'schema'));
+bru.setVar('s32_fixed', JSON.stringify(b.fixed_columns));
+bru.setVar('s32_states', JSON.stringify(b.states));
+bru.setVar('s32_has_states', String(['triaged', 'needs_owner'].every(s => b.states.states.includes(s))));"""),
+            req("S32.10 The admin adds the states triaged and needs_owner: 201", "POST", et + "/versions", auth="admin_a_token",
+                headers=key("states"), body={"definition": "set by the pre-request script (the current incident version plus two states)"},
+                pre=LOAD_PRE + r"""
+if (bru.getVar('s32_has_states') === 'true') { bru.runner.skipRequest(); }
+const schema = JSON.parse(bru.getVar('s32_cur_schema'));
+const states = JSON.parse(bru.getVar('s32_states'));
+for (const s of ['triaged', 'needs_owner']) {
+  states.states.push(s);
+  states.transitions.push({ from: 'new', to: s });
+  schema.properties.state.enum.push(s);
+}
+req.setBody({ definition: { schema, fixed_columns: JSON.parse(bru.getVar('s32_fixed')), states } });""",
+                desc="The story's workflow sets `state` to `triaged` or `needs_owner`, which the seeded incident type does not have. Two states and the transitions `new -> triaged` and `new -> needs_owner`: a compatible version. Skipped when the type already has them (a second pass).",
+                tests="""N.status(201);
+const b = N.json();
+test('current, with triaged and needs_owner', () => {
+  expect(b.current).to.eql(true);
+  expect(b.states.states).to.include.members(['triaged', 'needs_owner']);
+});"""),
+            req("S32.11 The admin reads the incident access policy", "GET", acc, auth="admin_a_token",
+                desc="Kept for S32.39, which republishes it.",
+                tests="""N.status(200);
+bru.setVar('s32_policy', JSON.stringify(N.json()));
+bru.setVar('s32_etag', N.header('ETag'));"""),
+            req("S32.12 The admin publishes access with agents_write for /service-desk", "PUT", acc, auth="admin_a_token",
+                headers=key("acc-sd"), body=placeholder, pre=doc_a("SD"),
+                desc="Four policies: `admins` (read, write), `agents_read` (read for `/service-desk`), `agents_write` (write for `/service-desk`) and `requesters_see_own` (read).",
+                tests=acc_ok % ("/service-desk", "s32_sd", "s32_acc_sd_at")),
+            req("S32.13 AC1: the admin publishes s32_route testing agents_write: 201", "POST", wf, auth="admin_a_token",
+                headers=key("wf-ac1"), body=route("agents_write"),
+                desc="On `record.created` of an incident: `check` is a condition step `{policy: {entity_type: incident, name: agents_write}, who: assignee, op: write}`; then `triaged`, else `needs_owner`.",
+                tests=published),
+            req("S32.14 AC1: the admin creates an incident assigned to Alice", "POST", inc, auth="admin_a_token",
+                headers=key("ac1-alice"), body=create("AC1 assigned to Alice", "s32_alice"), tests=created("s32_ac1")),
+            req("S32.15 AC1 control: an incident assigned to the requester", "POST", inc, auth="admin_a_token",
+                headers=key("ac1-req"), body=create("AC1 assigned to the requester", "s32_req"), tests=created("s32_ac1_req"),
+                desc="The requester is not in `/service-desk`, so `agents_write` does not grant it write: the same workflow takes the other branch."),
+            req("S32.16 AC1: Alice's incident is routed to triaged", "GET", inc + "/{{s32_ac1}}", auth="admin_a_token",
+                pre=wait_routed("s32_ac1"), desc="Waits up to 120 s after S32.14 for the workflow's write.",
+                tests=routed("triaged", "s32_ac1")),
+            req("S32.17 AC1 control: the requester's incident is routed to needs_owner", "GET", inc + "/{{s32_ac1_req}}", auth="admin_a_token",
+                pre=wait_routed("s32_ac1_req"), tests=routed("needs_owner", "s32_ac1_req")),
+            req("S32.18 AC1: the history shows the workflow's write", "GET", inc + "/{{s32_ac1}}/history", auth="admin_a_token",
+                tests="""N.status(200);
+const items = N.json().items;
+test('newest: source workflow set state triaged; then the admin create', () => {
+  expect(items[0].source).to.eql('workflow');
+  expect(items[0].after.state).to.eql('triaged');
+  expect(items[items.length - 1].action).to.eql('create');
+});"""),
+            req("S32.19 AC2: the admin publishes s32_route with a 20-second timer before the check: 201", "POST", wf, auth="admin_a_token",
+                headers=key("wf-ac2"), body=route("agents_write", timer="PT20S"),
+                desc="The same test, after a timer step `PT20S`. A run started now waits on the timer before it checks.",
+                tests=published),
+            req("S32.20 AC2: the admin creates an incident assigned to Alice", "POST", inc, auth="admin_a_token",
+                headers=key("ac2-alice"), body=create("AC2 assigned to Alice, waiting", "s32_alice"), tests=created("s32_ac2")),
+            req("S32.21 AC2: 3 s later it is still new: the run waits on its timer", "GET", inc + "/{{s32_ac2}}", auth="admin_a_token",
+                pre="await bru.sleep(3000);",
+                desc="`run.sh` shows from `workflow_ref` that the run had started before S32.22.",
+                tests="""N.status(200);
+test('state new, version 1', () => { expect(N.json().state).to.eql('new'); expect(N.json().version).to.eql(1); });"""),
+            req("S32.22 AC2: the admin removes /service-desk from agents_write", "PUT", acc, auth="admin_a_token",
+                headers=key("acc-narrow"), body=placeholder, pre=doc_a("ADM"),
+                desc="`agents_write` now grants write to the admins group only. The waiting run has not checked yet.",
+                tests=acc_ok % ("the admins group only", "s32_admins", "s32_narrowed_at") + """
+test('published before the timer fires (within 20 s of the create)', () =>
+  expect(Number(bru.getVar('s32_narrowed_at')) - Number(bru.getVar('s32_ac2_at'))).to.be.below(20000));"""),
+            req("S32.23 AC2: once the timer fires, the waiting run routes to needs_owner", "GET", inc + "/{{s32_ac2}}", auth="admin_a_token",
+                pre=wait_routed("s32_ac2"),
+                desc="The run's check reads the current version of `agents_write`, the one S32.22 published.",
+                tests=routed("needs_owner", "s32_ac2") + """
+test('routed after the narrowing and after the timer', () => {
+  expect(Number(bru.getVar('s32_ac2_routed_at'))).to.be.above(Number(bru.getVar('s32_narrowed_at')));
+  expect(Number(bru.getVar('s32_ac2_routed_at')) - Number(bru.getVar('s32_ac2_at'))).to.be.at.least(19000);
+});"""),
+            req("S32.24 AC2: the admin gives agents_write back to /service-desk", "PUT", acc, auth="admin_a_token",
+                headers=key("acc-sd-again"), body=placeholder, pre=doc_a("SD"),
+                desc="So that in AC3 and AC4 only the policy name decides: Alice may write again under `agents_write`.",
+                tests=acc_ok % ("/service-desk", "s32_sd", "s32_acc_sd2_at")),
+            req("S32.25 AC3: the admin publishes s32_route naming does_not_exist: 201", "POST", wf, auth="admin_a_token",
+                headers=key("wf-ac3"), body=route("does_not_exist"),
+                desc="Publish does not look the policy up (D9: names resolve at run time), so it is accepted.",
+                tests=published),
+            req("S32.26 AC3: the admin creates an incident assigned to Alice", "POST", inc, auth="admin_a_token",
+                headers=key("ac3-alice"), body=create("AC3 missing policy", "s32_alice"), tests=created("s32_ac3")),
+            req("S32.27 AC3: the missing policy routes it to needs_owner", "GET", inc + "/{{s32_ac3}}", auth="admin_a_token",
+                pre=wait_routed("s32_ac3"), desc="Alice may write under `agents_write` (S32.24), so the only reason for `needs_owner` is the missing name.",
+                tests=routed("needs_owner", "s32_ac3")),
+            req("S32.28 AC3: the admin finds the missing-policy entry in the audit log", "GET", audit, auth="admin_a_token",
+                desc="How the admin finds it: list the audit log with `domain=config&subject_type=acl_policy` from the time of interest, and look for `action` `policy_ref_refused` (actor `workflow`, source `workflow`). Its `subject_id` is the incident type's access policy, the same subject as the admin's own access publishes. The entry does not hold the policy name; `content_sha256` is SHA-256 of `incident/does_not_exist`, so the admin matches it by hashing the name the workflow uses.",
+                tests=refused_entry("does_not_exist", "s32_ac3")),
+            req("S32.29 AC4: admin@tenant-b reads tenant B's incident access", "GET", acc, auth="admin_b_token",
+                desc="Kept for S32.38, which republishes it.",
+                tests="""N.status(200);
+bru.setVar('s32_b_policy', JSON.stringify(N.json()));
+bru.setVar('s32_b_etag', N.header('ETag'));"""),
+            req("S32.30 AC4: admin@tenant-b adds a policy tenant_b_only to tenant B's incident type", "PUT", acc, auth="admin_b_token",
+                headers=key("b-acc"), body=placeholder,
+                pre=LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s32_b_policy'));
+const rules = JSON.parse(JSON.stringify(cur.rules));
+rules.policies = rules.policies.filter(p => p.name !== 'tenant_b_only');
+rules.policies.push({ name: 'tenant_b_only', ops: ['read', 'write'], when: { member_of: { groups: [bru.getVar('s32_b_admins')] } } });
+req.setBody({ rules, masks: cur.masks });
+req.setHeader('If-Match', bru.getVar('s32_b_etag'));""",
+                desc="Tenant B's own incident type now has a policy `tenant_b_only` (read, write for tenant B's admins). Tenant A's incident type has no policy of that name.",
+                tests="""N.status(200);
+test('tenant B has tenant_b_only', () => expect(N.json().rules.policies.map(p => p.name)).to.include('tenant_b_only'));
+bru.setVar('s32_b_etag', N.header('ETag'));"""),
+            req("S32.31 AC4: tenant A's admin publishes s32_route naming tenant_b_only: 201", "POST", wf, auth="admin_a_token",
+                headers=key("wf-ac4"), body=route("tenant_b_only"), tests=published),
+            req("S32.32 AC4: the admin creates an incident assigned to Alice", "POST", inc, auth="admin_a_token",
+                headers=key("ac4-alice"), body=create("AC4 tenant B's policy", "s32_alice"), tests=created("s32_ac4")),
+            req("S32.33 AC4: tenant B's policy is not found: needs_owner, as for a missing name", "GET", inc + "/{{s32_ac4}}", auth="admin_a_token",
+                pre=wait_routed("s32_ac4"), desc="The run's check reads policies in tenant A's transaction only.",
+                tests=routed("needs_owner", "s32_ac4")),
+            req("S32.34 AC4: tenant A's audit has the same missing-policy entry as AC3", "GET", audit, auth="admin_a_token",
+                tests=refused_entry("tenant_b_only", "s32_ac4") + """
+test('the same action, domain, subject, actor and source as the AC3 entry', () =>
+  expect(JSON.parse(bru.getVar('s32_ac4_entry'))).to.eql(JSON.parse(bru.getVar('s32_ac3_entry'))));"""),
+            req("S32.35 AC4: tenant B's audit has no refused reference", "GET", audit, auth="admin_b_token",
+                desc="The refusal is recorded in the tenant that ran the workflow, and tenant B's log names nothing of tenant A's.",
+                tests="""N.status(200);
+const items = N.json().items;
+test('no policy_ref_refused entry in tenant B since S32.1', () => expect(items.filter(e => e.action === 'policy_ref_refused')).to.eql([]));
+test('only tenant B\\'s own access publish (S32.30) is there', () => {
+  expect(items.length).to.be.above(0);
+  items.forEach(e => expect(e.subject_id).to.not.eql(JSON.parse(bru.getVar('s32_ac3_entry')).subject_id));
+});"""),
+            req("S32.36 AC4: naming another entity type's policy is refused at publish: 422", "POST",
+                "{{core_url}}/api/v1/workflow-definitions/s32_other_type/versions", auth="admin_a_token",
+                headers=key("wf-mismatch"),
+                body={**route("tenant_b_only"), "steps": [{**s, "policy": {"entity_type": "request", "name": "tenant_b_only"}} if s["key"] == "check" else s for s in route("tenant_b_only")["steps"]]},
+                desc="A policy test may only name the trigger entity's own type (`entity_type_mismatch`), whichever tenant has a type of that key, so a workflow cannot reach any other type's policies. Nothing is published.",
+                tests="""N.problem('workflow_definition_invalid', 422);
+test('entity_type_mismatch at the step\\'s policy entity_type', () =>
+  expect((N.json().errors || []).map(e => e.pointer + ' ' + e.rule)).to.include('/steps/check/policy/entity_type entity_type_mismatch'));"""),
+            req("S32.37 Restore: s32_route becomes a no-op: 201", "POST", wf, auth="admin_a_token",
+                headers=key("wf-noop"),
+                body={"format": "nava.workflow/v1", "trigger": {"on": "record.created", "entity": "incident"},
+                      "start": "done", "steps": [{"key": "done", "type": "end"}]},
+                desc="A definition cannot be deleted. Its current version now ends at once, so tenant A's later incidents keep their state.",
+                tests=published),
+            req("S32.38 Restore: admin@tenant-b republishes tenant B's access as S32.29 read it", "PUT", acc, auth="admin_b_token",
+                headers=key("b-restore"), body=placeholder,
+                pre=LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s32_b_policy'));
+req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setHeader('If-Match', bru.getVar('s32_b_etag'));""",
+                tests="""N.status(200);
+test('the S32.29 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s32_b_policy')).rules));"""),
+            req("S32.39 Restore: the admin republishes tenant A's access as S32.11 read it", "PUT", acc, auth="admin_a_token",
+                headers=key("restore"), body=placeholder,
+                pre=LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s32_policy'));
+req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setHeader('If-Match', bru.getVar('s32_etag'));""",
+                tests="""N.status(200);
+test('the S32.11 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s32_policy')).rules));"""),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

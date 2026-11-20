@@ -1,0 +1,41 @@
+meta {
+  name: S32.15 AC1 control: an incident assigned to the requester
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-ac1-req
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S32 {{s32_run}} AC1 assigned to the requester",
+      "assignment_group": "{{s32_sd}}",
+      "requester": "{{s32_req}}",
+      "assignee": "{{s32_req}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('state new', () => expect(b.state).to.eql('new'));
+  bru.setVar('s32_ac1_req', b.id);
+  bru.setVar('s32_ac1_req_at', String(Date.now()));
+}
+
+docs {
+  The requester is not in `/service-desk`, so `agents_write` does not grant it write: the same workflow takes the other branch.
+}

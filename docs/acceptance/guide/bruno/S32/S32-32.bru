@@ -1,0 +1,37 @@
+meta {
+  name: S32.32 AC4: the admin creates an incident assigned to Alice
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-ac4-alice
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S32 {{s32_run}} AC4 tenant B's policy",
+      "assignment_group": "{{s32_sd}}",
+      "requester": "{{s32_req}}",
+      "assignee": "{{s32_alice}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('state new', () => expect(b.state).to.eql('new'));
+  bru.setVar('s32_ac4', b.id);
+  bru.setVar('s32_ac4_at', String(Date.now()));
+}

@@ -1,0 +1,57 @@
+meta {
+  name: S32.12 The admin publishes access with agents_write for /service-desk
+  type: http
+  seq: 12
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-acc-sd
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const SD = bru.getVar('s32_sd'), ADM = bru.getVar('s32_admins');
+  const rules = {
+    format: 2,
+    conditions: [{ name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } }],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'agents_read', ops: ['read'], when: { member_of: { groups: [SD] } } },
+      { name: 'agents_write', ops: ['write'], when: { member_of: { groups: [SD] } } },
+      { name: 'requesters_see_own', ops: ['read'], when: { ref: 'is_requester' } },
+    ],
+  };
+  req.setBody({ rules, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s32_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('agents_write grants write to /service-desk', () => {
+    const p = b.rules.policies.find(x => x.name === 'agents_write');
+    expect(p.ops).to.eql(['write']);
+    expect(p.when).to.eql({ member_of: { groups: [bru.getVar('s32_sd')] } });
+  });
+  bru.setVar('s32_etag', N.header('ETag'));
+  bru.setVar('s32_acc_sd_at', String(Date.now()));
+}
+
+docs {
+  Four policies: `admins` (read, write), `agents_read` (read for `/service-desk`), `agents_write` (write for `/service-desk`) and `requesters_see_own` (read).
+}

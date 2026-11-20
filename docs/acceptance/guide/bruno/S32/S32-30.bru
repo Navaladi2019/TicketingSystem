@@ -1,0 +1,44 @@
+meta {
+  name: S32.30 AC4: admin@tenant-b adds a policy tenant_b_only to tenant B's incident type
+  type: http
+  seq: 30
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-b-acc
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s32_b_policy'));
+  const rules = JSON.parse(JSON.stringify(cur.rules));
+  rules.policies = rules.policies.filter(p => p.name !== 'tenant_b_only');
+  rules.policies.push({ name: 'tenant_b_only', ops: ['read', 'write'], when: { member_of: { groups: [bru.getVar('s32_b_admins')] } } });
+  req.setBody({ rules, masks: cur.masks });
+  req.setHeader('If-Match', bru.getVar('s32_b_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('tenant B has tenant_b_only', () => expect(N.json().rules.policies.map(p => p.name)).to.include('tenant_b_only'));
+  bru.setVar('s32_b_etag', N.header('ETag'));
+}
+
+docs {
+  Tenant B's own incident type now has a policy `tenant_b_only` (read, write for tenant B's admins). Tenant A's incident type has no policy of that name.
+}
