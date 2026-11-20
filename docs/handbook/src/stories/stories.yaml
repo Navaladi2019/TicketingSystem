@@ -256,6 +256,17 @@ stories:
     verdict_comment: "Acceptance kit s27-competitive-gate.md (TICK-882), status ready"
     evidence:
       - docs/acceptance/s27-competitive-gate.md
+  - id: S30
+    issue: TICK-935
+    title: Admins compose access rules from named conditions with AND, OR and NOT
+    status: delivered
+    verdict: READY
+    date: 2026-11-19
+    verdict_comment: "Acceptance kit S30/README.md (TICK-944), verified on a fresh stack"
+    bruno: [S30]
+    evidence:
+      - docs/acceptance/S30/README.md
+      - docs/acceptance/S30/fresh-stack-run.txt
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story

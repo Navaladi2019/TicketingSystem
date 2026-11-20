@@ -40,5 +40,6 @@ links the verdict and evidence. The step-by-step kit stays in the
 - [HB2: A first-time reader learns the product from the handbook](hb2.md)
 - [S25: A developer installs the TypeScript SDK and lists, reads and creates records](s25.md)
 - [S27: CI refuses a design record without its Competitive Gate, and a change that removes a step type or keyword](s27.md)
+- [S30: Admins compose access rules from named conditions with AND, OR and NOT](s30.md)
 
 S12 and S18 to S20 (planned) have no page: they are not on `main`. The table above lists them apart from the delivered stories.
