@@ -12,6 +12,7 @@ How to run the platform on one machine and see what it is doing. Everything here
 | [Local stack](local-stack.md) | Start, stop, reset and seed the stack; what each service is and which ports reach the host |
 | [Unpublished listeners](listeners.md) | Admin endpoints, the onboarding API and the Temporal UI publish no port. How to reach them through a tunnel or `docker compose exec` |
 | [Traces, logs and metrics](observability.md) | OpenObserve and Prometheus: finding a slow or failed request, alert rules, health endpoints |
+| [Access document size limit](acl-document-limit.md) | `NAVA_ACL_MAX_DOCUMENT_BYTES`: the platform-wide byte limit on access rules and masks, its range, and how to change it safely |
 | [Troubleshooting](troubleshooting.md) | Where to look first when something breaks |
 | [Using the TypeScript SDK](sdk.md) | Install `@nava/sdk`, token provider, records calls, typed errors, versioning, regeneration and the `sdk` CI job (story branch until S25 merges) |
 
