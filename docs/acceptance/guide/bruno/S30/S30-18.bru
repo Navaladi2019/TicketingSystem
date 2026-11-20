@@ -1,0 +1,21 @@
+meta {
+  name: S30.18 AC5 before: the requester opens its /service-desk incident
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s30_sd_other}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('s30_f1_r_other', JSON.stringify({ status: res.getStatus(), body: res.getStatus() === 404 ? N.text() : null }));
+}

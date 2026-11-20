@@ -21,7 +21,9 @@
 // NAVA_PERF_OUT (the raw report, default bin/acl-perf-800k-raw.md),
 // NAVA_PERF_ONLY (a regular expression over scenario names; empty runs all),
 // NAVA_PERF_RATE and NAVA_PERF_WARMUP (open-loop creates, TICK-700: see
-// records_perf_openloop_integration_test.go).
+// records_perf_openloop_integration_test.go), NAVA_PERF_ACL_FORMAT (1; 2
+// stores the ACLs as format 2, TICK-944: see
+// records_perf_format2_integration_test.go).
 
 package server_test
 
@@ -51,7 +53,6 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
-	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
@@ -248,6 +249,9 @@ type perfEnv struct {
 	// tokens per role
 	agents, requesters, smallAgents, smallAdmins []string
 	agentGroups                                  map[string][]uuid.UUID
+	// composed is set once the large tenant's ACL is the S30 composed
+	// document (TICK-944, records_perf_format2_integration_test.go).
+	composed bool
 }
 
 func perfEnvInt(name string, def int) int {
@@ -344,12 +348,7 @@ func (e *perfEnv) defineType(t *testing.T, tn uuid.UUID, adminToken string, agen
 	if rec := e.serve(t.Context(), http.MethodPost, "/api/v1/entity-types", adminToken, "perf-type", perfTypeBody()); rec.Code != http.StatusCreated {
 		t.Fatalf("create type for %s = %d: %s", adminToken, rec.Code, rec.Body)
 	}
-	if err := tenancy.InTenantTx(t.Context(), e.pool, tn, func(tx pgx.Tx) error {
-		_, err := acltest.Publish(t.Context(), tx, "ticket", perfACL(agents, admins)...)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	e.publishPerfACL(t, tn, agents, admins) // format 1 or 2: NAVA_PERF_ACL_FORMAT
 }
 
 // seed builds P3-01's shape. Tenant 0 is the large tenant (etSeedTenant's
@@ -773,6 +772,11 @@ func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 			},
 			unscored: "gapless type: reported, not scored (D-3-9)",
 		},
+		// TICK-944: the S30 composed policy (records_perf_format2_integration_test.go).
+		"composed: agent list by group, default sort, page 1":  {before: e.composedBefore(t)},
+		"composed: agent list by group, default sort, page 20": {before: e.composedBefore(t)},
+		"composed: agent list, filter[state]=new":              {before: e.composedBefore(t)},
+		"composed: single GET, agent":                          {before: e.composedBefore(t)},
 	}
 }
 
@@ -812,6 +816,14 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		// Last: it switches the large tenant's ticket type to gapless
 		// numbering (D-3-9, per type), reported but not held to 50 ms.
 		{"create, agent, gapless type", "create", "large", func() []perfReq { return e.createReqs(t, e.agents) }, 0},
+		// TICK-944 (S30): the agents' policy as in_assigned_group AND NOT
+		// is_requester. After every other row: it republishes the large
+		// tenant's ACL. The request sets are the plain rows': "mine" still
+		// grants what the agent raised, so what an agent sees is unchanged.
+		{"composed: agent list by group, default sort, page 1", "list", "large", func() []perfReq { return listReqs(e.agents, "") }, 0},
+		{"composed: agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
+		{"composed: agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
+		{"composed: single GET, agent", "get", "large", func() []perfReq { return e.getReqs(t, e.agents, 5) }, 0},
 	}
 }
 

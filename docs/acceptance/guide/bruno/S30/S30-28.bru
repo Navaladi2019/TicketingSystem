@@ -1,0 +1,70 @@
+meta {
+  name: S30.28 AC1: the admin publishes "agents see tickets in their group that they did not raise"
+  type: http
+  seq: 28
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-composed
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {}
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const SD = bru.getVar('s30_sd'), ADM = bru.getVar('s30_admins');
+  const inAssigned = { cmp: { column: 'assignment_group_id', op: 'in', caller: 'my_groups' } };
+  const doc = () => ({
+    format: 2,
+    conditions: [
+      { name: 'in_assigned_group', expr: inAssigned },
+      { name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } },
+      { name: 'is_new', expr: { cmp: { column: 'state', op: 'eq', values: ['new'] } } },
+    ],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'agents_see_group_not_raised', ops: ['read'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { not: { ref: 'is_requester' } }] } },
+      { name: 'agents_edit_group_new', ops: ['write'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { ref: 'is_new' }] } },
+      { name: 'requesters_see_own', ops: ['read'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }] } },
+      { name: 'requesters_edit_own_new', ops: ['write'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }, { ref: 'is_new' }] } },
+    ],
+  });
+
+  const d = doc();
+
+  req.setBody({ rules: d, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s30_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('stored as published: 3 conditions, 5 policies', () => {
+    expect(b.rules.conditions.map(c => c.name)).to.eql(['in_assigned_group', 'is_requester', 'is_new']);
+    expect(b.rules.policies.map(p => p.name)).to.eql(['admins', 'agents_see_group_not_raised', 'agents_edit_group_new', 'requesters_see_own', 'requesters_edit_own_new']);
+  });
+  test('lint not_over_caller_leaf on the not', () => expect((b.warnings || []).map(w => w.pointer + ' ' + w.code)).to.include('/rules/policies/1/when/all/2/not not_over_caller_leaf'));
+  bru.setVar('s30_composed', JSON.stringify(b));
+  bru.setVar('s30_etag', N.header('ETag'));
+}
+
+docs {
+  Three named conditions and five policies. `agents_see_group_not_raised` is `member_of /service-desk AND in_assigned_group AND NOT is_requester`. Requesters outside `/service-desk` see and, while `new`, edit their own. The `not` over `is_requester` is accepted with the lint `not_over_caller_leaf` (a caller with no id would pass it; every signed-in user has one).
+}

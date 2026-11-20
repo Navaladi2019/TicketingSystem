@@ -10,7 +10,8 @@
 # NAVA_PERF_OUT (bin/acl-perf-800k-raw.md), NAVA_PERF_ONLY (a regexp over
 # scenario names, e.g. '^create'), NAVA_PERF_RATE (open-loop creates per
 # second, e.g. 100 or 100,200; TICK-700, informational) with NAVA_PERF_WARMUP
-# (10 s), BENCH_KEEP=1 keeps the container. The
+# (10 s), NAVA_PERF_ACL_FORMAT (1; 2 stores the ACLs as format 2; the
+# `composed:` rows always publish format 2, TICK-944), BENCH_KEEP=1 keeps the container. The
 # test quiesces the seed (VACUUM (ANALYZE), CHECKPOINT) and, before each
 # create attempt, waits for other nava-it-pg-*/nava-aclperf-* containers to
 # stop and for autovacuum to finish in the bench database.

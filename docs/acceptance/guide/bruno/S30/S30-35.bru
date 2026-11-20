@@ -1,0 +1,23 @@
+meta {
+  name: S30.35 AC2: GET still shows the S30.28 version
+  type: http
+  seq: 35
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s30_composed'));
+  test('version unchanged', () => expect(N.json().version).to.eql(was.version));
+  test('document unchanged', () => expect(N.json().rules).to.eql(was.rules));
+}

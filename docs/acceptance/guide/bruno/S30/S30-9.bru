@@ -1,0 +1,44 @@
+meta {
+  name: S30.9 AC5: the admin reads the incident policy: the S10 rules come out as format 2
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('rules is a format-2 document', () => {
+    expect(b.rules.format).to.eql(2);
+    expect(b.rules.conditions).to.be.an('array');
+    expect(b.rules.policies).to.be.an('array').that.is.not.empty;
+  });
+  test('every policy has a valid name, ops and a when tree', () => b.rules.policies.forEach(p => {
+    expect(p.name).to.match(/^[a-z][a-z0-9_]{0,62}$/);
+    expect(p.ops).to.be.an('array');
+    expect(p.when).to.be.an('object');
+  }));
+  if (b.version === 1) test('version 1 is the S10 default: default_admins, default_service_desk, default_requester, default_requester_new', () => {
+    expect(b.rules.policies.map(p => p.name)).to.eql(['default_admins', 'default_service_desk', 'default_requester', 'default_requester_new']);
+    const legacy = b.rules.policies.map(p => p.legacy_id);
+    // Seeded since TICK-939 as format 2 (no legacy_id); a row stored as format 1 before it reads back converted, keeping the rule id.
+    expect([JSON.stringify([undefined, undefined, undefined, undefined]), JSON.stringify(['default-admins', 'default-service-desk', 'default-requester', 'default-requester-new'])]).to.include(JSON.stringify(legacy));
+  });
+  test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + b.version + '"'));
+  bru.setVar('s30_policy', JSON.stringify(b));
+  bru.setVar('s30_etag', N.header('ETag'));
+}
+
+docs {
+  On a fresh stack this is version 1, the default incident ACL: the four S10 rules (`onboard.DefaultIncidentRules`) that `tools/seed.sh` publishes through `nava-onboard reconcile-default-acl`. Since TICK-939 that path stores them as format 2 (`run.sh` shows `jsonb_typeof` `object`), as policies named after the rule ids with `-` turned into `_`. A row stored as format 1 before TICK-939 reads back the same way, converted, with the rule id kept as `legacy_id`. Kept for S30.21 and S30.47.
+}
