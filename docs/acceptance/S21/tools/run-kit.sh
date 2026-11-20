@@ -36,6 +36,11 @@ NAVA_IMAGE_TAG=${NAVA_IMAGE_TAG:-s21}
 export NAVA_IMAGE_TAG
 EV=${S21_EVIDENCE:-docs/acceptance/S21/evidence}
 T=docs/acceptance/S21/tools
+case "$EV" in
+  *..*) echo "s21: S21_EVIDENCE must not contain .. (got: $EV)" >&2; exit 2 ;;
+  docs/acceptance/S21/evidence|docs/acceptance/S21/evidence/*) ;;
+  *) echo "s21: S21_EVIDENCE must be docs/acceptance/S21/evidence or a folder under it (got: $EV)" >&2; exit 2 ;;
+esac
 mkdir -p "$EV"
 # A fresh run replaces the top-level evidence; subfolders (earlier runs kept
 # on purpose, such as stack1-p95-miss/) stay.
