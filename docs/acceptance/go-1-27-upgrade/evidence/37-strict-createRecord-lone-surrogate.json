@@ -1,0 +1,33 @@
+{
+  "step": "strict-createRecord-lone-surrogate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/records/t961_a_mwnjuz8g",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b2264617461223a7b2273686f72745f6465736372697074696f6e223a225c7564383030227d7d",
+      "raw_latin1": "{\"data\":{\"short_description\":\"\\ud800\"}}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:record_invalid",
+      "title": "Record invalid",
+      "status": 422,
+      "code": "record_invalid",
+      "detail": "The record is not accepted. See errors for the failing fields.",
+      "instance": "urn:nava:request:4c85cffeb1e4b4c363fd683890d876fa",
+      "errors": [
+        {
+          "pointer": "/body/data/short_description",
+          "rule": "invalid_utf8"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

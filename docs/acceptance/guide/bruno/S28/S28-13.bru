@@ -1,0 +1,37 @@
+meta {
+  name: S28.13 The history shows the write with source workflow (the clock stops)
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s28_rec}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('newest: the workflow set the state; then the admin create', () => {
+    expect(items).to.have.length(2);
+    expect(items[0].source).to.eql('workflow');
+    expect(items[0].changed).to.eql(['/data/state']);
+    expect(items[0].after.state).to.eql('in_progress');
+    expect(items[1].action).to.eql('create');
+    expect(items[1].source).to.eql('user');
+  });
+  const stop = Date.parse(items[0].at);
+  const total = (stop - Number(bru.getVar('s28_t0'))) / 60000;
+  test('M-X1a: within the 8 h target', () => expect(total).to.be.below(8 * 60));
+  console.log('S28.13 clock stop', items[0].at, 'total minutes', total.toFixed(1));
+}
+
+docs {
+  Two rows, newest first: the workflow's state change (`source: workflow`) and the admin's create. The new tenant has one workflow definition, the admin's `s28_route`, so the write is that workflow's. The clock stops at the workflow entry's `at`.
+}

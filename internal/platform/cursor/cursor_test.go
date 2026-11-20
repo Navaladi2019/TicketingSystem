@@ -2,6 +2,7 @@ package cursor_test
 
 import (
 	"errors"
+	"maps"
 	"net/url"
 	"strings"
 	"testing"
@@ -31,9 +32,7 @@ func base() cursor.Claims {
 // with returns a copy of c with k set to v, or removed when v is empty.
 func with(c cursor.Claims, k, v string) cursor.Claims {
 	out := cursor.Claims{}
-	for kk, vv := range c {
-		out[kk] = vv
-	}
+	maps.Copy(out, c)
 	if v == "" {
 		delete(out, k)
 	} else {

@@ -63,12 +63,7 @@ func adrAllows(id Identity, fullAPI string) bool {
 	svc, method := api.ServiceName(fullAPI), api.MethodName(fullAPI)
 	isWF := svc == api.WorkflowServicePrefix
 	oneOf := func(names ...string) bool {
-		for _, n := range names {
-			if method == n {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(names, method)
 	}
 	switch id {
 	case System:
@@ -926,7 +921,7 @@ func TestRequestFieldRulesMatchAuthorizer(t *testing.T) {
 			}
 			ran := map[string]bool{}
 			if c, ok := workloadChecks[id][wf+method]; ok {
-				for _, rule := range strings.Split(c.rule, ", ") {
+				for rule := range strings.SplitSeq(c.rule, ", ") {
 					ran[rule] = true
 				}
 			}

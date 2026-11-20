@@ -127,8 +127,7 @@ func duplicateBindingRefused(ctx context.Context, c Cluster) error {
 
 // constraintName is the constraint a server error names, or "".
 func constraintName(err error) string {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.ConstraintName
 	}
 	return ""

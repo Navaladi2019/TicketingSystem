@@ -3,7 +3,7 @@ title: "Roles and grants"
 section: database
 status: delivered
 sources: [db/grants.yaml, db/audited-tables.yaml, db/pg_hba.conf, docs/data/roles-and-grants.md, docs/adr/ADR-001-platform-blueprint.md, docs/adr/ADR-004-A1-diff-read-role.md]
-adrs: [ADR-001, ADR-004, ADR-004-A1]
+adrs: [ADR-001, ADR-004, ADR-004-A1, ADR-010-A1]
 ---
 
 `db/grants.yaml` is the only place a privilege is granted. Two jobs read it:
@@ -22,6 +22,15 @@ Column lists matter. `UPDATE` never includes a key or a column that is set
 once at insert, so a record's number or a group's identity provider id cannot
 be rewritten. Only `nava_audit_reader` may read `audit_log.diff` and
 `diff_salt` (ADR-004-A1).
+
+Only `nava_app` inserts into `acl_versions` (ADR-010-A1 A1-3, TICK-940).
+`nava_worker` keeps `SELECT` on `acl_versions` but has no `INSERT`, is not in
+the `acl_versions_insert` policy, and has no `EXECUTE` on any `acl%` check
+function. The tenant-id trigger on `acl_versions` stays `SECURITY INVOKER`,
+so it checks ids as the inserting role; it could not do that as
+`nava_worker`, and `SECURITY DEFINER` is not used (I3). A worker path that
+publishes access needs its own amendment. `TestTICK940WorkerCannotPublish`
+proves the worker's insert fails.
 
 ## Roles
 

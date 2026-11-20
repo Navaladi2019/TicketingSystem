@@ -3,6 +3,7 @@ package metadata_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,12 +51,7 @@ func TestTemplatesCompile(t *testing.T) {
 }
 
 func contains(s []string, v string) bool {
-	for _, e := range s {
-		if e == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, v)
 }
 
 // TestCompileRefusesExternalRefs: no $ref may leave the document (TICK-363).
@@ -183,6 +179,16 @@ func TestCompileRefuses(t *testing.T) {
 			name: "(e) duplicate key",
 			raw:  `{"type":"object","properties":{"state":{"type":"string","enum":["open","closed"]},"title":{"type":"string","type":"integer"},"requester":{"type":"string","format":"uuid"}}}`,
 			want: "/schema/properties/title/type",
+		},
+		{
+			name: "lone surrogate in a schema string (TICK-964)",
+			raw:  `{"type":"object","properties":{"state":{"type":"string","enum":["open","closed"]},"title":{"type":"string","description":"\ud800"},"requester":{"type":"string","format":"uuid"}}}`,
+			want: "/schema/properties/title/description",
+		},
+		{
+			name: "invalid UTF-8 in a schema string (TICK-964)",
+			raw:  "{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\",\"enum\":[\"open\",\"closed\"]},\"title\":{\"type\":\"string\",\"description\":\"\xc0\xaf\"},\"requester\":{\"type\":\"string\",\"format\":\"uuid\"}}}",
+			want: "/schema/properties/title/description",
 		},
 		{
 			name: "(e) duplicate key at the root",

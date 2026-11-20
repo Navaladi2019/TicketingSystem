@@ -3,9 +3,9 @@
 // out of the production go.mod (TICK-94 item 15).
 module github.com/Navaladi2019/TicketingSystem/tools/navalint
 
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.11
+toolchain go1.27.4
 
 require golang.org/x/tools v0.52.0
 

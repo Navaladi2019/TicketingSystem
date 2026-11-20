@@ -1,0 +1,221 @@
+              set_config              
+--------------------------------------
+ 00000001-0000-7000-8000-000000000001
+(1 row)
+
+== B-S0 closed window, side table, page
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.071..0.072 rows=0 loops=1)
+   Buffers: shared hit=9
+   ->  Sort (actual time=0.070..0.071 rows=0 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=9
+         ->  Result (actual time=0.046..0.047 rows=0 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+               Buffers: shared hit=3
+               ->  Nested Loop (actual time=0.038..0.039 rows=0 loops=1)
+                     Buffers: shared hit=3
+                     ->  HashAggregate (actual time=0.038..0.038 rows=0 loops=1)
+                           Group Key: v.tenant_id, v.record_id
+                           Batches: 1  Memory Usage: 24kB
+                           Buffers: shared hit=3
+                           ->  Index Only Scan Backward using rfv_num_value on rfv_num v (actual time=0.036..0.036 rows=0 loops=1)
+                                 Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                                 Heap Fetches: 0
+                                 Buffers: shared hit=3
+                     ->  Index Scan using records_pkey on records r (never executed)
+                           Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (id = v.record_id))
+                           Filter: (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid)
+ Planning:
+   Buffers: shared hit=330
+ Planning Time: 0.840 ms
+ Execution Time: 0.130 ms
+(26 rows)
+
+== B-S1 RFC D12 shape: side OR NOT data ? f, page
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=24.162..98.560 rows=25 loops=1)
+   Buffers: shared hit=70243
+   ->  Result (actual time=24.161..98.540 rows=25 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+         Buffers: shared hit=70243
+         ->  Index Scan using records_list_updated on records r (actual time=24.156..98.500 rows=25 loops=1)
+               Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+               Filter: ((hashed SubPlan 2) OR (NOT (data ? 'priority'::text)))
+               Rows Removed by Filter: 69409
+               Buffers: shared hit=70243
+               SubPlan 2
+                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.009..0.009 rows=0 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=37
+ Planning Time: 0.371 ms
+ Execution Time: 98.608 ms
+(19 rows)
+
+== B-S1c RFC D12 shape, capped count
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=52.543..52.546 rows=1 loops=1)
+   Buffers: shared hit=53094
+   ->  Limit (actual time=0.046..52.503 rows=34 loops=1)
+         Buffers: shared hit=53094
+         ->  Result (actual time=0.045..52.477 rows=34 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+               Buffers: shared hit=53094
+               ->  Index Scan using records_list_created on records r (actual time=0.043..52.436 rows=34 loops=1)
+                     Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+                     Filter: ((hashed SubPlan 2) OR (NOT (data ? 'priority'::text)))
+                     Rows Removed by Filter: 99966
+                     Buffers: shared hit=53094
+                     SubPlan 2
+                       ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.009..0.009 rows=0 loops=1)
+                             Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                             Heap Fetches: 0
+                             Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.238 ms
+ Execution Time: 52.599 ms
+(21 rows)
+
+== B-J1 JSONB path D12 shape, page
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=15.916..99.313 rows=25 loops=1)
+   Buffers: shared hit=70240
+   ->  Result (actual time=15.914..99.291 rows=25 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+         Buffers: shared hit=70240
+         ->  Index Scan using records_list_updated on records r (actual time=15.906..99.255 rows=25 loops=1)
+               Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+               Filter: ((data @> '{"priority": 3}'::jsonb) OR (NOT (data ? 'priority'::text)))
+               Rows Removed by Filter: 69409
+               Buffers: shared hit=70240
+ Planning Time: 0.127 ms
+ Execution Time: 99.353 ms
+(12 rows)
+
+== B-S3 UNION ALL, absent branch driven by schema_backfill_failures PK, page
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.365..0.370 rows=25 loops=1)
+   Buffers: shared hit=140
+   ->  Sort (actual time=0.364..0.368 rows=25 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 27kB
+         Buffers: shared hit=140
+         ->  Append (actual time=0.067..0.343 rows=34 loops=1)
+               Buffers: shared hit=140
+               ->  Result (actual time=0.023..0.024 rows=0 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=3
+                     ->  Nested Loop (actual time=0.016..0.016 rows=0 loops=1)
+                           Buffers: shared hit=3
+                           ->  HashAggregate (actual time=0.015..0.016 rows=0 loops=1)
+                                 Group Key: v.tenant_id, v.record_id
+                                 Batches: 1  Memory Usage: 24kB
+                                 Buffers: shared hit=3
+                                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.014..0.014 rows=0 loops=1)
+                                       Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                                       Heap Fetches: 0
+                                       Buffers: shared hit=3
+                           ->  Index Scan using records_pkey on records r (never executed)
+                                 Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (id = v.record_id))
+                                 Filter: (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid)
+               ->  Result (actual time=0.043..0.314 rows=34 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=137
+                     ->  Nested Loop (actual time=0.042..0.307 rows=34 loops=1)
+                           Buffers: shared hit=137
+                           ->  Seq Scan on schema_backfill_failures x (actual time=0.010..0.016 rows=34 loops=1)
+                                 Filter: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid) AND (target_version = 3))
+                                 Buffers: shared hit=1
+                           ->  Index Scan using records_pkey on records r_1 (actual time=0.008..0.008 rows=1 loops=34)
+                                 Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (id = x.record_id))
+                                 Filter: ((entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid) AND (NOT (data ? 'priority'::text)))
+                                 Buffers: shared hit=136
+ Planning:
+   Buffers: shared hit=44
+ Planning Time: 0.540 ms
+ Execution Time: 0.448 ms
+(40 rows)
+
+              set_config              
+--------------------------------------
+ 00000001-0000-7000-8000-000000000001
+(1 row)
+
+== B-S4 UNION ALL, absent branch driven by (tenant, def, schema_version) index, page
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=43.021..43.030 rows=25 loops=1)
+   Buffers: shared hit=17812 read=91
+   ->  Sort (actual time=43.019..43.025 rows=25 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: quicksort  Memory: 27kB
+         Buffers: shared hit=17812 read=91
+         ->  Append (actual time=0.053..43.006 rows=34 loops=1)
+               Buffers: shared hit=17812 read=91
+               ->  Result (actual time=0.019..0.021 rows=0 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=3
+                     ->  Nested Loop (actual time=0.012..0.014 rows=0 loops=1)
+                           Buffers: shared hit=3
+                           ->  HashAggregate (actual time=0.012..0.013 rows=0 loops=1)
+                                 Group Key: v.tenant_id, v.record_id
+                                 Batches: 1  Memory Usage: 24kB
+                                 Buffers: shared hit=3
+                                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.010..0.011 rows=0 loops=1)
+                                       Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                                       Heap Fetches: 0
+                                       Buffers: shared hit=3
+                           ->  Index Scan using records_pkey on records r (never executed)
+                                 Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (id = v.record_id))
+                                 Filter: (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid)
+               ->  Result (actual time=0.033..42.978 rows=34 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=17809 read=91
+                     ->  Index Scan using records_def_schema_version on records r_1 (actual time=0.031..42.970 rows=34 loops=1)
+                           Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid) AND (schema_version < 3))
+                           Filter: (NOT (data ? 'priority'::text))
+                           Rows Removed by Filter: 99966
+                           Buffers: shared hit=17809 read=91
+ Planning:
+   Buffers: shared hit=67 read=1
+ Planning Time: 0.667 ms
+ Execution Time: 43.092 ms
+(36 rows)
+
+== B-S5 single OR with schema_version bound (no UNION), page
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=13.539..109.110 rows=25 loops=1)
+   Buffers: shared hit=70243
+   ->  Result (actual time=13.537..109.080 rows=25 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+         Buffers: shared hit=70243
+         ->  Index Scan using records_list_updated on records r (actual time=13.530..109.022 rows=25 loops=1)
+               Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+               Filter: ((hashed SubPlan 2) OR ((schema_version < 3) AND (NOT (data ? 'priority'::text))))
+               Rows Removed by Filter: 69409
+               Buffers: shared hit=70243
+               SubPlan 2
+                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.013..0.013 rows=0 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+ Planning Time: 0.323 ms
+ Execution Time: 109.183 ms
+(17 rows)
+
+ sv_idx  | list_idx 
+---------+----------
+ 7168 kB | 89 MB
+(1 row)
+

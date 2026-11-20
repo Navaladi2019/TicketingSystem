@@ -1,0 +1,22 @@
+{
+  "step": "iso-workflow-definition-made-up",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/workflow-definitions/t961_none_mwnjuz8g",
+    "headers": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

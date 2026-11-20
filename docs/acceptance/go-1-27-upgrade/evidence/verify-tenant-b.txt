@@ -1,0 +1,2 @@
+ok: seq 1..6 from genesis to head_hash 27acdaafdcde0abb5ba3930032eaeb2fa52569ea468c8a5e00f2f47c9c506507; 6 entries, 0 stubs, 1 unsealed
+exit 0

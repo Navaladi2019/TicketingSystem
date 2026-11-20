@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -211,39 +212,49 @@ func TestSettleErrors(t *testing.T) {
 	}
 }
 
-// A failed claim is Poll's error, and Run logs it and keeps polling until
-// its context ends.
+// A failed claim is Poll's error, and Run logs it and keeps polling, one
+// poll per interval, until its context ends.
 func TestPollAndRunClaimError(t *testing.T) {
-	boom := errors.New("connection refused")
-	logs := &syncBuffer{}
-	log := slog.New(slog.NewJSONHandler(logs, nil))
-	mp := metricnoop.NewMeterProvider()
-	r, err := New(&errDB{queryErr: boom}, mp, log, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := NewDispatcher(r, nopTemporal{}, tracenoop.NewTracerProvider(), mp, log, DispatcherOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	n, err := d.Poll(t.Context())
-	if n != 0 || !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "relay: claim: ") {
-		t.Fatalf("Poll = %d, %v; want 0, relay: claim: %v", n, err, boom)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		boom := errors.New("connection refused")
+		logs := &syncBuffer{}
+		log := slog.New(slog.NewJSONHandler(logs, nil))
+		mp := metricnoop.NewMeterProvider()
+		r, err := New(&errDB{queryErr: boom}, mp, log, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := NewDispatcher(r, nopTemporal{}, tracenoop.NewTracerProvider(), mp, log, DispatcherOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := d.Poll(t.Context())
+		if n != 0 || !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "relay: claim: ") {
+			t.Fatalf("Poll = %d, %v; want 0, relay: claim: %v", n, err, boom)
+		}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() { d.Run(ctx, time.Hour); close(done) }()
-	waitFor(t, func() bool { return strings.Contains(logs.String(), "outbox relay poll failed") })
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after its context ended")
-	}
-	if got := strings.Count(logs.String(), "outbox relay poll failed"); got != 1 {
-		t.Errorf("%d poll failures logged, want 1 (the next poll waits the interval)", got)
-	}
+		failures := func() int { return strings.Count(logs.String(), "outbox relay poll failed") }
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { d.Run(ctx, time.Hour); close(done) }()
+		synctest.Wait()
+		if got := failures(); got != 1 {
+			t.Fatalf("%d poll failures logged at start, want 1 (the first poll is immediate)", got)
+		}
+		advance(time.Hour - time.Nanosecond)
+		if got := failures(); got != 1 {
+			t.Errorf("%d poll failures logged before the interval, want 1 (a failed poll waits the interval)", got)
+		}
+		advance(time.Nanosecond)
+		if got := failures(); got != 2 {
+			t.Errorf("%d poll failures logged after the interval, want 2 (Run keeps polling)", got)
+		}
+		cancel()
+		synctest.Wait()
+		if !isClosed(done) {
+			t.Fatal("Run did not return after its context ended")
+		}
+	})
 }
 
 func TestErrorCodeNil(t *testing.T) {

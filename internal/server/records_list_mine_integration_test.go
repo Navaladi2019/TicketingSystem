@@ -203,7 +203,7 @@ func TestListRecordsMineBranchesMatchTheSingleStatement(t *testing.T) {
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE entity_definition_id = $1 AND requester_id = $2 AND id = $3`, def, me, forged).Scan(&visibleToAnyTenant); err != nil || visibleToAnyTenant != 1 {
 		t.Fatalf("control: the forged row is not in the table: %d, %v", visibleToAnyTenant, err)
 	}
-	pol := &authz.Policy{Version: 1, Rules: []authz.Rule{{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}}}}
+	pol := &authz.Policy{Version: 1, Document: authz.ConvertFormat1([]authz.Rule{{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}}})}
 	lq := pipeline.ListQuery{TenantID: e.a.id, DefinitionID: def, Where: "true", SortColumn: "updated_at", Desc: true, Limit: 1000}
 	lq.Branches, lq.Args = authz.ReadBranches(pol, identity.Principal{TenantID: e.a.id, PrincipalID: me}, "r", 2)
 	if len(lq.Branches) != 3 {

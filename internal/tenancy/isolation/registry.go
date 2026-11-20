@@ -23,6 +23,7 @@ package isolation
 
 import (
 	"context"
+	"maps"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -239,7 +240,7 @@ func Coverage() map[string]string {
 		caseReaderScoped: "full (ADR-004-A1, TICK-558): nava_audit_reader through read.Reader and as raw SQL reads only the set tenant's rows, none with no tenant, and never txid",
 		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
 		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
-		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); data filters and the list route wait for P3-34",
+		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); format-2 documents (random trees of depth 4 over every S30 node kind, the SP-2 cap cases and format-1 equivalence, D12) agree through CompileRead, ReadBranches and a reference evaluator, with five format-2 mutants caught (P11-10, TestI5Format2Agreement); data filters and the list route wait for P3-34",
 		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
@@ -275,9 +276,7 @@ func Exemptions() []Exemption {
 // its own Idempotency-Key (keys under iso-ci2- are removed after the call).
 func forgedWrite(key, body string, header http.Header) HTTPCall {
 	h := http.Header{"Idempotency-Key": {key}}
-	for k, vs := range header {
-		h[k] = vs
-	}
+	maps.Copy(h, header)
 	return HTTPCall{Method: http.MethodPost, Path: "/api/v1/records/incident", Header: h, Body: body, Expect: StoredUnderA,
 		Unknown: "/api/v1/records/iso_et_none"}
 }
@@ -486,6 +485,14 @@ func Paths() []Path {
 			"INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, '', 2)", TenantA, EntityDefinitionB1),
 		sql("record_counters: move tenant B's counters", "nava_worker", Denied,
 			"UPDATE record_counters SET next = next + 1 WHERE tenant_id = $1", TenantB),
+		// ADR-005 §5, after M3 (TICK-670): a counter of a non-empty scope
+		// beside the type's '' row (testdata/seed.sql seeds one per tenant).
+		sql("record_counters: take a number from tenant B's counter at a non-empty scope", "nava_app", Denied,
+			`INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, 'e1|d:202611', 2)
+			 ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = record_counters.next + 1 RETURNING next - 1`,
+			TenantB, EntityDefinitionB1),
+		sql("record_counters: start a scoped counter in tenant A for tenant B's type", "nava_worker", Denied,
+			"INSERT INTO record_counters (tenant_id, entity_definition_id, scope_key, next) VALUES ($1, $2, 'e1|d:202611', 2)", TenantA, EntityDefinitionB1),
 
 		// Forged tenant: a valid token for tenant A names tenant B in the
 		// payload, a header, the query or baggage. The tenant comes only from
@@ -523,5 +530,6 @@ func Paths() []Path {
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)
 	paths = append(paths, aclAttackPaths()...)
+	paths = append(paths, numberFormatPaths()...)
 	return append(paths, boundaryPaths()...)
 }

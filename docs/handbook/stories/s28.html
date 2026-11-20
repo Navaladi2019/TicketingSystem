@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a) - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group"><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/access-api.html">Access API: publish, read, explain</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/id-generation.html">Id generation (UUIDv7)</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group" open><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><details><summary><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></summary><ul><li><a href="../adr/adr-006-e1.html">E1: the D9 barrier also waits on running xids at or above xmax (proposed)</a></li><li><a href="../adr/adr-006-a1.html">A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li></ul></details></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">E2: a stale If-Match on the access PUT is 412, not 409</a></li></ul></details></li></ul></details></li><li><details open><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li><li><a href="../stories/s30.html">Compose access rules from named conditions</a></li><li><a href="../stories/go127.html">Go 1.27, UUIDv7 ids and strict JSON</a></li><li class="current"><a href="../stories/s28.html" aria-current="page">Time to the first workflow-routed record (X1a)</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/go-toolchain.html">Go toolchain and setup</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a)</span></nav>
+<article>
+<h1 class="page-title">S28: A new tenant&#x27;s time to its first workflow-routed ticket is measured (ADR-008 X1a)</h1>
+<p>Story TICK-879 (kit and first run TICK-884, this page TICK-885; PLAN-009 D-9-3). Status: <strong>delivered</strong>. The kit and the agent-proxy run (PR #706), the acceptance run and handbook pages (PR #713) and the stand-in company login that removed the platform-staff sign-in step (TICK-967, PRs #725 and #728) are in the story branch <code>TICK-879/first-routed-record</code>.</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<p>Anyone can time how long a brand-new customer's first administrator takes to get from "the tenant was just created" to "a new incident was routed by a workflow I published myself", using only the handbook and the kit. This is ADR-008's axis <strong>X1a</strong>, measured by method <strong>M-X1a</strong>. The target is 8 hours, the aim 4.</p>
+<ul>
+<li><strong>Clock starts</strong> when the onboarding call (tour step 1) answers <code>201</code>.</li>
+<li><strong>Clock stops</strong> at the first record whose history has an entry with <code>source: workflow</code>.</li>
+<li><strong>Path:</strong> sign in as the first admin, publish a type from a handbook example, publish a workflow on it, create a record, wait for the route.</li>
+</ul>
+<h2 id="measured-so-far">Measured so far</h2>
+<p>From <a href="../../../docs/quality/x1a-first-routed-record.md"><code>docs/quality/x1a-first-routed-record.md</code></a>:</p>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th>Runner</th>
+<th>Date</th>
+<th>Total</th>
+<th>Needed help</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>agent proxy</code> (a fresh subagent with only the kit's "How to try", the handbook and the stack URL)</td>
+<td>2026-11-15</td>
+<td><strong>1.4 min</strong> (07:20:01 to 07:21:24 UTC)</td>
+<td>Step 2, sign-in: platform staff (F1)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>acceptance run (<code>agent proxy</code>, a second fresh subagent, on the fixed tour)</td>
+<td>2026-11-15</td>
+<td><strong>2.7 min</strong> (10:17:08 to 10:19:51 UTC), about 1 min of it the workflow's timer</td>
+<td>Step 2, sign-in: platform staff (F1)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>human</code></td>
+<td>none yet</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Both are an agent's time: it sends each request right after reading the page. It shows the handbook path works end to end on a new tenant. Both runs predate TICK-967, so each logged sign-in as a platform-staff step (F1); that step is now self-service, verified on a fresh stack in CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/44344844066">44344844066</a>. It does not show how long a person takes. Until a human run exists, every X1a number is labelled <code>agent proxy</code>.</p>
+<h2 id="flow">Flow</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+  onboard[&quot;1 Onboard: 201, clock starts&quot;] --&gt; signin[&quot;2 Sign in: stand-in company login, self-registered&quot;]
+  signin --&gt; me[&quot;/me in /admins after one group-sync cycle&quot;]
+  me --&gt; type[&quot;3 incident v2 from the example&quot;]
+  type --&gt; wf[&quot;4 Publish a workflow on incident&quot;]
+  wf --&gt; rec[&quot;5 Create an incident&quot;]
+  rec --&gt; hist[&quot;6 History: source workflow, clock stops&quot;]
+</pre></div></figure>
+<h2 id="how-to-try-it">How to try it</h2>
+<p>Follow <a href="../../../docs/acceptance/s28-first-routed-record.md">the kit</a> on a fresh stack with the tunnels up; keep its stopwatch log and add your run to the quality page. The automated check is the Bruno folder <code>S28</code> (<code>sh docs/acceptance/guide/tools/api-test.sh S28</code>); in CI it is the stack case <code>s28_first_routed_record</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 Onboard, publish an example type, publish a workflow, create a record that routes, with the kit and the handbook only</td>
+<td>Runs 1 and 2 in the quality page; Bruno <code>S28.1</code> to <code>S28.13</code></td>
+</tr>
+<tr>
+<td>2 The history shows <code>source=workflow</code></td>
+<td><code>S28.13</code>; run 1's entry at <code>2026-11-15T07:21:18.231Z</code>, run 2's at <code>2026-11-15T10:19:46.598Z</code></td>
+</tr>
+<tr>
+<td>3 Two totals against the 8 h target</td>
+<td>Run 1: 1.4 min. Run 2: 2.7 min. Both far below 8 h</td>
+</tr>
+<tr>
+<td>4 No database command, platform-staff action or operator route</td>
+<td>Every step uses the public API only. Sign-in goes through the stand-in company login (TICK-967); <code>S28.3</code> makes no master-admin call. Fresh stack: CI run <a href="https://github.com/Navaladi2019/TicketingSystem/actions/runs/44344844066">44344844066</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="findings-and-where-they-went">Findings and where they went</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Fixed in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td>The local stack has no company login, so the new admin signs in only through the kit's platform-staff stand-in</td>
+<td>TICK-967: the stand-in company login and a default-off onboarding host list. <a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">2. Sign in</a></td>
+</tr>
+<tr>
+<td>F2</td>
+<td><code>/me</code> answers <code>401 tenant_unresolved</code> until group sync places the admin; troubleshooting said to run <code>seed.sh</code></td>
+<td><a href="../tour/02-sign-in.html#a-newly-onboarded-tenants-first-admin">2. Sign in</a>, <a href="../operations/troubleshooting.html">Troubleshooting</a></td>
+</tr>
+<tr>
+<td>F3</td>
+<td><code>incident.json</code> answers <code>409</code> on a new tenant, which already has <code>incident</code></td>
+<td><a href="../tour/06-create-an-entity-type.html#an-example-whose-type-the-tenant-already-has">6. Create an entity type</a>, <code>docs/handbook/examples/README.md</code></td>
+</tr>
+<tr>
+<td>F4</td>
+<td>Tour step 8 sent <code>$ADMIN_TOKEN</code>; the setup defines <code>$ADMIN</code></td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a></td>
+</tr>
+<tr>
+<td>F5</td>
+<td>Tour step 8 said "as an agent"; a new tenant has no agent</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a></td>
+</tr>
+<tr>
+<td>F6</td>
+<td>Tour step 8's "not re-run" caveat was out of date</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a></td>
+</tr>
+<tr>
+<td>F7</td>
+<td>The history does not say which workflow wrote the change</td>
+<td>Documented in <a href="../tour/08-workflows.html">8. Workflows</a>; no API change</td>
+</tr>
+<tr>
+<td>F8 (run 2)</td>
+<td>The new step-6 command needed <code>jq</code>, not in the prerequisites; an empty body gave <code>400</code></td>
+<td><a href="../tour/06-create-an-entity-type.html#an-example-whose-type-the-tenant-already-has">6. Create an entity type</a></td>
+</tr>
+<tr>
+<td>F9 (run 2)</td>
+<td>Kit step 4 reads as no timer; the tour example has one</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a> says the timer is optional</td>
+</tr>
+<tr>
+<td>F10 (run 2)</td>
+<td>No incident create example for a new tenant</td>
+<td><a href="../tour/08-workflows.html">8. Workflows</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="not-in-this-story">Not in this story</h2>
+<ul>
+<li>A human timed run (optional; the verdict does not wait for one).</li>
+<li>X1b, the timed pilot go-live, and M-X4, the cost model.</li>
+<li>A customer's own company login on the local stack; the stand-in realm takes its place there.</li>
+</ul>
+<p>See also <a href="../adr/adr-008.html">ADR-008</a>.</p>
+</article>
+<nav class="pager" aria-label="Previous and next page"><a class="prev" href="../stories/go127.html">&larr; GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a><a class="next" href="../benchmarks/index.html">Benchmarks and budgets &rarr;</a></nav>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Story S28</h3><ul><li><a href="../adr/adr-008.html">ADR-008: Competitive Gate in every ADR</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li></ul>
+<h3>ADR ADR-008</h3><ul><li><a href="../adr/adr-008.html">ADR-008: Competitive Gate in every ADR</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../stories/s27.html">S27: CI refuses a design record without its Competitive Gate, and a change that removes a step type or keyword</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 7d2d8089d6fd (2026-11-20)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

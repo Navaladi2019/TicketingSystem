@@ -1,0 +1,8 @@
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/chain	5.071s
+?   	github.com/Navaladi2019/TicketingSystem/internal/audit/chain/cmd/genvectors	[no test files]
+?   	github.com/Navaladi2019/TicketingSystem/internal/audit/chain/vectors	[no test files]
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/verify	115.539s
+?   	github.com/Navaladi2019/TicketingSystem/internal/audit/verify/verifytest	[no test files]
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/jsondiff	3.174s
+ok  	github.com/Navaladi2019/TicketingSystem/cmd/nava	5.192s
+ok  	github.com/Navaladi2019/TicketingSystem/tools/acceptance/s13kit	57.290s

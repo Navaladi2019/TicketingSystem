@@ -1,0 +1,21 @@
+meta {
+  name: S30.16 AC5 before: Alice opens the incident she raised
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s30_sd_mine}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('s30_f1_a_mine', JSON.stringify({ status: res.getStatus(), body: res.getStatus() === 404 ? N.text() : null }));
+}

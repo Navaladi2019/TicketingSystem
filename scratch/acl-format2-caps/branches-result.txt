@@ -1,0 +1,398 @@
+postgres:16.10; host: MINGW64_NT-10.0-26300 3.3.6-bec3d608-341.x86_64 x86_64; docker: 16 vCPUs, 26260877312 bytes; other database containers: nava-aclperf-pg-32049 nava-pgbouncer-1 nava-postgres-1 multica-postgres-1 
+Time: 0.814 ms
+ setseed 
+---------
+ 
+(1 row)
+
+Time: 2.150 ms
+Time: 19.846 ms
+Time: 124200.684 ms (02:04.201)
+Time: 1774.203 ms (00:01.774)
+Time: 62.163 ms
+Time: 645.377 ms
+Time: 1607.065 ms (00:01.607)
+Time: 28.062 ms
+ records |  open  | priority_1 | avg_data_bytes 
+---------+--------+------------+----------------
+  800000 | 120278 |      40021 |           1047
+(1 row)
+
+Time: 609.547 ms
+ shares | heavy_requesters 
+--------+------------------
+  15815 |                8
+(1 row)
+
+Time: 2.342 ms
+         relname          | blocks 
+--------------------------+--------
+ record_shares            |    148
+ record_shares_pkey       |    157
+ records                  | 133334
+ records_list_assignee    |   9227
+ records_list_group       |   9308
+ records_list_group_state |  10286
+ records_list_requester   |   9309
+ records_list_updated     |   7547
+ records_pkey             |   6419
+(9 rows)
+
+== rows the caller can see in the entity type (superuser count)
+ family | n  | visible 
+--------+----+---------
+ dense  |  2 |     120
+ dense  |  4 |    3382
+ dense  |  8 |    9658
+ dense  | 16 |   22376
+ dense  | 32 |   47997
+ dense  | 64 |   80000
+ sparse |  2 |     120
+ sparse |  4 |     153
+ sparse |  8 |     203
+ sparse | 16 |     313
+ sparse | 32 |     557
+ sparse | 64 |    1027
+(12 rows)
+
+ bench_run 
+-----------
+ 
+(1 row)
+
+ bench_run 
+-----------
+ 
+(1 row)
+
+ bench_run 
+-----------
+ 
+(1 row)
+
+ bench_run 
+-----------
+ 
+ 
+(2 rows)
+
+== median of 5 runs, ms: planning + execution = total
+ family |  n   |   form   |  plan  |  exec  | total  | max_total | rows | hit_blocks | sql_bytes 
+--------+------+----------+--------+--------+--------+-----------+------+------------+-----------
+ dense  |    2 | branches |   0.43 |   0.23 |   0.66 |      0.74 |   51 |         61 |      1095
+ dense  |    2 | or       |   0.17 |   0.30 |   0.47 |      0.88 |   51 |        129 |       555
+ dense  |    4 | branches |   0.63 |   0.27 |   0.90 |      1.06 |   51 |         70 |      2592
+ dense  |    4 | or       |   0.26 |   9.50 |   9.77 |     12.63 |   51 |       3413 |       779
+ dense  |    6 | branches |   1.22 |   0.46 |   1.70 |      1.99 |   51 |         81 |      4557
+ dense  |    6 | or       |   0.18 |   0.67 |   0.86 |      1.28 |   51 |        603 |      1003
+ dense  |    8 | branches |   1.33 |   0.39 |   1.68 |      2.11 |   51 |         90 |      6990
+ dense  |    8 | or       |   0.25 |   0.48 |   0.72 |      1.15 |   51 |        330 |      1227
+ dense  |   12 | branches |   2.37 |   0.51 |   2.88 |      2.93 |   51 |        110 |     13260
+ dense  |   12 | or       |   0.21 |   0.26 |   0.48 |      0.57 |   51 |        213 |      1675
+ dense  |   16 | branches |   3.32 |   0.68 |   4.03 |      4.82 |   51 |        130 |     21402
+ dense  |   16 | or       |   0.30 |   0.32 |   0.64 |      0.70 |   51 |        164 |      2123
+ dense  |   24 | branches |   7.34 |   1.00 |   8.30 |     10.46 |   51 |        173 |     43302
+ dense  |   24 | or       |   0.49 |   0.41 |   0.91 |      1.15 |   51 |        116 |      3019
+ dense  |   32 | branches |  17.27 |   1.70 |  18.61 |     19.82 |   51 |        213 |     72690
+ dense  |   32 | or       |   0.92 |   0.47 |   1.39 |      1.42 |   51 |         90 |      3915
+ dense  |   48 | branches |  62.07 |   3.28 |  65.25 |     74.16 |   51 |        294 |    153930
+ dense  |   48 | or       |   1.17 |   0.51 |   1.65 |      2.93 |   51 |         60 |      5707
+ dense  |   64 | branches |  50.65 |  42.11 |  93.00 |    107.84 |   51 |      19622 |    268632
+ dense  |   64 | or       |   0.77 |   0.22 |   1.00 |      1.12 |   51 |         55 |      8039
+ dense  |   96 | branches | 155.98 | 178.00 | 333.98 |    424.44 |   51 |      71471 |    621912
+ dense  |   96 | or       |   1.92 |   0.42 |   2.36 |      2.48 |   51 |         55 |     13063
+ dense  |  128 | branches | 551.70 | 320.60 | 872.29 |   1290.00 |   51 |     123477 |   1139340
+ dense  |  128 | or       |   2.50 |   0.58 |   3.08 |      3.81 |   51 |         55 |     17971
+ heavy  |    2 | branches |   0.43 |   0.25 |   0.68 |      0.84 |   51 |         60 |      1095
+ heavy  |    2 | or       |   0.23 |   4.65 |   4.88 |     13.47 |   51 |       1159 |       555
+ heavy  |    4 | branches |   0.75 |   0.32 |   1.07 |      1.33 |   51 |         70 |      2544
+ heavy  |    4 | or       |   0.28 |   4.47 |   4.80 |     12.90 |   51 |       1200 |       747
+ heavy  |    6 | branches |   0.99 |   0.38 |   1.39 |      1.80 |   51 |         80 |      4397
+ heavy  |    6 | or       |   0.31 |   4.09 |   4.66 |      4.84 |   51 |       1229 |       939
+ heavy  |    8 | branches |   1.88 |   0.59 |   2.62 |      8.39 |   51 |         91 |      6654
+ heavy  |    8 | or       |   0.45 |   5.82 |   6.27 |     16.88 |   51 |       1264 |      1131
+ heavy  |   12 | branches |   3.17 |   0.72 |   3.89 |      9.76 |   51 |        111 |     12380
+ heavy  |   12 | or       |   0.67 |   6.50 |   7.40 |     17.69 |   51 |       1329 |      1515
+ heavy  |   16 | branches |  10.06 |   1.21 |  11.14 |     20.29 |   51 |        131 |     19722
+ heavy  |   16 | or       |   1.21 |  18.43 |  19.48 |     24.95 |   51 |       1406 |      1899
+ heavy  |   24 | branches |  12.93 |   1.70 |  15.43 |     18.01 |   51 |        171 |     39254
+ heavy  |   24 | or       |   1.64 |   8.47 |  10.03 |     11.47 |   51 |       1548 |      2667
+ heavy  |   32 | branches |  14.52 |   1.44 |  15.80 |     21.35 |   51 |        211 |     65250
+ heavy  |   32 | or       |   1.72 |   7.17 |   8.88 |     11.19 |   51 |       1708 |      3435
+ heavy  |   48 | branches |  23.80 |   1.73 |  25.43 |     34.50 |   51 |        291 |    136634
+ heavy  |   48 | or       |   2.91 |   6.95 |   9.98 |     10.22 |   51 |       2016 |      4971
+ heavy  |   64 | branches |  34.14 |   1.89 |  36.15 |     41.14 |   51 |        371 |    233874
+ heavy  |   64 | or       |   3.47 |   7.21 |  10.68 |     13.41 |   51 |       2301 |      6507
+ heavy  |   96 | branches |  92.89 |   4.01 |  96.90 |    151.66 |   51 |        532 |    505922
+ heavy  |   96 | or       |  10.94 |  43.69 |  56.07 |     59.19 |   51 |       3636 |      9579
+ heavy  |  128 | branches | 144.07 |   4.40 | 148.47 |    179.98 |   51 |        692 |    881394
+ heavy  |  128 | or       |  12.01 |  32.25 |  44.37 |     48.48 |   51 |       4236 |     12651
+ heavy  |  256 | or       |  81.00 |  86.10 | 171.23 |    219.71 |   51 |       6570 |     24939
+ heavy  |  512 | or       | 241.52 | 238.95 | 480.47 |    549.18 |   51 |      11231 |     49515
+ heavy  | 1024 | or       |   7.75 |  54.91 |  62.43 |     90.26 |   51 |        410 |     98667
+ sparse |    2 | branches |   0.75 |   0.39 |   1.14 |      6.20 |   51 |         61 |      1095
+ sparse |    2 | or       |   0.36 |   0.80 |   1.26 |      1.47 |   51 |        129 |       555
+ sparse |    4 | branches |   1.26 |   0.53 |   1.79 |      3.39 |   51 |         71 |      2544
+ sparse |    4 | or       |   0.42 |   1.16 |   1.60 |      2.19 |   51 |        171 |       747
+ sparse |    6 | branches |   2.20 |   0.58 |   2.78 |      3.16 |   51 |         81 |      4397
+ sparse |    6 | or       |   0.49 |   1.20 |   1.70 |      2.09 |   51 |        200 |       939
+ sparse |    8 | branches |   3.39 |   0.73 |   4.07 |      6.13 |   51 |         91 |      6654
+ sparse |    8 | or       |   0.57 |   1.33 |   1.91 |      2.16 |   51 |        237 |      1131
+ sparse |   12 | branches |   4.80 |   0.90 |   5.93 |      6.17 |   51 |        111 |     12380
+ sparse |   12 | or       |   0.50 |   1.22 |   1.72 |      1.77 |   51 |        303 |      1515
+ sparse |   16 | branches |   5.61 |   1.06 |   6.70 |      8.16 |   51 |        131 |     19722
+ sparse |   16 | or       |   0.75 |   1.63 |   2.37 |      2.97 |   51 |        381 |      1899
+ sparse |   24 | branches |   7.04 |   1.07 |   8.11 |     12.08 |   51 |        170 |     39254
+ sparse |   24 | or       |   0.94 |   1.79 |   2.74 |      2.93 |   51 |        525 |      2667
+ sparse |   32 | branches |  10.78 |   1.19 |  11.96 |     17.40 |   51 |        210 |     65250
+ sparse |   32 | or       |   1.37 |   2.13 |   3.39 |      4.78 |   51 |        689 |      3435
+ sparse |   48 | branches |  17.90 |   1.43 |  19.35 |     27.85 |   51 |        290 |    136634
+ sparse |   48 | or       |   1.93 |   3.18 |   5.57 |      6.43 |   51 |       1002 |      4971
+ sparse |   64 | branches |  37.93 |   2.32 |  40.00 |     63.21 |   51 |        371 |    233874
+ sparse |   64 | or       |   4.98 |   4.18 |   9.14 |      9.73 |   51 |       1288 |      6507
+ sparse |   96 | branches |  80.74 |   4.61 |  87.13 |     98.72 |   51 |        531 |    505922
+ sparse |   96 | or       |  13.12 |   8.37 |  21.49 |     23.90 |   51 |       1879 |      9579
+ sparse |  128 | branches | 151.02 |   4.70 | 155.74 |    196.04 |   51 |        691 |    881394
+ sparse |  128 | or       |  12.47 |   6.83 |  19.44 |     19.90 |   51 |       2487 |     12651
+ sparse |  256 | or       |  58.60 |  75.67 | 134.27 |    244.22 |   51 |       5601 |     24939
+ sparse |  512 | or       | 212.11 | 254.77 | 466.87 |    524.88 |   51 |      10312 |     49515
+ sparse | 1024 | or       |   9.54 |  55.62 |  66.16 |     75.26 |   51 |        439 |     98667
+(78 rows)
+
+== branched minus OR, median total ms (negative = branches win)
+ family |  n   | branches_minus_or 
+--------+------+-------------------
+ dense  |    2 |              0.19
+ dense  |    4 |             -8.87
+ dense  |    6 |              0.84
+ dense  |    8 |              0.96
+ dense  |   12 |              2.40
+ dense  |   16 |              3.39
+ dense  |   24 |              7.39
+ dense  |   32 |             17.23
+ dense  |   48 |             63.60
+ dense  |   64 |             92.01
+ dense  |   96 |            331.61
+ dense  |  128 |            869.21
+ heavy  |    2 |             -4.21
+ heavy  |    4 |             -3.74
+ heavy  |    6 |             -3.27
+ heavy  |    8 |             -3.65
+ heavy  |   12 |             -3.51
+ heavy  |   16 |             -8.33
+ heavy  |   24 |              5.40
+ heavy  |   32 |              6.92
+ heavy  |   48 |             15.45
+ heavy  |   64 |             25.47
+ heavy  |   96 |             40.83
+ heavy  |  128 |            104.10
+ heavy  |  256 |                  
+ heavy  |  512 |                  
+ heavy  | 1024 |                  
+ sparse |    2 |             -0.12
+ sparse |    4 |              0.19
+ sparse |    6 |              1.08
+ sparse |    8 |              2.16
+ sparse |   12 |              4.21
+ sparse |   16 |              4.33
+ sparse |   24 |              5.37
+ sparse |   32 |              8.57
+ sparse |   48 |             13.78
+ sparse |   64 |             30.86
+ sparse |   96 |             65.64
+ sparse |  128 |            136.30
+ sparse |  256 |                  
+ sparse |  512 |                  
+ sparse | 1024 |                  
+(42 rows)
+
+== heavy requester: rows in the entity type
+ all_types | this_type 
+-----------+-----------
+      5568 |      1127
+(1 row)
+
+== plans: heavy n=8, OR form (TIMING on)
+              set_config              
+--------------------------------------
+ 76369a2d-016f-7bbd-d447-684b65cb44af
+(1 row)
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1320.34..1320.46 rows=51 width=1173) (actual time=6.302..6.344 rows=51 loops=1)
+   Buffers: shared hit=1264
+   ->  Sort  (cost=1320.34..1321.14 rows=323 width=1173) (actual time=6.299..6.332 rows=51 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 191kB
+         Buffers: shared hit=1264
+         ->  Result  (cost=53.95..1309.56 rows=323 width=1173) (actual time=0.756..4.885 rows=1220 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=1264
+               ->  Bitmap Heap Scan on records r  (cost=53.95..1309.56 rows=323 width=1173) (actual time=0.739..4.239 rows=1220 loops=1)
+                     Recheck Cond: (((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '542ea10d-2a76-2f15-1ef7-019fe864f9ff'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '10a19187-85e9-758a-ed35-b048b9d8e84e'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'b306b262-ec1a-cdba-d833-29557d57f971'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'f5e73ac5-c488-b4c0-a6e8-c7f6f39dd5e3'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '510bc988-f53e-11da-1c86-1929fc8d4e1d'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'd0966104-7e0f-2503-46ec-5fa090e984f0'::uuid)))
+                     Heap Blocks: exact=1218
+                     Buffers: shared hit=1264
+                     ->  BitmapOr  (cost=53.94..53.94 rows=323 width=0) (actual time=0.440..0.451 rows=0 loops=1)
+                           Buffers: shared hit=46
+                           ->  Bitmap Index Scan on records_list_requester  (cost=0.00..21.12 rows=305 width=0) (actual time=0.320..0.320 rows=1127 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid))
+                                 Buffers: shared hit=17
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.031..0.031 rows=13 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'fccbb3fd-048d-a9ac-ec41-5c1548c480a0'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.017..0.018 rows=16 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '542ea10d-2a76-2f15-1ef7-019fe864f9ff'::uuid))
+                                 Buffers: shared hit=5
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.016..0.016 rows=17 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '10a19187-85e9-758a-ed35-b048b9d8e84e'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.016..0.016 rows=6 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'b306b262-ec1a-cdba-d833-29557d57f971'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.011..0.012 rows=15 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'f5e73ac5-c488-b4c0-a6e8-c7f6f39dd5e3'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.011..0.011 rows=17 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '510bc988-f53e-11da-1c86-1929fc8d4e1d'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.015..0.015 rows=12 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'd0966104-7e0f-2503-46ec-5fa090e984f0'::uuid))
+                                 Buffers: shared hit=4
+ Planning Time: 0.453 ms
+ Execution Time: 6.458 ms
+(41 rows)
+
+== plans: sparse n=8, both forms (TIMING on)
+              set_config              
+--------------------------------------
+ 76369a2d-016f-7bbd-d447-684b65cb44af
+(1 row)
+
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=4.52..231.37 rows=42 width=1173) (actual time=0.169..0.665 rows=51 loops=1)
+   Buffers: shared hit=91
+   ->  Merge Append  (cost=4.52..231.37 rows=42 width=1173) (actual time=0.167..0.651 rows=51 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Buffers: shared hit=91
+         ->  Limit  (cost=0.55..115.02 rows=28 width=1173) (actual time=0.054..0.194 rows=23 loops=1)
+               Buffers: shared hit=28
+               ->  Result  (cost=0.55..115.02 rows=28 width=1173) (actual time=0.054..0.189 rows=23 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=28
+                     ->  Index Scan using records_list_requester on records r  (cost=0.55..115.02 rows=28 width=1173) (actual time=0.039..0.164 rows=23 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=28
+         ->  Limit  (cost=0.55..16.46 rows=3 width=1173) (actual time=0.029..0.049 rows=6 loops=1)
+               Buffers: shared hit=10
+               ->  Result  (cost=0.55..16.46 rows=3 width=1173) (actual time=0.028..0.048 rows=6 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=10
+                     ->  Index Scan using records_list_assignee on records r_1  (cost=0.55..16.46 rows=3 width=1173) (actual time=0.024..0.041 rows=6 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=10
+         ->  Limit  (cost=0.55..16.47 rows=2 width=1173) (actual time=0.012..0.024 rows=3 loops=1)
+               Buffers: shared hit=7
+               ->  Result  (cost=0.55..16.47 rows=2 width=1173) (actual time=0.012..0.023 rows=3 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=7
+                     ->  Index Scan using records_list_assignee on records r_2  (cost=0.55..16.47 rows=2 width=1173) (actual time=0.010..0.019 rows=3 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '542ea10d-2a76-2f15-1ef7-019fe864f9ff'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=7
+         ->  Limit  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.016..0.037 rows=6 loops=1)
+               Buffers: shared hit=10
+               ->  Result  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.016..0.036 rows=6 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=10
+                     ->  Index Scan using records_list_assignee on records r_3  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.014..0.031 rows=6 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '10a19187-85e9-758a-ed35-b048b9d8e84e'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=10
+         ->  Limit  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.014..0.026 rows=3 loops=1)
+               Buffers: shared hit=7
+               ->  Result  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.014..0.024 rows=3 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=7
+                     ->  Index Scan using records_list_assignee on records r_4  (cost=0.55..16.48 rows=2 width=1173) (actual time=0.013..0.021 rows=3 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'b306b262-ec1a-cdba-d833-29557d57f971'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=7
+         ->  Limit  (cost=0.55..16.49 rows=2 width=1173) (actual time=0.015..0.033 rows=5 loops=1)
+               Buffers: shared hit=9
+               ->  Result  (cost=0.55..16.49 rows=2 width=1173) (actual time=0.014..0.032 rows=5 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=9
+                     ->  Index Scan using records_list_assignee on records r_5  (cost=0.55..16.49 rows=2 width=1173) (actual time=0.013..0.027 rows=5 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'f5e73ac5-c488-b4c0-a6e8-c7f6f39dd5e3'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=9
+         ->  Limit  (cost=0.55..16.50 rows=2 width=1173) (actual time=0.010..0.175 rows=8 loops=1)
+               Buffers: shared hit=12
+               ->  Result  (cost=0.55..16.50 rows=2 width=1173) (actual time=0.010..0.173 rows=8 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=12
+                     ->  Index Scan using records_list_assignee on records r_6  (cost=0.55..16.50 rows=2 width=1173) (actual time=0.008..0.166 rows=8 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '510bc988-f53e-11da-1c86-1929fc8d4e1d'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=12
+         ->  Limit  (cost=0.55..16.51 rows=1 width=1173) (actual time=0.014..0.081 rows=4 loops=1)
+               Buffers: shared hit=8
+               ->  Result  (cost=0.55..16.51 rows=1 width=1173) (actual time=0.014..0.080 rows=4 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+                     Buffers: shared hit=8
+                     ->  Index Scan using records_list_assignee on records r_7  (cost=0.55..16.51 rows=1 width=1173) (actual time=0.012..0.076 rows=4 loops=1)
+                           Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'd0966104-7e0f-2503-46ec-5fa090e984f0'::uuid))
+                           Filter: ((requester_id IS NULL) OR (requester_id <> '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                           Buffers: shared hit=8
+ Planning Time: 3.085 ms
+ Execution Time: 0.823 ms
+(78 rows)
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=221.56..221.67 rows=46 width=1173) (actual time=1.416..1.444 rows=51 loops=1)
+   Buffers: shared hit=237
+   ->  Sort  (cost=221.56..221.67 rows=46 width=1173) (actual time=1.413..1.433 rows=51 loops=1)
+         Sort Key: updated_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 199kB
+         Buffers: shared hit=237
+         ->  Result  (cost=37.24..220.29 rows=46 width=1173) (actual time=0.219..1.166 rows=203 loops=1)
+               One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid)
+               Buffers: shared hit=237
+               ->  Bitmap Heap Scan on records r  (cost=37.24..220.29 rows=46 width=1173) (actual time=0.204..1.050 rows=203 loops=1)
+                     Recheck Cond: (((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '542ea10d-2a76-2f15-1ef7-019fe864f9ff'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '10a19187-85e9-758a-ed35-b048b9d8e84e'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'b306b262-ec1a-cdba-d833-29557d57f971'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'f5e73ac5-c488-b4c0-a6e8-c7f6f39dd5e3'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '510bc988-f53e-11da-1c86-1929fc8d4e1d'::uuid)) OR ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'd0966104-7e0f-2503-46ec-5fa090e984f0'::uuid)))
+                     Heap Blocks: exact=203
+                     Buffers: shared hit=237
+                     ->  BitmapOr  (cost=37.23..37.23 rows=46 width=0) (actual time=0.148..0.155 rows=0 loops=1)
+                           Buffers: shared hit=34
+                           ->  Bitmap Index Scan on records_list_requester  (cost=0.00..4.97 rows=28 width=0) (actual time=0.047..0.047 rows=101 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                 Buffers: shared hit=5
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.021..0.021 rows=19 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '59fb22d0-8db4-ebf3-0411-bc5e59f13344'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.012..0.013 rows=16 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '542ea10d-2a76-2f15-1ef7-019fe864f9ff'::uuid))
+                                 Buffers: shared hit=5
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.015..0.015 rows=17 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '10a19187-85e9-758a-ed35-b048b9d8e84e'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.013..0.013 rows=6 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'b306b262-ec1a-cdba-d833-29557d57f971'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.014..0.014 rows=15 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'f5e73ac5-c488-b4c0-a6e8-c7f6f39dd5e3'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.010..0.011 rows=17 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '510bc988-f53e-11da-1c86-1929fc8d4e1d'::uuid))
+                                 Buffers: shared hit=4
+                           ->  Bitmap Index Scan on records_list_assignee  (cost=0.00..4.59 rows=3 width=0) (actual time=0.013..0.013 rows=12 loops=1)
+                                 Index Cond: ((tenant_id = '76369a2d-016f-7bbd-d447-684b65cb44af'::uuid) AND (entity_definition_id = '140c4b2f-7183-e8b4-700e-410c9e9eaa9e'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = 'd0966104-7e0f-2503-46ec-5fa090e984f0'::uuid))
+                                 Buffers: shared hit=4
+ Planning Time: 0.596 ms
+ Execution Time: 1.558 ms
+(41 rows)
+

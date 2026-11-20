@@ -1,0 +1,35 @@
+meta {
+  name: S30.40 AC3: Alice edits it: 200
+  type: http
+  seq: 40
+}
+
+patch {
+  url: {{core_url}}/api/v1/records/incident/{{s30_adm}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-alice-edit-adm
+  Content-Type: application/merge-patch+json
+  If-Match: {{s30_adm_etag}}
+}
+
+body:json {
+  {
+    "data": {
+      "priority": 2
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+}
+
+docs {
+  The write policy `agents_edit_group_new` follows the same edited condition: the incident is `new` and now "in her assigned group".
+}

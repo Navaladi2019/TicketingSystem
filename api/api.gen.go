@@ -19,6 +19,39 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessDocumentFormat.
+const (
+	N2 AccessDocumentFormat = 2
+)
+
+// Valid indicates whether the value is a known member of the AccessDocumentFormat enum.
+func (e AccessDocumentFormat) Valid() bool {
+	switch e {
+	case N2:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessDocumentPoliciesOps.
+const (
+	Read  AccessDocumentPoliciesOps = "read"
+	Write AccessDocumentPoliciesOps = "write"
+)
+
+// Valid indicates whether the value is a known member of the AccessDocumentPoliciesOps enum.
+func (e AccessDocumentPoliciesOps) Valid() bool {
+	switch e {
+	case Read:
+		return true
+	case Write:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessExplanationDecision.
 const (
 	Allow AccessExplanationDecision = "allow"
@@ -166,6 +199,24 @@ func (e RecordChangeAction) Valid() bool {
 	}
 }
 
+// Defines values for RepublishLinkedReportResultsStatus.
+const (
+	Published RepublishLinkedReportResultsStatus = "published"
+	Refused   RepublishLinkedReportResultsStatus = "refused"
+)
+
+// Valid indicates whether the value is a known member of the RepublishLinkedReportResultsStatus enum.
+func (e RepublishLinkedReportResultsStatus) Valid() bool {
+	switch e {
+	case Published:
+		return true
+	case Refused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListAuditEntriesParamsDomain.
 const (
 	ListAuditEntriesParamsDomainAudit  ListAuditEntriesParamsDomain = "audit"
@@ -289,12 +340,43 @@ func (e ExportAuditEntriesParamsFormat) Valid() bool {
 	}
 }
 
+// AccessDocument The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`.
+type AccessDocument struct {
+	Conditions []struct {
+		Expr map[string]interface{} `json:"expr"`
+		Name string                 `json:"name"`
+	} `json:"conditions"`
+	Format   AccessDocumentFormat `json:"format"`
+	Policies []struct {
+		Name string                      `json:"name"`
+		Ops  []AccessDocumentPoliciesOps `json:"ops"`
+		When map[string]interface{}      `json:"when"`
+	} `json:"policies"`
+}
+
+// AccessDocumentFormat defines model for AccessDocument.Format.
+type AccessDocumentFormat int
+
+// AccessDocumentPoliciesOps defines model for AccessDocument.Policies.Ops.
+type AccessDocumentPoliciesOps string
+
 // AccessExplanation defines model for AccessExplanation.
 type AccessExplanation struct {
-	AclVersion   int                       `json:"acl_version"`
-	Decision     AccessExplanationDecision `json:"decision"`
-	MaskedFields []string                  `json:"masked_fields"`
-	RuleId       *string                   `json:"rule_id"`
+	AclVersion int                       `json:"acl_version"`
+	Decision   AccessExplanationDecision `json:"decision"`
+	Invalid    *[]struct {
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+		Policy  string `json:"policy"`
+	} `json:"invalid,omitempty"`
+	MaskedFields []string `json:"masked_fields"`
+	Policy       *string  `json:"policy,omitempty"`
+	RuleId       *string  `json:"rule_id"`
+	Trace        *[]struct {
+		Condition string `json:"condition"`
+		Policy    string `json:"policy"`
+		Value     bool   `json:"value"`
+	} `json:"trace,omitempty"`
 }
 
 // AccessExplanationDecision defines model for AccessExplanation.Decision.
@@ -305,8 +387,17 @@ type AccessPolicy struct {
 	Masks       []map[string]interface{} `json:"masks"`
 	PublishedAt time.Time                `json:"published_at"`
 	PublishedBy *openapi_types.UUID      `json:"published_by,omitempty"`
-	Rules       []map[string]interface{} `json:"rules"`
-	Version     int                      `json:"version"`
+
+	// Rules The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`.
+	Rules   AccessDocument `json:"rules"`
+	Version int            `json:"version"`
+
+	// Warnings Lints of the publish, on the PUT response only. A warning does not refuse the document.
+	Warnings *[]struct {
+		// Code For example `not_over_caller_leaf`.
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+	} `json:"warnings,omitempty"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -375,6 +466,9 @@ type ChainReseed struct {
 // CreateEntityTypeRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte.
 type CreateEntityTypeRequest = json.RawMessage
 
+// CreateNumberFormatRequest Deliberately unconstrained here: the server checks every field after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+type CreateNumberFormatRequest = json.RawMessage
+
 // CreateRecordRequest Deliberately unconstrained here: the server resolves the entity type first (404), then reads `{data}` and answers 422 `record_invalid`.
 type CreateRecordRequest = json.RawMessage
 
@@ -408,7 +502,13 @@ type EntityTypeVersion struct {
 	FixedColumns map[string]string `json:"fixed_columns"`
 	Key          string            `json:"key"`
 	Name         string            `json:"name"`
-	NumberPrefix string            `json:"number_prefix"`
+
+	// NumberFormat The number-format version this version pins; `null` is the default numbering.
+	NumberFormat *struct {
+		Id      openapi_types.UUID `json:"id"`
+		Version int                `json:"version"`
+	} `json:"number_format,omitempty"`
+	NumberPrefix string `json:"number_prefix"`
 
 	// NumberingMode How the type numbers its records (D-3-9). Belongs to the type, not the version.
 	NumberingMode EntityTypeVersionNumberingMode `json:"numbering_mode"`
@@ -431,6 +531,9 @@ type EntityTypeVersionNumberingMode string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
+	// Detail Present on a `document_too_large` error only. States the limit in bytes.
+	Detail *string `json:"detail,omitempty"`
+
 	// Pointer JSON Pointer to the failing field.
 	Pointer string `json:"pointer"`
 
@@ -458,6 +561,43 @@ type Me struct {
 
 	// UserId The platform principal id, not the IdP user id.
 	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// NumberFormatList defines model for NumberFormatList.
+type NumberFormatList struct {
+	Items []NumberFormatSummary `json:"items"`
+
+	// NextCursor Present when more formats follow; pass it as `cursor`.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// NumberFormatSummary defines model for NumberFormatSummary.
+type NumberFormatSummary struct {
+	CreatedAt      time.Time          `json:"created_at"`
+	CurrentVersion int                `json:"current_version"`
+	Id             openapi_types.UUID `json:"id"`
+	Key            string             `json:"key"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
+// NumberFormatVersion defines model for NumberFormatVersion.
+type NumberFormatVersion struct {
+	// Compiled The compiled form (numbering.Compiled) the publish stored.
+	Compiled map[string]interface{} `json:"compiled"`
+
+	// CompiledSha256 Lowercase hex SHA-256 of the compiled template.
+	CompiledSha256 string             `json:"compiled_sha256"`
+	CreatedAt      time.Time          `json:"created_at"`
+	CreatedBy      openapi_types.UUID `json:"created_by"`
+
+	// CurrentVersion The newest version of the format.
+	CurrentVersion int `json:"current_version"`
+
+	// Document The format as published.
+	Document map[string]interface{} `json:"document"`
+	Id       openapi_types.UUID     `json:"id"`
+	Key      string                 `json:"key"`
+	Version  int                    `json:"version"`
 }
 
 // OnboardIdP defines model for OnboardIdP.
@@ -526,11 +666,17 @@ type ProblemNoInstance struct {
 // PublishEntityTypeVersionRequest Deliberately unconstrained here, like CreateEntityTypeRequest: the server checks every field after the admin check. Kept as the request bytes so the schema is stored byte for byte.
 type PublishEntityTypeVersionRequest = json.RawMessage
 
+// PublishNumberFormatRequest Deliberately unconstrained here, like CreateNumberFormatRequest.
+type PublishNumberFormatRequest = json.RawMessage
+
 // PublishWorkflowDefinitionRequest A workflow definition, format `nava.workflow/v1`. Deliberately unconstrained here: the server checks every field after the admin check, and keeps the request bytes so the body is stored byte for byte.
 type PublishWorkflowDefinitionRequest = json.RawMessage
 
 // PutAccessPolicyRequest Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
 type PutAccessPolicyRequest = json.RawMessage
+
+// PutTenantTimeZoneRequest Deliberately unconstrained here: the server checks the body after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+type PutTenantTimeZoneRequest = json.RawMessage
 
 // Record defines model for Record.
 type Record struct {
@@ -592,6 +738,36 @@ type RecordList struct {
 	TotalCapped *bool `json:"total_capped,omitempty"`
 }
 
+// RepublishLinkedReport defines model for RepublishLinkedReport.
+type RepublishLinkedReport struct {
+	FormatId openapi_types.UUID `json:"format_id"`
+	Results  []struct {
+		// Code The problem code, when `refused`.
+		Code *string `json:"code,omitempty"`
+
+		// EntityType The entity type key.
+		EntityType string                             `json:"entity_type"`
+		Errors     *[]FieldError                      `json:"errors,omitempty"`
+		Status     RepublishLinkedReportResultsStatus `json:"status"`
+
+		// Version The new definition version, when `published`.
+		Version *int `json:"version,omitempty"`
+	} `json:"results"`
+	Version int `json:"version"`
+}
+
+// RepublishLinkedReportResultsStatus defines model for RepublishLinkedReport.Results.Status.
+type RepublishLinkedReportResultsStatus string
+
+// RepublishLinkedRequest `{version}`, a published version of the format. Kept as the request bytes (`json.RawMessage`); the server checks it after the admin check.
+type RepublishLinkedRequest = json.RawMessage
+
+// TenantTimeZone defines model for TenantTimeZone.
+type TenantTimeZone struct {
+	// TimeZone An IANA time zone name.
+	TimeZone string `json:"time_zone"`
+}
+
 // WorkflowDefinitionVersion defines model for WorkflowDefinitionVersion.
 type WorkflowDefinitionVersion struct {
 	// Body The published definition, the stored bytes.
@@ -612,6 +788,9 @@ type WorkflowDefinitionVersion struct {
 
 // Entity defines model for Entity.
 type Entity = string
+
+// FormatId defines model for FormatId.
+type FormatId = string
 
 // Key defines model for Key.
 type Key = string
@@ -706,6 +885,37 @@ type PutEntityTypeAccessParams struct {
 // PublishEntityTypeVersionParams defines parameters for PublishEntityTypeVersion.
 type PublishEntityTypeVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
+
+	// IfMatch The `ETag` of the current version the publish is based on. Optional. Also checked on a mode-only call.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
+// ListNumberFormatsParams defines parameters for ListNumberFormats.
+type ListNumberFormatsParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateNumberFormatParams defines parameters for CreateNumberFormat.
+type CreateNumberFormatParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// GetNumberFormatParams defines parameters for GetNumberFormat.
+type GetNumberFormatParams struct {
+	Version *int `form:"version,omitempty" json:"version,omitempty"`
+}
+
+// PublishNumberFormatVersionParams defines parameters for PublishNumberFormatVersion.
+type PublishNumberFormatVersionParams struct {
+	// IfMatch The `ETag` of the version the publish is based on. Optional in the contract only so that its absence is the registered 428.
+	IfMatch        *string `json:"If-Match,omitempty"`
+	IdempotencyKey string  `json:"Idempotency-Key"`
+}
+
+// RepublishLinkedTypesParams defines parameters for RepublishLinkedTypes.
+type RepublishLinkedTypesParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
 // OnboardTenantParams defines parameters for OnboardTenant.
@@ -738,6 +948,11 @@ type GetRecordHistoryParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// PutTenantTimeZoneParams defines parameters for PutTenantTimeZone.
+type PutTenantTimeZoneParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // PublishWorkflowDefinitionVersionParams defines parameters for PublishWorkflowDefinitionVersion.
 type PublishWorkflowDefinitionVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -752,6 +967,15 @@ type PutEntityTypeAccessJSONRequestBody = PutAccessPolicyRequest
 // PublishEntityTypeVersionJSONRequestBody defines body for PublishEntityTypeVersion for application/json ContentType.
 type PublishEntityTypeVersionJSONRequestBody = PublishEntityTypeVersionRequest
 
+// CreateNumberFormatJSONRequestBody defines body for CreateNumberFormat for application/json ContentType.
+type CreateNumberFormatJSONRequestBody = CreateNumberFormatRequest
+
+// PublishNumberFormatVersionJSONRequestBody defines body for PublishNumberFormatVersion for application/json ContentType.
+type PublishNumberFormatVersionJSONRequestBody = PublishNumberFormatRequest
+
+// RepublishLinkedTypesJSONRequestBody defines body for RepublishLinkedTypes for application/json ContentType.
+type RepublishLinkedTypesJSONRequestBody = RepublishLinkedRequest
+
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
 
@@ -760,6 +984,9 @@ type CreateRecordJSONRequestBody = CreateRecordRequest
 
 // PatchRecordApplicationMergePatchPlusJSONRequestBody defines body for PatchRecord for application/merge-patch+json ContentType.
 type PatchRecordApplicationMergePatchPlusJSONRequestBody = PatchRecordRequest
+
+// PutTenantTimeZoneJSONRequestBody defines body for PutTenantTimeZone for application/json ContentType.
+type PutTenantTimeZoneJSONRequestBody = PutTenantTimeZoneRequest
 
 // PublishWorkflowDefinitionVersionJSONRequestBody defines body for PublishWorkflowDefinitionVersion for application/json ContentType.
 type PublishWorkflowDefinitionVersionJSONRequestBody = PublishWorkflowDefinitionRequest
@@ -802,6 +1029,21 @@ type ServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListNumberFormats List the tenant's number formats
+	// (GET /api/v1/number-formats)
+	ListNumberFormats(w http.ResponseWriter, r *http.Request, params ListNumberFormatsParams)
+	// CreateNumberFormat Create a number format (tenant admin)
+	// (POST /api/v1/number-formats)
+	CreateNumberFormat(w http.ResponseWriter, r *http.Request, params CreateNumberFormatParams)
+	// GetNumberFormat A number format, current or at a version
+	// (GET /api/v1/number-formats/{id})
+	GetNumberFormat(w http.ResponseWriter, r *http.Request, id FormatId, params GetNumberFormatParams)
+	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
+	// (PUT /api/v1/number-formats/{id})
+	PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request, id FormatId, params PublishNumberFormatVersionParams)
+	// RepublishLinkedTypes Re-publish the entity types linked to an older version of a format (tenant admin)
+	// (POST /api/v1/number-formats/{id}/republish-linked)
+	RepublishLinkedTypes(w http.ResponseWriter, r *http.Request, id FormatId, params RepublishLinkedTypesParams)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
@@ -820,6 +1062,12 @@ type ServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entity Entity, id string, params GetRecordHistoryParams)
+	// GetTenantTimeZone Read the tenant's numbering time zone (tenant admin)
+	// (GET /api/v1/tenant/settings/time-zone)
+	GetTenantTimeZone(w http.ResponseWriter, r *http.Request)
+	// PutTenantTimeZone Set the tenant's numbering time zone (tenant admin)
+	// (PUT /api/v1/tenant/settings/time-zone)
+	PutTenantTimeZone(w http.ResponseWriter, r *http.Request, params PutTenantTimeZoneParams)
 	// GetWorkflowDefinition The current version of a workflow definition (tenant admin)
 	// (GET /api/v1/workflow-definitions/{key})
 	GetWorkflowDefinition(w http.ResponseWriter, r *http.Request, key WorkflowDefinitionKey)
@@ -1461,6 +1709,25 @@ func (siw *ServerInterfaceWrapper) PublishEntityTypeVersion(w http.ResponseWrite
 		return
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PublishEntityTypeVersion(w, r, key, params)
 	}))
@@ -1512,6 +1779,266 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListNumberFormats operation middleware
+func (siw *ServerInterfaceWrapper) ListNumberFormats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNumberFormatsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNumberFormats(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNumberFormat operation middleware
+func (siw *ServerInterfaceWrapper) CreateNumberFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateNumberFormatParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNumberFormat(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetNumberFormat operation middleware
+func (siw *ServerInterfaceWrapper) GetNumberFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetNumberFormatParams
+
+	// ------------- Optional query parameter "version" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "version", r.URL.Query(), &params.Version, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "version"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNumberFormat(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishNumberFormatVersion operation middleware
+func (siw *ServerInterfaceWrapper) PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishNumberFormatVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishNumberFormatVersion(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RepublishLinkedTypes operation middleware
+func (siw *ServerInterfaceWrapper) RepublishLinkedTypes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id FormatId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RepublishLinkedTypesParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RepublishLinkedTypes(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1869,6 +2396,65 @@ func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetTenantTimeZone operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantTimeZone(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutTenantTimeZone operation middleware
+func (siw *ServerInterfaceWrapper) PutTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutTenantTimeZoneParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutTenantTimeZone(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetWorkflowDefinition operation middleware
 func (siw *ServerInterfaceWrapper) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 
@@ -2078,6 +2664,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.GetEntityTypeAccess)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.PutEntityTypeAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats", wrapper.ListNumberFormats)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats", wrapper.CreateNumberFormat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.GetNumberFormat)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/number-formats/{id}", wrapper.PublishNumberFormatVersion)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/number-formats/{id}/republish-linked", wrapper.RepublishLinkedTypes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.GetTenantTimeZone)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/tenant/settings/time-zone", wrapper.PutTenantTimeZone)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/workflow-definitions/{key}", wrapper.GetWorkflowDefinition)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/workflow-definitions/{key}/versions", wrapper.PublishWorkflowDefinitionVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/access/explain", wrapper.ExplainAccess)
@@ -3173,6 +3766,20 @@ func (response PutEntityTypeAccess404ApplicationProblemPlusJSONResponse) VisitPu
 	return err
 }
 
+type PutEntityTypeAccess409ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess409ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PutEntityTypeAccess412ResponseHeaders struct {
 	ETag string
 }
@@ -3275,15 +3882,23 @@ type PublishEntityTypeVersionResponseObject interface {
 	VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error
 }
 
-type PublishEntityTypeVersion201JSONResponse EntityTypeVersion
+type PublishEntityTypeVersion201ResponseHeaders struct {
+	ETag string
+}
+
+type PublishEntityTypeVersion201JSONResponse struct {
+	Body    EntityTypeVersion
+	Headers PublishEntityTypeVersion201ResponseHeaders
+}
 
 func (response PublishEntityTypeVersion201JSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
@@ -3359,6 +3974,28 @@ func (response PublishEntityTypeVersion409ApplicationProblemPlusJSONResponse) Vi
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishEntityTypeVersion412ResponseHeaders struct {
+	ETag string
+}
+
+type PublishEntityTypeVersion412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PublishEntityTypeVersion412ResponseHeaders
+}
+
+func (response PublishEntityTypeVersion412ApplicationProblemPlusJSONResponse) VisitPublishEntityTypeVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3598,6 +4235,688 @@ func (response GetMe500ApplicationProblemPlusJSONResponse) VisitGetMeResponse(w 
 type GetMe501ApplicationProblemPlusJSONResponse Problem
 
 func (response GetMe501ApplicationProblemPlusJSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormatsRequestObject struct {
+	Params ListNumberFormatsParams
+}
+
+type ListNumberFormatsResponseObject interface {
+	VisitListNumberFormatsResponse(w http.ResponseWriter) error
+}
+
+type ListNumberFormats200JSONResponse NumberFormatList
+
+func (response ListNumberFormats200JSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListNumberFormats400ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats401ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats429ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats500ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNumberFormats501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListNumberFormats501ApplicationProblemPlusJSONResponse) VisitListNumberFormatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormatRequestObject struct {
+	Params CreateNumberFormatParams
+	Body   *CreateNumberFormatJSONRequestBody
+}
+
+type CreateNumberFormatResponseObject interface {
+	VisitCreateNumberFormatResponse(w http.ResponseWriter) error
+}
+
+type CreateNumberFormat201ResponseHeaders struct {
+	ETag string
+}
+
+type CreateNumberFormat201JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers CreateNumberFormat201ResponseHeaders
+}
+
+func (response CreateNumberFormat201JSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateNumberFormat400ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat401ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat401ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat403ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat403ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat409ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat422ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat422ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat429ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat429ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat500ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat500ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNumberFormat501ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateNumberFormat501ApplicationProblemPlusJSONResponse) VisitCreateNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormatRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params GetNumberFormatParams
+}
+
+type GetNumberFormatResponseObject interface {
+	VisitGetNumberFormatResponse(w http.ResponseWriter) error
+}
+
+type GetNumberFormat200ResponseHeaders struct {
+	ETag string
+}
+
+type GetNumberFormat200JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers GetNumberFormat200ResponseHeaders
+}
+
+func (response GetNumberFormat200JSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetNumberFormat400ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat401ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response GetNumberFormat404ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat429ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat500ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNumberFormat501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetNumberFormat501ApplicationProblemPlusJSONResponse) VisitGetNumberFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersionRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params PublishNumberFormatVersionParams
+	Body   *PublishNumberFormatVersionJSONRequestBody
+}
+
+type PublishNumberFormatVersionResponseObject interface {
+	VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error
+}
+
+type PublishNumberFormatVersion200ResponseHeaders struct {
+	ETag string
+}
+
+type PublishNumberFormatVersion200JSONResponse struct {
+	Body    NumberFormatVersion
+	Headers PublishNumberFormatVersion200ResponseHeaders
+}
+
+func (response PublishNumberFormatVersion200JSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PublishNumberFormatVersion400ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion401ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion401ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion403ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion403ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response PublishNumberFormatVersion404ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion412ResponseHeaders struct {
+	ETag string
+}
+
+type PublishNumberFormatVersion412ApplicationProblemPlusJSONResponse struct {
+	Body    Problem
+	Headers PublishNumberFormatVersion412ResponseHeaders
+}
+
+func (response PublishNumberFormatVersion412ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion422ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion422ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion428ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion428ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion429ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion429ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion500ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion500ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse Problem
+
+func (response PublishNumberFormatVersion501ApplicationProblemPlusJSONResponse) VisitPublishNumberFormatVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypesRequestObject struct {
+	Id     FormatId `json:"id"`
+	Params RepublishLinkedTypesParams
+	Body   *RepublishLinkedTypesJSONRequestBody
+}
+
+type RepublishLinkedTypesResponseObject interface {
+	VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error
+}
+
+type RepublishLinkedTypes200JSONResponse RepublishLinkedReport
+
+func (response RepublishLinkedTypes200JSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RepublishLinkedTypes400ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes401ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes401ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes403ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes403ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response RepublishLinkedTypes404ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes422ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes422ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes429ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes429ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes500ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes500ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RepublishLinkedTypes501ApplicationProblemPlusJSONResponse Problem
+
+func (response RepublishLinkedTypes501ApplicationProblemPlusJSONResponse) VisitRepublishLinkedTypesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4544,6 +5863,222 @@ func (response GetRecordHistory501ApplicationProblemPlusJSONResponse) VisitGetRe
 	return err
 }
 
+type GetTenantTimeZoneRequestObject struct {
+}
+
+type GetTenantTimeZoneResponseObject interface {
+	VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error
+}
+
+type GetTenantTimeZone200JSONResponse TenantTimeZone
+
+func (response GetTenantTimeZone200JSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone401ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantTimeZone401ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone403ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone403ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone429ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone429ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone500ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone500ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantTimeZone501ApplicationProblemPlusJSONResponse Problem
+
+func (response GetTenantTimeZone501ApplicationProblemPlusJSONResponse) VisitGetTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZoneRequestObject struct {
+	Params PutTenantTimeZoneParams
+	Body   *PutTenantTimeZoneJSONRequestBody
+}
+
+type PutTenantTimeZoneResponseObject interface {
+	VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error
+}
+
+type PutTenantTimeZone200JSONResponse TenantTimeZone
+
+func (response PutTenantTimeZone200JSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response PutTenantTimeZone400ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone401ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone401ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone403ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone403ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone422ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone422ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone429ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone429ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone500ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone500ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantTimeZone501ApplicationProblemPlusJSONResponse Problem
+
+func (response PutTenantTimeZone501ApplicationProblemPlusJSONResponse) VisitPutTenantTimeZoneResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetWorkflowDefinitionRequestObject struct {
 	Key WorkflowDefinitionKey `json:"key"`
 }
@@ -4830,6 +6365,21 @@ type StrictServerInterface interface {
 	// GetMe The calling user and tenant
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ListNumberFormats List the tenant's number formats
+	// (GET /api/v1/number-formats)
+	ListNumberFormats(ctx context.Context, request ListNumberFormatsRequestObject) (ListNumberFormatsResponseObject, error)
+	// CreateNumberFormat Create a number format (tenant admin)
+	// (POST /api/v1/number-formats)
+	CreateNumberFormat(ctx context.Context, request CreateNumberFormatRequestObject) (CreateNumberFormatResponseObject, error)
+	// GetNumberFormat A number format, current or at a version
+	// (GET /api/v1/number-formats/{id})
+	GetNumberFormat(ctx context.Context, request GetNumberFormatRequestObject) (GetNumberFormatResponseObject, error)
+	// PublishNumberFormatVersion Publish the next version of a number format (tenant admin)
+	// (PUT /api/v1/number-formats/{id})
+	PublishNumberFormatVersion(ctx context.Context, request PublishNumberFormatVersionRequestObject) (PublishNumberFormatVersionResponseObject, error)
+	// RepublishLinkedTypes Re-publish the entity types linked to an older version of a format (tenant admin)
+	// (POST /api/v1/number-formats/{id}/republish-linked)
+	RepublishLinkedTypes(ctx context.Context, request RepublishLinkedTypesRequestObject) (RepublishLinkedTypesResponseObject, error)
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
@@ -4848,6 +6398,12 @@ type StrictServerInterface interface {
 	// GetRecordHistory A record's change history
 	// (GET /api/v1/records/{entity}/{id}/history)
 	GetRecordHistory(ctx context.Context, request GetRecordHistoryRequestObject) (GetRecordHistoryResponseObject, error)
+	// GetTenantTimeZone Read the tenant's numbering time zone (tenant admin)
+	// (GET /api/v1/tenant/settings/time-zone)
+	GetTenantTimeZone(ctx context.Context, request GetTenantTimeZoneRequestObject) (GetTenantTimeZoneResponseObject, error)
+	// PutTenantTimeZone Set the tenant's numbering time zone (tenant admin)
+	// (PUT /api/v1/tenant/settings/time-zone)
+	PutTenantTimeZone(ctx context.Context, request PutTenantTimeZoneRequestObject) (PutTenantTimeZoneResponseObject, error)
 	// GetWorkflowDefinition The current version of a workflow definition (tenant admin)
 	// (GET /api/v1/workflow-definitions/{key})
 	GetWorkflowDefinition(ctx context.Context, request GetWorkflowDefinitionRequestObject) (GetWorkflowDefinitionResponseObject, error)
@@ -5229,6 +6785,160 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListNumberFormats operation middleware
+func (sh *strictHandler) ListNumberFormats(w http.ResponseWriter, r *http.Request, params ListNumberFormatsParams) {
+	var request ListNumberFormatsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListNumberFormats(ctx, request.(ListNumberFormatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListNumberFormats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListNumberFormatsResponseObject); ok {
+		if err := validResponse.VisitListNumberFormatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNumberFormat operation middleware
+func (sh *strictHandler) CreateNumberFormat(w http.ResponseWriter, r *http.Request, params CreateNumberFormatParams) {
+	var request CreateNumberFormatRequestObject
+
+	request.Params = params
+
+	var body CreateNumberFormatJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNumberFormat(ctx, request.(CreateNumberFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNumberFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNumberFormatResponseObject); ok {
+		if err := validResponse.VisitCreateNumberFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetNumberFormat operation middleware
+func (sh *strictHandler) GetNumberFormat(w http.ResponseWriter, r *http.Request, id FormatId, params GetNumberFormatParams) {
+	var request GetNumberFormatRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNumberFormat(ctx, request.(GetNumberFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNumberFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNumberFormatResponseObject); ok {
+		if err := validResponse.VisitGetNumberFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishNumberFormatVersion operation middleware
+func (sh *strictHandler) PublishNumberFormatVersion(w http.ResponseWriter, r *http.Request, id FormatId, params PublishNumberFormatVersionParams) {
+	var request PublishNumberFormatVersionRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body PublishNumberFormatVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishNumberFormatVersion(ctx, request.(PublishNumberFormatVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishNumberFormatVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishNumberFormatVersionResponseObject); ok {
+		if err := validResponse.VisitPublishNumberFormatVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RepublishLinkedTypes operation middleware
+func (sh *strictHandler) RepublishLinkedTypes(w http.ResponseWriter, r *http.Request, id FormatId, params RepublishLinkedTypesParams) {
+	var request RepublishLinkedTypesRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body RepublishLinkedTypesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RepublishLinkedTypes(ctx, request.(RepublishLinkedTypesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RepublishLinkedTypes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RepublishLinkedTypesResponseObject); ok {
+		if err := validResponse.VisitRepublishLinkedTypesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // OnboardTenant operation middleware
 func (sh *strictHandler) OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams) {
 	var request OnboardTenantRequestObject
@@ -5406,6 +7116,63 @@ func (sh *strictHandler) GetRecordHistory(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRecordHistoryResponseObject); ok {
 		if err := validResponse.VisitGetRecordHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantTimeZone operation middleware
+func (sh *strictHandler) GetTenantTimeZone(w http.ResponseWriter, r *http.Request) {
+	var request GetTenantTimeZoneRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantTimeZone(ctx, request.(GetTenantTimeZoneRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantTimeZone")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantTimeZoneResponseObject); ok {
+		if err := validResponse.VisitGetTenantTimeZoneResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutTenantTimeZone operation middleware
+func (sh *strictHandler) PutTenantTimeZone(w http.ResponseWriter, r *http.Request, params PutTenantTimeZoneParams) {
+	var request PutTenantTimeZoneRequestObject
+
+	request.Params = params
+
+	var body PutTenantTimeZoneJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutTenantTimeZone(ctx, request.(PutTenantTimeZoneRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutTenantTimeZone")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutTenantTimeZoneResponseObject); ok {
+		if err := validResponse.VisitPutTenantTimeZoneResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

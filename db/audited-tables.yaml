@@ -62,8 +62,9 @@ audited:
   # incident ACL (onboarding, nava-onboard reconcile-default-acl) are the
   # writers, and each writes its entry in the same transaction
   # (authz.PolicyStore.Publish).
+  # ADR-010-A1 A1-3 (TICK-940): nava_app alone; nava_worker reads only.
   acl_versions:
-    writer_roles: [nava_app, nava_worker]
+    writer_roles: [nava_app]
     audited_columns: []
     subject_type: acl_policy
     subject_id_column: entity_definition_id
@@ -76,6 +77,32 @@ audited:
     audited_columns: []
     subject_type: record
     subject_id_column: record_id
+    attached: false
+  # P6-06 (TICK-671, ADR-005 §3.2, §3.7 C12): a format publish is audited
+  # under its own subject, number_format, keyed by the format id. Not
+  # attached yet: nothing writes these tables until the format publish route,
+  # and the task that adds it writes its audit entry and attaches the
+  # trigger with it. The columns are every column nava_app may UPDATE.
+  number_formats:
+    writer_roles: [nava_app]
+    audited_columns: [current_version, updated_at]
+    subject_type: number_format
+    subject_id_column: id
+    attached: false
+  number_format_versions:
+    writer_roles: [nava_app]
+    audited_columns: []
+    subject_type: number_format
+    subject_id_column: format_id
+    attached: false
+  # P6-06: an epoch is taken inside the entity definition publish (C10), so
+  # it is that type's configuration change, under its entity_definition
+  # entry. Insert-only; attached with the publish path that writes it.
+  numbering_epochs:
+    writer_roles: [nava_app]
+    audited_columns: []
+    subject_type: entity_definition
+    subject_id_column: entity_definition_id
     attached: false
   # P3-40 (TICK-709): workflow definitions and their immutable versions.
   # Attached by P3-41b (TICK-737, 20261113180000): the publish route
@@ -128,7 +155,7 @@ exempt:
   idempotency_keys:
     reason: "HTTP replay cache; the write it replays is audited."
   tenants:
-    reason: "Tenant lifecycle, written by onboarding. R2 has no tenant subject type; the epic that audits onboarding registers one (I8)."
+    reason: "Tenant lifecycle, written by onboarding, and the tenant time zone nava_app sets (TICK-795). R2 has no tenant subject type; the epic that audits onboarding registers one (I8)."
   tenant_identity_binding:
     reason: "Onboarding's binding to the identity provider. R2 has no subject type for it (I8)."
   tenant_email_domain:

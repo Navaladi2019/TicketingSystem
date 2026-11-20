@@ -1,0 +1,31 @@
+meta {
+  name: S18N.37 E9: tenant B's timeline has no number_space_exhausted entry
+  type: http
+  seq: 37
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?domain=record&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test(`tenant B's record timeline has entries (${(items || []).length})`, () => {
+    expect(items).to.be.an('array').that.is.not.empty;
+    expect(items.map(e => e.action)).to.include('create');
+  });
+  test('no number_space_exhausted entry', () => expect(items.filter(e => e.action === 'number_space_exhausted')).to.eql([]));
+  N.noLeak(bru.getVar('s18n_permit_def'));
+}
+
+docs {
+  admin@tenant-b reads tenant B's record timeline. It is not empty (tenant B's incident creates are on it), so the check reads a real page.
+}

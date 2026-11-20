@@ -213,7 +213,7 @@ func TestEdgeMetricsCarryNoClientControlledValue(t *testing.T) {
 	}
 	body := e.scrape(t)
 	if strings.Contains(strings.ToLower(body), marker) {
-		for _, l := range strings.Split(body, "\n") {
+		for l := range strings.SplitSeq(body, "\n") {
 			if strings.Contains(strings.ToLower(l), marker) {
 				t.Errorf("/metrics carries the client's value: %s", l)
 			}
@@ -222,14 +222,14 @@ func TestEdgeMetricsCarryNoClientControlledValue(t *testing.T) {
 	// Label names and label values only: a sample value such as a memory size
 	// or a duration sum may contain "1.9" by chance.
 	for _, forbidden := range []string{"server_address", "server_port", "url_path", "client_address", "network_peer", "user_agent", "network_protocol_version", `="1.9"`} {
-		for _, l := range strings.Split(body, "\n") {
+		for l := range strings.SplitSeq(body, "\n") {
 			if strings.Contains(l, forbidden) {
 				t.Errorf("/metrics has %q: %s", forbidden, l)
 			}
 		}
 	}
 	series := 0
-	for _, l := range strings.Split(body, "\n") {
+	for l := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(l, "http_server_request_duration_seconds_count{") {
 			series++
 		}
@@ -336,7 +336,7 @@ func TestEdgeAccessLogCarriesNoClientControlledValue(t *testing.T) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for _, l := range strings.Split(strings.TrimSpace(e.logs.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(e.logs.String()), "\n") {
 		if strings.Contains(strings.ToLower(l), marker) {
 			t.Errorf("access line carries the client's value: %s", l)
 		}

@@ -1,0 +1,63 @@
+meta {
+  name: S28.10 Publish the workflow written from the handbook example: 201
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s28_route/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+  Idempotency-Key: tick884-s28-{{s28_run}}-wf
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1M",
+        "next": "triage"
+      },
+      {
+        "key": "triage",
+        "type": "update_record",
+        "set": {
+          "state": "in_progress"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 1, current, on incident', () => {
+    expect(b.version).to.eql(1);
+    expect(b.current).to.eql(true);
+    expect(b.entity).to.eql('incident');
+  });
+}
+
+docs {
+  Tour step 8: on `record.created` of an incident, wait one minute, set `state` to `in_progress`. The key is the admin's own (`s28_route`).
+}

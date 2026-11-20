@@ -19,7 +19,8 @@
 // The fixed CI seed is i5DefaultSeed; NAVA_I5_SEED=<n> make isolation replays
 // another. NAVA_I5_MUTANT=<name> runs the agreement row against a mutant
 // compiler instead of the real one, which must turn it red (the PR's
-// mutation run).
+// mutation run); a data-filter mutant's name (i5FilterMutants) runs the
+// data filters row against that broken list route instead.
 
 package isolation
 
@@ -42,8 +43,13 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
-// i5Budget is the P3-32 time budget for the agreement row.
-const i5Budget = 60 * time.Second
+// i5Budget bounds one agreement row (P3-32 here, P11-10's format-2 row too):
+// a hang or a many-fold slowdown fails the row, runner variance does not.
+// TICK-1003: it was 60 s, with no plan figure behind it, and the format-2 row
+// took 48.8 s and 66.5 s on two GitHub-hosted attempts of one commit (run
+// 44634136748), so it failed a green change. 120 s is 80 % over the slowest
+// run seen. The row's detail still reports the time it took.
+const i5Budget = 120 * time.Second
 
 // The I5 row names (the report's Path column).
 const (
@@ -51,7 +57,7 @@ const (
 	i5RowLoader    = "I5 loader: authz.SharesFor fills Row.SharedWith pair-matched, as the generator does (A1, AR-S10-01)"
 	i5RowMutant    = "I5 mutant %s: the suite catches a broken compiler"
 	i5RowFilters   = "I5 data filters: eq and in on data fields agree with the Go check on null, absent, defaulted and type-changed fields"
-	i5RowListPage  = "I5 list route: a record the caller cannot read is absent from a list page (PR #523 security finding 2)"
+	i5RowListPage  = "I5 list route: a record the caller cannot read is on no page of GET /records/{entity}, and total is the readable count (PR #523 security finding 2)"
 )
 
 // TestI5Agreement runs the I5 properties and adds their rows to the report.
@@ -63,12 +69,21 @@ func TestI5Agreement(t *testing.T) {
 	t.Logf("I5 seed %d (replay: %s=%d make isolation)", seed, i5SeedEnv, seed)
 	w, cases := i5Generate(seed)
 	compile, compiler := i5Compiler(authz.CompileRead), "authz.CompileRead"
+	filterMutant := ""
 	if m := os.Getenv(i5MutantEnv); m != "" {
 		mc, ok := i5Mutants()[m]
-		if !ok {
-			t.Fatalf("%s=%q: not one of %v", i5MutantEnv, m, i5MutantNames())
+		_, isFilter := i5FilterMutants()[m]
+		_, isFormat2 := i5F2Mutants()[m]
+		switch {
+		case ok:
+			compile, compiler = mc, "mutant "+m
+		case isFilter:
+			filterMutant = m // the data filters row runs against it (TICK-900)
+		case isFormat2:
+			// TestI5Format2Agreement runs its agreement row against it (TICK-942).
+		default:
+			t.Fatalf("%s=%q: not one of %v, %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames(), i5F2MutantNames())
 		}
-		compile, compiler = mc, "mutant "+m
 	}
 
 	add := func(name, status, detail string) {
@@ -114,10 +129,9 @@ func TestI5Agreement(t *testing.T) {
 	if err != nil {
 		add(i5RowAgreement, statusFail, fmt.Sprintf("seed %d: the run broke: %v", seed, err))
 	}
-	// P3-34 (TICK-619) adds the data filter compiler and the list route; it
-	// turns these two rows into checks (P3-38 waits on the first).
-	add(i5RowFilters, statusPending, "pending P3-34 (TICK-619): no data filter compiler yet; P3-38 starts only when this row is a PASS")
-	add(i5RowListPage, statusPending, "pending P3-34 (TICK-619): no list route yet")
+	// The data filters, list route and masked-field rows drive the real list
+	// route (TICK-900); i5_route_isolation_test.go.
+	i5RouteRows(t.Context(), cluster{t: t, e: suite}, seed, filterMutant, add)
 }
 
 // i5InWorld seeds w as the superuser in one transaction, switches it to
@@ -130,6 +144,12 @@ func i5InWorld(t *testing.T, w *i5World, fn func(context.Context, pgx.Tx) error)
 	err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 		if err := i5SeedWorld(ctx, tx, w); err != nil {
 			return fmt.Errorf("seed: %w", err)
+		}
+		// The generator names a group the tenant does not have: a legacy row,
+		// past the tenant-id trigger (TICK-940). This transaction always rolls
+		// back, and the trigger with it.
+		if _, err := tx.Exec(ctx, "ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_tenant_ids"); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_app"); err != nil {
 			return err
@@ -221,7 +241,7 @@ func i5Agree(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5Case, compile
 			for _, rec := range w.Records {
 				st.checks++
 				row := rec.row(p)
-				_, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
 				sqlOK := bySQL[ki][rec.Row.ID]
 				if goOK {
 					admitted++

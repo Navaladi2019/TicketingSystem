@@ -35,8 +35,7 @@ func TestNewMigrationsLaterThanBase(t *testing.T) {
 	out, err := exec.CommandContext(t.Context(), "git", "ls-tree", "--full-tree", "--name-only", base+":db/migrations").Output()
 	if err != nil {
 		var stderr string
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			stderr = strings.TrimSpace(string(ee.Stderr))
 		}
 		t.Fatalf("git ls-tree %s:db/migrations: %v %s (fetch main first; the checkout needs its history)", base, err, stderr)

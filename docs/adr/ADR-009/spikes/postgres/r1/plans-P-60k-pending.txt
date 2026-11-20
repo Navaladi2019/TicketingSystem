@@ -1,0 +1,89 @@
+Time: 441.481 ms
+ pending_size 
+--------------
+ 11 MB
+(1 row)
+
+              set_config              
+--------------------------------------
+ 00000001-0000-7000-8000-000000000001
+(1 row)
+
+== P1 UNION ALL, pending branch, 60k pending, page (no NOT ? filter: worst-case join+sort)
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=256.778..256.796 rows=25 loops=1)
+   Buffers: shared hit=53565
+   ->  Sort (actual time=256.775..256.788 rows=25 loops=1)
+         Sort Key: r.updated_at DESC, r.id DESC
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=53565
+         ->  Append (actual time=84.907..239.122 rows=60000 loops=1)
+               Buffers: shared hit=53562
+               ->  Result (actual time=0.064..0.068 rows=0 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=3
+                     ->  Nested Loop (actual time=0.047..0.051 rows=0 loops=1)
+                           Buffers: shared hit=3
+                           ->  HashAggregate (actual time=0.046..0.049 rows=0 loops=1)
+                                 Group Key: v.tenant_id, v.record_id
+                                 Batches: 1  Memory Usage: 24kB
+                                 Buffers: shared hit=3
+                                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.044..0.045 rows=0 loops=1)
+                                       Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                                       Heap Fetches: 0
+                                       Buffers: shared hit=3
+                           ->  Index Scan using records_pkey on records r (never executed)
+                                 Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (id = v.record_id))
+                                 Filter: (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid)
+               ->  Result (actual time=84.842..229.555 rows=60000 loops=1)
+                     One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+                     Buffers: shared hit=53559
+                     ->  Hash Join (actual time=84.838..216.042 rows=60000 loops=1)
+                           Hash Cond: (x.record_id = r_1.id)
+                           Buffers: shared hit=53559
+                           ->  Seq Scan on schema_backfill_pending x (actual time=0.013..48.544 rows=60000 loops=1)
+                                 Filter: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid) AND (target_version = 3))
+                                 Buffers: shared hit=619
+                           ->  Hash (actual time=84.767..84.768 rows=100000 loops=1)
+                                 Buckets: 131072 (originally 16384)  Batches: 1 (originally 1)  Memory Usage: 8056kB
+                                 Buffers: shared hit=52940
+                                 ->  Index Only Scan using records_list_updated on records r_1 (actual time=0.055..45.344 rows=100000 loops=1)
+                                       Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+                                       Heap Fetches: 0
+                                       Buffers: shared hit=52940
+ Planning:
+   Buffers: shared hit=149
+ Planning Time: 1.892 ms
+ Execution Time: 257.775 ms
+(44 rows)
+
+== P2 OR-EXISTS(pending) on the ordered walk, 60k pending, page
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=165.978..166.053 rows=25 loops=1)
+   Buffers: shared hit=646
+   ->  Result (actual time=165.973..166.040 rows=25 loops=1)
+         One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000001-0000-7000-8000-000000000001'::uuid)
+         Buffers: shared hit=646
+         ->  Index Only Scan using records_list_updated on records r (actual time=165.964..166.024 rows=25 loops=1)
+               Index Cond: ((tenant_id = '00000001-0000-7000-8000-000000000001'::uuid) AND (entity_definition_id = '00000002-0000-7000-8000-000000000001'::uuid))
+               Filter: ((hashed SubPlan 2) OR (hashed SubPlan 4))
+               Rows Removed by Filter: 17
+               Heap Fetches: 0
+               Buffers: shared hit=646
+               SubPlan 2
+                 ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.029..0.030 rows=0 loops=1)
+                       Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (field_id = '00000063-0000-7000-8000-000000000001'::uuid) AND (value = '3'::double precision))
+                       Heap Fetches: 0
+                       Buffers: shared hit=3
+               SubPlan 4
+                 ->  Seq Scan on schema_backfill_pending x (actual time=0.056..101.915 rows=60000 loops=1)
+                       Filter: ((target_version = 3) AND (tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid))
+                       Buffers: shared hit=619
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.994 ms
+ Execution Time: 166.595 ms
+(24 rows)
+

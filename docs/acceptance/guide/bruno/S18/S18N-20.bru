@@ -1,0 +1,24 @@
+meta {
+  name: S18N.20 AC3: the refused link wrote nothing
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('same version, default numbering', () => {
+    expect(String(N.json().version)).to.eql(bru.getVar('s18n_cur_incident'));
+    expect(N.json().number_format == null).to.eql(true);
+  });
+}

@@ -50,8 +50,7 @@ func TestCompileRefusesUnusableSchemaDocuments(t *testing.T) {
 		d := baseDefinition(t, baseSchema())
 		d.Schema = json.RawMessage(raw)
 		_, err := metadata.Compile(d)
-		var ie *metadata.ErrInvalidDefinition
-		if !errors.As(err, &ie) {
+		if _, ok := errors.AsType[*metadata.ErrInvalidDefinition](err); !ok {
 			t.Errorf("%s: err = %v, want *ErrInvalidDefinition", name, err)
 		}
 	}
@@ -104,8 +103,7 @@ func TestCompileRefusesBadStateModelsAndShapes(t *testing.T) {
 		d := baseDefinition(t, baseSchema())
 		mutate(&d)
 		_, err := metadata.Compile(d)
-		var ie *metadata.ErrInvalidDefinition
-		if !errors.As(err, &ie) {
+		if _, ok := errors.AsType[*metadata.ErrInvalidDefinition](err); !ok {
 			t.Errorf("%s: err = %v, want *ErrInvalidDefinition", name, err)
 		}
 	}

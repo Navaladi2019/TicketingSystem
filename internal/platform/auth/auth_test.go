@@ -63,7 +63,7 @@ func (s *syncBuffer) lines(t *testing.T) []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(s.b.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(s.b.String()), "\n") {
 		if l == "" {
 			continue
 		}

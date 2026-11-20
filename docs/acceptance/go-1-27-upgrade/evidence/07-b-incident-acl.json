@@ -1,0 +1,82 @@
+{
+  "step": "b-incident-acl",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/entity-types/incident/access",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "version": 1,
+      "rules": [
+        {
+          "id": "default-admins",
+          "ops": [
+            "read",
+            "write"
+          ],
+          "who": {
+            "groups": [
+              "01a1f3db-8835-7442-b4d5-e7807d608387"
+            ]
+          }
+        },
+        {
+          "id": "default-service-desk",
+          "ops": [
+            "read",
+            "write"
+          ],
+          "who": {
+            "groups": [
+              "01a1f3d6-5eff-7ae7-8398-96d58e3b1286"
+            ]
+          },
+          "where": [
+            {
+              "column": "assignment_group_id",
+              "op": "in",
+              "caller": "my_groups"
+            }
+          ]
+        },
+        {
+          "id": "default-requester",
+          "ops": [
+            "read"
+          ],
+          "who": {
+            "requester": true
+          }
+        },
+        {
+          "id": "default-requester-new",
+          "ops": [
+            "read",
+            "write"
+          ],
+          "who": {
+            "requester": true
+          },
+          "where": [
+            {
+              "column": "state",
+              "op": "eq",
+              "values": [
+                "new"
+              ]
+            }
+          ]
+        }
+      ],
+      "masks": [],
+      "published_by": null,
+      "published_at": "2026-11-19T12:51:16.718603Z"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

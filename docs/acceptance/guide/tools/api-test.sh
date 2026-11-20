@@ -1,7 +1,9 @@
 #!/bin/sh
 # Acceptance guide (TICK-331): runs the Bruno collection headless against the
 # local stack (environment bruno/environments/local.bru) with the pinned Bruno
-# CLI, and writes JUnit, HTML and JSON reports to docs/acceptance/guide/reports/
+# CLI (tools/bruno: package.json names the version, package-lock.json every
+# dependency; tools/bruno/install.sh runs npm ci on the first run, TICK-1003),
+# and writes JUnit, HTML and JSON reports to docs/acceptance/guide/reports/
 # (git-ignored). Exits non-zero when any check fails.
 #
 # Before a full run: stack up, tools/seed.sh, tools/tunnels.sh up, and
@@ -17,7 +19,6 @@
 # passwords and short-lived tokens of this run (Authorization headers are
 # left out). Do not attach them anywhere public.
 set -eu
-BRUNO_CLI_VERSION=4.3.0
 
 GUIDE=$(cd "$(dirname "$0")/.." && pwd)
 COLL="$GUIDE/bruno"
@@ -35,7 +36,10 @@ if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
   shift
 fi
 
-command -v npx >/dev/null 2>&1 || { echo "api-test: npx not found; install Node.js (verified with 22)" >&2; exit 2; }
+command -v node >/dev/null 2>&1 || { echo "api-test: node not found; install Node.js (verified with 22)" >&2; exit 2; }
+# The locked install, never npx: npx resolved the CLI's dependency tree from
+# the registry on every run (TICK-1003).
+BRU=$(sh "$GUIDE/../../../tools/bruno/install.sh")
 mkdir -p "$OUT"
 
 # A stack on other host ports (make ci-isolated, the self-hosted CI runner,
@@ -60,7 +64,7 @@ fi
 # collection root, so it runs from there.
 cd "$COLL"
 set +e
-npx --yes "@usebruno/cli@$BRUNO_CLI_VERSION" run "$target" -r \
+node "$BRU" run "$target" -r \
   --env local \
   --sandbox developer \
   --reporter-skip-headers Authorization \
