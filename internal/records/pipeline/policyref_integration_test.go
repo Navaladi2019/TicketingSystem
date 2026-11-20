@@ -87,11 +87,21 @@ func seedRefWorld(t *testing.T, e env, requesterSet, assigneeSet bool, more ...m
 	if assigneeSet {
 		data["assignee"] = w.u2.String()
 	}
-	res, err := write(context.Background(), e, newPipeline(e, nil), w.f.id, pipeline.Command{Op: pipeline.OpCreate, EntityKey: aclKey, Data: data, Actor: w.f.principal, Source: pipeline.SourceUser})
+	// A system write: a user create defaults requester_id to the caller, so a
+	// NULL requester or assignee needs a writer that is not a user.
+	res, err := write(context.Background(), e, newPipeline(e, nil), w.f.id, pipeline.Command{Op: pipeline.OpCreate, EntityKey: aclKey, Data: data, Actor: w.f.system(), Source: pipeline.SourceSystem})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	w.record = res.RecordID
+	var reqNull, asgNull bool
+	if err := e.super.QueryRow(context.Background(), `SELECT requester_id IS NULL, assignee_id IS NULL FROM records WHERE tenant_id = $1 AND id = $2`,
+		w.f.id, w.record).Scan(&reqNull, &asgNull); err != nil {
+		t.Fatal(err)
+	}
+	if reqNull != !requesterSet || asgNull != !assigneeSet {
+		t.Fatalf("seeded requester NULL=%v assignee NULL=%v, want %v and %v", reqNull, asgNull, !requesterSet, !assigneeSet)
+	}
 	w.run, _ = openRun(t, e, w.f, w.record, false)
 	return w
 }
