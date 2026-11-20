@@ -1,0 +1,41 @@
+meta {
+  name: S18N.18 AC3: admin@tenant-a writes {prefix}{yy}{seq:3}
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-short
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s18n_short_{{s18n_run}}",
+    "document": {
+      "template": "{prefix}{yy}{seq:3}",
+      "overflow": "refuse"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('version 1 of {prefix}{yy}{seq:3} (refuse)', () => {
+    expect(N.json().version).to.eql(1);
+    expect(N.json().document.template).to.eql('{prefix}{yy}{seq:3}');
+  });
+  bru.setVar('s18n_short_fmt', N.json().id);
+}
+
+docs {
+  On its own the format is valid.
+}

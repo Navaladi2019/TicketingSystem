@@ -212,7 +212,7 @@ func TestAdversarialSuitesAreRegistered(t *testing.T) {
 	}
 	cfg := repoConfig(t)
 	n := 0
-	for _, f := range strings.Fields(string(out)) {
+	for f := range strings.FieldsSeq(string(out)) {
 		base := path.Base(f)
 		if !strings.HasSuffix(base, "_test.go") || !strings.Contains(base, "adversarial") || strings.Contains(f, "/testdata/") {
 			continue

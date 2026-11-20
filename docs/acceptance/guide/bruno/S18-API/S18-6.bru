@@ -1,0 +1,37 @@
+meta {
+  name: S18.6 A template that does not start with {prefix}: 422
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{core_url}}/api/v1/number-formats
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-nopfx
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "{{s18_fmt}}_p",
+    "document": {
+      "template": "X{prefix}{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('number_format_prefix_required', 422);
+  test('names the position', () => expect(N.json().errors[0].rule).to.eql('position:0'));
+}
+
+docs {
+  `errors[].pointer` is `/document/template`, the rule `position:0`.
+}

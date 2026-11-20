@@ -896,15 +896,181 @@
       ]
     },
     {
-      "file": "20261115120000_field_index_tables.sql",
+      "file": "20261113210000_record_counters_pkey_scope_key.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210100_number_format_tables.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210200_entity_definition_versions_number_format.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210300_entity_definition_versions_number_format_validate.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210400_tenants_time_zone.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210500_tenants_time_zone_validate.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210600_audit_log_subject_number_format.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210700_audit_log_subject_number_format_validate.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210800_record_counters_purge.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261113210900_tenants_time_zone_update_policy.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669"
+      ]
+    },
+    {
+      "file": "20261114090000_audit_log_subject_tenant_setting.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669",
+        "TICK-854"
+      ]
+    },
+    {
+      "file": "20261114090100_audit_log_subject_tenant_setting_validate.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669",
+        "TICK-854"
+      ]
+    },
+    {
+      "file": "20261115090000_audit_log_action_number_space_exhausted.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669",
+        "TICK-871"
+      ]
+    },
+    {
+      "file": "20261115090100_audit_log_action_number_space_exhausted_validate.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669",
+        "TICK-871"
+      ]
+    },
+    {
+      "file": "20261115100000_tenants_select_worker.sql",
+      "on_main": true,
+      "commit": "14f8e1e6",
+      "date": "2026-11-18",
+      "pr": "717",
+      "story": "S18",
+      "tickets": [
+        "TICK-669",
+        "TICK-868"
+      ]
+    },
+    {
+      "file": "20261119100000_acl_rules_valid_format2.sql",
       "on_main": false
     },
     {
-      "file": "20261115130000_field_index_trigger.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261119013700_field_index_sync_read_committed.sql",
+      "file": "20261119100100_acl_versions_bytes_validate.sql",
       "on_main": false
     }
   ]

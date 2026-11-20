@@ -51,8 +51,6 @@ func (r fakeRow) Scan(dest ...any) error {
 	return nil
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func testTenant() uuid.UUID    { return uuid.MustParse("0190f3a0-0000-7000-8000-00000000000b") }
 func testPrincipal() uuid.UUID { return uuid.MustParse("0190f3a0-0000-7000-8000-0000000000a1") }
 
@@ -61,8 +59,8 @@ func validEntry() Entry {
 	return Entry{
 		Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord,
 		SubjectID:    uuid.MustParse("0190f3a0-0000-7000-8000-0000000000d2"),
-		VersionAfter: ptr[int64](2),
-		Actor:        Actor{PrincipalID: ptr(testPrincipal())},
+		VersionAfter: new(int64(2)),
+		Actor:        Actor{PrincipalID: new(testPrincipal())},
 		Source:       SourceUser,
 		Diff:         []byte(`[{"op":"replace","path":"/status","value":"open"}]`),
 	}
@@ -80,7 +78,7 @@ func erasedIDs(n int) []byte {
 // Invalid entries fail with ErrInvalidEntry before the transaction is used.
 func TestAppendInvalidEntryRunsNoSQL(t *testing.T) {
 	cases := map[string]func(e *Entry){
-		"two actors":               func(e *Entry) { e.Actor.System = ptr("workflow") },
+		"two actors":               func(e *Entry) { e.Actor.System = new("workflow") },
 		"no actor":                 func(e *Entry) { e.Actor = Actor{} },
 		"unknown action":           func(e *Entry) { e.Action = "frobnicate" },
 		"empty action":             func(e *Entry) { e.Action = "" },
@@ -93,13 +91,13 @@ func TestAppendInvalidEntryRunsNoSQL(t *testing.T) {
 		"negative causation depth": func(e *Entry) { e.CausationDepth = -1 },
 		"config without content":   func(e *Entry) { e.Domain, e.SubjectType = DomainConfig, SubjectEntityDefinition },
 		"ai without source_ref":    func(e *Entry) { e.Source = SourceAI },
-		"ai source_ref not a uuid": func(e *Entry) { e.Source, e.SourceRef = SourceAI, ptr("decision-7") },
-		"ai source_ref uppercase":  func(e *Entry) { e.Source, e.SourceRef = SourceAI, ptr("0190F3A0-0000-7000-8000-0000000000C1") },
-		"empty request_id":         func(e *Entry) { e.RequestID = ptr("") },
-		"empty source_ref":         func(e *Entry) { e.SourceRef = ptr("") },
-		"NUL in actor_system":      func(e *Entry) { e.Actor = Actor{System: ptr("a\x00b")} },
-		"invalid UTF-8 request_id": func(e *Entry) { e.RequestID = ptr("\xff") },
-		"version past 2^53-1":      func(e *Entry) { e.VersionAfter = ptr[int64](chain.MaxSafeInteger + 1) },
+		"ai source_ref not a uuid": func(e *Entry) { e.Source, e.SourceRef = SourceAI, new("decision-7") },
+		"ai source_ref uppercase":  func(e *Entry) { e.Source, e.SourceRef = SourceAI, new("0190F3A0-0000-7000-8000-0000000000C1") },
+		"empty request_id":         func(e *Entry) { e.RequestID = new("") },
+		"empty source_ref":         func(e *Entry) { e.SourceRef = new("") },
+		"NUL in actor_system":      func(e *Entry) { e.Actor = Actor{System: new("a\x00b")} },
+		"invalid UTF-8 request_id": func(e *Entry) { e.RequestID = new("\xff") },
+		"version past 2^53-1":      func(e *Entry) { e.VersionAfter = new(int64(chain.MaxSafeInteger + 1)) },
 		"diff not a patch":         func(e *Entry) { e.Diff = []byte(`{"op":"add"}`) },
 		"empty diff":               func(e *Entry) { e.Diff = []byte{} },
 		"bad secret path":          func(e *Entry) { e.SecretPaths = []patchwalk.Pointer{"no-slash"} },
@@ -142,7 +140,7 @@ func TestAppendInvalidEntryRunsNoSQL(t *testing.T) {
 
 func eraseEntry(e *Entry) {
 	e.Domain, e.Action, e.SubjectType = DomainAudit, ActionErase, SubjectErasureRequest
-	e.Actor = Actor{System: ptr("erasure")}
+	e.Actor = Actor{System: new("erasure")}
 	e.Source = SourceSystem
 	e.VersionAfter = nil
 }
@@ -160,8 +158,8 @@ func TestAppendValidEntryKinds(t *testing.T) {
 		"config delete": func(e *Entry) {
 			e.Domain, e.SubjectType, e.Action = DomainConfig, SubjectEntityDefinition, ActionDelete
 		},
-		"ai with source_ref":   func(e *Entry) { e.Source, e.SourceRef = SourceAI, ptr("0190f3a0-0000-7000-8000-0000000000c1") },
-		"system actor":         func(e *Entry) { e.Actor = Actor{System: ptr("workflow")} },
+		"ai with source_ref":   func(e *Entry) { e.Source, e.SourceRef = SourceAI, new("0190f3a0-0000-7000-8000-0000000000c1") },
+		"system actor":         func(e *Entry) { e.Actor = Actor{System: new("workflow")} },
 		"no diff":              func(e *Entry) { e.Diff = nil },
 		"erase with 1,500 ids": func(e *Entry) { eraseEntry(e); e.Diff = erasedIDs(MaxErasedIDs) },
 	}

@@ -11,12 +11,12 @@
 #      docs/acceptance/guide/reports/S10.{junit.xml,html,json}; CI uploads them.
 # Order 27, after s9_records (26): s10_access sorts before s14_audit (27) by name.
 # The folder needs no incident from S9: S10.17 creates its own.
-# Serial: it publishes an ACL version and creates records. Needs Node.js (npx).
+# Serial: it publishes an ACL version and creates records. Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003).
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"
 pass "seeded (default incident ACL published)"

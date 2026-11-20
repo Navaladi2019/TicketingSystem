@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
@@ -51,10 +52,21 @@ func (e *etEnv) access(t *testing.T, method, path, token, idemKey, ifMatch, body
 
 type accessBody struct {
 	Version     int              `json:"version"`
-	Rules       []map[string]any `json:"rules"`
+	Rules       accessRules      `json:"rules"`
 	Masks       []map[string]any `json:"masks"`
 	PublishedBy *string          `json:"published_by"`
 	PublishedAt string           `json:"published_at"`
+	Warnings    []struct {
+		Pointer string `json:"pointer"`
+		Code    string `json:"code"`
+	} `json:"warnings"`
+}
+
+// accessRules is the format-2 document every response carries.
+type accessRules struct {
+	Format     int              `json:"format"`
+	Conditions []map[string]any `json:"conditions"`
+	Policies   []map[string]any `json:"policies"`
 }
 
 func decodeAccess(t *testing.T, rec *httptest.ResponseRecorder) accessBody {
@@ -125,7 +137,7 @@ func TestGetAccessReadsTheNewestPolicyForAnAdminOnly(t *testing.T) {
 		t.Fatalf("admin GET = %d ETag %q: %s", rec.Code, rec.Header().Get("ETag"), rec.Body)
 	}
 	b := decodeAccess(t, rec)
-	if b.Version != 1 || len(b.Rules) != 1 || b.Rules[0]["id"] != "test-allow-users" || b.Masks == nil || len(b.Masks) != 0 || b.PublishedBy != nil || b.PublishedAt == "" {
+	if b.Version != 1 || b.Rules.Format != 2 || len(b.Rules.Policies) != 1 || b.Rules.Policies[0]["name"] != "test_allow_users" || b.Masks == nil || len(b.Masks) != 0 || b.PublishedBy != nil || b.PublishedAt == "" {
 		t.Fatalf("policy = %+v, want version 1 with the test rule, no masks, no publisher", b)
 	}
 
@@ -180,7 +192,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 		t.Fatalf("first publish = %d ETag %q: %s", rec.Code, rec.Header().Get("ETag"), rec.Body)
 	}
 	b := decodeAccess(t, rec)
-	if b.Version != 1 || b.PublishedBy == nil || *b.PublishedBy != e.a.admin.PrincipalID.String() || len(b.Rules) != 1 || len(b.Masks) != 1 {
+	if b.Version != 1 || b.PublishedBy == nil || *b.PublishedBy != e.a.admin.PrincipalID.String() || len(b.Rules.Policies) != 1 || len(b.Masks) != 1 {
 		t.Fatalf("published = %+v, want version 1 by the admin with one rule and one mask", b)
 	}
 	// GET returns what was published.
@@ -238,7 +250,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 	}
 }
 
-// covers: putEntityTypeAccess 200
+// covers: putEntityTypeAccess 200 409
 func TestPutAccessReplayWithTheSameKeyWritesOneVersion(t *testing.T) {
 	e := newPatchEnv(t)
 	versions0, entries0 := e.aclCounts(t)
@@ -285,9 +297,9 @@ func TestPutAccessRefusalsWriteNothing(t *testing.T) {
 		{"group of no tenant", rule(`{"groups": ["`+missingGroup+`"]}`, ""), "/rules/0/who/groups/0 not_in_tenant"},
 		{"user of another tenant", rule(`{"users": [`+uuidList(e.b.user.PrincipalID)+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
 		{"a group where a user belongs", rule(`{"users": [`+own+`]}`, ""), "/rules/0/who/users/0 not_in_tenant"},
-		{"requester of another tenant in a condition", rule(`{}`, `{"column": "requester_id", "op": "eq", "values": [`+uuidList(e.b.user.PrincipalID)+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
-		{"assignee of another tenant in a condition", rule(`{}`, `{"column": "assignee_id", "op": "in", "values": [`+uuidList(e.a.user.PrincipalID, e.b.admin.PrincipalID)+`]}`), "/rules/0/where/0/values/1 not_in_tenant"},
-		{"assignment group of another tenant in a condition", rule(`{}`, `{"column": "assignment_group_id", "op": "eq", "values": [`+foreign+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
+		{"requester of another tenant in a condition", rule(`{"groups": [`+own+`]}`, `{"column": "requester_id", "op": "eq", "values": [`+uuidList(e.b.user.PrincipalID)+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
+		{"assignee of another tenant in a condition", rule(`{"groups": [`+own+`]}`, `{"column": "assignee_id", "op": "in", "values": [`+uuidList(e.a.user.PrincipalID, e.b.admin.PrincipalID)+`]}`), "/rules/0/where/0/values/1 not_in_tenant"},
+		{"assignment group of another tenant in a condition", rule(`{"groups": [`+own+`]}`, `{"column": "assignment_group_id", "op": "eq", "values": [`+foreign+`]}`), "/rules/0/where/0/values/0 not_in_tenant"},
 		{"mask group of another tenant", mask(`{"groups": [`+foreign+`]}`, `{}`), "/masks/0/read/groups/0 not_in_tenant"},
 		{"mask on a field the schema lacks", `{"rules": [], "masks": [{"field": "salary", "read": {}, "write": {}}]}`, "/masks/0/field field"},
 		{"mask on a nested path", `{"rules": [], "masks": [{"field": "note/x", "read": {}, "write": {}}]}`, "/masks/0/field field"},
@@ -389,6 +401,12 @@ type explanation struct {
 	RuleID       *string  `json:"rule_id"`
 	ACLVersion   int      `json:"acl_version"`
 	MaskedFields []string `json:"masked_fields"`
+	Policy       *string  `json:"policy"`
+	Trace        []struct {
+		Policy, Condition string
+		Value             bool
+	} `json:"trace"`
+	Invalid []struct{ Policy, Code, Pointer string } `json:"invalid"`
 }
 
 func decodeExplanation(t *testing.T, rec *httptest.ResponseRecorder) explanation {
@@ -422,8 +440,15 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	if got.Code != http.StatusOK {
 		t.Fatalf("explain = %d: %s", got.Code, got.Body)
 	}
-	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r-desk" || x.ACLVersion != 2 {
-		t.Errorf("allow = %+v, want allow by r-desk at version 2", x)
+	if x := decodeExplanation(t, got); x.Decision != "allow" || x.RuleID == nil || *x.RuleID != "r_desk" || x.ACLVersion != 2 {
+		t.Errorf("allow = %+v, want allow by r_desk (the stored name of format-1 rule r-desk) at version 2", x)
+	}
+	// The policy is the converted rule's name, which the format-1 id r-desk
+	// is not (a hyphen is not a valid name): it is derived, and r-desk stays
+	// as rule_id.
+	wantPolicy := authz.ConvertFormat1([]authz.Rule{{ID: "r-desk"}}).Policies[0].Name
+	if x := decodeExplanation(t, got); x.Policy == nil || *x.Policy != wantPolicy || x.Invalid == nil || len(x.Invalid) != 0 {
+		t.Errorf("allow = %+v, want policy %q and an empty invalid list", x, wantPolicy)
 	}
 	// The user is hidden note (not in the admins group) and code (not in the
 	// lookalike group); the admin cannot read code itself, so only note shows.
@@ -441,6 +466,9 @@ func TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead(t *testing.T) {
 	deny := e.explain(t, "admin-a", "job", rec.ID, e.a.lookalike.PrincipalID.String())
 	if x := decodeExplanation(t, deny); deny.Code != http.StatusOK || x.Decision != "deny" || x.RuleID != nil || x.ACLVersion != 2 {
 		t.Errorf("deny = %d %+v, want deny with a null rule at version 2", deny.Code, x)
+	}
+	if x := decodeExplanation(t, deny); x.Policy != nil || x.Invalid == nil || x.Trace == nil {
+		t.Errorf("deny = %+v, want no policy and empty, non-null trace and invalid lists", x)
 	}
 	if !strings.Contains(deny.Body.String(), `"rule_id":null`) {
 		t.Errorf("deny body = %s, want rule_id null", deny.Body)

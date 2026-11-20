@@ -131,10 +131,8 @@ func newAdapter(ctx context.Context, cfg Config, out *telemetry.OutboundClient, 
 	if len(cfg.Issuers) == 0 {
 		return nil, errors.New("keycloak: at least one issuer is required")
 	}
-	for _, iss := range cfg.Issuers {
-		if iss == "" {
-			return nil, errors.New("keycloak: empty issuer")
-		}
+	if slices.Contains(cfg.Issuers, "") {
+		return nil, errors.New("keycloak: empty issuer")
 	}
 	if cfg.Audience == "" {
 		cfg.Audience = DefaultAudience

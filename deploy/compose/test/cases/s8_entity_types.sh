@@ -11,13 +11,13 @@
 #      template: the same schema_sha256 as tenant A's version 1 of that type,
 #      which S8.6 checked against the template file byte for byte.
 # Serial: it writes tenants, Keycloak groups and entity types, and opens the
-# acceptance tunnels (closed again on exit). Needs Node.js (npx) on the host.
+# acceptance tunnels (closed again on exit). Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003) on the host.
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 A=00000000-0000-4000-8000-0000000000a1
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 printf 'node %s\n' "$(node --version)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"

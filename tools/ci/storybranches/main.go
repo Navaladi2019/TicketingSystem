@@ -62,8 +62,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := run(*remote, *mainBranch, *asOf, *resolvedFile, *closedFile, *report, stdout, stderr); err != nil {
-		var f failed
-		if errors.As(err, &f) {
+		if _, ok := errors.AsType[failed](err); ok {
 			return 1
 		}
 		fmt.Fprintln(stderr, "check-story-branches:", err)
@@ -236,7 +235,7 @@ func branches(remote string) (map[string]string, error) {
 		return nil, err
 	}
 	m := map[string]string{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		sha, ref, ok := strings.Cut(line, "\t")
 		if ok {
 			m[strings.TrimPrefix(ref, "refs/heads/")] = sha

@@ -32,7 +32,7 @@ func wantFailure(t *testing.T, e encoding, r *verify.Report, w failure) {
 	wantTampered(t, r, w.reason)
 	f := r.Failure
 	line := w.line + e.before - 1
-	if f.Line != line || f.Reason != w.reason || f.Detail != w.detail {
+	if f.Line != line || f.Reason != w.reason || !detailMatches(f.Detail, w.detail) {
 		t.Fatalf("got %s\nwant line %d: %s: %s", describe(r), line, w.reason, w.detail)
 	}
 	switch {
@@ -43,6 +43,17 @@ func wantFailure(t *testing.T, e encoding, r *verify.Report, w failure) {
 	case w.seq != noSeq && r.Lines[w.seq] != verify.LineTampered:
 		t.Fatalf("line outcome for seq %d is %q, want %q", w.seq, r.Lines[w.seq], verify.LineTampered)
 	}
+}
+
+// detailMatches compares a failure detail with want; a want ending in "*"
+// matches any detail with that prefix and a non-empty rest. It is for details
+// that end in encoding/json's own syntax error text, which differs between Go
+// releases (TICK-970).
+func detailMatches(got, want string) bool {
+	if p, ok := strings.CutSuffix(want, "*"); ok {
+		return strings.HasPrefix(got, p) && len(got) > len(p)
+	}
+	return got == want
 }
 
 // bodyLine is the JSONL line number of body index i (the header is line 1).
@@ -341,11 +352,13 @@ func TestStrictLineParser(t *testing.T) {
 	cases := []struct {
 		name, raw, detail string
 	}{
-		{"not-json", `x`, ` line: invalid character 'x' looking for beginning of value`},
+		// A syntax error's detail ends in encoding/json's text, which
+		// differs between Go releases: these pin our part only ("*").
+		{"not-json", `x`, ` line: *`},
 		{"array", `[1]`, ` line: not a JSON object`},
-		{"non-string-key", `{1:2}`, ` line: invalid character '1'`},
-		{"member-value-invalid", `{"kind":}`, ` line: member "kind": invalid character '}' looking for beginning of value`},
-		{"unterminated-object", `{"kind":"stub"`, ` line: EOF`},
+		{"non-string-key", `{1:2}`, ` line: *`},
+		{"member-value-invalid", `{"kind":}`, ` line: member "kind": *`},
+		{"unterminated-object", `{"kind":"stub"`, ` line: *`},
 		{"trailing-data", `{"kind":"stub"} {}`, ` line: trailing data after the object`},
 		{"kind-missing", `{"seq":1}`, ` line: missing member "kind"`},
 		{"kind-not-a-string", `{"kind":1}`, ` line: member "kind" is not a string`},

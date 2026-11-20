@@ -26,7 +26,7 @@ import (
 // correlated EXISTS on the typed side table inside the list statement.
 
 // maxTextBytes is the longest value record_field_coerce stores for a text
-// field (db/migrations/20261115130000_field_index_trigger.sql); a longer one
+// field (db/migrations/20261120140100_field_index_trigger.sql); a longer one
 // can match nothing and is refused as a value of the wrong type.
 const maxTextBytes = 2000
 
@@ -72,6 +72,7 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 		return err
 	}
 	types := def.PropertyTypes()
+	defaults := def.ApplyDefaults(nil)
 	for i := range pl.filters {
 		f := &pl.filters[i]
 		if f.col != "" {
@@ -89,13 +90,8 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			if f.op != "eq" && f.op != "in" {
 				return listInvalid(ptr, "operator")
 			}
-			f.legacy = true
-			for _, raw := range f.raws {
-				v, ok := filterValue("", f.prop, types[f.prop], raw)
-				if !ok {
-					return listInvalid(ptr, "type")
-				}
-				f.values = append(f.values, v)
+			if perr := parseLegacy(f, types[f.prop], defaults); perr != nil {
+				return perr
 			}
 			continue
 		}
@@ -114,6 +110,25 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			f.values = append(f.values, v)
 		}
 		f.idx = &row
+	}
+	return nil
+}
+
+// parseLegacy parses the values of a legacy-scan data filter f, a property of
+// JSON type typ, into {prop: value} documents for r.data @>. A value equal to
+// the current version's default (defaults, from ApplyDefaults) also matches a
+// record that leaves the property out (I5, TICK-912).
+func parseLegacy(f *listFilter, typ string, defaults map[string]any) *problemError {
+	f.legacy = true
+	for _, raw := range f.raws {
+		v, ok := filterValue("", f.prop, typ, raw)
+		if !ok {
+			return listInvalid("/filter/"+escapePointer(f.prop), "type")
+		}
+		f.values = append(f.values, v)
+		if d, has := defaults[f.prop]; has && sameFilterValue(v, d) {
+			f.absentMatches = true
+		}
 	}
 	return nil
 }

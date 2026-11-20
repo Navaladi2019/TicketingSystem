@@ -119,9 +119,9 @@ func (r *recorder) record(ctx workflow.Context, guard, outcome string, attrs ...
 // InterceptWorkflow implements interceptor.WorkerInterceptor.
 func (g *Guard) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
 	return &workflowInbound{
-		WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next},
-		rec:                            g.rec,
-		cans:                           &checkedInputs{},
+		Next: next,
+		rec:  g.rec,
+		cans: &checkedInputs{},
 	}
 }
 
@@ -133,9 +133,9 @@ type workflowInbound struct {
 
 func (w *workflowInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
 	return w.Next.Init(&workflowOutbound{
-		WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound},
-		rec:                             w.rec,
-		cans:                            w.cans,
+		Next: outbound,
+		rec:  w.rec,
+		cans: w.cans,
 	})
 }
 
@@ -162,8 +162,7 @@ func (w *workflowInbound) ExecuteWorkflow(ctx workflow.Context, in *interceptor.
 	// header or input after NewContinueAsNewError checked it. Check again
 	// what the command will carry (TICK-65 security review, finding 2): the
 	// input must be one NewContinueAsNewError checked (CI-7).
-	var can *workflow.ContinueAsNewError
-	if errors.As(err, &can) {
+	if can, ok := errors.AsType[*workflow.ContinueAsNewError](err); ok {
 		outcome := check(func() string {
 			if !w.cans.has(can.Input) {
 				return outcomeRecordData
@@ -559,11 +558,11 @@ func otherTypeSeeds(pass int) ([]temporal.SearchAttributeUpdate, map[temporal.Se
 	sv, n, b := untouched+strconv.Itoa(pass), int64(pass), pass == 1
 	tv := time.Unix(int64(pass), 0).UTC()
 	return []temporal.SearchAttributeUpdate{
-			text.ValueSet(sv), list.ValueSet([]string{sv}), i64.ValueSet(n),
-			f64.ValueSet(float64(n)), flag.ValueSet(b), at.ValueSet(tv),
-		}, map[temporal.SearchAttributeKey]any{
-			text: sv, list: []string{sv}, i64: n, f64: float64(n), flag: b, at: tv,
-		}
+		text.ValueSet(sv), list.ValueSet([]string{sv}), i64.ValueSet(n),
+		f64.ValueSet(float64(n)), flag.ValueSet(b), at.ValueSet(tv),
+	}, map[temporal.SearchAttributeKey]any{
+		text: sv, list: []string{sv}, i64: n, f64: float64(n), flag: b, at: tv,
+	}
 }
 
 // indexedTenantOK: NavaTenantId in the encoded attributes, if present, is the
@@ -602,7 +601,7 @@ func (n failedNexus) GetNexusOperationExecution() workflow.Future { return n.Fut
 
 // InterceptActivity implements interceptor.WorkerInterceptor.
 func (g *Guard) InterceptActivity(_ context.Context, next interceptor.ActivityInboundInterceptor) interceptor.ActivityInboundInterceptor {
-	return &activityInbound{ActivityInboundInterceptorBase: interceptor.ActivityInboundInterceptorBase{Next: next}, rec: g.rec}
+	return &activityInbound{Next: next, rec: g.rec}
 }
 
 type activityInbound struct {

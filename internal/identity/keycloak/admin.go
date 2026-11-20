@@ -14,8 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -257,10 +259,8 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 			acct.mu.Unlock()
 			continue
 		}
-		for _, s := range ok {
-			if r.status == s {
-				return r, nil
-			}
+		if slices.Contains(ok, r.status) {
+			return r, nil
 		}
 		return reply{}, &statusError{method: method, route: full, status: r.status, message: errorMessage(r.body)}
 	}
@@ -294,9 +294,7 @@ func pages[T any](ctx context.Context, a *admin, acct *account, route, path stri
 	var all []T
 	for first := 0; ; first += adminPageSize {
 		q := url.Values{}
-		for k, v := range query {
-			q[k] = v
-		}
+		maps.Copy(q, query)
 		q.Set("first", fmt.Sprint(first))
 		q.Set("max", fmt.Sprint(adminPageSize))
 		var page []T

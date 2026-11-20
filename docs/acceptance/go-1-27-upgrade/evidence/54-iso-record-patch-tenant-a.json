@@ -1,0 +1,29 @@
+{
+  "step": "iso-record-patch-tenant-a",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/records/t961_a_mwnjuz8g/01a1f3dd-4114-7f2d-a21d-983d16bd9a69",
+    "headers": {
+      "If-Match": "W/\"1\""
+    },
+    "body": {
+      "data": {
+        "short_description": "B was here"
+      }
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

@@ -128,7 +128,7 @@ type signalHeader struct {
 }
 
 func (s *signalHeader) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &signalHeaderInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, tenant: s.tenant}
+	return &signalHeaderInbound{Next: next, tenant: s.tenant}
 }
 
 type signalHeaderInbound struct {
@@ -181,7 +181,7 @@ type optionsRecorder struct {
 }
 
 func (o *optionsRecorder) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &optionsRecorderInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, h: o.h}
+	return &optionsRecorderInbound{Next: next, h: o.h}
 }
 
 type optionsRecorderInbound struct {
@@ -190,7 +190,7 @@ type optionsRecorderInbound struct {
 }
 
 func (i *optionsRecorderInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
-	return i.Next.Init(&optionsRecorderOutbound{WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound}, h: i.h})
+	return i.Next.Init(&optionsRecorderOutbound{Next: outbound, h: i.h})
 }
 
 type optionsRecorderOutbound struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"strings"
 
@@ -41,9 +42,7 @@ func cursorPaths() []Path {
 	}
 	with := func(c cursor.Claims, k, v string) cursor.Claims {
 		out := cursor.Claims{}
-		for kk, vv := range c {
-			out[kk] = vv
-		}
+		maps.Copy(out, c)
 		out[k] = v
 		return out
 	}

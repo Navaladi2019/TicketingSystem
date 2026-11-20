@@ -1,0 +1,33 @@
+meta {
+  name: S30.11 The admin creates an incident in /service-desk raised by Alice
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-sd-mine
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S30 {{s30_run}} service-desk, raised by Alice",
+      "assignment_group": "{{s30_sd}}",
+      "requester": "{{s30_alice}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s30_sd_mine', N.json().id);
+}

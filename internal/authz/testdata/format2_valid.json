@@ -1,0 +1,36 @@
+[
+  {"name": "empty", "doc": {"format": 2, "conditions": [], "policies": []}},
+  {"name": "every kind", "doc": {"format": 2,
+    "conditions": [
+      {"name": "is_requester", "expr": {"cmp": {"column": "requester_id", "op": "eq", "caller": "self"}}},
+      {"name": "in_my_groups", "expr": {"cmp": {"column": "assignment_group_id", "op": "in", "caller": "my_groups"}}},
+      {"name": "open_or_new", "expr": {"cmp": {"column": "state", "op": "in", "values": ["open", "new"]}}},
+      {"name": "my_region", "expr": {"under": {"of": "caller"}}},
+      {"name": "listed_region", "expr": {"under": {"of": ["7b0c63e9-3f1c-4b39-8a0a-1f6c9c1d2e01"]}}}
+    ],
+    "policies": [
+      {"name": "agents", "ops": ["read", "write"], "when": {"all": [
+        {"member_of": {"groups": ["11111111-1111-4111-8111-111111111111"]}},
+        {"ref": "in_my_groups"},
+        {"not": {"ref": "is_requester"}}
+      ]}},
+      {"name": "requesters", "ops": ["read"], "when": {"any": [
+        {"ref": "is_requester"},
+        {"shared": true},
+        {"member_of": {"users": ["22222222-2222-4222-8222-222222222222"], "groups": ["33333333-3333-4333-8333-333333333333"]}}
+      ]}},
+      {"name": "fixers", "ops": ["write"], "when": {"cmp": {"column": "assignee_id", "op": "eq", "values": ["44444444-4444-4444-8444-444444444444"]}}},
+      {"name": "regional", "ops": ["read"], "when": {"all": [{"ref": "my_region"}, {"ref": "open_or_new"}]}}
+    ]}},
+  {"name": "sixteen children", "doc": {"format": 2, "conditions": [], "policies": [
+    {"name": "p", "ops": ["read"], "when": {"any": [
+      {"shared": true}, {"shared": true}, {"shared": true}, {"shared": true},
+      {"shared": true}, {"shared": true}, {"shared": true}, {"shared": true},
+      {"shared": true}, {"shared": true}, {"shared": true}, {"shared": true},
+      {"shared": true}, {"shared": true}, {"shared": true}, {"shared": true}]}}]}},
+  {"name": "longest name", "doc": {"format": 2, "conditions": [], "policies": [
+    {"name": "a23456789012345678901234567890123456789012345678901234567890123", "ops": ["read"], "when": {"shared": true}}]}},
+  {"name": "a condition and a policy may share a name", "doc": {"format": 2,
+    "conditions": [{"name": "mine", "expr": {"cmp": {"column": "requester_id", "op": "eq", "caller": "self"}}}],
+    "policies": [{"name": "mine", "ops": ["read"], "when": {"ref": "mine"}}]}}
+]

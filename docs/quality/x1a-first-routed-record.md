@@ -1,0 +1,112 @@
+# M-X1a: onboarding to the first workflow-routed record (S28, TICK-884)
+
+ADR-008 X1a and its measurement M-X1a (D9, R4); RFC-020 §8 AC-2; PLAN-009 D-9-3.
+Kit and "How to try": [`docs/acceptance/s28-first-routed-record.md`](../acceptance/s28-first-routed-record.md).
+Bruno folder: `docs/acceptance/guide/bruno/S28/` (generated from `build/collection.py`, `s28()`).
+
+**Target:** 8 hours from the onboarding `201` to the first record a workflow the new admin published has routed. **Aim:** 4 hours.
+
+## Scope
+
+- **Clock starts** when the onboarding call (`POST /api/v1/operator/tenants` on nava-onboard, tour step 1) returns `201` for a new tenant.
+- **Clock stops** at the first record whose history has an entry with `source: workflow`. The new tenant has no other workflow definition, so that entry is the admin's workflow.
+- **Path:** sign in as the first admin, publish a type from a handbook example, publish a workflow on it, create a record, wait for the route.
+- **Allowed help:** the handbook, the kit, the public API. **Not allowed:** `psql`, operator routes beyond the onboarding call, platform-staff actions, reading Go code. A step that needs one of those is a finding.
+
+## Risks, ranked, and what covers each
+
+| # | Risk | Covered by | Layer |
+|---|---|---|---|
+| 1 | A newly onboarded tenant cannot reach a routed record at all: onboarding, the invite, group sync, the type publish, the workflow publish and the route do not compose for a tenant that is not seeded. | Bruno `S28.1`–`S28.13`, CI stack case `s28_first_routed_record` | end to end (stack) |
+| 2 | The handbook does not get a new admin through the path without help, so M-X1a is far over 8 h for a real customer. | The timed runs below; each finding is a follow-up | agent proxy, then human |
+| 3 | The route never happens and the kit hangs. | `S28.12` polls at most 300 s after the create, then fails; with no record it reads once and fails; every call inside the `S28.7` and `S28.12` loops is bounded at 15 s, and a timed-out call counts as "not yet" | end to end (stack) |
+| 4 | The first admin's token expires while group sync places them (token 5 min, default cycle 5 min). | `S28.7` signs in again each round, polls up to `s28_place_limit_s` (360 s) | end to end (stack) |
+
+## Fixtures
+
+- Per pass: a new run id, so a new domain `s28-<8 hex>.test`, a new tenant and the admin `admin@` that domain, with a dev-only password made up for the run and kept in a Bruno runtime variable.
+- The type body is `docs/handbook/examples/incident.json`'s `definition`, read by the generator at build time. The workflow is the handbook's example (tour step 8) under the key `s28_route`.
+- The stand-in for the company login (`S28.3`–`S28.5`) uses the dev-only Keycloak master admin of `environments/local.bru`.
+
+## Deliberately not covered, and why
+
+- **A real customer IdP.** Since TICK-967 the local stack has a dev-only stand-in company login (realm `standin-company`), which onboarding accepts only through the default-off host list `NAVA_ONBOARD_DEV_IDP_HOSTS`. The admin registers there and signs in through it; `S28.3` scripts that. A customer's own IdP is not on the local stack.
+- **Database checks.** The kit stays on the public API, as the timed admin must. The S11b stack case already checks the start rows and `workflow_ref` behind a route.
+- **Human reading time.** The agent proxy reads and types far faster than a person; the human run measures that.
+
+## How to run
+
+- Locally, on a fresh stack with the tunnels up (story acceptance or a timed run, not a CI substitute): `sh docs/acceptance/guide/tools/tunnels.sh up`, then `sh docs/acceptance/guide/tools/api-test.sh S28`.
+- In CI: the `stack` job runs the case `deploy/compose/test/cases/s28_first_routed_record.sh` (order 61, serial) and uploads `s28-first-routed-record-report`.
+- A timed run: give the runner only the kit's "How to try", the handbook and the stack URL, and record it below.
+
+## Runs
+
+### Run 1: agent proxy
+
+- **Runner:** `agent proxy`, a fresh subagent that got only the kit's "How to try" text, the handbook and the stack URL (not the task body or this page).
+- **Date:** 2026-11-15.
+- **Commit:** story branch `TICK-879/first-routed-record` at `c461d547` plus this kit (branch `TICK-884/x1a-timed-run`).
+- **Stack:** fresh local compose stack (`docker compose build`, `docker compose up --wait` from a clean state), `NAVA_GROUPSYNC_INTERVAL=15s`, tunnels up. No `seed.sh`. Before the run the Bruno folder `S28` passed on the same stack: 13 of 13 requests, 30 of 30 tests, routed 60 s after the create.
+- **What it published:** tenant `709f9f61-baf5-51a7-a2aa-01902f715c64`; `incident` version 2 from `docs/handbook/examples/incident.json`; workflow `x1a_triage_ea468c9b` version 1 (`record.created` on `incident`, `update_record` sets `state` to `in_progress`, no timer); record `INC0000001`. The `source: workflow` history entry is at `2026-11-15T07:21:18.231Z`.
+
+| Step | Start | End | Minutes | Help used | Blocker |
+|---|---|---|---|---|---|
+| 1 Onboard | 07:19:46 | 07:20:01 | 0.3 | Tour index "Before you start", tour step 1 | none |
+| 2 Sign in | 07:20:05 | 07:20:36 | 0.5 | **Needed help: platform staff** (stand-in for the company login, Bruno S28.3–S28.5, with `lib/nava.js` and `environments/local.bru`), S28.6, tour step 2 | F1; one `401` while waiting for group sync (F2) |
+| 3 Type from an example | 07:20:40 | 07:20:55 | 0.3 | Tour step 6, `docs/handbook/examples/` | one `409` first (F3) |
+| 4 Workflow | 07:20:59 | 07:21:07 | 0.1 | Tour step 8 | none (F4, F5) |
+| 5 Record | 07:21:13 | 07:21:18 | 0.1 | Tour step 9 | none |
+| 6 Routed | 07:21:18 | 07:21:24 | 0.1 | Tour steps 8 and 9 | none |
+| **Total** (onboarding `201` to the routed record) | 07:20:01 | 07:21:24 | **1.4** | | |
+
+**Reading the total.** 1.4 minutes is far below the 8 h target, but it is the time of an agent that sends a request right after reading a page. It shows the handbook path works end to end, with one platform-staff step. It does not show how long a person takes. The runner's workflow had no timer, so the route took 0.16 s; the handbook example's one-minute timer would add a minute.
+
+### Run 2: acceptance run (agent proxy)
+
+- **Runner:** `agent proxy`, a second fresh subagent started by the Technical Lead (TICK-885), given only the kit's "How to try" text, the handbook, the Bruno collection and the stack URLs.
+- **Date:** 2026-11-15.
+- **Commit:** branch `TICK-885/s28-handbook` at `89cbffee` (story branch `TICK-879/first-routed-record` at `fa867b69` plus the handbook fixes for F2 to F7). So this run read the fixed tour.
+- **Stack:** fresh local compose stack (`docker compose build`, `docker compose down -v`, `docker compose up --wait`), `NAVA_GROUPSYNC_INTERVAL=15s`, tunnels up. No `seed.sh`.
+- **What it published:** domain `x1a-c5d08442.test`, tenant `48422df8-4ba1-5530-9e42-501370756f2f`; `incident` version 2 from `docs/handbook/examples/incident.json` (`compat: compatible`); workflow `x1a_route` version 1 (`record.created` on `incident`, a one-minute `timer`, then `update_record` sets `state` to `in_progress`); record `INC0000001`, created 10:18:46.333Z. The `source: workflow` history entry is at `2026-11-15T10:19:46.598Z`.
+
+| Step | Start | End | Minutes | Help used | Blocker |
+|---|---|---|---|---|---|
+| 1 Onboard | 10:17:02 | 10:17:08 | 0.1 | Tour index "Before you start", tour step 1 | none |
+| 2 Sign in | 10:17:16 | 10:17:51 | 0.6 | **Needed help: platform staff** (stand-in for the company login, Bruno S28.3–S28.5 copied to curl, with `lib/nava.js` `kcAdmin()` and `environments/local.bru`); tour step 2 "A newly onboarded tenant's first admin"; S28.6, S28.7 | F1. `/me` showed `/admins` on the first call, so no `401` (F2 did not occur) |
+| 3 Type from an example | 10:17:58 | 10:18:16 | 0.3 | Tour step 6 "An example whose type the tenant already has", examples README | one `400` first (F8) |
+| 4 Workflow | 10:18:21 | 10:18:31 | 0.2 | Tour step 8 | none (F9) |
+| 5 Record | 10:18:37 | 10:18:46 | 0.2 | Tour step 9; the fields from the step-3 response | none (F10) |
+| 6 Routed | 10:18:56 | 10:19:51 | 0.9 | Tour steps 8 and 9 | none; routed about 60 s after the create (the timer) |
+| **Total** (onboarding `201` to the routed record) | 10:17:08 | 10:19:51 | **2.7** | | |
+
+**Reading the total.** 2.7 minutes, of which about one minute is the workflow's own timer. Like run 1 it is an agent's time, not a person's. The F3 `409` and the F4 empty token did not recur: the fixed tour got the runner past them.
+
+### Run 3: human (if the human does one)
+
+| Step | Start | End | Minutes | Help used | Blocker |
+|---|---|---|---|---|---|
+| 1 Onboard | | | | | |
+| 2 Sign in | | | | | |
+| 3 Type from an example | | | | | |
+| 4 Workflow | | | | | |
+| 5 Record | | | | | |
+| 6 Routed | | | | | |
+| **Total** | | | | | |
+
+## Findings, follow-ups for the Technical Lead
+
+Ordered by impact on M-X1a. F1 is the only step that needed help, in both runs; it is fixed in TICK-967. F2 to F7 are from run 1 and fixed in the handbook (TICK-885); F8 to F10 are from run 2.
+
+| # | Severity | Finding | Where | Follow-up |
+|---|---|---|---|---|
+| F1 | **Needed help** (blocks a staff-free run on the local stack) | A newly onboarded tenant's first admin cannot sign in with the allowed help. The admin has no local account; sign-in goes through the tenant's company login, and the local stack has none (onboarding refuses private IdP addresses). The kit's stand-in uses the Keycloak master admin, and running it by hand also needs `lib/nava.js` (`kcAdmin()`), the master-admin credentials in `environments/local.bru`, and the organization lookup hidden in S28.5's pre-request script. The handbook does not describe first sign-in on the local stack at all. | Tour steps 1 and 2 | **Fixed in TICK-967** (PRs #725, #728): the stand-in company login `standin-company`, a default-off onboarding host list, and `S28.3` registers the admin there with no master-admin call. Verified on a fresh stack in CI run [44344844066](https://github.com/Navaladi2019/TicketingSystem/actions/runs/44344844066) (`S28` 13/13 requests, 32/32 tests; `grep kcAdmin` on `S28` finds nothing). Runs 1 and 2 predate the fix; the next timed run re-measures step 2. |
+| F2 | Spec drift (handbook) | Before group sync places a new admin, `GET /api/v1/me` answers `401 tenant_unresolved`. Tour step 2 does not say so, and the troubleshooting row for `tenant_unresolved` says "not seeded … run `seed.sh`", which is wrong for an onboarded tenant (the answer is: wait one group-sync cycle, up to 5 min by default). | `docs/handbook/src/tour/02-sign-in.md`, `docs/handbook/src/operations/troubleshooting.md:32` | Add the "wait one cycle" case to tour step 2 and the troubleshooting row. |
+| F3 | Spec drift (handbook) | Every new tenant already has `incident` (tour step 1), so `POST /api/v1/entity-types` with the handbook's `incident.json` answers `409 entity_type_exists`. No page says how to publish an example over a seeded type; the runner found it from one sentence in tour step 6 (`POST /entity-types/{key}/versions` with `{"definition": …}`). The examples README describes it only through `seed-examples.sh`, written for tenant A. The other examples (`loan_application`) have no default access rule and need group ids for `__ADMINS__`. | `docs/handbook/src/tour/06-create-an-entity-type.md`, `docs/handbook/examples/README.md` | Show publishing `incident.json`'s definition as the next version of `incident` in tour step 6, for a new tenant. |
+| F4 | Bug (handbook) | The tour step 8 curl sends `$ADMIN_TOKEN`; the tour's setup defines `$ADMIN`. Pasted as written, it sends an empty bearer token (`401`). | `docs/handbook/src/tour/08-workflows.md:26` | Use `$ADMIN`. |
+| F5 | Spec drift (handbook) | Tour step 8 says "create an incident as an agent (step 9)"; a newly onboarded tenant has no agent user. The admin can create it (the runner did). | `docs/handbook/src/tour/08-workflows.md` | Say "as the admin, or an agent" and note that a new tenant has only its admin. |
+| F6 | Preference | Tour step 8 says it "was not re-run against a tour stack". This run confirms the publish response and the `source: workflow` history entry on a new tenant. | `docs/handbook/src/tour/08-workflows.md` | Drop the caveat when the page is next re-run. |
+| F7 | Missing test (observability of the stop condition) | The history entry says `source: workflow` but not which workflow or version wrote it. The clock-stop rule "from that admin's workflow" holds here only because the new tenant has one definition. | `RecordChange` in `api/openapi.bundled.yaml` | Not a blocker for M-X1a. If tenants with several workflows are measured later, the history would need the definition key. |
+| F8 | Spec drift (handbook) | Tour step 6's new command for publishing `incident.json` as the next version used `jq`, which "Before you start" does not list; with no `jq` the shell wrote an empty file and the call answered `400 validation_failed` with only `/body`. Found in run 2. | `docs/handbook/src/tour/06-create-an-entity-type.md` | Fixed in TICK-885: the page says the line needs `jq`, how to do it without, and what the `400` means; the file is written to the working directory, not `/tmp`. |
+| F9 | Preference (kit) | The kit's step 4 ("on `record.created`, an `update_record` step that sets `state`") reads as no timer; the handbook example it points to has a one-minute timer. Run 2 kept the timer, so its step 6 includes about a minute of designed wait; run 1 had none. | `docs/acceptance/s28-first-routed-record.md` step 4, tour step 8 | Fixed in TICK-885 on the tour side: tour step 8 says the timer is optional and what each choice does. Totals are comparable only with the timer noted. |
+| F10 | Spec drift (handbook) | Tour step 9 shows only a `loan_application` create; tour step 8 sends the reader there to create an incident, so the runner read the required fields from the schema. Also the stand-in sign-in has no curl version, only Bruno requests with pre-request scripts (part of F1). | `docs/handbook/src/tour/08-workflows.md`, `09-create-and-work-with-records.md` | Fixed in TICK-885: tour step 8 has the incident create. The curl stand-in stays with F1. |

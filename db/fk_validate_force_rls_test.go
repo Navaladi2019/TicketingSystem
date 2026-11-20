@@ -255,7 +255,7 @@ func checkFKValidateForceRLS(fsys fs.FS) ([]fkFinding, error) {
 				continue
 			}
 			if m := reCreatePol.FindStringSubmatch(stmt); m != nil {
-				for _, r := range strings.Split(m[3], ",") {
+				for r := range strings.SplitSeq(m[3], ",") {
 					if strings.TrimSpace(r) == migratorRole {
 						policies[m[1]] = m[2]
 						usedPolicies = true
@@ -333,7 +333,7 @@ func checkFKValidateForceRLS(fsys fs.FS) ([]fkFinding, error) {
 func upSection(s string) string {
 	var out []string
 	up := false
-	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
 		if m := reUpDown.FindStringSubmatch(line); m != nil {
 			up = strings.EqualFold(m[1], "up")
 			continue

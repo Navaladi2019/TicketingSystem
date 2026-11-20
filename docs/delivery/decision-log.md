@@ -6,7 +6,16 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-20: S30, a format-1 rule id that is not a valid name is renamed when published; no legacy_id is stored](decisions/2026-11-20-s30-format1-rule-names-renamed-on-publish.md)
+- [2026-11-20: PLAN-007-A1 drafted: ADR-006-A1's watch and spikes land as S21b after S21 merges; A1-6 waits for the R-a trigger](decisions/2026-11-20-plan-007-a1-adr-006-a1.md)
+- [2026-11-19: PLAN-011 folds ADR-010-A1 into S30's existing tasks; no separate plan](decisions/2026-11-19-plan-011-folds-adr-010-a1.md)
+- [2026-11-15: TICK-961, Go 1.27 upgrade ships the toolchain, UUIDv7 ids and strict JSON decode; the stdlib `uuid` move is cut to its own story](decisions/2026-11-15-tick-961-go-1-27-upgrade.md)
+- [2026-11-15: PLAN-011 drafted: ADR-010 lands as SP-1 and SP-2 now, S30 (composition) after TICK-900, then S31 (regions) and S32 (workflow references)](decisions/2026-11-15-plan-011-adr-010.md)
+- [2026-11-15: PLAN-010 drafted: ADR-009 lands as one story, S29, after S21 and S22 merge; OQ-4 retry deferred](decisions/2026-11-15-plan-010-adr-009.md)
 - [2026-11-15: PLAN-009 drafted: ADR-008 lands as S27 (CI gates) now, S28 (X1a timed run) after S11b, and an X4 cost model](decisions/2026-11-15-plan-009-adr-008.md)
+- [2026-11-15: Epic 04 gap list: backfill and cross-version reads go to an RFC; references and i18n parked with triggers](decisions/2026-11-15-epic-04-gap-list-routing.md)
+- [2026-11-14: TICK-673 review risks: mode-only If-Match is fixed in S18; the C13 republish-report filter is an accepted risk until per-type rights exist](decisions/2026-11-14-tick-673-review-risks.md)
+- [Counter rows for recurring keys keep `period_end` NULL and are never purged (S18)](decisions/2026-11-14-recurring-counter-rows-never-purged.md)
 - [2026-11-14: PLAN-008 drafted: ADR-007 lands as four spikes, then S25 (SDK) now, S23 (gate) after S18 and S22, S26 (widget), S24 (M2M)](decisions/2026-11-14-plan-008-adr-007.md)
 - [2026-11-14: PLAN-008 absorbs ADR-007-A1 without a new story; two new S23 tasks](decisions/2026-11-14-plan-008-adr-007-a1.md)
 - [2026-11-14: PLAN-005-E9 drafted: the number_space_exhausted audit row lands in four S18 tasks](decisions/2026-11-14-plan-005-e9.md)

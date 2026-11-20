@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access API: publish, read and explain an entity type&#x27;s access - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group" open><summary>How it works</summary><ul><li><details open><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li class="current"><a href="../system/access-api.html" aria-current="page">Access API: publish, read, explain</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/id-generation.html">Id generation (UUIDv7)</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group"><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><details><summary><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></summary><ul><li><a href="../adr/adr-006-e1.html">E1: the D9 barrier also waits on running xids at or above xmax (proposed)</a></li><li><a href="../adr/adr-006-a1.html">A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li></ul></details></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">E2: a stale If-Match on the access PUT is 412, not 409</a></li></ul></details></li></ul></details></li><li><details><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li><li><a href="../stories/s30.html">Compose access rules from named conditions</a></li><li><a href="../stories/go127.html">Go 1.27, UUIDv7 ids and strict JSON</a></li><li><a href="../stories/s28.html">Time to the first workflow-routed record (X1a)</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/go-toolchain.html">Go toolchain and setup</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../system/index.html">system</a> / <span>Access API: publish, read and explain an entity type&#x27;s access</span></nav>
+<p class="banner">Summary. The normative text is the linked <a href="../../../docs/architecture/access-document-format2.md"><code>docs/architecture/access-document-format2.md</code></a>.</p>
+<article>
+<h1 class="page-title">Access API: publish, read and explain an entity type&#x27;s access</h1>
+<h2 id="purpose">Purpose</h2>
+<p>Three tenant-admin routes manage an entity type's access. Since S30 the access
+rules are a <strong>format-2 document</strong> of named conditions and policies
+(ADR-010). The route takes format 1 (the S10 array of rules) or format 2,
+always stores format 2, and always returns format 2. How the stored document
+is evaluated is on <a href="../system/core-acl.html">Core: record ACL</a>; the document grammar is in
+the normative <a href="../../../docs/architecture/access-document-format2.md">access-document-format2.md</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Operation</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/entity-types/{key}/access</code></td>
+<td><code>getEntityTypeAccess</code></td>
+<td>The newest version, <code>rules</code> in format 2 (a stored format-1 row is converted on read), <code>masks</code>, and the version as <code>ETag</code></td>
+</tr>
+<tr>
+<td><code>PUT /api/v1/entity-types/{key}/access</code></td>
+<td><code>putEntityTypeAccess</code></td>
+<td>Publishes version N+1 with <code>If-Match: N</code>. Body <code>{&quot;rules&quot;: ..., &quot;masks&quot;: [...]}</code>. Accepted lints come back in <code>warnings</code></td>
+</tr>
+<tr>
+<td><code>GET /api/v1/access/explain</code></td>
+<td><code>explainAccess</code></td>
+<td>Why one user can or cannot read one record</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-document">The document</h2>
+<pre><code class="language-json">{&quot;format&quot;: 2,
+ &quot;conditions&quot;: [
+   {&quot;name&quot;: &quot;in_assigned_group&quot;, &quot;expr&quot;: {&quot;cmp&quot;: {&quot;column&quot;: &quot;assignment_group_id&quot;, &quot;op&quot;: &quot;in&quot;, &quot;caller&quot;: &quot;my_groups&quot;}}},
+   {&quot;name&quot;: &quot;is_requester&quot;,      &quot;expr&quot;: {&quot;cmp&quot;: {&quot;column&quot;: &quot;requester_id&quot;, &quot;op&quot;: &quot;eq&quot;, &quot;caller&quot;: &quot;self&quot;}}}],
+ &quot;policies&quot;: [
+   {&quot;name&quot;: &quot;agents_see_group_not_raised&quot;, &quot;ops&quot;: [&quot;read&quot;],
+    &quot;when&quot;: {&quot;all&quot;: [{&quot;member_of&quot;: {&quot;groups&quot;: [&quot;&lt;group id&gt;&quot;]}},
+                     {&quot;ref&quot;: &quot;in_assigned_group&quot;},
+                     {&quot;not&quot;: {&quot;ref&quot;: &quot;is_requester&quot;}}]}}]}
+</code></pre>
+<ul>
+<li>Node kinds: <code>all</code>, <code>any</code>, <code>not</code>, <code>ref</code>, <code>member_of</code>, <code>cmp</code>, <code>shared</code>,
+<code>under</code>. <code>under</code> is refused as <code>not_available</code> until S31.</li>
+<li>Names match <code>^[a-z][a-z0-9_]{0,62}$</code> and are unique among conditions and
+among policies.</li>
+<li>Allow-only: an operation is granted when any policy listing it matches.</li>
+<li>A format-1 body is converted (each rule becomes one policy) and stored as
+format 2. A rule id that is not a valid name is renamed in place, for
+example <code>r-desk</code> becomes <code>r_desk</code>. Only a format-1 row stored before S30
+keeps its original id, as <code>legacy_id</code>, when it is read.</li>
+</ul>
+<h2 id="put-check-order">PUT check order</h2>
+<p>The order decides which answer a caller gets when more than one thing is
+wrong.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Check</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Request refused by the API middleware: body not a JSON object, no <code>Idempotency-Key</code></td>
+<td><code>400 validation_failed</code></td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>rules</code> or <code>masks</code> larger than the byte limit (before any connection is taken)</td>
+<td><code>422 invalid_access_policy</code>, <code>document_too_large</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Caller is not a tenant admin</td>
+<td><code>403 forbidden</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Unknown or foreign entity type</td>
+<td><code>404 not_found</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>If-Match</code> missing or <code>*</code></td>
+<td><code>428 if_match_required</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>If-Match</code> is not the newest version</td>
+<td><code>412 version_conflict</code>, with the current <code>ETag</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Grammar, references, caps, mask fields, ids not in this tenant</td>
+<td><code>422 invalid_access_policy</code> with every problem and its pointer</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Insert the version and one <code>acl_policy</code> audit entry</td>
+<td><code>200</code> with the new <code>ETag</code></td>
+</tr>
+</tbody>
+</table>
+<p>Step 1 comes first so an oversized body costs no database connection
+(ADR-010-A1 A1-2c). The <code>acl_versions</code> <code>CHECK</code> constraints and the tenant-id
+trigger repeat steps 1 and 6; if one of them refuses (SQLSTATE 23514), the
+route maps it to the same 422, never a 500.</p>
+<h2 id="problem-codes">Problem codes</h2>
+<p>Every 422 is <code>invalid_access_policy</code>. Each entry in <code>errors</code> has a JSON
+<code>pointer</code> into the request body and a <code>rule</code> naming the problem:</p>
+<ul>
+<li><strong>Access-document checks</strong> (the table below) point into the document,
+prefixed <code>/rules</code> or <code>/masks</code>, for example <code>/rules/policies/0/when</code>.</li>
+<li><strong>Request-boundary checks</strong> run first, before the document is read
+(strict JSON, TICK-964). A body that repeats a key
+is refused there with a pointer prefixed <code>/body</code>, for
+example <code>/body/rules/format</code> with rule <code>duplicate</code>. Nothing is stored.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>required</code>, <code>type</code>, <code>value</code>, <code>empty</code>, <code>unknown_key</code>, <code>duplicate</code>, <code>condition</code></td>
+<td>Shape errors, shared with format 1</td>
+</tr>
+<tr>
+<td><code>invalid_name</code></td>
+<td>A condition or policy name does not match the name pattern</td>
+</tr>
+<tr>
+<td><code>duplicate_name</code></td>
+<td>Two conditions, or two policies, have the same name</td>
+</tr>
+<tr>
+<td><code>unresolved_ref</code></td>
+<td>A <code>ref</code> names no condition</td>
+</tr>
+<tr>
+<td><code>ref_cycle</code></td>
+<td>Conditions refer to each other in a loop</td>
+</tr>
+<tr>
+<td><code>child_count</code></td>
+<td>An <code>all</code> or <code>any</code> has no child or more than 16 (also a format-1 rule whose converted tree has more than 16, TICK-996)</td>
+</tr>
+<tr>
+<td><code>depth_exceeded</code></td>
+<td>A policy is nested more than 8 deep after <code>ref</code> expands</td>
+</tr>
+<tr>
+<td><code>policy_leaves_exceeded</code></td>
+<td>A policy has more than 128 leaves after <code>ref</code> expands</td>
+</tr>
+<tr>
+<td><code>policies_exceeded</code></td>
+<td>More than 64 policies</td>
+</tr>
+<tr>
+<td><code>document_leaves_exceeded</code></td>
+<td>More than 128 leaves across every policy</td>
+</tr>
+<tr>
+<td><code>foreign_id</code></td>
+<td>A group or user id that is not a live id of the caller's tenant. Another tenant's id and an unknown id answer the same, and the id is not echoed</td>
+</tr>
+<tr>
+<td><code>not_available</code></td>
+<td>A node kind that is not available yet (<code>under</code>)</td>
+</tr>
+<tr>
+<td><code>document_too_large</code></td>
+<td><code>rules</code> or <code>masks</code> is over the byte limit, measured as the stored <code>jsonb</code> text</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The byte limit appears only here.</strong> The <code>detail</code> of a
+<code>document_too_large</code> error says "The rules exceed the platform's configured
+limit of N bytes, measured on the stored form." No other response, header or
+route reports it. The limit is the operator setting
+<a href="../operations/acl-document-limit.html"><code>NAVA_ACL_MAX_DOCUMENT_BYTES</code></a>; the
+other caps are fixed. The cap table, as published limits, is on the
+<a href="../stories/s30.html#published-limits">S30 page</a>.</p>
+<p>A publish can be accepted with a lint in <code>warnings</code> (<code>pointer</code>, <code>code</code>).
+Today the only lint is <code>not_over_caller_leaf</code>: a <code>not</code> over a test of the
+caller, which is true for a caller with no id or no groups.</p>
+<h2 id="explain-response">Explain response</h2>
+<p><code>explainAccess</code> runs the same planner as enforcement, for the target user,
+in the caller's tenant.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>decision</code></td>
+<td><code>allow</code> or <code>deny</code></td>
+</tr>
+<tr>
+<td><code>policy</code></td>
+<td>The first policy that grants read; absent on a deny</td>
+</tr>
+<tr>
+<td><code>rule_id</code></td>
+<td>Kept for one release (ADR-010 D10): the policy's original format-1 id when it was converted from one, else the policy name; <code>null</code> on a deny</td>
+</tr>
+<tr>
+<td><code>trace</code></td>
+<td>Each named condition reached, with <code>condition</code>, <code>policy</code> and its boolean <code>value</code></td>
+</tr>
+<tr>
+<td><code>invalid</code></td>
+<td>Each voided policy, with <code>policy</code>, <code>code</code> and its <code>/policies/&lt;index&gt;</code> pointer. A voided policy grants nothing (D5) and is counted in <code>authz_policy_invalid_total</code></td>
+</tr>
+<tr>
+<td><code>masked_fields</code></td>
+<td>Fields hidden from the target user that the asking admin may read</td>
+</tr>
+<tr>
+<td><code>acl_version</code></td>
+<td>The version evaluated</td>
+</tr>
+</tbody>
+</table>
+<h2 id="proving-tests">Proving tests</h2>
+<table>
+<thead>
+<tr>
+<th>Behaviour</th>
+<th>Test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Format 2 stored as submitted, one audit entry</td>
+<td><code>TestPutAccessFormat2StoresAsSubmittedWithOneAuditEntry</code></td>
+</tr>
+<tr>
+<td>Format 1 stored as format 2</td>
+<td><code>TestPutAccessFormat1IsStoredAsFormat2</code></td>
+</tr>
+<tr>
+<td>Every code and pointer of the shared fixture</td>
+<td><code>TestPrepareRefusesTheFixture</code></td>
+</tr>
+<tr>
+<td>Caps are inclusive; byte limit on stored text and on masks</td>
+<td><code>TestPrepareCapsAreInclusive</code>, <code>TestPrepareByteLimitIsOnStoredTextAndOnMasks</code></td>
+</tr>
+<tr>
+<td>Format 1 over the child cap is <code>child_count</code></td>
+<td><code>TestPrepareFormat1OverTheChildCapIsChildCount</code></td>
+</tr>
+<tr>
+<td>Foreign ids are <code>foreign_id</code></td>
+<td><code>TestPutAccessFormat2ForeignIDsAreForeignID</code></td>
+</tr>
+<tr>
+<td><code>under</code> refused, and grants nothing if stored</td>
+<td><code>TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored</code></td>
+</tr>
+<tr>
+<td>Lint on <code>not</code> over a caller test</td>
+<td><code>TestPrepareWarnsOnNotOverCallerLeaves</code></td>
+</tr>
+<tr>
+<td>The setting's default and range</td>
+<td><code>TestLoadACLMaxDocumentBytes</code></td>
+</tr>
+<tr>
+<td>Explainer <code>policy</code>, <code>trace</code>, <code>invalid</code></td>
+<td><code>TestExplainPolicyTraceAndInvalid</code>, <code>TestS30Format2DenyTraceHasAFalseStep</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="links">Links</h2>
+<ul>
+<li>Evaluation, planner and the list read path: <a href="../system/core-acl.html">Core: record ACL</a>.</li>
+<li>The table and its constraints: <a href="../database/acl.html">Access control and masks</a>.</li>
+<li>Operator setting: <a href="../operations/acl-document-limit.html">Access document size limit</a>.</li>
+<li>Story: <a href="../stories/s30.html">S30</a>; decisions: <a href="../adr/adr-010.html">ADR-010</a>, <a href="../adr/adr-010-a1.html">ADR-010-A1</a>.</li>
+</ul>
+</article>
+<nav class="pager" aria-label="Previous and next page"><a class="prev" href="../system/core-acl.html">&larr; Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a><a class="next" href="../system/core-cascades.html">Core: cascade bounds (I9) &rarr;</a></nav>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Table acl_versions</h3><ul><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+<h3>Story S10</h3><ul><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../vision/index.html">What the product is</a></li></ul>
+<h3>Story S30</h3><ul><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li></ul>
+<h3>ADR ADR-001</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">ADR-001-A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">ADR-001-A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">ADR-001-E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">ADR-001-E3: the onboarding role reads its own tenant row</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths</a></li><li><a href="../adr/adr-003.html">ADR-003: retiring recorded interpreter histories</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../adr/adr-005.html">ADR-005: record numbering</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../adr/adr-007-a1.html">ADR-007-A1: embedding clients always name the organization</a></li><li><a href="../adr/adr-007.html">ADR-007: embedding widget and SDK</a></li><li><a href="../adr/adr-008.html">ADR-008: Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009: records catch up when a published version adds a default</a></li><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">ADR-010-E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">ADR-010-E2: a stale If-Match on the access PUT is 412, not 409</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/entity-definitions.html">Entity definitions</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/identity.html">Identity and directory</a></li><li><a href="../database/index.html">Database</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/tenancy.html">Tenancy</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../glossary/index.html">Glossary</a></li><li><a href="../security/01-token.html">1. Token validation</a></li><li><a href="../security/02-tenant-resolution.html">2. Tenant resolution</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">6. Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">7. Identity boundary and deprovisioning</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s1.html">S1: Local stack starts healthy and CI gates every PR</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11a.html">S11a: The workflow interpreter runs a definition on Temporal</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s2.html">S2: A query without the right tenant returns nothing</a></li><li><a href="../stories/s3.html">S3: A tenant user signs in and is scoped to their tenant only</a></li><li><a href="../stories/s4.html">S4: An operator onboards a tenant and its admin signs in</a></li><li><a href="../stories/s5.html">S5: Group changes and deprovisioning take effect within 10 minutes</a></li><li><a href="../stories/s6.html">S6: API ground rules on the first endpoints</a></li><li><a href="../stories/s7.html">S7: A committed outbox row runs exactly one tenant-scoped workflow</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-cascades.html">Core: cascade bounds (I9)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/id-generation.html">Id generation</a></li><li><a href="../system/index.html">System map</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li><li><a href="../tour/index.html">Product tour at a glance</a></li><li><a href="../vision/bounded-cascades.html">I9: Cascades are bounded</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../vision/durable-path-outbox.html">I6: The durable path is deterministic, versioned and entered only through the outbox</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li><li><a href="../vision/idempotent-side-effects.html">I7: Every side effect is idempotent</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/invariants.html">The nine invariants</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li><li><a href="../vision/one-write-pipeline.html">I4: One write pipeline with optimistic concurrency</a></li><li><a href="../vision/tenant-source.html">I2: The tenant comes only from a platform-verified source</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li><li><a href="../workflows/outbox-relay-worker.html">Outbox, relay and worker: the durable path</a></li></ul>
+<h3>ADR ADR-010</h3><ul><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">ADR-010-E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">ADR-010-E2: a stale If-Match on the access PUT is 412, not 409</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+<h3>ADR ADR-010-A1</h3><ul><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li></ul>
+<h3>Operation explainAccess</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+<h3>Operation getEntityTypeAccess</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+<h3>Operation putEntityTypeAccess</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+<h3>Invariant I1</h3><ul><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li></ul>
+<h3>Invariant I8</h3><ul><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 7d2d8089d6fd (2026-11-20)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

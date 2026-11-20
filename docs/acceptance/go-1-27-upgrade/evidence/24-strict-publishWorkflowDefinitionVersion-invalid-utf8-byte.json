@@ -1,0 +1,33 @@
+{
+  "step": "strict-publishWorkflowDefinitionVersion-invalid-utf8-byte",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/workflow-definitions/t961_a_mwnjuz8g/versions",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b22666f726d6174223a226e6176612e776f726b666c6f772f7631222c2274726967676572223a7b226f6e223a227265636f72642e63726561746564222c22656e74697479223a22743936315f615f6d776e6a757a3867227d2c227374617274223a2277616974ff222c227374657073223a5b7b226b6579223a2277616974222c2274797065223a2274696d6572222c226475726174696f6e223a2250543148222c226e657874223a226d61726b227d2c7b226b6579223a226d61726b222c2274797065223a227570646174655f7265636f7264222c22736574223a7b2273686f72745f6465736372697074696f6e223a2274726961676564227d2c226e657874223a22646f6e65227d2c7b226b6579223a22646f6e65222c2274797065223a22656e64227d5d7d",
+      "raw_latin1": "{\"format\":\"nava.workflow/v1\",\"trigger\":{\"on\":\"record.created\",\"entity\":\"t961_a_mwnjuz8g\"},\"start\":\"waitÿ\",\"steps\":[{\"key\":\"wait\",\"type\":\"timer\",\"duration\":\"PT1H\",\"next\":\"mark\"},{\"key\":\"mark\",\"type\":\"update_record\",\"set\":{\"short_description\":\"triaged\"},\"next\":\"done\"},{\"key\":\"done\",\"type\":\"end\"}]}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:workflow_definition_invalid",
+      "title": "Workflow definition invalid",
+      "status": 422,
+      "code": "workflow_definition_invalid",
+      "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+      "instance": "urn:nava:request:dad349cf7c8578d30bbff754db9c52fa",
+      "errors": [
+        {
+          "pointer": "/body/start",
+          "rule": "invalid_utf8"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

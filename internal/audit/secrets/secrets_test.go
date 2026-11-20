@@ -214,8 +214,7 @@ func TestCheckInputErrors(t *testing.T) {
 	}
 	// A secret path covering the whole document rejects any value.
 	err = Check([]byte(`[{"op":"add","path":"/a","value":1}]`), []patchwalk.Pointer{""}, DomainRecord)
-	var se *ErrSecretInDiff
-	if !errors.As(err, &se) {
+	if _, ok := errors.AsType[*ErrSecretInDiff](err); !ok {
 		t.Errorf("root secret path: %v", err)
 	}
 }

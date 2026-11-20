@@ -55,6 +55,10 @@ func TestClassify(t *testing.T) {
 	}{
 		{"nothing changed", nil, "ci-lint"},
 		{"docs only", []string{"docs/quality/ci-pipeline.md", "README.md", "docs/adr/ADR-001-explained.html"}, "ci-lint"},
+		// TICK-960: an ADR record and its handbook page stay lint only; the
+		// lint job's make test-handbook-coverage is what checks the page, so
+		// a docs-only PR stays cheap and still cannot drop the page.
+		{"ADR record and handbook page", []string{"docs/adr/ADR-011-new-thing.md", "docs/handbook/src/adr/adr-011.md", "docs/handbook/adr/adr-011.html"}, "ci-lint"},
 		{"pins pick the images", []string{"docs/pins.md"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"unit-only package", []string{"tools/ci/checkpins/main.go"}, "ci-lint ci-unit"},
 		{"integration package", []string{"internal/db/roles/roles.go"}, "ci-lint ci-unit ci-integration"},

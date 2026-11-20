@@ -26,6 +26,14 @@ paths:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1versions~1{n}"
   /api/v1/entity-types/{key}/access:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types~1{key}~1access"
+  /api/v1/number-formats:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats"
+  /api/v1/number-formats/{id}:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats~1{id}"
+  /api/v1/number-formats/{id}/republish-linked:
+    $ref: "paths/number-formats.yaml#/paths/~1api~1v1~1number-formats~1{id}~1republish-linked"
+  /api/v1/tenant/settings/time-zone:
+    $ref: "paths/tenant.yaml#/paths/~1api~1v1~1tenant~1settings~1time-zone"
   /api/v1/workflow-definitions/{key}:
     $ref: "paths/workflow-definitions.yaml#/paths/~1api~1v1~1workflow-definitions~1{key}"
   /api/v1/workflow-definitions/{key}/versions:
@@ -99,6 +107,9 @@ components:
         rule:
           type: string
           description: The schema keyword that failed, such as `format` or `pattern`.
+        detail:
+          type: string
+          description: Present on a `document_too_large` error only. States the limit in bytes.
   responses:
     Problem:
       description: An RFC 9457 problem.

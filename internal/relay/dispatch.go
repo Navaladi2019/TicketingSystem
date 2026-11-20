@@ -423,15 +423,12 @@ func classify(op string, err error) (outcome, cause string) {
 	if err == nil {
 		return outcomeDispatched, ""
 	}
-	switch op {
-	case opStart:
-		var started *serviceerror.WorkflowExecutionAlreadyStarted
-		if errors.As(err, &started) {
+	if op == opStart {
+		if _, ok := errors.AsType[*serviceerror.WorkflowExecutionAlreadyStarted](err); ok {
 			return outcomeAlreadyStarted, ""
 		}
-	case opSignal:
-		var notFound *serviceerror.NotFound
-		if errors.As(err, &notFound) {
+	} else {
+		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return outcomeTargetMissing, CauseTargetMissing
 		}
 	}

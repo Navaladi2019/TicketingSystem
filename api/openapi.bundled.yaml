@@ -198,6 +198,10 @@ paths:
       description: >
         Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. A definition that adds `x-nava-filterable` writes, in the same transaction, one field-index registry row (`backfilling`) and one `field_index.backfill` outbox row per new field. It answers 422 `index_quota_exceeded` above 5 flagged fields on the type or 50 in the tenant, 422 `filterable_field_removal_unavailable` when a flag or a flagged property is removed, 422 `filterable_field_not_top_level`, `filterable_field_type_change` or `searchable_not_available` for the ADR-006 D8 refusals, and 409 `field_index_busy` when a field to flag has an index being removed. Each adds nothing; `errors[].pointer` names the properties. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
 
+        `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to the new definition version: `{id, version}`, or `null` for the default numbering. It needs `definition`. **A publish without the field keeps the pinned version**; only an explicit value changes it. The publish takes or reuses the type's numbering epoch in its own transaction: a format already used by the type reuses its epoch; a new one is checked against every earlier epoch of the type, epoch 0 included, and answers 422 `number_format_overlap` (`errors[].rule` is `overlap:<the clashing template>`) when it could render a number the type already issued. A format that is not in the tenant, and another tenant's, give the same 422 `number_format_not_found`.
+
+        `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing. It also applies to a mode-only call (`numbering_mode` without `definition`): a stale one answers 412 and leaves the numbering mode unchanged.
+
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: Idempotency-Key
@@ -207,6 +211,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 255
+        - name: If-Match
+          in: header
+          required: false
+          description: The `ETag` of the current version the publish is based on. Optional. Also checked on a mode-only call.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -216,6 +226,12 @@ paths:
       responses:
         "201":
           description: The new version, now current.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -230,6 +246,17 @@ paths:
           $ref: "#/components/responses/ProblemNoInstance"
         "409":
           $ref: "#/components/responses/Problem"
+        "412":
+          description: The `If-Match` version is not the current one; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "422":
           $ref: "#/components/responses/Problem"
         "429":
@@ -312,6 +339,14 @@ paths:
       description: >
         Publishes immutable ACL version N+1 from the body `{rules, masks}` (`masks` optional). Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on; the first publish uses `W/"0"`. A body that is not a JSON object is 400 `validation_failed` (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422 `invalid_access_policy` with `errors[].pointer` and `rule`). The body is refused when a column, op or `caller` is unknown, a shape rule of the database is broken, a rule id repeats, a mask field is not a top-level schema property, a mask subject sets `requester`, `assignee` or `shared`, a mask's `write` names a group or user its `read` does not, or any group or user id (in a subject or a condition) is not in the tenant (`not_in_tenant`, the same for an unknown id and another tenant's). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required.
 
+
+        `rules` is either a format-1 array (`[{id, ops, who, where?}]`) or a format-2 object (`{format: 2, conditions, policies}`, see `AccessDocument`). Either is stored as format 2, and every response returns format 2. A format-1 rule with an empty `who` is refused (`child_count` at its `who`).
+
+
+        The platform's limits on a format-2 document, checked on save, each a 422 with `errors[].pointer` and `rule`: a reference to a condition that does not exist (`unresolved_ref`); a reference cycle (`ref_cycle`); 1 to 16 children in an `all` or `any` (`child_count`); depth at most 8 after references expand (`depth_exceeded`); at most 128 leaves in a policy (`policy_leaves_exceeded`); at most 64 policies (`policies_exceeded`); at most 128 leaves in all policies of a document (`document_leaves_exceeded`); every group and user id belongs to the tenant (`foreign_id`, for format 1 `not_in_tenant`); an unknown node kind (`unknown_key`); a name that is not `^[a-z][a-z0-9_]{0,62}$` or repeats (`invalid_name`, `duplicate_name`); `under` is not available yet (`not_available`). `rules` and `masks` are each limited to the platform's configured limit, 32 KiB by default, measured on the stored form; above it the 422 is `document_too_large` at `/rules` or `/masks`, and the limit is in that error's `detail`. The accepted publish may carry `warnings` (`{pointer, code}`), for example `not_over_caller_leaf` on a `not` over a leaf that depends on the caller; a warning does not refuse the document.
+
+        A reused key is 409: `idempotency_key_reuse` (same key, different body) or `idempotency_in_flight` (same key while the first request is still running; `Retry-After: 60`).
+
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: If-Match
@@ -356,6 +391,8 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "#/components/responses/Problem"
         "412":
           description: The `If-Match` version is not the newest; the current `ETag` is in the header.
           headers:
@@ -370,6 +407,315 @@ paths:
         "422":
           $ref: "#/components/responses/Problem"
         "428":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/number-formats:
+    get:
+      operationId: listNumberFormats
+      summary: List the tenant's number formats
+      description: >
+        Any user of the tenant. Ordered by key, cursor-paged. `limit` defaults to 50 and is at most 200.
+
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of number formats.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatList"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createNumberFormat
+      summary: Create a number format (tenant admin)
+      description: >
+        Creates the format and its version 1. Tenant admins only (the right that publishes an entity definition); the check runs before the body is read any further than as well-formed JSON. The body is `{key, document: {template, overflow, time_zone?}}`: `key` matches `^[a-z][a-z0-9_]{1,40}$` and is unique per tenant (409 `number_format_exists`), and `document` is validated against the number-format JSON Schema and then compiled. A template that does not start with `{prefix}` or whose next token produces letters answers 422 `number_format_prefix_required`; any other refusal of the compiler answers 422 `number_format_invalid`; both carry `errors[].pointer` and, when the error is at a position of the template, the rule `position:<0-based byte offset>`. A format that compiles to anything but the default (`{prefix}{seq:7}`, grow) answers 422 `numbering_templates_unavailable` until the counter key has been migrated (M3). The check reads the catalog and is cached per process for 60 seconds. A refused request writes no row and no audit entry. The create writes one audit entry (`subject_type` `number_format`) in the same transaction; actor and source come from the token, never the request. The tenant comes from the token only. `Idempotency-Key` is required.
+
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNumberFormatRequest"
+      responses:
+        "201":
+          description: The format exists, at version 1.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/number-formats/{id}:
+    get:
+      operationId: getNumberFormat
+      summary: A number format, current or at a version
+      description: >
+        Any user of the tenant. Without `version` it is the current version. An unknown id, another tenant's id, a malformed id and a missing version give the same 404, byte for byte, with no `instance`.
+
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the format's current version, `W/"<current>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: publishNumberFormatVersion
+      summary: Publish the next version of a number format (tenant admin)
+      description: >
+        Publishes immutable version N+1 from the body `{document}` and makes it current. Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on (`W/"<current version>"`). Check order: authentication, admin (403), the format (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422, as for create, including `numbering_templates_unavailable`). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required.
+
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: If-Match
+          in: header
+          required: false
+          description: >
+            The `ETag` of the version the publish is based on. Optional in the contract only so that its absence is the registered 428.
+
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishNumberFormatRequest"
+      responses:
+        "200":
+          description: The published version.
+          headers:
+            ETag:
+              required: true
+              description: Weak ETag of the new version, `W/"<version>"`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberFormatVersion"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "412":
+          description: The `If-Match` version is not the newest; the current `ETag` is in the header.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "428":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/number-formats/{id}/republish-linked:
+    post:
+      operationId: republishLinkedTypes
+      summary: Re-publish the entity types linked to an older version of a format (tenant admin)
+      description: >
+        ADR-005 §3.2, §3.7 C13. Body `{version}`: a published version of the format. For each entity type whose current definition version pins an older version of this format, runs one independent definition publish that pins `version` (same schema, fixed columns and states), each in its own transaction, each checked for epoch and disjointness on its own. The response reports, per type, `published` (with the new definition version) or `refused` (with the problem `code` and `errors`): `number_format_overlap`, `forbidden` when the caller may not publish that type, `version_conflict` when the type changed meanwhile. A refusal of one type never undoes another. Nothing runs on a format publish: this is the only fan-out. Tenant admins only; an unknown format, another tenant's and a malformed id give the same 404; a `version` the format does not have answers 422 `number_format_not_found`. `Idempotency-Key` is required.
+
+      parameters:
+        - $ref: "#/components/parameters/FormatId"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepublishLinkedRequest"
+      responses:
+        "200":
+          description: The per-type report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepublishLinkedReport"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/tenant/settings/time-zone:
+    get:
+      operationId: getTenantTimeZone
+      summary: Read the tenant's numbering time zone (tenant admin)
+      description: >
+        Tenant admins only. The tenant is the token's; nothing in the request names another one. The default is `UTC`.
+
+      responses:
+        "200":
+          description: The tenant's time zone.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantTimeZone"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: putTenantTimeZone
+      summary: Set the tenant's numbering time zone (tenant admin)
+      description: >
+        Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{time_zone}`, an IANA name that the server knows; anything else (empty, `Local`, an unknown or malformed name, a value that is not a string) answers 422 `invalid_time_zone` with `errors[].pointer` `/time_zone`, and writes nothing. Other fields of the body, a `tenant_id` among them, are ignored: the tenant is always the token's. A change affects the scope keys of future allocations only. A change writes one audit entry (`subject_type` `tenant_setting`, domain `config`, `subject_id` the tenant id) in the same transaction; actor and source come from the token. Setting the value the tenant already has writes nothing and answers 200. `Idempotency-Key` is required.
+
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutTenantTimeZoneRequest"
+      responses:
+        "200":
+          description: The time zone now in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantTimeZone"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "422":
           $ref: "#/components/responses/Problem"
         "429":
           $ref: "#/components/responses/Problem"
@@ -455,7 +801,7 @@ paths:
       operationId: explainAccess
       summary: Why a user can or cannot read a record (tenant admin)
       description: >
-        Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`.
+        Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`. `policy` names the first policy, in declared order, that grants read (absent for a deny); `rule_id` is its format-1 id when it was converted from one. `trace` lists the named conditions reached and their values: the granting policy's on an allow, every valid read policy's on a deny. `invalid` lists read policies the planner voided (they grant nothing) with their problem code.
 
       parameters:
         - name: entity
@@ -799,7 +1145,7 @@ paths:
       operationId: createRecord
       summary: Create a record of an entity type
       description: >
-        Check order: authentication, then the entity type (an unknown key is a 404), then the body, then the authorizer. The body is `{data}`; `data` is validated against the current schema version, defaults applied, and the write goes through the record write pipeline with source `user` and the caller as actor. The entity type's published ACL must let the caller write the new record, or the answer is 403 `forbidden`; with no published ACL nobody may (fail closed). `Idempotency-Key` is required: a retry with the same key returns the stored response and creates nothing. A request whose key another request is still creating with waits for that request, at most 2 seconds: it then returns the stored response, or creates the record if the other request failed. Past the wait it answers 409 `idempotency_in_flight` with `Retry-After: 2`, and creates nothing. A create that fails stores nothing against its key, so a retry with the key runs the create again; its 503 `retry_later` also advises `Retry-After: 2`. Other write routes advise the 60-second key lease. A field that fails the schema, or a reference to a principal that does not exist in the tenant, answers 422 `record_invalid` with `errors[].pointer` under `/data`; the same body for a random UUID and for another tenant's principal. An assignment group that is not a live group of the tenant (removed, another tenant's group, live or removed, or a random UUID) answers 422 `assignment_group_removed` with the pointer of the group property, one body for every case, and writes nothing. An unknown entity type gives the 404 of getRecord, byte for byte, with no `instance`. Sending a property the ACL's field masks do not let the caller write answers 422 `field_not_writable` with `errors[].pointer` under `/data` and writes nothing; a default the server applies is not the caller's write. A unique value another record already holds is a 409 `unique_violation` naming the property only, never that record. The 201 body is shaped by the caller's field masks as getRecord's is. In it a top-level property the entity type's published ACL masks from the caller is absent from `data`; if it is the state property `state` is `""`, and if it is the assignment group property `assignment_group` is absent. A mask names groups and users only.
+        Check order: authentication, then the entity type (an unknown key is a 404), then the body, then the authorizer. The body is `{data}`; `data` is validated against the current schema version, defaults applied, and the write goes through the record write pipeline with source `user` and the caller as actor. The entity type's published ACL must let the caller write the new record, or the answer is 403 `forbidden`; with no published ACL nobody may (fail closed). `Idempotency-Key` is required: a retry with the same key returns the stored response and creates nothing. A request whose key another request is still creating with waits for that request, at most 2 seconds: it then returns the stored response, or creates the record if the other request failed. Past the wait it answers 409 `idempotency_in_flight` with `Retry-After: 2`, and creates nothing. A create that fails stores nothing against its key, so a retry with the key runs the create again; its 503 `retry_later` also advises `Retry-After: 2`. Other write routes advise the 60-second key lease. A field that fails the schema, or a reference to a principal that does not exist in the tenant, answers 422 `record_invalid` with `errors[].pointer` under `/data`; the same body for a random UUID and for another tenant's principal. An assignment group that is not a live group of the tenant (removed, another tenant's group, live or removed, or a random UUID) answers 422 `assignment_group_removed` with the pointer of the group property, one body for every case, and writes nothing. An unknown entity type gives the 404 of getRecord, byte for byte, with no `instance`. Sending a property the ACL's field masks do not let the caller write answers 422 `field_not_writable` with `errors[].pointer` under `/data` and writes nothing; a default the server applies is not the caller's write. A unique value another record already holds is a 409 `unique_violation` naming the property only, never that record. A type whose number format refuses overflow answers 409 `number_space_exhausted` once the counter of the create's numbering scope has outgrown the format's width (ADR-005 §3.5): one error, pointer `/entity`, rule `scope:<scope key>` (for example `scope:e1|d:202611`). Nothing is created; a retry fails the same way until the scope changes or a wider format is published. The 201 body is shaped by the caller's field masks as getRecord's is. In it a top-level property the entity type's published ACL masks from the caller is absent from `data`; if it is the state property `state` is `""`, and if it is the assignment group property `assignment_group` is absent. A mask names groups and users only.
 
       parameters:
         - $ref: "#/components/parameters/Entity"
@@ -1096,6 +1442,9 @@ components:
         rule:
           type: string
           description: The schema keyword that failed, such as `format` or `pattern`.
+        detail:
+          type: string
+          description: Present on a `document_too_large` error only. States the limit in bytes.
     AccessExplanation:
       type: object
       required: [decision, rule_id, acl_version, masked_fields]
@@ -1111,6 +1460,32 @@ components:
           type: array
           items:
             type: string
+        policy:
+          type: string
+        trace:
+          type: array
+          items:
+            type: object
+            required: [policy, condition, value]
+            properties:
+              policy:
+                type: string
+              condition:
+                type: string
+              value:
+                type: boolean
+        invalid:
+          type: array
+          items:
+            type: object
+            required: [policy, code, pointer]
+            properties:
+              policy:
+                type: string
+              code:
+                type: string
+              pointer:
+                type: string
     ChainReseed:
       type: object
       required: [reseed_id, seal_outbox_id]
@@ -1219,7 +1594,9 @@ components:
       x-go-type: json.RawMessage
       properties:
         rules:
-          description: "Array of `{id, ops, who, where?}`; may be empty (nobody is allowed)."
+          description: >
+            Either a format-1 array of `{id, ops, who, where?}` (may be empty: nobody is allowed) or a format-2 object `AccessDocument`.
+
         masks:
           description: "Array of `{field, read, write}`; optional."
     AccessPolicy:
@@ -1229,9 +1606,7 @@ components:
         version:
           type: integer
         rules:
-          type: array
-          items:
-            type: object
+          $ref: "#/components/schemas/AccessDocument"
         masks:
           type: array
           items:
@@ -1242,6 +1617,53 @@ components:
         published_at:
           type: string
           format: date-time
+        warnings:
+          type: array
+          description: Lints of the publish, on the PUT response only. A warning does not refuse the document.
+          items:
+            type: object
+            required: [pointer, code]
+            properties:
+              pointer:
+                type: string
+              code:
+                type: string
+                description: For example `not_over_caller_leaf`.
+    AccessDocument:
+      type: object
+      description: >
+        The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`.
+
+      required: [format, conditions, policies]
+      properties:
+        format:
+          type: integer
+          enum: [2]
+        conditions:
+          type: array
+          items:
+            type: object
+            required: [name, expr]
+            properties:
+              name:
+                type: string
+              expr:
+                type: object
+        policies:
+          type: array
+          items:
+            type: object
+            required: [name, ops, when]
+            properties:
+              name:
+                type: string
+              ops:
+                type: array
+                items:
+                  type: string
+                  enum: [read, write]
+              when:
+                type: object
     CreateEntityTypeRequest:
       type: object
       description: >
@@ -1270,6 +1692,10 @@ components:
           description: "`gaps` or `gapless`. Alone, it changes the mode and publishes no version."
         definition:
           description: "`{schema, fixed_columns, states}`, see the metadata engine."
+        number_format:
+          description: >
+            `{id, version}` pins a number-format version, `null` returns to the default numbering; absent keeps the pinned version. Needs `definition`.
+
     EntityTypeVersion:
       type: object
       required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
@@ -1303,6 +1729,16 @@ components:
         compat:
           type: string
           enum: [initial, compatible, needs_backfill]
+        number_format:
+          type: [object, "null"]
+          description: The number-format version this version pins; `null` is the default numbering.
+          required: [id, version]
+          properties:
+            id:
+              type: string
+              format: uuid
+            version:
+              type: integer
         published_at:
           type: string
           format: date-time
@@ -1372,6 +1808,124 @@ components:
         path:
           type: string
           pattern: "^/"
+    RepublishLinkedRequest:
+      type: object
+      description: >
+        `{version}`, a published version of the format. Kept as the request bytes (`json.RawMessage`); the server checks it after the admin check.
+
+      x-go-type: json.RawMessage
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    RepublishLinkedReport:
+      type: object
+      required: [format_id, version, results]
+      properties:
+        format_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            required: [entity_type, status]
+            properties:
+              entity_type:
+                type: string
+                description: The entity type key.
+              status:
+                type: string
+                enum: [published, refused]
+              version:
+                type: integer
+                description: The new definition version, when `published`.
+              code:
+                type: string
+                description: The problem code, when `refused`.
+              errors:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FieldError"
+    CreateNumberFormatRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server checks every field after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+
+      x-go-type: json.RawMessage
+      properties:
+        key:
+          description: "`^[a-z][a-z0-9_]{1,40}$`, unique per tenant."
+        document:
+          description: "`{template, overflow, time_zone?}`, see the number-format schema."
+    PublishNumberFormatRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here, like CreateNumberFormatRequest.
+
+      x-go-type: json.RawMessage
+      properties:
+        document:
+          description: "`{template, overflow, time_zone?}`, see the number-format schema."
+    NumberFormatVersion:
+      type: object
+      required: [id, key, version, current_version, document, compiled, compiled_sha256, created_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        version:
+          type: integer
+        current_version:
+          type: integer
+          description: The newest version of the format.
+        document:
+          type: object
+          description: The format as published.
+        compiled:
+          type: object
+          description: The compiled form (numbering.Compiled) the publish stored.
+        compiled_sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the compiled template.
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+    NumberFormatSummary:
+      type: object
+      required: [id, key, current_version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        current_version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NumberFormatList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberFormatSummary"
+        next_cursor:
+          type: string
+          description: Present when more formats follow; pass it as `cursor`.
     OnboardTenantRequest:
       type: object
       required: [admin_email, email_domains, identity_provider]
@@ -1542,6 +2096,22 @@ components:
         after:
           type: object
           additionalProperties: true
+    PutTenantTimeZoneRequest:
+      type: object
+      description: >
+        Deliberately unconstrained here: the server checks the body after the admin check and answers 422 with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`).
+
+      x-go-type: json.RawMessage
+      properties:
+        time_zone:
+          description: An IANA time zone name, for example `Europe/Berlin`.
+    TenantTimeZone:
+      type: object
+      required: [time_zone]
+      properties:
+        time_zone:
+          type: string
+          description: An IANA time zone name.
     PublishWorkflowDefinitionRequest:
       type: object
       description: >
@@ -1599,6 +2169,13 @@ components:
       description: >
         The entity type key. Its shape is not checked here, a key that cannot exist is a 404.
 
+      schema:
+        type: string
+    FormatId:
+      name: id
+      in: path
+      required: true
+      description: The number format id. A value that is not a UUID is a 404.
       schema:
         type: string
     Entity:

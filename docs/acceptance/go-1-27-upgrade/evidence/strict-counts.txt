@@ -1,0 +1,4 @@
+tenant A row counts around the 27 refused bodies
+entity_definitions|entity_definition_versions|acl_versions|workflow_definition_versions|number_formats|number_format_versions|records|audit_log|outbox
+before 4|4|2|1|1|1|1|6|11
+after  4|4|2|1|1|1|1|6|11

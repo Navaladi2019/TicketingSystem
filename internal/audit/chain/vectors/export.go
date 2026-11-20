@@ -2,7 +2,6 @@ package vectors
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -232,13 +231,12 @@ func (f exportFile) lines() ([]string, error) {
 	all := append(append([]any{f.header}, f.body...), f.trailer)
 	out := make([]string, 0, len(all))
 	for _, l := range all {
-		var b bytes.Buffer
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(l); err != nil {
+		// Not json.Encoder: it may re-escape the envelope bytes (TICK-970).
+		b, err := chain.MarshalJSONL(l)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, string(bytes.TrimSuffix(b.Bytes(), []byte("\n"))))
+		out = append(out, string(bytes.TrimSuffix(b, []byte("\n"))))
 	}
 	return out, nil
 }
@@ -262,7 +260,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 
 	cases = append(cases, exportCase{
 		name: "filtered-subject-type", expect: FilePass,
-		file: rangeExport(cs, filterBlock{SubjectType: ptr("entity_definition")},
+		file: rangeExport(cs, filterBlock{SubjectType: new("entity_definition")},
 			func(c ChainCase) bool { return c.Envelope.SubjectType == "entity_definition" }),
 	})
 
@@ -303,7 +301,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 			reason: reason(ReasonVerifiableFlagMismatch), file: f})
 	}
 	{ // R24: an erased entry whose erase entry is only a stub in the file.
-		f := rangeExport(cs, filterBlock{SubjectType: ptr("record")},
+		f := rangeExport(cs, filterBlock{SubjectType: new("record")},
 			func(c ChainCase) bool { return c.Envelope.SubjectType == "record" })
 		cases = append(cases, exportCase{name: "erasure-not-listed", expect: FileTampered,
 			reason: reason(ReasonErasureUnlisted), lines: map[string]string{"6": LineTampered}, file: f})
@@ -312,7 +310,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 	cases = append(cases, exportCase{name: "stubs-false-honest", expect: FileUnverifiable, file: stubsFalseHonest(cs)})
 	{ // No sealed entry in the window (§3 range rules, step 8).
 		f := unfiltered()
-		f.header.Filter = filterBlock{From: ptr("2026-12-01T00:00:00.000000Z"), To: ptr("2026-12-02T00:00:00.000000Z")}
+		f.header.Filter = filterBlock{From: new("2026-12-01T00:00:00.000000Z"), To: new("2026-12-02T00:00:00.000000Z")}
 		f.body = nil
 		f.trailer = trailerLine{Kind: "trailer"}
 		cases = append(cases, exportCase{name: "empty-range", expect: FileEmpty, file: f})
@@ -339,7 +337,7 @@ func exportCases(cs []ChainCase) ([]Export, error) {
 // entity_definition (seq 1 and 4): the excluded entries, the tail included,
 // are left out and the trailer honestly says verifiable: false.
 func stubsFalseHonest(cs []ChainCase) exportFile {
-	f := rangeExport(cs, filterBlock{SubjectType: ptr("entity_definition")},
+	f := rangeExport(cs, filterBlock{SubjectType: new("entity_definition")},
 		func(c ChainCase) bool { return c.Envelope.SubjectType == "entity_definition" })
 	withoutStubs(&f)
 	f.header.Stubs = false
@@ -404,7 +402,7 @@ func e2Cases(cs []ChainCase) []exportCase {
 			reason: reason(ReasonSeqMissing), file: f})
 	}
 	{ // The header fixes the anchor at after_seq 2, but the file starts at genesis.
-		f := rangeExport(cs, filterBlock{AfterSeq: ptr(int64(2))}, all)
+		f := rangeExport(cs, filterBlock{AfterSeq: new(int64(2))}, all)
 		out = append(out, exportCase{name: "anchor-not-after-seq", review: "ADR-004-E2", expect: FileTampered,
 			reason: reason(ReasonAnchorMismatch), lines: map[string]string{"0": LineTampered}, file: f})
 	}
@@ -414,7 +412,7 @@ func e2Cases(cs []ChainCase) []exportCase {
 			reason: reason(ReasonAnchorMismatch), lines: map[string]string{"2": LineTampered}, file: f})
 	}
 	{ // stubs=false over 1..5 where no entry matched: the anchor and no range lines.
-		f := rangeExport(upTo5, filterBlock{SubjectType: ptr("erasure_request")}, none)
+		f := rangeExport(upTo5, filterBlock{SubjectType: new("erasure_request")}, none)
 		withoutStubs(&f)
 		f.header.Stubs = false
 		f.trailer.Verifiable = false

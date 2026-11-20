@@ -46,8 +46,8 @@ func TestLoadAuditReaderRejects(t *testing.T) {
 func TestLoadHasNoAuditReaderDSN(t *testing.T) {
 	var walk func(reflect.Type, string)
 	walk = func(ty reflect.Type, path string) {
-		for i := range ty.NumField() {
-			f := ty.Field(i)
+		for f := range ty.Fields() {
+			f := f
 			if strings.Contains(strings.ToLower(f.Name), "auditreader") || strings.Contains(strings.ToLower(f.Name), "reader") {
 				t.Errorf("config.Config has %s%s: the reader DSN belongs to LoadAuditReader only", path, f.Name)
 			}
@@ -56,7 +56,7 @@ func TestLoadHasNoAuditReaderDSN(t *testing.T) {
 			}
 		}
 	}
-	walk(reflect.TypeOf(config.Config{}), "")
+	walk(reflect.TypeFor[config.Config](), "")
 	base := map[string]string{}
 	a, errA := config.Load(env(base))
 	b, errB := config.Load(env(map[string]string{"NAVA_AUDIT_READER_DATABASE_URL": "postgres://nava_audit_reader:pw@pg/nava"}))

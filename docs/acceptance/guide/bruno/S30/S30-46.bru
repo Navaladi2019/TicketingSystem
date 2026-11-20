@@ -1,0 +1,37 @@
+meta {
+  name: S30.46 Isolation: Bob publishes incident access in tenant B: 403
+  type: http
+  seq: 46
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-bob
+  If-Match: W/"1"
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {
+      "format": 2,
+      "conditions": [],
+      "policies": []
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Bob is not a tenant admin; the admin check comes first, so nothing is checked, published or told.
+}

@@ -24,15 +24,15 @@ const (
 // temporalstack TestMain (main) and the compose test overlay (overlay).
 func activitiesViolations(main, overlay string) []string {
 	var out []string
-	stop := strings.Index(main, `"stop", alwaysOnWorker`)
+	found := strings.Contains(main, `"stop", alwaysOnWorker`)
 	up := strings.Index(main, `"up", "-d", "--no-deps", "--wait", "--wait-timeout", "180", activityWorker)`)
 	run := strings.Index(main, "m.Run()")
 	switch {
 	case !strings.Contains(main, `activityWorker = "nava-worker-activities"`) || !strings.Contains(main, `activityOnly   = "activityonly"`):
 		out = append(out, "temporalstack TestMain does not name nava-worker-activities and its activityonly profile")
-	case stop >= 0 && up < 0:
+	case found && up < 0:
 		out = append(out, "temporalstack TestMain stops nava-worker but never starts nava-worker-activities (with --wait): nothing would run nava.workflow_ref.Close")
-	case stop >= 0 && (run < 0 || up > run):
+	case found && (run < 0 || up > run):
 		out = append(out, "temporalstack TestMain starts nava-worker-activities after m.Run: the first tests would have no activity worker")
 	case !strings.Contains(main, `"--profile", activityOnly, "up"`):
 		out = append(out, "temporalstack TestMain starts nava-worker-activities without its profile")
@@ -58,7 +58,7 @@ func serviceText(compose, name string) string {
 		return ""
 	}
 	var b strings.Builder
-	for _, line := range strings.Split(rest, "\n") {
+	for line := range strings.SplitSeq(rest, "\n") {
 		if line != "" && !strings.HasPrefix(line, "    ") {
 			break
 		}

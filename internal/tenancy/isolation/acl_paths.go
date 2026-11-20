@@ -1,5 +1,39 @@
 package isolation
 
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// legacyACLInsert runs fn with acl_versions' tenant-id trigger (TICK-940)
+// disabled, as the superuser, and always enables it again. It stores the
+// rows the trigger now refuses but a database can still hold: rows published
+// before 20261119100000, and ids whose group or user was tombstoned after
+// the publish. The read path must grant nothing on them, and these paths
+// prove it. The suite runs its paths one at a time.
+//
+// The DISABLE is committed (fn writes on another connection, which an open
+// ALTER TABLE would block), so while fn runs the trigger is off for the whole
+// cluster: the isolation suite's own, throwaway one. Only the table owner or
+// a superuser can do it (TestRuntimeRolesCannotSkipTheTenantIDTrigger), and
+// only this package's tests reach it (TestLegacyACLInsertIsTestOnly). A
+// failed ENABLE is always returned, joined to fn's error, never dropped
+// (TICK-943 finding F2).
+func legacyACLInsert(ctx context.Context, super *pgx.Conn, fn func() error) (err error) {
+	if _, err := super.Exec(ctx, "ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_tenant_ids"); err != nil {
+		return err
+	}
+	defer func() {
+		if _, e := super.Exec(context.WithoutCancel(ctx), "ALTER TABLE acl_versions ENABLE TRIGGER acl_versions_tenant_ids"); e != nil {
+			err = errors.Join(err, fmt.Errorf("legacyACLInsert: re-enable acl_versions_tenant_ids: %w", e))
+		}
+	}()
+	return fn()
+}
+
 // aclPaths are the S10 authorization tables (P3-30, TICK-615): acl_versions
 // and record_shares are per tenant, insert-only, and their composite foreign
 // keys hold the tenant. The generic CI-2 checks cover them as every role; these
@@ -17,10 +51,17 @@ func aclPaths() []Path {
 			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantB, EntityDefinitionB1),
 		// The composite foreign key holds the tenant: tenant A cannot publish an
-		// ACL for tenant B's type, though the policy passes the row.
-		sql("acl_versions: publish an ACL in tenant A for tenant B's type", "nava_worker", Denied,
+		// ACL for tenant B's type, though the policy passes the row. As
+		// nava_app, the one role that publishes (ADR-010-A1 A1-3, TICK-940).
+		sql("acl_versions: publish an ACL in tenant A for tenant B's type", "nava_app", Denied,
 			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
 			TenantA, EntityDefinitionB1),
+		// ADR-010-A1 A1-3 (TICK-940): the worker publishes nothing, even in its
+		// own tenant for its own type. Denied also accepts class 23; the
+		// database test TestTICK940WorkerCannotPublish pins 42501.
+		sql("acl_versions: nava_worker publishes an ACL in its own tenant", "nava_worker", Denied,
+			"INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks) VALUES ($1, $2, 3, '[]', '[]')",
+			TenantA, definitionA1),
 		sql("acl_versions: rewrite tenant B's ACL", "nava_app", Denied,
 			"UPDATE acl_versions SET rules = '[]' WHERE tenant_id = $1", TenantB),
 		sql("acl_versions: delete tenant B's ACL", "nava_worker", Denied,

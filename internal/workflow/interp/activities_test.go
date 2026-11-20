@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
 	"testing"
 
@@ -51,9 +52,7 @@ func fixtureVersion(t *testing.T) (*interp.Version, fixture) {
 		t.Fatal(err)
 	}
 	ids := make(map[string]uuid.UUID, len(f.stepIDs))
-	for k, id := range f.stepIDs {
-		ids[k] = id
-	}
+	maps.Copy(ids, f.stepIDs)
 	return &interp.Version{Definition: d, StepIDs: ids}, f
 }
 

@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:38080/api/v1/number-formats",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "126",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:38080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s18n-d690e1dc-alice-fmt",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"key\": \"s18n_alice_d690e1dc\",\n  \"document\": {\n    \"template\": \"{prefix}-{yyyy}{MM}{seq:4}\",\n    \"overflow\": \"refuse\"\n  }\n}"
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:9a6142eb5563b8ffa68320aa401a5bf1"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 403",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code forbidden",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}
