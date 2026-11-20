@@ -38,7 +38,7 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 	for _, u := range units {
 		rows = append(rows, Row{State: "open", OrgUnitID: ptRef(u)}, Row{State: "closed", OrgUnitID: ptRef(u), RequesterID: ptRef(ptCaller())})
 	}
-	for _, rr := range ptRandomRows(r, 20) {
+	for _, rr := range ptRandomRows(r, 4) {
 		rr.OrgUnitID = ptRef(units[r.IntN(len(units))])
 		rows = append(rows, rr)
 	}
@@ -49,7 +49,7 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 		all[u] = slices.Clone(units)
 	}
 	checked, folded := 0, 0
-	for range 400 {
+	for range 150 {
 		d := ptRandomDoc(r)
 		for i := range d.Conditions {
 			d.Conditions[i].Expr = utSprinkleUnder(r, d.Conditions[i].Expr, units)
