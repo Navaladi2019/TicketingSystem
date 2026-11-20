@@ -157,7 +157,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit` | under 5 min | | | | 10 |
-| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003) | | | | 15 (was 10) |
+| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021, measured in its pull request) | | | | 15 (was 10) |
 | `isolation` | full runs only (TICK-1003): the suite 148 s and `test-integration-cleanup` 50 to 76 s in run 44604840061; measured job times in the TICK-1003 pull request | | | | 15 |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
@@ -289,16 +289,29 @@ with `fsync`, `synchronous_commit` and `full_page_writes` off: they are thrown
 away. The dev compose file sets them for its Postgres since TICK-166; the
 production files never do (TICK-153 O1).
 
-Three groups run at once (TICK-153 O3): dbtest's top-level tests, dealt
-round-robin over the shard clusters, one `go test -run` each; the other
-packages that use the shared cluster (`pooltest`, `tenancy`, `-p 1`, since they
+Four kinds of group run at once (TICK-153 O3, TICK-1021): dbtest's top-level
+tests, dealt round-robin over the shard clusters, one `go test -run` each; each
+`NAVA_IT_SOLO` package (default `./internal/server`) alone on a cluster of its
+own (`[solo-server]`); the other packages that use the shared cluster
+(`pooltest`, `tenancy`, `records/pipeline` and the rest, `-p 1`, since they
 create the same role); and the packages that use none (`health`, which starts
-its own container). The script lists dbtest's tests first and fails unless the
+its own container). A solo package must not need the PgBouncers, which front
+the shared cluster only; one that has no integration tests fails the run.
+
+**Why `internal/server` runs alone (TICK-1021).** The shared group was the
+critical path. On run 44760743332 (800 s job, the slowest green of 69) it took
+696 s one package after another: `internal/server` 348 s,
+`internal/records/pipeline` 130 s, the rest under 45 s each. The dbtest shards
+were done after 145 s (97 to 139 s per shard), so dbtest was never the long
+pole. Moving `internal/server` to its own cluster takes about 350 s off the
+critical path; measured in the TICK-1021 pull request. The script lists dbtest's tests first and fails unless the
 shards ran every one of them. Extra arguments (`ARGS=-run ...`) run every
 package one after another on the shared cluster, as before.
 
 **Integration timeout and the log (TICK-225).** Every `go test` in the script
-runs with `-timeout 6m`, against the job's `timeout-minutes: 10`. A green run
+runs with `-timeout 8m` (6m until TICK-1021: `internal/server` took 348 s on
+run 44760743332, 12 s from the panic), against the job's `timeout-minutes: 15`;
+the numbers below are TICK-225's, when the job had 10. A green run
 starts its tests about 2 minutes into the job (set-up 17 s, clusters and test
 compile 85 to 100 s) and they take under a minute, so 6 minutes is several
 times the need and still ends, dump printed, before GitHub cancels the step at
@@ -306,7 +319,7 @@ times the need and still ends, dump printed, before GitHub cancels the step at
 cancelled first and the log was empty (PR #113, run 40276586007). A later
 `-timeout` in `ARGS` overrides it. Each group's output streams to the log as
 it arrives, every line prefixed with the group (`[dbtest-1]`, `[shared]`,
-`[own]`, by `tools/ci/testlog`), so even a cancelled step shows it; at the end
+`[own]`, `[solo-server]`, by `tools/ci/testlog`), so even a cancelled step shows it; at the end
 suiteran repeats, per group, the package results and the output of every
 failed test, then the `dbtest: N of M` check and the failed-group summary.
 
@@ -315,7 +328,7 @@ lines after it, under the same `[group]` prefix, list the test or tests
 `running` with how long each ran; that is the stuck test. Then the goroutine
 dump: find the goroutine whose stack goes through that test's function, and
 the frame above it (a `pgx` query, a channel receive, `time.Sleep`) is where it
-waits. The package then fails as `FAIL <package> 6m0.0s`, and the group is
+waits. The package then fails as `FAIL <package> 8m0.0s`, and the group is
 named in `integration: failed groups:`.
 
 Inside dbtest, `migratedCluster` copies each manifest database from a template
@@ -424,7 +437,7 @@ Renovate).**
 | A build-tagged test file stops compiling and CI stays green, because `go vet` and `go test` build untagged files only and the tagged suites run only in the stack jobs (TICK-286 finding 4: a duplicate `onboardPostRaw` behind `identitystack && acceptance` on `main`) | `vet-tags` in the lint job (`tools/ci/buildtags`, TICK-320): finds every module (each `go.mod` outside `testdata`), reads every `//go:build` line, takes for each file every minimal set of custom tags that builds it (one for `a && b`, one per side of `a || b`; GOOS, GOARCH and `go1.N` take their linux/amd64 values), and runs `go vet -tags <set> ./...` in the module once per distinct set, so a new tag or module is covered with no edit. A file with more than 16 custom tags fails the step instead of being skipped. `TestBrokenTaggedFileFails` vets a fixture whose `stacktag && accept` test redeclares a `stacktag` helper and expects exactly that set to fail; `TestRepositoryCoversTheAcceptanceTag` keeps the `acceptance,identitystack` set discovered. Tags are never combined beyond what one file needs, so two tags no file uses together are not built together |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
-| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 6m` in `test-integration.sh` (below the job's 10 minutes) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
+| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 8m` in `test-integration.sh` (below the job's 15 minutes; 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | A change to `nava.interpreter` breaks determinism, so runs already in flight fail on their next workflow task after a deploy (Epic 09 AC2) | The replay gate in the `unit` job (`make test`), below: `TestReplayRecordedHistories` replays every history under `internal/workflow/testdata/histories/`; `TestHistoriesAppendOnly` keeps the ones on `main` unchanged; `TestHistoriesHoldReferencesOnly` keeps them references only (ADR-001 R1) |
 | A branch's migration merges with a version older than one already on `main`, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE=origin/main` for every event, also pull requests into a story branch (TICK-309), and full history: fails naming each added migration, its version and `main`'s newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |
