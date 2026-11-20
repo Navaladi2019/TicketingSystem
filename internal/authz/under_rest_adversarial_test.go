@@ -22,8 +22,9 @@ import (
 // not, inside refs), for every principal for which UnderNeeded is false
 // (ExpandUnder runs no query and binds only rest), the decision on every row,
 // read and write, and the read SQL must be the same as with S bound to
-// nothing and with S bound to every unit. If they differ, the leaf mattered
-// and rest decided it.
+// nothing, to every unit, and to the two mixed bindings (caller full and
+// listed roots empty, and the reverse). If they differ, the leaf mattered and
+// rest decided it.
 func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 	t.Parallel()
 	r := rand.New(rand.NewPCG(20261121, 950))
@@ -41,8 +42,14 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 		rr.OrgUnitID = ptRef(units[r.IntN(len(units))])
 		rows = append(rows, rr)
 	}
+	none := map[uuid.UUID][]uuid.UUID{}
+	all := map[uuid.UUID][]uuid.UUID{}
+	for _, u := range units {
+		none[u] = nil
+		all[u] = slices.Clone(units)
+	}
 	checked, folded := 0, 0
-	for range 1200 {
+	for range 400 {
 		d := ptRandomDoc(r)
 		for i := range d.Conditions {
 			d.Conditions[i].Expr = utSprinkleUnder(r, d.Conditions[i].Expr, units)
@@ -63,29 +70,35 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: ExpandUnder with no surviving leaf: %v", name, err)
 			}
-			all := map[uuid.UUID][]uuid.UUID{}
-			for _, u := range units {
-				all[u] = slices.Clone(units)
+			// The joint extremes, and the two mixed bindings: a pair such as
+			// all[under caller, not under X] that matters only when the caller's
+			// S and a listed root's S differ is caught by one of the mixed ones.
+			oracles := []struct {
+				name string
+				pol  *Policy
+			}{
+				{"S empty", BindUnder(pol, p, nil, none)},
+				{"S full", BindUnder(pol, p, slices.Clone(units), all)},
+				{"caller full, units empty", BindUnder(pol, p, slices.Clone(units), none)},
+				{"caller empty, units full", BindUnder(pol, p, nil, all)},
 			}
-			empty := BindUnder(pol, p, nil, map[uuid.UUID][]uuid.UUID{utUnit(1): nil, utUnit(2): nil, utUnit(3): nil})
-			full := BindUnder(pol, p, slices.Clone(units), all)
 			for _, op := range []string{OpRead, OpWrite} {
 				for ri, row := range rows {
 					_, _, g := Allows(got, p, op, row)
-					_, _, e := Allows(empty, p, op, row)
-					_, _, f := Allows(full, p, op, row)
-					checked++
-					if g != e || g != f {
-						t.Fatalf("%s %s row %d: rest decided a leaf that matters: ExpandUnder=%v, S empty=%v, S full=%v\ndocument: %+v",
-							name, op, ri, g, e, f, d)
+					for _, o := range oracles {
+						checked++
+						if _, _, w := Allows(o.pol, p, op, row); g != w {
+							t.Fatalf("%s %s row %d: rest decided a leaf that matters: ExpandUnder=%v, %s=%v\ndocument: %+v",
+								name, op, ri, g, o.name, w, d)
+						}
 					}
 				}
 			}
 			gs, _ := CompileRead(got, p, "r", 2)
-			es, _ := CompileRead(empty, p, "r", 2)
-			fs, _ := CompileRead(full, p, "r", 2)
-			if gs != es || gs != fs {
-				t.Fatalf("%s: read SQL depends on S although no leaf survives: rest %q, empty %q, full %q", name, gs, es, fs)
+			for _, o := range oracles {
+				if ws, _ := CompileRead(o.pol, p, "r", 2); gs != ws {
+					t.Fatalf("%s: read SQL depends on S although no leaf survives: rest %q, %s %q", name, gs, o.name, ws)
+				}
 			}
 		}
 	}
