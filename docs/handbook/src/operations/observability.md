@@ -65,6 +65,18 @@ If OpenObserve is not running (a stack without the `operator` profile), the Coll
 | `AuditDeadLineageCheckDown` (warning) | The dead-lineage check has reported nothing for 5 minutes | The nava-purge `audit dead lineage check failed` log line: a lost grant, a dropped policy or a renamed column |
 | `AuthzPolicyInvalid` (warning) | `authz_policy_invalid_total` grew in the last 10 minutes for an entity type: a stored access policy was voided and grants nothing (ADR-010 R7, S30) | The nava-core log line `authz: access policy voided, it grants nothing` names the entity type and ACL version; the explainer's `invalid` list gives the policy and pointer. Republish a valid document and file a bug on the check that let it through. Its sibling `authz_read_branches_fallback_total` has no alert; see [Core: record ACL](../system/core-acl.md#the-sp-2-branch-threshold-adr-010-d6) |
 
+### Field index (S21, story branch)
+
+On `TICK-739/filterable-fields`, not yet on `main`, there are no alert rules
+for these yet; the log lines carry `alert=true`:
+
+| Metric or log line | Meaning | Where to look |
+|---|---|---|
+| `nava_field_index_uncoerced_total{entity_definition}` | Values of a flagged field that did not coerce to its type, counted by the records trigger after commit and by the backfill. The label is the type's opaque id, never a tenant or value | The type's definition and the writers of that field. See [Field index](../database/field-index.md#the-uncoerced-counter) |
+| `field_index_barrier_slow` and the `field index barrier slow` log line (`alert=true`) | A backfill barrier has waited 15 minutes for a transaction that was open at the flip; it keeps waiting | The long-running transaction in `pg_stat_activity`. See [Field-index backfill](../workflows/field-index-backfill.md) |
+| Coordinator `Warn` line with `alert=true` and the field id | A backfill child failed; the field stays in its state and the queue moves on | nava-worker logs for that workflow id |
+| `nava.records.list.indexed.duration` | Duration of lists that filter on an indexed field, by selectivity band and ACL presence (ADR-006 D13, R-a) | Prometheus |
+
 ## What is never in telemetry
 
 Spans carry no client values or personal data. Logs carry no raw path, query, headers, client IP or tokens. The full list of controls and known gaps is in [observability-notes.md](../../../architecture/observability-notes.md).

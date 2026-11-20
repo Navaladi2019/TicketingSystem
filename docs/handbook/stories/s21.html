@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S21: Filter a large ticket type on a flagged field in milliseconds - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group"><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/access-api.html">Access API: publish, read, explain</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/id-generation.html">Id generation (UUIDv7)</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group" open><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../database/field-index.html">Field index (filterable fields)</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><details><summary><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></summary><ul><li><a href="../adr/adr-006-e1.html">E1: the D9 barrier also waits on running xids at or above xmax (proposed)</a></li><li><a href="../adr/adr-006-a1.html">A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li></ul></details></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">E2: a stale If-Match on the access PUT is 412, not 409</a></li></ul></details></li></ul></details></li><li><details open><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li class="current"><a href="../stories/s21.html" aria-current="page">Filter on flagged fields (in progress)</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li><li><a href="../stories/s30.html">Compose access rules from named conditions</a></li><li><a href="../stories/go127.html">Go 1.27, UUIDv7 ids and strict JSON</a></li><li><a href="../stories/s28.html">Time to the first workflow-routed record (X1a)</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/go-toolchain.html">Go toolchain and setup</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S21: Filter a large ticket type on a flagged field in milliseconds</span></nav>
+<p class="badge">In progress: not on main yet</p>
+<article>
+<h1 class="page-title">S21: Filter a large ticket type on a flagged field in milliseconds</h1>
+<p>Story TICK-739, plan <a href="../../../docs/delivery/plan-adr-006.md">PLAN-007</a> (TICK-736),
+design <a href="../adr/adr-006.html">ADR-006</a>, with erratum <a href="../adr/adr-006-e1.html">E1</a> (the barrier waits past <code>xmax</code>; READ COMMITTED writers only) and amendment <a href="../adr/adr-006-a1.html">A1</a> (the 350 ms bands). **In progress: built on the story branch
+<code>TICK-739/filterable-fields</code>, not on <code>main</code>, and not yet accepted.** Every
+build task is merged into the story branch. Still open: the acceptance kit
+(TICK-749, PR #794), the branch's catch-up with <code>main</code> (TICK-1023), and the
+≥ 40% ACL plan investigation (TICK-1022).</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<p>A tenant admin marks a top-level field of a ticket type as filterable by adding
+<code>&quot;x-nava-filterable&quot;: true</code> to the property in a published version. The
+platform indexes the existing records in the background. Once the field is
+ready, an agent filters a 400k-record list on it in tens of milliseconds
+instead of about a second:</p>
+<ul>
+<li><code>filter[priority]=1</code> and <code>filter[site][in]=s1,s7</code> (equality, up to 100
+values) on text, number, date-time and boolean fields;</li>
+<li><code>filter[priority][gte]=2&amp;filter[due_at][lt]=2026-12-01</code> (ranges on number and
+date-time fields). On an array field, one element must satisfy every bound.</li>
+</ul>
+<p>While the field is indexing, a filter on it answers <code>422 field_not_ready</code> with
+the whole percentage done, <code>index_progress</code>, and nothing else. Records created
+or edited during or after indexing are found.</p>
+<h2 id="rules-a-caller-sees">Rules a caller sees</h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The field is masked for the caller</td>
+<td><code>400 masked_field</code> (checked first)</td>
+</tr>
+<tr>
+<td>The field is not flagged</td>
+<td><code>400 field_not_filterable</code>, except the three seed fields that keep the old JSONB scan until S22: <code>incident.priority</code>, <code>request.priority</code>, <code>change.risk</code></td>
+</tr>
+<tr>
+<td>The field is flagged and indexing</td>
+<td><code>422 field_not_ready</code>, <code>index_progress</code></td>
+</tr>
+<tr>
+<td>The value does not fit the field's type, or a range on text or bool</td>
+<td><code>422 validation_failed</code></td>
+</tr>
+<tr>
+<td>Publish puts the flag below the top level</td>
+<td><code>422 filterable_field_not_top_level</code></td>
+</tr>
+<tr>
+<td>Publish changes the value type of a flagged field</td>
+<td><code>422 filterable_field_type_change</code></td>
+</tr>
+<tr>
+<td>Publish drops a flag or a flagged field</td>
+<td><code>422 filterable_field_removal_unavailable</code> (removal is S22)</td>
+</tr>
+<tr>
+<td>Publish flags more than 5 fields on a type, or 50 in the tenant</td>
+<td><code>422 index_quota_exceeded</code></td>
+</tr>
+<tr>
+<td>Publish flags a field whose index is being removed</td>
+<td><code>409 field_index_busy</code></td>
+</tr>
+<tr>
+<td>Publish uses <code>x-nava-searchable</code></td>
+<td><code>422 searchable_not_available</code> (free-text search is RFC-016)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-it-works">How it works</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart LR
+  pub[&quot;Publish a version&lt;br/&gt;with x-nava-filterable&quot;] --&gt; reg[&quot;registry row: backfilling&lt;br/&gt;+ outbox row (one tx, quota lock)&quot;]
+  reg --&gt; bf[&quot;coordinator + FieldIndexBackfill&lt;br/&gt;behind a snapshot barrier&quot;]
+  bf --&gt; ready[&quot;registry row: ready&quot;]
+  w[&quot;Any records write&quot;] --&gt; trg[&quot;AFTER ROW trigger&lt;br/&gt;copies flagged values&quot;]
+  trg --&gt; side[&quot;rfv_text / rfv_num / rfv_ts / rfv_bool&quot;]
+  bf --&gt; side
+  ready --&gt; list[&quot;List: one correlated EXISTS per field&lt;br/&gt;on the side table, inside the ACL statement&quot;]
+  side --&gt; list
+</pre></div></figure>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Page</th>
+<th>Tasks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Registry and four typed side tables, RLS, grants</td>
+<td><a href="../database/field-index.html">Field index</a></td>
+<td>TICK-741</td>
+</tr>
+<tr>
+<td><code>record_field_coerce</code> and the records trigger; READ COMMITTED guard</td>
+<td><a href="../database/field-index.html#the-records-trigger">Field index</a></td>
+<td>TICK-742, TICK-979</td>
+</tr>
+<tr>
+<td><code>x-nava-filterable</code> accepted on top-level properties as a compatible change</td>
+<td><a href="../system/core-metadata.html">Metadata engine</a></td>
+<td>TICK-743</td>
+</tr>
+<tr>
+<td>Publish writes the registry and outbox rows once, within quota</td>
+<td><a href="../system/core-metadata.html">Metadata engine</a></td>
+<td>TICK-744</td>
+</tr>
+<tr>
+<td>Coordinator, snapshot barrier, <code>FieldIndexBackfill</code>; uncoerced count; barrier heartbeat bounds</td>
+<td><a href="../workflows/field-index-backfill.html">Field-index backfill</a></td>
+<td>TICK-745, TICK-974, TICK-976, TICK-980, TICK-990, TICK-991</td>
+</tr>
+<tr>
+<td>List filters compile to one <code>EXISTS</code> per field</td>
+<td><a href="../database/records.html">Records</a></td>
+<td>TICK-746, TICK-989</td>
+</tr>
+<tr>
+<td>Measured against ADR-006 D10 and D13 (as amended by A1)</td>
+<td><a href="../benchmarks/index.html">Benchmarks</a></td>
+<td>TICK-747, TICK-992</td>
+</tr>
+<tr>
+<td>Adversarial isolation tests</td>
+<td><a href="#attack-paths">below</a></td>
+<td>TICK-748, TICK-975</td>
+</tr>
+</tbody>
+</table>
+<p>The list filter reads the side table only through a correlated
+<code>EXISTS (SELECT 1 FROM rfv_&lt;t&gt; v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = $n AND v.value &lt;op&gt; $m)</code> inside the one list
+statement that carries the row ACL, so the ACL and the tenant predicate apply
+to every hit and to <code>total</code>. <code>TestListFilterPushdownIsAnIndexCond</code> checks the
+plan uses <code>rfv_&lt;t&gt;_value</code> as an index condition for each operator under forced
+RLS. Indexed lists record <code>nava.records.list.indexed.duration</code>, labelled by
+selectivity band and ACL presence only.</p>
+<h2 id="api-operations">API operations</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Method and path</th>
+<th>Summary</th>
+<th>Responses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>listRecords</code></td>
+<td><code>GET /api/v1/records/{entity}</code></td>
+<td>List the records of an entity type the caller may read</td>
+<td>200, 400, 401, 404, 422, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>publishEntityTypeVersion</code></td>
+<td><code>POST /api/v1/entity-types/{key}/versions</code></td>
+<td>Publish the next version of an entity type (tenant admin)</td>
+<td>201, 400, 401, 403, 404, 409, 412, 422, 429, 500, 501</td>
+</tr>
+</tbody>
+</table>
+<h2 id="attack-paths">Attack paths</h2>
+<p>Registered isolation paths (<code>internal/tenancy/isolation/fieldindex_attack_paths.go</code>),
+run by <code>TestRegisteredPaths</code> in the CI <code>integration</code> job with <code>ISOLATION=1</code>.
+Each row was shown red against a broken variant of the defence it proves
+(<a href="../../../docs/reviews/tick-748-s21-isolation-attacks.md">review</a>). **All six rows
+run; none is pending.**</p>
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>Case</th>
+<th>Attack</th>
+<th>Defence proven</th>
+<th>Task</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>CI-2</td>
+<td>Tenant A filters on values only tenant B has, while B's fields move through every registry state</td>
+<td>Hits, <code>total</code>, status, error code and <code>index_progress</code> equal those of a value no tenant has</td>
+<td>TICK-748</td>
+</tr>
+<tr>
+<td>2</td>
+<td>CI-8</td>
+<td>An agent filters on a value only in a record the ACL hides, or on a masked field</td>
+<td>Same bytes as a value nobody has, for every operator; a masked field is the same <code>400 masked_field</code> in every state</td>
+<td>TICK-748</td>
+</tr>
+<tr>
+<td>3</td>
+<td>CI-2</td>
+<td>Tenant A publishes a flagged definition against tenant B's type, with a forged <code>X-Tenant-Id</code>; the backfill's seven statements run as tenant A with tenant B's field id</td>
+<td>Registry and outbox rows for the caller's own tenant only; the statements read, write and flip nothing (0 rows or FK 23503)</td>
+<td>TICK-748</td>
+</tr>
+<tr>
+<td>3b</td>
+<td>CI-2</td>
+<td><code>FieldIndexBackfill</code> is started from tenant A's outbox row whose payload names tenant B (<code>tenant_id</code> or <code>field_id</code>)</td>
+<td>The tenant is bound from the row (the relay header), never the payload; the real coordinator and backfill write nothing</td>
+<td>TICK-975</td>
+</tr>
+<tr>
+<td>4</td>
+<td>CI-2</td>
+<td>Every runtime role, as raw SQL: UPDATE a side table, write another tenant's side or registry row</td>
+<td>Refused; registry column grants are exactly ADR-006 D14</td>
+<td>TICK-748</td>
+</tr>
+<tr>
+<td>5</td>
+<td>CI-2</td>
+<td>Read counts out of <code>field_not_ready</code></td>
+<td>The body carries the registry's percentage only, identical for every value, caller and record count</td>
+<td>TICK-748</td>
+</tr>
+</tbody>
+</table>
+<p>Row 3 originally covered the database layer only, with its workflow half (3b)
+registered as pending on TICK-745. TICK-975 added 3b, which drives the real
+coordinator and backfill, so both now run. The relay also refuses a payload
+<code>tenant_id</code> that differs from the row's before any Temporal call.</p>
+<h2 id="performance">Performance</h2>
+<p>Scored on the reference machine on 2026-11-19 (TICK-992, story head
+<code>9ec4e1f5</code>), against <a href="../adr/adr-006.html">ADR-006</a> D13 as amended by <a href="../adr/adr-006-a1.html">ADR-006-A1</a>
+(≤ 150 ms list p95; ≤ 350 ms for the 0.5–2% band with or without a narrowing
+ACL, and for the ≥ 40% band with one):</p>
+<ul>
+<li><strong>Lists, 40 cells:</strong> 2 miss against the A1 limits, both 0.25% <code>in</code> (160.9 /
+152.8 ms, 29–35 ms of server time, on a host whose idle control read up to
+1.3× the fully idle figure). Three cells pass by 10% or less, so they are
+provisional: 2% ACL text <code>eq</code> 317.6 ms, 40% ACL text <code>in</code> 327.6 ms, and
+0.25% ACL <code>bool eq</code> 143.5 ms. TICK-1002 rescores the provisional
+cells on a fully idle host.</li>
+<li><strong>Insert with 5 flagged fields:</strong> 83% of baseline tps (budget ≥ 40%).</li>
+<li><strong>Live writes during a 400k backfill:</strong> −7.4% p95 (budget ≤ +25%); the
+backfill takes 8–10 minutes.</li>
+</ul>
+<p>TICK-1022 is open: on one fresh stack the ≥ 40% ACL list p95 read
+578–983 ms, and 119 ms on the next. The diagnosis in PR #796 ties the count
+plan to the side table's visibility map after the backfill. The
+numbers are on the <a href="../benchmarks/index.html">benchmarks page</a> and in
+<a href="../../../docs/data/field-index-measured.md">field-index-measured.md</a>.</p>
+<h2 id="how-to-try-it">How to try it</h2>
+<p>The acceptance kit (Bruno folder <code>S21 filterable fields</code>, TICK-749) is not
+merged yet. When it is, it seeds 400k incidents in tenant A, publishes
+<code>x-nava-filterable</code> on <code>priority</code> (number) and <code>due_at</code> (date-time) as the
+tenant A admin, polls the list as the tenant A agent until the field is ready,
+then filters. This section will name the kit's steps and its recorded run.</p>
+<h2 id="not-in-this-story">Not in this story</h2>
+<ul>
+<li>Removing a flag, the operator quota raise to 10, flagging the seed fields and
+retiring the JSONB scan: S22 (TICK-740).</li>
+<li>The D13 watch, spikes S1/S2 for the 2–40% band, and the adaptive statement
+shape: S21b, PLAN-007-A1 (TICK-1005, TICK-1011).</li>
+<li>Free-text search (<code>x-nava-searchable</code>, RFC-016) and sort on data fields.</li>
+</ul>
+</article>
+<nav class="pager" aria-label="Previous and next page"><a class="prev" href="../stories/s18.html">&larr; S18: A tenant admin defines a number format and links it to a ticket type</a><a class="next" href="../stories/hb2.html">HB2: A first-time reader learns the product from the handbook &rarr;</a></nav>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Story S21</h3><ul><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill (field_index.coordinator, field_index.backfill.run)</a></li></ul>
+<h3>ADR ADR-006</h3><ul><li><a href="../adr/adr-006-a1.html">ADR-006-A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li><li><a href="../adr/adr-006-e1.html">ADR-006-E1: the D9 barrier also waits on running xids at or above xmax</a></li><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../adr/adr-009.html">ADR-009: records catch up when a published version adds a default</a></li><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill (field_index.coordinator, field_index.backfill.run)</a></li></ul>
+<h3>ADR ADR-006-A1</h3><ul><li><a href="../adr/adr-006-a1.html">ADR-006-A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li></ul>
+<h3>ADR ADR-006-E1</h3><ul><li><a href="../adr/adr-006-e1.html">ADR-006-E1: the D9 barrier also waits on running xids at or above xmax</a></li><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill (field_index.coordinator, field_index.backfill.run)</a></li></ul>
+<h3>Operation createEntityType</h3><ul><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation listRecords</h3><ul><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation patchRecord</h3><ul><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation publishEntityTypeVersion</h3><ul><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../stories/s8.html">S8: A tenant admin publishes an incident type and reads every version</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li></ul>
+<h3>Invariant I1</h3><ul><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../security/03-transaction.html">3. Tenant transaction</a></li><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../vision/tenant-wall.html">I1: Tenant wall in the database</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill (field_index.coordinator, field_index.backfill.run)</a></li></ul>
+<h3>Invariant I5</h3><ul><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../vision/one-authorization-layer.html">I5: One authorization layer, inside the query</a></li></ul>
+<h3>Invariant I8</h3><ul><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8: Contracts are the boundary; configuration, not code; AI is advisory</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 1dc3992ff46b (2026-11-15)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>
