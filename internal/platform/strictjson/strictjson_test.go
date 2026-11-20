@@ -111,3 +111,28 @@ func TestUnmarshalAccepts(t *testing.T) {
 		t.Fatalf("Name = %q, want x", v.Name)
 	}
 }
+
+// TestCheckUTF8: CheckUTF8 reports invalid UTF-8 as Check does, but lets a
+// duplicate name through, so a duplicate before the invalid bytes cannot hide
+// them (TICK-1019). Other syntax errors are not its to report.
+func TestCheckUTF8(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, body, pointer string
+		bad                 bool
+	}{
+		{"valid", `{"a":1}`, "", false},
+		{"duplicate only", `{"a":1,"a":2}`, "", false},
+		{"bad bytes after a duplicate", "{\"a\":1,\"a\":2,\"b\":\"\xff\"}", "/b", true},
+		{"lone surrogate in a key", esc(`{"a":{"%ud800":1}}`), "/a", true},
+		{"other syntax error", `{"a":}`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			v, bad := strictjson.CheckUTF8([]byte(tc.body))
+			if bad != tc.bad || (bad && (v.Pointer != tc.pointer || v.Rule != strictjson.RuleInvalidUTF8)) {
+				t.Errorf("CheckUTF8 = %+v, %v; want %q invalid_utf8 = %v", v, bad, tc.pointer, tc.bad)
+			}
+		})
+	}
+}
