@@ -259,8 +259,9 @@ ACL, and for the ≥ 40% band with one):</p>
 <ul>
 <li><strong>Lists, 40 cells:</strong> 2 miss against the A1 limits, both 0.25% <code>in</code> (160.9 /
 152.8 ms, 29–35 ms of server time, on a host whose idle control read up to
-1.3× the fully idle figure). Two cells pass by 10% or less (2% ACL text <code>eq</code>
-317.6 ms, 40% ACL text <code>in</code> 327.6 ms). TICK-1002 rescores the provisional
+1.3× the fully idle figure). Three cells pass by 10% or less, so they are
+provisional: 2% ACL text <code>eq</code> 317.6 ms, 40% ACL text <code>in</code> 327.6 ms, and
+0.25% ACL <code>bool eq</code> 143.5 ms. TICK-1002 rescores the provisional
 cells on a fully idle host.</li>
 <li><strong>Insert with 5 flagged fields:</strong> 83% of baseline tps (budget ≥ 40%).</li>
 <li><strong>Live writes during a 400k backfill:</strong> −7.4% p95 (budget ≤ +25%); the

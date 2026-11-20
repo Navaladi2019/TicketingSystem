@@ -51,7 +51,7 @@ can always be rebuilt. No DDL runs per tenant or per field (I8).</p>
 <td><code>rfv_text</code></td>
 <td>value of a text field</td>
 <td><code>(tenant_id, record_id, field_id, ord)</code></td>
-<td><code>value text COLLATE &quot;C&quot;</code>, at most 2,000 bytes</td>
+<td><code>value text COLLATE &quot;C&quot;</code>; coercion stores at most 2,000 bytes (no column CHECK)</td>
 </tr>
 <tr>
 <td><code>rfv_num</code></td>
@@ -87,8 +87,10 @@ written by the integration suite on <code>main</code>, and the story is not merg
 <h2 id="why-the-value-types">Why the value types</h2>
 <p>Under forced RLS, PostgreSQL pushes a comparison below the tenant policy as an
 index condition only when its operator is <strong>leakproof</strong>. The <code>=</code>, <code>&lt;</code>, <code>&lt;=</code>,
-<code>&gt;</code> and <code>&gt;=</code> operators of <code>text</code> (under <code>COLLATE &quot;C&quot;</code>), <code>float8</code>,
-<code>timestamptz</code> and <code>bool</code> are leakproof; <code>numeric</code>'s are not. That is why <code>num</code>
+<code>&gt;</code> and <code>&gt;=</code> operators of <code>text</code>, <code>float8</code>, <code>timestamptz</code> and <code>bool</code> are
+leakproof; <code>numeric</code>'s are not. Leakproofness belongs to the operator's
+function; the text column uses <code>COLLATE &quot;C&quot;</code> so the filter's comparison
+matches the value index. That is why <code>num</code>
 is <code>double precision</code>. <code>TestP701LeakproofCatalog</code> pins the catalogue and fails
 on any <code>numeric</code> column here.</p>
 <h2 id="rls-and-grants-adr-006-d14">RLS and grants (ADR-006 D14)</h2>
@@ -203,7 +205,8 @@ and chain are byte-identical with and without flagged fields.</li>
 <code>records</code> as the migrator indexes nothing and must run the backfill afterwards.</p>
 <h2 id="the-uncoerced-counter">The uncoerced counter</h2>
 <p>A value that does not coerce is counted, not raised (ADR-006 R5). The trigger
-adds the count to a transaction-local setting, <code>nava.field_index_uncoerced</code>;
+adds the count to a transaction-local setting, <code>nava.field_index_uncoerced</code>,
+a JSON object keyed by entity definition id (<code>{&quot;&lt;id&gt;&quot;: n}</code>);
 <code>tenancy.InTenantTx</code> reads it in the same batch as <code>COMMIT</code>, and only after the
 commit succeeds the pipeline adds it to
 <code>nava_field_index_uncoerced_total{entity_definition}</code>. A rolled-back

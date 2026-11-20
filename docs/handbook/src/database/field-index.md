@@ -34,7 +34,7 @@ can always be rebuilt. No DDL runs per tenant or per field (I8).
 | Table | One row per | Key | Notes |
 |---|---|---|---|
 | `record_index_fields` (the registry) | flagged field of a type | `(tenant_id, id)`; unique `(tenant_id, entity_definition_id, field_key)` | `value_type` (`text`, `num`, `ts`, `bool`), `state` (`backfilling`, `ready`, `removing`), `progress` 0–100, `requested_version` |
-| `rfv_text` | value of a text field | `(tenant_id, record_id, field_id, ord)` | `value text COLLATE "C"`, at most 2,000 bytes |
+| `rfv_text` | value of a text field | `(tenant_id, record_id, field_id, ord)` | `value text COLLATE "C"`; coercion stores at most 2,000 bytes (no column CHECK) |
 | `rfv_num` | value of a number field | same | `value double precision`, never `numeric` (R3) |
 | `rfv_ts` | value of a date or date-time field | same | `value timestamptz` |
 | `rfv_bool` | value of a boolean field | same | `value boolean` |
@@ -57,8 +57,10 @@ written by the integration suite on `main`, and the story is not merged.
 
 Under forced RLS, PostgreSQL pushes a comparison below the tenant policy as an
 index condition only when its operator is **leakproof**. The `=`, `<`, `<=`,
-`>` and `>=` operators of `text` (under `COLLATE "C"`), `float8`,
-`timestamptz` and `bool` are leakproof; `numeric`'s are not. That is why `num`
+`>` and `>=` operators of `text`, `float8`, `timestamptz` and `bool` are
+leakproof; `numeric`'s are not. Leakproofness belongs to the operator's
+function; the text column uses `COLLATE "C"` so the filter's comparison
+matches the value index. That is why `num`
 is `double precision`. `TestP701LeakproofCatalog` pins the catalogue and fails
 on any `numeric` column here.
 
@@ -146,7 +148,8 @@ sequenceDiagram
 ## The uncoerced counter
 
 A value that does not coerce is counted, not raised (ADR-006 R5). The trigger
-adds the count to a transaction-local setting, `nava.field_index_uncoerced`;
+adds the count to a transaction-local setting, `nava.field_index_uncoerced`,
+a JSON object keyed by entity definition id (`{"<id>": n}`);
 `tenancy.InTenantTx` reads it in the same batch as `COMMIT`, and only after the
 commit succeeds the pipeline adds it to
 `nava_field_index_uncoerced_total{entity_definition}`. A rolled-back

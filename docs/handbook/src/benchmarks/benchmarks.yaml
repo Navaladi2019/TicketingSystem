@@ -224,7 +224,7 @@ rows:
     budget: "List with one data filter, 0.25% and 0.01% bands and 40% without an ACL"
     budgets_md: "List with one data filter, by band (40%, 2%, 0.25%, 0.01% of the type), with and without a narrowing ACL"
     threshold: "≤ 150 ms p95 (D13)"
-    result: "0.25% in: 160.9 / 152.8 ms (ACL / no ACL), the 2 misses of 40 cells (29–35 ms server time, no fan-out); every other cell passes, ts range 47.9–129.1 ms after TICK-989 (was 1,079–13,418)"
+    result: "0.25% in: 160.9 / 152.8 ms (ACL / no ACL), the 2 misses of 40 cells (29–35 ms server time, no fan-out); 0.25% ACL bool eq 143.5 ms passes by 10% or less (provisional); every other cell passes by more than 10%, ts range 47.9–129.1 ms after TICK-989 (was 1,079–13,418)"
     date: "2026-11-19"
     commit: "9ec4e1f5"
     host: "Reference host (laptop, Intel i7-1260P, Docker on WSL2, 16 vCPU), owner's nava stack running at idle (waived by the Technical Lead on TICK-992); no-filter control 86–99 ms against 73 ms fully idle"

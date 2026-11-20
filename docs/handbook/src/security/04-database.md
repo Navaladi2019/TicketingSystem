@@ -90,7 +90,8 @@ field-index tables (`record_index_fields` and the four `rfv_*` side tables)
 follow the same rules: `ENABLE` and `FORCE` RLS, one policy per command and
 role using the canonical tenant predicate, no UPDATE grant on any side table,
 and column-level UPDATE on the registry only for `state`, `progress`,
-`requested_version` and `updated_at` (ADR-006 D14). The records trigger that
+`requested_version` and `updated_at` for `nava_app`, and only `state`,
+`progress` and `updated_at` for `nava_worker` (ADR-006 D14). The records trigger that
 writes them is `SECURITY INVOKER`, so it runs under the writer's RLS. The FKs
 to `records` and the registry are what stop a tenant A row from naming tenant
 B's field id: RLS `WITH CHECK` sees only `tenant_id`. `TestP701Grants` pins the
