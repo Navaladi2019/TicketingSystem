@@ -144,7 +144,7 @@ export interface paths {
         get: operations["getEntityTypeAccess"];
         /**
          * Publish the next access policy version (tenant admin)
-         * @description Publishes immutable ACL version N+1 from the body `{rules, masks}` (`masks` optional). Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on; the first publish uses `W/"0"`. A body that is not a JSON object is 400 `validation_failed` (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422 `invalid_access_policy` with `errors[].pointer` and `rule`). The body is refused when a column, op or `caller` is unknown, a shape rule of the database is broken, a rule id repeats, a mask field is not a top-level schema property, a mask subject sets `requester`, `assignee` or `shared`, a mask's `write` names a group or user its `read` does not, or any group or user id (in a subject or a condition) is not in the tenant (`not_in_tenant`, the same for an unknown id and another tenant's). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required.
+         * @description Publishes immutable ACL version N+1 from the body `{rules, masks}` (`masks` optional). Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on; the first publish uses `W/"0"`. A body that is not a JSON object is 400 `validation_failed` (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422 `invalid_access_policy` with `errors[].pointer` and `rule`). The body is refused when a column, op or `caller` is unknown, a shape rule of the database is broken, a rule id repeats, a mask field is not a top-level schema property, a mask subject sets `requester`, `assignee` or `shared`, a mask's `write` names a group or user its `read` does not, or any group or user id (in a subject or a condition) is not in the tenant (`not_in_tenant`, the same for an unknown id and another tenant's). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required. A reused key is 409: `idempotency_key_reuse` (same key, different body) or `idempotency_in_flight` (same key while the first request is still running; `Retry-After: 60`).
          */
         put: operations["putEntityTypeAccess"];
         post?: never;
@@ -1181,6 +1181,7 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["ProblemNoInstance"];
+            409: components["responses"]["Problem"];
             /** @description The `If-Match` version is not the newest; the current `ETag` is in the header. */
             412: {
                 headers: {
