@@ -345,6 +345,8 @@ paths:
 
         The platform's limits on a format-2 document, checked on save, each a 422 with `errors[].pointer` and `rule`: a reference to a condition that does not exist (`unresolved_ref`); a reference cycle (`ref_cycle`); 1 to 16 children in an `all` or `any` (`child_count`); depth at most 8 after references expand (`depth_exceeded`); at most 128 leaves in a policy (`policy_leaves_exceeded`); at most 64 policies (`policies_exceeded`); at most 128 leaves in all policies of a document (`document_leaves_exceeded`); every group and user id belongs to the tenant (`foreign_id`, for format 1 `not_in_tenant`); an unknown node kind (`unknown_key`); a name that is not `^[a-z][a-z0-9_]{0,62}$` or repeats (`invalid_name`, `duplicate_name`); `under` is not available yet (`not_available`). `rules` and `masks` are each limited to the platform's configured limit, 32 KiB by default, measured on the stored form; above it the 422 is `document_too_large` at `/rules` or `/masks`, and the limit is in that error's `detail`. The accepted publish may carry `warnings` (`{pointer, code}`), for example `not_over_caller_leaf` on a `not` over a leaf that depends on the caller; a warning does not refuse the document.
 
+        A reused key is 409: `idempotency_key_reuse` (same key, different body) or `idempotency_in_flight` (same key while the first request is still running; `Retry-After: 60`).
+
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: If-Match
@@ -389,6 +391,8 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "#/components/responses/Problem"
         "412":
           description: The `If-Match` version is not the newest; the current `ETag` is in the header.
           headers:

@@ -250,7 +250,7 @@ func TestPutAccessPublishesTheNextVersionWithItsAuditEntry(t *testing.T) {
 	}
 }
 
-// covers: putEntityTypeAccess 200
+// covers: putEntityTypeAccess 200 409
 func TestPutAccessReplayWithTheSameKeyWritesOneVersion(t *testing.T) {
 	e := newPatchEnv(t)
 	versions0, entries0 := e.aclCounts(t)

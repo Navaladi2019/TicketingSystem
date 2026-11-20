@@ -3766,6 +3766,20 @@ func (response PutEntityTypeAccess404ApplicationProblemPlusJSONResponse) VisitPu
 	return err
 }
 
+type PutEntityTypeAccess409ApplicationProblemPlusJSONResponse Problem
+
+func (response PutEntityTypeAccess409ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PutEntityTypeAccess412ResponseHeaders struct {
 	ETag string
 }

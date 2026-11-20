@@ -347,6 +347,10 @@ paths:
         publish may carry `warnings` (`{pointer, code}`), for example
         `not_over_caller_leaf` on a `not` over a leaf that depends on the
         caller; a warning does not refuse the document.
+
+        A reused key is 409: `idempotency_key_reuse` (same key, different body) or
+        `idempotency_in_flight` (same key while the first request is still running;
+        `Retry-After: 60`).
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: If-Match
@@ -391,6 +395,8 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "412":
           description: The `If-Match` version is not the newest; the current `ETag` is in the header.
           headers:
