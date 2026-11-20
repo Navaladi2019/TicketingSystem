@@ -18,14 +18,14 @@
 #           to S9.13 run as a principal allowed to triage (A6), and S9.8a shows
 #           Alice refused (403) with the version unchanged.
 #      AC4  the refused create left no record and no audit entry.
-# Serial: it writes records. Needs Node.js (npx) on the host.
+# Serial: it writes records. Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003) on the host.
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 A=00000000-0000-4000-8000-0000000000a1
 B=00000000-0000-4000-8000-0000000000b1
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 sh "$GUIDE/tools/seed.sh" || fail "tools/seed.sh failed"
 pass "seeded"
