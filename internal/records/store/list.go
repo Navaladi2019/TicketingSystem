@@ -44,6 +44,10 @@ type ListQuery struct {
 	// the tenant does not walk the whole sort index (TICK-644). Their rows and
 	// order are those of Where AND (OR of Branches).
 	Branches []string
+
+	// CountWhere (TICK-1022 spike), when set, replaces Where in the count only:
+	// the same placeholders, with broad filters as per-record probes.
+	CountWhere string
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -225,7 +229,11 @@ func branched(q ListQuery) bool { return len(q.Branches) > 1 }
 // predicate), up to TotalCap+1; the tests and the bench EXPLAIN it. With Branches each branch counts apart,
 // capped by itself, and the exclusive branches add up.
 func CountStatement(q ListQuery) string {
-	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
+	w := q.Where
+	if q.CountWhere != "" {
+		w = q.CountWhere
+	}
+	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + w
 	cap1 := fmt.Sprint(TotalCap + 1)
 	// TICK-1022 spike: a broad filter's EXISTS keeps an OFFSET 0 in the count,
 	// which PostgreSQL does not pull up into a semi join.

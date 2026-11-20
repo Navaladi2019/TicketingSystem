@@ -264,7 +264,11 @@ func maskedFieldError(err error) error {
 }
 
 // where renders the filters as one predicate with placeholders from base+1.
-func (pl *listPlan) where(base int) (string, []any) {
+func (pl *listPlan) where(base int) (string, []any) { return pl.whereFor(base, false) }
+
+// whereFor is where; forCount renders broad filters as the count's per-record
+// probe (TICK-1022 spike). Both render the same placeholders in the same order.
+func (pl *listPlan) whereFor(base int, forCount bool) (string, []any) {
 	var (
 		terms []string
 		args  []any
@@ -288,6 +292,11 @@ func (pl *listPlan) where(base int) (string, []any) {
 				for _, g := range pl.filters {
 					if g.col == "" && g.idx != nil && g.idx.ID == f.idx.ID {
 						group = append(group, g)
+					}
+				}
+				if !forCount {
+					for i := range group {
+						group[i].broad = false
 					}
 				}
 				terms = append(terms, existsTerm(group, next))
@@ -519,13 +528,20 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			}
 		}
 		filt, filtArgs := pl.where(2 + len(readArgs))
+		countFilt, _ := pl.whereFor(2+len(readArgs), true)
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
 			Where: filt, Args: append(slices.Clone(readArgs), filtArgs...), Branches: branches,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
 		}
+		if countFilt != filt {
+			lq.CountWhere = countFilt
+		}
 		if branches == nil {
 			lq.Where = readSQL + " AND " + filt
+			if lq.CountWhere != "" {
+				lq.CountWhere = readSQL + " AND " + countFilt
+			}
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
