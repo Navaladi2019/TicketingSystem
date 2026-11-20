@@ -504,7 +504,9 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 		}
 		upd.Queue(`UPDATE org_units SET parent_id = $3::uuid, name = $4, deleted_at = NULL WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), pArg, u.Name)
 		st.OrgUnitsWritten++
-		if parentChanged {
+		// A revive reattaches the unit, like a new one: its parent may have
+		// moved deeper while it was tombstoned, so its chain is checked too.
+		if parentChanged || cur.deleted {
 			moved = append(moved, id.String())
 		}
 	}
