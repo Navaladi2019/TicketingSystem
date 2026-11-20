@@ -150,20 +150,28 @@ func QueueUniqueTaken(b *pgx.Batch, tenantID, entityDefinitionID, except uuid.UU
 // QueueInsertRecord returns the stored row's payload, which the pipeline
 // compares with this one, so an audit diff built from the preview is the
 // stored row's.
+//
+// The same statement reads the org unit r gets (ADR-010 D8): the primary unit
+// of r.RequesterID in r.TenantID, in the caller's transaction and so under
+// its RLS, NULL with no requester or no primary unit. It sets r.OrgUnitID
+// when the batch runs, from the very row the payload was built from, so the
+// INSERT that follows stores the unit the audit entry names, in no extra
+// round trip.
 func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *json.RawMessage) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
-	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID})
+	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.TenantID})
 	if err != nil {
 		return err
 	}
-	b.Queue("SELECT ("+expr+")::text FROM (SELECT $1::jsonb AS data, $2::text AS state, $3::uuid AS requester_id, "+
-		"$4::uuid AS assignee_id, $5::uuid AS assignment_group_id) AS records", args...).
+	b.Queue("SELECT ("+expr+")::text, org_unit_id FROM (SELECT $1::jsonb AS data, $2::text AS state, $3::uuid AS requester_id, "+
+		"$4::uuid AS assignee_id, $5::uuid AS assignment_group_id, "+
+		"(SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $6::uuid AND m.principal_id = $3::uuid AND m.is_primary) AS org_unit_id) AS records", args...).
 		QueryRow(func(row pgx.Row) error {
 			var s string
-			if err := row.Scan(&s); err != nil {
+			if err := row.Scan(&s, &r.OrgUnitID); err != nil {
 				return fmt.Errorf("records/store: preview payload as jsonb: %w", err)
 			}
 			*dst = json.RawMessage(s)
@@ -173,8 +181,8 @@ func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *
 }
 
 // payloadExpr is PayloadJSON's expression: the jsonb payload of a records
-// row (columns data, state, requester_id, assignee_id and
-// assignment_group_id) under fixed. args are the statement's first
+// row (columns data, state, requester_id, assignee_id,
+// assignment_group_id and org_unit_id) under fixed. args are the statement's first
 // arguments; the expression's own follow them, and the returned args hold
 // both.
 func payloadExpr(fixed map[string]string, args []any) (string, []any, error) {
@@ -198,6 +206,9 @@ func payloadExpr(fixed map[string]string, args []any) (string, []any, error) {
 		}
 		fmt.Fprintf(&expr, " || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
 	}
+	// org_unit_id is a fixed column no property maps to (ADR-010 D8): it is
+	// in the payload, so the audit entry carries it, when the record has one.
+	fmt.Fprintf(&expr, " || CASE WHEN %[1]s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('%[1]s', %[1]s) END", metadata.ColumnOrgUnitID)
 	return expr.String(), args, nil
 }
 
@@ -224,7 +235,7 @@ func QueueInsertRecord(b *pgx.Batch, r *Record, fixed map[string]string, dst *In
 	expr, args, err := payloadExpr(fixed, []any{
 		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
 		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth,
+		r.CausationOriginID, r.CausationDepth, r.OrgUnitID,
 	})
 	if err != nil {
 		return err
@@ -232,8 +243,8 @@ func QueueInsertRecord(b *pgx.Batch, r *Record, fixed map[string]string, dst *In
 	b.Queue(`
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
-    causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)
+    causation_origin_id, causation_depth, org_unit_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15, $16)
 RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(func(row pgx.Row) error {
 		var payload string
 		if err := row.Scan(&dst.Number, &dst.CreatedAt, &dst.UpdatedAt, &payload); err != nil {
@@ -271,7 +282,7 @@ func QueueInsertRecordAsExpected(b *pgx.Batch, r *Record, fixed map[string]strin
 	expr, args, err := payloadExpr(fixed, []any{
 		r.TenantID, r.ID, r.Version, r.EntityDefinitionID, r.SchemaVersion, r.Number, r.State,
 		r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.CreatedBy, r.CreatedAt, jsonParam(data),
-		r.CausationOriginID, r.CausationDepth,
+		r.CausationOriginID, r.CausationDepth, r.OrgUnitID,
 	})
 	if err != nil {
 		return err
@@ -284,8 +295,8 @@ func QueueInsertRecordAsExpected(b *pgx.Batch, r *Record, fixed map[string]strin
 WITH ins AS (
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
-    causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15)
+    causation_origin_id, causation_depth, org_unit_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $15, $16)
 RETURNING number, created_at, updated_at, (`+expr+`)::text AS payload)
 SELECT 1 / count(*)::int FROM ins
  WHERE number = $6::text AND created_at = $12::timestamptz AND updated_at = $12::timestamptz
@@ -399,6 +410,8 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 		}
 		return nil
 	})
+	base = append(base, r.OrgUnitID)
+	orgUnit := fmt.Sprintf("$%d::uuid", len(base))
 	expr, args, err := payloadExpr(fixed, base)
 	if err != nil {
 		return err
@@ -406,8 +419,8 @@ func QueueInsertNumbered(b *pgx.Batch, r *Record, prefix string, format numberin
 	b.Queue(`
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
     requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data,
-    causation_origin_id, causation_depth)
-VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, now(), now(), $11, $12, $13)
+    causation_origin_id, causation_depth, org_unit_id)
+VALUES ($1, $2, $3, $4, $5, `+numberSQL+`, $6, $7, $8, $9, $10, now(), now(), $11, $12, $13, `+orgUnit+`)
 RETURNING number, created_at, updated_at, (`+expr+`)::text`, args...).QueryRow(func(row pgx.Row) error {
 		var payload string
 		if err := row.Scan(&dst.Number, &dst.CreatedAt, &dst.UpdatedAt, &payload); err != nil {
