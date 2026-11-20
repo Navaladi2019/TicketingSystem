@@ -24,7 +24,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,7 +39,7 @@ import (
 )
 
 const (
-	i5RowF2Agreement = "I5 format-2 agreement: CompileRead, ReadBranches (UNION ALL, each row once) and ReadPredicate's fallback equal {r | Allows(read, r)}, and Allows equals the reference evaluator, for random trees of depth ≤ 4 over every S30 node kind"
+	i5RowF2Agreement = "I5 format-2 agreement: CompileRead, ReadBranches (UNION ALL, each row once) and ReadPredicate's fallback equal {r | Allows(read, r)}, and Allows equals the reference evaluator, for random trees of depth ≤ 4 over every node kind, under included, where authz.ExpandUnder's set S (one recursive query over the seeded org tree, live units only) equals the reference's"
 	i5RowF2Caps      = "I5 format-2 caps: depth 8 after expansion, 128 leaves in a policy (a shared condition counted at every reach), 64 policies with 128 leaves agree; one past a policy cap voids that policy only (SP-2 caps)"
 	i5RowF1Equiv     = "I5 format-1 equivalence (D12): every format-1 fixture gives the same rows through the converted path (CompileRead, ReadBranches) as the S10 rules"
 	i5RowF2Mutant    = "I5 format-2 mutant %s: the suite catches it"
@@ -78,8 +80,8 @@ func TestI5Format2Agreement(t *testing.T) {
 		case took > i5Budget:
 			add(i5RowF2Agreement, statusFail, fmt.Sprintf("seed %d: %s, over the %s budget", seed, took, i5Budget))
 		default:
-			add(i5RowF2Agreement, statusPass, fmt.Sprintf("seed %d, %s: %d documents × %d principals × %d records agree (%d checks; %d cases admit a proper subset; %d principal plans split into branches, %d fall back past the SP-2 threshold); %s",
-				seed, compiler, len(cases), i5Principals, len(w.Records), st.checks, st.proper, st.split, st.fallback, took))
+			add(i5RowF2Agreement, statusPass, fmt.Sprintf("seed %d, %s: %d documents × %d principals × %d records agree (%d checks; %d cases admit a proper subset; %d principal plans split into branches, %d fall back past the SP-2 threshold; %d under expansions match the reference); %s",
+				seed, compiler, len(cases), i5Principals, len(w.Records), st.checks, st.proper, st.split, st.fallback, st.expanded, took))
 		}
 
 		if detail, cerr := i5F2Caps(ctx, tx, w, cases[0].Principals); cerr != nil {
@@ -115,7 +117,7 @@ func TestI5Format2Agreement(t *testing.T) {
 
 // i5F2Stats says how much the run discriminated and how it split.
 type i5F2Stats struct {
-	checks, proper, split, fallback int
+	checks, proper, split, fallback, expanded int
 }
 
 // i5F2Disagreement is the first case where two of the sides differ.
@@ -141,6 +143,11 @@ func (d *i5F2Disagreement) Error() string {
 // Allows only, and stops at the first disagreement.
 func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, compile i5F2Compiler, full bool) (i5F2Stats, error) {
 	var st i5F2Stats
+	if full {
+		if err := i5F2WorldSetsMatch(ctx, tx, w, cases, &st); err != nil {
+			return st, err
+		}
+	}
 	for ci := range cases {
 		c := &cases[ci]
 		bySQL, preds, err := i5Select(ctx, tx, w, i5Case{Policy: c.Policy, Principals: c.Principals},
@@ -152,8 +159,11 @@ func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, c
 		}
 		var byBranch []map[uuid.UUID]int
 		if full {
-			if byBranch, err = i5F2BranchSelect(ctx, tx, w, c.Policy, c.Principals, &st); err != nil {
+			if byBranch, err = i5F2BranchSelect(ctx, tx, w, c.bound, c.Principals, &st); err != nil {
 				return st, fmt.Errorf("document #%d branches: %w", ci, err)
+			}
+			if err := i5F2ExpandMatches(ctx, tx, c, &st); err != nil {
+				return st, fmt.Errorf("document #%d: %w", ci, err)
 			}
 		}
 		for ki, p := range c.Principals {
@@ -161,7 +171,7 @@ func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, c
 			for _, rec := range w.Records {
 				st.checks++
 				row := rec.row(p)
-				_, _, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, goOK := authz.Allows(c.bound(p), p, authz.OpRead, row)
 				if goOK {
 					admitted++
 				}
@@ -189,12 +199,113 @@ func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, c
 	return st, nil
 }
 
+// i5F2ExpandPrincipals is how many of each case's principals the per-case
+// ExpandUnder check runs for. Each needed expansion is a query; all 50 cost
+// about 26 s of the row's 120 s budget, while S itself is checked for every
+// principal of the run by i5F2WorldSetsMatch.
+const i5F2ExpandPrincipals = 10
+
+// i5F2ExpandMatches checks authz.ExpandUnder end to end on each case: for
+// the first i5F2ExpandPrincipals principals of every document holding an
+// under leaf, the policy ExpandUnder binds (its probe plan, its recursive
+// query over the seeded org tree as nava_app under RLS, and the empty sets of
+// leaves the probe folded away) compiles to exactly the predicate and
+// arguments of the reference's binding (c.bound). S is sorted, so equal sets
+// give equal arguments; a policy ExpandUnder voids that the reference does not
+// changes the predicate (TICK-950 review: a leaf folded away beside a
+// deciding constant voided its policy). Principals whose plan keeps no under
+// leaf are checked too: ExpandUnder runs no query for them, and its binding
+// must still not void anything.
+func i5F2ExpandMatches(ctx context.Context, tx pgx.Tx, c *i5F2Case, st *i5F2Stats) error {
+	if c.Policy == nil || len(i5UnderLeaves(c.Policy.Document)) == 0 {
+		return nil
+	}
+	for ki, p := range c.Principals[:min(len(c.Principals), i5F2ExpandPrincipals)] {
+		expanded, err := authz.ExpandUnder(ctx, tx, c.Policy, p)
+		if err != nil {
+			return fmt.Errorf("principal #%d: ExpandUnder: %w", ki, err)
+		}
+		gotSQL, gotArgs := authz.CompileRead(expanded, p, "r", 2)
+		wantSQL, wantArgs := authz.CompileRead(c.bound(p), p, "r", 2)
+		if gotSQL != wantSQL || !reflect.DeepEqual(gotArgs, wantArgs) {
+			return fmt.Errorf("principal #%d: ExpandUnder's binding differs from the reference's: %s %v, want %s %v", ki, gotSQL, gotArgs, wantSQL, wantArgs)
+		}
+		if authz.UnderNeeded(c.Policy, p) {
+			st.expanded++
+		}
+	}
+	return nil
+}
+
+// i5UnderLeaves is every under node of d, in its conditions and policies.
+func i5UnderLeaves(d authz.Document) []authz.Under {
+	var out []authz.Under
+	visit := func(n authz.Node, _ string) {
+		if n.Under != nil {
+			out = append(out, *n.Under)
+		}
+	}
+	for _, c := range d.Conditions {
+		i5Walk(c.Expr, visit)
+	}
+	for _, np := range d.Policies {
+		i5Walk(np.When, visit)
+	}
+	return out
+}
+
+// i5F2WorldSetsMatch checks set S directly, for every distinct principal of
+// the run (and a caller with no id): a document with one read policy per
+// leaf, under caller and under each unit of the world plus an id that is no
+// unit, so no leaf folds away and each policy's predicate binds exactly that
+// leaf's S. ExpandUnder's query must give each the reference's set
+// (i5Subtree, i5CallerSet: live units, a tombstoned unit and everything below
+// it out).
+func i5F2WorldSetsMatch(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, st *i5F2Stats) error {
+	leaves := []authz.Node{{Under: &authz.Under{Caller: true}}}
+	for _, u := range w.Units {
+		leaves = append(leaves, authz.Node{Under: &authz.Under{Units: []uuid.UUID{u.ID}}})
+	}
+	leaves = append(leaves, authz.Node{Under: &authz.Under{Units: []uuid.UUID{uuid.MustParse("0f000000-0000-4000-8000-0000000000aa")}}})
+	doc := authz.Document{Format: authz.FormatV2, Conditions: []authz.Condition{}}
+	for i, l := range leaves {
+		doc.Policies = append(doc.Policies, authz.NamedPolicy{Name: "s" + strconv.Itoa(i), Ops: []string{authz.OpRead}, When: l})
+	}
+	pol := &authz.Policy{EntityDefinitionID: w.Definition, Version: 1, Document: doc}
+	seen := map[uuid.UUID]bool{}
+	principals := []identity.Principal{{TenantID: w.Tenant}}
+	for _, c := range cases {
+		for _, p := range c.Principals {
+			if !seen[p.PrincipalID] {
+				seen[p.PrincipalID] = true
+				principals = append(principals, identity.Principal{TenantID: w.Tenant, PrincipalID: p.PrincipalID})
+			}
+		}
+	}
+	for _, p := range principals {
+		expanded, err := authz.ExpandUnder(ctx, tx, pol, p)
+		if err != nil {
+			return fmt.Errorf("principal %s: ExpandUnder: %w", p.PrincipalID, err)
+		}
+		gotSQL, gotArgs := authz.CompileRead(expanded, p, "r", 2)
+		wantSQL, wantArgs := authz.CompileRead(i5Bind(pol, p, nil), p, "r", 2)
+		if gotSQL != wantSQL || !reflect.DeepEqual(gotArgs, wantArgs) {
+			return fmt.Errorf("principal %s: set S differs from the reference's: %s %v, want %s %v", p.PrincipalID, gotSQL, gotArgs, wantSQL, wantArgs)
+		}
+		st.expanded++
+	}
+	return nil
+}
+
 // i5F2Discriminates is the random run's guard: agreement on "nothing" or
 // "everything" alone proves little, and a run with no split proves nothing
 // about the branches.
 func i5F2Discriminates(st i5F2Stats, cases int) error {
 	if total := cases * i5Principals; st.proper < total/5 {
 		return fmt.Errorf("only %d of %d cases admit a proper subset of the records", st.proper, total)
+	}
+	if st.expanded == 0 {
+		return errors.New("no principal's plan kept an under leaf; the set S check proves nothing")
 	}
 	if st.split == 0 {
 		return errors.New("no case split into branches; the branch half proves nothing")
@@ -208,10 +319,11 @@ func i5F2Discriminates(st i5F2Stats, cases int) error {
 // there are two or more), else ReadPredicate's single predicate (false, one
 // branch's statement, or the fallback past the SP-2 threshold). It returns,
 // per principal, how many times each record came back.
-func i5F2BranchSelect(ctx context.Context, tx pgx.Tx, w *i5World, pol *authz.Policy, principals []identity.Principal, st *i5F2Stats) ([]map[uuid.UUID]int, error) {
+func i5F2BranchSelect(ctx context.Context, tx pgx.Tx, w *i5World, bound func(identity.Principal) *authz.Policy, principals []identity.Principal, st *i5F2Stats) ([]map[uuid.UUID]int, error) {
 	args := []any{w.Tenant, w.Definition}
 	var arms []string
 	for k, p := range principals {
+		pol := bound(p)
 		branches, bargs := authz.ReadBranches(pol, p, "r", len(args))
 		pb, where, pargs := authz.ReadPredicate(pol, p, "r", len(args))
 		switch {
@@ -290,7 +402,7 @@ func i5F1Equivalence(ctx context.Context, tx pgx.Tx, w *i5World, principals []id
 			return "", fmt.Errorf("%s: %w", f.Name, err)
 		}
 		var st i5F2Stats
-		byBranch, err := i5F2BranchSelect(ctx, tx, w, pol, principals, &st)
+		byBranch, err := i5F2BranchSelect(ctx, tx, w, func(identity.Principal) *authz.Policy { return pol }, principals, &st)
 		if err != nil {
 			return "", fmt.Errorf("%s branches: %w", f.Name, err)
 		}

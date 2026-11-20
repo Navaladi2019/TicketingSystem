@@ -152,17 +152,20 @@ func (x *scriptTx) ranAny(fragment string) bool {
 // Fragments of the store's statements.
 const (
 	sqlDefinition = "SELECT id FROM entity_definitions"
-	sqlWriteKey   = "FROM record_write_keys"
-	sqlGet        = "r.data, r.causation_origin_id"
-	sqlLock       = "pg_advisory_xact_lock"
-	sqlTaken      = "SELECT EXISTS"
-	sqlNumber     = "record_counters"
-	sqlInsert     = "INSERT INTO records"
-	sqlUpdate     = "UPDATE records"
-	sqlPayload    = "::text FROM records"
-	sqlPreview    = ") AS records"
-	sqlAudit      = "INSERT INTO audit_log"
-	sqlShares     = "FROM record_shares"
+	// sqlDefinitionUnit is a checked create's entity-type read, which also
+	// reads the actor's primary org unit (TICK-950).
+	sqlDefinitionUnit = "m.principal_id = $3 AND m.is_primary)"
+	sqlWriteKey       = "FROM record_write_keys"
+	sqlGet            = "r.data, r.causation_origin_id"
+	sqlLock           = "pg_advisory_xact_lock"
+	sqlTaken          = "SELECT EXISTS"
+	sqlNumber         = "record_counters"
+	sqlInsert         = "INSERT INTO records"
+	sqlUpdate         = "UPDATE records"
+	sqlPayload        = "::text FROM records"
+	sqlPreview        = ") AS records"
+	sqlAudit          = "INSERT INTO audit_log"
+	sqlShares         = "FROM record_shares"
 )
 
 func scanUUID(id uuid.UUID) func(...any) error {
@@ -326,6 +329,10 @@ func newFixture() fixture {
 
 func (f fixture) tx(t *testing.T, stmts ...stmt) *scriptTx {
 	return &scriptTx{t: t, tenant: f.tenant.String(), stmts: append(stmts,
+		stmt{match: sqlDefinitionUnit, scan: func(dest ...any) error {
+			*dest[0].(*uuid.UUID), *dest[1].(*bool), *dest[2].(**uuid.UUID) = f.defID, false, nil
+			return nil
+		}},
 		stmt{match: sqlDefinition, scan: scanUUID(f.defID)},
 		stmt{match: sqlShares, scan: func(dest ...any) error { *dest[0].(*[]uuid.UUID) = nil; return nil }},
 		stmt{match: sqlPreview, scan: scanString(`{}`)})}
@@ -495,7 +502,7 @@ func TestWriteReplayReadFailure(t *testing.T) {
 	if want := "pipeline: records/store: read write key: boom"; err.Error() != want {
 		t.Errorf("message %q, want %q", err, want)
 	}
-	if tx.ranAny(sqlDefinition) {
+	if tx.ranAny(sqlDefinition) || tx.ranAny(sqlDefinitionUnit) {
 		t.Error("the write went on after the failed key read")
 	}
 }

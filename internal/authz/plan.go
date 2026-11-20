@@ -79,6 +79,7 @@ const (
 	pNot
 	pCmp
 	pShared
+	pUnder
 )
 
 // pnode is a planned node. A folded tree holds pTrue or pFalse only at its
@@ -91,6 +92,10 @@ type pnode struct {
 	// caller id is never Nil: shared with no caller id folds to false.
 	caller uuid.UUID
 	groups []uuid.UUID
+	// units is an under leaf's set S, sorted and non-empty (pUnder). leaf is
+	// the node it was planned from, set only by a probe plan (under.go).
+	units []uuid.UUID
+	leaf  *Under
 }
 
 func constant(b bool) pnode {
@@ -138,6 +143,7 @@ func plan(pol *Policy, p identity.Principal, op string) []plannedPolicy {
 		return nil
 	}
 	pl := newPlanner(pol.Document, p)
+	pl.under = scopeFor(pol, p)
 	var out []plannedPolicy
 	for _, np := range pol.Document.Policies {
 		if !slices.Contains(np.Ops, op) {
@@ -161,6 +167,11 @@ type planner struct {
 	dup   map[string]bool // condition names declared twice: a ref to one is unresolved
 	memo  map[string]*expansion
 	stack []string // conditions being expanded, for cycle detection
+	// under is set S bound for p (nil when none). probe plans without S:
+	// an under leaf stays a placeholder, so ExpandUnder can see which
+	// leaves survive folding (under.go).
+	under *underScope
+	probe bool
 }
 
 // expansion is a subtree planned: its folded tree, its depth and leaf count
@@ -251,8 +262,40 @@ func (pl *planner) node(n Node) *expansion {
 			return &expansion{tree: constant(false), depth: 1, leaves: 1}
 		}
 		return &expansion{tree: pnode{op: pShared, caller: pl.p.PrincipalID, groups: pl.p.Groups}, depth: 1, leaves: 1}
+	case NodeUnder:
+		return pl.underLeaf(*n.Under)
 	}
 	return invalid(RuleType) // a SQLSafe, Available kind the planner does not know
+}
+
+// underLeaf plans an under leaf (ADR-010 D7). A caller leaf for a principal
+// with no id is false: it has no units. Otherwise the leaf needs its set S
+// bound for this principal; without it the policy is voided (fails closed).
+// An empty S is false. A probe plan keeps the leaf as a placeholder.
+func (pl *planner) underLeaf(u Under) *expansion {
+	leaf := func(t pnode) *expansion { return &expansion{tree: t, depth: 1, leaves: 1} }
+	if u.Caller && pl.p.PrincipalID == uuid.Nil {
+		return leaf(constant(false))
+	}
+	if pl.probe {
+		return leaf(pnode{op: pUnder, leaf: &u})
+	}
+	s, ok := pl.under.set(u)
+	switch {
+	case !ok:
+		return invalid(RuleUnderUnresolved)
+	case len(s) == 0:
+		return leaf(constant(false))
+	}
+	return leaf(pnode{op: pUnder, units: s})
+}
+
+// walk calls f on n and every node below it.
+func (n pnode) walk(f func(pnode)) {
+	f(n)
+	for _, k := range n.kids {
+		k.walk(f)
+	}
 }
 
 // group plans an all or an any. An all with no children is invalid (it would
@@ -435,6 +478,8 @@ func (n pnode) eval(r Row) bool {
 		return n.cond.allows(r)
 	case pShared:
 		return sharedWithCaller(r.SharedWith, n.caller, n.groups)
+	case pUnder:
+		return r.OrgUnitID != nil && inSet(n.units, *r.OrgUnitID)
 	}
 	return false
 }
@@ -477,6 +522,9 @@ func (n pnode) sql(c *compiler) string {
 		return n.cond.sql(c)
 	case pShared:
 		return c.shared(n.caller, n.groups)
+	case pUnder:
+		col := c.col(metadata.ColumnOrgUnitID)
+		return "(" + col + " IS NOT NULL AND " + col + " = ANY(" + c.arg(UUIDTexts(n.units)) + "::uuid[]))"
 	}
 	return "false"
 }

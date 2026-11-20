@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -401,69 +402,113 @@ func (e *etEnv) s30InsertRaw(t *testing.T, tenant uuid.UUID, rules string) error
 	})
 }
 
-// `under` stays switched off until S31 makes it available (TICK-950). The
-// route refuses it with not_available in both forms, a tenant-B org unit
-// included. Past the route (finding F1), a direct nava_app INSERT naming
-// tenant B's unit is refused by the tenant-id trigger with foreign_id since
-// TICK-947, which closed AR-S30-01; one naming tenant A's own live unit is
-// stored, and the planner voids it while under is unavailable, so it grants
-// nothing on any read path.
+// S31 (TICK-950) makes `under` available. The route checks the org-unit ids
+// of under {"of": [ids]} against the tenant's live units (NotInTenant, the
+// TICK-939 check extended): tenant B's unit, a tombstoned unit of tenant A and
+// an id no tenant has are each 422 foreign_id at the id's pointer, one body
+// for all three, the id not echoed, and nothing is stored. Past the route
+// (finding F1) the tenant-id trigger refuses tenant B's unit with 23514
+// foreign_id (TICK-947, AR-S30-01 closed), so the API never falls through to
+// that backstop. Tenant A's own live unit publishes, and grants exactly the
+// records in its live subtree on every read path: list, read, PATCH and the
+// explainer. A record in a tombstoned unit below it is outside.
 // covers: putEntityTypeAccess 422
-func TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored(t *testing.T) {
+func TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree(t *testing.T) {
 	e := newPatchEnv(t)
-	rec := e.mustCreateRec(t, "user-a", "job", "s30-under", `{"short_description": "u"}`)
-	ouB := uuid.New()
-	if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 's30-ou-b', 'B unit')`, e.b.id, ouB); err != nil {
-		t.Fatal(err)
+	in := e.mustCreateRec(t, "user-a", "job", "s31-under-in", `{"short_description": "in"}`)
+	out := e.mustCreateRec(t, "user-a", "job", "s31-under-out", `{"short_description": "out"}`)
+	none := e.mustCreateRec(t, "user-a", "job", "s31-under-none", `{"short_description": "none"}`)
+	ouB, ouA, ouA1, ouDead := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, u := range []struct {
+		tenant, id uuid.UUID
+		parent     any
+		key        string
+		dead       bool
+	}{
+		{e.b.id, ouB, nil, "s31-ou-b", false},
+		{e.a.id, ouA, nil, "s31-ou-a", false},
+		{e.a.id, ouA1, ouA, "s31-ou-a1", false},
+		{e.a.id, ouDead, ouA, "s31-ou-dead", true},
+	} {
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name, deleted_at)
+			VALUES ($1, $2, $3, $4, $4, CASE WHEN $5::boolean THEN now() END)`, u.tenant, u.id, u.parent, u.key, u.dead); err != nil {
+			t.Fatal(err)
+		}
 	}
 	under := func(of string) string {
 		return `{"format": 2, "conditions": [], "policies": [{"name": "unit", "ops": ["read", "write"], "when": {"under": {"of": ` + of + `}}}]}`
 	}
 	v0, n0 := e.s30Counts(t)
-	for name, of := range map[string]string{"caller": `"caller"`, "tenant B's org unit": `["` + ouB.String() + `"]`} {
-		got := e.access(t, http.MethodPut, accessPath, "admin-a", s30Key("s30-under-"+name), `W/"1"`, `{"rules": `+under(of)+`}`)
-		if ps := pointerRules(t, got); got.Code != http.StatusUnprocessableEntity || !containsStr(ps, "/rules/policies/0/when/under not_available") {
-			t.Errorf("route, under of %s = %d %v, want 422 not_available", name, got.Code, ps)
+	var bodies []string
+	for name, id := range map[string]uuid.UUID{"tenant B's unit": ouB, "a tombstoned unit of A": ouDead, "no tenant's unit": uuid.New()} {
+		got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-under-"+name), `W/"1"`,
+			`{"rules": `+under(`["`+ouA.String()+`", "`+id.String()+`"]`)+`}`)
+		wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		if ps := pointerRules(t, got); !slices.Equal(ps, []string{"/rules/policies/0/when/under/of/1 foreign_id"}) {
+			t.Errorf("route, under of %s = %v, want only /rules/policies/0/when/under/of/1 foreign_id", name, ps)
 		}
-		if strings.Contains(got.Body.String(), ouB.String()) {
-			t.Errorf("the 422 repeats the org-unit id")
+		if strings.Contains(got.Body.String(), id.String()) {
+			t.Errorf("the 422 for %s repeats the org-unit id", name)
 		}
+		bodies = append(bodies, sameProblem(t, got))
+	}
+	if bodies[0] != bodies[1] || bodies[1] != bodies[2] {
+		t.Errorf("the 422 bodies differ, an existence oracle: %q", bodies)
 	}
 	if v, n := e.s30Counts(t); v != v0 || n != n0 {
 		t.Fatalf("a refused body wrote")
 	}
-
-	// AR-S30-01 (closed by TICK-947): tenant B's unit is refused past the route.
+	// Past the route: the trigger refuses tenant B's unit too.
 	err := e.s30InsertRaw(t, e.a.id, under(`["`+ouB.String()+`"]`))
 	if pe := (*pgconn.PgError)(nil); !errors.As(err, &pe) || pe.Code != "23514" || !strings.Contains(pe.Detail, `"foreign_id"`) {
 		t.Fatalf("direct insert of under naming tenant B's unit = %v, want 23514 foreign_id", err)
 	}
-	if v, n := e.s30Counts(t); v != v0 || n != n0 {
-		t.Fatalf("a refused insert wrote")
+
+	// Tenant A's live unit publishes. The records: in is in A1 (below A),
+	// out in the tombstoned unit below A, none has no unit. The write
+	// pipeline sets org_unit_id from TICK-949; here it is set directly.
+	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-under-own"), `W/"1"`, `{"rules": `+under(`["`+ouA.String()+`"]`)+`}`); got.Code != http.StatusOK {
+		t.Fatalf("publish under of A's live unit = %d %s", got.Code, got.Body)
 	}
-	// Tenant A's own live unit is stored.
-	ouA := uuid.New()
-	if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 's30-ou-a', 'A unit')`, e.a.id, ouA); err != nil {
+	tx, err := e.super.Begin(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.s30InsertRaw(t, e.a.id, under(`["`+ouA.String()+`"]`)); err != nil {
-		t.Fatalf("direct insert of under naming tenant A's unit = %v", err)
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	if _, err := tx.Exec(t.Context(), "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
 	}
-	// It grants nothing: list, read, PATCH, explainer.
-	if p := e.mustList(t, "user-a", "job", ""); len(p.Items) != 0 {
-		t.Errorf("user-a lists %d records under a stored under", len(p.Items))
+	for id, unit := range map[string]uuid.UUID{in.ID: ouA1, out.ID: ouDead} {
+		if _, err := tx.Exec(t.Context(), `UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, e.a.id, id, unit); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if r := e.do(t, http.MethodGet, "/api/v1/records/job/"+rec.ID, "user-a", "", ""); r.Code != http.StatusNotFound {
-		t.Errorf("user-a reads = %d under a stored under", r.Code)
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	if r := e.patch(t, "user-a", "job", rec.ID, s30Etag(rec.Version), `{"note": "x"}`); r.Code != http.StatusNotFound {
-		t.Errorf("user-a patches = %d under a stored under", r.Code)
+	p := e.mustList(t, "user-a", "job", "")
+	if len(p.Items) != 1 || p.Items[0].ID != in.ID {
+		t.Errorf("user-a lists %d records, want only the one in A's live subtree", len(p.Items))
 	}
-	x := decodeExplanation(t, e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()))
-	if x.Decision != "deny" || len(x.Invalid) != 1 || x.Invalid[0].Code != authz.RuleNotAvailable || x.Invalid[0].Pointer != "/policies/0" {
-		t.Errorf("explain = %+v, want deny with unit invalid not_available at /policies/0", x)
+	if r := e.do(t, http.MethodGet, "/api/v1/records/job/"+in.ID, "user-a", "", ""); r.Code != http.StatusOK {
+		t.Errorf("user-a reads the record in A1 = %d, want 200", r.Code)
 	}
-	if strings.Contains(e.explain(t, "admin-a", "job", rec.ID, e.a.user.PrincipalID.String()).Body.String(), ouA.String()) {
-		t.Errorf("the explanation repeats the org-unit id")
+	for name, rec := range map[string]recBody{"in a tombstoned unit": out, "with no unit": none} {
+		if r := e.do(t, http.MethodGet, "/api/v1/records/job/"+rec.ID, "user-a", "", ""); r.Code != http.StatusNotFound {
+			t.Errorf("user-a reads the record %s = %d, want 404", name, r.Code)
+		}
+		if r := e.patch(t, "user-a", "job", rec.ID, s30Etag(rec.Version), `{"note": "x"}`); r.Code != http.StatusNotFound {
+			t.Errorf("user-a patches the record %s = %d, want 404", name, r.Code)
+		}
+	}
+	x := decodeExplanation(t, e.explain(t, "admin-a", "job", in.ID, e.a.user.PrincipalID.String()))
+	if x.Decision != "allow" || x.Policy == nil || *x.Policy != "unit" || len(x.Invalid) != 0 {
+		t.Errorf("explain the record in A1 = %+v, want allow by policy unit", x)
+	}
+	if x := decodeExplanation(t, e.explain(t, "admin-a", "job", out.ID, e.a.user.PrincipalID.String())); x.Decision != "deny" || len(x.Invalid) != 0 {
+		t.Errorf("explain the record in the tombstoned unit = %+v, want deny with no invalid policy", x)
 	}
 }
+
+// s31Key is an Idempotency-Key for an S31 step.
+func s31Key(name string) string { return s30Key(name) }

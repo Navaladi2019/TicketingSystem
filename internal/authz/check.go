@@ -591,6 +591,11 @@ func (k *docCheck) scan(n Node, ptr string, d int, in *exprInfo, outer int) {
 		}
 	case NodeUnder:
 		leaf()
+		// Each listed unit must be a live org unit of the publishing tenant,
+		// at the same pointer the database's acl2_id_pointers reports.
+		for i, id := range n.Under.Units {
+			k.refs = append(k.refs, TenantRef{kp + "/of/" + strconv.Itoa(i), KindOrgUnit, id})
+		}
 	}
 }
 

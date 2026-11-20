@@ -48,7 +48,8 @@ flowchart LR
   groups. An empty `any` (a format-1 rule with `who: {}`) is false.
 - **Invalid voids the policy (D5b).** An unresolved or ambiguous `ref`, a
   cycle, more than 8 levels or 128 leaves after expansion, an unavailable
-  kind (`under` until S31) or a node that does not decode gives the policy
+  kind, an `under` leaf with no set S bound for the caller (`under_unresolved`,
+  [access-under-leaf.md](access-under-leaf.md)) or a node that does not decode gives the policy
   an error. Every rendering skips it, so it grants nothing and is never a
   boolean under `not`; each evaluation logs it and adds one to
   `authz_policy_invalid_total{entity_type}` (registered by `nava-core` and

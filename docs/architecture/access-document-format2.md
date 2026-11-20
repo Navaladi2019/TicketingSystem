@@ -47,8 +47,7 @@ These checks belong to the publish route (TICK-939) and the database CHECK
 
 - every `ref` resolves, and no `ref` forms a cycle;
 - depth and leaf caps;
-- foreign ids;
-- `under` is refused as `not_available`;
+- foreign ids, the org units of `under {"of": [ids]}` included (TICK-950);
 - the byte limit.
 
 Both extend the shared fixture `internal/authz/testdata/format2_invalid.json`.
@@ -75,8 +74,9 @@ The converter stays for as long as any stored format-1 row exists
 
 ## Node registry (D11)
 
-`authz.Kinds()` lists every node kind with `SQLSafe` and `Available`. Today
-`under` is `SQLSafe` but not `Available` (S31). `TestRegistryKindsAreRendered`
+`authz.Kinds()` lists every node kind with `SQLSafe` and `Available`. Since
+S31 (TICK-950) every kind is both; `under` renders through set S
+([access-under-leaf.md](access-under-leaf.md)). `TestRegistryKindsAreRendered`
 fails when a kind that is SQLSafe and Available is missing a SQL rendering, a
 Go rendering or agreement-generator coverage. Since TICK-942 there is no
 allowed gap (`pendingRenderings` is empty, TODO-S30-01 fixed): the format-2
