@@ -401,7 +401,7 @@ func TestPrepareTopLevelProblemsKeepTheirPointer(t *testing.T) {
 		{"format 1 duplicate rules", `{"rules":[],"rules":[]}`, "/rules duplicate"},
 		{"format 2 duplicate masks", `{"rules":` + f2 + `,"masks":[],"masks":[]}`, "/masks duplicate"},
 		{"format 1 duplicate masks", `{"rules":[],"masks":[],"masks":[]}`, "/masks duplicate"},
-		{"format 2 escaped duplicate rules", `{"rules":` + f2 + `,"rules":` + f2 + `}`, "/rules duplicate"},
+		{"format 2 escaped duplicate rules", `{"rules":` + f2 + `,"rule\u0073":` + f2 + `}`, "/rules duplicate"},
 		{"format 1 then format 2 rules", `{"rules":[],"rules":` + f2 + `}`, "/rules duplicate"},
 		{"format 2 then format 1 rules", `{"rules":` + f2 + `,"rules":[]}`, "/rules duplicate"},
 	} {

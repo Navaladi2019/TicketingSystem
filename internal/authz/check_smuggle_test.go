@@ -55,18 +55,21 @@ func TestPrepareCannotSmuggleUncheckedRefs(t *testing.T) {
 		{"control: format 2 member_of", f2(when(member(q(a)))), true},
 		{"control: format 2 member_of users", f2(when(`{"member_of":{"users":[` + q(a) + `]}}`)), true},
 		{"control: format 2 cmp values", f2(when(agEq(q(a) + "," + q(b)))), true},
+		{"control: format 2 cmp requester_id", f2(when(`{"cmp":{"column":"requester_id","op":"in","values":[` + q(a) + `]}}`)), true},
+		{"control: format 2 cmp assignee_id", f2(when(`{"cmp":{"column":"assignee_id","op":"in","values":[` + q(a) + `]}}`)), true},
 		{"control: format 2 condition expr", f2(doc(`{"name":"c","expr":`+member(q(a))+`}`, pol(`{"ref":"c"}`))), true},
 		{"control: format 2 mask", mask(`{"field":"f","read":{"groups":[` + q(a) + `]},"write":{"groups":[` + q(a) + `]}}`), true},
 		{"control: format 1 who and where", f1(`"who":{"groups":[` + q(a) + `]},"where":[{"column":"assignment_group_id","op":"eq","values":[` + q(a) + `]}]`), true},
+		{"control: format 1 where requester_id", f1(`"who":{"requester":true},"where":[{"column":"requester_id","op":"eq","values":[` + q(a) + `]}]`), true},
 		{"control: format 1 mask", `{"rules":[],"masks":[{"field":"f","read":{"users":[` + q(a) + `]},"write":{}}]}`, true},
-		{"control: escaped id digits", f2(when(member(`"0193b000-0000-7000-8000-00000000000b"`))), true},
+		{"control: escaped id digits", f2(when(member(`"0193b000-0000-7000-8000-00000000000\u0062"`))), true},
 
 		// groups in member_of.
 		{"duplicate groups, B last", f2(when(`{"member_of":{"groups":[` + q(a) + `],"groups":[` + q(b) + `]}}`)), false},
 		{"duplicate groups, B first", f2(when(`{"member_of":{"groups":[` + q(b) + `],"groups":[` + q(a) + `]}}`)), false},
 		{"case-folded Groups", f2(when(`{"member_of":{"groups":[` + q(a) + `],"Groups":[` + q(b) + `]}}`)), false},
 		{"case-folded Users", f2(when(`{"member_of":{"groups":[` + q(a) + `],"Users":[` + q(b) + `]}}`)), false},
-		{"escaped duplicate groups", f2(when(`{"member_of":{"groups":[` + q(a) + `],"groups":[` + q(b) + `]}}`)), false},
+		{"escaped duplicate groups", f2(when(`{"member_of":{"groups":[` + q(a) + `],"group\u0073":[` + q(b) + `]}}`)), false},
 
 		// member_of, when, policies, expr.
 		{"duplicate member_of", f2(when(`{"member_of":{"groups":[` + q(a) + `]},"member_of":{"groups":[` + q(b) + `]}}`)), false},
@@ -77,7 +80,7 @@ func TestPrepareCannotSmuggleUncheckedRefs(t *testing.T) {
 		{"case-folded Policies", f2(`{"format":2,"conditions":[],"policies":[` + pol(member(q(a))) + `],"Policies":[` + pol(member(q(b))) + `]}`), false},
 		{"duplicate expr", f2(doc(`{"name":"c","expr":`+member(q(a))+`,"expr":`+member(q(b))+`}`, pol(`{"ref":"c"}`))), false},
 		{"case-folded Expr", f2(doc(`{"name":"c","expr":`+member(q(a))+`,"Expr":`+member(q(b))+`}`, pol(`{"ref":"c"}`))), false},
-		{"escaped duplicate when", f2(doc("", `{"name":"p","ops":["read"],"when":`+member(q(a))+`,"when":`+member(q(b))+`}`)), false},
+		{"escaped duplicate when", f2(doc("", `{"name":"p","ops":["read"],"when":`+member(q(a))+`,"whe\u006e":`+member(q(b))+`}`)), false},
 
 		// cmp values.
 		{"cmp duplicate values", f2(when(`{"cmp":{"column":"assignment_group_id","op":"in","values":[` + q(a) + `],"values":[` + q(b) + `]}}`)), false},
@@ -103,7 +106,10 @@ func TestPrepareCannotSmuggleUncheckedRefs(t *testing.T) {
 		{"duplicate rules, format 1 then format 2", `{"rules":[],"rules":` + when(member(q(b))) + `}`, false},
 		{"case-folded Rules", `{"rules":` + when(member(q(a))) + `,"Rules":` + when(member(q(b))) + `}`, false},
 		{"case-folded Rules alone", `{"Rules":` + when(member(q(b))) + `}`, false},
-		{"escaped duplicate rules", `{"rules":` + when(member(q(a))) + `,"rules":` + when(member(q(b))) + `}`, false},
+		{"escaped duplicate rules", `{"rules":` + when(member(q(a))) + `,"rule\u0073":` + when(member(q(b))) + `}`, false},
+		{"escaped duplicate masks", `{"rules":` + empty + `,"masks":[],"mask\u0073":[{"field":"f","read":{"groups":[` + q(b) + `]},"write":{}}]}`, false},
+		{"escaped duplicate mask read", mask(`{"field":"f","read":{"groups":[` + q(a) + `]},"r\u0065ad":{"groups":[` + q(b) + `]},"write":{}}`), false},
+		{"escaped duplicate cmp values", f2(when(`{"cmp":{"column":"assignment_group_id","op":"in","values":[` + q(a) + `],"v\u0061lues":[` + q(b) + `]}}`)), false},
 		{"duplicate masks", `{"rules":` + empty + `,"masks":[],"masks":[{"field":"f","read":{"groups":[` + q(b) + `]},"write":{}}]}`, false},
 		{"case-folded Masks", `{"rules":` + empty + `,"masks":[],"Masks":[{"field":"f","read":{"groups":[` + q(b) + `]},"write":{}}]}`, false},
 		{"format 1 case-folded Masks", `{"rules":[],"masks":[],"Masks":[{"field":"f","read":{"groups":[` + q(b) + `]},"write":{}}]}`, false},
