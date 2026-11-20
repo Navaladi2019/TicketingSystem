@@ -62,7 +62,7 @@ func refMissing(t *testing.T, entityType string) int64 {
 func refAudit(t *testing.T, e env, tenant uuid.UUID) int {
 	t.Helper()
 	return count(t, e.super, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND source = 'workflow'
-		AND subject_type = 'acl_policy' AND actor_system = 'workflow'`, tenant)
+		AND subject_type = 'acl_policy' AND domain = 'config' AND action = 'policy_ref_refused' AND actor_system = 'workflow'`, tenant)
 }
 
 // refWorld is a tenant with the aclcase type, a record whose requester is u1

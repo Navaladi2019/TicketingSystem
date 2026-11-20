@@ -149,15 +149,14 @@ func policyRefMissing(ctx context.Context, tx pgx.Tx, in PolicyTest, recType str
 	slog.WarnContext(ctx, "authz: workflow policy reference names no policy, it denies",
 		slog.String("entity_type", recType), slog.String("ref_entity_type", in.EntityType), slog.String("policy", in.Policy))
 	sys := PolicyRefActor
-	// No R2 action means "a reference denied": the closest subject is the access
-	// policy of the record's entity type, the thing the reference failed to find,
-	// not the record, whose history is the requester's. The content hash is of
-	// the reference named, so an auditor can match entries by it (open question
-	// on TICK-957: a dedicated action needs a schema change).
+	// The subject is the access policy of the record's entity type, the thing the
+	// reference failed to find, not the record, whose history is the requester's.
+	// The content hash is of the reference named, so an auditor can match entries
+	// by it.
 	sum := sha256.Sum256([]byte(in.EntityType + "/" + in.Policy))
 	e := audit.Entry{
 		Domain:             audit.DomainConfig,
-		Action:             audit.ActionUpdate,
+		Action:             audit.ActionPolicyRefRefused,
 		SubjectType:        audit.SubjectACLPolicy,
 		SubjectID:          defID,
 		EntityDefinitionID: &defID,
