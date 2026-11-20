@@ -15,8 +15,8 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 | Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
-| Isolation (in `ci-integration`, after `test-integration`) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
-| ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `integration` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
+| Isolation (in `ci-integration`, after `test-integration`; in CI the `isolation` job, full runs only, TICK-1003) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
+| ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `isolation` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
 In GitHub, the `sdk` job (TICK-827, ADR-007 D10, RFC-017 CI-E10) runs the
@@ -157,7 +157,8 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit` | under 5 min | | | | 10 |
-| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701) | | | | 15 (was 10) |
+| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003) | | | | 15 (was 10) |
+| `isolation` | full runs only (TICK-1003): the suite 148 s and `test-integration-cleanup` 50 to 76 s in run 44604840061; measured job times in the TICK-1003 pull request | | | | 15 |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
@@ -347,6 +348,65 @@ on the host, from any checkout or agent, waits and says so every 30 s; the OS
 releases the lock when the holder exits or is killed, so there is no stale
 lock. `NAVA_RACE_LOCK=off` skips it.
 
+## Isolation job and Bruno CLI (TICK-1003)
+
+**Isolation job.** On a full run the isolation suite, `test-ci-isolated-down`
+and `test-integration-cleanup` were the tail of the `integration` job. With
+them, a full run took 9.5 to 14 minutes against its 15-minute bound and was
+cancelled with every test green (runs 44604840061 attempts 1 and 2,
+44634136748 attempt 2, 44641187163). They now run in an `isolation` job of
+their own, in parallel with `integration`; the `integration` job always sets
+`ISOLATION=0`. Option (b), a larger bound on a full run, was not taken: the
+two jobs then run one after the other, and a full run would wait about 3
+minutes longer for a job that has no reason to wait.
+
+- **When:** a full run only (`needs.changes.outputs.full`, which is
+  `env.CI_FULL`, because a job's `if:` cannot read `env`) whenever
+  `integration` runs.
+- **full-suite:** on a story-branch pull request without `ci:full`, the job is
+  skipped. `make check-full-suite` accepts that skip only when `FULL=false`
+  (`TestFullSuiteIsolation` in `tools/ci/cichanged`).
+- **main-red and self-hosted-cleanup:** both `need` the job.
+- **Locally:** unchanged. `make ci-integration` (and so `make ci`) still runs
+  the suite after `test-integration`, because `ISOLATION` defaults to 1.
+
+**I5 budget.** `i5Budget` (`internal/tenancy/isolation`) was 60 s, and no
+plan row gives that figure. The format-2 row took 48.8 s and 66.5 s on two
+attempts of one commit (run 44634136748), so it failed a green change. The
+budget is now 120 s, which is 80 % over the slowest run seen. It still fails
+on a hang or a many-fold slowdown, and the row's detail still reports the
+time.
+
+**Bruno CLI.** `docs/acceptance/guide/tools/api-test.sh` used to run
+`npx @usebruno/cli@<version>`. The CLI version was pinned, but npx resolved
+its dependency tree from the registry on every run. In run 44604840061 it
+fetched `flow-estree-0.341.0.tgz` 32 s after that version was published, got
+a 404, and `s8_entity_types` failed. The CLI now comes from
+`tools/bruno/package.json`, which holds the version (the single source of
+truth), and from `tools/bruno/package-lock.json`, which locks every transitive
+dependency with its integrity hash:
+
+- **Install:** `make bruno-cli` runs `tools/bruno/install.sh`, which runs
+  `npm ci --ignore-scripts` into `tools/bruno/node_modules` (git-ignored). If
+  the stamp file already matches the lockfile, it does nothing.
+- **CI:** the `stack` job runs `make bruno-cli` once, before any case. The npm
+  cache key covers this lockfile.
+- **Laptop:** `api-test.sh` calls the same script, so the first local run
+  installs the CLI and later runs reuse it.
+- **Not covered:** a lockfile entry that the registry stops serving fails the
+  install. That is the failure we want: the lockfile gets bumped, rather than
+  a silent new tree.
+
+**Bumping the Bruno CLI (manual; the repository has no Dependabot or
+Renovate).**
+
+1. Edit the version in `tools/bruno/package.json`.
+2. In `tools/bruno`, run `npm install --package-lock-only --ignore-scripts`.
+3. Check that the lockfile still has no `"hasInstallScript": true`, or drop
+   `--ignore-scripts` from `install.sh` in the same change.
+4. Commit both files, then run `ci:full`: the Bruno folders run in the full
+   tier.
+
 ## Risks and the layer that covers them
 
 | Risk (by impact) | Layer |
@@ -371,7 +431,7 @@ lock. `NAVA_RACE_LOCK=off` skips it.
 ## Deliberately not covered
 
 - **A suite dropped by editing the step itself.** suiteran trusts the step's own `-tags` and package list. Removing both `-tags`, narrowing the packages, adding a `-run` filter or removing the suiteran call passes the check, so each of those is an edit to `.github/`, the `Makefile` or `scripts/ci/`, all on the `security` list in `review-paths.yaml` (`TestCIScriptsAreSecurityPaths` in `tools/ci/reviewpaths` pins the two scripts). Extra `ARGS` to `make test-integration` or `make isolation` skip the check, since a `-run` filter leaves suites out on purpose; CI never sets `ARGS`.
-- **A hang in the isolation suite.** `scripts/ci/isolation.sh` runs after `test-integration.sh` in the same step and keeps Go's default `-timeout` of 10m, so a hang there is still cancelled by the job before Go's dump. Its output does stream (suiteran prints as it reads), so the log shows how far it got. Follow-up, not in TICK-225's scope.
+- **A hang in the isolation suite.** `scripts/ci/isolation.sh` keeps Go's default `-timeout` of 10m inside the `isolation` job's 15 (TICK-1003), so Go's dump comes first only when set-up and the build take under 5 minutes. Its output does stream (suiteran prints as it reads), so the log shows how far it got. Follow-up, not in TICK-225's scope.
 - **testcontainers-go.** Approved, not adopted (decision log, 2026-10-19). The integration tests start a pinned container through the docker CLI, the way T03 and T04 built them.
 
 ## Changing nava.interpreter (replay gate, P3-23)
@@ -507,8 +567,8 @@ cannot read `env`, so the daily cron string is repeated where a job needs it
 | --- | --- | --- |
 | `lint`, `unit`, `temporal-server`, `commit-check-budget`, `coverage` | as the diff needs | every job |
 | `integration`: integration tests and the coverage profile | yes | yes |
-| `integration`: isolation suite (CI-2) and `isolation-report` | no (`ISOLATION=0`) | yes |
-| `integration`: `test-ci-isolated-down`, `test-integration-cleanup` | no | yes |
+| `isolation` job: isolation suite (CI-2) and `isolation-report` | no (job skipped) | yes |
+| `isolation` job: `test-ci-isolated-down`, `test-integration-cleanup` | no | yes |
 | `stack` phase 1: `tier=smoke` cases | yes, by area | yes, every area |
 | `stack` phase 1: every other case (CI-5 `identity_attacks`, CI-6 and CI-7 `sdk`, `temporal_custody`, `temporal_handshake`, `temporal_isolation`, `temporal_operator_reach`, `onboard`, `demo_outbox`, `s8_entity_types`, `s9_records`, `s14_*`, `keycloak_restart`, `trace`, `logs`, `redact`, `interpreter`, `pgbouncer`) and the `ci5-report` and `ci6-report` uploads | no (`STACK_TIER=smoke`) | yes (`STACK_TIER=all`) |
 | `stack` phase 2 (`stack-db`: `dbroles`, `hba`, `idempotent`) | no | yes |
