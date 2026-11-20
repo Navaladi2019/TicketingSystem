@@ -31,6 +31,19 @@ const PolicyInvalidMetric = "authz.policy.invalid"
 // (ReadBranchBound), so a rise means a document published since needs a look.
 const ReadBranchesFallbackMetric = "authz.read_branches.fallback"
 
+// PolicyRefMissingMetric counts the workflow policy tests that named no policy
+// (ADR-010 D9): the record's entity type is not the reference's, or the type
+// has no published policy of that name. It denies, is audited, and should stay
+// at zero. Prometheus: authz_policy_ref_missing_total{entity_type}, the label
+// the record's own entity type, never a name from a request or a tenant.
+const PolicyRefMissingMetric = "authz.policy_ref.missing"
+
+// refMissingCounter is the registered PolicyRefMissingMetric counter; nil
+// records nothing.
+//
+//nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
+var refMissingCounter atomic.Pointer[metric.Int64Counter]
+
 // invalidCounter is the registered counter; nil records nothing. Allows and
 // CompileRead are pure functions called from many places, so the counter is
 // registered once per process (RegisterMetrics) rather than passed in.
@@ -59,6 +72,12 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	if err != nil {
 		return fmt.Errorf("authz: %s: %w", ReadBranchesFallbackMetric, err)
 	}
+	m, err := meter.Int64Counter(PolicyRefMissingMetric,
+		metric.WithDescription("Workflow policy tests that named a missing entity type or policy and so denied (ADR-010 D9)."))
+	if err != nil {
+		return fmt.Errorf("authz: %s: %w", PolicyRefMissingMetric, err)
+	}
+	refMissingCounter.Store(&m)
 	invalidCounter.Store(&c)
 	fallbackCounter.Store(&f)
 	return nil
@@ -95,5 +114,12 @@ func countInvalid(pol *Policy, pp plannedPolicy) {
 func countReadFallback(pol *Policy) {
 	if c := fallbackCounter.Load(); c != nil {
 		(*c).Add(context.Background(), 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
+	}
+}
+
+// countRefMissing records one workflow policy test that named no policy.
+func countRefMissing(ctx context.Context, entityType string) {
+	if c := refMissingCounter.Load(); c != nil {
+		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", entityType)))
 	}
 }
