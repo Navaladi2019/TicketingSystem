@@ -140,8 +140,8 @@ route maps it to the same 422, never a 500.</p>
 <li><strong>Access-document checks</strong> (the table below) point into the document,
 prefixed <code>/rules</code> or <code>/masks</code>, for example <code>/rules/policies/0/when</code>.</li>
 <li><strong>Request-boundary checks</strong> run first, before the document is read
-(strict JSON, TICK-964). A body that
-repeats a key, is refused there with a pointer prefixed <code>/body</code>, for
+(strict JSON, TICK-964). A body that repeats a key
+is refused there with a pointer prefixed <code>/body</code>, for
 example <code>/body/rules/format</code> with rule <code>duplicate</code>. Nothing is stored.</li>
 </ul>
 <table>

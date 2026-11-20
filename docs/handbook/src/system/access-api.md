@@ -81,8 +81,8 @@ Every 422 is `invalid_access_policy`. Each entry in `errors` has a JSON
 - **Access-document checks** (the table below) point into the document,
   prefixed `/rules` or `/masks`, for example `/rules/policies/0/when`.
 - **Request-boundary checks** run first, before the document is read
-  (strict JSON, TICK-964). A body that
-  repeats a key, is refused there with a pointer prefixed `/body`, for
+  (strict JSON, TICK-964). A body that repeats a key
+  is refused there with a pointer prefixed `/body`, for
   example `/body/rules/format` with rule `duplicate`. Nothing is stored.
 
 | Rule | Meaning |
