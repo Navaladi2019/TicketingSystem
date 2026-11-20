@@ -13,8 +13,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 )
 
@@ -114,8 +116,11 @@ func TestOrgUnitIdempotentReplayOneRecord(t *testing.T) {
 	unit := seedOrgUnit(t, e, f.id, "Primary")
 	seedMember(t, e, f.id, unit, f.principal.PrincipalID, true)
 
-	cmd := createCmd(f, map[string]any{"title": "once"})
-	cmd.IdempotencyKey = "k-949"
+	// An idempotency key is for system writers (a workflow step); the
+	// requester is named in the body, so the record still gets its unit.
+	cmd := createCmd(f, map[string]any{"title": "once", "requester": f.principal.PrincipalID.String()})
+	cmd.Actor, cmd.Source, cmd.IdempotencyKey = f.system(), pipeline.SourceWorkflow, "wf:w949:s1"
+	cmd.Causation = workflowCausation()
 	first, err := write(context.Background(), e, p, f.id, cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +188,49 @@ func TestOrgUnitNeverReadsAnotherTenantsMembership(t *testing.T) {
 
 	// The FK: a record of f naming g's unit cannot exist.
 	_, err := e.super.Exec(context.Background(), `UPDATE records SET org_unit_id = $1 WHERE tenant_id = $2 AND id = $3`, foreign, f.id, res.RecordID)
-	if err == nil {
-		t.Fatal("a record of tenant f named tenant g's org unit")
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "23503" {
+		t.Fatalf("a record of tenant f naming tenant g's org unit: err = %v, want SQLSTATE 23503", err)
+	}
+}
+
+// The gapless insert and the at-commit insert are other statements than the
+// default one: each stores the unit and names it in the audit entry.
+func TestOrgUnitOnEveryInsertPath(t *testing.T) {
+	cases := []struct {
+		name     string
+		gapless  bool
+		atCommit bool
+	}{
+		{"gaps", false, false},
+		{"gapless", true, false},
+		{"gaps at commit", false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := migrated(t)
+			d := definition(schemaV1)
+			if c.gapless {
+				d = gaplessDefinition(d)
+			}
+			f := seedTenantWith(t, e, d)
+			p := newPipeline(e, nil)
+			unit := seedOrgUnit(t, e, f.id, "Primary")
+			seedMember(t, e, f.id, unit, f.principal.PrincipalID, true)
+
+			cmd := createCmd(f, map[string]any{"title": "path"})
+			cmd.InsertAtCommit = c.atCommit
+			res, err := write(context.Background(), e, p, f.id, cmd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := recordUnit(t, e, res.RecordID); got == nil || *got != unit {
+				t.Fatalf("org_unit_id = %v, want %s", got, unit)
+			}
+			if n := count(t, e.super, `SELECT count(*) FROM audit_log WHERE subject_id = $1 AND action = 'create' AND diff::text LIKE '%' || $2::text || '%'`,
+				res.RecordID, unit.String()); n != 1 {
+				t.Fatalf("%d create audit entries name the unit, want 1", n)
+			}
+		})
 	}
 }

@@ -158,6 +158,13 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/schema/properties/state/type",
 		},
 		{
+			name: "(e) a property named org_unit_id, the pipeline's column",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["org_unit_id"] = map[string]any{"type": "string"}
+			},
+			want: "/schema/properties/org_unit_id",
+		},
+		{
 			name: "(d) schema over MaxSchemaBytes",
 			mutate: func(_ *metadata.Definition, s map[string]any) {
 				prop(s, "title")["description"] = strings.Repeat("x", metadata.MaxSchemaBytes)

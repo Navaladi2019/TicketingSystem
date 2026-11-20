@@ -755,13 +755,6 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	w.defaultRequester(rec, after, fixed)
-	// The record's org unit is its requester's primary unit now, in this
-	// transaction (ADR-010 D8). It is stored from here on, never recomputed.
-	if rec.RequesterID != nil {
-		if rec.OrgUnitID, err = store.PrimaryOrgUnit(ctx, w.tx, w.tenant, *rec.RequesterID); err != nil {
-			return Result{}, fmt.Errorf("pipeline: %w", err)
-		}
-	}
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {

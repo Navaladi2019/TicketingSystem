@@ -150,20 +150,28 @@ func QueueUniqueTaken(b *pgx.Batch, tenantID, entityDefinitionID, except uuid.UU
 // QueueInsertRecord returns the stored row's payload, which the pipeline
 // compares with this one, so an audit diff built from the preview is the
 // stored row's.
+//
+// The same statement reads the org unit r gets (ADR-010 D8): the primary unit
+// of r.RequesterID in r.TenantID, in the caller's transaction and so under
+// its RLS, NULL with no requester or no primary unit. It sets r.OrgUnitID
+// when the batch runs, from the very row the payload was built from, so the
+// INSERT that follows stores the unit the audit entry names, in no extra
+// round trip.
 func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *json.RawMessage) error {
 	data, err := json.Marshal(r.Data)
 	if err != nil {
 		return fmt.Errorf("records/store: encode data: %w", err)
 	}
-	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.OrgUnitID})
+	expr, args, err := payloadExpr(fixed, []any{jsonParam(data), r.State, r.RequesterID, r.AssigneeID, r.AssignmentGroupID, r.TenantID})
 	if err != nil {
 		return err
 	}
-	b.Queue("SELECT ("+expr+")::text FROM (SELECT $1::jsonb AS data, $2::text AS state, $3::uuid AS requester_id, "+
-		"$4::uuid AS assignee_id, $5::uuid AS assignment_group_id, $6::uuid AS org_unit_id) AS records", args...).
+	b.Queue("SELECT ("+expr+")::text, org_unit_id FROM (SELECT $1::jsonb AS data, $2::text AS state, $3::uuid AS requester_id, "+
+		"$4::uuid AS assignee_id, $5::uuid AS assignment_group_id, "+
+		"(SELECT m.org_unit_id FROM org_unit_members m WHERE m.tenant_id = $6::uuid AND m.principal_id = $3::uuid AND m.is_primary) AS org_unit_id) AS records", args...).
 		QueryRow(func(row pgx.Row) error {
 			var s string
-			if err := row.Scan(&s); err != nil {
+			if err := row.Scan(&s, &r.OrgUnitID); err != nil {
 				return fmt.Errorf("records/store: preview payload as jsonb: %w", err)
 			}
 			*dst = json.RawMessage(s)

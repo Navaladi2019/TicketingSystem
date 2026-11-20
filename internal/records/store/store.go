@@ -134,24 +134,6 @@ func GroupLive(ctx context.Context, tx pgx.Tx, tenantID, id uuid.UUID) (bool, er
 	return live, nil
 }
 
-// PrimaryOrgUnit returns the live primary org unit of principal, or nil when
-// it has none (ADR-010 D8). It reads org_unit_members in the caller's
-// transaction, filtered by tenantID, so under the tenant's RLS: another
-// tenant's membership reads as none. org_unit_members' live FK keeps the unit
-// live, and its one-primary index keeps the answer to one row.
-func PrimaryOrgUnit(ctx context.Context, tx pgx.Tx, tenantID, principal uuid.UUID) (*uuid.UUID, error) {
-	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT org_unit_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2 AND is_primary`,
-		tenantID, principal).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil //nolint:nilnil // no primary unit is an answer, not an error
-	}
-	if err != nil {
-		return nil, fmt.Errorf("records/store: read primary org unit: %w", err)
-	}
-	return &id, nil
-}
-
 // Insert writes a new record at r.Version.
 func Insert(ctx context.Context, tx pgx.Tx, r *Record) error {
 	data, err := json.Marshal(r.Data)

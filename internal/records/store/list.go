@@ -164,7 +164,7 @@ func PageStatement(q ListQuery) (string, []any, error) {
 		return branchedPage(q, args, keyset, order), args, nil
 	}
 	return `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
-       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
        r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
        r.` + q.SortColumn + `::text FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
@@ -243,7 +243,7 @@ func CountStatement(q ListQuery) string {
 func branchedPage(q ListQuery, args []any, keyset, order string) string {
 	limit := `LIMIT $` + fmt.Sprint(len(args))
 	cols := `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
-  r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+  r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
   r.data, r.causation_origin_id, r.causation_depth, r.` + q.SortColumn + ` AS sort_key`
 	arms := make([]string, len(q.Branches))
 	for i, b := range q.Branches {
@@ -254,7 +254,7 @@ WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND `
 	outer := strings.NewReplacer("r.updated_at", "updated_at", "r.id", "id").Replace(order)
 	// The sort column's ORDER BY term leads; order starts with its direction.
 	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
-       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.org_unit_id, x.created_by, x.created_at, x.updated_at,
        x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
        x.sort_key::text FROM (
 ` + strings.Join(arms, "\nUNION ALL\n") + `
