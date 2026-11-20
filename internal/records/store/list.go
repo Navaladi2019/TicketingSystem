@@ -230,6 +230,10 @@ func CountStatement(q ListQuery) string {
 	if !branched(q) {
 		return `SELECT count(*) FROM (SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `) c`
 	}
+	// TICK-1022 spike: in the ACL arms of the count, each data filter's EXISTS
+	// keeps an OFFSET 0, which PostgreSQL does not pull up into a semi join:
+	// one probe of the side table's value index per record the arm sees.
+	where = strings.ReplaceAll(where, " /*fi*/)", " OFFSET 0)")
 	arms := make([]string, len(q.Branches))
 	for i, b := range q.Branches {
 		arms[i] = `(SELECT 1 FROM records r` + where + ` AND ` + b + ` LIMIT ` + cap1 + `)`

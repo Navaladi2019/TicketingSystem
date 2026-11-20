@@ -212,7 +212,7 @@ func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 		}
 	}
 	cmp := strings.Join(cmps, " AND ")
-	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
+	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + " /*fi*/)"
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.
