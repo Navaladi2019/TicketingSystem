@@ -76,9 +76,16 @@ route maps it to the same 422, never a 500.
 ## Problem codes
 
 Every 422 is `invalid_access_policy`. Each entry in `errors` has a JSON
-`pointer` into the request body (prefixed `/rules` or `/masks`) and a `code`.
+`pointer` into the request body and a `rule` naming the problem:
 
-| Code | Meaning |
+- **Access-document checks** (the table below) point into the document,
+  prefixed `/rules` or `/masks`, for example `/rules/policies/0/when`.
+- **Request-boundary checks** run first, before the document is read
+  (strict JSON, TICK-964). A body that repeats a key
+  is refused there with a pointer prefixed `/body`, for
+  example `/body/rules/format` with rule `duplicate`. Nothing is stored.
+
+| Rule | Meaning |
 |---|---|
 | `required`, `type`, `value`, `empty`, `unknown_key`, `duplicate`, `condition` | Shape errors, shared with format 1 |
 | `invalid_name` | A condition or policy name does not match the name pattern |

@@ -135,11 +135,19 @@ trigger repeat steps 1 and 6; if one of them refuses (SQLSTATE 23514), the
 route maps it to the same 422, never a 500.</p>
 <h2 id="problem-codes">Problem codes</h2>
 <p>Every 422 is <code>invalid_access_policy</code>. Each entry in <code>errors</code> has a JSON
-<code>pointer</code> into the request body (prefixed <code>/rules</code> or <code>/masks</code>) and a <code>code</code>.</p>
+<code>pointer</code> into the request body and a <code>rule</code> naming the problem:</p>
+<ul>
+<li><strong>Access-document checks</strong> (the table below) point into the document,
+prefixed <code>/rules</code> or <code>/masks</code>, for example <code>/rules/policies/0/when</code>.</li>
+<li><strong>Request-boundary checks</strong> run first, before the document is read
+(strict JSON, TICK-964). A body that repeats a key
+is refused there with a pointer prefixed <code>/body</code>, for
+example <code>/body/rules/format</code> with rule <code>duplicate</code>. Nothing is stored.</li>
+</ul>
 <table>
 <thead>
 <tr>
-<th>Code</th>
+<th>Rule</th>
 <th>Meaning</th>
 </tr>
 </thead>
