@@ -1067,10 +1067,46 @@
     },
     {
       "file": "20261119100000_acl_rules_valid_format2.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "e53858f5",
+      "date": "2026-11-20",
+      "pr": "787",
+      "story": "S30",
+      "tickets": [
+        "TICK-935",
+        "TICK-940"
+      ]
     },
     {
       "file": "20261119100100_acl_versions_bytes_validate.sql",
+      "on_main": true,
+      "commit": "e53858f5",
+      "date": "2026-11-20",
+      "pr": "787",
+      "story": "S30",
+      "tickets": [
+        "TICK-935",
+        "TICK-940"
+      ]
+    },
+    {
+      "file": "20261120120000_org_unit_members.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261120120100_acl_tenant_ids_org_units.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261120120200_records_org_unit_id.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261120120300_records_org_unit_fkey_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261120120400_records_org_unit_index.sql",
       "on_main": false
     }
   ]

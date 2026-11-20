@@ -319,6 +319,13 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/fixed_columns/title",
 		},
 		{
+			// ADR-010 D8 (TICK-947): the pipeline sets org_unit_id; no
+			// property of the payload may write it.
+			name:   "org unit column is not a mapping target",
+			mutate: func(d *metadata.Definition, _ map[string]any) { d.FixedColumns["requester"] = metadata.ColumnOrgUnitID },
+			want:   "/fixed_columns/requester",
+		},
+		{
 			name:   "fixed column on a missing property",
 			mutate: func(d *metadata.Definition, _ map[string]any) { d.FixedColumns["ghost"] = metadata.ColumnAssigneeID },
 			want:   "/fixed_columns/ghost",

@@ -69,8 +69,10 @@ roles:
       records:
         SELECT: []
         INSERT: []
+        # org_unit_id (TICK-947, ADR-010 D8): set on create, then a stored
+        # field a write (a workflow step) may move.
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                 updated_at, data, causation_origin_id, causation_depth]
+                 org_unit_id, updated_at, data, causation_origin_id, causation_depth]
       # audit_log: as a writer of an audited table, its INSERT on the R10
       # columns and SELECT on the commit-check columns are generated from
       # db/audited-tables.yaml (R12, P5-11). The list below is every column
@@ -109,6 +111,8 @@ roles:
       groups: { SELECT: [] }
       group_members: { SELECT: [] }
       org_units: { SELECT: [] }
+      # TICK-947 (ADR-010 D7): a caller's units seed the under set S.
+      org_unit_members: { SELECT: [] }
       # Keycloak Registry.TenantOwnsEmailDomain (T18a).
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
@@ -200,11 +204,18 @@ roles:
       # dated number format reads its tenant's time_zone (ADR-005 §3.6, A7);
       # tenants_tenant scopes the row. Never state or the onboarding columns.
       tenants: { SELECT: [id, time_zone] }
+      # TICK-947 (ADR-010 D7, SP-2): the worker resolves under for workflow
+      # policy tests: the tree and its tombstones, and a principal's units.
+      # Never keycloak_group_id or name.
+      org_units: { SELECT: [tenant_id, id, parent_id, deleted_at] }
+      org_unit_members: { SELECT: [tenant_id, org_unit_id, principal_id, is_primary] }
       records:
         SELECT: []
         INSERT: []
+        # org_unit_id (TICK-947, ADR-010 D8): set on create, then a stored
+        # field a write (a workflow step) may move.
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                 updated_at, data, causation_origin_id, causation_depth]
+                 org_unit_id, updated_at, data, causation_origin_id, causation_depth]
       # ADR-004: the sealer. It reads every column but diff and diff_salt
       # (the envelope holds diff_sha256) and updates only the seal columns,
       # through the R11 seal transition. As a record writer its R10 INSERT
@@ -359,7 +370,11 @@ roles:
       # no DELETE (step (ii), TICK-538; D2, D10).
       groups: { SELECT: [], INSERT: [], UPDATE: [path, deleted_at] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
-      org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
+      # TICK-947 (ADR-010 D7): a unit is tombstoned (deleted_at), never
+      # deleted, so records.org_unit_id and stored under ids never dangle.
+      org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name, deleted_at] }
+      # Membership and the primary unit (D-11-6); nava_groupsync is the only writer.
+      org_unit_members: { SELECT: [], INSERT: [], UPDATE: [is_primary], DELETE: [] }
       # Group sync reads the recorded admins and auditors groups (P3-04, I1)
       # and deletes a pointer only once its group is tombstoned (ADR-004-E5
       # D5: tenant_admin_group_delete_tombstoned and

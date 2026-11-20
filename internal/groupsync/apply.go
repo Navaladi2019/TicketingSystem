@@ -415,18 +415,21 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 }
 
 type unitRow struct {
-	id     uuid.UUID
-	parent *uuid.UUID
-	name   string
+	id      uuid.UUID
+	parent  *uuid.UUID
+	name    string
+	deleted bool // tombstoned: deleted_at is set
 }
 
 // applyOrgUnits writes the tree. New units go in as roots, then parents are
-// set, then removed units go. Before anything commits, a walk up from each
+// set, then removed units are tombstoned (deleted_at; ADR-010 D7, TICK-947:
+// nava_groupsync has no DELETE on org_units) and a returning one is revived on
+// the same id. Before anything commits, a walk up from each
 // moved unit checks that its chain to the root has no cycle and is no longer
 // than maxDepth. It does not bound the depth of a moved unit's descendants.
 func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []identity.DirectoryGroup, maxDepth int, st *stats) error {
 	tid := tenantID.String()
-	rows, err := tx.Query(ctx, `SELECT id, parent_id, keycloak_group_id, name FROM org_units WHERE tenant_id = $1::uuid`, tid)
+	rows, err := tx.Query(ctx, `SELECT id, parent_id, keycloak_group_id, name, deleted_at IS NOT NULL FROM org_units WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
 		return fmt.Errorf("read org units: %w", err)
 	}
@@ -434,7 +437,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 	for rows.Next() {
 		var kc string
 		var r unitRow
-		if err := rows.Scan(&r.id, &r.parent, &kc, &r.name); err != nil {
+		if err := rows.Scan(&r.id, &r.parent, &kc, &r.name, &r.deleted); err != nil {
 			rows.Close()
 			return fmt.Errorf("read org units: %w", err)
 		}
@@ -491,7 +494,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 			continue
 		}
 		parentChanged := !uuidPtrEq(cur.parent, parent)
-		if !parentChanged && cur.name == u.Name {
+		if !parentChanged && cur.name == u.Name && !cur.deleted {
 			continue
 		}
 		var pArg *string
@@ -499,7 +502,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 			s := parent.String()
 			pArg = &s
 		}
-		upd.Queue(`UPDATE org_units SET parent_id = $3::uuid, name = $4 WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), pArg, u.Name)
+		upd.Queue(`UPDATE org_units SET parent_id = $3::uuid, name = $4, deleted_at = NULL WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), pArg, u.Name)
 		st.OrgUnitsWritten++
 		if parentChanged {
 			moved = append(moved, id.String())
@@ -507,14 +510,13 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 	}
 	var gone []string
 	for kc, r := range have {
-		if _, ok := idOf[kc]; !ok {
+		if _, ok := idOf[kc]; !ok && !r.deleted {
 			gone = append(gone, r.id.String())
 		}
 	}
 	del := &pgx.Batch{}
 	if len(gone) > 0 {
-		// One statement: the self-FK is NO ACTION, checked at its end.
-		del.Queue(`DELETE FROM org_units WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
+		del.Queue(`UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
 		st.OrgUnitsDeleted = len(gone)
 	}
 	for _, b := range []*pgx.Batch{ins, upd, del} {

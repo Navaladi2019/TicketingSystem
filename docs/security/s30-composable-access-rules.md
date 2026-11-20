@@ -2,7 +2,7 @@
 
 TICK-943, story TICK-935 (S30), ADR-010 I1, D4, D5b, D10. The attacker holds a valid token for one tenant, usually its admin token (the access routes are admin only), and tries to make a format-2 access document reach another tenant, or keep access after a mistake voids a policy. Every attack below is a runnable test; the passing ones stay as regression guards.
 
-**Verdict: no exploitable isolation gap.** Three findings: F1 is recorded as AR-S30-01 and must be closed before S31 switches `under` on; F2 is fixed in this change; F3 is a 500 on a publish body, which fails closed and is left to the engineers.
+**Verdict: no exploitable isolation gap.** Three findings: F1 was recorded as AR-S30-01 and is fixed by TICK-947 (S31), before `under` is switched on; F2 is fixed in this change; F3 is a 500 on a publish body, which fails closed and is left to the engineers.
 
 ## Paths to data
 
@@ -25,7 +25,7 @@ sequenceDiagram
     R-->>A: 422 foreign_id / unresolved_ref (same bytes as an unknown id or name)
     A->>DB: direct INSERT (any route bypass)
     DB-->>A: 23514 foreign_id (trigger), 23514 CHECK, or 42501 RLS
-    Note over DB: under {of: [B's org unit]} passes the CHECK today (F1)
+    Note over DB: under {of: [B's org unit]} is refused by the tenant-id trigger since TICK-947 (F1)
     DB->>P: a stored voided policy (legacy row, or under)
     P-->>A: policy voided: no row on list, read, PATCH (404); explainer lists it in invalid
 ```
@@ -41,7 +41,7 @@ sequenceDiagram
 | 4 | Tenant A's explainer pointed at tenant B's record, user, admin, group, or ids of the wrong kind, with format-2 documents in both tenants | The unknown-record 404, byte for byte; A's explanation never carries B's policy or condition names | `TestS30ExplainerStaysInItsTenantUnderFormat2` |
 | 5 | Tenant B's admin `GET`/`PUT` on a key only tenant A has, with no, `*`, A's current or a stale `If-Match` | The unknown-key 404, byte for byte, no `ETag` (a 412 would leak A's version); nothing written in either tenant; a non-admin gets the same 403 for both keys. Timing: one `(tenant_id, key)` lookup that finds nothing on both paths | `TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut` |
 | 6 | A format-2 document changes how masks behave | The same masks give the same record bodies and explainer `masked_fields` under format 1 and format 2; masks inside a format-2 `rules` value are 422 `unknown_key` | `TestS30MasksBehaveTheSameUnderEitherFormat` |
-| 7 | `under` (not available in S30) at the route, in both forms, with tenant B's org unit | 422 `not_available`, the id not echoed. Stored past the route: voided, grants nothing (F1) | `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` |
+| 7 | `under` (not available in S30) at the route, in both forms, with tenant B's org unit | 422 `not_available`, the id not echoed. Past the route: 23514 `foreign_id` (TICK-947); an own-tenant unit stored past the route is voided and grants nothing (F1) | `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` |
 | 8 | `legacyACLInsert` (TICK-940 test helper that turns the tenant-id trigger off) reachable outside tests | No package of the module imports `internal/tenancy/isolation`, under any build tag | `internal/tenancy/isolation/reach_isolation_test.go` |
 | 9 | The trigger stays off after the helper | On again after fn succeeds, fails, panics, calls `runtime.Goexit` (`t.Fatal`), or cancels the context; a failed ENABLE is reported (F2) | `internal/tenancy/isolation/legacy_acl_insert_isolation_test.go` |
 | 10 | A runtime role turns the trigger off or skips it | `ALTER TABLE ... DISABLE TRIGGER` and `SET session_replication_role = replica` are 42501 for every runtime role | `TestRuntimeRolesCannotSkipTheTenantIDTrigger` |
@@ -53,10 +53,10 @@ The `not` lint (TICK-937 finding 2) warns on a `not` over a caller-dependent lea
 ### F1: `under` is refused at the route only
 
 - **Attack:** a holder of `nava_app` database access (not an API caller: no route writes it) inserts tenant A's document with `{"under": {"of": ["<tenant B's org unit>"]}}`. The CHECK accepts it (the shared fixture marks `not_available` as `route_only`) and the trigger checks no org-unit id.
-- **Status:** will bite us at scale. Today the planner voids `under`, so the row grants nothing on any read path. When S31 marks `under` available, every such stored row becomes live, with an org-unit id nothing has checked.
+- **Status:** fixed by TICK-947 (S31 P11-14, `20261120120100_acl_tenant_ids_org_units.sql`): the tenant-id trigger refuses every `under.of` id that is not a live org unit of `NEW.tenant_id` with `foreign_id`, and the migration refuses to apply while any stored row names one. AR-S30-01 is deleted. Was: will bite us at scale. The planner voided `under`, so the row granted nothing on any read path, but when S31 marked `under` available every such stored row would have become live, with an org-unit id nothing had checked.
 - **Severity:** Medium.
 - **Fix (lowest layer):** before `under` becomes available, the trigger checks every `under.of` id against `org_units` of `NEW.tenant_id`, and a one-off query proves no stored row holds a foreign or missing org-unit id. Until then the CHECK can refuse `under` outright. Owner: S31 (TICK-947 / TICK-950). Recorded as AR-S30-01.
-- **Test:** `internal/server/access_s30_isolation_integration_test.go` `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored`. Its middle step pins the CHECK's acceptance and fails when TICK-947 adds the refusal, so the AR row cannot outlive the fix.
+- **Test:** `internal/server/access_s30_isolation_integration_test.go` `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` (its middle step now asserts the refusal) and `internal/db/dbtest/org_units_test.go` `TestTICK947UnderForeignIDs` (superuser and `nava_app`; foreign, tombstoned and missing units).
 
 The Technical Lead's hand-off says `under` is refused "through a direct insert and in the CHECK". It is not; this finding corrects that.
 

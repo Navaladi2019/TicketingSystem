@@ -103,7 +103,7 @@ The S30 rows are in
 | Tenant A's explainer pointed at tenant B's record, user or group | The missing-record 404; no tenant B policy or condition name | `TestS30ExplainerStaysInItsTenantUnderFormat2` |
 | Tenant B's admin `GET`/`PUT` on a key only tenant A has | The unknown-key 404, no `ETag` | `TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut` |
 | Masks under format 2 | Same bodies and `masked_fields` as format 1 | `TestS30MasksBehaveTheSameUnderEitherFormat` |
-| `under` with tenant B's org unit | 422 `not_available` at the route; voided if stored (accepted risk `AR-S30-01` until S31) | `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` |
+| `under` with tenant B's org unit | 422 `not_available` at the route; a direct insert gets 23514 `foreign_id` from the trigger (TICK-947, which closed `AR-S30-01`) | `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` |
 | A runtime role skips the tenant-id trigger, or `nava_worker` publishes | 42501 for every runtime role; the worker's insert fails | `TestRuntimeRolesCannotSkipTheTenantIDTrigger`, `TestTICK940WorkerCannotPublish` |
 
 ## Fixture that turns it red
@@ -120,13 +120,13 @@ which shows the two layers are independent.
 Errors and logs are part of the read side: AR-006 (a recovered panic value is
 logged as is) and AR-010 (`error.type` export shape) apply here.
 
-S30 adds `AR-S30-01` (`under` is refused at the route only, until S31), below,
+S30 added `AR-S30-01` (`under` refused at the route only), closed by TICK-947,
 and `AR-TICK-971-01` (a crafted document costs up to about 90 ms per publish
 at the default byte limit, about 340 ms at the 128 KiB ceiling), on the
 [ADR-010-A1 page](../adr/adr-010-a1.md#residuals) and in
 [accepted-risks.md](../../../security/accepted-risks.md).
 
-<!-- gen:accepted-risks ids=AR-006,AR-010,AR-TICK-653-01,AR-TICK-653-02,AR-S30-01 -->
+<!-- gen:accepted-risks ids=AR-006,AR-010,AR-TICK-653-01,AR-TICK-653-02 -->
 
 ## Related
 
