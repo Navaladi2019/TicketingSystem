@@ -38,6 +38,12 @@ type stats struct {
 	// admins group (tenant_admin_group); the tenant then has no admin.
 	AdminGroupDeleted                bool
 	OrgUnitsWritten, OrgUnitsDeleted int
+	// OrgMembersWritten counts org_unit_members rows inserted or whose
+	// is_primary changed; OrgMembersRemoved those deleted.
+	OrgMembersWritten, OrgMembersRemoved int
+	// OrgSubtreeMax is the largest number of live units (the unit itself
+	// included) under any one unit a user belongs to.
+	OrgSubtreeMax int
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -98,7 +104,7 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 	if err := applyGroups(ctx, tx, tid, groups, userIDs, &st); err != nil {
 		return st, err
 	}
-	if err := applyOrgUnits(ctx, tx, tenantID, units, maxDepth, &st); err != nil {
+	if err := applyOrgUnits(ctx, tx, tenantID, units, changes.Users, userIDs, maxDepth, &st); err != nil {
 		return st, err
 	}
 	return st, nil
@@ -424,10 +430,13 @@ type unitRow struct {
 // applyOrgUnits writes the tree. New units go in as roots, then parents are
 // set, then removed units are tombstoned (deleted_at; ADR-010 D7, TICK-947:
 // nava_groupsync has no DELETE on org_units) and a returning one is revived on
-// the same id. Before anything commits, a walk up from each
+// the same id. Membership follows: a vanishing unit's org_unit_members rows are
+// deleted before the tombstone, which the live FK would otherwise refuse
+// (23503), and the other rows and each user's primary unit are made equal to
+// the snapshot. Before anything commits, a walk up from each
 // moved unit checks that its chain to the root has no cycle and is no longer
 // than maxDepth. It does not bound the depth of a moved unit's descendants.
-func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []identity.DirectoryGroup, maxDepth int, st *stats) error {
+func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []identity.DirectoryGroup, users []identity.DirectoryUser, userIDs map[string]uuid.UUID, maxDepth int, st *stats) error {
 	tid := tenantID.String()
 	rows, err := tx.Query(ctx, `SELECT id, parent_id, keycloak_group_id, name, deleted_at IS NOT NULL FROM org_units WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
@@ -516,17 +525,154 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 			gone = append(gone, r.id.String())
 		}
 	}
+	mem, err := planOrgMembers(ctx, tx, tid, units, idOf, users, userIDs)
+	if err != nil {
+		return err
+	}
+	st.OrgMembersRemoved = mem.removed
+	st.OrgMembersWritten = mem.written
+	st.OrgSubtreeMax = orgSubtreeMax(units, mem.unitsOf, maxDepth)
+
 	del := &pgx.Batch{}
 	if len(gone) > 0 {
 		del.Queue(`UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
 		st.OrgUnitsDeleted = len(gone)
 	}
-	for _, b := range []*pgx.Batch{ins, upd, del} {
+	// ins, upd; then the membership deletes (a vanishing unit's rows go before
+	// its tombstone); then the tombstone; then the inserts, which only target
+	// live units.
+	for _, b := range []*pgx.Batch{ins, upd, mem.before, del, mem.after} {
 		if err := send(ctx, tx, b); err != nil {
 			return fmt.Errorf("write org units: %w", err)
 		}
 	}
 	return CheckOrgUnitChains(ctx, tx, tenantID, moved, maxDepth)
+}
+
+type orgMemberPlan struct {
+	before, after    *pgx.Batch
+	removed, written int
+	// unitsOf holds, per Keycloak user id, the Keycloak ids of the live units
+	// the user belongs to.
+	unitsOf map[string][]string
+}
+
+// planOrgMembers diffs org_unit_members against the snapshot. before holds the
+// deletes and the is_primary clears (a user has one primary, so the old one is
+// cleared before the new one is set); after holds the inserts and the sets.
+// A member with no principal in the snapshot is skipped, as in applyGroups.
+func planOrgMembers(ctx context.Context, tx pgx.Tx, tid string, units []identity.DirectoryGroup, idOf map[string]uuid.UUID, users []identity.DirectoryUser, userIDs map[string]uuid.UUID) (orgMemberPlan, error) {
+	plan := orgMemberPlan{before: &pgx.Batch{}, after: &pgx.Batch{}, unitsOf: map[string][]string{}}
+	rows, err := tx.Query(ctx, `SELECT org_unit_id, principal_id, is_primary FROM org_unit_members WHERE tenant_id = $1::uuid`, tid)
+	if err != nil {
+		return plan, fmt.Errorf("read org unit members: %w", err)
+	}
+	have := map[pair]bool{} // value: is_primary
+	for rows.Next() {
+		var p pair
+		var primary bool
+		if err := rows.Scan(&p.group, &p.principal, &primary); err != nil {
+			rows.Close()
+			return plan, fmt.Errorf("read org unit members: %w", err)
+		}
+		have[p] = primary
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return plan, fmt.Errorf("read org unit members: %w", err)
+	}
+
+	// Want: each user's units, then the primary among them (D-11-6): the
+	// attribute's unit if the user belongs to it, else the only unit, else none.
+	pathOf := make(map[string]string, len(units))
+	for _, u := range units {
+		pathOf[u.KeycloakGroupID] = u.Path
+	}
+	for _, u := range units {
+		seen := map[string]bool{}
+		for _, m := range u.MemberKeycloakUserIDs {
+			if _, ok := userIDs[m]; ok && !seen[m] {
+				seen[m] = true
+				plan.unitsOf[m] = append(plan.unitsOf[m], u.KeycloakGroupID)
+			}
+		}
+	}
+	want := map[pair]bool{} // value: is_primary
+	for _, u := range users {
+		kcUnits := plan.unitsOf[u.KeycloakUserID]
+		if len(kcUnits) == 0 {
+			continue
+		}
+		pid := userIDs[u.KeycloakUserID]
+		var primary string
+		if u.PrimaryOrgUnitPath != "" {
+			for _, k := range kcUnits {
+				if pathOf[k] == u.PrimaryOrgUnitPath {
+					primary = k
+				}
+			}
+		}
+		if primary == "" && len(kcUnits) == 1 {
+			primary = kcUnits[0]
+		}
+		for _, k := range kcUnits {
+			want[pair{idOf[k], pid}] = k == primary
+		}
+	}
+
+	for p, wasPrimary := range have {
+		if _, ok := want[p]; !ok {
+			plan.before.Queue(`DELETE FROM org_unit_members WHERE tenant_id = $1::uuid AND org_unit_id = $2::uuid AND principal_id = $3::uuid`,
+				tid, p.group.String(), p.principal.String())
+			plan.removed++
+		} else if wasPrimary && !want[p] {
+			plan.before.Queue(`UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1::uuid AND org_unit_id = $2::uuid AND principal_id = $3::uuid`,
+				tid, p.group.String(), p.principal.String())
+			plan.written++
+		}
+	}
+	for p, primary := range want {
+		wasPrimary, ok := have[p]
+		switch {
+		case !ok:
+			plan.after.Queue(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
+				tid, p.group.String(), p.principal.String(), primary)
+			plan.written++
+		case primary && !wasPrimary:
+			plan.after.Queue(`UPDATE org_unit_members SET is_primary = true WHERE tenant_id = $1::uuid AND org_unit_id = $2::uuid AND principal_id = $3::uuid`,
+				tid, p.group.String(), p.principal.String())
+			plan.written++
+		}
+	}
+	return plan, nil
+}
+
+// orgSubtreeMax is the largest live-unit count under (and including) any unit
+// some user belongs to. The walk up from each unit stops at maxDepth, so a
+// cycle in the snapshot cannot loop here; CheckOrgUnitChains refuses it.
+func orgSubtreeMax(units []identity.DirectoryGroup, unitsOf map[string][]string, maxDepth int) int {
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxOrgUnitDepth
+	}
+	parent := make(map[string]string, len(units))
+	for _, u := range units {
+		parent[u.KeycloakGroupID] = u.ParentKeycloakGroupID
+	}
+	size := make(map[string]int, len(units))
+	for _, u := range units {
+		k := u.KeycloakGroupID
+		for i := 0; i <= maxDepth && k != ""; i++ {
+			size[k]++
+			k = parent[k]
+		}
+	}
+	best := 0
+	for _, ks := range unitsOf {
+		for _, k := range ks {
+			best = max(best, size[k])
+		}
+	}
+	return best
 }
 
 func uuidPtrEq(a, b *uuid.UUID) bool {
