@@ -1,0 +1,27 @@
+# Access-policy alerts (ADR-010 R7, TICK-944). Local dev only, like the
+# scrape config; prometheus.yml loads every file in this directory.
+#
+# authz_policy_invalid_total{entity_type} counts the policies the planner
+# voided (D5b), once per evaluation, in nava-core (internal/authz/metrics.go).
+# A voided policy grants nothing, so the users it should admit silently lose
+# access. It should stay at zero: the access route and the acl_versions CHECK
+# refuse invalid nodes before they are stored, so any increase means the
+# planner and the save-time checks disagree. No tenant label (TICK-93): the
+# nava-core log line "authz: access policy voided, it grants nothing" names
+# the entity type and the ACL version. Tests: ../tests/authz_test.yml
+# (lineage.TestAlertRules).
+groups:
+  - name: authz
+    rules:
+      - alert: AuthzPolicyInvalid
+        expr: sum by (entity_type) (increase(authz_policy_invalid_total[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: An access policy was voided as invalid on {{ $labels.entity_type }} and grants nothing (ADR-010 R7).
+          description: >-
+            Users the policy should admit have lost access. Publish and the
+            database CHECK should have refused the document, so this is a
+            drift between them: read the policy and its pointer in the
+            explainer's invalid list, republish a valid document, and file a
+            bug on the check that let it through.

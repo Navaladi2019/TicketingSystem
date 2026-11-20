@@ -1,0 +1,60 @@
+meta {
+  name: S30.32 AC2: a reference to an unknown condition: 422 at the ref
+  type: http
+  seq: 32
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-unknown-ref
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {}
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const SD = bru.getVar('s30_sd'), ADM = bru.getVar('s30_admins');
+  const inAssigned = { cmp: { column: 'assignment_group_id', op: 'in', caller: 'my_groups' } };
+  const doc = () => ({
+    format: 2,
+    conditions: [
+      { name: 'in_assigned_group', expr: inAssigned },
+      { name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } },
+      { name: 'is_new', expr: { cmp: { column: 'state', op: 'eq', values: ['new'] } } },
+    ],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'agents_see_group_not_raised', ops: ['read'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { not: { ref: 'is_requester' } }] } },
+      { name: 'agents_edit_group_new', ops: ['write'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { ref: 'is_new' }] } },
+      { name: 'requesters_see_own', ops: ['read'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }] } },
+      { name: 'requesters_edit_own_new', ops: ['write'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }, { ref: 'is_new' }] } },
+    ],
+  });
+
+  const d = doc();
+  d.policies[1].when.all[1] = { ref: 'in_asigned_group' };
+  req.setBody({ rules: d, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s30_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_access_policy', 422);
+  const errs = N.json().errors || [];
+  test('unresolved_ref at /rules/policies/1/when/all/1/ref', () => expect(errs.map(e => e.pointer + ' ' + e.rule)).to.include('/rules/policies/1/when/all/1/ref unresolved_ref'));
+}

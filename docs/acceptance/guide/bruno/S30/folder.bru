@@ -1,0 +1,8 @@
+meta {
+  name: S30 composable access
+  seq: 22
+}
+
+docs {
+  Story S30, TICK-935 (kit TICK-944, PLAN-011 P11-12). An admin composes the incident type's access from named conditions (`in_assigned_group`, `is_requester`, `is_new`) combined with `all`, `any` and `not` into named policies (ADR-010 format 2). AC1 S30.28 to S30.31, AC2 S30.32 to S30.35, AC3 S30.36 to S30.41, AC4 S30.42 and S30.43, AC5 S30.9 and S30.14 to S30.27; isolation S30.44 to S30.46. Needs `tools/seed.sh`. Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice (`/service-desk`), `requester@tenant-a` is the seeded `auditor@tenant-a.test`, Bob is tenant B's agent. Runs again on the same stack: S30.47 republishes the policy S30.9 read, so each pass adds four ACL versions and leaves the decisions as it found them. Kit: `docs/acceptance/S30/`.
+}

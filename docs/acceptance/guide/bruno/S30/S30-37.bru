@@ -1,0 +1,71 @@
+meta {
+  name: S30.37 AC3: the admin edits only the condition in_assigned_group, one publish
+  type: http
+  seq: 37
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-edit-cond
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {}
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const SD = bru.getVar('s30_sd'), ADM = bru.getVar('s30_admins');
+  const inAssigned = { cmp: { column: 'assignment_group_id', op: 'in', caller: 'my_groups' } };
+  const doc = () => ({
+    format: 2,
+    conditions: [
+      { name: 'in_assigned_group', expr: inAssigned },
+      { name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } },
+      { name: 'is_new', expr: { cmp: { column: 'state', op: 'eq', values: ['new'] } } },
+    ],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'agents_see_group_not_raised', ops: ['read'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { not: { ref: 'is_requester' } }] } },
+      { name: 'agents_edit_group_new', ops: ['write'],
+        when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { ref: 'is_new' }] } },
+      { name: 'requesters_see_own', ops: ['read'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }] } },
+      { name: 'requesters_edit_own_new', ops: ['write'],
+        when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }, { ref: 'is_new' }] } },
+    ],
+  });
+
+  const d = doc();
+  d.conditions[0].expr = { any: [inAssigned, { cmp: { column: 'assignment_group_id', op: 'in', values: [ADM] } }] };
+  req.setBody({ rules: d, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s30_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s30_composed'));
+  const b = N.json();
+  test('one new version', () => expect(b.version).to.eql(was.version + 1));
+  test('policies unchanged', () => expect(b.rules.policies).to.eql(was.rules.policies));
+  test('only in_assigned_group changed', () => {
+    expect(b.rules.conditions[0].expr).to.not.eql(was.rules.conditions[0].expr);
+    expect(b.rules.conditions.slice(1)).to.eql(was.rules.conditions.slice(1));
+  });
+  bru.setVar('s30_etag', N.header('ETag'));
+}
+
+docs {
+  `in_assigned_group` becomes "assigned to one of my groups, or to admins" (an escalation group). Two policies use it: `agents_see_group_not_raised` (read) and `agents_edit_group_new` (write). Nothing else in the document changes.
+}

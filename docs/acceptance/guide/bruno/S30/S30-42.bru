@@ -1,0 +1,33 @@
+meta {
+  name: S30.42 AC4: explain (Alice, the requester's /service-desk incident): the policy and its conditions
+  type: http
+  seq: 42
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s30_sd_other}}&user={{s30_alice}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('allow', () => expect(b.decision).to.eql('allow'));
+  test('policy agents_see_group_not_raised', () => expect(b.policy).to.eql('agents_see_group_not_raised'));
+  test('rule_id is the policy name', () => expect(b.rule_id).to.eql('agents_see_group_not_raised'));
+  test('acl_version is the S30.37 version', () => expect('W/"' + b.acl_version + '"').to.eql(bru.getVar('s30_etag')));
+  test('trace: in_assigned_group on agents_see_group_not_raised is true', () => expect(b.trace).to.deep.include({ condition: 'in_assigned_group', policy: 'agents_see_group_not_raised', value: true }));
+  test('trace: is_requester on agents_see_group_not_raised is false', () => expect(b.trace).to.deep.include({ condition: 'is_requester', policy: 'agents_see_group_not_raised', value: false }));
+
+  test('no voided policy', () => expect(b.invalid).to.eql([]));
+}
+
+docs {
+  `policy` is the first policy in declared order that grants read; `trace` lists each named condition it reached with its value on this incident.
+}

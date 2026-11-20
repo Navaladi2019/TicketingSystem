@@ -1,0 +1,29 @@
+meta {
+  name: S30.43 AC4: explain (Alice, the incident she raised): deny, and why
+  type: http
+  seq: 43
+}
+
+get {
+  url: {{core_url}}/api/v1/access/explain?entity=incident&record={{s30_sd_mine}}&user={{s30_alice}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('deny', () => expect(b.decision).to.eql('deny'));
+  test('no policy', () => expect(b.policy == null).to.eql(true));
+  test('trace: in_assigned_group on agents_see_group_not_raised is true', () => expect(b.trace).to.deep.include({ condition: 'in_assigned_group', policy: 'agents_see_group_not_raised', value: true }));
+  test('trace: is_requester on agents_see_group_not_raised is true', () => expect(b.trace).to.deep.include({ condition: 'is_requester', policy: 'agents_see_group_not_raised', value: true }));
+}
+
+docs {
+  On a deny the trace covers every valid read policy, so the admin sees `is_requester` true where it decided.
+}
