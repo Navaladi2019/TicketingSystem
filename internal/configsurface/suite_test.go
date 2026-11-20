@@ -51,6 +51,17 @@ type inventory struct {
 	} `json:"type_definition"`
 	Script     []string     `json:"script"`
 	Deprecated []deprecated `json:"deprecated"`
+	Reserved   []reserved   `json:"reserved"`
+}
+
+// reserved is an item the source of truth names but Compile refuses, so no
+// tenant configuration can use it yet (x-nava-searchable, ADR-006 D8). It is
+// not surface: it has no accepted fixture and is left out of items(). Check 2
+// still sees it as listed, and TestReservedStillRefused fails the day Compile
+// accepts it, so it must then move into the inventory proper.
+type reserved struct {
+	Item   string `json:"item"`
+	Reason string `json:"reason"`
 }
 
 // deprecated is one item kept for compatibility: it stays listed and its
@@ -90,6 +101,16 @@ func (s itemSet) sorted() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// listed is items() plus the reserved items: what check 2 (unlisted
+// addition) treats as known.
+func (inv inventory) listed() itemSet {
+	s := inv.items()
+	for _, r := range inv.Reserved {
+		s[r.Item] = true
+	}
+	return s
 }
 
 // items flattens the inventory into item names.

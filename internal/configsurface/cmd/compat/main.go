@@ -113,7 +113,7 @@ type inventory struct {
 // parse flattens inventory.json the way the suite names items:
 // "<section>.<list>/<name>" for a list, "<section>.<list>/<key>.<name>" for a
 // map of lists (step_fields), and "<section>/<name>" for a top-level list
-// (script). "deprecated" is metadata, not surface.
+// (script). "deprecated" and "reserved" are metadata, not surface.
 func parse(b []byte) (inventory, error) {
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -125,7 +125,7 @@ func parse(b []byte) (inventory, error) {
 	}
 	for section, raw := range doc {
 		switch section {
-		case "major", "deprecated":
+		case "major", "deprecated", "reserved":
 			continue
 		}
 		var list []string
