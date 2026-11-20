@@ -1,0 +1,35 @@
+{
+  "step": "strict-putEntityTypeAccess-lone-surrogate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/entity-types/t961_a_mwnjuz8g/access",
+    "headers": {
+      "If-Match": "W/\"1\""
+    },
+    "body": {
+      "raw_hex": "7b2272756c6573223a5b7b226964223a225c7564383030222c226f7073223a5b2272656164225d2c2277686f223a7b2267726f757073223a5b5d7d7d5d7d",
+      "raw_latin1": "{\"rules\":[{\"id\":\"\\ud800\",\"ops\":[\"read\"],\"who\":{\"groups\":[]}}]}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:invalid_access_policy",
+      "title": "Invalid access policy",
+      "status": 422,
+      "code": "invalid_access_policy",
+      "detail": "The access policy is not accepted. Nothing was published. See errors for the failing fields.",
+      "instance": "urn:nava:request:e7c36126edb9ea81545605bb6778eaeb",
+      "errors": [
+        {
+          "pointer": "/body/rules/0/id",
+          "rule": "invalid_utf8"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

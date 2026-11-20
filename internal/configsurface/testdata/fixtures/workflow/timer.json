@@ -1,0 +1,9 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "incident" },
+  "start": "cool_off",
+  "steps": [
+    { "key": "cool_off", "type": "timer", "duration": "PT5M", "next": "done" },
+    { "key": "done", "type": "end" }
+  ]
+}

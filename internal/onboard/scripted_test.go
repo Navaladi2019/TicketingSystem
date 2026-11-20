@@ -58,7 +58,7 @@ func TestRegistryBoundIdPAliases(t *testing.T) {
 		r := NewRegistry(scriptedPool(t, startFakePGServer(t, pg(map[string]scripted{"idp_aliases": a}))))
 		return r.BoundIdPAliases(t.Context(), uuid.New())
 	}
-	got, err := run(t, scripted{cols: []uint32{oidTexts}, rows: [][]*string{{sp("{idp-a,idp-b}")}, {sp("{idp-c}")}}})
+	got, err := run(t, scripted{cols: []uint32{oidTexts}, rows: [][]*string{{new("{idp-a,idp-b}")}, {new("{idp-c}")}}})
 	if err != nil || len(got) != 3 || got[0] != "idp-a" || got[2] != "idp-c" {
 		t.Fatalf("aliases = %v, %v", got, err)
 	}
@@ -68,7 +68,7 @@ func TestRegistryBoundIdPAliases(t *testing.T) {
 	}
 	// An unreadable row is an error, never a shorter alias list that would
 	// make an IdP look unbound.
-	if got, err := run(t, scripted{cols: []uint32{oidTexts}, rows: [][]*string{{sp("{unterminated")}}}); err == nil || len(got) != 0 {
+	if got, err := run(t, scripted{cols: []uint32{oidTexts}, rows: [][]*string{{new("{unterminated")}}}); err == nil || len(got) != 0 {
 		t.Fatalf("bad row = %v, %v", got, err)
 	}
 	if got, err := run(t, scripted{err: "boom"}); err == nil || len(got) != 0 {
@@ -83,7 +83,7 @@ func TestRegistryBinding(t *testing.T) {
 		r := NewRegistry(scriptedPool(t, startFakePGServer(t, pg(map[string]scripted{"tenant_identity_binding": a}))))
 		return r.Binding(t.Context(), uuid.New())
 	}
-	iss, org, found, err := run(t, scripted{cols: []uint32{oidText, oidText}, rows: [][]*string{{sp("https://kc/realms/nava"), sp("org-1")}}})
+	iss, org, found, err := run(t, scripted{cols: []uint32{oidText, oidText}, rows: [][]*string{{new("https://kc/realms/nava"), new("org-1")}}})
 	if err != nil || !found || iss != "https://kc/realms/nava" || org != "org-1" {
 		t.Fatalf("binding = %q %q %v %v", iss, org, found, err)
 	}
@@ -133,7 +133,7 @@ func TestPGStoreBeginBranches(t *testing.T) {
 	t.Run("same key, different body", func(t *testing.T) {
 		t.Parallel()
 		st := scriptedStore(t, map[string]scripted{"SELECT state, onboarding": {cols: []uint32{oidText, oidText},
-			rows: [][]*string{{sp("provisioning"), sp(`\x6f74686572`)}}}}, noBindings{})
+			rows: [][]*string{{new("provisioning"), new(`\x6f74686572`)}}}}, noBindings{})
 		if _, err := st.Begin(t.Context(), tenant, []byte("h"), nil); !errors.Is(err, ErrKeyReuse) {
 			t.Fatalf("err = %v", err)
 		}
@@ -143,7 +143,7 @@ func TestPGStoreBeginBranches(t *testing.T) {
 func TestPGStoreBindBranches(t *testing.T) {
 	t.Parallel()
 	tenant := uuid.New()
-	state := func(v string) scripted { return scripted{cols: []uint32{oidText}, rows: [][]*string{{sp(v)}}} }
+	state := func(v string) scripted { return scripted{cols: []uint32{oidText}, rows: [][]*string{{new(v)}}} }
 	t.Run("state read fails", func(t *testing.T) {
 		t.Parallel()
 		st := scriptedStore(t, map[string]scripted{"SELECT state FROM tenants": {err: "boom"}}, noBindings{})
@@ -195,7 +195,7 @@ func TestPGStoreBindBranches(t *testing.T) {
 func TestPGStoreRecordAdminGroupBranches(t *testing.T) {
 	t.Parallel()
 	tenant := uuid.New()
-	exists := func(v string) scripted { return scripted{cols: []uint32{oidBool}, rows: [][]*string{{sp(v)}}} }
+	exists := func(v string) scripted { return scripted{cols: []uint32{oidBool}, rows: [][]*string{{new(v)}}} }
 	run := func(t *testing.T, answers map[string]scripted) error {
 		t.Helper()
 		return scriptedStore(t, answers, noBindings{}).RecordAdminGroup(t.Context(), tenant, "kc-g")
@@ -219,7 +219,7 @@ func TestPGStoreRecordAdminGroupBranches(t *testing.T) {
 func TestPGStoreActivateBranches(t *testing.T) {
 	t.Parallel()
 	tenant := uuid.New()
-	state := func(v string) scripted { return scripted{cols: []uint32{oidText}, rows: [][]*string{{sp(v)}}} }
+	state := func(v string) scripted { return scripted{cols: []uint32{oidText}, rows: [][]*string{{new(v)}}} }
 	run := func(t *testing.T, answers map[string]scripted) error {
 		t.Helper()
 		return scriptedStore(t, answers, noBindings{}).Activate(t.Context(), tenant)

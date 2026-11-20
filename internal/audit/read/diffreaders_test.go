@@ -513,7 +513,7 @@ func moduleAt(root, dir string, cache map[string][2]string) (mod, modDir string,
 	}
 	var m [2]string
 	if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
-		for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		for line := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
 			if mp, found := strings.CutPrefix(strings.TrimSpace(line), "module "); found {
 				m = [2]string{strings.Trim(strings.TrimSpace(mp), `"`), dir}
 				break
@@ -675,7 +675,7 @@ func TestAuditDiffReaderFixture(t *testing.T) {
 		rel := path.Join(at, filepath.ToSlash(r))
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, m := range wantRE.FindAllStringSubmatch(line, -1) {
-				for _, w := range strings.Fields(m[1]) {
+				for w := range strings.FieldsSeq(m[1]) {
 					want = append(want, diffRead{rel, i + 1, w})
 				}
 			}

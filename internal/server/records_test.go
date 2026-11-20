@@ -75,8 +75,7 @@ func TestRecordErrorLeavesOtherForeignKeyViolationsAnInternalError(t *testing.T)
 		"no property maps to the column":            {wrappedFK("records_requester_fkey"), recFixedColumns()},
 	} {
 		got := h.recordError(ctx, tc.err, tc.fixed, "state")
-		var pe *problemError
-		if errors.As(got, &pe) {
+		if pe, ok := errors.AsType[*problemError](got); ok {
 			t.Errorf("%s: mapped to the %s problem, want the raw error (a 500)", name, pe.code)
 		}
 	}

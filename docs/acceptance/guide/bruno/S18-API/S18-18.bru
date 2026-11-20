@@ -1,0 +1,31 @@
+meta {
+  name: S18.18 Publish without If-Match: 428
+  type: http
+  seq: 18
+}
+
+put {
+  url: {{core_url}}/api/v1/number-formats/{{s18_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick672-{{s18_run}}-p428
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "document": {
+      "template": "{prefix}-{yyyy}{MM}-{seq:4}",
+      "overflow": "grow"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('if_match_required', 428);
+}

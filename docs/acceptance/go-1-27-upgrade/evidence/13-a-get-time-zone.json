@@ -1,0 +1,18 @@
+{
+  "step": "a-get-time-zone",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tenant/settings/time-zone",
+    "headers": {}
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "time_zone": "UTC"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

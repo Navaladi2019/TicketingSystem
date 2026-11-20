@@ -2,7 +2,7 @@
 title: "Traces, logs and metrics"
 section: operations
 status: delivered
-sources: [compose.yaml, deploy/compose/README.md, deploy/compose/otel-collector/config.yaml, internal/platform/telemetry/telemetry.go, deploy/compose/prometheus/prometheus.yml, deploy/compose/prometheus/rules/audit.yml, docs/architecture/observability-notes.md, docs/architecture/nava-core-skeleton.md, .env.example]
+sources: [compose.yaml, deploy/compose/README.md, deploy/compose/otel-collector/config.yaml, internal/platform/telemetry/telemetry.go, deploy/compose/prometheus/prometheus.yml, deploy/compose/prometheus/rules/audit.yml, deploy/compose/prometheus/rules/authz.yml, docs/architecture/observability-notes.md, docs/architecture/nava-core-skeleton.md, .env.example]
 ---
 
 Every nava service emits three signals. Locally, all of them land in two browser UIs that `task stack:up` starts (profile `operator`).
@@ -63,6 +63,7 @@ If OpenObserve is not running (a stack without the `operator` profile), the Coll
 | `AuditSealLag` (warning) | An audit entry has been unsealed for more than 600 s | `audit_seal_failures_total` and the nava-worker `audit seal failed` log line, which names the tenant |
 | `AuditDeadLineage` (critical) | A seal lineage is more than 10 minutes overdue | The nava-purge `audit seal lineage dead` log line. Recovery is `POST /api/v1/audit/chain:reseed` |
 | `AuditDeadLineageCheckDown` (warning) | The dead-lineage check has reported nothing for 5 minutes | The nava-purge `audit dead lineage check failed` log line: a lost grant, a dropped policy or a renamed column |
+| `AuthzPolicyInvalid` (warning) | `authz_policy_invalid_total` grew in the last 10 minutes for an entity type: a stored access policy was voided and grants nothing (ADR-010 R7, S30) | The nava-core log line `authz: access policy voided, it grants nothing` names the entity type and ACL version; the explainer's `invalid` list gives the policy and pointer. Republish a valid document and file a bug on the check that let it through. Its sibling `authz_read_branches_fallback_total` has no alert; see [Core: record ACL](../system/core-acl.md#the-sp-2-branch-threshold-adr-010-d6) |
 
 ### Field index (S21, story branch)
 

@@ -14,6 +14,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/cascade"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/numbering"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
@@ -26,6 +27,10 @@ func (nopDefs) Version(context.Context, pgx.Tx, string, int) (*metadata.Compiled
 
 func (nopDefs) Current(context.Context, pgx.Tx, string) (*metadata.Compiled, int, error) {
 	return nil, 0, entitytypes.ErrNotFound
+}
+
+func (nopDefs) NumberFormat(context.Context, pgx.Tx, string, int) (numbering.Compiled, error) {
+	return numbering.Compiled{}, entitytypes.ErrNotFound
 }
 
 // Every malformed command is refused before the first statement: the nil tx
@@ -58,12 +63,12 @@ func TestWriteRefusesBadCommands(t *testing.T) {
 		// UUID; no other write names one.
 		"ai write, no source_ref": func(c *pipeline.Command) { c.Actor, c.Source = system, pipeline.SourceAI },
 		"ai write, source_ref not a uuid": func(c *pipeline.Command) {
-			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, ptrTo("decision-1")
+			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, new("decision-1")
 		},
 		"ai write, uppercase source_ref": func(c *pipeline.Command) {
-			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, ptrTo(strings.ToUpper(uuid.NewString()))
+			c.Actor, c.Source, c.SourceRef = system, pipeline.SourceAI, new(strings.ToUpper(uuid.NewString()))
 		},
-		"user write naming a source_ref": func(c *pipeline.Command) { c.SourceRef = ptrTo(uuid.NewString()) },
+		"user write naming a source_ref": func(c *pipeline.Command) { c.SourceRef = new(uuid.NewString()) },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -136,5 +141,3 @@ func TestErrAtVersionIsTransparent(t *testing.T) {
 		t.Errorf("errors.Is does not reach the cause")
 	}
 }
-
-func ptrTo[T any](v T) *T { return &v }

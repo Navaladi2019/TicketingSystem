@@ -1,0 +1,28 @@
+meta {
+  name: S28.8 The new tenant has the starter types: incident at version 1
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const body = N.json();
+  const items = Array.isArray(body) ? body : (body.items || []);
+  const inc = items.find(t => t.key === 'incident');
+  test('incident is there at version 1', () => expect(inc && inc.current_version).to.eql(1));
+}
+
+docs {
+  Tour step 6: onboarding seeded `change`, `incident` and `request`.
+}

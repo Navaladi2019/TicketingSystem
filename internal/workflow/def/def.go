@@ -226,8 +226,7 @@ func Parse(b []byte) (*Definition, error) {
 		return nil, err
 	}
 	if err := sch.Validate(doc); err != nil {
-		var ve *jsonschema.ValidationError
-		if errors.As(err, &ve) {
+		if ve, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
 			return nil, invalid(leafPaths(ve)...)
 		}
 		return nil, fmt.Errorf("workflow definition: validate: %w", err)

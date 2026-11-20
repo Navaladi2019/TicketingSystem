@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
@@ -185,10 +186,8 @@ func Check(diff []byte, secretPaths []patchwalk.Pointer, domain Domain) error {
 				}
 			}
 		case patchwalk.FieldValue:
-			for _, s := range secretPaths {
-				if ptr.HasPrefix(s) {
-					return reject(ptr, ReasonSecretPath)
-				}
+			if slices.ContainsFunc(secretPaths, ptr.HasPrefix) {
+				return reject(ptr, ReasonSecretPath)
 			}
 			// A member key is the last token of its pointer; the op path's
 			// own tokens were scanned on the FieldPath visit.

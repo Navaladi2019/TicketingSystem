@@ -1,0 +1,57 @@
+meta {
+  name: S28.3 The admin registers at the company login and signs in through it: 200
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: authorization_code
+  client_id: nava-web
+  code: {{s28_code}}
+  redirect_uri: http://localhost:3000/cb
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cb = 'http://localhost:3000/cb';
+  const B = N.browser((u) => u.startsWith(cb));
+  const email = N.v('s28_admin_email'), pw = N.v('s28_admin_password');
+  const auth = N.url('{{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/auth') + '?' + N.form({
+    client_id: 'nava-web', redirect_uri: cb, response_type: 'code', scope: 'openid', kc_idp_hint: 'idp-' + bru.getVar('s28_tenant') });
+  const login = await B.go(auth);
+  const reg = B.link(login.html, /registration/);
+  if (!reg) throw new Error('S28.3: no registration link on the page the sign-in reached' + B.where(login));
+  const form = await B.go(new URL(reg, login.url).toString());
+  const action = B.formAction(form.html, /register/i);
+  if (!action) throw new Error('S28.3: no registration form' + B.where(form));
+  const done = await B.go(new URL(action, form.url).toString(), {
+    email, firstName: 'First', lastName: 'Admin', password: pw, 'password-confirm': pw });
+  if (!done.stopped) throw new Error('S28.3: registration did not lead back to the platform' + B.where(done));
+  const code = new URL(done.stopped).searchParams.get('code');
+  if (!code) throw new Error('S28.3: the platform sign-in returned no code');
+  bru.setVar('s28_code', code);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200 from Keycloak', () => expect(res.getStatus()).to.eql(200));
+  const tok = N.json();
+  test('access token issued', () => expect(tok.access_token).to.be.a('string'));
+  bru.setVar('s28_admin_token', tok.access_token);
+  bru.setVar('s28_admin_refresh', tok.refresh_token);
+  const c = N.jwt(tok.access_token);
+  test('issuer is the pinned realm URL', () => expect(c.iss).to.eql(N.url('{{keycloak_issuer_url}}/realms/{{realm}}')));
+  test('the token names exactly the organization of the new tenant', () => {
+    expect(Object.keys(c.organization || {})).to.eql(['t-' + bru.getVar('s28_tenant')]);
+  });
+}
+
+docs {
+  Tour step 2, first sign-in on the local stack. The admin opens the platform's sign-in with the tenant's IdP (`kc_idp_hint=idp-<tenant_id>`), is sent to the stand-in company login (realm `standin-company`), creates their own user there with the invited email and a password they choose, and is sent back: Keycloak creates the platform user at the first brokered login (`nava-first-broker-login`) and adds it to the tenant's organization. The request script walks those redirects as a browser would; the request itself trades the resulting code for tokens. No master-realm credential is used.
+}

@@ -1,0 +1,33 @@
+{
+  "step": "strict-putTenantTimeZone-duplicate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/tenant/settings/time-zone",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b2274696d655f7a6f6e65223a224575726f70652f4265726c696e222c2274696d655f7a6f6e65223a224575726f70652f4265726c696e227d",
+      "raw_latin1": "{\"time_zone\":\"Europe/Berlin\",\"time_zone\":\"Europe/Berlin\"}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:invalid_time_zone",
+      "title": "Invalid time zone",
+      "status": 422,
+      "code": "invalid_time_zone",
+      "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+      "instance": "urn:nava:request:8dff55de6b15ebc5b7542bb9bfffaa3f",
+      "errors": [
+        {
+          "pointer": "/body/time_zone",
+          "rule": "duplicate"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

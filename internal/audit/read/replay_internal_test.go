@@ -197,9 +197,9 @@ func TestDefinitionMaskerFailsOnReadErrors(t *testing.T) {
 		want string
 	}{
 		"query":     {queryErrTx{}, "read definition schemas: boom"},
-		"scan":      {rowsTx{rows: &badRows{fakeRows: fakeRows{schemas: []string{`{}`}, i: -1}, scanErr: errBoom}}, "boom"},
-		"not JSON":  {rowsTx{rows: &badRows{fakeRows: fakeRows{schemas: []string{`{`}, i: -1}}}, "unexpected end of JSON"},
-		"rows fail": {rowsTx{rows: &badRows{fakeRows: fakeRows{schemas: []string{`{}`}, i: -1}, err: errBoom}}, "boom"},
+		"scan":      {rowsTx{rows: &badRows{schemas: []string{`{}`}, i: -1, scanErr: errBoom}}, "boom"},
+		"not JSON":  {rowsTx{rows: &badRows{schemas: []string{`{`}, i: -1}}, "unexpected end of JSON"},
+		"rows fail": {rowsTx{rows: &badRows{schemas: []string{`{}`}, i: -1, err: errBoom}}, "boom"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			paths, err := DefinitionMasker{}.MaskedPaths(t.Context(), c.tx, s)

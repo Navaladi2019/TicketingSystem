@@ -5,7 +5,7 @@ status: in-progress
 build: production
 workflows: [field_index.coordinator, field_index.backfill.run]
 activities: [field_index.Barrier, field_index.Classify, field_index.Batch, field_index.Ready]
-adrs: [ADR-006, ADR-001]
+adrs: [ADR-006, ADR-006-E1, ADR-001]
 stories: [S21]
 invariants: [I1, I2, I6, I7]
 packages: [internal/fieldindex, internal/fieldindex/backfill, internal/relay, cmd/nava-worker]
@@ -64,7 +64,7 @@ sequenceDiagram
 | Relay | Never starts the backfill. It signal-with-starts the tenant's coordinator. The tenant is the outbox row's: a payload `tenant_id` that differs fails closed, the row is marked dead, and Temporal is not called. |
 | Coordinator | One per tenant (`t:<tenant>:field_index.coordinator`). Dedups on the outbox id and on `(field, requested_version)`, runs one child at a time in arrival order, continues as new after 100 items, and completes after 5 minutes idle. A failed child is a `Warn` log line with `alert=true` and the field id, and the queue moves on. |
 | Backfill child | `t:<tenant>:field_index.backfill.run:<field>:<version>`. The activities read the field and pinned version from the workflow id, never from an argument. |
-| Barrier | Takes `pg_current_snapshot()` once, plus a fence xid right after it, and waits until every transaction in the snapshot's `xip` and in `[xmax, fence)` has ended (ADR-006-E1). The heartbeat keeps only the bounds `{xip, lo, hi}`, so it stays a fixed size however many xids were handed out (TICK-980; `TestBarrierHeartbeatKeepsWaitSetBounds` holds it under 512 bytes). Polls `pg_xact_status` 1 s apart, backing off to 10 s, holding no connection between polls. A lost worker resumes from the same snapshot. A removed or re-versioned registry row ends the wait at the next poll. After 15 minutes it raises `field_index_barrier_slow` once and keeps waiting. |
+| Barrier | Takes `pg_current_snapshot()` once, plus a fence xid right after it, and waits until every transaction in the snapshot's `xip` and in `[xmax, fence)` has ended ([ADR-006-E1](../adr/adr-006-e1.md)). The heartbeat keeps only the bounds `{xip, lo, hi}`, so it stays a fixed size however many xids were handed out (TICK-980; `TestBarrierHeartbeatKeepsWaitSetBounds` holds it under 512 bytes). Polls `pg_xact_status` 1 s apart, backing off to 10 s, holding no connection between polls. A lost worker resumes from the same snapshot. A removed or re-versioned registry row ends the wait at the next poll. After 15 minutes it raises `field_index_barrier_slow` once and keeps waiting. |
 | Batch | One `InTenantTx`: the registry row `FOR SHARE` (stop unless still `backfilling` at the pinned version), the next 1,000 ids `FOR SHARE`, DELETE then INSERT from `record_field_coerce`, progress as a whole percentage capped at 99. Values that did not coerce are added to `nava_field_index_uncoerced_total` after the commit (TICK-974). Activity arguments and results are references only (`{cursor}`), never data. |
 | Pause | Starts at 500 ms and is driven only by the batch duration the workflow measures. It doubles (to 4 s) when the median of the last 5 batches is over 1.5× a slowly following baseline, and halves (down to 500 ms) within 1.25× (TICK-991). |
 | Ready | Flips to `ready`, progress 100, only if still `backfilling` at the pinned version, then runs the barrier again. |

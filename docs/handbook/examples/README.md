@@ -29,6 +29,10 @@ template), so it is kept and gets `affected_service` as its next version; it
 keeps its default ACL. A re-run replays the records under fixed
 `Idempotency-Key`s, so it adds no second record.
 
+## On a tenant you onboarded yourself
+
+`seed-examples.sh` is written for the seeded tenant A. On a tenant you onboarded (tour step 1), `incident` already exists, so `POST /api/v1/entity-types` with `incident.json` answers `409 entity_type_exists`. Publish its `definition` as the next version with `POST /api/v1/entity-types/incident/versions` and the body `{"definition": …}` ([tour step 6](../src/tour/06-create-an-entity-type.md#an-example-whose-type-the-tenant-already-has)). The other two types are new keys, but their access files need your tenant's group ids in place of `__ADMINS__` and `__AUDITORS__`.
+
 ## In the product tour
 
 Use `loan_application` for the masking step, not only `incident`:

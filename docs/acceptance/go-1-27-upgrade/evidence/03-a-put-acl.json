@@ -1,0 +1,53 @@
+{
+  "step": "a-put-acl",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/entity-types/t961_a_mwnjuz8g/access",
+    "headers": {
+      "If-Match": "W/\"0\""
+    },
+    "body": {
+      "rules": [
+        {
+          "id": "t961-admins",
+          "ops": [
+            "read",
+            "write"
+          ],
+          "who": {
+            "groups": [
+              "01a1f3db-86ad-7edc-80a6-cf7eebad19c1"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "version": 1,
+      "rules": [
+        {
+          "id": "t961-admins",
+          "ops": [
+            "read",
+            "write"
+          ],
+          "who": {
+            "groups": [
+              "01a1f3db-86ad-7edc-80a6-cf7eebad19c1"
+            ]
+          }
+        }
+      ],
+      "masks": [],
+      "published_by": "01a1f3d6-5c8d-7bda-968c-b6bb41611ab2",
+      "published_at": "2026-11-19T12:52:05.785246Z"
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

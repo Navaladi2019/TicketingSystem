@@ -857,6 +857,30 @@ class TestGen(Base):
             build.gen_accepted_risks(build.Facts(self.root, None), "")
         self.assertIn("is not an AR row", str(cm.exception))
 
+    def test_accepted_risks_row_below_the_register_fails(self):
+        # TICK-1013: merges appended register rows under the maintenance list,
+        # where the generator never saw them. A bare AR row there fails.
+        tail = "\n## Maintaining this register\n\n- Keep IDs stable.\n"
+        for stray in ("| AR-S5-02 | Low | Appended. | [e](../e.md) |\n",
+                      "| AR-001 (R8) | High | Old copy. | [e](../e.md) |\n"):
+            write(self.root, "docs/security/accepted-risks.md", self.RISKS + tail + stray)
+            with self.assertRaises(ValueError) as cm:
+                build.gen_accepted_risks(build.Facts(self.root, None), "")
+            self.assertIn("is outside the register table", str(cm.exception))
+            page(self.root, "security/r.md", "R", "security", body="<!-- gen:accepted-risks -->")
+            self.fails("security/r.md", "is outside the register table")
+        # A headed table of its own below the register is still allowed.
+        write(self.root, "docs/security/accepted-risks.md",
+              self.RISKS + tail + "\n| ID | Count |\n| --- | --- |\n| AR-888 | 1 |\n")
+        build.gen_accepted_risks(build.Facts(self.root, None), "AR-001")
+
+    def test_accepted_risks_duplicate_id_in_register_fails(self):
+        write(self.root, "docs/security/accepted-risks.md",
+              self.RISKS + "| AR-S5-01 | Low | Second copy. | [e](../e.md) |\n")
+        with self.assertRaises(ValueError) as cm:
+            build.gen_accepted_risks(build.Facts(self.root, None), "")
+        self.assertIn("AR-S5-01 is in the register twice", str(cm.exception))
+
 
 class TestMarkdown(Base):
     def test_links(self):

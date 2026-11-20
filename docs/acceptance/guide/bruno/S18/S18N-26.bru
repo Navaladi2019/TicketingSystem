@@ -1,0 +1,22 @@
+meta {
+  name: S18N.26 AC4: tenant A's first incident keeps INC0000001
+  type: http
+  seq: 26
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s18_inc_a1_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const want = 'INC0000001';
+  test(`number still ${want}`, () => expect(N.json().number).to.eql(want));
+}

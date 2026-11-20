@@ -208,7 +208,7 @@ func specReasonCodes(t *testing.T) map[string]bool {
 	}
 	codes := map[string]bool{}
 	in := false
-	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(l, "### 4.1 Reason codes"):
 			in = true

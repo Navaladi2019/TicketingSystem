@@ -123,11 +123,11 @@ func apply(fields map[string]*commonpb.Payload, o override) {
 }
 
 func (tr *transport) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &transportWorkflow{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, tr: tr}
+	return &transportWorkflow{Next: next, tr: tr}
 }
 
 func (tr *transport) InterceptActivity(_ context.Context, next interceptor.ActivityInboundInterceptor) interceptor.ActivityInboundInterceptor {
-	return &transportActivity{ActivityInboundInterceptorBase: interceptor.ActivityInboundInterceptorBase{Next: next}, tr: tr}
+	return &transportActivity{Next: next, tr: tr}
 }
 
 type transportWorkflow struct {

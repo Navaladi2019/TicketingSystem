@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -178,7 +179,7 @@ func handbookOperationGaps(root string, ops map[string]bool) []string {
 			if fenced || m == nil {
 				continue
 			}
-			for _, id := range strings.Split(m[1], ",") {
+			for id := range strings.SplitSeq(m[1], ",") {
 				if !ops[id] {
 					out = append(out, fmt.Sprintf("%s: gen:operations block (body line %d) names %q, which is not an operationId in api/openapi.bundled.yaml", rel, i+1, id))
 				}
@@ -196,12 +197,7 @@ func handbookOperationGaps(root string, ops map[string]bool) []string {
 }
 
 func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 func bundledOperationIDs(t *testing.T) map[string]bool {

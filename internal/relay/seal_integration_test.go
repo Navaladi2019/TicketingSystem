@@ -143,3 +143,16 @@ func TestDelayedSealRowClaimedOnlyAfterAvailableAt(t *testing.T) {
 		t.Errorf("claimed at %s, before available_at %s", dbNow, availableAt)
 	}
 }
+
+// waitFor polls cond for up to 10 s. A unit test waits with synctest.Wait
+// instead (review-standard-core.md, "Tests: timing").
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met within 10 s")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

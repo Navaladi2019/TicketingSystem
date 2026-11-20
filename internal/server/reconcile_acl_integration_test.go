@@ -71,7 +71,7 @@ func TestReconcileDefaultACLOneTenantFailsTheBatchGoesOn(t *testing.T) {
 		if err := e.super.QueryRow(t.Context(), "SELECT rules::text FROM acl_versions WHERE tenant_id = $1 AND version = 1", tn.id).Scan(&rules); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(rules, `"default-admins"`) || !strings.Contains(rules, tn.adminGroup.String()) {
+		if !strings.Contains(rules, `"default_admins"`) || !strings.Contains(rules, tn.adminGroup.String()) {
 			t.Errorf("tenant %s default %s lacks the admins rule for %s", tn.id, rules, tn.adminGroup)
 		}
 	}

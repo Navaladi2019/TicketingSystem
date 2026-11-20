@@ -52,7 +52,7 @@ func registry(t *testing.T) map[string]stackCase {
 	}
 	cases := map[string]stackCase{}
 	var c *stackCase
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		k, v, ok := strings.Cut(strings.TrimPrefix(line, "- "), ": ")
 		if !ok {
@@ -94,7 +94,7 @@ func recipes(t *testing.T) map[string]string {
 			t.Fatal(err)
 		}
 		target := ""
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if m := targetDef.FindStringSubmatch(line); m != nil {
 				target = m[1]
 				continue

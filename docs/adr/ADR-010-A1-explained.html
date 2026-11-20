@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 amendment A1 explained: smaller caps, a size cap, and publishing from the API only</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+td.n{text-align:right;white-space:nowrap}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:680px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style>
+</head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-19</span> <span class="src">ADR-010-A1 · issue TICK-971 · amends ADR-010 D4 and R6 · source: SP-2 report (TICK-933, PR #727) · evidence: SP-2, A1 cap bench at 32 KiB and 128 KiB</span>
+
+<blockquote><strong>Decision record.</strong> Accepted on 2026-11-19 by the Solution Architect. The Technical Architect reviewed it twice: the first review found one blocking gap (no size limit on masks), which revision 1 closed, and the second found nothing blocking. The security reviewer approved the save-rights change. The product owner chose a platform-wide, configurable limit.</blockquote>
+
+<h1>Access rules: smaller limits, a configurable size limit, and saving only from the API</h1>
+
+<blockquote><strong>In one sentence.</strong> An access-rules document may now hold at most 128 tests. The document and its field-hiding rules may each be at most 32 KiB of text, a number the platform operator can change for the whole installation. Only the API's own database login may save one. Together these keep ticket lists inside their time budget, keep saving cheap even for a hostile document, and remove a save path that nothing uses and the security check could not handle.</blockquote>
+
+<h2>Words used here</h2>
+<dl>
+<dt>Access-rules document</dt><dd>For each ticket type, a tenant admin saves one document that says who may read or change which tickets (ADR-010). It is made of <em>conditions</em> (named yes/no tests) and <em>policies</em> that combine them with and/or/not, and it is stored in the <code>rules</code> column. <strong>It is not a ticket:</strong> nothing here limits tickets or their data.</dd>
+<dt>Masks</dt><dd>The rules, saved alongside, that hide individual fields from some users. They are stored in the <code>masks</code> column of the same row.</dd>
+<dt>Leaf</dt><dd>One basic test inside a document, for example "the ticket's state is new" or "the user is in group X".</dd>
+<dt>Cap</dt><dd>A fixed upper limit the platform enforces on every document. A document over a cap is refused when the admin saves it.</dd>
+<dt>Operator setting</dt><dd>A value that the people who run the installation set in its deployment configuration (an environment variable). Tenants and their admins cannot change it. They see its value only in the error that refuses a document as too large, so they know how much to cut.</dd>
+<dt>Publish</dt><dd>Saving a new version of the document. It writes one row to the database table <code>acl_versions</code>.</dd>
+<dt>CHECK and trigger</dt><dd>Safety nets inside the database on that table. A <em>CHECK</em> re-validates a value. The <em>trigger</em> confirms that every user, group and org-unit id belongs to the same customer. Both run even if the application code has a bug.</dd>
+<dt>Database login (role)</dt><dd>Each service connects as its own login, with its own rights. <code>nava_app</code> is the API's login; <code>nava_worker</code> is the background workflow worker's.</dd>
+<dt>I3</dt><dd>A platform rule (ADR-001): database rights are given per role, and no function may run with its owner's rights instead of the caller's (<code>SECURITY DEFINER</code> is banned).</dd>
+<dt>p50 / p95</dt><dd>The median time, and the time that 95 % of attempts beat.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>ADR-010 introduced composable access rules with provisional limits (up to 1,024 tests per document) and asked for a measurement, SP-2, to confirm them. SP-2 and the review found three problems:</p>
+<ol>
+<li><strong>1,024 tests is too many for the ticket list.</strong> At 256 tests one list page already uses the whole 150 ms budget. At 128 it stays at 44 ms or less.</li>
+<li><strong>The limits counted tests, not size.</strong> A document inside every limit could still be 1 MiB, padded with unused conditions or long id lists, and took <span class="bad">0.15 to 0.6 s</span> to check. The review found the same for masks: 1 MiB of masks took about <span class="bad">0.3 s</span>.</li>
+<li><strong>The background worker could save a document, but the id check could not work for it</strong>, and the usual fix would break I3.</li>
+</ol>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Question</th><th>Options</th><th>Chosen</th></tr>
+<tr><td>How many tests?</td><td>Keep 1,024; 256; 128</td><td><span class="good">128, fixed.</span> This is the measured point where a list stays in budget. Real documents today use at most 4 branches.</td></tr>
+<tr><td>How to bound size?</td><td>Separate limits on unused conditions and on ids; one byte limit</td><td><span class="good">One byte limit, on both the rules and the masks.</span> One number covers every way to make a row big.</td></tr>
+<tr><td>Fixed or configurable?</td><td>Fixed 32 KiB; per tenant and ticket type; one installation-wide setting</td><td><span class="good">One installation-wide setting</span>, as the product owner asked. Per tenant was rejected. The limit protects the shared database from tenant admins, so a tenant could never be allowed to raise it, and different limits per customer is a known pain point.</td></tr>
+<tr><td>Who may save?</td><td>Run the check with elevated rights (banned); let the worker read all users; remove the worker's right</td><td><span class="good">Remove the worker's right.</span> No worker code saves a document.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<ol>
+<li><strong>Test limits:</strong> nesting depth 8, 16 items per group, 64 policies, and <strong>128 tests per policy and per document</strong>. These are not configurable.</li>
+<li><strong>Size limit:</strong> the rules and the masks may each be at most <code>NAVA_ACL_MAX_DOCUMENT_BYTES</code>, an operator setting. <strong>The default is 32 KiB, and the allowed range is 16 KiB to 128 KiB.</strong> Any other value stops the API from starting. The API refuses a larger document with a clear error before touching the database: <code>422 document_too_large</code>, pointing at <code>/rules</code> or <code>/masks</code> and stating the limit.</li>
+<li><strong>Database safety net:</strong> the database refuses anything over the 128 KiB ceiling, whatever the setting, and does so before any expensive check runs. It does not read the setting itself, because the API's own login could change such a value and then it would be no safety net.</li>
+<li><strong>Who saves:</strong> only <code>nava_app</code> may insert into <code>acl_versions</code>. The worker keeps read access but loses write access and the right to run the check functions.</li>
+</ol>
+
+<figure>
+<svg viewBox="0 0 760 290" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Arial,sans-serif" font-size="13">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#57606a"/></marker></defs>
+<rect x="150" y="6" width="160" height="34" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="230" y="21" text-anchor="middle">Operator setting</text><text x="230" y="35" text-anchor="middle">16–128 KiB, default 32</text>
+<line x1="230" y1="40" x2="230" y2="58" stroke="#9a6700" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="10" y="60" width="120" height="44" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="70" y="80" text-anchor="middle">Admin saves</text><text x="70" y="96" text-anchor="middle">PUT /access</text>
+<rect x="160" y="60" width="140" height="44" rx="6" fill="#f6f8fa" stroke="#57606a"/><text x="230" y="80" text-anchor="middle">API checks size,</text><text x="230" y="96" text-anchor="middle">limits, references</text>
+<rect x="330" y="60" width="120" height="44" rx="6" fill="#f6f8fa" stroke="#57606a"/><text x="390" y="80" text-anchor="middle">DB: size ceiling</text><text x="390" y="96" text-anchor="middle">≤ 128 KiB each</text>
+<rect x="480" y="60" width="120" height="44" rx="6" fill="#f6f8fa" stroke="#57606a"/><text x="540" y="80" text-anchor="middle">DB: shape and</text><text x="540" y="96" text-anchor="middle">limits check</text>
+<rect x="630" y="60" width="120" height="44" rx="6" fill="#f6f8fa" stroke="#57606a"/><text x="690" y="80" text-anchor="middle">DB: ids belong</text><text x="690" y="96" text-anchor="middle">to this tenant</text>
+<line x1="130" y1="82" x2="158" y2="82" stroke="#57606a" marker-end="url(#a)"/>
+<line x1="300" y1="82" x2="328" y2="82" stroke="#57606a" marker-end="url(#a)"/>
+<line x1="450" y1="82" x2="478" y2="82" stroke="#57606a" marker-end="url(#a)"/>
+<line x1="600" y1="82" x2="628" y2="82" stroke="#57606a" marker-end="url(#a)"/>
+<rect x="230" y="160" width="240" height="40" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="350" y="185" text-anchor="middle">422 with a pointer, nothing saved</text>
+<line x1="230" y1="104" x2="300" y2="158" stroke="#cf222e" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<line x1="390" y1="104" x2="370" y2="158" stroke="#cf222e" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="560" y="160" width="190" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="655" y="185" text-anchor="middle">Saved: new version + audit</text>
+<line x1="690" y1="104" x2="660" y2="158" stroke="#1a7f37" marker-end="url(#a)"/>
+<rect x="10" y="235" width="200" height="40" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="110" y="260" text-anchor="middle">Worker tries to save</text>
+<line x1="210" y1="255" x2="326" y2="255" stroke="#cf222e" marker-end="url(#a)"/>
+<text x="340" y="260" fill="#cf222e">refused: no permission (fails closed)</text>
+</svg>
+<figcaption>The operator's setting drives the API's check, and the database keeps a fixed ceiling as its own safety net. The worker can no longer write.</figcaption>
+</figure>
+
+<h2>The evidence</h2>
+<p>We built the largest rows of nine shapes that fit under the limit and timed saving each one with every check in place. We did this at the default (32 KiB) and at the ceiling (128 KiB), twice, on PostgreSQL 16.10. The machine was shared with about 30 other containers, so each figure is the range over the two runs.</p>
+<table>
+<tr><th>Row</th><th>At 32 KiB: median</th><th>At 32 KiB: p95</th><th>At 128 KiB: median</th><th>At 128 KiB: p95</th></tr>
+<tr><td>Today's realistic document</td><td class="n">1–3 ms</td><td class="n">3–11 ms</td><td class="n">1–2 ms</td><td class="n">2–4 ms</td></tr>
+<tr><td>At every test limit, one id per test (10.8 kB)</td><td class="n">5–8 ms</td><td class="n">11–22 ms</td><td class="n">3–8 ms</td><td class="n">5–12 ms</td></tr>
+<tr><td>Masks filled to the limit</td><td class="n">8–13 ms</td><td class="n">15–26 ms</td><td class="n">24–62 ms</td><td class="n">29–84 ms</td></tr>
+<tr><td><strong>Worst crafted row that fits</strong> (chains of unused references, plus masks at the limit)</td><td class="n"><span class="warn">23–42 ms</span></td><td class="n"><span class="warn">33–92 ms</span></td><td class="n"><span class="warn">78–252 ms</span></td><td class="n"><span class="warn">103–337 ms</span></td></tr>
+<tr><td>A 1 MiB document, refused by the database</td><td class="n">23–28 ms</td><td class="n">26–43 ms</td><td class="n">17–25 ms</td><td class="n">26–34 ms</td></tr>
+<tr><td>Before this change: a 1 MiB document inside the old limits</td><td class="n" colspan="4"><span class="bad">430–590 ms</span> (rules alone, SP-2); about 300 ms for 1 MiB of masks</td></tr>
+</table>
+<p>The limit works exactly at the boundary for both the rules and the masks: a document at the limit is accepted, and one byte more is refused. The worst row costs at most about 90 ms at the default and at most about 340 ms at the ceiling, which is why the ceiling is 128 KiB. It only affects an admin saving rules, never a user listing tickets.</p>
+<p>For the save-rights change, we traced every place that saves an access-rules document: the access API and tenant onboarding. Both connect as <code>nava_app</code>. The Technical Architect and the security reviewer each reproduced the trace.</p>
+
+<h2>What we are accepting</h2>
+<ul>
+<li><strong>A hostile admin can make one save cost up to about 90 ms</strong> of database time at the default, and about 340 ms if the operator raises the limit to the ceiling. The cost falls on their own tenant only. We revisit if the worst case grows past 10× a realistic save at the default, or 50× at the ceiling, measured on the same machine in the same run (3–4× and 19–27× today).</li>
+<li><strong>The database's safety net is the ceiling, not the operator's value.</strong> A code path that skipped the API's checks could save up to 128 KiB. Only the API's login can save, and both of its callers go through the checks.</li>
+<li><strong>The API and the database count the size separately.</strong> A test checks that they agree. If they ever disagreed, a document slightly over the operator's limit could be saved, but never one over the 128 KiB ceiling, so the cost stays bounded.</li>
+<li><strong>Lowering the setting</strong> leaves already-saved documents in place. Re-saving one that is now too big gets the error.</li>
+<li><strong>A future need for the worker to save rules</strong> will need a new decision.</li>
+</ul>
+
+<h2>What changes, and who does it</h2>
+<table>
+<tr><th>Work</th><th>Where</th></tr>
+<tr><td>The setting, its range check and documentation; the API's size error</td><td>TICK-939 (API)</td></tr>
+<tr><td>New limits, the database size ceiling, database rights for the worker, the size parity test</td><td>TICK-940 (database)</td></tr>
+<tr><td>Tests that assumed the worker can save; the cross-tenant save test now runs as the API's login</td><td>TICK-940</td></tr>
+<tr><td>Handbook: limits, access route, operator setting</td><td>TICK-945 (Technical Lead)</td></tr>
+</table>
+<p class="src">Full text: <code>docs/adr/ADR-010-A1-sp2-caps-size-cap-app-only-publish.md</code>. Benchmark and raw output: <code>docs/adr/ADR-010/A1/</code>, with rev 0 archived in <code>rev0/</code>.</p>
+
+</main></body></html>

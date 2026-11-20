@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,12 +36,7 @@ func st(code int) kcAnswer    { return kcAnswer{status: code} }
 func (r *routeKC) saw(route string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, s := range r.seen {
-		if s == route {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.seen, route)
 }
 
 func newRouteKC(t *testing.T, routes map[string]kcAnswer) (*routeKC, string) {

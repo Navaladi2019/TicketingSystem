@@ -1,0 +1,35 @@
+meta {
+  name: S18N.13 AC1: tenant B's next incident is INC0000003
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+  Idempotency-Key: s18n-{{s18n_run}}-inc-b3
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S18 {{s18n_run}} inc-b3"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('number INC0000003', () => expect(N.json().number).to.eql('INC0000003'));
+}
+
+docs {
+  Tenant B is untouched by tenant A's format.
+}

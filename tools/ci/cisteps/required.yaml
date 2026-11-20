@@ -30,6 +30,9 @@ steps:
   - job: lint
     run: make test-handbook
     why: docs/handbook/build/build.py, which renders every handbook page and checks its references, changes with no test run (TICK-847)
+  - job: lint
+    run: make test-handbook-coverage
+    why: unit is skipped on a docs-only change, so an ADR or story merged without its handbook page turns main red after the merge, not on the pull request (TICK-960, #711, #716)
 
   # Story work that never reaches main (TICK-322, after S6 and the S5
   # post-merge PRs, TICK-286).
@@ -69,10 +72,13 @@ steps:
   # The tenant isolation suite (T11, ADR-001 CI-2).
   - job: integration
     run: make test-integration
-    why: integration tests and then the isolation suite, under suiteran; the isolation suite runs on full runs only (the daily run on main, ci:full, a manual run; ISOLATION=0 on a fast run, TICK-652, AR-TICK-652-01)
-  - job: integration
+    why: the -tags integration tests under suiteran; ISOLATION=0, the isolation job runs the suite (TICK-1003)
+  - job: isolation
+    run: make isolation
+    why: the isolation suite under suiteran, on full runs only (the daily run on main, ci:full, a manual run; TICK-652, AR-TICK-652-01); its own job since TICK-1003, so it no longer pushes integration past its timeout
+  - job: isolation
     artifact: isolation-report
-    why: the CI-2 isolation report, uploaded on full runs (the daily run on main, ci:full, a manual run), with the suite that writes it (TICK-652)
+    why: the CI-2 isolation report, uploaded on full runs (the daily run on main, ci:full, a manual run), with the suite that writes it (TICK-652, TICK-1003)
 
   # The commit-check budget rows (ADR-004-E3, D-E3-4, TICK-509), alone on a runner.
   - job: commit-check-budget

@@ -1,0 +1,9 @@
+# Breaking changes to /api/v1 that the owner of the contract approved.
+# One per line: the exact "breaking:" text from cmd/openapi-compat, then " # "
+# and the issue that carries the approval (a key such as TICK-939 must come
+# first; a line without one approves nothing). See cmd/openapi-compat.
+# Prune an entry once its change is on main: it matches nothing after that.
+GET /api/v1/entity-types/{key}/access response 200 application/json.rules: type changed from [array] to [object] # TICK-939: the access route returns the format-2 document; approved by the Technical Lead as owner of the contract
+GET /api/v1/entity-types/{key}/access response 200 application/json.rules[]: schema removed # TICK-939: same change, the array items are gone
+PUT /api/v1/entity-types/{key}/access response 200 application/json.rules: type changed from [array] to [object] # TICK-939: the PUT response returns the same format-2 document; approved by the Technical Lead as owner of the contract
+PUT /api/v1/entity-types/{key}/access response 200 application/json.rules[]: schema removed # TICK-939: same change, the array items are gone

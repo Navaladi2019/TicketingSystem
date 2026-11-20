@@ -55,7 +55,7 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 	if v == nil || strings.TrimSpace(*v) == "" || strings.TrimSpace(*v) == "*" {
 		return nil, false
 	}
-	for _, m := range strings.Split(*v, ",") {
+	for m := range strings.SplitSeq(*v, ",") {
 		m = strings.TrimSpace(m)
 		m = strings.TrimPrefix(m, "W/")
 		m = strings.Trim(m, `"`)
@@ -201,9 +201,9 @@ func (h *handlers) currentVersion(ctx context.Context, tenant, id uuid.UUID) (in
 // takes. A top-level state is the state property's value and wins over the
 // same property inside data.
 func parsePatchBody(raw json.RawMessage, stateProp string) (map[string]any, *problemError) {
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &env); err != nil || env == nil {
-		return nil, recordInvalid(invalid("", "type"))
+	env, fe := decodeBody(raw)
+	if fe != nil {
+		return nil, recordInvalid(*fe)
 	}
 	d, hasData := env["data"]
 	s, hasState := env["state"]
@@ -332,8 +332,7 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {
 		return h.notFound(ctx), nil
 	}
-	var tooLong *read.HistoryTooLongError
-	if errors.As(err, &tooLong) {
+	if tooLong, ok := errors.AsType[*read.HistoryTooLongError](err); ok {
 		// The numbers only: no record data goes to the log or the metric.
 		h.log.WarnContext(ctx, "record history longer than the cap",
 			slog.String("code", string(problem.HistoryTooLong)), slog.String("entity", req.Entity),

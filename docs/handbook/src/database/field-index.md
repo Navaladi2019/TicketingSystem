@@ -2,7 +2,7 @@
 title: "Field index: registry, side tables and the records trigger"
 section: database
 status: in-progress
-adrs: [ADR-006]
+adrs: [ADR-006, ADR-006-E1]
 stories: [S21]
 invariants: [I1, I3, I8]
 packages: [internal/fieldindex, internal/records/pipeline, internal/records/store]
@@ -130,7 +130,7 @@ sequenceDiagram
   record, so the `NO ACTION` FKs pass.
 - A `removing` field is skipped; its rows belong to the removal workflow (S22).
 - **READ COMMITTED only (TICK-979).** The first statement refuses a write at
-  any other isolation level with SQLSTATE `25000`, naming ADR-006-E1. The
+  any other isolation level with SQLSTATE `25000`, naming [ADR-006-E1](../adr/adr-006-e1.md). The
   backfill's [snapshot barrier](../workflows/field-index-backfill.md) is sound
   only when the trigger's registry read takes a fresh snapshot, so a
   REPEATABLE READ or SERIALIZABLE write is refused instead of slipping past it.

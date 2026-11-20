@@ -217,7 +217,7 @@ func TestAllocationTransactionIsTenantScoped(t *testing.T) {
 				t.Errorf("AllocTx handed the queue tenant %s, want the create's %s", tenant, a.id)
 			}
 			// A forged tenant: B's counter, under A's setting.
-			store.QueueAllocate(batch, b.id, defB, "", &got)
+			store.QueueAllocate(batch, b.id, defB, numbering.Scope{}, &got)
 		})
 		return err
 	})
@@ -405,25 +405,75 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 	// No warm-up: the first run's creates race the first insert of the
 	// counter row while both unique indexes exist (M2 to M3), which R1's one
 	// retry absorbs (ADR-005-E1, TICK-666).
+	//
+	// Each subtest checks only the numbers it took (TICK-910). A control's
+	// allocation can still commit a number on its own connection just before
+	// its create times out: that is an allowed gap on a `gaps` type, so the
+	// controls assert they created no record, not that the counter stayed.
 	const direct = 4
 	t.Run("direct, allocator pool", func(t *testing.T) {
-		noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))
+		took := takenBy(t, base, f, func() {
+			noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))
+		})
+		contiguous(t, took, 2*direct)
 	})
 	t.Run("direct, control: the API pool", func(t *testing.T) {
 		e := small(direct)
-		allStarved(t, starve(e, f, pipeline.PoolRunner{Pool: e.app}, direct))
+		took := takenBy(t, base, f, func() {
+			allStarved(t, starve(e, f, pipeline.PoolRunner{Pool: e.app}, direct))
+		})
+		if len(took) != 0 {
+			t.Fatalf("starved control created records %v, want none", took)
+		}
 	})
 
 	const serverPool = 5 // scripts/ci/pgbouncer/pooled.ini default_pool_size
 	bounced := throughBouncer(t, base, serverPool)
 	t.Run("PgBouncer, allocator through nava_alloc", func(t *testing.T) {
-		noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc, AllocTimeout: noLatencyBudget}, serverPool))
+		took := takenBy(t, base, f, func() {
+			noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc, AllocTimeout: noLatencyBudget}, serverPool))
+		})
+		contiguous(t, took, 2*serverPool)
 	})
 	t.Run("PgBouncer, control: allocator through the nava entry", func(t *testing.T) {
 		shared := allocPool(t, bounced.app.Config().ConnString())
-		allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool))
+		took := takenBy(t, base, f, func() {
+			allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool))
+		})
+		if len(took) != 0 {
+			t.Fatalf("starved control created records %v, want none", took)
+		}
 	})
-	if got := numbers(t, base, f.id, entityKey); !slices.Equal(got, wantNumbers(t, "INC", 1, 2*direct+2*serverPool)) {
-		t.Fatalf("numbers = %v, want INC0000001..%d from the allocator pool runs only", got, 2*direct+2*serverPool)
+	if got := numbers(t, base, f.id, entityKey); len(got) != 2*direct+2*serverPool {
+		t.Fatalf("numbers = %v, want %d records from the allocator pool runs only", got, 2*direct+2*serverPool)
+	}
+}
+
+// takenBy runs fn and returns the record numbers of the fixture's type that
+// appeared while it ran, in order.
+func takenBy(t *testing.T, e env, f tenantFixture, fn func()) []string {
+	t.Helper()
+	before := numbers(t, e, f.id, entityKey)
+	fn()
+	after := numbers(t, e, f.id, entityKey)
+	if len(after) < len(before) || !slices.Equal(after[:len(before)], before) {
+		t.Fatalf("numbers before %v are not a prefix of numbers after %v", before, after)
+	}
+	return after[len(before):]
+}
+
+// contiguous fails unless got is exactly n consecutive INC numbers: a run
+// where every create succeeded leaves no gap among its own numbers.
+func contiguous(t *testing.T, got []string, n int) {
+	t.Helper()
+	if len(got) != n {
+		t.Fatalf("run took %v, want %d numbers", got, n)
+	}
+	var first int
+	if _, err := fmt.Sscanf(got[0], "INC%07d", &first); err != nil {
+		t.Fatalf("number %q: %v", got[0], err)
+	}
+	if want := wantNumbers(t, "INC", first, first+n-1); !slices.Equal(got, want) {
+		t.Fatalf("run took %v, want %d consecutive numbers %v", got, n, want)
 	}
 }

@@ -124,7 +124,8 @@ type etIso struct {
 	cluster Cluster
 }
 
-func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
+// opts are added after the harness's own options (the I5 mutants pass one).
+func newETIso(ctx context.Context, c Cluster, opts ...server.Option) (*etIso, error) {
 	pool, err := c.Pool("nava_app")
 	if err != nil {
 		return nil, err
@@ -167,7 +168,7 @@ func newETIso(ctx context.Context, c Cluster) (*etIso, error) {
 		return nil, err
 	}
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, tokens, pgstore.New(pool),
-		server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr))
+		append([]server.Option{server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr)}, opts...)...)
 	if err != nil {
 		_ = tel.Shutdown(context.Background())
 		return nil, err

@@ -56,7 +56,7 @@ func Bundle(rootFile string) ([]byte, error) {
 		if group == "" || file != "paths/"+group+".yaml" {
 			return nil, fmt.Errorf("path %s: $ref %q is not paths/<group>.yaml#/pointer", route, ref.Value)
 		}
-		want := strings.SplitN(strings.TrimPrefix(route, pathPrefix), "/", 2)[0]
+		want, _, _ := strings.Cut(strings.TrimPrefix(route, pathPrefix), "/")
 		if !strings.HasPrefix(route, pathPrefix) || want != group {
 			return nil, fmt.Errorf("path %s belongs in paths/%s.yaml (group = first segment after /v1)", route, want)
 		}
@@ -163,7 +163,7 @@ func rewriteRefs(n *yaml.Node) {
 // resolve follows a JSON Pointer such as "/paths/~1api~1v1~1me" from doc.
 func resolve(doc *yaml.Node, pointer string) (*yaml.Node, error) {
 	n := doc
-	for _, seg := range strings.Split(strings.TrimPrefix(pointer, "/"), "/") {
+	for seg := range strings.SplitSeq(strings.TrimPrefix(pointer, "/"), "/") {
 		seg = strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")
 		if n = get(n, seg); n == nil {
 			return nil, fmt.Errorf("pointer %q does not resolve", pointer)

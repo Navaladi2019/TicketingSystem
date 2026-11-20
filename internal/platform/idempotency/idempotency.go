@@ -76,6 +76,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -102,8 +103,9 @@ const (
 	// TTL is how long a key is remembered (expires_at).
 	TTL = 24 * time.Hour
 
-	maxKeyLen   = 255
-	maxBodySize = 1 << 20
+	maxKeyLen = 255
+	// MaxBodySize bounds any request body read before a handler runs.
+	MaxBodySize = 1 << 20
 	// completeTimeout bounds storing the response after the handler ran, which
 	// must survive the client hanging up.
 	completeTimeout = 5 * time.Second
@@ -224,12 +226,11 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			m.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/header/" + Header, Rule: "required"})
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodySize))
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodySize))
 		if err != nil {
 			m.count(ctx, resultRejected)
 			rule := "unreadable"
-			var tooBig *http.MaxBytesError
-			if errors.As(err, &tooBig) {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				rule = "max_size"
 			}
 			m.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/body", Rule: rule})
@@ -548,9 +549,7 @@ func (c *captured) storable() bool { return c.status < http.StatusInternalServer
 // the status, none without a body.
 func (c *captured) flush(w http.ResponseWriter) {
 	h := w.Header()
-	for k, v := range c.header {
-		h[k] = v
-	}
+	maps.Copy(h, c.header)
 	h.Del("Content-Type")
 	if len(c.body) > 0 {
 		h.Set("Content-Type", ContentTypeFor(c.status))

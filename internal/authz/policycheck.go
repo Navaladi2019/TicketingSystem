@@ -1,8 +1,7 @@
 package authz
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
@@ -11,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 )
 
 // Publish validation (PLAN-003 S10, P3-35). ParsePolicy checks a request body
@@ -37,11 +37,14 @@ const (
 	RuleValue      = "value"
 	RuleEmpty      = "empty"
 	RuleDuplicate  = "duplicate"
-	RuleCondition  = "condition"
-	RuleMaskSubj   = "mask_subject"
-	RuleMaskWrite  = "mask_write"
-	RuleField      = "field"
-	RuleNotTenant  = "not_in_tenant"
+	// RuleInvalidUTF8 is invalid UTF-8 or a lone surrogate escape in the
+	// body; RuleDuplicate also names a repeated member name (TICK-964).
+	RuleInvalidUTF8 = strictjson.RuleInvalidUTF8
+	RuleCondition   = "condition"
+	RuleMaskSubj    = "mask_subject"
+	RuleMaskWrite   = "mask_write"
+	RuleField       = "field"
+	RuleNotTenant   = "not_in_tenant"
 )
 
 // Problem is one thing wrong with a publish body. Pointer is a JSON pointer
@@ -107,9 +110,14 @@ func child(ptr string, seg any) string {
 // returned policy parts are nil.
 func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, problems []Problem) {
 	c := &policyCheck{}
-	dec := json.NewDecoder(bytes.NewReader(raw))
+	// encoding/json/v2 refuses a duplicate member name and invalid UTF-8,
+	// which v1 would resolve silently (last duplicate wins, U+FFFD), and
+	// trailing data after the document.
 	var top any
-	if err := dec.Decode(&top); err != nil || dec.More() {
+	if err := strictjson.Unmarshal(raw, &top); err != nil {
+		if v, bad := strictjson.Check(raw); bad {
+			return nil, nil, nil, []Problem{{v.Pointer, v.Rule}}
+		}
 		return nil, nil, nil, []Problem{{"", RuleType}}
 	}
 	obj, ok := top.(map[string]any)
@@ -135,16 +143,7 @@ func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, prob
 			c.rule(child("/rules", i), r, ruleIDs)
 		}
 	}
-	if v, present := obj["masks"]; present {
-		arr, ok := v.([]any)
-		if !ok {
-			c.bad("/masks", RuleType)
-		} else {
-			for i, m := range arr {
-				c.mask(child("/masks", i), m)
-			}
-		}
-	}
+	c.masks(obj)
 	if len(c.problems) > 0 {
 		return nil, nil, nil, c.problems
 	}
@@ -155,9 +154,7 @@ func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, prob
 		Rules []Rule `json:"rules"`
 		Masks []Mask `json:"masks"`
 	}
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&body); err != nil {
+	if err := strictjson.Unmarshal(raw, &body, json.RejectUnknownMembers(true)); err != nil {
 		return nil, nil, nil, []Problem{{"", RuleType}}
 	}
 	if body.Rules == nil {
@@ -167,6 +164,22 @@ func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, prob
 		body.Masks = []Mask{}
 	}
 	return body.Rules, body.Masks, c.refs, nil
+}
+
+// masks checks obj["masks"], when present, mask by mask.
+func (c *policyCheck) masks(obj map[string]any) {
+	v, present := obj["masks"]
+	if !present {
+		return
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		c.bad("/masks", RuleType)
+		return
+	}
+	for i, m := range arr {
+		c.mask(child("/masks", i), m)
+	}
 }
 
 func (c *policyCheck) object(ptr string, v any, keys ...string) (map[string]any, bool) {

@@ -3,4 +3,4 @@
 // imports; they are not platform code and must not join `go build ./...`.
 module github.com/Navaladi2019/TicketingSystem/docs
 
-go 1.26
+go 1.27

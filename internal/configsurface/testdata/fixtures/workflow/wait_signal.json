@@ -1,0 +1,10 @@
+{
+  "format": "nava.workflow/v1",
+  "trigger": { "on": "record.created", "entity": "change" },
+  "start": "await_approval",
+  "steps": [
+    { "key": "await_approval", "type": "wait_signal", "name": "approve", "timeout": "P1D", "on_timeout": "expired", "next": "approved" },
+    { "key": "expired", "type": "end" },
+    { "key": "approved", "type": "end" }
+  ]
+}

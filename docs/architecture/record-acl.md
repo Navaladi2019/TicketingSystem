@@ -6,7 +6,10 @@ I5 (one authorization layer, inside the query). Code: `internal/authz`
 `SharesFor`, `ACL`). Tables: `acl_versions`, `record_shares`
 ([acl-tables.md](../data/acl-tables.md)).
 
-An entity type's published ACL is a `Policy`: allow-only `Rule`s that OR
+An entity type's published ACL is a `Policy`. This section describes the S10
+format-1 `Rule`s, which are still accepted and converted on read; the
+format-2 document (ADR-010) is described in the next section. Rules are
+allow-only and OR
 together. A rule admits a principal for an op (`read`, `write`) when its
 `Who` names the principal (any of: one of its `Groups`, one of its `Users`,
 the record's `Requester`, its `Assignee`, a `Shared` row) and every `Where`
@@ -23,21 +26,54 @@ so the fail-closed handling of a malformed rule is defence in depth.
 ## One decision, two renderings
 
 `Allows` (one record, Go) and `CompileRead` (a SQL predicate) must agree for
-every policy, principal and row; P3-32 fuzzes it. Both start from the same
-`plan` step, so the agreement is structural:
+every policy, principal and row; P3-32 fuzzes it. Since TICK-937 (ADR-010 D5,
+D6) both start from the format-2 planner in `plan.go`, so the agreement is
+structural. `Policy.Document` is the decoded `acl_versions.rules`: a format-2
+document, or a format-1 rule list converted on read (`convert.go`, D12).
 
 ```mermaid
 flowchart LR
-    P[Policy + Principal + op] --> PL["plan()<br/>drop rules without op,<br/>naming nobody p can be,<br/>with an invalid or empty condition;<br/>resolve groups, users, self, my_groups"]
-    PL --> PR[plannedRule list<br/>depends only on the row]
-    PR --> G["allows(Row)<br/>Go: used by Allows"]
-    PR --> S["sql(compiler)<br/>SQL: used by CompileRead"]
+    P[Policy.Document + Principal + op] --> PL["plan()<br/>per policy granting op:<br/>expand refs, check caps,<br/>fold member_of, self, my_groups,<br/>shared with no caller id"]
+    PL -->|err| V["voided: grants nothing,<br/>authz_policy_invalid_total"]
+    PL -->|tree| T[folded tree:<br/>all, any, not over cmp, shared<br/>depends only on the row]
+    T --> G["eval(Row)<br/>Go: Allows"]
+    T --> S["sql(compiler)<br/>SQL: CompileRead, ReadBranches"]
 ```
 
-Every term has one Go and one SQL form: `everyone` is `true`; requester and
-assignee compare the column with the caller's id; a condition is "column is
-not NULL and is in the set"; a share is the pair-matched `EXISTS` below.
-There is no `NOT`, so a NULL never flips a result.
+- **Two-valued leaves (D5a).** A `cmp` is "column is not NULL and is in the
+  set" (`state` is NOT NULL), a share is the pair-matched `EXISTS` below.
+  No term is ever NULL, so `NOT` is plain negation on both sides: `not`
+  over a NULL column is true. A missing caller id or an empty resolved set
+  makes a leaf false; `shared` is false for a caller with no id, even with
+  groups. An empty `any` (a format-1 rule with `who: {}`) is false.
+- **Invalid voids the policy (D5b).** An unresolved or ambiguous `ref`, a
+  cycle, more than 8 levels or 128 leaves after expansion, an unavailable
+  kind (`under` until S31) or a node that does not decode gives the policy
+  an error. Every rendering skips it, so it grants nothing and is never a
+  boolean under `not`; each evaluation logs it and adds one to
+  `authz_policy_invalid_total{entity_type}` (registered by `nava-core` and
+  `nava-worker`).
+- **Order does not matter (D1).** Access is the OR of the granting policies;
+  `Allows` reports the first one in declared order, and the value of each
+  named condition it reaches (`TraceStep`, for the explainer).
+- **Branches (D6).** `ReadBranches` splits on the OR across policies, a
+  top-level `any`, and a top-level `all` with exactly one `any` child (a
+  converted rule's subjects). Above SP-2's total-branch threshold of 16
+  (`ReadBranchThreshold`, `docs/data/acl-format2-caps.md` item 3) it returns no
+  branch, the list uses `CompileRead`'s OR form, and
+  `authz_read_branches_fallback_total{entity_type}` counts it. The threshold
+  is checked before any SQL is rendered. `ReadBranchBound(document)` is the
+  most branches a document can give any caller (folding included); the D6
+  check at planning compares it with the threshold (TICK-938).
+
+```mermaid
+flowchart LR
+    P["plan (one per call)"] --> Q{"a policy<br/>folds to true?"}
+    Q -- yes --> T["[true]"]
+    Q -- no --> C{"total disjuncts<br/>&gt; 16?"}
+    C -- no --> B["branches, each AND NOT the ones before"]
+    C -- yes --> F["no branch: CompileRead OR form<br/>+1 authz_read_branches_fallback_total"]
+```
 
 ## Shares are pair-matched (AR-S10-01)
 

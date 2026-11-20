@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -70,6 +72,11 @@ type listFilter struct {
 	idx *pipeline.IndexField
 	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
 	legacy bool
+	// absentMatches is set for a legacy-scan data filter when one value equals
+	// the current version's default for prop: a record that leaves prop out is
+	// served with that default, so it matches too (I5). A present null does
+	// not. Set by resolveFilters.
+	absentMatches bool
 }
 
 // listPlan is a request resolved against one entity type version.
@@ -79,6 +86,10 @@ type listPlan struct {
 	sortCol  string
 	desc     bool
 	limit    int
+	// dataTerm renders one data-filter value whose JSON document is bound at
+	// arg; nil is containment, r.data @> arg. Only the I5 mutants set it
+	// (WithListDataTerm, integration builds only).
+	dataTerm func(arg string) string
 }
 
 // fields are the top-level names the plan reads, for CheckQueryFields.
@@ -208,14 +219,42 @@ func filterValue(col, prop, typ, raw string) (any, bool) {
 	return string(doc), err == nil
 }
 
+// sameFilterValue reports whether the filter document doc ({prop: v}, from
+// filterValue) holds the JSON value def. Numbers compare by value, as jsonb @>
+// does (1 and 1.0 are equal); other scalars compare exactly.
+func sameFilterValue(doc any, def any) bool {
+	s, ok := doc.(string)
+	if !ok {
+		return false
+	}
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil {
+		return false
+	}
+	for _, v := range m {
+		if a, ok := v.(json.Number); ok {
+			b, ok := def.(json.Number)
+			if !ok {
+				return false
+			}
+			ra, ok1 := new(big.Rat).SetString(a.String())
+			rb, ok2 := new(big.Rat).SetString(b.String())
+			return ok1 && ok2 && ra.Cmp(rb) == 0
+		}
+		return v == def
+	}
+	return false
+}
+
 // checkPlan is the masked-field gate for everything the request names.
 func checkPlan(pol *authz.Policy, p identity.Principal, pl *listPlan) error {
 	return maskedFieldError(authz.CheckQueryFields(pol, p, pl.fields()))
 }
 
 func maskedFieldError(err error) error {
-	var mf *authz.ErrMaskedField
-	if errors.As(err, &mf) {
+	if mf, ok := errors.AsType[*authz.ErrMaskedField](err); ok {
 		return &problemError{problem.MaskedField, []problem.FieldError{invalid("/"+escapePointer(mf.Field), "masked")}, err}
 	}
 	return err
@@ -253,7 +292,15 @@ func (pl *listPlan) where(base int) (string, []any) {
 			}
 			ors := make([]string, 0, len(f.values))
 			for _, v := range f.values {
-				ors = append(ors, "r.data @> "+next(v, "jsonb"))
+				arg := next(v, "jsonb")
+				term := "r.data @> " + arg
+				if pl.dataTerm != nil {
+					term = pl.dataTerm(arg)
+				}
+				ors = append(ors, term)
+			}
+			if f.absentMatches {
+				ors = append(ors, "NOT (r.data ? "+next(f.prop, "text")+")")
 			}
 			terms = append(terms, "("+strings.Join(ors, " OR ")+")")
 		case metadata.ColumnState:
@@ -407,9 +454,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 	}
 	q, _ := ctx.Value(rawQueryKey{}).(url.Values)
 	cq := url.Values{}
-	for k, v := range q {
-		cq[k] = v
-	}
+	maps.Copy(cq, q)
 	cq.Set("_entity", req.Entity)
 	claims, err := cursor.ClaimsFor(ctx, listRecordsRoute, cq)
 	if err != nil {
@@ -433,6 +478,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if perr != nil {
 			return perr
 		}
+		pl.dataTerm = h.listDataTerm
 		// Before any SQL: filters, sort and the default sort.
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err
@@ -461,13 +507,9 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		}
 		// A rule that ORs subjects (requester, assignee, share) is read as one
 		// index-ordered branch per subject (TICK-644); CompileRead is the single
-		// statement when there is nothing to split.
-		branches, readArgs := authz.ReadBranches(pol, p, "r", 2)
-		var readSQL string
-		if len(branches) < 2 {
-			branches = nil
-			readSQL, readArgs = authz.CompileRead(pol, p, "r", 2)
-		}
+		// statement when there is nothing to split. One plan for both, so a
+		// voided policy is counted once per request (ADR-010 D5b).
+		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,

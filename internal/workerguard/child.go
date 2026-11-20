@@ -31,8 +31,19 @@ func ChildWorkflowID(ctx workflow.Context, kind string) (string, error) {
 		return "", err
 	}
 	var id uuid.UUID
-	if err := workflow.SideEffect(ctx, func(workflow.Context) any { return uuid.New() }).Get(&id); err != nil {
+	// uuid.NewV7 fails only when crypto/rand does; the zero value is then
+	// refused below. It stays inside SideEffect so a replay reads the recorded id.
+	if err := workflow.SideEffect(ctx, func(workflow.Context) any {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return uuid.Nil
+		}
+		return id
+	}).Get(&id); err != nil {
 		return "", fmt.Errorf("workerguard: child id: %w", err)
+	}
+	if id == uuid.Nil {
+		return "", errors.New("workerguard: child id: random source failed")
 	}
 	return workflowIDPrefix + tenant.String() + ":" + kind + ":" + id.String(), nil
 }
