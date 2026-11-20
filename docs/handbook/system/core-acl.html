@@ -236,9 +236,6 @@ not <code>Available</code> until S31.</p>
 <ul>
 <li>There is no separate "compiler" stage: <code>CompileRead</code> and <code>ReadBranches</code>
 are the SQL rendering of the same plan <code>Allows</code> evaluates.</li>
-<li>ADR-010's CI table says a stale expected version gives 409; the route
-gives <code>412 version_conflict</code>, as every <code>If-Match</code> route does. The ADR text
-is being corrected.</li>
 </ul>
 <h2 id="links">Links</h2>
 <ul>
