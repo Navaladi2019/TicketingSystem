@@ -141,11 +141,13 @@ func NamedPolicyAllows(pol *Policy, name string, p identity.Principal, op string
 
 // policyRefMissing counts, logs and audits a reference that names nothing
 // (D9) in tx. It returns the audit error, which fails the attempt: a denial
-// without its audit entry is not recorded.
+// without its audit entry is not recorded, and nothing is counted. The test
+// commits its own transaction, so if NextStep fails later in the same walk and
+// Temporal retries the activity, the reference is audited and counted again
+// (accepted: a retry is a new evaluation).
 func policyRefMissing(ctx context.Context, tx pgx.Tx, in PolicyTest, recType string, defID uuid.UUID) error {
 	slog.WarnContext(ctx, "authz: workflow policy reference names no policy, it denies",
 		slog.String("entity_type", recType), slog.String("ref_entity_type", in.EntityType), slog.String("policy", in.Policy))
-	countRefMissing(ctx, recType)
 	sys := PolicyRefActor
 	// No R2 action means "a reference denied": the closest subject is the access
 	// policy of the record's entity type, the thing the reference failed to find,
@@ -169,5 +171,6 @@ func policyRefMissing(ctx context.Context, tx pgx.Tx, in PolicyTest, recType str
 	if _, err := audit.Append(ctx, tx, e); err != nil {
 		return fmt.Errorf("authz: audit policy ref missing: %w", err)
 	}
+	countRefMissing(ctx, recType) // after the audit entry, so a failed audit counts nothing
 	return nil
 }

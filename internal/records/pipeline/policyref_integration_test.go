@@ -21,6 +21,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 )
@@ -86,7 +87,11 @@ func seedRefWorld(t *testing.T, e env, requesterSet, assigneeSet bool, more ...m
 	if assigneeSet {
 		data["assignee"] = w.u2.String()
 	}
-	w.record = mustCreate(t, e, newPipeline(e, nil), w.f, data).RecordID
+	res, err := write(context.Background(), e, newPipeline(e, nil), w.f.id, pipeline.Command{Op: pipeline.OpCreate, EntityKey: aclKey, Data: data, Actor: w.f.principal, Source: pipeline.SourceUser})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	w.record = res.RecordID
 	w.run, _ = openRun(t, e, w.f, w.record, false)
 	return w
 }
