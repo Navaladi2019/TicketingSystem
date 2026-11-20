@@ -17,6 +17,10 @@ of `in`, `lt` and the ts range still take the spilling Hash Semi Join:
 only moves the threshold, so the fix has to change the count's statement
 shape (options at the end).
 
+**An unbounded per-record probe is rejected too (run 4).** It fixes the
+40% band (count 19–27 ms) but costs the selective bands up to 8.3 s. Next
+is a bounded probe, option (A′).
+
 ## What the list runs
 
 With a narrowing ACL, the list sends two statements: the page and a count
@@ -156,16 +160,56 @@ side rows re-written were stopped: run 3 had already rejected the setting.
 | Tighter autovacuum on `rfv_*` | Narrows the window but cannot close it, for the same reason. |
 | `random_page_cost = 1.1` for `nava_app` | Run 3: the D13 ≥ 40% ACL counts keep the spilling hash (80–98 ms). Rejected. |
 
+### Run 4: spike (A) unbounded, every ACL arm of the count probes per record
+
+Branch `TICK-1022/spike-probe` (not for merge): `existsTerm` ends each
+`EXISTS` in a marker, and `CountStatement` turns it into `OFFSET 0` in the
+branched (ACL) arms only. Same host and harnesses as runs 1–3. The host was
+busy again (transport floor p50 6.4 ms), so the comparison is by server
+time.
+
+Kit-shaped repro, count execution, ms:
+
+| State | pk=3 (48%) before → spike | pk=1 (1%) before → spike |
+| --- | --- | --- |
+| `ANALYZE`, 0% all-visible | 167 → **14.0** | 27.0 → **74.4** |
+| 5% re-written, 1% all-visible | 102 → **10.4** | – → 82.7 |
+| 20% re-written | 115 → **16.5** | – → 78.8 |
+| `VACUUM`, 100% all-visible | 13 → 18.1 | 20.4 → **92.5** |
+
+D13's matrix, ACL cells, count server time (planning + execution), ms:
+
+| Band | before (run 3, cost 4) | spike |
+| --- | --- | --- |
+| 40%, 5 operators | 31.9–114.4 | **18.8–27.3** |
+| 2% | 23.6–33.8 | 98.1–225.3; **num `lt` 7,669, ts range 8,342** |
+| 0.25% | 16.3–23.8 | 138.8–178.4; **num `lt` 940, ts range 1,070** |
+| 0.01% | 4.0–16.8 | 90.9–179.3 |
+
+All 40 cells: `tick-1022-post-backfill-plan/spike-probe-d13-server-time.md`.
+
+What it shows:
+
+- The probe removes the dependency for broad values: 10–27 ms in every
+  state, against 100–490 ms.
+- Unbounded, it is far worse for selective values. A selective filter
+  matches few rows, so the count probes every record the arm can see (24,118
+  for this agent's group arm) without reaching 1,001.
+- A range probe goes through `rfv_*_value`, because the `value` bound makes
+  it the planner's index. It then walks the whole value range for each
+  record: 0.31 ms a probe, so 7.7 s at 2%. An equality probe seeks
+  `(value, record_id)` at about 3 µs.
+
+**(A) as spiked is rejected.**
+
 ## Remaining options (each changes the count's statement shape, ADR-006 D7)
 
 | Option | What it does | Risk |
 | --- | --- | --- |
-| (A) Per-record probe in the ACL arms of the count: `EXISTS (… OFFSET 0)`, which PostgreSQL does not pull up into a join, so it stays a correlated probe of `rfv_*_value` per visible record | No hash plan is possible, so the visibility map and statistics stop mattering. Cost is about the number of records the ACL arm can see, until 1,001 matches. | An agent whose ACL arm sees most of the type, filtering on a rare value, probes every visible record: 200k probes at 400k. The planner avoids that today. Needs a bound, for example only arms the planner estimates under N rows. |
-| (B) The compiler picks the shape from the planner's estimate (the TICK-992 note's option (a)) | Uses (A) where the visible set is small, and the join where it is large | One planning-only `EXPLAIN` per list (1–3 ms), and more compiler code |
-| (C) A D13 variance for the ≥ 40% ACL band | No code | Accepts 100–500 ms single-client server time as the steady state |
+| **(A′) Bounded probe** (recommended next spike): the list first runs one capped count of the filter's side rows on the value index, `SELECT count(*) FROM (SELECT 1 FROM rfv_* WHERE tenant_id = $1 AND field_id = $2 AND <cmp> LIMIT N) c`, cost at most N index entries. Only when it reaches N (a broad value) do the count's ACL arms use the per-record probe, and that probe seeks `rfv_*_pkey` (`tenant_id, record_id, field_id`) with the value as a filter, so a range costs the same as an equality. | Broad values: the run 4 numbers (10–27 ms). Selective values: today's plans, unchanged. The decision reads the side index, not the visibility map or statistics. | One extra statement per filtered ACL list, at most N index entries (N about 20,000: under 10 ms even with heap fetches). Forcing the planner onto the pkey needs a non-indexable value term (for example `v.value + 0 < $n`), which has to be measured. |
+| (B) The compiler picks the shape from a planning-only `EXPLAIN` | Same goal, with the planner's own estimate | Inherits the estimate, which is the thing that misleads it today. 1–3 ms per list. |
+| (C) A D13 variance for the ≥ 40% ACL band | No code | Accepts 100–500 ms single-client server time as the steady state. |
 
-Recommendation: spike (A) with a size bound on the TICK-1022 harness and on
-D13's matrix. It is the smallest change that removes the dependency
-outright. The statement shape belongs to the list compiler
+Next: spike (A′) on both harnesses. The shape belongs to the list compiler
 (`internal/server/records_list_index.go`) and ADR-006 D7, so the Solution
-Architect rules on the shape before it lands.
+Architect rules on it with those numbers before the PR lands.
