@@ -18,7 +18,10 @@ def cells(path):
         title = p.splitlines()[0].strip()
         bits = p.split("```")
         sql, plan = bits[1], bits[3]
-        kind = "count" if "count(*)" in sql[:80] else "page"
+        if "LIMIT 20000" in sql:
+            kind = "pre"  # TICK-1022 spike A': the capped side-index pre-count
+        else:
+            kind = "count" if "count(*)" in sql[:80] else "page"
         pl = float(re.search(r"Planning Time: ([0-9.]+)", plan).group(1))
         ex = float(re.search(r"Execution Time: ([0-9.]+)", plan).group(1))
         join = ""
@@ -37,13 +40,14 @@ def cells(path):
 def main(args):
     arms = [(a.split("=", 1)[0], cells(a.split("=", 1)[1])) for a in args]
     titles = list(arms[0][1])
-    print("| Cell | " + " | ".join(f"{n} count / page ms (count join)" for n, _ in arms) + " |")
+    print("| Cell | " + " | ".join(f"{n} pre + count / page ms (count join)" for n, _ in arms) + " |")
     print("| --- |" + " --- |" * len(arms))
     for t in titles:
         row = f"| {t} |"
         for _, c in arms:
             x = c.get(t, {})
-            row += f" {x.get('count', 0):.1f} / {x.get('page', 0):.1f} ({x.get('join', '-')}) |"
+            pre = f"{x['pre']:.1f} + " if "pre" in x else ""
+            row += f" {pre}{x.get('count', 0):.1f} / {x.get('page', 0):.1f} ({x.get('join', '-')}) |"
         print(row)
 
 

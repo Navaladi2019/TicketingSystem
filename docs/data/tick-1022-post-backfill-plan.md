@@ -18,8 +18,12 @@ only moves the threshold, so the fix has to change the count's statement
 shape (options at the end).
 
 **An unbounded per-record probe is rejected too (run 4).** It fixes the
-40% band (count 19–27 ms) but costs the selective bands up to 8.3 s. Next
-is a bounded probe, option (A′).
+40% band (count 19–27 ms) but costs the selective bands up to 8.3 s.
+
+**The bounded probe (A′) holds in every band (run 5).** The ≥ 40% ACL
+count takes 17.5–26.3 ms in every visibility-map state, plus a 10.9–17.8 ms
+capped pre-count. The selective bands keep today's plans. It waits on the
+Solution Architect's ADR-006 D7 ruling.
 
 ## What the list runs
 
@@ -202,14 +206,79 @@ What it shows:
 
 **(A) as spiked is rejected.**
 
-## Remaining options (each changes the count's statement shape, ADR-006 D7)
+### Run 5: spike (A′), the bounded probe
 
-| Option | What it does | Risk |
+Branch `TICK-1022/spike-probe` at `5b37843f` (not for merge). What it does:
+
+- **Pre-count.** On a narrowing list, before the page, the handler runs one
+  capped count per ready filtered field on the value index:
+  `SELECT count(*) FROM (SELECT 1 FROM rfv_* v WHERE v.tenant_id = $1 AND
+  v.field_id = $2 AND <cmp> LIMIT 20000) c`.
+- **Broad filter, count only.** When that count reaches 20,000, only the
+  count statement (`ListQuery.CountWhere`) renders the field's `EXISTS` with
+  `OFFSET 0`. The value side is made opaque (`v.value + 0`,
+  `v.value || ''`, `v.value + interval '0'`, `v.value OR false`), so the
+  probe seeks `rfv_*_pkey (tenant_id, record_id, field_id)` and filters the
+  value.
+- **Page and selective filters.** The page keeps the plain `EXISTS`, and so
+  do selective filters.
+
+A first cut put the opaque term in the page too. It hid the filter's
+selectivity from the page planner and read 4.25 s, so the page is excluded.
+
+The host was quiet for D13's matrix this time (transport floor p50 0.54 ms),
+but the no-filter control's p95 still read 136–193 ms against 73 ms idle. So
+the p95 below is indicative, and the server time is the score.
+
+Kit-shaped repro, server time (planning + execution), ms:
+
+| State | pk=3 (48%) pre + count / page | pk=1 (1%) pre + count / page |
 | --- | --- | --- |
-| **(A′) Bounded probe** (recommended next spike): the list first runs one capped count of the filter's side rows on the value index, `SELECT count(*) FROM (SELECT 1 FROM rfv_* WHERE tenant_id = $1 AND field_id = $2 AND <cmp> LIMIT N) c`, cost at most N index entries. Only when it reaches N (a broad value) do the count's ACL arms use the per-record probe, and that probe seeks `rfv_*_pkey` (`tenant_id, record_id, field_id`) with the value as a filter, so a range costs the same as an equality. | Broad values: the run 4 numbers (10–27 ms). Selective values: today's plans, unchanged. The decision reads the side index, not the visibility map or statistics. | One extra statement per filtered ACL list, at most N index entries (N about 20,000: under 10 ms even with heap fetches). Forcing the planner onto the pkey needs a non-indexable value term (for example `v.value + 0 < $n`), which has to be measured. |
-| (B) The compiler picks the shape from a planning-only `EXPLAIN` | Same goal, with the planner's own estimate | Inherits the estimate, which is the thing that misleads it today. 1–3 ms per list. |
-| (C) A D13 variance for the ≥ 40% ACL band | No code | Accepts 100–500 ms single-client server time as the steady state. |
+| `ANALYZE`, 0% all-visible | 18.0 + 19.0 / 7.2 (count was 168) | 7.4 + 22.6 / 66.1 |
+| 5% re-written, 1% all-visible | 14.3 + 17.0 / 12.6 (was 102) | 6.4 + 24.7 / 59.8 |
+| `VACUUM`, 100% all-visible | 22.2 + 26.8 / 11.8 (was 13–22) | 2.0 + 15.1 / 48.9 |
 
-Next: spike (A′) on both harnesses. The shape belongs to the list compiler
-(`internal/server/records_list_index.go`) and ADR-006 D7, so the Solution
-Architect rules on it with those numbers before the PR lands.
+D13's matrix, ACL cells, server time in ms. Base is run 3 at cost 4.
+Unbounded is run 4. All 40 cells:
+`tick-1022-post-backfill-plan/spike-bounded-d13-server-time.md`.
+
+| Band | base count | unbounded count | bounded pre + count | bounded 8-client p95 |
+| --- | --- | --- | --- | --- |
+| 40% (5 operators) | 31.9–114.4, 3 spill | 18.8–27.3 | 10.9–17.8 + 17.5–26.3, no spill | **145–233** (limit 350) |
+| 2% | 23.6–33.8 | 98–8,342 | 4.6–7.8 + 19.2–41.4 | 223–842 (limit 350; see below) |
+| 0.25% | 16.3–23.8 | 139–1,070 | 1.0–1.8 + 14.4–34.4 | 138–341 |
+| 0.01% | 4.0–16.8 | 91–179 | 0.3–1.6 + 5.2–17.8 | 75–246 |
+
+What it shows:
+
+- **≥ 40% with an ACL.** The count is 17.5–26.3 ms in every visibility-map
+  state, against 32–114 ms with spills. The cell's whole server time
+  (pre-count + count + page) is 37–64 ms, and its p95 is 145–233 ms, inside
+  350.
+- **Selective bands.** Their counts keep today's Hash plans and server time.
+  The pre-count adds 0.3–8 ms: it stops at the value's own rows below the
+  cap.
+- **2% p95.** `num lt` and `bool eq` at 2% read 739 / 842 ms p95, but their
+  server time is 7.4 + 41.4 / 75.7 and 7.8 + 27.0 / 67.2 ms. The same order
+  as base, so that is host noise, not this change. The 2% band's page
+  (60–95 ms) is TICK-992's open item, untouched here.
+- **Admin lists.** They ran the pre-count too, because the admin's read
+  predicate names `r.` columns. Its 40% counts took the probe at 14.6–25.3
+  ms against 13.5–30.9 base. A real change would gate on the ACL branches
+  only.
+
+**(A′) holds in every band.**
+
+## Options (each changes the count's statement shape, ADR-006 D7)
+
+| Option | What it does | Measured |
+| --- | --- | --- |
+| **(A′) Bounded probe (recommended)** | The pre-count above, then the per-record pkey probe in the count only, for broad filters only | Run 5: 40% ACL counts 17.5–26.3 ms in every state. Selective bands unchanged. One extra statement per filtered narrowing list, 0.3–18 ms. |
+| (A) Unbounded probe | `OFFSET 0` in every ACL arm | Run 4: rejected, up to 8.3 s at 2% |
+| (B) Shape chosen from a planning-only `EXPLAIN` | The planner's own estimate | Not spiked. Inherits the estimate that misleads it today. |
+| (C) A D13 variance for the ≥ 40% ACL band | No code | Accepts 100–500 ms single-client server time at steady state |
+
+Next: the Solution Architect rules on (A′)'s statement shape (ADR-006 D7).
+Then (A′) lands as a compiler PR into `TICK-739/filterable-fields`: the
+pre-count gated on ACL branches, the cap as a named constant with a test,
+and `CountWhere` in `ListQuery` replacing the spike's marker.
