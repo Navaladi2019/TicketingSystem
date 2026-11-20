@@ -319,7 +319,9 @@ paths:
         tenant (`not_in_tenant`, the same for an unknown id and another
         tenant's). A refused request writes no version and no audit entry. The
         publish writes one audit entry in the same transaction.
-        `Idempotency-Key` is required.
+        `Idempotency-Key` is required. A reused key is 409: `idempotency_key_reuse`
+        (same key, different body) or `idempotency_in_flight` (same key while the
+        first request is still running; `Retry-After: 60`).
       parameters:
         - $ref: "#/components/parameters/Key"
         - name: If-Match
@@ -364,6 +366,8 @@ paths:
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
           $ref: "../openapi.yaml#/components/responses/ProblemNoInstance"
+        "409":
+          $ref: "../openapi.yaml#/components/responses/Problem"
         "412":
           description: The `If-Match` version is not the newest; the current `ETag` is in the header.
           headers:
