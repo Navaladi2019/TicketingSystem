@@ -227,7 +227,10 @@ func applyPrincipals(ctx context.Context, tx pgx.Tx, tid string, users []identit
 		cur, ok := have[u.KeycloakUserID]
 		switch {
 		case !ok:
-			id := uuid.New()
+			id, err := uuid.NewV7()
+			if err != nil {
+				return nil, fmt.Errorf("principal id: %w", err)
+			}
 			ids[u.KeycloakUserID] = id
 			b.Queue(`INSERT INTO principals (tenant_id, id, keycloak_user_id, email, enabled, federated_links, synced_at)
 				VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7)`, tid, id.String(), u.KeycloakUserID, email, u.Enabled, string(links), now)
@@ -341,7 +344,10 @@ func applyGroups(ctx context.Context, tx pgx.Tx, tid string, groups []identity.D
 		id := cur.id
 		switch {
 		case !ok:
-			id = uuid.New()
+			id, err = uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("group id: %w", err)
+			}
 			b.Queue(`INSERT INTO groups (tenant_id, id, keycloak_group_id, path) VALUES ($1::uuid, $2::uuid, $3, $4)`,
 				tid, id.String(), g.KeycloakGroupID, g.Path)
 			st.GroupsWritten++
@@ -451,7 +457,11 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 		if cur, ok := have[u.KeycloakGroupID]; ok {
 			idOf[u.KeycloakGroupID] = cur.id
 		} else {
-			idOf[u.KeycloakGroupID] = uuid.New()
+			id, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("org unit id: %w", err)
+			}
+			idOf[u.KeycloakGroupID] = id
 		}
 	}
 

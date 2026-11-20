@@ -3,9 +3,9 @@
 // production go.mod, as navalint's does.
 module github.com/Navaladi2019/TicketingSystem/tools/workflowcheck
 
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.11
+toolchain go1.27.4
 
 tool go.temporal.io/sdk/contrib/tools/workflowcheck
 

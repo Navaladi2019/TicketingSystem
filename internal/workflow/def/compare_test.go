@@ -88,7 +88,7 @@ func TestConditionHolds(t *testing.T) {
 func TestBranchCaseOrderContract(t *testing.T) {
 	d := mustParse(t, encode(t, base()))
 	route, _ := d.Step("route")
-	route.Cases = append(route.Cases, Case{Condition: Condition{Field: "/team", Op: OpEq, Value: json.RawMessage(`"a"`)}, Next: "done"})
+	route.Cases = append(route.Cases, Case{Field: "/team", Op: OpEq, Value: json.RawMessage(`"a"`), Next: "done"})
 	pick := func(r map[string]any) string {
 		for _, c := range route.Cases {
 			if c.Holds(r) {

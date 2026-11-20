@@ -1,0 +1,33 @@
+{
+  "step": "strict-putTenantTimeZone-invalid-utf8-byte",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/tenant/settings/time-zone",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b2274696d655f7a6f6e65223a224575726f70652f4265726c696eff227d",
+      "raw_latin1": "{\"time_zone\":\"Europe/Berlinÿ\"}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:invalid_time_zone",
+      "title": "Invalid time zone",
+      "status": 422,
+      "code": "invalid_time_zone",
+      "detail": "The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.",
+      "instance": "urn:nava:request:e0ed23820b18011c6e20bd858d01085e",
+      "errors": [
+        {
+          "pointer": "/body/time_zone",
+          "rule": "invalid_utf8"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

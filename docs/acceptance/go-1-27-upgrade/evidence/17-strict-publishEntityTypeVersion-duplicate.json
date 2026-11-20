@@ -1,0 +1,33 @@
+{
+  "step": "strict-publishEntityTypeVersion-duplicate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/entity-types/t961_a_mwnjuz8g/versions",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b22646566696e6974696f6e223a7b22736368656d61223a7b2224736368656d61223a2268747470733a2f2f6a736f6e2d736368656d612e6f72672f64726166742f323032302d31322f736368656d61222c2274797065223a226f626a656374222c226164646974696f6e616c50726f70657274696573223a66616c73652c227265717569726564223a5b2273686f72745f6465736372697074696f6e222c227374617465225d2c2270726f70657274696573223a7b2273686f72745f6465736372697074696f6e223a7b2274797065223a22737472696e67222c226d696e4c656e677468223a312c226d61784c656e677468223a3136307d2c227374617465223a7b2274797065223a22737472696e67222c22656e756d223a5b226e6577222c22636c6f736564225d2c2264656661756c74223a226e6577227d7d7d2c2266697865645f636f6c756d6e73223a7b227374617465223a227374617465227d2c2266697865645f636f6c756d6e73223a7b227374617465223a227374617465227d2c22737461746573223a7b22696e697469616c223a226e6577222c22737461746573223a5b226e6577222c22636c6f736564225d2c227472616e736974696f6e73223a5b7b2266726f6d223a226e6577222c22746f223a22636c6f736564227d5d7d7d7d",
+      "raw_latin1": "{\"definition\":{\"schema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"short_description\",\"state\"],\"properties\":{\"short_description\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":160},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"}}},\"fixed_columns\":{\"state\":\"state\"},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:invalid_definition",
+      "title": "Invalid entity definition",
+      "status": 422,
+      "code": "invalid_definition",
+      "detail": "The entity type is not accepted. See errors for the failing fields.",
+      "instance": "urn:nava:request:b33a3d9855e2e1655de15f8b74335660",
+      "errors": [
+        {
+          "pointer": "/body/definition/fixed_columns",
+          "rule": "duplicate"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

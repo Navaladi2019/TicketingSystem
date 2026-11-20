@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -179,7 +180,8 @@ func QueuePayloadPreview(b *pgx.Batch, r *Record, fixed map[string]string, dst *
 func payloadExpr(fixed map[string]string, args []any) (string, []any, error) {
 	props := slices.Sorted(maps.Keys(fixed))
 	args = append(args, props)
-	expr := fmt.Sprintf("(data - $%d::text[])", len(args))
+	var expr strings.Builder
+	fmt.Fprintf(&expr, "(data - $%d::text[])", len(args))
 	for _, prop := range props {
 		col := fixed[prop]
 		switch col {
@@ -191,12 +193,12 @@ func payloadExpr(fixed map[string]string, args []any) (string, []any, error) {
 		n := len(args)
 		// col is one of the four constants above, never input.
 		if col == metadata.ColumnState {
-			expr += fmt.Sprintf(" || jsonb_build_object($%d::text, %s)", n, col)
+			fmt.Fprintf(&expr, " || jsonb_build_object($%d::text, %s)", n, col)
 			continue
 		}
-		expr += fmt.Sprintf(" || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
+		fmt.Fprintf(&expr, " || CASE WHEN %s IS NULL THEN '{}'::jsonb ELSE jsonb_build_object($%d::text, %s) END", col, n, col)
 	}
-	return expr, args, nil
+	return expr.String(), args, nil
 }
 
 // Inserted is what QueueInsertRecord reads back when the batch runs.

@@ -400,8 +400,7 @@ func git(t *testing.T, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.Output()
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(ee.Stderr)))
 		}
 		return "", err
@@ -422,7 +421,7 @@ type retiredArm struct {
 }
 
 func (r *retiredArm) InterceptWorkflow(_ workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
-	return &retiredArmInbound{WorkflowInboundInterceptorBase: interceptor.WorkflowInboundInterceptorBase{Next: next}, arm: r}
+	return &retiredArmInbound{Next: next, arm: r}
 }
 
 type retiredArmInbound struct {
@@ -431,7 +430,7 @@ type retiredArmInbound struct {
 }
 
 func (i *retiredArmInbound) Init(outbound interceptor.WorkflowOutboundInterceptor) error {
-	return i.Next.Init(&retiredArmOutbound{WorkflowOutboundInterceptorBase: interceptor.WorkflowOutboundInterceptorBase{Next: outbound}, arm: i.arm})
+	return i.Next.Init(&retiredArmOutbound{Next: outbound, arm: i.arm})
 }
 
 type retiredArmOutbound struct {

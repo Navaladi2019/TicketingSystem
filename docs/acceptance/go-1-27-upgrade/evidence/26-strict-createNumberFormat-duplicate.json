@@ -1,0 +1,33 @@
+{
+  "step": "strict-createNumberFormat-duplicate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/number-formats",
+    "headers": {},
+    "body": {
+      "raw_hex": "7b226b6579223a22743936315f7374726963745f6d776e6a757a3867222c22646f63756d656e74223a7b2274656d706c617465223a227b7072656669787d7b7365713a357d222c226f766572666c6f77223a22726566757365222c226f766572666c6f77223a22726566757365227d7d",
+      "raw_latin1": "{\"key\":\"t961_strict_mwnjuz8g\",\"document\":{\"template\":\"{prefix}{seq:5}\",\"overflow\":\"refuse\",\"overflow\":\"refuse\"}}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:number_format_invalid",
+      "title": "Invalid number format",
+      "status": 422,
+      "code": "number_format_invalid",
+      "detail": "The number format is not accepted. Nothing was published. See errors for the field and position.",
+      "instance": "urn:nava:request:5cc5e3001792653d6487f37ce57b654e",
+      "errors": [
+        {
+          "pointer": "/body/document/overflow",
+          "rule": "duplicate"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

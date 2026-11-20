@@ -27,11 +27,11 @@ flows, the security controls behind these rules, and options for later tasks.
 
 Outbound HTTP goes through `telemetry.NewOutboundClient` only: `forbidigo` rejects `http.Client`, `http.DefaultClient` and `http.Get`/`Head`/`Post`/`PostForm` everywhere except `internal/platform/telemetry` and tests, and `task lint:fixture` checks the rule still fires.
 
-Go is pinned by `go.mod` (`go 1.26.0`, `toolchain go1.26.11`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3). Telemetry is decided in `docs/delivery/decision-log.md` (2026-10-16).
+Go is pinned by `go.mod` (`go 1.27.0`, `toolchain go1.27.4`); SDK v1.49.0 needs Go ≥ 1.26 (ADR-001 §3). Telemetry is decided in `docs/delivery/decision-log.md` (2026-10-16).
 
 ## Running locally
 
-You need Go 1.26 (a newer `go` command fetches the pinned toolchain itself) and golangci-lint v2. You also need one of the two task runners:
+You need Go 1.27 (a newer `go` command fetches the pinned toolchain itself) and golangci-lint v2. You also need one of the two task runners:
 - **make.** The `Makefile` is the CI entry point (T05).
 - **[go-task v3](https://taskfile.dev).** `Taskfile.yml` mirrors the Makefile, for hosts without make, such as Windows. Install it with `go install github.com/go-task/task/v3/cmd/task@latest`, `winget install Task.Task`, `scoop install task` or `brew install go-task`.
 

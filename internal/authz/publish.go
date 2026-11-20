@@ -182,8 +182,7 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 		return false, &InvalidPolicyError{Problems: sortProblems(scope)}
 	}
 	_, err = PublishPrepared(ctx, tx, entityKey, 0, by, prep)
-	var ce *ConflictError
-	if errors.As(err, &ce) {
+	if _, ok := errors.AsType[*ConflictError](err); ok {
 		return false, nil
 	}
 	return err == nil, err

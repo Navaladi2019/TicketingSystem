@@ -3,6 +3,7 @@ package cursor
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 
@@ -55,9 +56,7 @@ func ClaimsFor(ctx context.Context, route string, q url.Values) (Claims, error) 
 		return nil, errors.New("cursor: route must not be empty")
 	}
 	filter := make(url.Values, len(q))
-	for k, v := range q {
-		filter[k] = v
-	}
+	maps.Copy(filter, q)
 	filter.Del(paramCursor)
 	filter.Del(paramLimit)
 	return Claims{

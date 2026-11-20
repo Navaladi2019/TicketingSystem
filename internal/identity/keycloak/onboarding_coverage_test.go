@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -27,12 +28,7 @@ type seqKC struct {
 func (s *seqKC) saw(route string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, r := range s.seen {
-		if r == route {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.seen, route)
 }
 
 func newSeqKC(t *testing.T, routes map[string][]kcAnswer) (*seqKC, string) {

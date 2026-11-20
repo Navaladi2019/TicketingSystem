@@ -122,7 +122,7 @@ func (h *harness) doMethod(t *testing.T, method, path string, header map[string]
 func (h *harness) lines(t *testing.T) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(h.logs.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(h.logs.String()), "\n") {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
 			t.Fatalf("log line %q is not JSON: %v", l, err)

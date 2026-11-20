@@ -24,6 +24,7 @@ package isolation
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net/url"
 	"slices"
@@ -192,9 +193,7 @@ func (rec i5rRecord) row(p identity.Principal) authz.Row {
 // oracle.
 func (rec i5rRecord) defaulted() map[string]any {
 	out := map[string]any{"state": rec.State}
-	for k, v := range rec.Data {
-		out[k] = v
-	}
+	maps.Copy(out, rec.Data)
 	if _, ok := out["prio"]; !ok {
 		out["prio"] = i5rDefaultPrio
 	}

@@ -29,7 +29,11 @@ func interpVersion(t *testing.T, src string) *interp.Version {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &interp.Version{Definition: d, StepIDs: def.AssignStepIDs(d, nil)}
+	stepIDs, err := def.AssignStepIDs(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &interp.Version{Definition: d, StepIDs: stepIDs}
 }
 
 // hookedDefinitions is a DefinitionStore of one version that runs hook on

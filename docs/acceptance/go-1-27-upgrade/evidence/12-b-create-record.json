@@ -1,0 +1,33 @@
+{
+  "step": "b-create-record",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/records/t961_b_mwnjuz8g",
+    "headers": {},
+    "body": {
+      "data": {
+        "short_description": "T961 B record"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "created_at": "2026-11-19T12:52:06.60073Z",
+      "data": {
+        "short_description": "T961 B record",
+        "state": "new"
+      },
+      "id": "01a1f3dd-4346-7b41-9206-79f7386ccb30",
+      "number": "TNB0000001",
+      "schema_version": 1,
+      "state": "new",
+      "updated_at": "2026-11-19T12:52:06.60073Z",
+      "version": 1
+    },
+    "headers": {
+      "content-type": "application/json"
+    }
+  }
+}

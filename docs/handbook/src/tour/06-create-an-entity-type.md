@@ -2,9 +2,9 @@
 title: "6. Create an entity type"
 section: tour
 status: delivered
-sources: [docs/handbook/examples/README.md, docs/handbook/examples/loan_application.json, docs/acceptance/s8-entity-types.md, docs/acceptance/guide/bruno/S8/S8-11.bru, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go]
+sources: [docs/handbook/examples/README.md, docs/handbook/examples/loan_application.json, docs/handbook/examples/incident.json, docs/quality/x1a-first-routed-record.md, docs/acceptance/s8-entity-types.md, docs/acceptance/guide/bruno/S8/S8-11.bru, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go]
 adrs: [ADR-001, ADR-005, ADR-008]
-stories: [S27]
+stories: [S27, S28]
 operations: [createEntityType, listEntityTypes, getEntityType, publishEntityTypeVersion]
 tables: [entity_definitions, entity_definition_versions]
 ---
@@ -52,6 +52,21 @@ Refusals:
 | `"number_prefix":"a"` and an empty definition | `422 invalid_definition`, with `errors` naming `/number_prefix` (`pattern`), `/definition/schema`, `/definition/states/initial` and `/definition/states/states` |
 
 Publishing version 2, with an optional `purpose` field added (`POST /api/v1/entity-types/loan_application/versions`, body `{"definition": {…}}`), answers `201` with `"version":2,"current":true`. Records created afterwards report `"schema_version":2`; version 1 is still readable with `GET /api/v1/entity-types/loan_application/versions/1`.
+
+### An example whose type the tenant already has
+
+Every new tenant already has `incident`, `request` and `change` at version 1 (step 1). Sending `docs/handbook/examples/incident.json` to `POST /api/v1/entity-types` therefore answers `409 entity_type_exists`. Publish the example's `definition` as the next version of `incident` instead:
+
+```sh
+jq '{definition: .definition}' docs/handbook/examples/incident.json > incident-v2.json
+curl -i -X POST $CORE/api/v1/entity-types/incident/versions \
+  -H "Authorization: Bearer $ADMIN" -H "Idempotency-Key: tour-incident-v2" \
+  -H 'Content-Type: application/json' --data-binary @incident-v2.json
+```
+
+The first line needs `jq`. Without it, copy the file's `definition` object into `{"definition": …}` by hand. If `incident-v2.json` ends up empty, the call answers `400 validation_failed` with only `/body` in `errors`: that means the body was empty.
+
+It answers `201` with `"key":"incident","version":2,"current":true`, and `incident` keeps its default access rule. This is what the S28 kit does (Bruno `S28.9`). `loan_application` and `visa_application` are new keys, so `POST /api/v1/entity-types` works for them, but they have no default access rule: publish their `.access.json` with your tenant's group ids in place of `__ADMINS__` and `__AUDITORS__` (step 7) before anyone can read their records.
 
 ## What happens behind it
 

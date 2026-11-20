@@ -117,9 +117,9 @@ func parseTimeZone(raw json.RawMessage) (string, *problemError) {
 	bad := func(rule string) *problemError {
 		return &problemError{problem.InvalidTimeZone, []problem.FieldError{invalid("/time_zone", rule)}, errors.New("invalid time zone")}
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return "", &problemError{problem.InvalidTimeZone, []problem.FieldError{invalid("", "type")}, errors.New("invalid time zone")}
+	fields, fe := decodeBody(raw)
+	if fe != nil {
+		return "", &problemError{problem.InvalidTimeZone, []problem.FieldError{*fe}, errors.New("invalid time zone")}
 	}
 	rawName, present := fields["time_zone"]
 	if !present {

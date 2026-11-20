@@ -1,0 +1,32 @@
+meta {
+  name: S28.6 The admin's token is renewed without a password: 200
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{keycloak_url}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: refresh_token
+  client_id: nava-web
+  refresh_token: {{s28_admin_refresh}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const t = N.json();
+  bru.setVar('s28_admin_token', t.access_token);
+  bru.setVar('s28_admin_refresh', t.refresh_token);
+  test('the renewed token still names exactly the new tenant', () => {
+    expect(Object.keys(N.jwt(t.access_token).organization || {})).to.eql(['t-' + bru.getVar('s28_tenant')]);
+  });
+}
+
+docs {
+  The refresh token from S28.3 gives a new access token. The brokered user has no platform password, so this is how the kit keeps the admin signed in.
+}

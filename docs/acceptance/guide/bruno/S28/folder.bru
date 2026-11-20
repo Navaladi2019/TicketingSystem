@@ -1,0 +1,8 @@
+meta {
+  name: S28 first routed record (M-X1a)
+  seq: 28
+}
+
+docs {
+  Story S28, TICK-879; kit P9-05 (TICK-884), ADR-008 X1a / M-X1a. A tenant onboarded in this run (not a seeded one): its first admin publishes a type from the handbook example `docs/handbook/examples/incident.json`, publishes a workflow written from the handbook's example (tour step 8), creates an incident and waits for the workflow to route it. The clock starts at S28.2's 201 and stops at the `source: workflow` history entry (S28.13), which logs the total. Needs the stack and `tools/tunnels.sh up` (nava-onboard publishes no port); no `tools/seed.sh`. S28.3 to S28.6 sign the admin in through the local stack's **stand-in company login** (realm `standin-company`, dev only): the admin creates their own user there with the invited email and a password they choose, and the first brokered login creates the platform user. No master-realm credential and no platform-staff help is used (finding F1 of `docs/quality/x1a-first-routed-record.md`, fixed by TICK-967). S28.7 waits for one group-sync cycle (up to `s28_place_limit_s`, default 360 s; set `NAVA_GROUPSYNC_INTERVAL=15s` for seconds). S28.12 waits up to 300 s after the create for the route (the workflow waits one minute). Runs again on the same stack: every pass onboards a new tenant.
+}

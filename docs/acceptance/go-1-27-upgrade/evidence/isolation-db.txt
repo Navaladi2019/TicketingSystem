@@ -1,0 +1,4 @@
+tenant A rows after tenant B's attempts
+workflow versions: 01a1f3dd-407b-7976-8cd4-8168d9d48a09|1
+record: 01a1f3dd-4114-7f2d-a21d-983d16bd9a69|{"short_description": "T961 A record line sep para sep"}|1
+number format (id|current_version): 01a1f3dd-40c2-78b7-b56f-358286a9a3ca|1

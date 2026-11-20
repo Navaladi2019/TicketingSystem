@@ -29,7 +29,7 @@
     - page: tour/07-access-rules-and-masks.md
       label: "7. Access rules and masks"
     - page: tour/08-workflows.md
-      label: "8. Workflows (not built)"
+      label: "8. Workflows"
     - page: tour/09-create-and-work-with-records.md
       label: "9. Create and work with records"
     - page: tour/10-audit.md
@@ -89,6 +89,10 @@
           - page: system/temporal.md
     - page: system/core-write-pipeline.md
       label: "The write pipeline"
+    - page: system/api-errors.md
+      label: "API errors and strict JSON bodies"
+    - page: system/id-generation.md
+      label: "Id generation (UUIDv7)"
     - page: workflows/outbox-relay-worker.md
       label: "Workflows: outbox, relay, worker"
     - page: workflows/nava-interpreter.md
@@ -217,6 +221,11 @@
             label: "E2: grow is refused when a digit touches {seq:N}"
       - page: adr/adr-006.md
         label: "ADR-006 Filterable tenant fields"
+        children:
+          - page: adr/adr-006-e1.md
+            label: "E1: the D9 barrier also waits on running xids at or above xmax (proposed)"
+          - page: adr/adr-006-a1.md
+            label: "A1: the D13 350 ms residual follows the fan-out, not the ACL"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
         children:
@@ -231,6 +240,8 @@
         children:
           - page: adr/adr-010-a1.md
             label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
+          - page: adr/adr-010-e1.md
+            label: "E1: CI-6 SQL text equal up to two named rewrites"
     - page: stories/index.md
       label: "Stories"
       children:
@@ -278,6 +289,10 @@
             label: "CI checks the Competitive Gate and the configuration surface"
           - page: stories/s30.md
             label: "Compose access rules from named conditions"
+          - page: stories/go127.md
+            label: "Go 1.27, UUIDv7 ids and strict JSON"
+          - page: stories/s28.md
+            label: "Time to the first workflow-routed record (X1a)"
     - page: benchmarks/index.md
       label: "Benchmarks and budgets"
     - page: glossary/index.md
@@ -288,6 +303,8 @@
       label: "Operations overview"
     - page: operations/local-stack.md
       label: "Local stack"
+    - page: operations/go-toolchain.md
+      label: "Go toolchain and setup"
     - page: operations/sdk.md
       label: "Using the TypeScript SDK"
     - page: operations/observability.md

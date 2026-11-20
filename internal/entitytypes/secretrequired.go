@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/patchwalk"
 )
@@ -23,14 +24,14 @@ func (e *SecretRequiredError) Error() string {
 }
 
 func joinPaths(p []string) string {
-	var out string
+	var out strings.Builder
 	for i, s := range p {
 		if i > 0 {
-			out += ","
+			out.WriteString(",")
 		}
-		out += s
+		out.WriteString(s)
 	}
-	return out
+	return out.String()
 }
 
 // CheckSchemaSecretRequired refuses a schema that requires a marked top-level

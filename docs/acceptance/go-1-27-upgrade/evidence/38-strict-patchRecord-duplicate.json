@@ -1,0 +1,35 @@
+{
+  "step": "strict-patchRecord-duplicate",
+  "user": "admin@tenant-a.test",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/records/t961_a_mwnjuz8g/01a1f3dd-4114-7f2d-a21d-983d16bd9a69",
+    "headers": {
+      "If-Match": "W/\"1\""
+    },
+    "body": {
+      "raw_hex": "7b2264617461223a7b2273686f72745f6465736372697074696f6e223a22737472696374222c2273686f72745f6465736372697074696f6e223a22737472696374227d7d",
+      "raw_latin1": "{\"data\":{\"short_description\":\"strict\",\"short_description\":\"strict\"}}"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:record_invalid",
+      "title": "Record invalid",
+      "status": 422,
+      "code": "record_invalid",
+      "detail": "The record is not accepted. See errors for the failing fields.",
+      "instance": "urn:nava:request:55306521a2af3377c6e09972198a7cc2",
+      "errors": [
+        {
+          "pointer": "/body/data/short_description",
+          "rule": "duplicate"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

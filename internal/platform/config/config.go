@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -311,7 +312,7 @@ func (r *reader) urlList(key string) []string {
 		return nil
 	}
 	var out []string
-	for _, s := range strings.Split(v, ",") {
+	for s := range strings.SplitSeq(v, ",") {
 		s = strings.TrimSpace(s)
 		if !isBaseURL(s) {
 			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated http or https URLs without credentials or query", key))
@@ -404,10 +405,8 @@ func (r *reader) oneOf(key, def string, allowed ...string) string {
 		return def
 	}
 	v = strings.ToLower(v)
-	for _, a := range allowed {
-		if v == a {
-			return v
-		}
+	if slices.Contains(allowed, v) {
+		return v
 	}
 	r.errs = append(r.errs, fmt.Errorf("%s: want one of %s", key, strings.Join(allowed, ", ")))
 	return def
@@ -437,7 +436,7 @@ func (r *reader) otlpHeaders(key string) {
 	if !ok || strings.TrimSpace(v) == "" {
 		return
 	}
-	for _, entry := range strings.Split(v, ",") {
+	for entry := range strings.SplitSeq(v, ",") {
 		name, value, found := strings.Cut(entry, "=")
 		if !found || !isHeaderToken(strings.TrimSpace(name)) {
 			r.errs = append(r.errs, fmt.Errorf("%s: want comma-separated key=value entries with a valid header name", key))

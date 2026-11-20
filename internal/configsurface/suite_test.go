@@ -215,8 +215,8 @@ func typedefSurface(srcDir string) (itemSet, error) {
 // slice-of-struct fields with a "." prefix. A json.RawMessage is a leaf.
 func jsonFields(t reflect.Type, prefix string) []string {
 	var out []string
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
+		f := f
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if !f.IsExported() || name == "-" {
 			continue
@@ -275,12 +275,10 @@ type fixtureResult struct {
 
 // problemText is err.Error() plus the paths of an ErrInvalidDefinition.
 func problemText(err error) string {
-	var we *def.ErrInvalidDefinition
-	if errors.As(err, &we) {
+	if we, ok := errors.AsType[*def.ErrInvalidDefinition](err); ok {
 		return fmt.Sprintf("%s (paths %q)", err.Error(), we.Paths)
 	}
-	var me *metadata.ErrInvalidDefinition
-	if errors.As(err, &me) {
+	if me, ok := errors.AsType[*metadata.ErrInvalidDefinition](err); ok {
 		return fmt.Sprintf("%s (paths %q)", err.Error(), me.Paths)
 	}
 	return err.Error()

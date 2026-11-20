@@ -302,11 +302,12 @@ func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over
 	}
 	branches = make([]string, 0, len(plain))
 	for i, d := range plain {
-		b := d
+		var b strings.Builder
+		b.WriteString(d)
 		for _, prev := range plain[:i] {
-			b += " AND NOT " + prev
+			b.WriteString(" AND NOT " + prev)
 		}
-		branches = append(branches, "("+b+")")
+		branches = append(branches, "("+b.String()+")")
 	}
 	return branches, false
 }

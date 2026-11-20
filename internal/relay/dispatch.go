@@ -358,13 +358,11 @@ func classify(op string, err error) (outcome, cause string) {
 		return outcomeDispatched, ""
 	}
 	if op == opStart {
-		var started *serviceerror.WorkflowExecutionAlreadyStarted
-		if errors.As(err, &started) {
+		if _, ok := errors.AsType[*serviceerror.WorkflowExecutionAlreadyStarted](err); ok {
 			return outcomeAlreadyStarted, ""
 		}
 	} else {
-		var notFound *serviceerror.NotFound
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return outcomeTargetMissing, CauseTargetMissing
 		}
 	}

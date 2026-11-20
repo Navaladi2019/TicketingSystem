@@ -40,9 +40,9 @@ func readDef(t *testing.T, name string) *Definition {
 	return mustParse(t, b)
 }
 
-func TestAssignStepIDsCoversEveryKeyWithV4(t *testing.T) {
+func TestAssignStepIDsCoversEveryKeyWithV7(t *testing.T) {
 	d := mustParse(t, encode(t, base()))
-	ids := AssignStepIDs(d, nil)
+	ids := assignIDs(t, d, nil)
 	if len(ids) != len(d.Steps)+1 {
 		t.Fatalf("len = %d, want %d steps + 1 signal", len(ids), len(d.Steps))
 	}
@@ -63,22 +63,22 @@ func TestAssignStepIDsCoversEveryKeyWithV4(t *testing.T) {
 		t.Errorf("ids are not distinct: %v", ids)
 	}
 	for k, id := range ids {
-		if id.Version() != 4 || id.Variant() != uuid.RFC4122 {
-			t.Errorf("%s: id %s is not a v4 RFC 4122 uuid", k, id)
+		if id.Version() != 7 || id.Variant() != uuid.RFC4122 {
+			t.Errorf("%s: id %s is not a v7 RFC 4122 uuid", k, id)
 		}
 	}
 }
 
 func TestAssignStepIDsStableForUnchangedKey(t *testing.T) {
 	d := mustParse(t, encode(t, base()))
-	v1 := AssignStepIDs(d, nil)
+	v1 := assignIDs(t, d, nil)
 
 	// v2 renames "apply" to "apply2" and changes the condition value.
 	m := base()
 	step(m, 1)["value"] = "critical"
 	step(m, 3)["next"] = "apply2"
 	step(m, 4)["key"] = "apply2"
-	v2 := AssignStepIDs(mustParse(t, encode(t, m)), v1)
+	v2 := assignIDs(t, mustParse(t, encode(t, m)), v1)
 
 	for _, k := range []string{"wait", "check", "route", "approve", "done", SignalKey("approve")} {
 		if v2[k] != v1[k] {
@@ -95,8 +95,8 @@ func TestAssignStepIDsStableForUnchangedKey(t *testing.T) {
 
 func TestAssignStepIDsNotDerivedFromKey(t *testing.T) {
 	d := mustParse(t, encode(t, base()))
-	tenantA := AssignStepIDs(d, nil)
-	tenantB := AssignStepIDs(d, nil)
+	tenantA := assignIDs(t, d, nil)
+	tenantB := assignIDs(t, d, nil)
 	for k := range tenantA {
 		if tenantA[k] == tenantB[k] {
 			t.Errorf("%s: two tenants' identical keys got the same id %s", k, tenantA[k])
@@ -106,7 +106,7 @@ func TestAssignStepIDsNotDerivedFromKey(t *testing.T) {
 
 func TestAssignStepIDsIgnoresNilPrev(t *testing.T) {
 	d := mustParse(t, encode(t, base()))
-	ids := AssignStepIDs(d, map[string]uuid.UUID{"wait": uuid.Nil})
+	ids := assignIDs(t, d, map[string]uuid.UUID{"wait": uuid.Nil})
 	if ids["wait"] == uuid.Nil {
 		t.Fatal("uuid.Nil carried over from prev")
 	}
@@ -123,16 +123,17 @@ func TestFixtureStepIDs(t *testing.T) {
 		d   *Definition
 		ids map[string]uuid.UUID
 	}{"fixture-v1": {v1, ids1}, "fixture-v2": {v2, ids2}} {
-		if got := AssignStepIDs(c.d, c.ids); !maps.Equal(got, c.ids) {
+		if got := assignIDs(t, c.d, c.ids); !maps.Equal(got, c.ids) {
 			t.Errorf("%s: committed map is not a fixed point of AssignStepIDs:\n got %v\nwant %v", name, got, c.ids)
 		}
 		for k, id := range c.ids {
-			if id.Version() != 4 {
-				t.Errorf("%s: %s id %s is not v4", name, k, id)
+			// Committed fixtures keep their ids (stored ids are not rewritten).
+			if id == uuid.Nil {
+				t.Errorf("%s: %s id is the nil uuid", name, k)
 			}
 		}
 	}
-	if !maps.Equal(AssignStepIDs(v2, ids1), ids2) {
+	if !maps.Equal(assignIDs(t, v2, ids1), ids2) {
 		t.Error("fixture-v2 ids are not fixture-v1's ids for unchanged keys")
 	}
 
@@ -141,4 +142,13 @@ func TestFixtureStepIDs(t *testing.T) {
 	if string(a.Value) == string(b.Value) {
 		t.Error("fixture-v2 does not change the step after the timer")
 	}
+}
+
+func assignIDs(t *testing.T, d *Definition, prev map[string]uuid.UUID) map[string]uuid.UUID {
+	t.Helper()
+	ids, err := AssignStepIDs(d, prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ids
 }

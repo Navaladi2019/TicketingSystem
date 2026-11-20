@@ -46,7 +46,9 @@ It checks the pinned golangci-lint version first (`check-golangci-lint`, the
 half of `check-tools` it needs). A waiver in the module still has to pass the
 ADR-002-E1 nolint gate, which greps every tracked `.go` file. The job shares
 the lint job's pinned-tools cache and adds the golangci-lint cache to its Go
-cache.
+cache. The pinned-tools cache key carries the Go version `setup-go`
+installed, because a golangci-lint built with an older Go panics on a newer
+`go.mod` (TICK-962).
 
 **temporal-server lint ratchet (TICK-584).** The first full run found 45
 findings already on `main`, so `lint-temporal-server` passes
@@ -160,6 +162,24 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
+
+**Stack case `s28_first_routed_record` (TICK-884).** A full-tier case of the
+`stack` job: it runs on a full run (`ci:full`, the daily run, a manual run) and
+is skipped on the smoke tier. It runs the Bruno folder `S28`. Most of that time
+is spent waiting:
+
+- **Onboarding and the requests:** about 15 s.
+- **Group-sync placement (`S28.7`):** up to one `NAVA_GROUPSYNC_INTERVAL`. CI
+  keeps the 5-minute default, so this wait is 0 to 300 s and is bounded at 360 s.
+- **The route (`S28.12`):** the workflow's one-minute timer, about 60 s,
+  bounded at 300 s.
+
+Each call inside the two poll loops is also bounded at 15 s. Measured on a local
+fresh stack with a 15 s interval (2026-11-15): 76 s. Expected in CI: 1.5 to
+6.5 minutes. The bound is 11 minutes (360 s placement and 300 s route, plus the
+requests), which fits inside the `stack` job's 35-minute `timeout-minutes`. The
+`stack` row above was measured before this case existed, so re-measure it at
+the next budget review.
 
 **Fast-run budget (TICK-652).** Baseline, the last green push to `main`
 before TICK-652 (run 42579995367): 18 minutes, critical path `changes` (0.5)
@@ -1085,7 +1105,7 @@ health gate at once with "container ... vanished", not after 120 s of
 
 **Caches, shared by every run.** Nothing is set per run and nothing is cleaned.
 - Go: the per-user `GOCACHE`, `GOMODCACHE` and golangci-lint cache, safe for
-  concurrent use. The `go1.26.11` toolchain downloads once (`GOTOOLCHAIN=auto`).
+  concurrent use. The `go1.27.4` toolchain downloads once (`GOTOOLCHAIN=auto`).
 - Pinned tools: `make tools` runs only when `make check-tools` fails.
 - Images: `IMAGE_CACHE=local` makes `ci-stack` build with `make image-ci`
   (`buildx bake`) on the local builder. Its BuildKit cache is shared by every

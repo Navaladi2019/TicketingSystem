@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -155,7 +156,7 @@ func aclIfMatch(v *string) (versions []int, ok bool) {
 	if v == nil || strings.TrimSpace(*v) == "" || strings.TrimSpace(*v) == "*" {
 		return nil, false
 	}
-	for _, m := range strings.Split(*v, ",") {
+	for m := range strings.SplitSeq(*v, ",") {
 		m = strings.Trim(strings.TrimPrefix(strings.TrimSpace(m), "W/"), `"`)
 		n, err := strconv.Atoi(m)
 		if err != nil || n < 0 || strconv.Itoa(n) != m {
@@ -328,12 +329,7 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 }
 
 func contains(vs []int, v int) bool {
-	for _, x := range vs {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vs, v)
 }
 
 // schemaProperties lists the top-level properties of the entity type's

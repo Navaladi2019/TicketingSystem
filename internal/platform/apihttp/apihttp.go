@@ -14,14 +14,21 @@
 //     request and response handlers, the validator's ErrorHandlerWithOpts and
 //     a 404/405 wrapper around the mux all write problem+json instead.
 //
+// Before the validator reads a body, StrictBody refuses one with a duplicate
+// member name or invalid UTF-8 (TICK-964): the validator decodes with
+// encoding/json v1, which keeps the last duplicate and replaces bad bytes, so
+// it would judge a different document from the one a strict reader sees.
+//
 // The validator is a per-route middleware (StdHTTPServerOptions.Middlewares),
 // so it runs after ServeMux set r.Pattern and a 400 keeps its http.route.
 package apihttp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -30,7 +37,9 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 )
 
 // API holds what the error contract needs.
@@ -39,12 +48,28 @@ type API struct {
 	reg     *problem.Registry
 	log     *slog.Logger
 	baseURL string
+	// refusals maps a route pattern to its strict-JSON refusal
+	// (WithBodyRefusals).
+	refusals map[string]BodyRefusal
 }
+
+// BodyRefusal answers a request whose body StrictBody refused, with the one
+// field error that names the problem. Each operation writes the registered
+// 422 code it already uses for a body it does not accept, as a constant
+// (the httperr guard requires a problem.<Const> at every Registry.Write).
+type BodyRefusal func(w http.ResponseWriter, r *http.Request, fe problem.FieldError)
 
 // New returns an API for spec. baseURL must equal the BaseURL given to the
 // generated StdHTTPServerOptions: it is the validator's Options.Prefix.
 func New(spec *openapi3.T, reg *problem.Registry, log *slog.Logger, baseURL string) *API {
 	return &API{spec: spec, reg: reg, log: log, baseURL: baseURL}
+}
+
+// WithBodyRefusals sets, per route pattern ("POST /api/v1/records/{entity}"),
+// how StrictBody answers a refused body. It returns a.
+func (a *API) WithBodyRefusals(refusals map[string]BodyRefusal) *API {
+	a.refusals = refusals
+	return a
 }
 
 // Middleware returns the request validator, for StdHTTPServerOptions.Middlewares.
@@ -64,7 +89,7 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 		ErrorHandlerWithOpts: a.validationError,
 	})
 	return func(next http.Handler) http.Handler {
-		validated := validate(next)
+		validated := a.StrictBody(validate(next))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodHead {
 				validated.ServeHTTP(w, r)
@@ -78,6 +103,45 @@ func (a *API) Middleware() func(http.Handler) http.Handler {
 			validated.ServeHTTP(headWriter{w}, get)
 		})
 	}
+}
+
+// StrictBody refuses a request body with a duplicate object member name or
+// invalid UTF-8, anywhere in the document, before next reads it. The route's
+// BodyRefusal (WithBodyRefusals, a 422) answers with one error: the JSON
+// pointer under /body and the rule, duplicate or invalid_utf8. A route with
+// no refusal configured answers validation_failed, so a missing entry still
+// refuses the body. Any other body goes on to next byte-identical; a syntax
+// error stays the validator's to answer. The body is read through a bound of
+// idempotency.MaxBodySize, so no method, a GET included, can make it buffer
+// more; past it the answer is validation_failed at /body, rule max_size.
+func (a *API) StrictBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, idempotency.MaxBodySize))
+		_ = r.Body.Close()
+		if err != nil {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				a.reg.Write(w, r, problem.ValidationFailed, problem.FieldError{Pointer: "/body", Rule: "max_size"})
+				return
+			}
+			a.internal(w, r, fmt.Errorf("read request body: %w", err))
+			return
+		}
+		if v, bad := strictjson.Check(body); bad {
+			fe := problem.FieldError{Pointer: "/body" + v.Pointer, Rule: v.Rule}
+			if refuse, ok := a.refusals[r.Pattern]; ok {
+				refuse(w, r, fe)
+				return
+			}
+			a.reg.Write(w, r, problem.ValidationFailed, fe)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // headWriter drops the body of a HEAD response and keeps status and headers.
