@@ -1,0 +1,8 @@
+meta {
+  name: S21 filterable fields
+  seq: 19
+}
+
+docs {
+  Story S21, TICK-739 (kit TICK-749, docs/acceptance/S21/README.md): an admin flags a top-level field of a ticket type `x-nava-filterable` (ADR-006), the platform indexes it, and a list filters on it. Needs the stack docs/acceptance/S21/tools/run-kit.sh prepares: tenant A's incident type with `due_at` (date-time) and `description` masked to the admins group, 400,000 tenant A incidents and 50 tenant B ones, and the s21_* expectations (a JSON scan of the records) passed as environment variables. Story users: `admin@tenant-a` publishes, `agent@tenant-a` is Alice (service-desk: she reads about 5% of the incidents), `agent@tenant-b` is Bob. AC3 (S21.5-S21.7): unflagged and masked fields are refused. S21.8 flags `priority` (number) and `due_at` (date-time). AC1 (S21.9, S21.11, S21.13, S21.14): 422 `field_not_ready` with a whole-percentage `index_progress` while indexing, then exactly the rows of a JSON scan. AC4 (S21.10, S21.12): records created and edited while indexing and after are found. AC2 (S21.15, S21.16, S21.19): the range filter returns the right rows, and the list p95 is within ADR-006 D13 as amended by ADR-006-A1. AC5 (S21.17, S21.18): tenant B never matches, and a value only in a record Alice cannot see answers as a value that exists nowhere. Runs once per prepared stack: S21.8 publishes the flags.
+}

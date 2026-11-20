@@ -1,0 +1,55 @@
+meta {
+  name: S21.12 AC4: every write before and after the flip is found
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[due_at]=2026-12-30T12:00:17Z&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const run = bru.getVar('s21_run');
+  const VC = '2026-12-30T12:00:17Z';
+  const edit = N.v('s21_edit_ids').split(',');
+  const out = { creates: [], edits: [] };
+  for (let i = 1; i <= 2; i++) {
+    const r = await T.create('admin_a_token', `s21-${run}-after-${i}`, { short_description: `S21 ${run} created after the flip ${i}`, priority: 4, due_at: VC });
+    out.creates.push({ status: r.status, id: r.data && r.data.id });
+  }
+  for (const id of edit.slice(3, 5)) {
+    const r = await T.patch('admin_a_token', `s21-${run}-edit-after-${id}`, id, 1, { due_at: VC });
+    out.edits.push({ status: r.status, id });
+  }
+  const vd = await T.list('admin_a_token', 'filter[due_at]=2026-12-30T12:00:18Z');
+  out.vd = { status: vd.status, ids: vd.data.items.map(i => i.id), total: vd.data.total };
+  bru.setVar('s21_after', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const d = JSON.parse(bru.getVar('s21_during')), a = JSON.parse(bru.getVar('s21_after'));
+  test('after the flip: 2 creates 201, 2 edits 200', () => {
+    expect(a.creates.map(c => c.status)).to.eql([201, 201]);
+    expect(a.edits.map(e => e.status)).to.eql([200, 200]);
+  });
+  const want = [...d.creates, ...d.edits, ...a.creates, ...a.edits].map(x => x.id).sort();
+  const got = N.json().items.map(i => i.id).sort();
+  test('exactly the 10 records written on the value, none missed across the flip', () => expect(got).to.eql(want));
+  test('total 10', () => expect(N.json().total).to.eql(10));
+  test('the record moved off the value while indexing is not listed', () => expect(got).to.not.include(d.moved.id));
+  test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eql(200); expect(a.vd.ids).to.eql([d.moved.id]); expect(a.vd.total).to.eql(1); });
+}
+
+docs {
+  After both fields are ready: 2 more creates and 2 more edits onto 2026-12-30T12:00:17Z. The filter lists exactly the 10 records written on it (5 created, 5 edited, during and after indexing) and not the one moved off it; 2026-12-30T12:00:18Z lists exactly that one.
+}

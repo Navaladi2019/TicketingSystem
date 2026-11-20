@@ -1,0 +1,54 @@
+meta {
+  name: S21.11 AC1: wait until both fields are ready
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=1&limit=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const limit = Number(N.v('s21_ready_limit_seconds') || 3600) * 1000;
+  const t0 = Number(bru.getVar('s21_flagged_at'));
+  const samples = [];
+  for (;;) {
+    const p = await T.list('admin_a_token', 'filter[priority]=1&limit=1');
+    const d = await T.list('admin_a_token', 'filter[due_at]=2026-12-31T23:58:59Z');
+    const s = { s: Math.round((Date.now() - t0) / 1000), priority: p.status === 200 ? 'ready' : (p.data && p.data.index_progress), priority_status: p.status,
+                due_at: d.status === 200 ? 'ready' : (d.data && d.data.index_progress), due_at_status: d.status };
+    samples.push(s);
+    if ((p.status === 200 && d.status === 200) || Date.now() - t0 > limit || ![200, 422].includes(p.status) || ![200, 422].includes(d.status)) break;
+    await bru.sleep(15000);
+  }
+  bru.setVar('s21_ready', JSON.stringify(samples));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ss = JSON.parse(bru.getVar('s21_ready'));
+  const last = ss[ss.length - 1];
+  test(`both fields ready after ${last.s} s and ${ss.length} polls`, () => { expect(last.priority_status).to.eql(200); expect(last.due_at_status).to.eql(200); });
+  test('every answer while indexing was 422 with a whole index_progress from 0 to 99', () => ss.forEach(s => ['priority', 'due_at'].forEach(f => {
+    if (s[f + '_status'] === 422) expect(Number.isInteger(s[f]) && s[f] >= 0 && s[f] <= 99, JSON.stringify(s)).to.eql(true);
+    else expect(s[f + '_status']).to.eql(200);
+  })));
+  test('index_progress never goes back, and once ready a field stays ready', () => ['priority', 'due_at'].forEach(f => {
+    let prev = -1;
+    ss.forEach(s => { const v = s[f] === 'ready' ? 100 : s[f]; expect(v, f + ' at ' + s.s + ' s').to.be.at.least(prev); prev = v; });
+  }));
+  console.log('S21.11 progress', JSON.stringify(ss));
+}
+
+docs {
+  Polls both fields every 15 s from S21.8's publish until each answers 200 (at most `s21_ready_limit_seconds`, default 3600). The samples are the `index_progress` sequence; run-kit.sh's evidence keeps them. This request is the first 200.
+}

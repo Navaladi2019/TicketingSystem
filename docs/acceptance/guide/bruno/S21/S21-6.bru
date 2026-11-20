@@ -1,0 +1,25 @@
+meta {
+  name: S21.6 AC3: the admin filters on description, not flagged: 400 field_not_filterable
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[description]=S21%20internal%20note%201
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/description');
+}
+
+docs {
+  The mask admits the admin, so the same filter reaches the field-index registry: `description` is not flagged, so 400 `field_not_filterable` with `errors[]` at the filter.
+}
