@@ -49,7 +49,9 @@ step "Bruno folder S32 workflow policy (AC1 to AC4, isolation, restore)"
 sh docs/acceptance/guide/tools/api-test.sh S32
 
 step "AC2: the run started before the narrowing and checked after it (workflow_ref, acl_versions)"
-psql_ro -c "BEGIN READ ONLY;
+# One row per run on the newest AC2 incident: run_started|policy_narrowed|run_closed|started_before|closed_after.
+# The narrowing is the agents_write version published within the 20 s timer after the create.
+ac2=$(psql_ro -At -F '|' -c "BEGIN READ ONLY;
 WITH rec AS (
   SELECT id, created_at FROM records WHERE tenant_id = '$A' AND data->>'short_description' LIKE 'S32 % AC2 %'
    ORDER BY created_at DESC LIMIT 1),
@@ -59,11 +61,19 @@ narrowed AS (
      AND a.rules @> '{\"policies\": [{\"name\": \"agents_write\"}]}'
      AND a.published_at < (SELECT created_at FROM rec) + interval '20 seconds'
      AND a.published_at > (SELECT created_at FROM rec))
-SELECT w.created_at AS run_started, n.at AS policy_narrowed, w.closed_at AS run_closed,
-       w.created_at < n.at AS started_before_narrowing, w.closed_at > n.at AS closed_after_narrowing
+SELECT w.created_at, n.at, w.closed_at,
+       coalesce(w.created_at < n.at, false), coalesce(w.closed_at > n.at, false)
   FROM workflow_ref w JOIN rec r ON w.record_id = r.id CROSS JOIN narrowed n
  WHERE w.tenant_id = '$A';
-ROLLBACK;"
+ROLLBACK;" | grep '|' || true)
+echo "run_started|policy_narrowed|run_closed|started_before_narrowing|closed_after_narrowing"
+echo "${ac2:-(no workflow_ref row for the AC2 incident)}"
+rows=$(printf '%s' "$ac2" | grep -c '|' || true)
+if [ "$rows" != 1 ] || [ "$(printf '%s' "$ac2" | cut -d'|' -f4,5)" != "t|t" ]; then
+  echo "run.sh: AC2 FAILED: want exactly one run that started before the narrowing and closed after it ($rows rows)" >&2
+  exit 1
+fi
+echo "AC2: PASS (the run was waiting when the policy was narrowed)"
 
 step "refused policy references in the audit log, per tenant"
 psql_ro -c "BEGIN READ ONLY;

@@ -48,7 +48,8 @@ tests {
     expect(p.ops).to.eql(['write']);
     expect(p.when).to.eql({ member_of: { groups: [bru.getVar('s32_sd')] } });
   });
-  bru.setVar('s32_etag', N.header('ETag'));
+  // Only a published version moves the ETag: after a refused PUT the restore keeps the last good one.
+  if (res.getStatus() === 200) bru.setVar('s32_etag', N.header('ETag'));
   bru.setVar('s32_acc_sd2_at', String(Date.now()));
 }
 

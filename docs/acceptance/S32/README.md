@@ -25,7 +25,7 @@ If another stack holds the default ports, put other ones in `.env`. The verified
 2. Makes `admin@tenant-b.test` tenant B's admin (`docs/acceptance/S18/tools/kit.mjs admin-b`), then runs one group sync.
 3. Checks that tenant A has no other incident workflow. Every current workflow on incident fires on a create, so another one would also write the state.
 4. Runs the Bruno folder **`S32 workflow policy`** (39 requests).
-5. Shows from the database that the AC2 run had started before the policy was narrowed and finished after it.
+5. Checks from the database that the AC2 run had started before the policy was narrowed and finished after it. It stops with exit 1 unless there is exactly one such run (`AC2: PASS`). Bruno alone cannot tell a waiting run from one that started after the narrowing.
 6. Lists the refused-reference audit entries per tenant, and reads `authz_policy_ref_missing_total` from the worker.
 
 The output of the verified run is `fresh-stack-run.txt`. It holds no tokens or passwords.
@@ -58,12 +58,12 @@ To click through by hand, open the collection `docs/acceptance/guide/bruno/` in 
 
 | # | Criterion | Result | Evidence (`fresh-stack-run.txt`) |
 |---|---|---|---|
-| 1 | A workflow "if the assignee may write under `agents_write`, set state `triaged`, else `needs_owner`" routes an incident assigned to `agent@tenant-a` to `triaged` | ✅ | S32.13 publishes it. S32.16: Alice's incident is `triaged` 0.6 s after the create. S32.18: its history's newest entry has `source: workflow`. Control S32.17: the same workflow sends an incident assigned to the requester, who is not in `/service-desk`, to `needs_owner` |
-| 2 | After the admin removes the agent's group from `agents_write`, a workflow that was already waiting on a timer before its check routes its incident to `needs_owner` once the timer fires | ✅ | S32.19: version with `PT20S` before the check. S32.20 creates an incident assigned to Alice. S32.21: 3 s later it is still `new`. S32.22: `agents_write` now names the admins group only, published 3.2 s after the run started. S32.23: `needs_owner` 20.6 s after the create, after the narrowing. `run.sh` step 5: `workflow_ref` started 20:20:26.28, policy narrowed 20:20:29.47, run closed 20:20:46.99 (`started_before_narrowing t`, `closed_after_narrowing t`) |
+| 1 | A workflow "if the assignee may write under `agents_write`, set state `triaged`, else `needs_owner`" routes an incident assigned to `agent@tenant-a` to `triaged` | ✅ | S32.13 publishes it. S32.16: Alice's incident is `triaged` 0.7 s after the create. S32.18: its history's newest entry has `source: workflow`. Control S32.17: the same workflow sends an incident assigned to the requester, who is not in `/service-desk`, to `needs_owner` |
+| 2 | After the admin removes the agent's group from `agents_write`, a workflow that was already waiting on a timer before its check routes its incident to `needs_owner` once the timer fires | ✅ | S32.19: version with `PT20S` before the check. S32.20 creates an incident assigned to Alice. S32.21: 3 s later it is still `new`. S32.22: `agents_write` now names the admins group only, published 3.1 s after the run started. S32.23: `needs_owner` 20.9 s after the create, after the narrowing. `run.sh` step 5: `workflow_ref` started 21:20:23.02, policy narrowed 21:20:26.14, run closed 21:20:43.82, both checks `t`: `AC2: PASS` |
 | 3 | A workflow naming policy `does_not_exist` routes to `needs_owner`, and the audit log shows a missing-policy entry | ✅ | S32.24 first gives `agents_write` back to `/service-desk`, so Alice may write again and only the name decides. S32.25: publish accepts the unknown name (resolved at run time). S32.27: `needs_owner`. S32.28: the admin's audit read has one `policy_ref_refused` entry with `content_sha256` = SHA-256 of `incident/does_not_exist`. See "How the admin finds the entry" below |
 | 4 | A workflow in tenant A cannot test a policy of tenant B's entity type: same result as a missing name | ✅ | S32.30: tenant B's admin adds the policy `tenant_b_only` to tenant B's incident type. S32.31: tenant A's `s32_route` names it. S32.33: `needs_owner`. S32.34: tenant A's audit has a `policy_ref_refused` entry for `incident/tenant_b_only`, with the same action, domain, subject, actor and source as the AC3 entry. S32.35: tenant B's audit has no refused entry. S32.36: naming another entity type's policy is refused when the workflow is published: 422 `workflow_definition_invalid`, `entity_type_mismatch` at `/steps/check/policy/entity_type` |
 
-Result: `S32 workflow policy` 39/39 requests, 100/100 tests. `authz_policy_ref_missing_total{entity_type="incident"}` went from no series to 2, one for AC3 and one for AC4.
+Result: `S32 workflow policy` 39/39 requests, 102/102 tests. `authz_policy_ref_missing_total{entity_type="incident"}` went from no series to 2, one for AC3 and one for AC4.
 
 S32 has no UI. Every criterion is an API call, so the evidence is the recorded Bruno run, not screenshots.
 
@@ -99,8 +99,10 @@ The last three requests restore what the folder changed. S32.37 publishes a vers
 
 Verified on the same stack after the fresh run:
 
-- A second pass: 39 requests (38 passed, S32.10 skipped), 98/98 tests.
-- The S30 folder: 47/47 requests, 144/144 tests.
+- A second pass: 39 requests (38 passed, S32.10 skipped), 100/100 tests. S32.38 and S32.39 check that both tenants' `rules` and `masks` are back as they were.
+- The S30 folder (first fix round): 47/47 requests, 144/144 tests.
+
+The restore steps run only at the end of a pass. **After a failed pass, use a fresh stack.** A failure part-way can leave the S32 access document in place, and the next pass would then take it as the original.
 
 ## Not included
 
@@ -112,5 +114,5 @@ Verified on the same stack after the fresh run:
 
 - **The audit entry holds a hash of the policy name, not the name** (see AC3 above). An admin has to hash the name to match an entry, or read the worker log. This is how TICK-957 built it, not a kit choice. A follow-up could add the name to the entry; that is a product decision for the story owner.
 - **A Temporal retry can audit and count one refusal twice.** The test commits its own transaction (TICK-957, `policyRefMissing`). Both refused references in the verified run wrote exactly one entry, and S32.28 and S32.34 accept one or more.
-- **AC2 depends on the clock.** The narrowing has to be published within the 20-second timer. In the verified run it came 3.2 s after the run started, and S32.22 fails if it is late.
+- **AC2 depends on the clock.** The narrowing has to be published within the 20-second timer. In the verified run it came 3.1 s after the run started. S32.22 fails if the narrowing is late, and `run.sh` step 5 fails if the run started late (after the narrowing).
 - **Needs a tenant A with no other incident workflow.** On a stack where the S11b folder ran, its workflows also fire on S32's creates. `run.sh` step 3 stops on that, so use a fresh stack.

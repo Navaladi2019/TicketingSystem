@@ -36,7 +36,7 @@ tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);
   test('tenant B has tenant_b_only', () => expect(N.json().rules.policies.map(p => p.name)).to.include('tenant_b_only'));
-  bru.setVar('s32_b_etag', N.header('ETag'));
+  if (res.getStatus() === 200) bru.setVar('s32_b_etag', N.header('ETag'));
 }
 
 docs {

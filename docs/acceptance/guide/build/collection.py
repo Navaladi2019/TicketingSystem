@@ -4691,7 +4691,8 @@ test('agents_write grants write to %s', () => {
   expect(p.ops).to.eql(['write']);
   expect(p.when).to.eql({ member_of: { groups: [bru.getVar('%s')] } });
 });
-bru.setVar('s32_etag', N.header('ETag'));
+// Only a published version moves the ETag: after a refused PUT the restore keeps the last good one.
+if (res.getStatus() === 200) bru.setVar('s32_etag', N.header('ETag'));
 bru.setVar('%s', String(Date.now()));"""
 
     # A refused reference's audit entry: the reference is not stored, its
@@ -4871,7 +4872,7 @@ req.setHeader('If-Match', bru.getVar('s32_b_etag'));""",
                 desc="Tenant B's own incident type now has a policy `tenant_b_only` (read, write for tenant B's admins). Tenant A's incident type has no policy of that name.",
                 tests="""N.status(200);
 test('tenant B has tenant_b_only', () => expect(N.json().rules.policies.map(p => p.name)).to.include('tenant_b_only'));
-bru.setVar('s32_b_etag', N.header('ETag'));"""),
+if (res.getStatus() === 200) bru.setVar('s32_b_etag', N.header('ETag'));"""),
             req("S32.31 AC4: tenant A's admin publishes s32_route naming tenant_b_only: 201", "POST", wf, auth="admin_a_token",
                 headers=key("wf-ac4"), body=route("tenant_b_only"), tests=published),
             req("S32.32 AC4: the admin creates an incident assigned to Alice", "POST", inc, auth="admin_a_token",
@@ -4913,7 +4914,9 @@ const cur = JSON.parse(bru.getVar('s32_b_policy'));
 req.setBody({ rules: cur.rules, masks: cur.masks });
 req.setHeader('If-Match', bru.getVar('s32_b_etag'));""",
                 tests="""N.status(200);
-test('the S32.29 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s32_b_policy')).rules));"""),
+const was = JSON.parse(bru.getVar('s32_b_policy'));
+test('the S32.29 rules', () => expect(N.json().rules).to.eql(was.rules));
+test('the S32.29 masks', () => expect(N.json().masks).to.eql(was.masks));"""),
             req("S32.39 Restore: the admin republishes tenant A's access as S32.11 read it", "PUT", acc, auth="admin_a_token",
                 headers=key("restore"), body=placeholder,
                 pre=LOAD_PRE + r"""
@@ -4921,7 +4924,9 @@ const cur = JSON.parse(bru.getVar('s32_policy'));
 req.setBody({ rules: cur.rules, masks: cur.masks });
 req.setHeader('If-Match', bru.getVar('s32_etag'));""",
                 tests="""N.status(200);
-test('the S32.11 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s32_policy')).rules));"""),
+const was = JSON.parse(bru.getVar('s32_policy'));
+test('the S32.11 rules', () => expect(N.json().rules).to.eql(was.rules));
+test('the S32.11 masks', () => expect(N.json().masks).to.eql(was.masks));"""),
         ],
     }
 

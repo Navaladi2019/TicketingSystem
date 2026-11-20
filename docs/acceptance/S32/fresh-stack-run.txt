@@ -5,16 +5,16 @@ ok
 
 == seed tenants A and B
 NOTICE:  seed: 2 new audit chain heads, 2 first audit.seal rows
- Container nava-s32-nava-groupsync-run-42dde237d358 Creating 
- Container nava-s32-nava-groupsync-run-42dde237d358 Created 
+ Container nava-s32-nava-groupsync-run-49288fcfd4b7 Creating 
+ Container nava-s32-nava-groupsync-run-49288fcfd4b7 Created 
 seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
 seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
 seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
 
 == seed admin@tenant-b (the S18 kit's helper), then one group sync
 s18: admin@tenant-b.test is in organization tenant-b and in /t/00000000-0000-4000-8000-0000000000b1/admins
- Container nava-s32-nava-groupsync-run-c4b2b9a142cc Creating 
- Container nava-s32-nava-groupsync-run-c4b2b9a142cc Created 
+ Container nava-s32-nava-groupsync-run-61a73dfe2ea0 Creating 
+ Container nava-s32-nava-groupsync-run-61a73dfe2ea0 Created 
 group sync: done
 
 == tenant A's incident workflows (must be s32_route or none: every current one fires on a create)
@@ -24,170 +24,162 @@ other incident workflows in tenant A: 0
 (no authz_policy_ref_missing_total series yet: zero)
 
 == Bruno folder S32 workflow policy (AC1 to AC4, isolation, restore)
-bruno-cli: npm ci in /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-958-60d8f1cbba6f/workdir/TicketingSystem/tools/bruno (from package-lock.json)
-npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
-npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-npm warn deprecated crypto-js@4.2.0: Active development of CryptoJS has been discontinued. This library is no longer maintained.
-npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-npm warn deprecated uuid@10.0.0: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
-
-added 509 packages in 2m
-S32\S32-1 (200 OK) - 243 ms
-S32 run 24456a2d
+S32\S32-1 (200 OK) - 372 ms
+S32 run 1970eb02
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S32\S32-2 (200 OK) - 110 ms
+S32\S32-2 (200 OK) - 207 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S32\S32-3 (200 OK) - 101 ms
+S32\S32-3 (200 OK) - 217 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S32\S32-4 (200 OK) - 111 ms
+S32\S32-4 (200 OK) - 191 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S32\S32-5 (200 OK) - 133 ms
+S32\S32-5 (200 OK) - 140 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ Alice is in /service-desk
-S32\S32-6 (200 OK) - 18 ms
+S32\S32-6 (200 OK) - 22 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ the admin is in /admins
-S32\S32-7 (200 OK) - 23 ms
+S32\S32-7 (200 OK) - 25 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ not in /service-desk or /admins
-S32\S32-8 (200 OK) - 26 ms
+S32\S32-8 (200 OK) - 29 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000b1
    ✓ Me has the contract fields
    ✓ admin@tenant-b is in /admins of tenant B
-S32\S32-9 (200 OK) - 36 ms
+S32\S32-9 (200 OK) - 26 ms
 Tests
    ✓ HTTP 200
    ✓ the incident type, current
-S32\S32-10 (201 Created) - 53 ms
+S32\S32-10 (201 Created) - 75 ms
 Tests
    ✓ HTTP 201
    ✓ current, with triaged and needs_owner
-S32\S32-11 (200 OK) - 16 ms
+S32\S32-11 (200 OK) - 32 ms
 Tests
    ✓ HTTP 200
-S32\S32-12 (200 OK) - 41 ms
+S32\S32-12 (200 OK) - 61 ms
 Tests
    ✓ HTTP 200
    ✓ agents_write grants write to /service-desk
-S32\S32-13 (201 Created) - 39 ms
+S32\S32-13 (201 Created) - 58 ms
 Tests
    ✓ HTTP 201
    ✓ current, on incident
-S32\S32-14 (201 Created) - 42 ms
+S32\S32-14 (201 Created) - 65 ms
 Tests
    ✓ HTTP 201
    ✓ state new
-S32\S32-15 (201 Created) - 30 ms
+S32\S32-15 (201 Created) - 62 ms
 Tests
    ✓ HTTP 201
    ✓ state new
-S32\S32-16 (200 OK) - 30 ms
-s32_ac1 routed to triaged after 0.6 s
+S32\S32-16 (200 OK) - 33 ms
+s32_ac1 routed to triaged after 0.7 s
 Tests
    ✓ HTTP 200
    ✓ state triaged, written by the workflow (version 2)
-S32\S32-17 (200 OK) - 27 ms
+S32\S32-17 (200 OK) - 90 ms
 s32_ac1_req routed to needs_owner after 0.7 s
 Tests
    ✓ HTTP 200
    ✓ state needs_owner, written by the workflow (version 2)
-S32\S32-18 (200 OK) - 80 ms
+S32\S32-18 (200 OK) - 120 ms
 Tests
    ✓ HTTP 200
    ✓ newest: source workflow set state triaged; then the admin create
-S32\S32-19 (201 Created) - 64 ms
+S32\S32-19 (201 Created) - 91 ms
 Tests
    ✓ HTTP 201
    ✓ current, on incident
-S32\S32-20 (201 Created) - 78 ms
+S32\S32-20 (201 Created) - 66 ms
 Tests
    ✓ HTTP 201
    ✓ state new
-S32\S32-21 (200 OK) - 20 ms
+S32\S32-21 (200 OK) - 19 ms
 Tests
    ✓ HTTP 200
    ✓ state new, version 1
-S32\S32-22 (200 OK) - 42 ms
+S32\S32-22 (200 OK) - 27 ms
 Tests
    ✓ HTTP 200
    ✓ agents_write grants write to the admins group only
    ✓ published before the timer fires (within 20 s of the create)
-S32\S32-23 (200 OK) - 60 ms
-s32_ac2 routed to needs_owner after 20.6 s
+S32\S32-23 (200 OK) - 15 ms
+s32_ac2 routed to needs_owner after 20.9 s
 Tests
    ✓ HTTP 200
    ✓ state needs_owner, written by the workflow (version 2)
    ✓ routed after the narrowing and after the timer
-S32\S32-24 (200 OK) - 95 ms
+S32\S32-24 (200 OK) - 20 ms
 Tests
    ✓ HTTP 200
    ✓ agents_write grants write to /service-desk
-S32\S32-25 (201 Created) - 85 ms
+S32\S32-25 (201 Created) - 32 ms
 Tests
    ✓ HTTP 201
    ✓ current, on incident
-S32\S32-26 (201 Created) - 100 ms
+S32\S32-26 (201 Created) - 25 ms
 Tests
    ✓ HTTP 201
    ✓ state new
-S32\S32-27 (200 OK) - 61 ms
-s32_ac3 routed to needs_owner after 0.7 s
+S32\S32-27 (200 OK) - 19 ms
+s32_ac3 routed to needs_owner after 1.1 s
 Tests
    ✓ HTTP 200
    ✓ state needs_owner, written by the workflow (version 2)
-S32\S32-28 (200 OK) - 74 ms
-s32_ac3 entry 01a1fa9e-67bb-719f-811e-c7ed5e1ad9b4 2026-11-20T20:20:47.665884Z matching entries 1
+S32\S32-28 (200 OK) - 16 ms
+s32_ac3 entry 01a1fad5-4a92-758c-b864-18da84a06eed 2026-11-20T21:20:44.687929Z matching entries 1
 Tests
    ✓ HTTP 200
    ✓ a policy_ref_refused entry whose content_sha256 is SHA-256("incident/does_not_exist")
    ✓ domain config, subject acl_policy, actor system workflow, source workflow
    ✓ its subject is the incident access policy: the subject of the admin's own access publishes
    ✓ written after the record was created
-S32\S32-29 (200 OK) - 46 ms
+S32\S32-29 (200 OK) - 17 ms
 Tests
    ✓ HTTP 200
-S32\S32-30 (200 OK) - 138 ms
+S32\S32-30 (200 OK) - 28 ms
 Tests
    ✓ HTTP 200
    ✓ tenant B has tenant_b_only
-S32\S32-31 (201 Created) - 123 ms
+S32\S32-31 (201 Created) - 36 ms
 Tests
    ✓ HTTP 201
    ✓ current, on incident
-S32\S32-32 (201 Created) - 96 ms
+S32\S32-32 (201 Created) - 28 ms
 Tests
    ✓ HTTP 201
    ✓ state new
-S32\S32-33 (200 OK) - 44 ms
-s32_ac4 routed to needs_owner after 1.2 s
+S32\S32-33 (200 OK) - 18 ms
+s32_ac4 routed to needs_owner after 0.6 s
 Tests
    ✓ HTTP 200
    ✓ state needs_owner, written by the workflow (version 2)
-S32\S32-34 (200 OK) - 38 ms
-s32_ac4 entry 01a1fa9e-6dda-7451-bfb6-0a20067a8c3a 2026-11-20T20:20:49.233996Z matching entries 1
+S32\S32-34 (200 OK) - 15 ms
+s32_ac4 entry 01a1fad5-4ea7-7b72-a629-b70a07c84ac1 2026-11-20T21:20:45.732636Z matching entries 1
 Tests
    ✓ HTTP 200
    ✓ a policy_ref_refused entry whose content_sha256 is SHA-256("incident/tenant_b_only")
@@ -195,29 +187,31 @@ Tests
    ✓ its subject is the incident access policy: the subject of the admin's own access publishes
    ✓ written after the record was created
    ✓ the same action, domain, subject, actor and source as the AC3 entry
-S32\S32-35 (200 OK) - 33 ms
+S32\S32-35 (200 OK) - 15 ms
 Tests
    ✓ HTTP 200
    ✓ no policy_ref_refused entry in tenant B since S32.1
    ✓ only tenant B's own access publish (S32.30) is there
-S32\S32-36 (422 Unprocessable Entity) - 38 ms
+S32\S32-36 (422 Unprocessable Entity) - 26 ms
 Tests
    ✓ HTTP 422
    ✓ problem+json, code workflow_definition_invalid
    ✓ problem instance is this response's X-Request-Id
    ✓ entity_type_mismatch at the step's policy entity_type
-S32\S32-37 (201 Created) - 56 ms
+S32\S32-37 (201 Created) - 34 ms
 Tests
    ✓ HTTP 201
    ✓ current, on incident
-S32\S32-38 (200 OK) - 60 ms
+S32\S32-38 (200 OK) - 27 ms
 Tests
    ✓ HTTP 200
-   ✓ the S32.29 document
-S32\S32-39 (200 OK) - 75 ms
+   ✓ the S32.29 rules
+   ✓ the S32.29 masks
+S32\S32-39 (200 OK) - 43 ms
 Tests
    ✓ HTTP 200
-   ✓ the S32.11 document
+   ✓ the S32.11 rules
+   ✓ the S32.11 masks
 
 📊 Execution Summary
 ┌───────────────┬────────────────┐
@@ -227,11 +221,11 @@ Tests
 ├───────────────┼────────────────┤
 │ Requests      │ 39 (39 Passed) │
 ├───────────────┼────────────────┤
-│ Tests         │    100/100     │
+│ Tests         │    102/102     │
 ├───────────────┼────────────────┤
 │ Assertions    │      0/0       │
 ├───────────────┼────────────────┤
-│ Duration (ms) │     26855      │
+│ Duration (ms) │     26641      │
 └───────────────┴────────────────┘
 Wrote html results to C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-958-60d8f1cbba6f/workdir/TicketingSystem/docs/acceptance/guide/reports/S32.html
 Wrote json results to C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-958-60d8f1cbba6f/workdir/TicketingSystem/docs/acceptance/guide/reports/S32.json
@@ -240,11 +234,9 @@ api-test: reports in /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-
 api-test: PASS
 
 == AC2: the run started before the narrowing and checked after it (workflow_ref, acl_versions)
-          run_started          |        policy_narrowed        |          run_closed           | started_before_narrowing | closed_after_narrowing 
--------------------------------+-------------------------------+-------------------------------+--------------------------+------------------------
- 2026-11-20 20:20:26.276794+00 | 2026-11-20 20:20:29.465182+00 | 2026-11-20 20:20:46.988945+00 | t                        | t
-(1 row)
-
+run_started|policy_narrowed|run_closed|started_before_narrowing|closed_after_narrowing
+2026-11-20 21:20:23.016468+00|2026-11-20 21:20:26.141666+00|2026-11-20 21:20:43.816837+00|t|t
+AC2: PASS (the run was waiting when the policy was narrowed)
 
 == refused policy references in the audit log, per tenant
  tenant_a |       action       | actor_system |  source  | ac3 | ac4 | count 
