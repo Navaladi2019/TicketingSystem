@@ -129,9 +129,6 @@ not `Available` until S31.
 
 - There is no separate "compiler" stage: `CompileRead` and `ReadBranches`
   are the SQL rendering of the same plan `Allows` evaluates.
-- ADR-010's CI table says a stale expected version gives 409; the route
-  gives `412 version_conflict`, as every `If-Match` route does. The ADR text
-  is being corrected.
 
 ## Links
 
