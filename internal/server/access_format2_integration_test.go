@@ -106,7 +106,11 @@ func TestPutAccessFormat1IsStoredAsFormat2(t *testing.T) {
 }
 
 // Every row of the shared fixture is a 422 with its pointer (under /rules) and
-// code, and writes no version and no audit entry.
+// code, and writes no version and no audit entry. A go_only row is a
+// duplicate key, which the strict-JSON boundary (TICK-964) refuses before the
+// access decoder: its expected answer is derived from the row, code duplicate
+// at "/body" + the row's body pointer (TICK-1017/TICK-1018 decision). A row
+// with a body is sent as it is; its pointers are already into the body.
 // covers: putEntityTypeAccess 422
 func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	e := newPatchEnv(t)
@@ -116,6 +120,7 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 	}
 	var rows []struct {
 		Name     string          `json:"name"`
+		GoOnly   bool            `json:"go_only"`
 		MaxBytes int             `json:"max_bytes"`
 		Doc      json.RawMessage `json:"doc"`
 		Body     json.RawMessage `json:"body"`
@@ -131,18 +136,23 @@ func TestPutAccessRefusesEveryFixtureRow(t *testing.T) {
 		if r.MaxBytes > 0 {
 			continue // the byte limit has its own test
 		}
+		send, under := `{"rules": `+string(r.Doc)+`}`, "/rules"
 		if r.Body != nil {
-			continue // a repeated body name is refused by StrictBody before the route (TICK-964)
+			send, under = string(r.Body), ""
 		}
 		versions, entries := e.aclCounts(t)
-		rec := e.access(t, http.MethodPut, accessPath, "admin-a", fmt.Sprintf("fx-%d", i), `W/"1"`, `{"rules": `+string(r.Doc)+`}`)
-		if rec.Code == http.StatusBadRequest {
+		rec := e.access(t, http.MethodPut, accessPath, "admin-a", fmt.Sprintf("fx-%d", i), `W/"1"`, send)
+		if rec.Code == http.StatusBadRequest && !r.GoOnly {
 			continue // a document the contract's validator refuses first is no 422 case
 		}
 		wantProblem(t, rec, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
 		got := pointerRules(t, rec)
 		for _, p := range r.Problems {
-			if want := "/rules" + p.Pointer + " " + p.Code; !containsStr(got, want) {
+			want := under + p.Pointer + " " + p.Code
+			if r.GoOnly {
+				want = "/body" + under + p.Pointer + " " + authz.RuleDuplicate
+			}
+			if !containsStr(got, want) {
 				t.Errorf("%s: errors %v, want %q", r.Name, got, want)
 			}
 		}
