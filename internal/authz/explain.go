@@ -140,10 +140,12 @@ func PrincipalOf(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (p identity.P
 const (
 	groupsInTenantSQL = `SELECT id FROM groups WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
 	usersInTenantSQL  = `SELECT id FROM principals WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
+	unitsInTenantSQL  = `SELECT id FROM org_units WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
 )
 
-// NotInTenant returns a Problem for every ref whose id is not a live group (or
-// user) of the transaction's tenant. A tombstoned id is refused like an unknown
+// NotInTenant returns a Problem for every ref whose id is not a live group,
+// user or org unit (an under {"of": [ids]}, TICK-950) of the transaction's
+// tenant, the same ids the database's acl2_tenant_ids refuses (TICK-947). A tombstoned id is refused like an unknown
 // one. It filters by tenant_id itself, on top of row-level security, and
 // answers the same way for an id that does not exist and an id of another
 // tenant: the publish route must not become an oracle for ids of other
@@ -153,21 +155,23 @@ func NotInTenant(ctx context.Context, tx pgx.Tx, refs []TenantRef) ([]Problem, e
 	if err != nil {
 		return nil, fmt.Errorf("authz: %w", err)
 	}
-	var groups, users []uuid.UUID
+	var groups, users, units []uuid.UUID
 	for _, r := range refs {
 		switch r.Kind {
 		case KindGroup:
 			groups = append(groups, r.ID)
 		case KindUser:
 			users = append(users, r.ID)
+		case KindOrgUnit:
+			units = append(units, r.ID)
 		}
 	}
-	found := map[Kind]map[uuid.UUID]bool{KindGroup: {}, KindUser: {}}
+	found := map[Kind]map[uuid.UUID]bool{KindGroup: {}, KindUser: {}, KindOrgUnit: {}}
 	for _, q := range []struct {
 		kind Kind
 		sql  string
 		ids  []uuid.UUID
-	}{{KindGroup, groupsInTenantSQL, groups}, {KindUser, usersInTenantSQL, users}} {
+	}{{KindGroup, groupsInTenantSQL, groups}, {KindUser, usersInTenantSQL, users}, {KindOrgUnit, unitsInTenantSQL, units}} {
 		if len(q.ids) == 0 {
 			continue
 		}

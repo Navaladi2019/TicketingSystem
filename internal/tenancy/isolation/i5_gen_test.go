@@ -9,6 +9,7 @@ package isolation
 // has no build tag, so task test checks the generator itself.
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -80,6 +82,18 @@ type i5World struct {
 	DecoyPrincipal     uuid.UUID // a principal with Groups[0]'s id
 	DecoyGroup         uuid.UUID // a group with Users[0]'s id
 	Records            []i5Record
+	// Units is the org tree (ADR-010 D7, TICK-950), parents first; Members
+	// maps a principal to the live units it belongs to (org_unit_members).
+	// Every record's OrgUnitID is one of Units or nil.
+	Units   []i5Unit
+	Members map[uuid.UUID][]uuid.UUID
+}
+
+// i5Unit is one org_units row: Parent is uuid.Nil for a root; Dead is a
+// tombstoned unit (deleted_at set).
+type i5Unit struct {
+	ID, Parent uuid.UUID
+	Dead       bool
 }
 
 // i5States are the states records take; "pending" is never named by a
@@ -152,7 +166,107 @@ func newI5World(r *rand.Rand) *i5World {
 		}
 		w.Records = append(w.Records, rec)
 	}
+	w.orgTree()
 	return w
+}
+
+// i5TreeShape is the org tree every world has, by parent index (-1 a root)
+// and tombstone: under a live root, a live chain (0-1-2), a tombstoned unit
+// with a live child (3-4: the live child is out of every S that reaches it
+// through 3), a tombstoned leaf (6 under 5); a second root with a chain
+// (7-8-9).
+func i5TreeShape() []struct {
+	parent int
+	dead   bool
+} {
+	return []struct {
+		parent int
+		dead   bool
+	}{{-1, false}, {0, false}, {1, false}, {0, true}, {3, false}, {0, false}, {5, true}, {-1, false}, {7, false}, {8, false}}
+}
+
+// orgTree draws the world's org units, memberships and each record's unit
+// from a stream of its own, seeded from the tenant id, so the S10 draws (and
+// every earlier seed's world) are unchanged.
+func (w *i5World) orgTree() {
+	r := rand.New(rand.NewPCG(binary.LittleEndian.Uint64(w.Tenant[:8]), binary.LittleEndian.Uint64(w.Tenant[8:])))
+	for _, u := range i5TreeShape() {
+		unit := i5Unit{ID: i5UUID(r), Dead: u.dead}
+		if u.parent >= 0 {
+			unit.Parent = w.Units[u.parent].ID
+		}
+		w.Units = append(w.Units, unit)
+	}
+	var live []uuid.UUID
+	for _, u := range w.Units {
+		if !u.Dead {
+			live = append(live, u.ID)
+		}
+	}
+	w.Members = map[uuid.UUID][]uuid.UUID{}
+	for _, id := range append(slices.Clone(w.Users), w.DecoyPrincipal) {
+		for range r.IntN(3) {
+			if u := i5Pick(r, live); !slices.Contains(w.Members[id], u) {
+				w.Members[id] = append(w.Members[id], u)
+			}
+		}
+	}
+	for i := range w.Records {
+		if !i5Chance(r, 20) {
+			id := i5Pick(r, w.Units).ID
+			w.Records[i].Row.OrgUnitID = &id
+		}
+	}
+	i5Trees.Store(w.Tenant, w)
+}
+
+// i5Trees maps a world's tenant to the world, so the reference evaluator
+// finds the org tree of a principal's tenant (i5Subtree).
+//
+//nolint:gochecknoglobals // test-only registry of generated worlds
+var i5Trees sync.Map
+
+// i5Subtree is set S of root in the tenant's world, from ADR-010 D7 alone: the
+// root and every unit below it, walking live units only, so a tombstoned unit
+// ends its branch. A root that is not a live unit of the world gives nothing.
+func i5Subtree(tenant, root uuid.UUID) []uuid.UUID {
+	v, ok := i5Trees.Load(tenant)
+	if !ok {
+		return nil
+	}
+	w := v.(*i5World) //nolint:forcetypeassert // only orgTree stores
+	live := func(id uuid.UUID) bool {
+		return slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == id && !u.Dead })
+	}
+	if !live(root) {
+		return nil
+	}
+	out := []uuid.UUID{root}
+	for i := 0; i < len(out); i++ {
+		for _, u := range w.Units {
+			if u.Parent == out[i] && !u.Dead && !slices.Contains(out, u.ID) {
+				out = append(out, u.ID)
+			}
+		}
+	}
+	return out
+}
+
+// i5CallerSet is set S of under {"of": "caller"} for p: the subtrees of its
+// units; none for a caller with no id.
+func i5CallerSet(p identity.Principal) []uuid.UUID {
+	if p.PrincipalID == uuid.Nil {
+		return nil
+	}
+	v, ok := i5Trees.Load(p.TenantID)
+	if !ok {
+		return nil
+	}
+	var out []uuid.UUID
+	for _, u := range v.(*i5World).Members[p.PrincipalID] { //nolint:forcetypeassert // only orgTree stores
+		out = append(out, i5Subtree(p.TenantID, u)...)
+	}
+	return out
 }
 
 // principal draws a caller of the tenant: usually one of Users, sometimes the

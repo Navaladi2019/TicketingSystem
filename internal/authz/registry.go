@@ -31,8 +31,9 @@ func kinds() []NodeKind {
 		{NodeMemberOf, true, true},
 		{NodeCmp, true, true},
 		{NodeShared, true, true},
-		// under ships in S31 (PLAN-011 D-11-5): decoded, refused at publish.
-		{NodeUnder, true, false},
+		// under ships in S31 (TICK-950 P11-17; it was decoded and refused at
+		// publish in S30, PLAN-011 D-11-5).
+		{NodeUnder, true, true},
 	}
 }
 
@@ -50,7 +51,8 @@ func LookupKind(name string) (NodeKind, bool) {
 }
 
 // sqlRendered and goRendered are the kinds the format-2 tree renders in SQL
-// and in Go (plan.go, TICK-937 P11-05): all, any, not, cmp and shared render
+// and in Go (plan.go, TICK-937 P11-05): all, any, not, cmp, shared and under
+// (TICK-950, with set S bound by ExpandUnder) render
 // node for node in pnode.sql and pnode.eval; ref is expanded and member_of
 // folded to a constant by the one planner both renderings share, so both
 // renderings cover them by construction. A new kind is added to both in the
@@ -63,7 +65,7 @@ func goRendered() map[string]bool { return plannedKinds() }
 func plannedKinds() map[string]bool {
 	return map[string]bool{
 		NodeAll: true, NodeAny: true, NodeNot: true, NodeRef: true,
-		NodeMemberOf: true, NodeCmp: true, NodeShared: true,
+		NodeMemberOf: true, NodeCmp: true, NodeShared: true, NodeUnder: true,
 	}
 }
 

@@ -1059,7 +1059,7 @@ func (w *write) canWriteFields(ctx context.Context, before, after, patch map[str
 func rowOf(rec *store.Record, shares []uuid.UUID) *authz.Row {
 	return &authz.Row{
 		ID: rec.ID, State: rec.State, RequesterID: rec.RequesterID, AssigneeID: rec.AssigneeID,
-		AssignmentGroupID: rec.AssignmentGroupID, SharedWith: shares,
+		AssignmentGroupID: rec.AssignmentGroupID, OrgUnitID: rec.OrgUnitID, SharedWith: shares,
 	}
 }
 

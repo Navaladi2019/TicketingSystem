@@ -393,6 +393,10 @@ func (h *handlers) ExplainAccess(ctx context.Context, req api.ExplainAccessReque
 		if err != nil {
 			return err
 		}
+		// The target's set S, as its own read would bind it (TICK-950).
+		if pol, err = authz.ExpandUnder(ctx, tx, pol, target); err != nil {
+			return err
+		}
 		ex = authz.Explain(pol, p, target, row)
 		return nil
 	})

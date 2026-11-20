@@ -10,7 +10,7 @@ stories: [S30, S10]
 invariants: [I5, I8, I1]
 operations: [getEntityTypeAccess, putEntityTypeAccess, explainAccess]
 tables: [acl_versions]
-tests: [TestPutAccessFormat2StoresAsSubmittedWithOneAuditEntry, TestPutAccessFormat1IsStoredAsFormat2, TestPutAccessFormat2ForeignIDsAreForeignID, TestPrepareRefusesTheFixture, TestPrepareCapsAreInclusive, TestPrepareByteLimitIsOnStoredTextAndOnMasks, TestPrepareFormat1OverTheChildCapIsChildCount, TestPrepareWarnsOnNotOverCallerLeaves, TestLoadACLMaxDocumentBytes, TestExplainPolicyTraceAndInvalid, TestS30Format2DenyTraceHasAFalseStep, TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored]
+tests: [TestPutAccessFormat2StoresAsSubmittedWithOneAuditEntry, TestPutAccessFormat1IsStoredAsFormat2, TestPutAccessFormat2ForeignIDsAreForeignID, TestPrepareRefusesTheFixture, TestPrepareCapsAreInclusive, TestPrepareByteLimitIsOnStoredTextAndOnMasks, TestPrepareFormat1OverTheChildCapIsChildCount, TestPrepareWarnsOnNotOverCallerLeaves, TestLoadACLMaxDocumentBytes, TestExplainPolicyTraceAndInvalid, TestS30Format2DenyTraceHasAFalseStep, TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree]
 ---
 
 ## Purpose
@@ -138,7 +138,7 @@ in the caller's tenant.
 | Caps are inclusive; byte limit on stored text and on masks | `TestPrepareCapsAreInclusive`, `TestPrepareByteLimitIsOnStoredTextAndOnMasks` |
 | Format 1 over the child cap is `child_count` | `TestPrepareFormat1OverTheChildCapIsChildCount` |
 | Foreign ids are `foreign_id` | `TestPutAccessFormat2ForeignIDsAreForeignID` |
-| `under` refused, and grants nothing if stored | `TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored` |
+| `under` org-unit ids checked at the route (`foreign_id`), and grants by live subtree | `TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree` |
 | Lint on `not` over a caller test | `TestPrepareWarnsOnNotOverCallerLeaves` |
 | The setting's default and range | `TestLoadACLMaxDocumentBytes` |
 | Explainer `policy`, `trace`, `invalid` | `TestExplainPolicyTraceAndInvalid`, `TestS30Format2DenyTraceHasAFalseStep` |

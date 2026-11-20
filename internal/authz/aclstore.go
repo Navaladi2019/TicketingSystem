@@ -189,6 +189,9 @@ func (a ACL) CanRead(ctx context.Context, tx pgx.Tx, p identity.Principal, entit
 	if err != nil {
 		return err
 	}
+	if pol, err = ExpandUnder(ctx, tx, pol, p); err != nil {
+		return err
+	}
 	if _, _, ok := Allows(pol, p, OpRead, r); !ok {
 		return ErrNotVisible
 	}
@@ -205,6 +208,9 @@ func (a ACL) CanWrite(ctx context.Context, tx pgx.Tx, p identity.Principal, enti
 		return ErrForbidden
 	}
 	if err != nil {
+		return err
+	}
+	if pol, err = ExpandUnder(ctx, tx, pol, p); err != nil {
 		return err
 	}
 	if before != nil {

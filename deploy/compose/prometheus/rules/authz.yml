@@ -25,3 +25,19 @@ groups:
             drift between them: read the policy and its pointer in the
             explainer's invalid list, republish a valid document, and file a
             bug on the check that let it through.
+      # authz_under_set_too_large_total{entity_type} (ADR-010 D7, TICK-950):
+      # an under leaf's org-unit set S held more than 10,000 units, so the
+      # request got 500 access_scope_too_large. Every count is a refused
+      # request; groupsync_org_subtree_max shows an outgrown tree first.
+      - alert: AuthzUnderSetTooLarge
+        expr: sum by (entity_type) (increase(authz_under_set_too_large_total[10m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Access checks on {{ $labels.entity_type }} are refused because an under rule's org-unit set exceeds 10,000 units (ADR-010 D7).
+          description: >-
+            Users matched by this entity type's under rule get 500
+            access_scope_too_large on every read and write it decides. Narrow
+            the rule to smaller org units, or reduce the org tree, then
+            republish; the nava-core log line "authz: under set too large"
+            names the entity type and ACL version.

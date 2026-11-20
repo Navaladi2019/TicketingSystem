@@ -403,6 +403,12 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 			h.reg.WriteError(w, r, h.log, pe.code, pe.err)
 			return
 		}
+		// An under leaf's set S above authz.MaxUnderSet (ADR-010 D7): its own
+		// 500, counted in authz_under_set_too_large_total, whatever the route.
+		if _, ok := errors.AsType[*authz.UnderSetTooLargeError](err); ok {
+			h.reg.WriteError(w, r, h.log, problem.AccessScopeTooLarge, err)
+			return
+		}
 		a.StrictResponseError(w, r, err)
 	}
 }

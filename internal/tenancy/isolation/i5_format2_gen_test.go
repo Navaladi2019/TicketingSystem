@@ -60,6 +60,48 @@ type i5F2Case struct {
 	Policy     *authz.Policy
 	Prev       []authz.Condition
 	Principals []identity.Principal
+	// World is the world the case was drawn in; bound reads its org tree.
+	World *i5World `json:"-"`
+}
+
+// bound is the case's policy with set S bound for p (authz.BindUnder) from
+// the world's org tree as the reference computes it (i5Subtree), for every
+// root the document or its previous conditions list. The planner and both
+// renderings are under test here; the database half checks separately that
+// authz.ExpandUnder's query computes the same S (i5F2ExpandMatches). A case
+// with no world (the fixed cases) is returned as it is.
+func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
+	if c.Policy == nil || c.World == nil {
+		return c.Policy
+	}
+	return i5Bind(c.Policy, p, c.Prev)
+}
+
+// i5Bind binds pol for p from the reference's S: the caller's set and the
+// subtree of every root listed in pol's document or in prev.
+func i5Bind(pol *authz.Policy, p identity.Principal, prev []authz.Condition) *authz.Policy {
+	units := map[uuid.UUID][]uuid.UUID{}
+	for _, root := range i5UnderRoots(pol.Document, prev) {
+		units[root] = i5Subtree(p.TenantID, root)
+	}
+	return authz.BindUnder(pol, p, i5CallerSet(p), units)
+}
+
+// i5UnderRoots is every unit an under leaf of d (or of prev) lists.
+func i5UnderRoots(d authz.Document, prev []authz.Condition) []uuid.UUID {
+	var out []uuid.UUID
+	visit := func(n authz.Node, _ string) {
+		if n.Under != nil {
+			out = append(out, n.Under.Units...)
+		}
+	}
+	for _, c := range append(slices.Clone(d.Conditions), prev...) {
+		i5Walk(c.Expr, visit)
+	}
+	for _, np := range d.Policies {
+		i5Walk(np.When, visit)
+	}
+	return out
 }
 
 // i5False is a leaf that is valid and false for every caller and row: an in
@@ -79,6 +121,7 @@ func i5F2Generate(seed uint64) (*i5World, []i5F2Case) {
 	cases := make([]i5F2Case, i5F2Docs)
 	for i := range cases {
 		cases[i].Policy, cases[i].Prev = w.f2Policy(r)
+		cases[i].World = w
 		for range i5Principals {
 			cases[i].Principals = append(cases[i].Principals, w.principal(r))
 		}
@@ -157,7 +200,7 @@ func (w *i5World) f2Leaf(r *rand.Rand, names []string) authz.Node {
 		return authz.Node{MemberOf: w.f2MemberOf(r)}
 	case n < 64:
 		return authz.Node{Shared: true}
-	case n < 92:
+	case n < 88:
 		if len(names) == 0 {
 			c := w.cond(r)
 			return authz.Node{Cmp: &c}
@@ -166,12 +209,29 @@ func (w *i5World) f2Leaf(r *rand.Rand, names []string) authz.Node {
 			return authz.Node{Ref: "missing"}
 		}
 		return authz.Node{Ref: i5Pick(r, names)}
-	case n < 95:
+	case n < 91:
 		return authz.Node{} // no kind: does not decode, voids the policy
 	case n < 97:
-		return authz.Node{Under: &authz.Under{Caller: true}} // not available until S31
+		return authz.Node{Under: w.f2Under(r)}
 	}
 	return authz.Node{All: []authz.Node{}} // an empty all: invalid
+}
+
+// f2Under is the caller's units or one or two of the tenant's units (live,
+// tombstoned, below a tombstoned one), now and then an id that is no unit.
+func (w *i5World) f2Under(r *rand.Rand) *authz.Under {
+	if i5Chance(r, 40) {
+		return &authz.Under{Caller: true}
+	}
+	u := &authz.Under{}
+	for range 1 + r.IntN(2) {
+		id := i5Pick(r, w.Units).ID
+		if i5Chance(r, 10) {
+			id = i5UUID(r)
+		}
+		u.Units = append(u.Units, id)
+	}
+	return u
 }
 
 // f2MemberOf names some of the tenant's groups and principals, a group the
@@ -454,6 +514,24 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 				if n.Ref == "missing" {
 					has["unresolved ref"] = true
 				}
+				if n.Under != nil {
+					if n.Under.Caller {
+						has["under caller"] = true
+					}
+					for _, id := range n.Under.Units {
+						switch i := slices.IndexFunc(w.Units, func(u i5Unit) bool { return u.ID == id }); {
+						case i < 0:
+							has["under a unit that does not exist"] = true
+						case w.Units[i].Dead:
+							has["under a tombstoned unit"] = true
+						case len(i5Subtree(w.Tenant, id)) > 1:
+							has["under a unit with live descendants"] = true
+						}
+					}
+					if parent == authz.NodeNot {
+						has["not over under"] = true
+					}
+				}
 			})
 			for name := range refs {
 				reach[name]++
@@ -493,6 +571,18 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 		has["nil requester"] = has["nil requester"] || rec.Row.RequesterID == nil
 		has["nil assignee"] = has["nil assignee"] || rec.Row.AssigneeID == nil
 		has["nil group"] = has["nil group"] || rec.Row.AssignmentGroupID == nil
+		has["nil org unit"] = has["nil org unit"] || rec.Row.OrgUnitID == nil
+		if rec.Row.OrgUnitID != nil {
+			for _, u := range w.Units {
+				if u.ID == *rec.Row.OrgUnitID && u.Dead {
+					has["record in a tombstoned unit"] = true
+				}
+			}
+			// Unit 4 of i5TreeShape is live, below tombstoned unit 3.
+			if *rec.Row.OrgUnitID == w.Units[4].ID {
+				has["record in a live unit below a tombstoned one"] = true
+			}
+		}
 	}
 	return has
 }
@@ -544,7 +634,9 @@ func TestI5Format2GeneratorCoversTheRiskyShapes(t *testing.T) {
 		"policy tree of depth 4", "node with no kind", "kind under", "empty all", "empty any",
 		"not over a uuid cmp (NULL column)", "not over member_of", "malformed cmp", "member_of naming nobody",
 		"unresolved ref", "voided policy", "ref shared between policies", "duplicate condition name",
-		"self-referencing condition (cycle)", "previous conditions differ", "nil requester", "nil assignee", "nil group"} {
+		"self-referencing condition (cycle)", "previous conditions differ", "nil requester", "nil assignee", "nil group",
+		"under caller", "under a tombstoned unit", "under a unit with live descendants", "under a unit that does not exist",
+		"not over under", "nil org unit", "record in a tombstoned unit", "record in a live unit below a tombstoned one"} {
 		if !has[want] {
 			t.Errorf("the default seed's format-2 run has no %s", want)
 		}
@@ -571,7 +663,7 @@ func i5F2Agree(w *i5World, cases []i5F2Case, n int) (proper, total int, err erro
 				if p.PrincipalID == uuid.Nil {
 					row.SharedWith = rec.groupShares(p)
 				}
-				_, _, got := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, got := authz.Allows(c.bound(p), p, authz.OpRead, row)
 				if want := i5Reference(c.Policy, p, authz.OpRead, row); got != want {
 					j, _ := json.Marshal(c.Policy)
 					return proper, total, fmt.Errorf("doc #%d principal #%d record %s: Allows %v, reference %v; principal %+v; row %+v; policy %s",
@@ -641,7 +733,9 @@ func TestI5Format2AllowsMatchesTheReference(t *testing.T) {
 func TestI5Format2CapCasesPlanAsTheCapsSay(t *testing.T) {
 	i5Quiet(t)
 	w, cases := i5F2Generate(i5DefaultSeed)
-	principals := cases[0].Principals[:8]
+	// Eight drawn callers and one in no group with no id, so a valid policy
+	// cannot grant every row through member_of whatever the seed draws.
+	principals := append(slices.Clone(cases[0].Principals[:8]), identity.Principal{TenantID: w.Tenant})
 	for _, cc := range w.i5CapCases() {
 		for _, np := range cc.Policy.Document.Policies {
 			want, listed := cc.Valid[np.Name]
@@ -769,12 +863,15 @@ func TestI5ReferenceKnowsD5(t *testing.T) {
 		{"not over member_of folds the other way", doc(notOf(authz.Node{MemberOf: &authz.MemberOf{Groups: []uuid.UUID{g}}})), noID, nilRow, false},
 		{"an empty any is false", doc(notOf(authz.Node{Any: []authz.Node{}})), caller, nilRow, true},
 		{"an empty all voids", doc(notOf(authz.Node{All: []authz.Node{}})), caller, nilRow, false},
-		{"under is not available", doc(notOf(authz.Node{Under: &authz.Under{Caller: true}})), caller, nilRow, false},
+		{"under for a caller with no units is false", doc(notOf(authz.Node{Under: &authz.Under{Caller: true}})), caller, nilRow, true},
+		{"under a unit no world has is false", doc(authz.Node{Under: &authz.Under{Units: []uuid.UUID{g}}}), caller, mine, false},
 	} {
 		if got := i5Reference(tc.pol, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: reference %v, want %v", tc.name, got, tc.want)
 		}
-		if _, _, got := authz.Allows(tc.pol, tc.p, authz.OpRead, tc.row); got != tc.want {
+		// No world: every set S is empty, as the reference reads it.
+		bound := authz.BindUnder(tc.pol, tc.p, nil, map[uuid.UUID][]uuid.UUID{g: nil})
+		if _, _, got := authz.Allows(bound, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: Allows %v, want %v", tc.name, got, tc.want)
 		}
 	}

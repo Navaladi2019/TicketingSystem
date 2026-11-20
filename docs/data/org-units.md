@@ -8,7 +8,7 @@ Schema: `db/migrations/20261120120000_org_unit_members.sql` to
 `scratch/tick-947-org-units/bench.sql`, output in `bench-out.txt` next to it.
 Tests: `internal/db/dbtest/org_units_test.go` (`TestTICK947*`), the T16
 identity tests, the isolation registry and
-`TestS30UnderIsRefusedAtTheRouteAndGrantsNothingWhenStored`.
+`TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree`.
 
 ## Results
 

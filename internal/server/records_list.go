@@ -461,6 +461,10 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		// index-ordered branch per subject (TICK-644); CompileRead is the single
 		// statement when there is nothing to split. One plan for both, so a
 		// voided policy is counted once per request (ADR-010 D5b).
+		// Set S of every under leaf, one query, before rendering (ADR-010 D7).
+		if pol, err = authz.ExpandUnder(ctx, tx, pol, p); err != nil {
+			return err
+		}
 		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{

@@ -118,9 +118,14 @@ type Policy struct {
 	Version            int
 	Document           Document
 	Masks              []Mask
+	// under is set S bound for one principal by ExpandUnder or BindUnder
+	// (under.go); nil until then. A policy as PolicyReader returns it has none.
+	under *underScope
 }
 
 // Row is what a rule can see of one record: its fixed columns and its shares.
+// OrgUnitID is records.org_unit_id (ADR-010 D7, D8), which an under leaf
+// matches; nil (NULL) never matches.
 //
 // SharedWith is pair-matched (A1, AR-S10-01): it holds only the principal ids
 // of the record's shares whose (principal_kind, principal_id) names the
@@ -132,6 +137,7 @@ type Row struct {
 	ID                                         uuid.UUID
 	State                                      string
 	RequesterID, AssigneeID, AssignmentGroupID *uuid.UUID
+	OrgUnitID                                  *uuid.UUID
 	SharedWith                                 []uuid.UUID
 }
 
