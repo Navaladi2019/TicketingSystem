@@ -229,6 +229,17 @@ func TestPrepareFormat1RuleWithNoSubjectIsChildCount(t *testing.T) {
 	}
 }
 
+// TICK-996 (F3): a format-1 rule whose converted tree breaks the child cap is
+// refused by Prepare, so Decode in publishRaw never meets it.
+func TestPrepareFormat1OverTheChildCapIsChildCount(t *testing.T) {
+	t.Parallel()
+	where := strings.TrimSuffix(strings.Repeat(`{"column":"state","op":"in","values":["new"]},`, authz.MaxChildren), ",")
+	_, ps := authz.Prepare([]byte(`{"rules":[{"id":"a","ops":["read"],"who":{"requester":true}},{"id":"b","ops":["read"],"who":{"requester":true},"where":[`+where+`]}]}`), authz.DefaultMaxDocumentBytes)
+	if got := pointersOf(ps); !slices.Equal(got, []string{"/rules/1 child_count"}) {
+		t.Errorf("problems = %q", got)
+	}
+}
+
 func TestPrepareFormat1KeepsItsOwnProblems(t *testing.T) {
 	t.Parallel()
 	_, ps := authz.Prepare([]byte(`{"rules":[{"id":"a","ops":["read"],"who":{"requester":true},"bad":1}]}`), authz.DefaultMaxDocumentBytes)
@@ -340,6 +351,34 @@ func TestPrepareOutputRoundTrips(t *testing.T) {
 		b, _ := json.Marshal(p.Document)
 		if string(a) != string(b) {
 			t.Errorf("%s: stored %s, document %s", f.Name, a, b)
+		}
+	}
+}
+
+// TICK-996 security review (S30 isolation): an over-cap format-1 body that
+// names another tenant's principals and groups is refused before anything is
+// resolved, and the problems carry only the rule's index and code. No ID,
+// column or value from the body (or from the database) reaches a pointer.
+func TestPrepareFormat1OverTheChildCapLeaksNothing(t *testing.T) {
+	t.Parallel()
+	const foreignUser = "7b1e0c4a-0000-4000-8000-00000000b0b0"
+	const foreignGroup = "7b1e0c4a-0000-4000-8000-00000000b1b1"
+	where := strings.TrimSuffix(strings.Repeat(`{"column":"state","op":"in","values":["tenant-b-value"]},`, authz.MaxChildren+1), ",")
+	body := `{"rules":[` +
+		`{"id":"x","ops":["read"],"who":{"users":["` + foreignUser + `"],"groups":["` + foreignGroup + `"]},"where":[` + where + `]},` +
+		`{"id":"y","ops":["read"],"who":{"users":["` + foreignUser + `"]},"where":[` + where + `]}]}`
+	prep, ps := authz.Prepare([]byte(body), authz.DefaultMaxDocumentBytes)
+	if prep != nil {
+		t.Fatalf("Prepare accepted an over-cap body: refs %v", prep.Refs)
+	}
+	if got := pointersOf(ps); !slices.Equal(got, []string{"/rules/0 child_count", "/rules/1 child_count"}) {
+		t.Fatalf("problems = %q", got)
+	}
+	for _, p := range ps {
+		for _, s := range []string{foreignUser, foreignGroup, "state", "tenant-b-value", "where", "policies"} {
+			if strings.Contains(p.Pointer, s) || strings.Contains(p.Rule, s) {
+				t.Errorf("problem %q leaks %q", p.Pointer+" "+p.Rule, s)
+			}
 		}
 	}
 }

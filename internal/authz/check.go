@@ -193,9 +193,9 @@ func prepareFormat1(body []byte, masksRaw json.RawMessage, maxBytes int) (*Prepa
 	if err != nil {
 		return nil, []Problem{{"/rules", RuleType}}
 	}
-	return finish(1, doc, enc, masks, masksRaw, refs, maxBytes, func(ptr string) string {
-		// The caps are reported at the format-1 rule: /policies/3/when is
-		// /rules/3, /policies is /rules.
+	// The caps are reported at the format-1 rule: /policies/3/when is
+	// /rules/3, /policies is /rules.
+	at := func(ptr string) string {
 		if rest, ok := strings.CutPrefix(ptr, "/policies"); ok {
 			idx, _, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/")
 			if idx == "" {
@@ -204,7 +204,20 @@ func prepareFormat1(body []byte, masksRaw json.RawMessage, maxBytes int) (*Prepa
 			return "/rules/" + idx
 		}
 		return "/rules" + ptr
-	})
+	}
+	// The converted tree must pass the format-2 grammar (child cap included),
+	// or Decode of the stored text would fail after Prepare accepted it (F3).
+	if _, err := Decode(enc); err != nil {
+		var de *DecodeError
+		if !errors.As(err, &de) {
+			return nil, []Problem{{"/rules", RuleType}}
+		}
+		for _, p := range de.Problems {
+			ps = append(ps, Problem{at(p.Pointer), p.Rule})
+		}
+		return nil, ps
+	}
+	return finish(1, doc, enc, masks, masksRaw, refs, maxBytes, at)
 }
 
 func prepareFormat2(c *policyCheck, obj map[string]any, rulesRaw, masksRaw json.RawMessage, maxBytes int) (*Prepared, []Problem) {

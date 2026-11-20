@@ -70,7 +70,7 @@ The Technical Lead's hand-off says `under` is refused "through a direct insert a
 ### F3: a converted format-1 rule over the child cap is a 500, not a 422
 
 - **Attack:** tenant A's admin sends `PUT /api/v1/entity-types/job/access` with a format-1 rule that has 16 `where` conditions. `ConvertFormat1` makes it `all[any[subject], 16 cmps]`, 17 children. `prepareFormat1` checks the caps through `finish` but not the per-node child cap, so `Prepare` accepts it; `publishRaw`'s `Decode` then refuses it inside the transaction and the route answers 500 `internal_error`. By the same code path, `PublishIfNone` returns a plain error instead of an `InvalidPolicyError` (read from the code, not tested).
-- **Status:** not an isolation gap. It fails closed: the transaction rolls back, no version and no audit entry are written, and the CHECK would refuse the row anyway.
+- **Status:** fixed by TICK-996 (`prepareFormat1` runs the format-2 grammar over the converted document; 422 `child_count` at `/rules/<i>`). Was: not an isolation gap. It failed closed: the transaction rolls back, no version and no audit entry are written, and the CHECK would refuse the row anyway.
 - **Severity:** Low (a wrong status on admin input, and an ERROR log line per attempt).
 - **Fix:** in `prepareFormat1`, refuse a rule whose converted `all` has more than `MaxChildren` children (`len(where) + 1`), at `/rules/<i>/where` with `child_count`. Better still, run the format-2 grammar check over the converted document, so no other format-1 shape can slip through the same way.
 - **Test:** `TestS30VoidedPolicyGrantsNothingAnywhere` asserts the fail-closed half (not 2xx, nothing written). Tighten it to 422 `child_count` together with the fix.
