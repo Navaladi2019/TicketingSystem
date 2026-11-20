@@ -670,7 +670,7 @@ PREREQ = ("Prerequisites", "Do these once per fresh stack, from a clone of `main
     ("ul", ["Docker Desktop (or Docker Engine with compose v2), with about 8 GB of memory for it.",
             "Go 1.27 (for `make dev-ca`, `make demo-outbox` and the optional harnesses).",
             "Git Bash on Windows, or any POSIX shell. `make`.",
-            "Bruno (desktop app, [usebruno.com](https://www.usebruno.com/downloads)) to click through. For the headless run, Node.js, verified with 22 (`npx` fetches the pinned Bruno CLI, `@usebruno/cli@4.3.0`)."]),
+            "Bruno (desktop app, [usebruno.com](https://www.usebruno.com/downloads)) to click through. For the headless run, Node.js, verified with 22 (on its first run `tools/api-test.sh` installs the pinned Bruno CLI from `tools/bruno/package-lock.json` with `npm ci`)."]),
     ("h3", "1. Clone and configure"),
     ("pre", """git clone https://github.com/Navaladi2019/TicketingSystem.git
 cd TicketingSystem

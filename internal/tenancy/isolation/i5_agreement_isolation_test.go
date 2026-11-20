@@ -43,8 +43,13 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
-// i5Budget is the P3-32 time budget for the agreement row.
-const i5Budget = 60 * time.Second
+// i5Budget bounds one agreement row (P3-32 here, P11-10's format-2 row too):
+// a hang or a many-fold slowdown fails the row, runner variance does not.
+// TICK-1003: it was 60 s, with no plan figure behind it, and the format-2 row
+// took 48.8 s and 66.5 s on two GitHub-hosted attempts of one commit (run
+// 44634136748), so it failed a green change. 120 s is 80 % over the slowest
+// run seen. The row's detail still reports the time it took.
+const i5Budget = 120 * time.Second
 
 // The I5 row names (the report's Path column).
 const (

@@ -11,12 +11,12 @@
 # docs/acceptance/guide/reports/S28.{junit.xml,html,json}; CI uploads them.
 # Order 61: after s11b_workflows (59). It needs no seed: its tenant is its own. Serial: it
 # onboards a tenant, writes Keycloak users and records, and opens the acceptance tunnels
-# (closed again on exit). Needs Node.js (npx).
+# (closed again on exit). Needs Node.js and npm (the locked Bruno CLI, tools/bruno, TICK-1003).
 set -eu
 . "$(dirname "$0")/../case-env.sh"
 GUIDE=docs/acceptance/guide
 
-command -v npx >/dev/null 2>&1 || fail "npx not found: install Node.js (verified with 20 and 22)"
+command -v npm >/dev/null 2>&1 || fail "npm not found: install Node.js (verified with 20 and 22)"
 
 trap 'sh "$GUIDE/tools/tunnels.sh" down >/dev/null 2>&1 || true' EXIT
 sh "$GUIDE/tools/tunnels.sh" up || fail "tools/tunnels.sh up failed"

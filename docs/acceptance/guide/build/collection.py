@@ -18,8 +18,6 @@ import shutil
 A = "00000000-0000-4000-8000-0000000000a1"
 B = "00000000-0000-4000-8000-0000000000b1"
 
-BRUNO_CLI = "4.3.0"
-
 LOAD = "const N = require('./lib/nava')({ test, expect, res, bru });"
 LOAD_PRE = "const N = require('./lib/nava')({ bru });"
 
