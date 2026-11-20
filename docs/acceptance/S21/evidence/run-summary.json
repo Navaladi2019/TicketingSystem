@@ -1,7 +1,7 @@
 {
   "requests": 19,
   "tests": 99,
-  "failed": 0,
+  "failed": 5,
   "results": [
     {
       "request": "S21-1",
@@ -236,7 +236,7 @@
           "status": "pass"
         },
         {
-          "test": "both fields ready after 1317 s and 88 polls",
+          "test": "both fields ready after 1089 s and 73 polls",
           "status": "pass"
         },
         {
@@ -452,63 +452,68 @@
       "status": 200,
       "tests": [
         {
+          "test": "admin filter[priority]=1: p95 426 ms <= 350 ms (p50 278, max 541)",
+          "status": "fail",
+          "error": "expected 426 to be at most 350"
+        },
+        {
+          "test": "admin filter[priority]=3: p95 169 ms <= 150 ms (p50 77, max 229)",
+          "status": "fail",
+          "error": "expected 169 to be at most 150"
+        },
+        {
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 251 ms <= 150 ms (p50 113, max 425)",
+          "status": "fail",
+          "error": "expected 251 to be at most 150"
+        },
+        {
+          "test": "Alice filter[priority]=3: p95 570 ms <= 350 ms (p50 427, max 881)",
+          "status": "fail",
+          "error": "expected 570 to be at most 350"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 336 ms <= 150 ms (p50 201, max 600)",
+          "status": "fail",
+          "error": "expected 336 to be at most 150"
+        },
+        {
           "test": "HTTP 200",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 584 requests",
+          "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 407 requests",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=1: p95 144 ms <= 350 ms (p50 93, max 186)",
+          "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 579 requests",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 582 requests",
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 561 requests",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority]=3: p95 59 ms <= 150 ms (p50 31, max 187)",
+          "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 533 requests",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 586 requests",
+          "test": "Alice filter[priority]=1: p95 299 ms <= 350 ms (p50 196, max 512)",
           "status": "pass"
         },
         {
-          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 69 ms <= 150 ms (p50 48, max 99)",
+          "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 269 requests",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 581 requests",
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 522 requests",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=1: p95 153 ms <= 350 ms (p50 106, max 209)",
+          "test": "admin (none) (no filter (control, reported only)): only 200s, 574 requests",
           "status": "pass"
         },
         {
-          "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 585 requests",
-          "status": "pass"
-        },
-        {
-          "test": "Alice filter[priority]=3: p95 119 ms <= 350 ms (p50 61, max 196)",
-          "status": "pass"
-        },
-        {
-          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 584 requests",
-          "status": "pass"
-        },
-        {
-          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 146 ms <= 150 ms (p50 95, max 240)",
-          "status": "pass"
-        },
-        {
-          "test": "admin (none) (no filter (control, reported only)): only 200s, 585 requests",
-          "status": "pass"
-        },
-        {
-          "test": "Alice (none) (no filter (control, reported only)): only 200s, 564 requests",
+          "test": "Alice (none) (no filter (control, reported only)): only 200s, 570 requests",
           "status": "pass"
         }
       ]

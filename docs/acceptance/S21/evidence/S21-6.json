@@ -20,7 +20,7 @@
       "status": 400,
       "code": "field_not_filterable",
       "detail": "The list filters on a data field that is not flagged x-nava-filterable in this entity type. Nothing was read. See errors for the field.",
-      "instance": "urn:nava:request:4b6a5b6e8038f14fc008db5132be9ca9",
+      "instance": "urn:nava:request:52dc613136fa45d81f41ddaae2697d17",
       "errors": [
         {
           "pointer": "/filter/description",

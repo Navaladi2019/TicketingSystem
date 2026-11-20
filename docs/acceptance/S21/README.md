@@ -2,9 +2,22 @@
 
 Kit task TICK-749 (PLAN-007 P7-09). Story branch `TICK-739/filterable-fields` at `7284e2f2` (every task merged: TICK-741 to TICK-748, the P7-07 fixes TICK-989 to TICK-992, and the ADR-006-A1 budget row, TICK-1001). Design: ADR-006 D1 to D10, D12, D13 as amended by ADR-006-A1, D14. Budget row: `docs/budgets.md`, "Filtering on a flagged data field (S21)".
 
-Verified on 2026-11-20 on a fresh stack (project `nava-s21`, `docker compose down -v`, images built from this branch at `d108afa8`; the commits after it change only the kit), run from 11:05Z to 11:32Z. Evidence: `evidence/` (one JSON file per request, no credentials; `run-summary.json` lists every test).
+**Current result (re-verified after TICK-1023 merged `main` into the story branch): criteria 1, 3, 4 and 5 PASS; criterion 2's p95 FAILS on this host.** Fresh stack built from `24bdd9b4` (this kit merged with the story branch after PR #799), project `nava-s21`, `docker compose down -v`, run 2026-11-20 18:00Z to 18:30Z. `evidence/` is this run. The Bruno folder ran 19 requests and 99 tests: 94 passed, and the 5 that failed are all p95 cells of S21.19. Every row check passed, including criterion 2's range filter. `verify.sql` found both index tables equal to a JSON scan of all 400,006 tenant A incidents (0 missing, 0 surplus, 0 wrong), and tenant B has 0 index rows. The seed took 25 s. The default ACL from `seed.sh` and the kit's mask publish both pass the ACL check that changed with TICK-940.
 
-**Result: PASS, with one condition found (see "Plan-dependent p95").** The Bruno folder ran 19 requests and 99 tests, all passed. `verify.sql` found both fields' index tables equal to a JSON scan of all 400,006 tenant A incidents: 0 missing, 0 surplus, 0 wrong. Tenant B has 0 index rows. An earlier fresh stack built from the same images missed the ≥ 40%-with-ACL p95 by 2×. That run, and why, is under "Plan-dependent p95". Fix task: TICK-1022.
+**p95 across the three fresh stacks so far:** D13 held on 1 of 3. The two that missed both ran next to another stack on the same Docker VM, and the misses are not explained by load alone (single-client numbers below). Fix task: **TICK-1022**. The story should not be accepted on criterion 2 until it is resolved or the budget owner rules on it.
+
+| Cell (limit) | Stack 1, 10:51Z | Stack 2, 11:31Z | Stack 3, 18:29Z (`evidence/`) |
+|---|---|---|---|
+| admin `priority=1`, 0.99% (350) | 330 | 144 | **426** |
+| admin `priority=3`, 48% (150) | 149 | 59 | **169** |
+| admin two-filter range, 0.14% (150) | **201** | 69 | **251** |
+| Alice `priority=1`, 0.99% ACL (350) | 259 | 153 | 299 |
+| Alice `priority=3`, 48% ACL (350) | **578** | 119 | **570** |
+| Alice two-filter range, 0.14% ACL (150) | **240** | 146 | **336** |
+| admin no filter (control) | 103 | 47 | 108 |
+| single-client Alice `priority=3` / `priority=4`, p50 | 217 / 61 | 34 / 39 | 148 / 131 |
+
+Stack 2's run (11:05Z to 11:32Z, images from `d108afa8`, before the merge) passed all 99 tests; its evidence is `evidence/` at commit `462f108c`. Its numbers are in "The p95 cells" below, and stack 1's in "Plan-dependent p95".
 
 ## What you can now do
 
@@ -67,7 +80,7 @@ Tenant B gets 50 incidents, all priority 1, on its unchanged incident type.
 
 Each cell: 8 clients list with the filter for 15 s after 2 s of warm-up. They are paced to 40 requests a second in total, because the per-tenant rate limit is 50 a second and a 429 would fail the cell. Latency is measured at the client, through nava-core and PgBouncer, with the default page of 50. Limits are ADR-006 D13 as amended by ADR-006-A1: 350 ms for the 0.5–2% band, with or without a narrowing ACL, and for the ≥ 40% band with one (Alice); 150 ms for every other filter. **No 2–40% filter is asserted.** Those bands are unmeasured until TICK-1009 (S21b). The 0.25% `in` cells are not rerun here; TICK-1002 does that.
 
-Verified run (`S21-19.json`), 8 clients, about 39 requests/s, only 200s:
+Stack 2's run (before the merge; stack 3's are in the table at the top), 8 clients, about 39 requests/s, only 200s:
 
 | Caller | Filter | Share of the type | Limit | p50 | p95 | Result |
 |---|---|---|---|---|---|---|
@@ -81,6 +94,8 @@ Verified run (`S21-19.json`), 8 clients, about 39 requests/s, only 200s:
 | Alice | no filter (control) | — | reported | 76 | 265 | — |
 
 ### Plan-dependent p95 (found by this kit, not resolved)
+
+Stack 3 (after the TICK-1023 merge) missed again, and its single-client times are high for both values, not just one. That weakens the statistics explanation below: on stacks 2 and 3, `rfv_num` was last autoanalyzed 34 s and 53 s before priority flipped to `ready`, yet one was fast and one slow. TICK-1022 needs the plans, not just the analyze times.
 
 The first fresh stack (10:22Z to 10:52Z, same images, same seed, same expectations: `evidence/stack1-p95-miss/`) passed criteria 1, 3, 4 and 5 and the row checks of 2, but **missed D13 in S21.19 three times out of three**:
 

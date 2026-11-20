@@ -20,7 +20,7 @@
       "status": 400,
       "code": "masked_field",
       "detail": "The query filters, sorts, counts or aggregates on a field the entity type's access policy hides from you. See errors for the field.",
-      "instance": "urn:nava:request:b9e948825b8f7a57c95f7c4b9591c867",
+      "instance": "urn:nava:request:9b47992325bb5e46dc27ec5b1decbae7",
       "errors": [
         {
           "pointer": "/description",

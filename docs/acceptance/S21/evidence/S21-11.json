@@ -22,7 +22,7 @@
             "description": "S21 internal note 57",
             "due_at": "2026-06-21T15:41:00Z",
             "priority": 1,
-            "requester": "a1648770-d01b-49d5-9c5a-e2773eadd2e7",
+            "requester": "01a1fa20-3365-703b-a45f-cb75aca40256",
             "short_description": "S21 seed 57",
             "state": "closed"
           },
@@ -34,7 +34,7 @@
           "version": 1
         }
       ],
-      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIzOjAzOjAwKzAwIiwiaSI6IjM3YzhlYzdlLTg2ZjMtYzBiNS00NjRjLWFjNGYwYjNjMGRhZSJ9.NPxHgotNbPGzK2v80VGLgCXOaxakkpEVFQ4FK1IYSrI",
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTMxIDIzOjAzOjAwKzAwIiwiaSI6IjM3YzhlYzdlLTg2ZjMtYzBiNS00NjRjLWFjNGYwYjNjMGRhZSJ9.FQf4y1zQWxFTlM35-MuprkrFEpfh-T0iWuUestf389s",
       "total": 1000,
       "total_capped": true
     }
@@ -45,7 +45,7 @@
       "status": "pass"
     },
     {
-      "test": "both fields ready after 1317 s and 88 polls",
+      "test": "both fields ready after 1089 s and 73 polls",
       "status": "pass"
     },
     {

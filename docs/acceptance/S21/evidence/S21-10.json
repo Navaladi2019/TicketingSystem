@@ -20,7 +20,7 @@
       "status": 422,
       "code": "field_not_ready",
       "detail": "The field is flagged x-nava-filterable but its existing values are still being indexed. Retry later; index_progress is the whole percentage done.",
-      "instance": "urn:nava:request:a15ffb6c61a8b37ca658e36e5b1fcbb7",
+      "instance": "urn:nava:request:42d4e0e78882ae4e40bf0eabcf3bb0c6",
       "index_progress": 0
     }
   },

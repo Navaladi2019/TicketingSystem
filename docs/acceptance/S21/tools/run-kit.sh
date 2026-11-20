@@ -36,8 +36,10 @@ NAVA_IMAGE_TAG=${NAVA_IMAGE_TAG:-s21}
 export NAVA_IMAGE_TAG
 EV=${S21_EVIDENCE:-docs/acceptance/S21/evidence}
 T=docs/acceptance/S21/tools
-rm -rf "$EV"
 mkdir -p "$EV"
+# A fresh run replaces the top-level evidence; subfolders (earlier runs kept
+# on purpose, such as stack1-p95-miss/) stay.
+find "$EV" -maxdepth 1 -type f -delete
 # The raw Bruno reports hold dev-only tokens: never leave them behind (TICK-627).
 trap 'rm -f "$EV"/.bruno-*.json' EXIT
 FAILED=

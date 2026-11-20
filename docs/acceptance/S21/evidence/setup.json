@@ -8,7 +8,7 @@
     },
     "response": {
       "status": 200,
-      "etag": null,
+      "etag": "W/\"1\"",
       "body": {
         "key": "incident",
         "name": "Incident",
@@ -115,7 +115,8 @@
           ]
         },
         "compat": "initial",
-        "published_at": "2026-11-20T11:05:56.584893Z"
+        "number_format": null,
+        "published_at": "2026-11-20T18:02:58.686876Z"
       }
     }
   },
@@ -125,7 +126,7 @@
       "path": "/api/v1/entity-types/incident/versions",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s21-setup-88784a2d-c8a1-4875-99d8-ef25b01ee7a3"
+        "Idempotency-Key": "s21-setup-7da6f611-2d0c-46da-8edb-180188937055"
       },
       "body": {
         "definition": {
@@ -231,7 +232,7 @@
     },
     "response": {
       "status": 201,
-      "etag": null,
+      "etag": "W/\"2\"",
       "body": {
         "key": "incident",
         "name": "Incident",
@@ -338,7 +339,8 @@
           ]
         },
         "compat": "compatible",
-        "published_at": "2026-11-20T11:06:01.203443Z"
+        "number_format": null,
+        "published_at": "2026-11-20T18:03:01.036821Z"
       }
     }
   },
@@ -355,16 +357,16 @@
       "body": {
         "group_paths": [
           {
-            "id": "826d4f61-53d7-418f-b095-3cf221147aff",
+            "id": "01a1fa20-3369-7196-a6c8-23390d5a1245",
             "path": "/admins"
           }
         ],
         "groups": [
-          "826d4f61-53d7-418f-b095-3cf221147aff"
+          "01a1fa20-3369-7196-a6c8-23390d5a1245"
         ],
         "idp_alias": "",
         "tenant_id": "00000000-0000-4000-8000-0000000000a1",
-        "user_id": "a1648770-d01b-49d5-9c5a-e2773eadd2e7"
+        "user_id": "01a1fa20-3365-703b-a45f-cb75aca40256"
       }
     }
   },
@@ -380,70 +382,118 @@
       "etag": "W/\"1\"",
       "body": {
         "version": 1,
-        "rules": [
-          {
-            "id": "default-admins",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
-              ]
-            }
-          },
-          {
-            "id": "default-service-desk",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
-              ]
-            },
-            "where": [
-              {
-                "column": "assignment_group_id",
-                "op": "in",
-                "caller": "my_groups"
-              }
-            ]
-          },
-          {
-            "id": "default-requester",
-            "ops": [
-              "read"
-            ],
-            "who": {
-              "requester": true
-            }
-          },
-          {
-            "id": "default-requester-new",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "requester": true
-            },
-            "where": [
-              {
-                "column": "state",
-                "op": "eq",
-                "values": [
-                  "new"
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "default_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                          ]
+                        }
+                      }
+                    ]
+                  }
                 ]
               }
-            ]
-          }
-        ],
+            },
+            {
+              "name": "default_service_desk",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "assignment_group_id",
+                      "op": "in",
+                      "caller": "my_groups"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester",
+              "ops": [
+                "read"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester_new",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "state",
+                      "op": "eq",
+                      "values": [
+                        "new"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
         "masks": [],
         "published_by": null,
-        "published_at": "2026-11-20T11:05:58.077814Z"
+        "published_at": "2026-11-20T18:02:59.470442Z"
       }
     }
   },
@@ -454,81 +504,129 @@
       "headers": {
         "If-Match": "W/\"1\"",
         "Content-Type": "application/json",
-        "Idempotency-Key": "s21-setup-3d9ada3b-7b4f-4edc-b0b2-74f59ae192a2"
+        "Idempotency-Key": "s21-setup-0df815e1-ad51-47d2-a089-38071b432c00"
       },
       "body": {
-        "rules": [
-          {
-            "id": "default-admins",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
-              ]
-            }
-          },
-          {
-            "id": "default-service-desk",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
-              ]
-            },
-            "where": [
-              {
-                "column": "assignment_group_id",
-                "op": "in",
-                "caller": "my_groups"
-              }
-            ]
-          },
-          {
-            "id": "default-requester",
-            "ops": [
-              "read"
-            ],
-            "who": {
-              "requester": true
-            }
-          },
-          {
-            "id": "default-requester-new",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "requester": true
-            },
-            "where": [
-              {
-                "column": "state",
-                "op": "eq",
-                "values": [
-                  "new"
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "default_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                          ]
+                        }
+                      }
+                    ]
+                  }
                 ]
               }
-            ]
-          }
-        ],
+            },
+            {
+              "name": "default_service_desk",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "assignment_group_id",
+                      "op": "in",
+                      "caller": "my_groups"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester",
+              "ops": [
+                "read"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester_new",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "state",
+                      "op": "eq",
+                      "values": [
+                        "new"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
         "masks": [
           {
             "field": "description",
             "read": {
               "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
+                "01a1fa20-3369-7196-a6c8-23390d5a1245"
               ]
             },
             "write": {
               "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
+                "01a1fa20-3369-7196-a6c8-23390d5a1245"
               ]
             }
           }
@@ -540,84 +638,132 @@
       "etag": "W/\"2\"",
       "body": {
         "version": 2,
-        "rules": [
-          {
-            "id": "default-admins",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
-              ]
-            }
-          },
-          {
-            "id": "default-service-desk",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "groups": [
-                "610e160d-b93b-4af4-b98e-cb1cf8c4f81d"
-              ]
-            },
-            "where": [
-              {
-                "column": "assignment_group_id",
-                "op": "in",
-                "caller": "my_groups"
-              }
-            ]
-          },
-          {
-            "id": "default-requester",
-            "ops": [
-              "read"
-            ],
-            "who": {
-              "requester": true
-            }
-          },
-          {
-            "id": "default-requester-new",
-            "ops": [
-              "read",
-              "write"
-            ],
-            "who": {
-              "requester": true
-            },
-            "where": [
-              {
-                "column": "state",
-                "op": "eq",
-                "values": [
-                  "new"
+        "rules": {
+          "format": 2,
+          "conditions": [],
+          "policies": [
+            {
+              "name": "default_admins",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-7196-a6c8-23390d5a1245"
+                          ]
+                        }
+                      }
+                    ]
+                  }
                 ]
               }
-            ]
-          }
-        ],
+            },
+            {
+              "name": "default_service_desk",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "member_of": {
+                          "groups": [
+                            "01a1fa20-3369-71b7-b27f-9b2a7f388b7a"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "assignment_group_id",
+                      "op": "in",
+                      "caller": "my_groups"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester",
+              "ops": [
+                "read"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "default_requester_new",
+              "ops": [
+                "read",
+                "write"
+              ],
+              "when": {
+                "all": [
+                  {
+                    "any": [
+                      {
+                        "cmp": {
+                          "column": "requester_id",
+                          "op": "eq",
+                          "caller": "self"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "cmp": {
+                      "column": "state",
+                      "op": "eq",
+                      "values": [
+                        "new"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
         "masks": [
           {
             "field": "description",
             "read": {
               "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
+                "01a1fa20-3369-7196-a6c8-23390d5a1245"
               ]
             },
             "write": {
               "groups": [
-                "826d4f61-53d7-418f-b095-3cf221147aff"
+                "01a1fa20-3369-7196-a6c8-23390d5a1245"
               ]
             }
           }
         ],
-        "published_by": "a1648770-d01b-49d5-9c5a-e2773eadd2e7",
-        "published_at": "2026-11-20T11:06:01.332539Z"
+        "published_by": "01a1fa20-3365-703b-a45f-cb75aca40256",
+        "published_at": "2026-11-20T18:03:01.09265Z"
       }
     }
   }

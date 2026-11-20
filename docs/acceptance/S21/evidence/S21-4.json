@@ -120,7 +120,8 @@
         ]
       },
       "compat": "compatible",
-      "published_at": "2026-11-20T11:06:01.203443Z"
+      "number_format": null,
+      "published_at": "2026-11-20T18:03:01.036821Z"
     }
   },
   "tests": [
