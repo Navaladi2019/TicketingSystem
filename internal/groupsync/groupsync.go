@@ -235,6 +235,12 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		digest = d
 		if changes.Unchanged {
 			res.Unchanged = true
+			// Nothing to apply, but the tenant's tree size is still reported.
+			n, err := storedOrgSubtreeMax(ctx, tx, tenantID, s.opts.MaxOrgUnitDepth)
+			if err != nil {
+				return err
+			}
+			subtreeMax = n
 			return nil
 		}
 		st, err := apply(ctx, tx, tenantID, changes, s.opts.Now(), s.opts.MaxOrgUnitDepth)

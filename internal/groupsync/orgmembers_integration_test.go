@@ -254,4 +254,11 @@ func TestOrgSubtreeMaxReported(t *testing.T) {
 	if got := last(); got != 2 {
 		t.Errorf("subtree max with u1 in a = %d, want 2 (a, a1)", got)
 	}
+	// A quiet directory still reports: the unchanged cycle reads the tables.
+	if r := once(t, s); r.Err != nil || !r.Unchanged {
+		t.Fatalf("second cycle = %+v, want unchanged", r)
+	}
+	if got := last(); got != 2 {
+		t.Errorf("subtree max on an unchanged cycle = %d, want 2", got)
+	}
 }

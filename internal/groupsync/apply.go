@@ -562,10 +562,9 @@ type orgMemberPlan struct {
 // cleared before the new one is set); after holds the inserts and the sets.
 // A member with no principal in the snapshot is skipped, as in applyGroups.
 func planOrgMembers(ctx context.Context, tx pgx.Tx, tid string, units []identity.DirectoryGroup, idOf map[string]uuid.UUID, users []identity.DirectoryUser, userIDs map[string]uuid.UUID) (orgMemberPlan, error) {
-	plan := orgMemberPlan{before: &pgx.Batch{}, after: &pgx.Batch{}, unitsOf: map[string][]string{}}
 	rows, err := tx.Query(ctx, `SELECT org_unit_id, principal_id, is_primary FROM org_unit_members WHERE tenant_id = $1::uuid`, tid)
 	if err != nil {
-		return plan, fmt.Errorf("read org unit members: %w", err)
+		return orgMemberPlan{}, fmt.Errorf("read org unit members: %w", err)
 	}
 	have := map[pair]bool{} // value: is_primary
 	for rows.Next() {
@@ -573,15 +572,21 @@ func planOrgMembers(ctx context.Context, tx pgx.Tx, tid string, units []identity
 		var primary bool
 		if err := rows.Scan(&p.group, &p.principal, &primary); err != nil {
 			rows.Close()
-			return plan, fmt.Errorf("read org unit members: %w", err)
+			return orgMemberPlan{}, fmt.Errorf("read org unit members: %w", err)
 		}
 		have[p] = primary
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return plan, fmt.Errorf("read org unit members: %w", err)
+		return orgMemberPlan{}, fmt.Errorf("read org unit members: %w", err)
 	}
+	return buildOrgMemberPlan(tid, have, units, idOf, users, userIDs), nil
+}
 
+// buildOrgMemberPlan is planOrgMembers without the read: have is the stored
+// (unit, principal) -> is_primary.
+func buildOrgMemberPlan(tid string, have map[pair]bool, units []identity.DirectoryGroup, idOf map[string]uuid.UUID, users []identity.DirectoryUser, userIDs map[string]uuid.UUID) orgMemberPlan {
+	plan := orgMemberPlan{before: &pgx.Batch{}, after: &pgx.Batch{}, unitsOf: map[string][]string{}}
 	// Want: each user's units, then the primary among them (D-11-6): the
 	// attribute's unit if the user belongs to it, else the only unit, else none.
 	pathOf := make(map[string]string, len(units))
@@ -644,35 +649,86 @@ func planOrgMembers(ctx context.Context, tx pgx.Tx, tid string, units []identity
 			plan.written++
 		}
 	}
-	return plan, nil
+	return plan
 }
 
 // orgSubtreeMax is the largest live-unit count under (and including) any unit
-// some user belongs to. The walk up from each unit stops at maxDepth, so a
-// cycle in the snapshot cannot loop here; CheckOrgUnitChains refuses it.
+// some user belongs to, for a snapshot's units and its per-user unit lists.
 func orgSubtreeMax(units []identity.DirectoryGroup, unitsOf map[string][]string, maxDepth int) int {
-	if maxDepth <= 0 {
-		maxDepth = DefaultMaxOrgUnitDepth
-	}
 	parent := make(map[string]string, len(units))
 	for _, u := range units {
 		parent[u.KeycloakGroupID] = u.ParentKeycloakGroupID
 	}
-	size := make(map[string]int, len(units))
-	for _, u := range units {
-		k := u.KeycloakGroupID
+	var withMembers []string
+	for _, ks := range unitsOf {
+		withMembers = append(withMembers, ks...)
+	}
+	return subtreeMax(parent, withMembers, maxDepth)
+}
+
+// subtreeMax is the largest number of units under (and including) any of
+// withMembers, where parent maps every live unit to its parent ("" for a
+// root). The walk up from each unit stops at maxDepth, so a cycle cannot loop
+// here; CheckOrgUnitChains refuses it.
+func subtreeMax(parent map[string]string, withMembers []string, maxDepth int) int {
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxOrgUnitDepth
+	}
+	size := make(map[string]int, len(parent))
+	for k0 := range parent {
+		k := k0
 		for i := 0; i <= maxDepth && k != ""; i++ {
 			size[k]++
 			k = parent[k]
 		}
 	}
 	best := 0
-	for _, ks := range unitsOf {
-		for _, k := range ks {
-			best = max(best, size[k])
-		}
+	for _, k := range withMembers {
+		best = max(best, size[k])
 	}
 	return best
+}
+
+// storedOrgSubtreeMax is orgSubtreeMax read from the tables, for a cycle whose
+// snapshot is unchanged: a tenant near the cap must show even when its
+// directory is quiet. It reads live units and the units that have members.
+func storedOrgSubtreeMax(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, maxDepth int) (int, error) {
+	tid := tenantID.String()
+	rows, err := tx.Query(ctx, `SELECT id::text, coalesce(parent_id::text, '') FROM org_units WHERE tenant_id = $1::uuid AND deleted_at IS NULL`, tid)
+	if err != nil {
+		return 0, fmt.Errorf("read org units: %w", err)
+	}
+	parent := map[string]string{}
+	for rows.Next() {
+		var id, p string
+		if err := rows.Scan(&id, &p); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("read org units: %w", err)
+		}
+		parent[id] = p
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("read org units: %w", err)
+	}
+	mrows, err := tx.Query(ctx, `SELECT DISTINCT org_unit_id::text FROM org_unit_members WHERE tenant_id = $1::uuid`, tid)
+	if err != nil {
+		return 0, fmt.Errorf("read org unit members: %w", err)
+	}
+	var withMembers []string
+	for mrows.Next() {
+		var id string
+		if err := mrows.Scan(&id); err != nil {
+			mrows.Close()
+			return 0, fmt.Errorf("read org unit members: %w", err)
+		}
+		withMembers = append(withMembers, id)
+	}
+	mrows.Close()
+	if err := mrows.Err(); err != nil {
+		return 0, fmt.Errorf("read org unit members: %w", err)
+	}
+	return subtreeMax(parent, withMembers, maxDepth), nil
 }
 
 func uuidPtrEq(a, b *uuid.UUID) bool {
