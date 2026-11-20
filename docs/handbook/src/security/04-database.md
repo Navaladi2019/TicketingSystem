@@ -83,6 +83,21 @@ sequenceDiagram
     P-->>R: 42501 (not the owner)
 ```
 
+### Field-index tables (S21, story branch)
+
+On the `TICK-739/filterable-fields` branch, not yet on `main`, the five
+field-index tables (`record_index_fields` and the four `rfv_*` side tables)
+follow the same rules: `ENABLE` and `FORCE` RLS, one policy per command and
+role using the canonical tenant predicate, no UPDATE grant on any side table,
+and column-level UPDATE on the registry only for `state`, `progress`,
+`requested_version` and `updated_at` (ADR-006 D14). The records trigger that
+writes them is `SECURITY INVOKER`, so it runs under the writer's RLS. The FKs
+to `records` and the registry are what stop a tenant A row from naming tenant
+B's field id: RLS `WITH CHECK` sees only `tenant_id`. `TestP701Grants` pins the
+grants; S21 attack rows 3, 3b and 4 attack them. See [Field
+index](../database/field-index.md) and the [S21 attack
+paths](../stories/s21.md#attack-paths).
+
 ## Proving tests
 
 | Claim | Test |

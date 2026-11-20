@@ -93,6 +93,8 @@
       label: "Workflow interpreter"
     - page: workflows/audit-seal.md
       label: "Audit sealer"
+    - page: workflows/field-index-backfill.md
+      label: "Field-index backfill"
     - page: security/index.md
       label: "Security and tenant isolation"
       children:
@@ -158,6 +160,8 @@
             label: "Outbox"
           - page: database/workflow-state.md
             label: "Workflow state"
+          - page: database/field-index.md
+            label: "Field index (filterable fields)"
     - page: adr/index.md
       label: "Decisions (ADRs)"
       children:
@@ -259,6 +263,8 @@
             label: "Export and prove the audit log"
           - page: stories/s17.md
             label: "Record numbers during counter moves"
+          - page: stories/s21.md
+            label: "Filter on flagged fields (in progress)"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
           - page: stories/s25.md

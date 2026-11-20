@@ -40,6 +40,16 @@ Three layers, lowest first:
    continue-as-new and memo calls, and withhold any result, failure or payload
    that carries record data before it reaches history (CI-7).
 
+On the S21 story branch (`TICK-739/filterable-fields`, not yet on `main`) the
+allow-list also holds `field_index.coordinator` and `field_index.backfill.run`
+(ADR-006 D10, TICK-745). `field_index.backfill.run` is the one entry of
+`childOnlyWorkflowTypes`: a relay `StartWorkflowExecution` or
+`SignalWithStartWorkflowExecution` of it is denied with
+`workflow_type_not_allowed`, so only the tenant's coordinator starts a backfill
+(`temporal-server/authz/workload_field_index_test.go`). The relay binds the
+backfill's tenant from the outbox row, never from its payload (S21 attack row
+3b). See [Field-index backfill](../workflows/field-index-backfill.md).
+
 The workflow id is built from the tenant of the JWT on the platform side, never
 from a client value (R-CORE); that rule is enforced in `nava-core` code and
 tests, not by the Authorizer (AR-004).
