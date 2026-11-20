@@ -121,6 +121,7 @@ roles:
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at, numbering_mode] }
       entity_definition_versions: { SELECT: [], INSERT: [] }
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
+      # ADR-010-A1 A1-3 (TICK-940): the one role that publishes an ACL.
       acl_versions: { SELECT: [], INSERT: [] }
       record_shares: { SELECT: [], INSERT: [] }
       # Number formats (P6-06, TICK-671, ADR-005 §3.7 C9): key is set once,
@@ -136,13 +137,26 @@ roles:
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
-    # inserting role.
+    # inserting role. TICK-940: the format-2 rules CHECK calls the acl2_*
+    # ones, and the tenant-id trigger (as the inserting role) acl2_id_pointers.
     functions:
       "public.acl_uuids_valid(jsonb)": [EXECUTE]
       "public.acl_subject_valid(jsonb)": [EXECUTE]
       "public.acl_cond_valid(jsonb)": [EXECUTE]
       "public.acl_rules_valid(jsonb)": [EXECUTE]
       "public.acl_masks_valid(jsonb)": [EXECUTE]
+      "public.acl2_bad(text,text)": [EXECUTE]
+      "public.acl2_seg(text)": [EXECUTE]
+      "public.acl2_unknown_key(jsonb,text,text[])": [EXECUTE]
+      "public.acl2_name_ok(text)": [EXECUTE]
+      "public.acl2_ids_problem(jsonb,text)": [EXECUTE]
+      "public.acl2_member_of_problem(jsonb,text)": [EXECUTE]
+      "public.acl2_cond_problem(jsonb,text)": [EXECUTE]
+      "public.acl2_under_problem(jsonb,text)": [EXECUTE]
+      "public.acl2_expr(jsonb,text)": [EXECUTE]
+      "public.acl2_problem(jsonb)": [EXECUTE]
+      "public.acl2_rules_valid(jsonb)": [EXECUTE]
+      "public.acl2_id_pointers(jsonb)": [EXECUTE]
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
   # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
@@ -221,7 +235,10 @@ roles:
       number_formats: { SELECT: [] }
       number_format_versions: { SELECT: [] }
       numbering_epochs: { SELECT: [] }
-      acl_versions: { SELECT: [], INSERT: [] }
+      # ADR-010-A1 A1-3 (TICK-940): reads only. No worker code publishes an
+      # ACL, and the tenant-id trigger could not see principals as this
+      # role; a worker publish path needs its own amendment (A1-3 e).
+      acl_versions: { SELECT: [] }
       record_shares: { SELECT: [], INSERT: [] }
       # P3-40 (TICK-709): DefinitionStore.Load and the sink's trigger lookup
       # read the definitions; workflow_cause as nava_app.
@@ -232,14 +249,7 @@ roles:
       # assignment group for its tombstone; groups_select's tenant predicate
       # reads tenant_id. Never path or keycloak_group_id.
       groups: { SELECT: [tenant_id, id, deleted_at] }
-    # TICK-629: acl_versions' rules and masks CHECKs call these, as the
-    # inserting role.
-    functions:
-      "public.acl_uuids_valid(jsonb)": [EXECUTE]
-      "public.acl_subject_valid(jsonb)": [EXECUTE]
-      "public.acl_cond_valid(jsonb)": [EXECUTE]
-      "public.acl_rules_valid(jsonb)": [EXECUTE]
-      "public.acl_masks_valid(jsonb)": [EXECUTE]
+    # No acl% function (ADR-010-A1 A1-3 c): it no longer inserts acl_versions.
 
   # Every column of outbox but dedupe_key and last_error; writes only the
   # dispatch columns. Nothing on workflow_ref or records.

@@ -210,6 +210,9 @@ components:
         rule:
           type: string
           description: The schema keyword that failed, such as `format` or `pattern`.
+        detail:
+          type: string
+          description: Present on a `document_too_large` error only. States the limit in bytes.
   responses:
     Problem:
       description: An RFC 9457 problem.

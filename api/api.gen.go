@@ -19,6 +19,39 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessDocumentFormat.
+const (
+	N2 AccessDocumentFormat = 2
+)
+
+// Valid indicates whether the value is a known member of the AccessDocumentFormat enum.
+func (e AccessDocumentFormat) Valid() bool {
+	switch e {
+	case N2:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessDocumentPoliciesOps.
+const (
+	Read  AccessDocumentPoliciesOps = "read"
+	Write AccessDocumentPoliciesOps = "write"
+)
+
+// Valid indicates whether the value is a known member of the AccessDocumentPoliciesOps enum.
+func (e AccessDocumentPoliciesOps) Valid() bool {
+	switch e {
+	case Read:
+		return true
+	case Write:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessExplanationDecision.
 const (
 	Allow AccessExplanationDecision = "allow"
@@ -307,12 +340,43 @@ func (e ExportAuditEntriesParamsFormat) Valid() bool {
 	}
 }
 
+// AccessDocument The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`.
+type AccessDocument struct {
+	Conditions []struct {
+		Expr map[string]interface{} `json:"expr"`
+		Name string                 `json:"name"`
+	} `json:"conditions"`
+	Format   AccessDocumentFormat `json:"format"`
+	Policies []struct {
+		Name string                      `json:"name"`
+		Ops  []AccessDocumentPoliciesOps `json:"ops"`
+		When map[string]interface{}      `json:"when"`
+	} `json:"policies"`
+}
+
+// AccessDocumentFormat defines model for AccessDocument.Format.
+type AccessDocumentFormat int
+
+// AccessDocumentPoliciesOps defines model for AccessDocument.Policies.Ops.
+type AccessDocumentPoliciesOps string
+
 // AccessExplanation defines model for AccessExplanation.
 type AccessExplanation struct {
-	AclVersion   int                       `json:"acl_version"`
-	Decision     AccessExplanationDecision `json:"decision"`
-	MaskedFields []string                  `json:"masked_fields"`
-	RuleId       *string                   `json:"rule_id"`
+	AclVersion int                       `json:"acl_version"`
+	Decision   AccessExplanationDecision `json:"decision"`
+	Invalid    *[]struct {
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+		Policy  string `json:"policy"`
+	} `json:"invalid,omitempty"`
+	MaskedFields []string `json:"masked_fields"`
+	Policy       *string  `json:"policy,omitempty"`
+	RuleId       *string  `json:"rule_id"`
+	Trace        *[]struct {
+		Condition string `json:"condition"`
+		Policy    string `json:"policy"`
+		Value     bool   `json:"value"`
+	} `json:"trace,omitempty"`
 }
 
 // AccessExplanationDecision defines model for AccessExplanation.Decision.
@@ -323,8 +387,17 @@ type AccessPolicy struct {
 	Masks       []map[string]interface{} `json:"masks"`
 	PublishedAt time.Time                `json:"published_at"`
 	PublishedBy *openapi_types.UUID      `json:"published_by,omitempty"`
-	Rules       []map[string]interface{} `json:"rules"`
-	Version     int                      `json:"version"`
+
+	// Rules The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`.
+	Rules   AccessDocument `json:"rules"`
+	Version int            `json:"version"`
+
+	// Warnings Lints of the publish, on the PUT response only. A warning does not refuse the document.
+	Warnings *[]struct {
+		// Code For example `not_over_caller_leaf`.
+		Code    string `json:"code"`
+		Pointer string `json:"pointer"`
+	} `json:"warnings,omitempty"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -458,6 +531,9 @@ type EntityTypeVersionNumberingMode string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
+	// Detail Present on a `document_too_large` error only. States the limit in bytes.
+	Detail *string `json:"detail,omitempty"`
+
 	// Pointer JSON Pointer to the failing field.
 	Pointer string `json:"pointer"`
 

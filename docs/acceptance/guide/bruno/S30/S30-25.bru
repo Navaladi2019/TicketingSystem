@@ -1,0 +1,22 @@
+meta {
+  name: S30.25 AC5 after: Alice opens the admins incident
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s30_adm}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  const was = JSON.parse(bru.getVar('s30_f1_a_adm'));
+  test('the same status as before the upgrade (' + was.status + ')', () => expect(res.getStatus()).to.eql(was.status));
+  if (was.status === 404) test('the same 404 bytes as before', () => expect(N.text()).to.eql(was.body));
+}

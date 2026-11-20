@@ -48,9 +48,10 @@
 -- as "matches nothing": a policy that says them is a mistake, so it is
 -- refused here rather than silently denying.
 --
--- nava_app and nava_worker insert acl_versions, and a CHECK runs its
--- functions as the inserting role, so both get EXECUTE on all five
--- (db/grants.yaml). PUBLIC has none (00001's default privileges).
+-- A CHECK runs its functions as the inserting role, so the roles that
+-- insert acl_versions get EXECUTE on all five (db/grants.yaml). Since
+-- ADR-010-A1 A1-3 (TICK-940) that is nava_app alone; nava_worker inserted
+-- too until then. PUBLIC has none (00001's default privileges).
 --
 -- Added NOT VALID here, under a short ACCESS EXCLUSIVE lock (catalogue only,
 -- no scan), and validated by the next migration under SHARE UPDATE

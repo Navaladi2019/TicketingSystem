@@ -75,7 +75,7 @@ supersedes: none
 
 | Operation | Scenarios |
 |---|---|
-| `PUT /api/v1/entity-types/{key}/access` | Valid format 2 gives 200, a new version and one audit entry. Valid format 1 gives 200 and is stored as format 2. Each D4 violation, an unknown node kind and a duplicate name give 422 with a pointer and write nothing. A stale expected version gives 409 with the current version and writes nothing. Two PUTs with the same expected version write once. Another tenant's key gets the unknown-key response and writes nothing. |
+| `PUT /api/v1/entity-types/{key}/access` | Valid format 2 gives 200, a new version and one audit entry. Valid format 1 gives 200 and is stored as format 2. Each D4 violation, an unknown node kind and a duplicate name give 422 with a pointer and write nothing. A stale expected version gives 409 with the current version and writes nothing. Two PUTs with the same expected version write once. *(Corrected by [ADR-010-E2](ADR-010-E2-access-put-stale-version-412.md): the status is `412 version_conflict` with the current `ETag`; the second PUT gets 412, or the replayed 200 when it reuses the first one's `Idempotency-Key` and body (or `409 idempotency_in_flight` while the first is still running).)* Another tenant's key gets the unknown-key response and writes nothing. |
 | `GET /api/v1/entity-types/{key}/access` | 200 with format 2 for a stored format-1 or format-2 version. Another tenant's key gets the unknown-key response. |
 | Explainer | Admin gets 200 with `Policy` and `Trace`. A non-admin is refused. An admin of another tenant gets the missing-record response. |
 

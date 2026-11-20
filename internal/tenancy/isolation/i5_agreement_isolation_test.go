@@ -73,13 +73,16 @@ func TestI5Agreement(t *testing.T) {
 	if m := os.Getenv(i5MutantEnv); m != "" {
 		mc, ok := i5Mutants()[m]
 		_, isFilter := i5FilterMutants()[m]
+		_, isFormat2 := i5F2Mutants()[m]
 		switch {
 		case ok:
 			compile, compiler = mc, "mutant "+m
 		case isFilter:
 			filterMutant = m // the data filters row runs against it (TICK-900)
+		case isFormat2:
+			// TestI5Format2Agreement runs its agreement row against it (TICK-942).
 		default:
-			t.Fatalf("%s=%q: not one of %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames())
+			t.Fatalf("%s=%q: not one of %v, %v or %v", i5MutantEnv, m, i5MutantNames(), i5FilterMutantNames(), i5F2MutantNames())
 		}
 	}
 
@@ -141,6 +144,12 @@ func i5InWorld(t *testing.T, w *i5World, fn func(context.Context, pgx.Tx) error)
 	err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 		if err := i5SeedWorld(ctx, tx, w); err != nil {
 			return fmt.Errorf("seed: %w", err)
+		}
+		// The generator names a group the tenant does not have: a legacy row,
+		// past the tenant-id trigger (TICK-940). This transaction always rolls
+		// back, and the trigger with it.
+		if _, err := tx.Exec(ctx, "ALTER TABLE acl_versions DISABLE TRIGGER acl_versions_tenant_ids"); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_app"); err != nil {
 			return err
@@ -232,7 +241,7 @@ func i5Agree(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5Case, compile
 			for _, rec := range w.Records {
 				st.checks++
 				row := rec.row(p)
-				_, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, goOK := authz.Allows(c.Policy, p, authz.OpRead, row)
 				sqlOK := bySQL[ki][rec.Row.ID]
 				if goOK {
 					admitted++

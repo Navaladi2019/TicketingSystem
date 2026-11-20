@@ -1,0 +1,36 @@
+meta {
+  name: S30.29 AC1: Alice's list is exactly her groups' incidents she did not raise
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s30_sd_other', () => expect(ids).to.include(bru.getVar('s30_sd_other')));
+  test('leaves out s30_sd_mine', () => expect(ids).to.not.include(bru.getVar('s30_sd_mine')));
+  test('leaves out s30_adm', () => expect(ids).to.not.include(bru.getVar('s30_adm')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test('every item: one of her groups, and she is not the requester', () => {
+    const mine = JSON.parse(bru.getVar('s30_alice_groups'));
+    N.json().items.forEach(i => {
+      expect(i.assignment_group && mine.includes(i.assignment_group.id), i.number + ' in her groups').to.eql(true);
+      expect(i.data.requester, i.number + ' requester').to.not.eql(bru.getVar('s30_alice'));
+    });
+  });
+}

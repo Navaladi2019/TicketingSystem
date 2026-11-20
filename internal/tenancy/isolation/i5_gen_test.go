@@ -207,18 +207,24 @@ func (rec i5Record) row(p identity.Principal) authz.Row {
 // policy draws a random policy over every Subject kind and Cond form,
 // valid and malformed alike (a malformed rule must match nothing on both
 // sides).
-func (w *i5World) policy(r *rand.Rand) *authz.Policy {
+//
+// The policy holds the rules converted to format 2 (authz.ConvertFormat1, as
+// a stored format-1 row is read); the rules are returned too, for the
+// coverage report and the route run, which publishes them.
+func (w *i5World) policy(r *rand.Rand) (*authz.Policy, []authz.Rule) {
 	switch n := r.IntN(100); {
 	case n < 2:
-		return nil
+		return nil, nil
 	case n < 4:
-		return &authz.Policy{Version: 1}
+		return &authz.Policy{Version: 1}, nil
 	}
 	pol := &authz.Policy{EntityDefinitionID: w.Definition, Version: 1 + r.IntN(3)}
+	var rules []authz.Rule
 	for i := range 1 + r.IntN(4) {
-		pol.Rules = append(pol.Rules, w.rule(r, i))
+		rules = append(rules, w.rule(r, i))
 	}
-	return pol
+	pol.Document = authz.ConvertFormat1(rules)
+	return pol, rules
 }
 
 func (w *i5World) rule(r *rand.Rand, i int) authz.Rule {
@@ -317,6 +323,7 @@ func (w *i5World) cond(r *rand.Rand) authz.Cond {
 // i5Case is one policy and the principals it is checked for.
 type i5Case struct {
 	Policy     *authz.Policy
+	Rules      []authz.Rule // the format-1 rules Policy was converted from
 	Principals []identity.Principal
 }
 
@@ -327,7 +334,7 @@ func i5Generate(seed uint64) (*i5World, []i5Case) {
 	w := newI5World(r)
 	cases := make([]i5Case, i5Policies)
 	for i := range cases {
-		cases[i].Policy = w.policy(r)
+		cases[i].Policy, cases[i].Rules = w.policy(r)
 		for range i5Principals {
 			cases[i].Principals = append(cases[i].Principals, w.principal(r))
 		}
@@ -345,9 +352,11 @@ func i5Mutants() map[string]i5Compiler {
 		// drop_my_groups: a my_groups condition is ignored, so a desk rule
 		// admits every group's records.
 		"drop_my_groups": func(pol *authz.Policy, p identity.Principal, alias string, argBase int) (string, []any) {
-			return authz.CompileRead(i5MapRules(pol, func(r authz.Rule) authz.Rule {
-				r.Where = slices.DeleteFunc(slices.Clone(r.Where), func(c authz.Cond) bool { return c.Caller == authz.CallerMyGroups })
-				return r
+			return authz.CompileRead(i5MapPolicies(pol, func(np authz.NamedPolicy) authz.NamedPolicy {
+				np.When.All = slices.DeleteFunc(slices.Clone(np.When.All), func(n authz.Node) bool {
+					return n.Cmp != nil && n.Cmp.Caller == authz.CallerMyGroups
+				})
+				return np
 			}), p, alias, argBase)
 		},
 		// share_id_only: a share matches on its id alone, not the
@@ -359,22 +368,25 @@ func i5Mutants() map[string]i5Compiler {
 		},
 		// ignore_ops: a write-only rule grants read.
 		"ignore_ops": func(pol *authz.Policy, p identity.Principal, alias string, argBase int) (string, []any) {
-			return authz.CompileRead(i5MapRules(pol, func(r authz.Rule) authz.Rule {
-				r.Ops = []string{authz.OpRead}
-				return r
+			return authz.CompileRead(i5MapPolicies(pol, func(np authz.NamedPolicy) authz.NamedPolicy {
+				np.Ops = []string{authz.OpRead}
+				return np
 			}), p, alias, argBase)
 		},
 	}
 }
 
-func i5MapRules(pol *authz.Policy, f func(authz.Rule) authz.Rule) *authz.Policy {
+// i5MapPolicies is pol with f applied to each policy of its document. The
+// generator's documents are converted format-1 rules, so a policy's when is
+// all[any[subjects], cmp...].
+func i5MapPolicies(pol *authz.Policy, f func(authz.NamedPolicy) authz.NamedPolicy) *authz.Policy {
 	if pol == nil {
 		return nil
 	}
 	out := *pol
-	out.Rules = make([]authz.Rule, len(pol.Rules))
-	for i, r := range pol.Rules {
-		out.Rules[i] = f(r)
+	out.Document.Policies = make([]authz.NamedPolicy, len(pol.Document.Policies))
+	for i, np := range pol.Document.Policies {
+		out.Document.Policies[i] = f(np)
 	}
 	return &out
 }
@@ -435,7 +447,7 @@ func TestI5GeneratorCoversTheRiskyShapes(t *testing.T) {
 			has["nil policy"] = true
 			continue
 		}
-		for _, r := range c.Policy.Rules {
+		for _, r := range c.Rules {
 			has["groups subject"] = has["groups subject"] || len(r.Who.Groups) > 0
 			has["users subject"] = has["users subject"] || len(r.Who.Users) > 0
 			has["requester subject"] = has["requester subject"] || r.Who.Requester

@@ -144,7 +144,12 @@ export interface paths {
         get: operations["getEntityTypeAccess"];
         /**
          * Publish the next access policy version (tenant admin)
-         * @description Publishes immutable ACL version N+1 from the body `{rules, masks}` (`masks` optional). Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on; the first publish uses `W/"0"`. A body that is not a JSON object is 400 `validation_failed` (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422 `invalid_access_policy` with `errors[].pointer` and `rule`). The body is refused when a column, op or `caller` is unknown, a shape rule of the database is broken, a rule id repeats, a mask field is not a top-level schema property, a mask subject sets `requester`, `assignee` or `shared`, a mask's `write` names a group or user its `read` does not, or any group or user id (in a subject or a condition) is not in the tenant (`not_in_tenant`, the same for an unknown id and another tenant's). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required. A reused key is 409: `idempotency_key_reuse` (same key, different body) or `idempotency_in_flight` (same key while the first request is still running; `Retry-After: 60`).
+         * @description Publishes immutable ACL version N+1 from the body `{rules, masks}` (`masks` optional). Tenant admins only, own tenant only. `If-Match` carries the `ETag` the publish is based on; the first publish uses `W/"0"`. A body that is not a JSON object is 400 `validation_failed` (the validator); 422 is for an object that breaks the policy rules. Check order: authentication, admin (403), entity type (404), `If-Match` missing (428 `if_match_required`), stale (412 `version_conflict`, current `ETag` in the header), then the body (422 `invalid_access_policy` with `errors[].pointer` and `rule`). The body is refused when a column, op or `caller` is unknown, a shape rule of the database is broken, a rule id repeats, a mask field is not a top-level schema property, a mask subject sets `requester`, `assignee` or `shared`, a mask's `write` names a group or user its `read` does not, or any group or user id (in a subject or a condition) is not in the tenant (`not_in_tenant`, the same for an unknown id and another tenant's). A refused request writes no version and no audit entry. The publish writes one audit entry in the same transaction. `Idempotency-Key` is required.
+         *
+         *     `rules` is either a format-1 array (`[{id, ops, who, where?}]`) or a format-2 object (`{format: 2, conditions, policies}`, see `AccessDocument`). Either is stored as format 2, and every response returns format 2. A format-1 rule with an empty `who` is refused (`child_count` at its `who`).
+         *
+         *     The platform's limits on a format-2 document, checked on save, each a 422 with `errors[].pointer` and `rule`: a reference to a condition that does not exist (`unresolved_ref`); a reference cycle (`ref_cycle`); 1 to 16 children in an `all` or `any` (`child_count`); depth at most 8 after references expand (`depth_exceeded`); at most 128 leaves in a policy (`policy_leaves_exceeded`); at most 64 policies (`policies_exceeded`); at most 128 leaves in all policies of a document (`document_leaves_exceeded`); every group and user id belongs to the tenant (`foreign_id`, for format 1 `not_in_tenant`); an unknown node kind (`unknown_key`); a name that is not `^[a-z][a-z0-9_]{0,62}$` or repeats (`invalid_name`, `duplicate_name`); `under` is not available yet (`not_available`). `rules` and `masks` are each limited to the platform's configured limit, 32 KiB by default, measured on the stored form; above it the 422 is `document_too_large` at `/rules` or `/masks`, and the limit is in that error's `detail`. The accepted publish may carry `warnings` (`{pointer, code}`), for example `not_over_caller_leaf` on a `not` over a leaf that depends on the caller; a warning does not refuse the document.
+         *     A reused key is 409: `idempotency_key_reuse` (same key, different body) or `idempotency_in_flight` (same key while the first request is still running; `Retry-After: 60`).
          */
         put: operations["putEntityTypeAccess"];
         post?: never;
@@ -295,7 +300,7 @@ export interface paths {
         };
         /**
          * Why a user can or cannot read a record (tenant admin)
-         * @description Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`.
+         * @description Tenant admins only, own tenant only. Evaluates the entity type's newest published access policy for the user and the record, as a read does. `decision` is `allow` or `deny`; `rule_id` names the first rule that grants read, and is null for a deny. `acl_version` is the version evaluated, 0 when none is published (nobody can read: fail closed). `masked_fields` lists the fields the policy hides from the user, leaving out every field the calling admin cannot read itself. An unknown entity type, record or user, one that is another tenant's, and a malformed id give the same 404, byte for byte, with no `instance`. `policy` names the first policy, in declared order, that grants read (absent for a deny); `rule_id` is its format-1 id when it was converted from one. `trace` lists the named conditions reached and their values: the granting policy's on an allow, every valid read policy's on a deny. `invalid` lists read policies the planner voided (they grant nothing) with their problem code.
          */
         get: operations["explainAccess"];
         put?: never;
@@ -465,6 +470,8 @@ export interface components {
             pointer: string;
             /** @description The schema keyword that failed, such as `format` or `pattern`. */
             rule?: string;
+            /** @description Present on a `document_too_large` error only. States the limit in bytes. */
+            detail?: string;
         };
         AccessExplanation: {
             /** @enum {string} */
@@ -472,6 +479,17 @@ export interface components {
             rule_id: string | null;
             acl_version: number;
             masked_fields: string[];
+            policy?: string;
+            trace?: {
+                policy: string;
+                condition: string;
+                value: boolean;
+            }[];
+            invalid?: {
+                policy: string;
+                code: string;
+                pointer: string;
+            }[];
         };
         ChainReseed: {
             /**
@@ -544,19 +562,39 @@ export interface components {
         };
         /** @description Deliberately unconstrained here: the server checks the body after the admin check, the entity type and `If-Match` (428, 412), and answers 422 `invalid_access_policy` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`). */
         PutAccessPolicyRequest: {
-            /** @description Array of `{id, ops, who, where?}`; may be empty (nobody is allowed). */
+            /** @description Either a format-1 array of `{id, ops, who, where?}` (may be empty: nobody is allowed) or a format-2 object `AccessDocument`. */
             rules?: unknown;
             /** @description Array of `{field, read, write}`; optional. */
             masks?: unknown;
         };
         AccessPolicy: {
             version: number;
-            rules: Record<string, never>[];
+            rules: components["schemas"]["AccessDocument"];
             masks: Record<string, never>[];
             /** Format: uuid */
             published_by?: string | null;
             /** Format: date-time */
             published_at: string;
+            /** @description Lints of the publish, on the PUT response only. A warning does not refuse the document. */
+            warnings?: {
+                pointer: string;
+                /** @description For example `not_over_caller_leaf`. */
+                code: string;
+            }[];
+        };
+        /** @description The format-2 access document. Always the form a response returns, whichever format was published. A node is an object with exactly one key: `all`, `any` (1 to 16 nodes), `not`, `ref` (a condition name), `member_of`, `cmp`, `shared` or `under`. */
+        AccessDocument: {
+            /** @enum {integer} */
+            format: 2;
+            conditions: {
+                name: string;
+                expr: Record<string, never>;
+            }[];
+            policies: {
+                name: string;
+                ops: ("read" | "write")[];
+                when: Record<string, never>;
+            }[];
         };
         /** @description Deliberately unconstrained here: the server checks every field after the admin check and answers 422 `invalid_definition` with `errors[].pointer`. Kept as the request bytes (`json.RawMessage`) so the schema is stored byte for byte. */
         CreateEntityTypeRequest: {

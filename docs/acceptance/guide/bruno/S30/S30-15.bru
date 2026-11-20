@@ -1,0 +1,29 @@
+meta {
+  name: S30.15 AC5 before: the requester's list
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s30_sd_other', () => expect(ids).to.include(bru.getVar('s30_sd_other')));
+  test('includes s30_adm', () => expect(ids).to.include(bru.getVar('s30_adm')));
+  test('leaves out s30_sd_mine', () => expect(ids).to.not.include(bru.getVar('s30_sd_mine')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+  bru.setVar('s30_f1_req', JSON.stringify({ ids: N.json().items.map(i => i.id).sort(), total: N.json().total }));
+}

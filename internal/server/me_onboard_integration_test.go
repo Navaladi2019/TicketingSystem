@@ -561,7 +561,7 @@ func TestOnboardCreatesRowsAndReplayWritesOnce(t *testing.T) {
 		WHERE a.tenant_id = $1 AND d.key = 'incident' AND a.version = 1 AND a.published_by IS NULL`, want).Scan(&rules); err != nil {
 		t.Fatalf("incident ACL v1: %v", err)
 	}
-	for _, w := range []string{`"default-admins"`, `"default-requester"`, adminGroup.String()} {
+	for _, w := range []string{`"default_admins"`, `"default_requester"`, adminGroup.String()} {
 		if !strings.Contains(rules, w) {
 			t.Errorf("default incident ACL %s lacks %s", rules, w)
 		}
