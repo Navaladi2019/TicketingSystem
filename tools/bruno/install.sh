@@ -9,8 +9,10 @@
 # A no-op when node_modules already matches the lockfile (the stamp file is a
 # copy of the lockfile it was installed from), so docs/acceptance/guide/
 # tools/api-test.sh calls it before every run and pays for npm ci only once.
-# The Bruno CLI runs no install scripts (no hasInstallScript in the lock), so
-# --ignore-scripts. Prints the path of the CLI's entry point on stdout.
+# --ignore-scripts is load-bearing (TICK-1014 finding 2): one locked package,
+# protobufjs, has an install script (a postinstall version check) that the CLI
+# does not need. Keep the flag, so no install-time code from the tree runs on
+# a CI runner or a laptop. Prints the path of the CLI's entry point on stdout.
 #
 # Bumping the CLI: edit the version in tools/bruno/package.json, run
 # `npm install --package-lock-only --ignore-scripts` in tools/bruno, commit

@@ -402,8 +402,11 @@ Renovate).**
 
 1. Edit the version in `tools/bruno/package.json`.
 2. In `tools/bruno`, run `npm install --package-lock-only --ignore-scripts`.
-3. Check that the lockfile still has no `"hasInstallScript": true`, or drop
-   `--ignore-scripts` from `install.sh` in the same change.
+3. Keep `--ignore-scripts` in `install.sh`. `protobufjs` has an install
+   script (a postinstall version check), and nothing in the tree should run
+   at install time (TICK-1014 finding 2). List the packages with an install
+   script in the new lock (`"hasInstallScript": true`). If one besides
+   `protobufjs` appears, check that the CLI works without its script.
 4. Commit both files, then run `ci:full`: the Bruno folders run in the full
    tier.
 
