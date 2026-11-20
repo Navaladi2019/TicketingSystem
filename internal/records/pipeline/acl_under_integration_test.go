@@ -371,4 +371,31 @@ func TestCreateUnderAnUnderOnlyWriteGrant(t *testing.T) {
 	if n := records(); n != before {
 		t.Fatalf("refused creates wrote: %d records, want %d", n, before)
 	}
+
+	// The requester is not the actor (resolveUnit reads store.PrimaryUnit):
+	// the record's unit is the requester's primary unit, not the actor's. The
+	// actor now has none, so only the requester's unit can grant.
+	other := uuid.New()
+	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
+		f.id, other, "kc-"+other.String())
+	seedMember(t, e, f.id, child, other, true)
+	res, err = write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "for another, in S", "requester": other.String()}))
+	if err != nil {
+		t.Fatalf("create for a requester whose unit is in S: %v", err)
+	}
+	if got := recordUnit(t, e, res.RecordID); got == nil || *got != child {
+		t.Fatalf("org_unit_id = %v, want the requester's unit %s", got, child)
+	}
+	// The actor's primary unit is in S, the requester's is not: refused, so
+	// the check reads the requester's unit, never the actor's.
+	mustExec(t, e.super, `UPDATE org_unit_members SET is_primary = (org_unit_id = $3) WHERE tenant_id = $1 AND principal_id = $2`, f.id, f.principal.PrincipalID, child)
+	mustExec(t, e.super, `UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND principal_id = $2`, f.id, other)
+	seedMember(t, e, f.id, out, other, true)
+	before = records()
+	if _, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "for another, outside S", "requester": other.String()})); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("create for a requester whose unit is outside S (the actor's is in S): %v, want ErrForbidden", err)
+	}
+	if n := records(); n != before {
+		t.Fatalf("a refused create wrote: %d records, want %d", n, before)
+	}
 }

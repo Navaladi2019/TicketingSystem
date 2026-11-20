@@ -67,6 +67,12 @@ type underScope struct {
 	callerOK          bool
 	caller            []uuid.UUID
 	units             map[uuid.UUID][]uuid.UUID
+	// rest: every leaf not covered above (a root missing from units, the
+	// caller when not callerOK) folded away in ExpandUnder's probe plan, so
+	// its value cannot change any policy's result; it reads as an empty S.
+	// The planner plans every child before folding, and would otherwise void
+	// the policy over a leaf that does not matter (TICK-950 review).
+	rest bool
 }
 
 // BindUnder returns a copy of pol with set S bound for p: caller is the live
@@ -180,7 +186,9 @@ SELECT caller, root, id FROM s`
 func ExpandUnder(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Principal) (*Policy, error) {
 	need := needs(pol, p)
 	if len(need.leaves) == 0 {
-		return pol, nil
+		// No leaf survives folding: S cannot change any result, so every
+		// leaf reads as empty and no query runs.
+		return bindRest(pol, p, nil, nil), nil
 	}
 	tenant, err := tenancy.TenantOf(ctx, tx)
 	if err != nil {
@@ -214,7 +222,10 @@ func ExpandUnder(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Princip
 	if err != nil {
 		return nil, fmt.Errorf("authz: expand under: %w", err)
 	}
-	bound := BindUnder(pol, identity.Principal{TenantID: tenant, PrincipalID: p.PrincipalID}, caller, units)
+	bound := bindRest(pol, identity.Principal{TenantID: tenant, PrincipalID: p.PrincipalID}, caller, units)
+	if !need.caller {
+		bound.under.callerOK = false // folded away: rest, not a resolved set
+	}
 	for _, leaf := range need.leaves {
 		if s, _ := bound.under.set(leaf); len(s) > MaxUnderSet {
 			countUnderTooLarge(pol)
@@ -222,6 +233,16 @@ func ExpandUnder(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Princip
 		}
 	}
 	return bound, nil
+}
+
+// bindRest is BindUnder for ExpandUnder: the sets it queried, and every
+// other leaf (folded away in the probe plan) read as empty (underScope.rest).
+func bindRest(pol *Policy, p identity.Principal, caller []uuid.UUID, units map[uuid.UUID][]uuid.UUID) *Policy {
+	out := BindUnder(pol, p, caller, units)
+	if out != nil {
+		out.under.rest = true
+	}
+	return out
 }
 
 // scopeFor is pol's binding when it was made for p, else nil.
@@ -235,20 +256,23 @@ func scopeFor(pol *Policy, p identity.Principal) *underScope {
 // set is leaf's set S, sorted, and whether it was resolved. A caller leaf for
 // a principal with no id is resolved and empty without a binding.
 func (sc *underScope) set(leaf Under) ([]uuid.UUID, bool) {
-	if leaf.Caller {
-		if sc == nil || !sc.callerOK {
-			return nil, false
-		}
-		return sc.caller, true
-	}
 	if sc == nil {
 		return nil, false
+	}
+	if leaf.Caller {
+		if !sc.callerOK {
+			return nil, sc.rest
+		}
+		return sc.caller, true
 	}
 	var out []uuid.UUID
 	for _, root := range leaf.Units {
 		ids, ok := sc.units[root]
 		if !ok {
-			return nil, false
+			if !sc.rest {
+				return nil, false
+			}
+			continue // folded away: empty
 		}
 		out = append(out, ids...)
 	}

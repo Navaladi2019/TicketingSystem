@@ -26,6 +26,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,11 @@ func (d *i5F2Disagreement) Error() string {
 // Allows only, and stops at the first disagreement.
 func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, compile i5F2Compiler, full bool) (i5F2Stats, error) {
 	var st i5F2Stats
+	if full {
+		if err := i5F2WorldSetsMatch(ctx, tx, w, cases, &st); err != nil {
+			return st, err
+		}
+	}
 	for ci := range cases {
 		c := &cases[ci]
 		bySQL, preds, err := i5Select(ctx, tx, w, i5Case{Policy: c.Policy, Principals: c.Principals},
@@ -193,17 +199,28 @@ func i5F2AgreeDB(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, c
 	return st, nil
 }
 
-// i5F2ExpandMatches checks the real set S: for every principal whose plan
-// keeps an under leaf, authz.ExpandUnder (its recursive query over the seeded
-// org tree, as nava_app under RLS) binds a policy that compiles to exactly
-// the predicate and arguments of the reference's binding (c.bound), so the
-// sets agree on every surviving leaf. S is sorted, so equal sets give equal
-// arguments.
+// i5F2ExpandPrincipals is how many of each case's principals the per-case
+// ExpandUnder check runs for. Each needed expansion is a query; all 50 cost
+// about 26 s of the row's 120 s budget, while S itself is checked for every
+// principal of the run by i5F2WorldSetsMatch.
+const i5F2ExpandPrincipals = 10
+
+// i5F2ExpandMatches checks authz.ExpandUnder end to end on each case: for
+// the first i5F2ExpandPrincipals principals of every document holding an
+// under leaf, the policy ExpandUnder binds (its probe plan, its recursive
+// query over the seeded org tree as nava_app under RLS, and the empty sets of
+// leaves the probe folded away) compiles to exactly the predicate and
+// arguments of the reference's binding (c.bound). S is sorted, so equal sets
+// give equal arguments; a policy ExpandUnder voids that the reference does not
+// changes the predicate (TICK-950 review: a leaf folded away beside a
+// deciding constant voided its policy). Principals whose plan keeps no under
+// leaf are checked too: ExpandUnder runs no query for them, and its binding
+// must still not void anything.
 func i5F2ExpandMatches(ctx context.Context, tx pgx.Tx, c *i5F2Case, st *i5F2Stats) error {
-	for ki, p := range c.Principals {
-		if !authz.UnderNeeded(c.Policy, p) {
-			continue
-		}
+	if c.Policy == nil || len(i5UnderLeaves(c.Policy.Document)) == 0 {
+		return nil
+	}
+	for ki, p := range c.Principals[:min(len(c.Principals), i5F2ExpandPrincipals)] {
 		expanded, err := authz.ExpandUnder(ctx, tx, c.Policy, p)
 		if err != nil {
 			return fmt.Errorf("principal #%d: ExpandUnder: %w", ki, err)
@@ -211,7 +228,69 @@ func i5F2ExpandMatches(ctx context.Context, tx pgx.Tx, c *i5F2Case, st *i5F2Stat
 		gotSQL, gotArgs := authz.CompileRead(expanded, p, "r", 2)
 		wantSQL, wantArgs := authz.CompileRead(c.bound(p), p, "r", 2)
 		if gotSQL != wantSQL || !reflect.DeepEqual(gotArgs, wantArgs) {
-			return fmt.Errorf("principal #%d: ExpandUnder's set S differs from the reference's: %s %v, want %s %v", ki, gotSQL, gotArgs, wantSQL, wantArgs)
+			return fmt.Errorf("principal #%d: ExpandUnder's binding differs from the reference's: %s %v, want %s %v", ki, gotSQL, gotArgs, wantSQL, wantArgs)
+		}
+		if authz.UnderNeeded(c.Policy, p) {
+			st.expanded++
+		}
+	}
+	return nil
+}
+
+// i5UnderLeaves is every under node of d, in its conditions and policies.
+func i5UnderLeaves(d authz.Document) []authz.Under {
+	var out []authz.Under
+	visit := func(n authz.Node, _ string) {
+		if n.Under != nil {
+			out = append(out, *n.Under)
+		}
+	}
+	for _, c := range d.Conditions {
+		i5Walk(c.Expr, visit)
+	}
+	for _, np := range d.Policies {
+		i5Walk(np.When, visit)
+	}
+	return out
+}
+
+// i5F2WorldSetsMatch checks set S directly, for every distinct principal of
+// the run (and a caller with no id): a document with one read policy per
+// leaf, under caller and under each unit of the world plus an id that is no
+// unit, so no leaf folds away and each policy's predicate binds exactly that
+// leaf's S. ExpandUnder's query must give each the reference's set
+// (i5Subtree, i5CallerSet: live units, a tombstoned unit and everything below
+// it out).
+func i5F2WorldSetsMatch(ctx context.Context, tx pgx.Tx, w *i5World, cases []i5F2Case, st *i5F2Stats) error {
+	leaves := []authz.Node{{Under: &authz.Under{Caller: true}}}
+	for _, u := range w.Units {
+		leaves = append(leaves, authz.Node{Under: &authz.Under{Units: []uuid.UUID{u.ID}}})
+	}
+	leaves = append(leaves, authz.Node{Under: &authz.Under{Units: []uuid.UUID{uuid.MustParse("0f000000-0000-4000-8000-0000000000aa")}}})
+	doc := authz.Document{Format: authz.FormatV2, Conditions: []authz.Condition{}}
+	for i, l := range leaves {
+		doc.Policies = append(doc.Policies, authz.NamedPolicy{Name: "s" + strconv.Itoa(i), Ops: []string{authz.OpRead}, When: l})
+	}
+	pol := &authz.Policy{EntityDefinitionID: w.Definition, Version: 1, Document: doc}
+	seen := map[uuid.UUID]bool{}
+	principals := []identity.Principal{{TenantID: w.Tenant}}
+	for _, c := range cases {
+		for _, p := range c.Principals {
+			if !seen[p.PrincipalID] {
+				seen[p.PrincipalID] = true
+				principals = append(principals, identity.Principal{TenantID: w.Tenant, PrincipalID: p.PrincipalID})
+			}
+		}
+	}
+	for _, p := range principals {
+		expanded, err := authz.ExpandUnder(ctx, tx, pol, p)
+		if err != nil {
+			return fmt.Errorf("principal %s: ExpandUnder: %w", p.PrincipalID, err)
+		}
+		gotSQL, gotArgs := authz.CompileRead(expanded, p, "r", 2)
+		wantSQL, wantArgs := authz.CompileRead(i5Bind(pol, p, nil), p, "r", 2)
+		if gotSQL != wantSQL || !reflect.DeepEqual(gotArgs, wantArgs) {
+			return fmt.Errorf("principal %s: set S differs from the reference's: %s %v, want %s %v", p.PrincipalID, gotSQL, gotArgs, wantSQL, wantArgs)
 		}
 		st.expanded++
 	}

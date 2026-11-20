@@ -220,8 +220,10 @@ func TestExpandUnderRunsNoQueryWithoutUnder(t *testing.T) {
 	t.Parallel()
 	pol := ptWhen(t, `{"shared":true}`)
 	got, err := ExpandUnder(context.Background(), nil, pol, utMe())
-	if err != nil || got != pol {
-		t.Errorf("ExpandUnder = %p, %v; want the same policy", got, err)
+	// A copy with every set read as empty (nothing survives folding), the
+	// same document; a nil tx would have panicked on a query.
+	if err != nil || got == nil || got.Version != pol.Version || len(got.Document.Policies) != len(pol.Document.Policies) {
+		t.Errorf("ExpandUnder = %+v, %v; want pol's copy", got, err)
 	}
 	if got, err := ExpandUnder(context.Background(), nil, nil, utMe()); err != nil || got != nil {
 		t.Errorf("ExpandUnder(nil) = %v, %v", got, err)
