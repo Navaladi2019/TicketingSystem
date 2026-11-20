@@ -57,8 +57,10 @@ func seedACL(t *testing.T, super *pgx.Conn, tenants ...string) {
 	}
 }
 
-// Acceptance: both roles may SELECT and INSERT both tables and nothing more;
-// no other role has any privilege on either. RLS is ENABLEd and FORCEd.
+// Acceptance: both roles may SELECT both tables and INSERT record_shares;
+// only nava_app may INSERT acl_versions (ADR-010-A1 A1-3, TICK-940); nothing
+// more, and no other role has any privilege on either. RLS is ENABLEd and
+// FORCEd.
 //
 // "No other role" is every role in the cluster but superusers, the
 // built-in pg_* roles and the owner nava_migrator, read from pg_roles rather
@@ -78,6 +80,9 @@ func TestP330Grants(t *testing.T) {
 		for _, role := range strings.Split(roles, ",") {
 			for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
 				want := (role == "nava_app" || role == "nava_worker") && (priv == "SELECT" || priv == "INSERT")
+				if table == "acl_versions" && role == "nava_worker" && priv == "INSERT" {
+					want = false
+				}
 				got := queryBool(t, super, "SELECT has_table_privilege($1, $2, $3)", role, "public."+table, priv)
 				if got != want {
 					t.Errorf("%s %s on %s = %v, want %v", role, priv, table, got, want)
@@ -141,23 +146,28 @@ func TestP330TenantIsolation(t *testing.T) {
 }
 
 // Acceptance: two versions of one type's ACL are inserted, and an UPDATE or
-// DELETE of either table is refused.
+// DELETE of either table is refused. nava_app publishes; nava_worker may not
+// (ADR-010-A1 A1-3, TICK-940).
 func TestP330Immutable(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedACL(t, super, tenantA)
 
-	for i, role := range []string{"nava_app", "nava_worker"} {
-		conn := asRole(t, role)
-		version := 2 + i
-		if _, err := execIn(conn, tenantA, insertACL, tenantA, tenantA, version, tenantA); err != nil {
-			t.Fatalf("%s publishes ACL version %d: %v", role, version, err)
+	app := asRole(t, "nava_app")
+	for _, version := range []int{2, 3} {
+		if _, err := execIn(app, tenantA, insertACL, tenantA, tenantA, version, tenantA); err != nil {
+			t.Fatalf("nava_app publishes ACL version %d: %v", version, err)
 		}
-		_, err := execIn(conn, tenantA, insertACL, tenantA, tenantA, version, tenantA)
-		wantSQLState(t, role+" republishes an existing version", err, "23505")
-		_, err = execIn(conn, tenantA, insertACL, tenantA, tenantA, 0, tenantA)
-		wantSQLState(t, role+" publishes version 0", err, "23514")
+	}
+	_, err := execIn(app, tenantA, insertACL, tenantA, tenantA, 3, tenantA)
+	wantSQLState(t, "nava_app republishes an existing version", err, "23505")
+	_, err = execIn(app, tenantA, insertACL, tenantA, tenantA, 0, tenantA)
+	wantSQLState(t, "nava_app publishes version 0", err, "23514")
+	_, err = execIn(asRole(t, "nava_worker"), tenantA, insertACL, tenantA, tenantA, 4, tenantA)
+	wantSQLState(t, "nava_worker publishes an ACL", err, "42501")
+	for _, role := range []string{"nava_app", "nava_worker"} {
+		conn := asRole(t, role)
 		for _, q := range []string{
 			"UPDATE acl_versions SET rules = '[]' WHERE tenant_id = $1",
 			"DELETE FROM acl_versions WHERE tenant_id = $1",
@@ -243,6 +253,7 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m = beforeFormat2Checks(fsys, m)
 	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)
@@ -286,8 +297,9 @@ func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*gran
 
 // Acceptance (P3-35, TICK-620; ADR-004 CI-A3): acl_versions carries the audit
 // commit check. A publish with no audit entry for its entity type in the same
-// transaction is refused at COMMIT with audit_missing, for both writer roles,
-// and the same insert with its entry commits.
+// transaction is refused at COMMIT with audit_missing, and the same insert
+// with its entry commits. nava_app is the one writer since ADR-010-A1 A1-3
+// (TICK-940); nava_worker is refused by its grant before any commit check.
 func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -296,19 +308,19 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 
 	const bare = `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
 		VALUES ($1, $2, $3, '[]', '[]', $4)`
-	for i, role := range []string{"nava_app", "nava_worker"} {
-		conn := asRole(t, role)
-		_, err := execIn(conn, tenantA, bare, tenantA, tenantA, 2+i*2, tenantA)
-		if code, constraint := pgErrDetail(err); code != "23514" || constraint != "acl_versions_audit_commit_check" {
-			t.Errorf("%s publishes with no audit entry: err = %v (constraint %q), want 23514 from acl_versions_audit_commit_check", role, err, constraint)
-		}
-		if _, err := execIn(conn, tenantA, insertACL, tenantA, tenantA, 3+i*2, tenantA); err != nil {
-			t.Errorf("%s publishes with its audit entry: %v", role, err)
-		}
+	app := asRole(t, "nava_app")
+	_, err := execIn(app, tenantA, bare, tenantA, tenantA, 2, tenantA)
+	if code, constraint := pgErrDetail(err); code != "23514" || constraint != "acl_versions_audit_commit_check" {
+		t.Errorf("nava_app publishes with no audit entry: err = %v (constraint %q), want 23514 from acl_versions_audit_commit_check", err, constraint)
 	}
+	if _, err := execIn(app, tenantA, insertACL, tenantA, tenantA, 3, tenantA); err != nil {
+		t.Errorf("nava_app publishes with its audit entry: %v", err)
+	}
+	_, err = execIn(asRole(t, "nava_worker"), tenantA, insertACL, tenantA, tenantA, 5, tenantA)
+	wantSQLState(t, "nava_worker publishes with its audit entry", err, "42501")
 	if got := queryString(t, super, `SELECT string_agg(version::text, ',' ORDER BY version) FROM acl_versions
-		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3,5" {
-		t.Errorf("versions after the refused publishes = %s, want 1,3,5 (the bare ones wrote nothing)", got)
+		WHERE tenant_id = $1 AND entity_definition_id = $1`, tenantA); got != "1,3" {
+		t.Errorf("versions after the refused publishes = %s, want 1,3 (the refused ones wrote nothing)", got)
 	}
 }
 

@@ -1,0 +1,38 @@
+# promtool test rules for rules/authz.yml (TICK-944). Run by
+# internal/audit/lineage.TestAlertRules (integration) with the pinned
+# prom/prometheus image; this directory is not mounted into Prometheus.
+rule_files:
+  - ../rules/authz.yml
+
+evaluation_interval: 1m
+
+tests:
+  # AuthzPolicyInvalid: silent at zero, fires per entity type once one
+  # voided-policy evaluation is counted, silent 10 min after it stops.
+  - interval: 1m
+    input_series:
+      - series: 'authz_policy_invalid_total{entity_type="incident",job="nava",instance="nava-core:9090"}'
+        values: '0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+      - series: 'authz_policy_invalid_total{entity_type="request",job="nava",instance="nava-core:9090"}'
+        values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AuthzPolicyInvalid
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: AuthzPolicyInvalid
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              entity_type: incident
+            exp_annotations:
+              summary: An access policy was voided as invalid on incident and grants nothing (ADR-010 R7).
+              description: >-
+                Users the policy should admit have lost access. Publish and the
+                database CHECK should have refused the document, so this is a
+                drift between them: read the policy and its pointer in the
+                explainer's invalid list, republish a valid document, and file a
+                bug on the check that let it through.
+      - eval_time: 16m
+        alertname: AuthzPolicyInvalid
+        exp_alerts: []

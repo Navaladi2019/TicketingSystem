@@ -3,7 +3,7 @@ title: "7. Set access rules and field masks"
 section: tour
 status: delivered
 sources: [docs/handbook/examples/README.md, docs/handbook/examples/loan_application.access.json, docs/acceptance/s10-access.md, docs/acceptance/guide/bruno/S10/S10-31.bru, docs/acceptance/guide/bruno/S10/S10-18.bru]
-adrs: [ADR-001]
+adrs: [ADR-001, ADR-010]
 operations: [putEntityTypeAccess, getEntityTypeAccess, explainAccess, getRecord, listRecords, patchRecord]
 tables: [acl_versions]
 ---
@@ -43,19 +43,21 @@ curl -i -X PUT $CORE/api/v1/entity-types/loan_application/access \
 
 ## What you see
 
-Before a policy: `404 not_found` for the policy, and `403 forbidden` for the create. After the publish:
+Before a policy: `404 not_found` for the policy, and `403 forbidden` for the create. After the publish, the response shows the rules as stored, in format 2 (since S30): each format-1 rule became one policy, and a rule id with a hyphen became a name with an underscore:
 
 ```
 HTTP/1.1 200 OK
 Etag: W/"1"
 {"version":1,
- "rules":[{"id":"admins","ops":["read","write"],"who":{"groups":["beed2119-…"]}},
-          {"id":"auditors-read","ops":["read"],"who":{"groups":["66714971-…"]}},
-          {"id":"applicant-read","ops":["read"],"who":{"requester":true}},
-          {"id":"applicant-edit-submitted","ops":["read","write"],"who":{"requester":true},
-           "where":[{"column":"state","op":"eq","values":["submitted"]}]}],
+ "rules":{"format":2,"conditions":[],"policies":[
+   {"name":"admins","ops":["read","write"],"when":{"all":[{"any":[{"member_of":{"groups":["beed2119-…"]}}]}]}},
+   {"name":"auditors_read","ops":["read"],"when":{"all":[{"any":[{"member_of":{"groups":["66714971-…"]}}]}]}},
+   {"name":"applicant_read","ops":["read"],"when":{"all":[{"any":[{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}]}]}},
+   {"name":"applicant_edit_submitted","ops":["read","write"],"when":{"all":[
+     {"any":[{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}]},
+     {"cmp":{"column":"state","op":"eq","values":["submitted"]}}]}}]},
  "masks":[{"field":"income","read":{"groups":["beed2119-…"]},"write":{"groups":["beed2119-…"]}}],
- "published_at":"2026-11-13T06:13:44.047634Z"}
+ "published_at":"…"}
 ```
 
 Once a record exists (step 9, `$RID` is its id), the same record as seen by different people:
@@ -76,9 +78,13 @@ curl -sS -G $CORE/api/v1/access/explain -H "Authorization: Bearer $ADMIN" \
 ```
 
 ```json
-{"acl_version":1,"decision":"allow","masked_fields":["income"],"rule_id":"auditors-read"}
-{"acl_version":1,"decision":"deny","masked_fields":["income"],"rule_id":null}
+{"acl_version":1,"decision":"allow","masked_fields":["income"],"policy":"auditors_read","rule_id":"auditors_read","trace":[],"invalid":[]}
+{"acl_version":1,"decision":"deny","masked_fields":["income"],"rule_id":null,"trace":[],"invalid":[]}
 ```
+
+## Composing rules from named conditions (S30)
+
+The rules above are format 1, a flat list. Since [S30](../stories/s30.md) an administrator can also publish **format 2**: named yes/no tests (`conditions`) combined with `all`, `any` and `not` into named `policies`, for example "agents see tickets in their group that they did not raise" (`in_assigned_group AND NOT is_requester`). Changing one condition changes every policy that uses it, in one publish. Either format can be sent; the policy is always stored and returned as format 2, so the `GET` after the publish above shows the four rules as policies (`admins`, `auditors_read`, `applicant_read`, `applicant_edit_submitted`). A broken document is refused with a pointer to the bad part, and the explain call also names the `policy` and a `trace` of the conditions it reached. The limits and the shape are on the [Access API](../system/access-api.md) page; the Bruno walk-through is the `S30` folder.
 
 ## What happens behind it
 
@@ -86,6 +92,6 @@ Every read and write, through every route, goes through one authorization layer.
 
 ## Not built yet
 
-- No screen for editing rules.
+- No screen for editing rules: format-2 documents are JSON sent to the access route.
 - A mask names groups and users only. It cannot say "the applicant sees their own income" or depend on the record, so in the loan example the applicant cannot see or submit `income` and intake is done by the admins group.
-- Rules cannot refer to organisation units (step 5).
+- Rules cannot refer to organisation units yet (step 5): the `under` condition is refused as `not_available` until S31.

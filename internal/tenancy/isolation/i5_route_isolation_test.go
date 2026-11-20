@@ -250,13 +250,17 @@ func i5rSeed(ctx context.Context, e *etIso, recs []i5rRecord) error {
 // returns the policy as the route reads it.
 func (run *i5rRun) publish(ctx context.Context, c i5rCase) (*authz.Policy, error) {
 	var pol *authz.Policy
-	err := tenancy.InTenantTx(ctx, run.e.pool, uuid.MustParse(TenantA), func(tx pgx.Tx) error {
-		if _, err := acltest.PublishPolicy(ctx, tx, i5rKey, c.Rules, c.Masks); err != nil {
+	// The generator names a group the tenant does not have (i5_gen_test.go):
+	// a legacy row, past the tenant-id trigger (TICK-940).
+	err := legacyACLInsert(ctx, run.e.super, func() error {
+		return tenancy.InTenantTx(ctx, run.e.pool, uuid.MustParse(TenantA), func(tx pgx.Tx) error {
+			if _, err := acltest.PublishPolicy(ctx, tx, i5rKey, c.Rules, c.Masks); err != nil {
+				return err
+			}
+			var err error
+			pol, err = authz.PolicyStore{}.Current(ctx, tx, i5rKey)
 			return err
-		}
-		var err error
-		pol, err = authz.PolicyStore{}.Current(ctx, tx, i5rKey)
-		return err
+		})
 	})
 	return pol, err
 }
@@ -339,7 +343,7 @@ func (run *i5rRun) filters(ctx context.Context, h *etIso, ci int, c i5rCase, pol
 			want := 0
 			for _, rec := range run.all {
 				goOK := false
-				if _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok && q.matches(run.views[rec.ID]) {
+				if _, _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok && q.matches(run.views[rec.ID]) {
 					goOK = true
 					want++
 					if rec.Shapes["prio"] == i5rDefaulted && slices.ContainsFunc(q, func(f i5rFilter) bool { return f.Prop == "prio" }) {
@@ -398,7 +402,7 @@ func (run *i5rRun) lists(ctx context.Context, ci int, c i5rCase, pol *authz.Poli
 		tok := run.token(fmt.Sprintf("i5r-c%d-p%d", ci, k), p)
 		readable := map[string]bool{}
 		for _, rec := range run.all {
-			if _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok {
+			if _, _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok {
 				readable[rec.ID.String()] = true
 			}
 		}
@@ -466,7 +470,7 @@ func (run *i5rRun) lists(ctx context.Context, ci int, c i5rCase, pol *authz.Poli
 func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Policy, st *i5rCounts) error {
 	a := run.twins[0]
 	for k, p := range c.Principals {
-		_, readsA := authz.Allows(pol, p, authz.OpRead, a.row(p))
+		_, _, readsA := authz.Allows(pol, p, authz.OpRead, a.row(p))
 		if !readsA {
 			continue
 		}

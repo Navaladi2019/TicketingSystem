@@ -1265,12 +1265,15 @@ bru.setVar('s10_alice_groups', JSON.stringify(N.json().groups));"""),
             req("S10.9 Bob's principal id", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
                 tests=f"N.me('{B}');\nbru.setVar('s10_bob', N.json().user_id);"),
             req("S10.10 The admin reads the incident access policy: 200 with its ETag", "GET", et, auth="admin_a_token",
-                desc="The newest published version, `{version, rules, masks, published_by, published_at}`, with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
+                desc="The newest published version, `{version, rules, masks, published_by, published_at}`, where `rules` is always the format-2 document `{format: 2, policies, conditions}` (ADR-010 D12), with `ETag: W/\"<version>\"`. On a fresh stack it is version 1, the default incident ACL, with `published_by` null.",
                 tests="""N.status(200);
 const b = N.json();
-test('version, rules, masks, published_at', () => {
+test('version, rules (format 2), masks, published_at', () => {
   expect(b.version).to.be.a('number');
-  expect(b.rules).to.be.an('array');
+  expect(b.rules).to.be.an('object');
+  expect(b.rules.format).to.eql(2);
+  expect(b.rules.policies).to.be.an('array');
+  expect(b.rules.conditions).to.be.an('array');
   expect(b.masks).to.be.an('array');
   expect(b.published_at).to.be.a('string');
 });
@@ -1471,7 +1474,7 @@ test('the admin sees description', () => expect(N.json().data.description).to.eq
 test('state in_progress', () => expect(N.json().state).to.eql('in_progress'));"""),
         req("S10.38 A3: the requester raises its own incident: 201, requester is the caller", "POST", inc, auth="req_a_token",
             headers=key("req"), body={"data": {"short_description": "S10 {{s10_run}} raised by the requester"}},
-            desc="`default-requester-new` lets a requester create an incident while it is `new`; the pipeline sets `requester` to the caller (A4).",
+            desc="`default_requester_new` lets a requester create an incident while it is `new`; the pipeline sets `requester` to the caller (A4).",
             tests=created("s10_req_rec") + """
 test('requester is the caller, state new', () => {
   expect(N.json().data.requester).to.eql(bru.getVar('s10_requester'));
@@ -1495,7 +1498,7 @@ test("the /service-desk items are exactly Alice's total", () => {
 test('more than Alice sees', () => expect(N.json().total).to.be.above(Number(bru.getVar('s10_alice_sd_total'))));"""),
         req("S10.41 C1: Alice's whole list: only her groups' incidents and her own, total matches", "GET", inc + "?limit=200",
             auth="alice_token",
-            desc="Every item is assigned to one of Alice's groups (`default-service-desk`) or names Alice as requester (S9 and S10.17 raise incidents for her). The admins, unassigned and requester incidents are not there.",
+            desc="Every item is assigned to one of Alice's groups (`default_service_desk`) or names Alice as requester (S9 and S10.17 raise incidents for her). The admins, unassigned and requester incidents are not there.",
             tests="N.status(200);\n" + ids + has("s10_sd_rec") + hasnt("s10_adm_rec") + hasnt("s10_un_rec") + hasnt("s10_req_rec")
             + hasnt("s10_req2_rec") + exact_total + """
 test('every item: one of her groups, or she is the requester', () => {
@@ -1515,11 +1518,11 @@ test('its in_progress incident is listed (read in every state)', () => {
 });"""),
         req("S10.43 A3: the requester edits its own new incident: 200", "PATCH", inc + "/{{s10_req_rec}}", auth="req_a_token",
             headers={**key("req-edit"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 2}},
-            desc="`default-requester-new`: read and write while `state` is `new`.",
+            desc="`default_requester_new`: read and write while `state` is `new`.",
             tests="N.status(200);\ntest('version 2', () => expect(N.json().version).to.eql(2));"),
         req("S10.44 A3: the requester edits its in_progress incident: 403, it can still read it", "PATCH", inc + "/{{s10_req2_rec}}",
             auth="req_a_token", headers={**key("req2-edit"), **mp, "If-Match": 'W/"2"'}, body={"data": {"priority": 2}},
-            desc="Past `new` only `default-requester` (read) admits it: the record is readable, so the answer is 403, not 404. Nothing is written.",
+            desc="Past `new` only `default_requester` (read) admits it: the record is readable, so the answer is 403, not 404. Nothing is written.",
             tests="N.problem('forbidden', 403);"),
         # ---- criterion 3: the same 404
         req("S10.45 C3: Alice opens an id that does not exist: 404", "GET", missing, auth="alice_token",
@@ -1562,27 +1565,27 @@ N.noLeak('s10-internal-' + bru.getVar('s10_run'));"""),
             tests="N.problem('field_not_writable', 422);\nN.fieldError('/data/description');"),
         req("S10.59 C4: Alice writes an unmasked field of the same incident: 200", "PATCH", inc + "/{{s10_sd_rec}}",
             auth="alice_token", headers={**key("alice-prio"), **mp, "If-Match": 'W/"1"'}, body={"data": {"priority": 1}},
-            desc="`default-service-desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.",
+            desc="`default_service_desk` lets her write the incident; only the masked field is refused. Version 1 here also shows S10.58 wrote nothing.",
             tests="N.status(200);\ntest('version 2, no description', () => {\n  expect(N.json().version).to.eql(2);\n  expect(N.json().data).to.not.have.property('description');\n});"),
         req("S10.60 C4: the admin filters on description: 200, the one incident, description unchanged", "GET",
             inc + "?filter[description]=s10-internal-{{s10_run}}", auth="admin_a_token",
             tests="N.status(200);\n" + ids + """test('exactly the /service-desk incident', () => expect(ids).to.eql([bru.getVar('s10_sd_rec')]));
 test('description unchanged', () => expect(N.json().items[0].data.description).to.eql('s10-internal-' + bru.getVar('s10_run')));"""),
         # ---- criterion 5: the explainer
-        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, masked fields listed", "GET",
+        req("S10.61 C5: explain (Alice, /service-desk incident): allow by default_service_desk, masked fields listed", "GET",
             ex("s10_sd_rec", "s10_alice"), auth="admin_a_token",
-            tests=explain("allow", "default-service-desk") + "\ntest('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));"),
+            tests=explain("allow", "default_service_desk") + "\ntest('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));"),
         req("S10.62 C5: explain (Alice, admins incident): deny, no granting rule", "GET", ex("s10_adm_rec", "s10_alice"),
             auth="admin_a_token", desc="Rules are allow-only, so a deny names no rule: `rule_id` is null (api/paths/access.yaml).",
             tests=explain("deny", None)),
         req("S10.63 C5: explain (Alice, unassigned incident): deny", "GET", ex("s10_un_rec", "s10_alice"), auth="admin_a_token",
             tests=explain("deny", None)),
-        req("S10.64 C5: explain (admin, unassigned incident): allow by default-admins (A3 triage)", "GET",
+        req("S10.64 C5: explain (admin, unassigned incident): allow by default_admins (A3 triage)", "GET",
             ex("s10_un_rec", "s10_admin"), auth="admin_a_token",
-            tests=explain("allow", "default-admins") + "\ntest('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));"),
-        req("S10.65 C5: explain (requester, its in_progress incident): allow by default-requester", "GET",
+            tests=explain("allow", "default_admins") + "\ntest('nothing masked for the admin', () => expect(b.masked_fields).to.eql([]));"),
+        req("S10.65 C5: explain (requester, its in_progress incident): allow by default_requester", "GET",
             ex("s10_req2_rec", "s10_requester"), auth="admin_a_token",
-            tests=explain("allow", "default-requester")),
+            tests=explain("allow", "default_requester")),
         # ---- cleanup
         req("S10.66 The admin removes the masks again: 200, the rules unchanged", "PUT", et, auth="admin_a_token",
             headers=key("unmask"), body={"rules": []}, pre=unmask_pre,
@@ -4295,7 +4298,303 @@ N.noLeak(bru.getVar('s18n_permit_def'));"""),
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, x1, x2, x4, x5, x3, s28, late]
+# --------------------------------------------------------------------------- S30
+def s30():
+    """Story S30 (TICK-935, kit TICK-944 P11-12): an admin composes incident
+    access from named conditions with all, any and not. Walked as
+    admin@tenant-a, agent@tenant-a (Alice, /service-desk) and
+    requester@tenant-a (the seeded auditor@tenant-a.test), with Bob of tenant
+    B for the isolation rows. The folder publishes its own documents and ends
+    by republishing the policy it found (S30.47), so S10 and S30 run again on
+    the same stack."""
+    inc = "{{core_url}}/api/v1/records/incident"
+    et = "{{core_url}}/api/v1/entity-types/incident/access"
+    mp = {"Content-Type": "application/merge-patch+json"}
+    key = lambda k: {"Idempotency-Key": "tick944-s30-{{s30_run}}-" + k}
+    ex = lambda rec: "{{core_url}}/api/v1/access/explain?entity=incident&record={{%s}}&user={{s30_alice}}" % rec
+    missing = inc + "/00000000-0000-4000-8000-00000000dead"
+    no404 = """N.status(404);
+test('problem+json, code not_found, no instance', () => {
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});"""
+    same404 = no404 + "\ntest('body byte-identical to the missing id\\'s 404', () => expect(N.text()).to.eql(bru.getVar('s30_ref404')));"
+    created = lambda var: "N.status(201);\nbru.setVar('%s', N.json().id);" % var
+    ids = "const ids = N.json().items.map(i => i.id);\n"
+    has = lambda var: "test('includes %s', () => expect(ids).to.include(bru.getVar('%s')));\n" % (var, var)
+    hasnt = lambda var: "test('leaves out %s', () => expect(ids).to.not.include(bru.getVar('%s')));\n" % (var, var)
+    exact_total = """test('total is the number of items (one page, no cursor)', () => {
+  expect(N.json().next_cursor, 'one page').to.eql(null);
+  expect(N.json().total).to.eql(N.json().items.length);
+});
+"""
+    # The list as a sorted id list and its total, kept before the upgrade
+    # (AC5) and compared after it.
+    keep_list = lambda var: "bru.setVar('%s', JSON.stringify({ ids: N.json().items.map(i => i.id).sort(), total: N.json().total }));" % var
+    same_list = lambda var: """N.status(200);
+const was = JSON.parse(bru.getVar('%s'));
+test('the same ids as before the upgrade', () => expect(N.json().items.map(i => i.id).sort()).to.eql(was.ids));
+test('the same total as before the upgrade', () => expect(N.json().total).to.eql(was.total));""" % var
+    keep_code = lambda var: "bru.setVar('%s', JSON.stringify({ status: res.getStatus(), body: res.getStatus() === 404 ? N.text() : null }));" % var
+    same_code = lambda var: """const was = JSON.parse(bru.getVar('%s'));
+test('the same status as before the upgrade (' + was.status + ')', () => expect(res.getStatus()).to.eql(was.status));
+if (was.status === 404) test('the same 404 bytes as before', () => expect(N.text()).to.eql(was.body));""" % var
+    # The composed document (AC1). The pre-request scripts build it from the
+    # group ids of this stack; variants change one part of it.
+    doc_js = r"""
+const SD = bru.getVar('s30_sd'), ADM = bru.getVar('s30_admins');
+const inAssigned = { cmp: { column: 'assignment_group_id', op: 'in', caller: 'my_groups' } };
+const doc = () => ({
+  format: 2,
+  conditions: [
+    { name: 'in_assigned_group', expr: inAssigned },
+    { name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } },
+    { name: 'is_new', expr: { cmp: { column: 'state', op: 'eq', values: ['new'] } } },
+  ],
+  policies: [
+    { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+    { name: 'agents_see_group_not_raised', ops: ['read'],
+      when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { not: { ref: 'is_requester' } }] } },
+    { name: 'agents_edit_group_new', ops: ['write'],
+      when: { all: [{ member_of: { groups: [SD] } }, { ref: 'in_assigned_group' }, { ref: 'is_new' }] } },
+    { name: 'requesters_see_own', ops: ['read'],
+      when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }] } },
+    { name: 'requesters_edit_own_new', ops: ['write'],
+      when: { all: [{ not: { member_of: { groups: [SD] } } }, { ref: 'is_requester' }, { ref: 'is_new' }] } },
+  ],
+});
+"""
+    publish = lambda change, etag_var: LOAD_PRE + doc_js + """
+const d = doc();
+%s
+req.setBody({ rules: d, masks: [] });
+req.setHeader('If-Match', bru.getVar('%s'));
+""" % (change, etag_var)
+    problem_at = lambda rule, pointer: """N.problem('invalid_access_policy', 422);
+const errs = N.json().errors || [];
+test('%s at %s', () => expect(errs.map(e => e.pointer + ' ' + e.rule)).to.include('%s %s'));""" % (rule, pointer, pointer, rule)
+    trace = lambda policy, cond, val: "test('trace: %s on %s is %s', () => expect(b.trace).to.deep.include({ condition: '%s', policy: '%s', value: %s }));\n" % (cond, policy, val, cond, policy, val)
+    return {
+        "dir": "S30", "name": "S30 composable access",
+        "desc": "Story S30, TICK-935 (kit TICK-944, PLAN-011 P11-12). An admin composes the incident type's access from named conditions (`in_assigned_group`, `is_requester`, `is_new`) combined with `all`, `any` and `not` into named policies (ADR-010 format 2). AC1 S30.28 to S30.31, AC2 S30.32 to S30.35, AC3 S30.36 to S30.41, AC4 S30.42 and S30.43, AC5 S30.9 and S30.14 to S30.27; isolation S30.44 to S30.46. Needs `tools/seed.sh`. Story users: `admin@tenant-a` is tenant A's admin, `agent@tenant-a` is Alice (`/service-desk`), `requester@tenant-a` is the seeded `auditor@tenant-a.test`, Bob is tenant B's agent. Runs again on the same stack: S30.47 republishes the policy S30.9 read, so each pass adds four ACL versions and leaves the decisions as it found them. Kit: `docs/acceptance/S30/`.",
+        "items": [
+            token("S30.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+                  extra="bru.setVar('s30_run', Math.random().toString(16).slice(2, 10));"),
+            token("S30.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
+            token("S30.3 Sign in as requester@tenant-a (seeded auditor@tenant-a.test)", "auditor_a_username", "auditor_a_password", "req_a_token"),
+            token("S30.4 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
+            req("S30.5 Alice's principal id and groups", "GET", "{{core_url}}/api/v1/me", auth="alice_token",
+                desc="Keeps Alice's `user_id`, her group ids and the id of `/service-desk`.",
+                tests="""N.me('00000000-0000-4000-8000-0000000000a1');
+bru.setVar('s30_alice', N.json().user_id);
+bru.setVar('s30_alice_groups', JSON.stringify(N.json().groups));
+const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+test('Alice is in /service-desk', () => expect(sd, 'group_paths /service-desk').to.be.an('object'));
+bru.setVar('s30_sd', sd ? sd.id : '');"""),
+            req("S30.6 The admin's admins group", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+                tests="""N.me('00000000-0000-4000-8000-0000000000a1');
+const g = N.json().group_paths.find(x => x.path === '/admins');
+test('the admin is in /admins', () => expect(g, 'group_paths /admins').to.be.an('object'));
+bru.setVar('s30_admins', g ? g.id : '');"""),
+            req("S30.7 The requester's principal id: in neither /service-desk nor admins", "GET", "{{core_url}}/api/v1/me", auth="req_a_token",
+                tests="""N.me('00000000-0000-4000-8000-0000000000a1');
+bru.setVar('s30_req', N.json().user_id);
+test('not in /service-desk or /admins', () => {
+  expect(N.paths()).to.not.include('/service-desk');
+  expect(N.paths()).to.not.include('/admins');
+});"""),
+            req("S30.8 Bob's /service-desk group: a group of tenant B", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
+                desc="Its id is the other tenant's group id that S30.34 tries to publish in tenant A.",
+                tests="""N.me('00000000-0000-4000-8000-0000000000b1');
+const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+test('Bob is in /service-desk of tenant B', () => expect(sd).to.be.an('object'));
+bru.setVar('s30_b_sd', sd ? sd.id : '');"""),
+            req("S30.9 AC5: the admin reads the incident policy: the S10 rules come out as format 2", "GET", et, auth="admin_a_token",
+                desc="On a fresh stack this is version 1, the default incident ACL: the four S10 rules (`onboard.DefaultIncidentRules`) that `tools/seed.sh` publishes through `nava-onboard reconcile-default-acl`. Since TICK-939 that path stores them as format 2 (`run.sh` shows `jsonb_typeof` `object`), as policies named after the rule ids with `-` turned into `_`. A row stored as format 1 before TICK-939 reads back the same way, converted, with the rule id kept as `legacy_id`. Kept for S30.21 and S30.47.",
+                tests="""N.status(200);
+const b = N.json();
+test('rules is a format-2 document', () => {
+  expect(b.rules.format).to.eql(2);
+  expect(b.rules.conditions).to.be.an('array');
+  expect(b.rules.policies).to.be.an('array').that.is.not.empty;
+});
+test('every policy has a valid name, ops and a when tree', () => b.rules.policies.forEach(p => {
+  expect(p.name).to.match(/^[a-z][a-z0-9_]{0,62}$/);
+  expect(p.ops).to.be.an('array');
+  expect(p.when).to.be.an('object');
+}));
+if (b.version === 1) test('version 1 is the S10 default: default_admins, default_service_desk, default_requester, default_requester_new', () => {
+  expect(b.rules.policies.map(p => p.name)).to.eql(['default_admins', 'default_service_desk', 'default_requester', 'default_requester_new']);
+  const legacy = b.rules.policies.map(p => p.legacy_id);
+  // Seeded since TICK-939 as format 2 (no legacy_id); a row stored as format 1 before it reads back converted, keeping the rule id.
+  expect([JSON.stringify([undefined, undefined, undefined, undefined]), JSON.stringify(['default-admins', 'default-service-desk', 'default-requester', 'default-requester-new'])]).to.include(JSON.stringify(legacy));
+});
+test('ETag W/"<version>"', () => expect(N.header('ETag')).to.eql('W/"' + b.version + '"'));
+bru.setVar('s30_policy', JSON.stringify(b));
+bru.setVar('s30_etag', N.header('ETag'));"""),
+            req("S30.10 The admin creates an incident in /service-desk raised by the requester", "POST", inc, auth="admin_a_token",
+                headers=key("sd-other"), body={"data": {"short_description": "S30 {{s30_run}} service-desk, raised by the requester",
+                                                         "assignment_group": "{{s30_sd}}", "requester": "{{s30_req}}"}},
+                tests=created("s30_sd_other")),
+            req("S30.11 The admin creates an incident in /service-desk raised by Alice", "POST", inc, auth="admin_a_token",
+                headers=key("sd-mine"), body={"data": {"short_description": "S30 {{s30_run}} service-desk, raised by Alice",
+                                                        "assignment_group": "{{s30_sd}}", "requester": "{{s30_alice}}"}},
+                tests=created("s30_sd_mine")),
+            req("S30.12 The admin creates an incident in admins raised by the requester", "POST", inc, auth="admin_a_token",
+                headers=key("adm"), body={"data": {"short_description": "S30 {{s30_run}} admins, raised by the requester",
+                                                    "assignment_group": "{{s30_admins}}", "requester": "{{s30_req}}"}},
+                tests=created("s30_adm")),
+            req("S30.13 Alice opens an id that does not exist: the reference 404", "GET", missing, auth="alice_token",
+                tests=no404 + "\nbru.setVar('s30_ref404', N.text());"),
+            req("S30.14 AC5 before: Alice's list under the stored S10 rules", "GET", inc + "?limit=200", auth="alice_token",
+                desc="`default_service_desk` and `default_requester` admit both /service-desk incidents, not the admins one.",
+                tests="N.status(200);\n" + ids + has("s30_sd_other") + has("s30_sd_mine") + hasnt("s30_adm") + exact_total + keep_list("s30_f1_alice")),
+            req("S30.15 AC5 before: the requester's list", "GET", inc + "?limit=200", auth="req_a_token",
+                tests="N.status(200);\n" + ids + has("s30_sd_other") + has("s30_adm") + hasnt("s30_sd_mine") + exact_total + keep_list("s30_f1_req")),
+            req("S30.16 AC5 before: Alice opens the incident she raised", "GET", inc + "/{{s30_sd_mine}}", auth="alice_token",
+                tests="N.status(200);\n" + keep_code("s30_f1_a_mine")),
+            req("S30.17 AC5 before: Alice opens the admins incident", "GET", inc + "/{{s30_adm}}", auth="alice_token",
+                tests=same404 + "\n" + keep_code("s30_f1_a_adm")),
+            req("S30.18 AC5 before: the requester opens its /service-desk incident", "GET", inc + "/{{s30_sd_other}}", auth="req_a_token",
+                tests="N.status(200);\n" + keep_code("s30_f1_r_other")),
+            req("S30.19 AC5 before: the requester opens Alice's incident", "GET", inc + "/{{s30_sd_mine}}", auth="req_a_token",
+                tests="N.status(404);\n" + keep_code("s30_f1_r_mine")),
+            req("S30.20 AC5 before: Alice opens the requester's /service-desk incident", "GET", inc + "/{{s30_sd_other}}", auth="alice_token",
+                tests="N.status(200);\n" + keep_code("s30_f1_a_other")),
+            req("S30.21 AC5: the admin republishes the format-2 document GET returned", "PUT", et, auth="admin_a_token",
+                headers=key("upgrade"), body={"rules": {}},
+                pre=LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s30_policy'));
+req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setHeader('If-Match', 'W/"' + cur.version + '"');
+""",
+                desc="The body is S30.9's `rules`, unchanged, sent through the access route as a format-2 body. S30.22 to S30.27 repeat S30.14 to S30.19 on the new version and must give the same answers.",
+                tests="""N.status(200);
+const was = JSON.parse(bru.getVar('s30_policy'));
+test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
+test('the same document back', () => expect(N.json().rules).to.eql(was.rules));
+bru.setVar('s30_etag', N.header('ETag'));"""),
+            req("S30.22 AC5 after: Alice's list is the same", "GET", inc + "?limit=200", auth="alice_token", tests=same_list("s30_f1_alice")),
+            req("S30.23 AC5 after: the requester's list is the same", "GET", inc + "?limit=200", auth="req_a_token", tests=same_list("s30_f1_req")),
+            req("S30.24 AC5 after: Alice opens the incident she raised", "GET", inc + "/{{s30_sd_mine}}", auth="alice_token", tests=same_code("s30_f1_a_mine")),
+            req("S30.25 AC5 after: Alice opens the admins incident", "GET", inc + "/{{s30_adm}}", auth="alice_token", tests=same_code("s30_f1_a_adm")),
+            req("S30.26 AC5 after: the requester opens its /service-desk incident", "GET", inc + "/{{s30_sd_other}}", auth="req_a_token", tests=same_code("s30_f1_r_other")),
+            req("S30.27 AC5 after: the requester opens Alice's incident", "GET", inc + "/{{s30_sd_mine}}", auth="req_a_token", tests=same_code("s30_f1_r_mine")),
+            req("S30.28 AC1: the admin publishes \"agents see tickets in their group that they did not raise\"", "PUT", et, auth="admin_a_token",
+                headers=key("composed"), body={"rules": {}}, pre=publish("", "s30_etag"),
+                desc="Three named conditions and five policies. `agents_see_group_not_raised` is `member_of /service-desk AND in_assigned_group AND NOT is_requester`. Requesters outside `/service-desk` see and, while `new`, edit their own. The `not` over `is_requester` is accepted with the lint `not_over_caller_leaf` (a caller with no id would pass it; every signed-in user has one).",
+                tests="""N.status(200);
+const b = N.json();
+test('stored as published: 3 conditions, 5 policies', () => {
+  expect(b.rules.conditions.map(c => c.name)).to.eql(['in_assigned_group', 'is_requester', 'is_new']);
+  expect(b.rules.policies.map(p => p.name)).to.eql(['admins', 'agents_see_group_not_raised', 'agents_edit_group_new', 'requesters_see_own', 'requesters_edit_own_new']);
+});
+test('lint not_over_caller_leaf on the not', () => expect((b.warnings || []).map(w => w.pointer + ' ' + w.code)).to.include('/rules/policies/1/when/all/2/not not_over_caller_leaf'));
+bru.setVar('s30_composed', JSON.stringify(b));
+bru.setVar('s30_etag', N.header('ETag'));"""),
+            req("S30.29 AC1: Alice's list is exactly her groups' incidents she did not raise", "GET", inc + "?limit=200", auth="alice_token",
+                tests="N.status(200);\n" + ids + has("s30_sd_other") + hasnt("s30_sd_mine") + hasnt("s30_adm") + exact_total + """
+test('every item: one of her groups, and she is not the requester', () => {
+  const mine = JSON.parse(bru.getVar('s30_alice_groups'));
+  N.json().items.forEach(i => {
+    expect(i.assignment_group && mine.includes(i.assignment_group.id), i.number + ' in her groups').to.eql(true);
+    expect(i.data.requester, i.number + ' requester').to.not.eql(bru.getVar('s30_alice'));
+  });
+});"""),
+            req("S30.30 AC1: Alice opens the incident she raised: the same 404 as a missing id", "GET", inc + "/{{s30_sd_mine}}", auth="alice_token",
+                tests=same404),
+            req("S30.31 AC1: the requester still sees its own incidents", "GET", inc + "?limit=200", auth="req_a_token",
+                tests="N.status(200);\n" + ids + has("s30_sd_other") + has("s30_adm") + hasnt("s30_sd_mine") + exact_total + """
+test('every item: raised by the requester', () => N.json().items.forEach(i => expect(i.data.requester).to.eql(bru.getVar('s30_req'))));"""),
+            req("S30.32 AC2: a reference to an unknown condition: 422 at the ref", "PUT", et, auth="admin_a_token",
+                headers=key("unknown-ref"), body={"rules": {}},
+                pre=publish("d.policies[1].when.all[1] = { ref: 'in_asigned_group' };", "s30_etag"),
+                tests=problem_at("unresolved_ref", "/rules/policies/1/when/all/1/ref")),
+            req("S30.33 AC2: a reference cycle: 422 at the ref that closes it", "PUT", et, auth="admin_a_token",
+                headers=key("cycle"), body={"rules": {}},
+                pre=publish("""d.conditions.push({ name: 'loop_a', expr: { all: [{ ref: 'is_new' }, { ref: 'loop_b' }] } });
+d.conditions.push({ name: 'loop_b', expr: { any: [{ ref: 'is_requester' }, { ref: 'loop_a' }] } });
+d.policies[1].when.all.push({ ref: 'loop_a' });""", "s30_etag"),
+                desc="`loop_a` refers to `loop_b`, which refers back to `loop_a`.",
+                tests="""N.problem('invalid_access_policy', 422);
+const errs = (N.json().errors || []).map(e => e.pointer + ' ' + e.rule);
+test('ref_cycle, pointing into loop_a or loop_b', () => expect(errs.filter(e => /^\\/rules\\/conditions\\/[34]\\/expr\\/.*\\/ref ref_cycle$/.test(e))).to.not.be.empty);"""),
+            req("S30.34 AC2: another tenant's group id: 422 at the id", "PUT", et, auth="admin_a_token",
+                headers=key("foreign"), body={"rules": {}},
+                pre=publish("d.policies[1].when.all[0] = { member_of: { groups: [bru.getVar('s30_b_sd')] } };", "s30_etag"),
+                desc="Bob's `/service-desk` is a group of tenant B. The answer is the same as for a group id of no tenant, so it says nothing about tenant B.",
+                tests=problem_at("foreign_id", "/rules/policies/1/when/all/0/member_of/groups/0") + "\nN.noLeak(bru.getVar('s30_b_sd'));"),
+            req("S30.35 AC2: GET still shows the S30.28 version", "GET", et, auth="admin_a_token",
+                tests="""N.status(200);
+const was = JSON.parse(bru.getVar('s30_composed'));
+test('version unchanged', () => expect(N.json().version).to.eql(was.version));
+test('document unchanged', () => expect(N.json().rules).to.eql(was.rules));"""),
+            req("S30.36 AC3 before: Alice opens the admins incident: 404", "GET", inc + "/{{s30_adm}}", auth="alice_token", tests=same404),
+            req("S30.37 AC3: the admin edits only the condition in_assigned_group, one publish", "PUT", et, auth="admin_a_token",
+                headers=key("edit-cond"), body={"rules": {}},
+                pre=publish("d.conditions[0].expr = { any: [inAssigned, { cmp: { column: 'assignment_group_id', op: 'in', values: [ADM] } }] };", "s30_etag"),
+                desc="`in_assigned_group` becomes \"assigned to one of my groups, or to admins\" (an escalation group). Two policies use it: `agents_see_group_not_raised` (read) and `agents_edit_group_new` (write). Nothing else in the document changes.",
+                tests="""N.status(200);
+const was = JSON.parse(bru.getVar('s30_composed'));
+const b = N.json();
+test('one new version', () => expect(b.version).to.eql(was.version + 1));
+test('policies unchanged', () => expect(b.rules.policies).to.eql(was.rules.policies));
+test('only in_assigned_group changed', () => {
+  expect(b.rules.conditions[0].expr).to.not.eql(was.rules.conditions[0].expr);
+  expect(b.rules.conditions.slice(1)).to.eql(was.rules.conditions.slice(1));
+});
+bru.setVar('s30_etag', N.header('ETag'));"""),
+            req("S30.38 AC3: Alice's list now has the admins incident too", "GET", inc + "?limit=200", auth="alice_token",
+                desc="The read policy `agents_see_group_not_raised` follows the edited condition.",
+                tests="N.status(200);\n" + ids + has("s30_sd_other") + has("s30_adm") + hasnt("s30_sd_mine") + exact_total),
+            req("S30.39 AC3: Alice opens the admins incident: 200", "GET", inc + "/{{s30_adm}}", auth="alice_token",
+                tests="N.status(200);\nbru.setVar('s30_adm_etag', N.header('ETag'));"),
+            req("S30.40 AC3: Alice edits it: 200", "PATCH", inc + "/{{s30_adm}}", auth="alice_token",
+                headers={**key("alice-edit-adm"), **mp, "If-Match": "{{s30_adm_etag}}"}, body={"data": {"priority": 2}},
+                desc="The write policy `agents_edit_group_new` follows the same edited condition: the incident is `new` and now \"in her assigned group\".",
+                tests="N.status(200);"),
+            req("S30.41 AC3: she still cannot open the incident she raised", "GET", inc + "/{{s30_sd_mine}}", auth="alice_token", tests=same404),
+            req("S30.42 AC4: explain (Alice, the requester's /service-desk incident): the policy and its conditions", "GET", ex("s30_sd_other"),
+                auth="admin_a_token",
+                desc="`policy` is the first policy in declared order that grants read; `trace` lists each named condition it reached with its value on this incident.",
+                tests="""N.status(200);
+const b = N.json();
+test('allow', () => expect(b.decision).to.eql('allow'));
+test('policy agents_see_group_not_raised', () => expect(b.policy).to.eql('agents_see_group_not_raised'));
+test('rule_id is the policy name', () => expect(b.rule_id).to.eql('agents_see_group_not_raised'));
+test('acl_version is the S30.37 version', () => expect('W/"' + b.acl_version + '"').to.eql(bru.getVar('s30_etag')));
+""" + trace("agents_see_group_not_raised", "in_assigned_group", "true") + trace("agents_see_group_not_raised", "is_requester", "false") + """
+test('no voided policy', () => expect(b.invalid).to.eql([]));"""),
+            req("S30.43 AC4: explain (Alice, the incident she raised): deny, and why", "GET", ex("s30_sd_mine"), auth="admin_a_token",
+                desc="On a deny the trace covers every valid read policy, so the admin sees `is_requester` true where it decided.",
+                tests="""N.status(200);
+const b = N.json();
+test('deny', () => expect(b.decision).to.eql('deny'));
+test('no policy', () => expect(b.policy == null).to.eql(true));
+""" + trace("agents_see_group_not_raised", "in_assigned_group", "true") + trace("agents_see_group_not_raised", "is_requester", "true")),
+            req("S30.44 Isolation: Bob's incident list has none of tenant A's", "GET", inc + "?limit=200", auth="bob_token",
+                tests="N.status(200);\n" + ids + hasnt("s30_sd_other") + hasnt("s30_sd_mine") + hasnt("s30_adm")),
+            req("S30.45 Isolation: Bob opens tenant A's incident: 404", "GET", inc + "/{{s30_sd_other}}", auth="bob_token", tests=no404),
+            req("S30.46 Isolation: Bob publishes incident access in tenant B: 403", "PUT", et, auth="bob_token",
+                headers={**key("bob"), "If-Match": 'W/"1"'}, body={"rules": {"format": 2, "conditions": [], "policies": []}},
+                desc="Bob is not a tenant admin; the admin check comes first, so nothing is checked, published or told.",
+                tests="N.problem('forbidden', 403);"),
+            req("S30.47 The admin republishes the policy S30.9 read", "PUT", et, auth="admin_a_token",
+                headers=key("restore"), body={"rules": {}},
+                pre=LOAD_PRE + r"""
+const cur = JSON.parse(bru.getVar('s30_policy'));
+req.setBody({ rules: cur.rules, masks: cur.masks });
+req.setHeader('If-Match', bru.getVar('s30_etag'));
+""",
+                desc="Leaves the decisions as S30.9 found them, so S10 and S30 run again on this stack.",
+                tests="""N.status(200);
+test('the S30.9 document', () => expect(N.json().rules).to.eql(JSON.parse(bru.getVar('s30_policy')).rules));"""),
+        ],
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),

@@ -19,6 +19,7 @@ the D25 escalation. The question: with the real compiled ACL predicate
 | Create, 1 client | 23.0 ms p95 | 50 ms | **met** | `9975568b`, idle machine, 2026-11-11 |
 | Create, 8 clients on `gaps` types: agent / admin / small tenant | 42.4 / 42.1 / 47.2 ms p95 | 50 ms | **met**. Small tenant by only 2.8 ms | `9975568b`, idle machine, 2026-11-11, every gate passed on the first attempt |
 | Create, 8 clients on a `gapless` type | 205.7 ms p95 | none | **reported, not scored**: the type chose that cost (D-3-9) | `9975568b`, idle machine, 2026-11-11 |
+| S30 format 2 (ADR-010): support-agent list, plain / composed `in_assigned_group AND NOT is_requester`, page 1 | 108.7 / 81.4 ms p95 | 150 ms | **met**; same SQL and plan as format 1 | TICK-944, story branch at `34e5299b`, 2026-11-19 (section "S30" below) |
 
 **Method.** Creates were scored on the idle reference machine under vknavaladi's option A (2026-11-11), which keeps the 50 ms target strictly. Each create attempt counts only when it passes four gates:
 
@@ -34,6 +35,51 @@ The method is in "Create re-run on the idle machine" below. The run with the voi
 **Residual risk.** The 8-client margin was measured on a WSL2 virtual disk, and production storage may differ. This is `AR-S10-02` in `docs/security/accepted-risks.md`, owned by the Technical Architect. The trigger is a go-live benchmark on production storage that misses 50 ms. Two known gaps in the method, both accepted by the CTO:
 - no PgBouncer;
 - no HTTP transport.
+
+## S30: format 2 and one composed policy (TICK-944, PLAN-011 P11-12, 2026-11-19 22:50 to 23:30 UTC)
+
+**Result: the support-agent list meets 150 ms p95 with the S10 policies stored as format 2 and with the composed policy `in_assigned_group AND NOT is_requester`.** Format 2 renders the same SQL and the same plan as format 1 for every list row, so a slower format-2 number on this host is contention, not the format.
+
+**Method.**
+- The P3-36 harness and seed, unchanged: 800k shape, one large tenant (400,000 records), 399 small ones, 8 clients, 20 s per row, list and single-read rows only. Creates were not run: S30 does not touch the write path.
+- `NAVA_PERF_ACL_FORMAT=2` (new, `internal/server/records_perf_format2_integration_test.go`) stores every tenant's ACL as the format-2 document that `authz.ConvertFormat1` makes of the P3-36 rules, through `authz.Prepare` and `PublishPrepared`, the access route's own checks and insert. Unset, the harness keeps `acltest.Publish` (format 1, the test seam).
+- The `composed:` rows run last. Before them the large tenant's ticket ACL is republished with the agents' policy as `member_of agents AND in_assigned_group AND NOT is_requester`, beside the converted `mine` and `admins` policies. `ReadBranchBound` is 5 for both documents (threshold 16), and the publish gets the lint `not_over_caller_leaf`, as designed.
+- Three runs, back to back on one host, nothing else in Docker: format 2, a format-1 control, and a format-2 repeat of the rows that missed.
+  - `NAVA_PERF_ACL_FORMAT=2 NAVA_PERF_ONLY='^(agent list|requester list|admin list|small tenant|single GET|composed)' sh bench/acl-perf/run.sh`
+  - the same with `NAVA_PERF_ACL_FORMAT=1` (its `composed:` rows still publish the format-2 composed document)
+  - `NAVA_PERF_ACL_FORMAT=2 NAVA_PERF_ONLY='^(agent list by group|requester list|admin list, default|composed: agent list by group)'`
+- Raw reports: `acl-perf-800k/s30-format2-run1.md`, `s30-format1-control.md`, `s30-format2-run2.md`.
+
+| Row (p95, ms) | Format 1 control | Format 2, run 1 | Format 2, run 2 |
+| --- | --- | --- | --- |
+| **agent list by group, page 1** | 108.6 | **108.7** | **124.4** |
+| **agent list by group, page 20** | 103.2 | **138.7** | 246.3 (contended, see below) |
+| requester list (heavy requesters), page 1 / 20 | 83.5 / 83.6 | 291.9 / 305.5 (contended) | 111.4 / 113.9 |
+| admin list, page 1 / 20 | 92.8 / 89.9 | 203.8 / 176.3 (contended) | 111.6 / 130.2 |
+| agent list, `filter[state]=new` | 92.4 | 101.2 | n/a |
+| agent list, `sort=-updated_at` / `sort=assignee` | 95.9 / 86.4 | 98.9 / 99.4 | n/a |
+| admin list, `state in`, `sort=-updated_at` | 82.9 | 83.0 | n/a |
+| small tenant: agent / admin list | 105.5 / 85.9 | 96.1 / 94.1 | n/a |
+| agent list, `data` filters `priority=1` / `site=s7` | 246.0 / 248.2 | 251.2 / 349.8 | n/a |
+| single GET: agent / admin / small tenant | 31.1 / 32.8 / 32.8 | 33.9 / 34.1 / 42.5 | n/a |
+| **composed: agent list by group, page 1 / 20** | 149.4 / 124.8 | **81.4 / 83.9** | **108.9 / 102.1** |
+| composed: agent list, `filter[state]=new` | 106.6 | 99.2 | n/a |
+| composed: single GET, agent | 37.6 | 30.8 | n/a |
+
+The `data` filter rows are the known miss accepted in P3-36 (TICK-646); format 2 does not change them.
+
+**Why the contended rows are the host, not format 2.**
+- **Same SQL, same plan.** With UUIDs, costs and timings stripped, the captured SQL and `EXPLAIN (ANALYZE, BUFFERS)` of the requester, admin and agent list rows are identical between the format-1 control and format-2 run 1. Format 2 changes how the predicate is built, not what PostgreSQL runs.
+- **The trivial round trips slowed down by the same factor.** In format-2 run 1, the requester list's `BEGIN; set_config` round trip had p50 7.0 ms and p95 37.4 ms, against 3.0 and 8.5 ms in the control. In run 2, agent page 20's `BEGIN` had p95 19.2 ms against about 8. A statement that does no work cannot get slower because of the access document, so the whole host was slower in those windows.
+- **The same rows pass when the window is quiet.** Requester and admin pass in run 2; agent page 20 passes in run 1 and in the control. The composed rows show the same swing the other way: 81 ms in run 1, 149 ms in the control run.
+- **The source.** This host also runs other agents' builds and tests. `docker ps` showed no other database, so the contention came from the Windows side, which the container sampler cannot see.
+
+**Verdict for PLAN-011 P11-12 outcome 1:** met. In every window where the host's round-trip floor was normal, the support-agent list, plain and composed, is within 150 ms p95: 108.7 and 81.4 ms on page 1 in run 1, 108.9 ms composed in run 2. No row got slower because of format 2.
+
+**Known limits.**
+- One host, shared with other work: the same WSL2 caveat as `AR-S10-02`, plus noise from the Windows side.
+- The P3-36 gaps remain: in-process `httptest`, no PgBouncer.
+- Only the agents' policy is composed. The requester and admin policies are the converted S10 ones, which the D6 check shows is today's real shape (at most 4 read branches).
 
 ## 100/s open-loop create, informational (TICK-700, 2026-11-11 04:43 UTC)
 

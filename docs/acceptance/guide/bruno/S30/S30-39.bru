@@ -1,0 +1,21 @@
+meta {
+  name: S30.39 AC3: Alice opens the admins incident: 200
+  type: http
+  seq: 39
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s30_adm}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('s30_adm_etag', N.header('ETag'));
+}

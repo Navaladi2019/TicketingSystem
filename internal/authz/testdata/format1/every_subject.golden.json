@@ -1,0 +1,73 @@
+{
+  "format": 2,
+  "conditions": [],
+  "policies": [
+    {
+      "name": "ok",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "member_of": {
+                  "groups": [
+                    "55555555-5555-4555-8555-555555555555"
+                  ],
+                  "users": [
+                    "44444444-4444-4444-8444-444444444444"
+                  ]
+                }
+              },
+              {
+                "cmp": {
+                  "column": "requester_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              },
+              {
+                "cmp": {
+                  "column": "assignee_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              },
+              {
+                "shared": true
+              }
+            ]
+          },
+          {
+            "cmp": {
+              "column": "state",
+              "op": "in",
+              "values": [
+                "closed",
+                "open"
+              ]
+            }
+          },
+          {
+            "cmp": {
+              "column": "requester_id",
+              "op": "in",
+              "values": [
+                "44444444-4444-4444-8444-444444444444"
+              ]
+            }
+          },
+          {
+            "cmp": {
+              "column": "assignee_id",
+              "op": "eq",
+              "caller": "self"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -143,16 +143,7 @@ func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, prob
 			c.rule(child("/rules", i), r, ruleIDs)
 		}
 	}
-	if v, present := obj["masks"]; present {
-		arr, ok := v.([]any)
-		if !ok {
-			c.bad("/masks", RuleType)
-		} else {
-			for i, m := range arr {
-				c.mask(child("/masks", i), m)
-			}
-		}
-	}
+	c.masks(obj)
 	if len(c.problems) > 0 {
 		return nil, nil, nil, c.problems
 	}
@@ -173,6 +164,22 @@ func ParsePolicy(raw []byte) (rules []Rule, masks []Mask, refs []TenantRef, prob
 		body.Masks = []Mask{}
 	}
 	return body.Rules, body.Masks, c.refs, nil
+}
+
+// masks checks obj["masks"], when present, mask by mask.
+func (c *policyCheck) masks(obj map[string]any) {
+	v, present := obj["masks"]
+	if !present {
+		return
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		c.bad("/masks", RuleType)
+		return
+	}
+	for i, m := range arr {
+		c.mask(child("/masks", i), m)
+	}
 }
 
 func (c *policyCheck) object(ptr string, v any, keys ...string) (map[string]any, bool) {

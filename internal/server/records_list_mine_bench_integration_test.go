@@ -52,7 +52,7 @@ func TestMineListBench(t *testing.T) {
 		"req1": uuid.MustParse("fccbb3fd-048d-a9ac-ec41-5c1548c480a0"),
 		"req8": uuid.MustParse("f222cde6-739e-cb4e-eaa6-14c1a2bed245"),
 	}
-	pol := &authz.Policy{Version: 1, Rules: []authz.Rule{{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}}}}
+	pol := &authz.Policy{Version: 1, Document: authz.ConvertFormat1([]authz.Rule{{ID: "mine", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}}})}
 	names := make([]string, 0, len(actors))
 	for n := range actors {
 		names = append(names, n)

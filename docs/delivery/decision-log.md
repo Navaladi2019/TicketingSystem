@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-20: S30, a format-1 rule id that is not a valid name is renamed when published; no legacy_id is stored](decisions/2026-11-20-s30-format1-rule-names-renamed-on-publish.md)
 - [2026-11-20: PLAN-007-A1 drafted: ADR-006-A1's watch and spikes land as S21b after S21 merges; A1-6 waits for the R-a trigger](decisions/2026-11-20-plan-007-a1-adr-006-a1.md)
 - [2026-11-19: PLAN-011 folds ADR-010-A1 into S30's existing tasks; no separate plan](decisions/2026-11-19-plan-011-folds-adr-010-a1.md)
 - [2026-11-15: TICK-961, Go 1.27 upgrade ships the toolchain, UUIDv7 ids and strict JSON decode; the stdlib `uuid` move is cut to its own story](decisions/2026-11-15-tick-961-go-1-27-upgrade.md)

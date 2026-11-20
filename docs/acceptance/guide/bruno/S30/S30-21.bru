@@ -1,0 +1,43 @@
+meta {
+  name: S30.21 AC5: the admin republishes the format-2 document GET returned
+  type: http
+  seq: 21
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick944-s30-{{s30_run}}-upgrade
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": {}
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s30_policy'));
+  req.setBody({ rules: cur.rules, masks: cur.masks });
+  req.setHeader('If-Match', 'W/"' + cur.version + '"');
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s30_policy'));
+  test('version + 1', () => expect(N.json().version).to.eql(was.version + 1));
+  test('the same document back', () => expect(N.json().rules).to.eql(was.rules));
+  bru.setVar('s30_etag', N.header('ETag'));
+}
+
+docs {
+  The body is S30.9's `rules`, unchanged, sent through the access route as a format-2 body. S30.22 to S30.27 repeat S30.14 to S30.19 on the new version and must give the same answers.
+}

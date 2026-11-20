@@ -411,8 +411,8 @@ func i5rGenerate(seed uint64) (*i5rWorld, []i5rCase) {
 	for i := range cases {
 		c := &cases[i]
 		c.Rules = []authz.Rule{} // stored as [], never null
-		if pol := w.acl.policy(r); pol != nil {
-			c.Rules = append(c.Rules, slices.DeleteFunc(pol.Rules, func(rule authz.Rule) bool { return !i5rStorable(rule) })...)
+		if pol, rules := w.acl.policy(r); pol != nil {
+			c.Rules = append(c.Rules, slices.DeleteFunc(rules, func(rule authz.Rule) bool { return !i5rStorable(rule) })...)
 		}
 		c.Masks = w.mask(r)
 		for range i5rPrincipals {
@@ -478,7 +478,7 @@ func TestI5RouteGeneratorCoversTheRiskyShapes(t *testing.T) {
 		}
 	}
 	for _, c := range cases {
-		pol := &authz.Policy{Rules: c.Rules, Masks: c.Masks}
+		pol := &authz.Policy{Document: authz.ConvertFormat1(c.Rules), Masks: c.Masks}
 		for k, p := range c.Principals {
 			has[fmt.Sprintf("caller who may name cost: %v", authz.Readable(pol, p, "cost"))] = true
 			for _, q := range c.Queries[k] {
@@ -611,10 +611,10 @@ func TestI5RouteTwinsDifferOnlyInCost(t *testing.T) {
 		t.Fatalf("the twins differ beyond cost:\n%s\n%s", strip(a), strip(b))
 	}
 	c := i5rMaskCase(w)
-	pol := &authz.Policy{Rules: c.Rules, Masks: c.Masks}
+	pol := &authz.Policy{Document: authz.ConvertFormat1(c.Rules), Masks: c.Masks}
 	sides := map[bool]int{}
 	for _, p := range c.Principals {
-		if _, ok := authz.Allows(pol, p, authz.OpRead, a.row(p)); !ok {
+		if _, _, ok := authz.Allows(pol, p, authz.OpRead, a.row(p)); !ok {
 			t.Fatalf("caller %s cannot read twin a under the mask case", p.PrincipalID)
 		}
 		sides[authz.Readable(pol, p, "cost")]++

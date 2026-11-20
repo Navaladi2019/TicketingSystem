@@ -24,6 +24,7 @@ type Config struct {
 	Deps      Dependencies
 	RateLimit RateLimit
 	Cursor    Cursor
+	ACL       ACL
 }
 
 // HTTP configures the two listeners. Both use the same timeouts.
@@ -166,6 +167,7 @@ func Load(lookup LookupFunc) (Config, error) {
 			IdleTTL: r.duration("NAVA_RATE_LIMIT_IDLE_TTL", 10*time.Minute),
 		},
 		Cursor: r.cursor(),
+		ACL:    r.acl(),
 	}
 	cfg.Deps = Dependencies{
 		DatabaseURL:           r.databaseURL("NAVA_DATABASE_URL"),

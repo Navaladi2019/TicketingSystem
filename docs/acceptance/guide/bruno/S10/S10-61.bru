@@ -1,5 +1,5 @@
 meta {
-  name: S10.61 C5: explain (Alice, /service-desk incident): allow by default-service-desk, masked fields listed
+  name: S10.61 C5: explain (Alice, /service-desk incident): allow by default_service_desk, masked fields listed
   type: http
   seq: 61
 }
@@ -19,7 +19,7 @@ tests {
   N.status(200);
   const b = N.json();
   test('decision allow', () => expect(b.decision).to.eql('allow'));
-  test('rule_id default-service-desk', () => expect(b.rule_id).to.eql('default-service-desk'));
+  test('rule_id default_service_desk', () => expect(b.rule_id).to.eql('default_service_desk'));
   test('acl_version is the masked version', () => expect(b.acl_version).to.eql(Number(bru.getVar('s10_mask_version'))));
   test('masked_fields: assignee, description', () => expect(b.masked_fields).to.have.members(['assignee', 'description']));
 }

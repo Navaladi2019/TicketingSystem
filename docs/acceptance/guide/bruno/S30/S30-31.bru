@@ -1,0 +1,30 @@
+meta {
+  name: S30.31 AC1: the requester still sees its own incidents
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{req_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s30_sd_other', () => expect(ids).to.include(bru.getVar('s30_sd_other')));
+  test('includes s30_adm', () => expect(ids).to.include(bru.getVar('s30_adm')));
+  test('leaves out s30_sd_mine', () => expect(ids).to.not.include(bru.getVar('s30_sd_mine')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+
+  test('every item: raised by the requester', () => N.json().items.forEach(i => expect(i.data.requester).to.eql(bru.getVar('s30_req'))));
+}

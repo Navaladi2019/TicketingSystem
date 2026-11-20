@@ -1,0 +1,685 @@
+
+== readyz (nava-core admin listener)
+ok
+
+
+== seed tenants A and B
+NOTICE:  seed: 2 new audit chain heads, 2 first audit.seal rows
+ Container nava-nava-groupsync-run-5ba5338fc0a6 Creating 
+ Container nava-nava-groupsync-run-5ba5338fc0a6 Created 
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
+
+== the incident ACL as stored (array = format 1, object = format 2; seeded as format 2 since TICK-939)
+ tenant_a | version | stored_as | seeded_default 
+----------+---------+-----------+----------------
+ t        |       1 | object    | t
+ f        |       1 | object    | t
+(2 rows)
+
+
+== authz_policy_invalid_total before the walk
+(no authz_policy_invalid_total or authz_read_branches_fallback_total series yet: zero)
+
+== Bruno folder S30 composable access (AC1 to AC5 and the isolation rows)
+S30\S30-1 (200 OK) - 368 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S30\S30-2 (200 OK) - 132 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S30\S30-3 (200 OK) - 124 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S30\S30-4 (200 OK) - 154 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S30\S30-5 (200 OK) - 157 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ Alice is in /service-desk
+S30\S30-6 (200 OK) - 39 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ the admin is in /admins
+S30\S30-7 (200 OK) - 47 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ not in /service-desk or /admins
+S30\S30-8 (200 OK) - 28 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000b1
+   ✓ Me has the contract fields
+   ✓ Bob is in /service-desk of tenant B
+S30\S30-9 (200 OK) - 41 ms
+Tests
+   ✓ HTTP 200
+   ✓ rules is a format-2 document
+   ✓ every policy has a valid name, ops and a when tree
+   ✓ version 1 is the S10 default: default_admins, default_service_desk, default_requester, default_requester_new
+   ✓ ETag W/"<version>"
+S30\S30-10 (201 Created) - 43 ms
+Tests
+   ✓ HTTP 201
+S30\S30-11 (201 Created) - 43 ms
+Tests
+   ✓ HTTP 201
+S30\S30-12 (201 Created) - 45 ms
+Tests
+   ✓ HTTP 201
+S30\S30-13 (404 Not Found) - 44 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S30\S30-14 (200 OK) - 56 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s30_sd_other
+   ✓ includes s30_sd_mine
+   ✓ leaves out s30_adm
+   ✓ total is the number of items (one page, no cursor)
+S30\S30-15 (200 OK) - 44 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s30_sd_other
+   ✓ includes s30_adm
+   ✓ leaves out s30_sd_mine
+   ✓ total is the number of items (one page, no cursor)
+S30\S30-16 (200 OK) - 46 ms
+Tests
+   ✓ HTTP 200
+S30\S30-17 (404 Not Found) - 42 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S30\S30-18 (200 OK) - 25 ms
+Tests
+   ✓ HTTP 200
+S30\S30-19 (404 Not Found) - 23 ms
+Tests
+   ✓ HTTP 404
+S30\S30-20 (200 OK) - 33 ms
+Tests
+   ✓ HTTP 200
+S30\S30-21 (200 OK) - 39 ms
+Tests
+   ✓ HTTP 200
+   ✓ version + 1
+   ✓ the same document back
+S30\S30-22 (200 OK) - 35 ms
+Tests
+   ✓ HTTP 200
+   ✓ the same ids as before the upgrade
+   ✓ the same total as before the upgrade
+S30\S30-23 (200 OK) - 50 ms
+Tests
+   ✓ HTTP 200
+   ✓ the same ids as before the upgrade
+   ✓ the same total as before the upgrade
+S30\S30-24 (200 OK) - 30 ms
+Tests
+   ✓ the same status as before the upgrade (200)
+S30\S30-25 (404 Not Found) - 40 ms
+Tests
+   ✓ the same status as before the upgrade (404)
+   ✓ the same 404 bytes as before
+S30\S30-26 (200 OK) - 33 ms
+Tests
+   ✓ the same status as before the upgrade (200)
+S30\S30-27 (404 Not Found) - 22 ms
+Tests
+   ✓ the same status as before the upgrade (404)
+   ✓ the same 404 bytes as before
+S30\S30-28 (200 OK) - 61 ms
+Tests
+   ✓ HTTP 200
+   ✓ stored as published: 3 conditions, 5 policies
+   ✓ lint not_over_caller_leaf on the not
+S30\S30-29 (200 OK) - 37 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s30_sd_other
+   ✓ leaves out s30_sd_mine
+   ✓ leaves out s30_adm
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item: one of her groups, and she is not the requester
+S30\S30-30 (404 Not Found) - 37 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S30\S30-31 (200 OK) - 38 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s30_sd_other
+   ✓ includes s30_adm
+   ✓ leaves out s30_sd_mine
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item: raised by the requester
+S30\S30-32 (422 Unprocessable Entity) - 42 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code invalid_access_policy
+   ✓ problem instance is this response's X-Request-Id
+   ✓ unresolved_ref at /rules/policies/1/when/all/1/ref
+S30\S30-33 (422 Unprocessable Entity) - 43 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code invalid_access_policy
+   ✓ problem instance is this response's X-Request-Id
+   ✓ ref_cycle, pointing into loop_a or loop_b
+S30\S30-34 (422 Unprocessable Entity) - 74 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code invalid_access_policy
+   ✓ problem instance is this response's X-Request-Id
+   ✓ foreign_id at /rules/policies/1/when/all/0/member_of/groups/0
+   ✓ response names nothing of the other tenant
+S30\S30-35 (200 OK) - 38 ms
+Tests
+   ✓ HTTP 200
+   ✓ version unchanged
+   ✓ document unchanged
+S30\S30-36 (404 Not Found) - 39 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S30\S30-37 (200 OK) - 60 ms
+Tests
+   ✓ HTTP 200
+   ✓ one new version
+   ✓ policies unchanged
+   ✓ only in_assigned_group changed
+S30\S30-38 (200 OK) - 47 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s30_sd_other
+   ✓ includes s30_adm
+   ✓ leaves out s30_sd_mine
+   ✓ total is the number of items (one page, no cursor)
+S30\S30-39 (200 OK) - 51 ms
+Tests
+   ✓ HTTP 200
+S30\S30-40 (200 OK) - 75 ms
+Tests
+   ✓ HTTP 200
+S30\S30-41 (404 Not Found) - 51 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S30\S30-42 (200 OK) - 52 ms
+Tests
+   ✓ HTTP 200
+   ✓ allow
+   ✓ policy agents_see_group_not_raised
+   ✓ rule_id is the policy name
+   ✓ acl_version is the S30.37 version
+   ✓ trace: in_assigned_group on agents_see_group_not_raised is true
+   ✓ trace: is_requester on agents_see_group_not_raised is false
+   ✓ no voided policy
+S30\S30-43 (200 OK) - 52 ms
+Tests
+   ✓ HTTP 200
+   ✓ deny
+   ✓ no policy
+   ✓ trace: in_assigned_group on agents_see_group_not_raised is true
+   ✓ trace: is_requester on agents_see_group_not_raised is true
+S30\S30-44 (200 OK) - 49 ms
+Tests
+   ✓ HTTP 200
+   ✓ leaves out s30_sd_other
+   ✓ leaves out s30_sd_mine
+   ✓ leaves out s30_adm
+S30\S30-45 (404 Not Found) - 32 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S30\S30-46 (403 Forbidden) - 29 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S30\S30-47 (200 OK) - 57 ms
+Tests
+   ✓ HTTP 200
+   ✓ the S30.9 document
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 47 (47 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │    145/145     │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │      4104      │
+└───────────────┴────────────────┘
+Wrote html results to <repo>/docs/acceptance/guide/reports/S30.html
+Wrote json results to <repo>/docs/acceptance/guide/reports/S30.json
+Wrote junit results to <repo>/docs/acceptance/guide/reports/S30.junit.xml
+api-test: reports in <repo>/docs/acceptance/guide/reports/S30.{junit.xml,html,json}
+api-test: PASS
+
+== after: tenant A's versions, all format 2; tenant B unchanged at version 1
+ tenant_a | version | stored_as | seeded_default 
+----------+---------+-----------+----------------
+ t        |       1 | object    | t
+ t        |       2 | object    | f
+ t        |       3 | object    | f
+ t        |       4 | object    | f
+ t        |       5 | object    | f
+ f        |       1 | object    | t
+(6 rows)
+
+
+== AC5: the S10 folder, written for the S10 rules, on the same stack
+S10\S10-1 (200 OK) - 231 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-2 (200 OK) - 46 ms
+Tests
+   ✓ HTTP 200
+   ✓ items is an array of at most 5
+   ✓ total is an integer at least the page size
+   ✓ next_cursor is a string or null
+S10\S10-3 (400 Bad Request) - 56 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-4 (400 Bad Request) - 48 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code invalid_cursor
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-5 (401 Unauthorized) - 36 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-6 (200 OK) - 94 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-7 (200 OK) - 95 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-8 (200 OK) - 32 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ Alice is in /service-desk
+S10\S10-9 (200 OK) - 34 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000b1
+   ✓ Me has the contract fields
+S10\S10-10 (200 OK) - 43 ms
+Tests
+   ✓ HTTP 200
+   ✓ version, rules (format 2), masks, published_at
+   ✓ ETag W/"<version>"
+S10\S10-11 (403 Forbidden) - 39 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-12 (404 Not Found) - 20 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-13 (428 Precondition Required) - 41 ms
+Tests
+   ✓ HTTP 428
+   ✓ problem+json, code if_match_required
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-14 (412 Precondition Failed) - 44 ms
+Tests
+   ✓ HTTP 412
+   ✓ problem+json, code version_conflict
+   ✓ problem instance is this response's X-Request-Id
+   ✓ the current ETag is in the header
+S10\S10-15 (200 OK) - 59 ms
+Tests
+   ✓ HTTP 200
+   ✓ version + 1
+   ✓ the same rules
+   ✓ ETag W/"<version>"
+S10\S10-16 (422 Unprocessable Entity) - 37 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code invalid_access_policy
+   ✓ problem instance is this response's X-Request-Id
+   ✓ the column is named
+S10\S10-17 (201 Created) - 24 ms
+Tests
+   ✓ HTTP 201
+S10\S10-18 (200 OK) - 52 ms
+Tests
+   ✓ HTTP 200
+   ✓ allow, a rule id, an ACL version, a masked list
+S10\S10-19 (404 Not Found) - 57 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-20 (403 Forbidden) - 51 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-21 (401 Unauthorized) - 32 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-22 (400 Bad Request) - 32 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-23 (401 Unauthorized) - 25 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-24 (401 Unauthorized) - 32 ms
+Tests
+   ✓ HTTP 401
+   ✓ problem+json, code invalid_token
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-25 (403 Forbidden) - 56 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-26 (404 Not Found) - 41 ms
+Tests
+   ✓ HTTP 404 problem+json, code not_found, no instance
+   ✓ HTTP 404
+S10\S10-27 (400 Bad Request) - 37 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code validation_failed
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-28 (200 OK) - 129 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S10\S10-29 (200 OK) - 45 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ not in /service-desk or /admins
+S10\S10-30 (200 OK) - 41 ms
+Tests
+   ✓ HTTP 200
+   ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
+   ✓ Me has the contract fields
+   ✓ the admin is in /admins
+S10\S10-31 (200 OK) - 49 ms
+Tests
+   ✓ HTTP 200
+   ✓ version: S10.10 + 2 (S10.15 + 1)
+   ✓ the same rules
+   ✓ two masks, description and assignee, admins only
+   ✓ published_by is the admin
+S10\S10-32 (200 OK) - 63 ms
+Tests
+   ✓ HTTP 200
+   ✓ newest acl_policy entry: config publish
+   ✓ at the masked version, by the admin
+S10\S10-33 (201 Created) - 47 ms
+Tests
+   ✓ HTTP 201
+   ✓ assigned to /service-desk
+   ✓ the admin sees description
+S10\S10-34 (201 Created) - 47 ms
+Tests
+   ✓ HTTP 201
+S10\S10-35 (201 Created) - 48 ms
+Tests
+   ✓ HTTP 201
+S10\S10-36 (201 Created) - 41 ms
+Tests
+   ✓ HTTP 201
+S10\S10-37 (200 OK) - 58 ms
+Tests
+   ✓ HTTP 200
+   ✓ state in_progress
+S10\S10-38 (201 Created) - 46 ms
+Tests
+   ✓ HTTP 201
+   ✓ requester is the caller, state new
+S10\S10-39 (200 OK) - 54 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item is assigned to /service-desk
+   ✓ no item shows description
+S10\S10-40 (200 OK) - 39 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ includes s10_adm_rec
+   ✓ includes s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ the /service-desk items are exactly Alice's total
+   ✓ more than Alice sees
+S10\S10-41 (200 OK) - 51 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ leaves out s10_req_rec
+   ✓ leaves out s10_req2_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item: one of her groups, or she is the requester
+S10\S10-42 (200 OK) - 30 ms
+Tests
+   ✓ HTTP 200
+   ✓ includes s10_req_rec
+   ✓ includes s10_req2_rec
+   ✓ leaves out s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ total is the number of items (one page, no cursor)
+   ✓ every item names the requester
+   ✓ its in_progress incident is listed (read in every state)
+S10\S10-43 (200 OK) - 52 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2
+S10\S10-44 (403 Forbidden) - 44 ms
+Tests
+   ✓ HTTP 403
+   ✓ problem+json, code forbidden
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-45 (404 Not Found) - 44 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-46 (404 Not Found) - 36 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-47 (404 Not Found) - 30 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-48 (404 Not Found) - 55 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-49 (404 Not Found) - 40 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-50 (404 Not Found) - 35 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-51 (404 Not Found) - 43 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+S10\S10-52 (404 Not Found) - 58 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+S10\S10-53 (404 Not Found) - 58 ms
+Tests
+   ✓ HTTP 404
+   ✓ problem+json, code not_found, no instance
+   ✓ body byte-identical to the missing id's 404
+   ✓ response names nothing of the other tenant
+S10\S10-54 (200 OK) - 66 ms
+Tests
+   ✓ HTTP 200
+   ✓ leaves out s10_sd_rec
+   ✓ leaves out s10_adm_rec
+   ✓ leaves out s10_un_rec
+   ✓ leaves out s10_req_rec
+   ✓ leaves out s10_req2_rec
+   ✓ response names nothing of the other tenant
+S10\S10-55 (200 OK) - 50 ms
+Tests
+   ✓ HTTP 200
+   ✓ data has no description
+   ✓ response names nothing of the other tenant
+S10\S10-56 (400 Bad Request) - 51 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code masked_field
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-57 (400 Bad Request) - 87 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code masked_field
+   ✓ problem instance is this response's X-Request-Id
+S10\S10-58 (422 Unprocessable Entity) - 79 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code field_not_writable
+   ✓ problem instance is this response's X-Request-Id
+   ✓ errors[] points at /data/description
+S10\S10-59 (200 OK) - 74 ms
+Tests
+   ✓ HTTP 200
+   ✓ version 2, no description
+S10\S10-60 (200 OK) - 56 ms
+Tests
+   ✓ HTTP 200
+   ✓ exactly the /service-desk incident
+   ✓ description unchanged
+S10\S10-61 (200 OK) - 38 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default_service_desk
+   ✓ acl_version is the masked version
+   ✓ masked_fields: assignee, description
+S10\S10-62 (200 OK) - 54 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision deny
+   ✓ rule_id None
+   ✓ acl_version is the masked version
+S10\S10-63 (200 OK) - 41 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision deny
+   ✓ rule_id None
+   ✓ acl_version is the masked version
+S10\S10-64 (200 OK) - 44 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default_admins
+   ✓ acl_version is the masked version
+   ✓ nothing masked for the admin
+S10\S10-65 (200 OK) - 44 ms
+Tests
+   ✓ HTTP 200
+   ✓ decision allow
+   ✓ rule_id default_requester
+   ✓ acl_version is the masked version
+S10\S10-66 (200 OK) - 61 ms
+Tests
+   ✓ HTTP 200
+   ✓ version + 1
+   ✓ S10.10's rules, no masks
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 66 (66 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │    220/220     │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │      5305      │
+└───────────────┴────────────────┘
+Wrote html results to <repo>/docs/acceptance/guide/reports/S10.html
+Wrote json results to <repo>/docs/acceptance/guide/reports/S10.json
+Wrote junit results to <repo>/docs/acceptance/guide/reports/S10.junit.xml
+api-test: reports in <repo>/docs/acceptance/guide/reports/S10.{junit.xml,html,json}
+api-test: PASS
+
+== authz_policy_invalid_total after the walk (R7: stays at zero)
+(no authz_policy_invalid_total or authz_read_branches_fallback_total series yet: zero)
+
+== D6, format 1: the PLAN-011 SQL (newest format-1 documents only)
+ tenants | max_total_branches 
+---------+--------------------
+       0 |                   
+(1 row)
+
+
+== D6, every newest document: authz.ReadBranchBound (tools/acceptance/acld6)
+00000000-0000-4000-8000-0000000000a1 incident   v8   format 2  read branches 4
+00000000-0000-4000-8000-0000000000b1 incident   v1   format 2  read branches 4
+D6: 2 documents (2 format 2) in 2 tenants, max 4 read branches, threshold 16: PASS
