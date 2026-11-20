@@ -325,6 +325,42 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 
 // ---- InviteUser / DisableUser / SetGroupMembers ----------------------------
 
+// TICK-948 (D-11-6): the nava_primary_org_unit attribute, set through the
+// admin API on a real Keycloak user, comes back in ChangesSince as
+// PrimaryOrgUnitPath. The realm's user profile must declare it, or Keycloak
+// drops the attribute (unmanaged attributes are off).
+func TestChangesSinceCarriesPrimaryOrgUnit(t *testing.T) {
+	d := newDirectory(t, newRegistry(), false, nil)
+	email := "primary-unit-" + uuid.NewString() + "@tenant-a.test"
+	uid := seedTenantUser(t, tenantA, email)
+	primary := "/t/" + tenantA.String() + "/ou/eng"
+	pathOf := func() (string, bool) {
+		t.Helper()
+		snap, _, err := d.ChangesSince(t.Context(), tenantA, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range snap.Users {
+			if u.KeycloakUserID == uid {
+				return u.PrimaryOrgUnitPath, true
+			}
+		}
+		return "", false
+	}
+	if got, ok := pathOf(); !ok || got != "" {
+		t.Fatalf("before the attribute: PrimaryOrgUnitPath = %q (in snapshot: %v), want empty", got, ok)
+	}
+	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+uid, map[string]any{
+		"username": email, "email": email, "enabled": true,
+		"attributes": map[string][]string{keycloak.PrimaryOrgUnitAttribute: {primary}},
+	}); code != http.StatusNoContent {
+		t.Fatalf("set %s: %d %s", keycloak.PrimaryOrgUnitAttribute, code, b)
+	}
+	if got, ok := pathOf(); !ok || got != primary {
+		t.Errorf("PrimaryOrgUnitPath = %q (in snapshot: %v), want %q", got, ok, primary)
+	}
+}
+
 func TestInviteAndDisableUser(t *testing.T) {
 	reg := newRegistry()
 	inv := &recordingInvites{}

@@ -45,6 +45,10 @@ const (
 	// IdPAliasPrefix prefixes the server-derived alias of a tenant's IdP.
 	IdPAliasPrefix = "idp-"
 
+	// PrimaryOrgUnitAttribute is the user attribute that holds the group path of
+	// the user's primary org unit (ADR-010 D-11-6).
+	PrimaryOrgUnitAttribute = "nava_primary_org_unit"
+
 	maxDirectoryItems = 20000
 	maxEmailBytes     = 254
 	rollbackTimeout   = 10 * time.Second
@@ -814,6 +818,9 @@ func (d *Directory) snapshot(ctx context.Context, tenantID uuid.UUID) (identity.
 			return snap, err
 		}
 		du := identity.DirectoryUser{KeycloakUserID: id, Email: u.Email, Enabled: u.Enabled}
+		if v := u.Attributes[PrimaryOrgUnitAttribute]; len(v) == 1 {
+			du.PrimaryOrgUnitPath = v[0]
+		}
 		for _, l := range links {
 			du.FederatedLinks = append(du.FederatedLinks, identity.FederatedLink{IdPAlias: l.IdentityProvider, ExternalUserID: l.UserID})
 		}

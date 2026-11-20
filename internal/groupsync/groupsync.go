@@ -34,6 +34,10 @@ import (
 // LagWarnAfter is the lag past which a tenant is named in a log line (D-P9).
 const LagWarnAfter = 10 * time.Minute
 
+// SubtreeWarnAt is the groupsync_org_subtree_max value at which a tenant is
+// named in a log line: 80% of the 10,000-unit cap (TICK-950 P11-17).
+const SubtreeWarnAt = 8000
+
 // DefaultInterval is the time between cycles (D-P9).
 const DefaultInterval = 5 * time.Minute
 
@@ -68,6 +72,8 @@ type Syncer struct {
 	log  *slog.Logger
 	opts Options
 	lag  metric.Float64Histogram
+	// subtree is groupsync_org_subtree_max, one observation per applied tenant.
+	subtree metric.Int64Histogram
 
 	mu      sync.Mutex
 	cursors map[uuid.UUID]string
@@ -104,8 +110,16 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	if err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
+	sub, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Histogram(
+		"groupsync_org_subtree_max",
+		metric.WithDescription("Largest number of live org units under any one unit a user belongs to, observed once per applied tenant sync. Never labelled by tenant; a tenant over SubtreeWarnAt is named in a log line."),
+		metric.WithUnit("{unit}"),
+		metric.WithExplicitBucketBoundaries(10, 100, 500, 1000, 2500, 5000, 7500, 10000))
+	if err != nil {
+		return nil, fmt.Errorf("groupsync: %w", err)
+	}
 	return &Syncer{
-		pool: pool, dir: dir, log: log, opts: opts, lag: h,
+		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub,
 		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, started: opts.Now(),
 	}, nil
 }
@@ -194,6 +208,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 
 	var digest string
 	var snapAt time.Time
+	subtreeMax := -1 // -1: nothing applied, nothing to record
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		var locked bool
 		if err := tx.QueryRow(ctx, lockSQL, LockName(tenantID)).Scan(&locked); err != nil {
@@ -220,12 +235,19 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		digest = d
 		if changes.Unchanged {
 			res.Unchanged = true
+			// Nothing to apply, but the tenant's tree size is still reported.
+			n, err := storedOrgSubtreeMax(ctx, tx, tenantID, s.opts.MaxOrgUnitDepth)
+			if err != nil {
+				return err
+			}
+			subtreeMax = n
 			return nil
 		}
 		st, err := apply(ctx, tx, tenantID, changes, s.opts.Now(), s.opts.MaxOrgUnitDepth)
 		if err != nil {
 			return err
 		}
+		subtreeMax = st.OrgSubtreeMax
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
 				slog.String("tenant_id", tenantID.String()))
@@ -234,6 +256,8 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_tombstoned", st.PrincipalsTombstoned),
 			slog.Int("groups_written", st.GroupsWritten), slog.Int("groups_deleted", st.GroupsDeleted),
 			slog.Int("org_units_written", st.OrgUnitsWritten), slog.Int("org_units_deleted", st.OrgUnitsDeleted),
+			slog.Int("org_members_written", st.OrgMembersWritten), slog.Int("org_members_removed", st.OrgMembersRemoved),
+			slog.Int("org_subtree_max", st.OrgSubtreeMax),
 			slog.Int("ignored_outside_subtree", st.Ignored))
 		return nil
 	})
@@ -243,6 +267,13 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	}
 	if res.Skipped {
 		return res
+	}
+	if subtreeMax >= 0 {
+		s.subtree.Record(ctx, int64(subtreeMax))
+		if subtreeMax >= SubtreeWarnAt {
+			s.log.WarnContext(ctx, "group sync: an org unit subtree nears the 10,000-unit cap",
+				slog.String("tenant_id", tenantID.String()), slog.Int("org_subtree_max", subtreeMax))
+		}
 	}
 	s.mu.Lock()
 	s.cursors[tenantID] = digest
