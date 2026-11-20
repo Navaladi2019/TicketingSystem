@@ -17,8 +17,8 @@ import (
 
 func scalarField(name string, number int32, typ descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {
 	return &descriptorpb.FieldDescriptorProto{
-		Name:   proto.String(name),
-		Number: proto.Int32(number),
+		Name:   new(name),
+		Number: new(number),
 		Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 		Type:   typ.Enum(),
 	}
@@ -26,7 +26,7 @@ func scalarField(name string, number int32, typ descriptorpb.FieldDescriptorProt
 
 func messageField(name string, number int32, typeName string) *descriptorpb.FieldDescriptorProto {
 	f := scalarField(name, number, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
-	f.TypeName = proto.String(".synthetic.v1." + typeName)
+	f.TypeName = new(".synthetic.v1." + typeName)
 	return f
 }
 
@@ -37,17 +37,17 @@ func syntheticRequest(t *testing.T, fields ...*descriptorpb.FieldDescriptorProto
 	t.Helper()
 	str := descriptorpb.FieldDescriptorProto_TYPE_STRING
 	file := &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("synthetic/v1/request.proto"),
-		Package: proto.String("synthetic.v1"),
-		Syntax:  proto.String("proto3"),
+		Name:    new("synthetic/v1/request.proto"),
+		Package: new("synthetic.v1"),
+		Syntax:  new("proto3"),
 		MessageType: []*descriptorpb.DescriptorProto{
-			{Name: proto.String("Request"), Field: fields},
-			{Name: proto.String("Failure"), Field: []*descriptorpb.FieldDescriptorProto{
+			{Name: new("Request"), Field: fields},
+			{Name: new("Failure"), Field: []*descriptorpb.FieldDescriptorProto{
 				scalarField("message", 1, str),
 				messageField("cause", 2, "Failure"),
 				messageField("info", 3, "Info"),
 			}},
-			{Name: proto.String("Info"), Field: []*descriptorpb.FieldDescriptorProto{
+			{Name: new("Info"), Field: []*descriptorpb.FieldDescriptorProto{
 				scalarField("detail", 1, str),
 				messageField("back", 2, "Failure"),
 			}},
@@ -90,7 +90,7 @@ func TestRequestFieldGoldenFailsOnDrift(t *testing.T) {
 	added := append(baseFields(), scalarField("note", 4, descriptorpb.FieldDescriptorProto_TYPE_STRING))
 	removed := baseFields()[:2]
 	renamed := baseFields()
-	renamed[1].Name = proto.String("labels") // same number, new name
+	renamed[1].Name = new("labels") // same number, new name
 	retyped := baseFields()
 	retyped[1].Type = descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum()
 
@@ -164,14 +164,14 @@ func TestRequestFieldWalkStopsAtCycles(t *testing.T) {
 // body is expanded into the three update bodies the server accepts.
 func TestRequestFieldGoldenFailsOnUnexpandedAny(t *testing.T) {
 	file := &descriptorpb.FileDescriptorProto{
-		Name:       proto.String("synthetic/v1/any.proto"),
-		Package:    proto.String("synthetic.v1"),
-		Syntax:     proto.String("proto3"),
+		Name:       new("synthetic/v1/any.proto"),
+		Package:    new("synthetic.v1"),
+		Syntax:     new("proto3"),
 		Dependency: []string{"google/protobuf/any.proto"},
-		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Request"), Field: []*descriptorpb.FieldDescriptorProto{
+		MessageType: []*descriptorpb.DescriptorProto{{Name: new("Request"), Field: []*descriptorpb.FieldDescriptorProto{
 			scalarField("namespace", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			{Name: proto.String("body"), Number: proto.Int32(2), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-				Type: descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(), TypeName: proto.String(".google.protobuf.Any")},
+			{Name: new("body"), Number: proto.Int32(2), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type: descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(), TypeName: new(".google.protobuf.Any")},
 		}}},
 	}
 	fd, err := protodesc.NewFile(file, protoregistry.GlobalFiles)

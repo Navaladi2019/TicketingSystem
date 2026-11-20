@@ -1,0 +1,136 @@
+meta {
+  name: S28.9 Publish the example type: incident version 2 from the handbook example: 201
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+  Idempotency-Key: tick884-s28-{{s28_run}}-type
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": {
+      "fixed_columns": {
+        "state": "state",
+        "requester": "requester_id",
+        "assignee": "assignee_id",
+        "assignment_group": "assignment_group_id"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "in_progress",
+          "resolved",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "in_progress"
+          },
+          {
+            "from": "in_progress",
+            "to": "resolved"
+          },
+          {
+            "from": "resolved",
+            "to": "closed"
+          },
+          {
+            "from": "resolved",
+            "to": "in_progress"
+          }
+        ]
+      },
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "title": "Title",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "maxLength": 32000
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "enum": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "default": 3
+          },
+          "affected_service": {
+            "type": "string",
+            "title": "Affected service",
+            "maxLength": 120
+          },
+          "requester": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requester"
+          },
+          "assignee": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignee"
+          },
+          "assignment_group": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment group"
+          }
+        }
+      }
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('version 2, current, has affected_service', () => {
+    expect(b.version).to.eql(2);
+    expect(b.current).to.eql(true);
+    expect(b.schema.properties).to.have.property('affected_service');
+  });
+}
+
+docs {
+  Tour step 6. `incident` already exists, so the handbook example `docs/handbook/examples/incident.json` (the template plus `affected_service`) is published as its next version: body `{"definition": …}` of the example.
+}

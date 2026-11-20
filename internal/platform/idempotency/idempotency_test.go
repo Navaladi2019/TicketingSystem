@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -115,9 +116,7 @@ func newMW(t *testing.T) (http.Handler, *int) {
 
 func call(h http.Handler, method string, hdr http.Header, body string, withPrincipal bool) *httptest.ResponseRecorder {
 	req := httptest.NewRequestWithContext(context.Background(), method, "/api/v1/things", strings.NewReader(body))
-	for k, v := range hdr {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, hdr)
 	if withPrincipal {
 		req = req.WithContext(identity.NewContext(req.Context(), identity.Principal{TenantID: uuid.New(), PrincipalID: uuid.New()}))
 	}

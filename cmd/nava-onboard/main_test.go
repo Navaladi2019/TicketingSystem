@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
 )
 
@@ -31,5 +34,20 @@ func TestReconcileAuditorsRefusesBadInput(t *testing.T) {
 	}
 	if err := reconcileAuditors(t.Context(), lookup, io.Discard, []string{"00000000-0000-4000-8000-0000000000a1"}); err == nil {
 		t.Fatal("reconcile ran with no configuration")
+	}
+}
+
+func TestWarnDevIdPHosts(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	warnDevIdPHosts(t.Context(), log, nil)
+	if buf.Len() != 0 {
+		t.Fatalf("logged with an empty list: %s", buf.String())
+	}
+	warnDevIdPHosts(t.Context(), log, []string{"localhost:8080", "keycloak:8080"})
+	out := buf.String()
+	if strings.Count(out, "\n") != 1 || !strings.Contains(out, `"level":"WARN"`) ||
+		!strings.Contains(out, "localhost:8080") || !strings.Contains(out, "keycloak:8080") {
+		t.Fatalf("want one WARN naming both hosts, got: %s", out)
 	}
 }

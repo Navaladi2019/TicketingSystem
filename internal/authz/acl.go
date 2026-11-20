@@ -13,25 +13,25 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
-	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 )
 
 // The record ACL (PLAN-003 S10, P3-31; ADR-001 I5: one authorization layer,
-// inside the query). An entity type's published ACL is a Policy: allow-only
-// rules that OR together. A rule admits a principal for an op when its
-// subject names the principal and every one of its conditions holds on the
-// record. No policy, an empty policy and a malformed rule all deny (fail
-// closed).
+// inside the query). An entity type's published ACL is a Policy whose
+// Document holds allow-only policies that OR together (ADR-010 D1): a policy
+// admits a principal for an op when it grants the op and its when expression
+// holds on the record. No policy, an empty document and an invalid policy all
+// deny (fail closed).
 //
 // The same decision has two forms: Allows checks one record in Go, and
 // CompileRead returns a SQL predicate a query puts in its WHERE. They must
 // agree for every policy, principal and row (I5; P3-32 fuzzes it). Both are
-// built on one resolution step, plan: it validates the policy, drops every
-// rule that cannot match the principal and the op, and resolves everything
-// that depends only on the principal (its groups, its id, self, my_groups)
-// into fixed sets. What is left depends only on the row, and has exactly two
-// renderings: plannedRule.allows (Go) and plannedRule.sql (SQL). Every case
-// either rendering handles must be handled the same way in the other.
+// built on one resolution step, plan (plan.go): it expands every ref, voids
+// every invalid policy, drops every policy that does not grant the op, and
+// resolves everything that depends only on the principal (its groups, its id,
+// self, my_groups, member_of) into constants and fixed sets. What is left
+// depends only on the row, and has exactly two renderings: pnode.eval (Go) and
+// pnode.sql (SQL). Every case either rendering handles must be handled the
+// same way in the other, and no SQL term may be NULL (plan.go, D5a).
 
 // The ops a rule grants.
 const (
@@ -109,11 +109,14 @@ type Mask struct {
 	Write Subject `json:"write"`
 }
 
-// Policy is an entity type's published ACL version.
+// Policy is an entity type's published ACL version. Document is the decoded
+// rules (format 2, or format 1 converted on read). EntityType is the entity
+// type's key, the label of authz_policy_invalid_total; PolicyStore sets it.
 type Policy struct {
 	EntityDefinitionID uuid.UUID
+	EntityType         string
 	Version            int
-	Rules              []Rule
+	Document           Document
 	Masks              []Mask
 }
 
@@ -132,22 +135,36 @@ type Row struct {
 	SharedWith                                 []uuid.UUID
 }
 
-// Allows reports whether pol lets p perform op on r, and the id of the first
-// rule, in policy order, that does. A nil policy allows nothing.
-func Allows(pol *Policy, p identity.Principal, op string, r Row) (ruleID string, ok bool) {
-	for _, pr := range plan(pol, p, op) {
-		if pr.allows(r) {
-			return pr.id, true
+// Allows reports whether pol lets p perform op on r: ok, the name of the
+// first policy, in declared order, that grants it, and the value on r of each
+// named condition that policy reaches (TraceStep). The answer is the OR over
+// the policies granting op (D1); the order only decides which name is
+// reported. A voided policy grants nothing and is counted. A nil policy
+// allows nothing.
+func Allows(pol *Policy, p identity.Principal, op string, r Row) (policy string, trace []TraceStep, ok bool) {
+	planned := plan(pol, p, op)
+	countVoided(pol, planned)
+	return firstGrant(planned, r)
+}
+
+// firstGrant is Allows over an existing plan: the first valid policy, in declared
+// order, whose tree holds on r, and its trace. It counts nothing, so a caller
+// that plans once counts each voided policy once; the explainer reads the
+// rest of its answer from the same slice.
+func firstGrant(planned []plannedPolicy, r Row) (policy string, trace []TraceStep, ok bool) {
+	for _, pp := range planned {
+		if pp.err == nil && pp.tree.eval(r) {
+			return pp.name, pp.trace(r), true
 		}
 	}
-	return "", false
+	return "", nil, false
 }
 
 // CompileRead returns a boolean SQL predicate over the records row aliased
 // alias that is true exactly for the rows Allows(pol, p, "read", row) admits,
 // and its arguments. Placeholders are numbered from argBase+1, so argBase is
 // the number of arguments the surrounding query already binds. It returns
-// "false" and no arguments when no rule can match.
+// "false" and no arguments when no policy can match.
 //
 // Every id the predicate binds comes from pol or from p, never from a
 // request. alias must be a plain SQL identifier; anything else panics (a
@@ -156,239 +173,239 @@ func CompileRead(pol *Policy, p identity.Principal, alias string, argBase int) (
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: CompileRead alias %q is not a plain identifier", alias))
 	}
+	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
+	return compileRead(planned, c), c.args
+}
+
+// compileRead is CompileRead over an existing plan; it counts nothing, so a
+// caller that plans once counts each voided policy once (D5b).
+func compileRead(planned []plannedPolicy, c *compiler) string {
 	var ors []string
-	for _, pr := range plan(pol, p, OpRead) {
-		ors = append(ors, pr.sql(c))
+	for _, pp := range planned {
+		if pp.err == nil {
+			ors = append(ors, pp.tree.sql(c))
+		}
 	}
 	if len(ors) == 0 {
-		return "false", nil
+		return "false"
 	}
-	return "(" + strings.Join(ors, " OR ") + ")", c.args
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+// ReadBranchThreshold is the SP-2 total-branch threshold (ADR-010 D6, PLAN-011
+// C6; docs/data/acl-format2-caps.md §3, TICK-933): up to 16 branches the
+// index-per-branch form wins whenever one branch is heavy, and above 16 the OR
+// form wins in every case measured, because planning the branched statement
+// grows with the square of the branch count. Above it ReadBranches returns no
+// branch, so the caller uses CompileRead, and counts
+// authz_read_branches_fallback_total. It is exported so that tools such as
+// tools/acceptance/acld6 check against this value rather than a copy.
+const ReadBranchThreshold = 16
+
+// ReadPredicate is the list read path's predicate from one plan: the
+// ReadBranches branches when there are at least two (and at most
+// ReadBranchThreshold), else no branch and CompileRead's predicate in where.
+// Placeholders and arguments follow CompileRead's contract. It plans once, so
+// one call counts each voided policy once (D5b), where ReadBranches followed
+// by a CompileRead fallback would count it twice; a fallback above the
+// threshold is counted once too.
+func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, where string, args []any) {
+	if !identRE.MatchString(alias) {
+		panic(fmt.Sprintf("authz: ReadPredicate alias %q is not a plain identifier", alias))
+	}
+	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
+	c := &compiler{alias: alias, base: argBase}
+	branches, over := readBranches(planned, c)
+	if over {
+		countReadFallback(pol)
+	}
+	if len(branches) >= 2 {
+		return branches, "", c.args
+	}
+	c = &compiler{alias: alias, base: argBase}
+	return nil, compileRead(planned, c), c.args
 }
 
 // ReadBranches is CompileRead's predicate split into branches for a query that
 // answers each branch from its own index and merges them (TICK-644). Their OR
 // admits exactly the rows CompileRead admits and no row matches two of them:
 // each branch carries the negation of the branches before it, so a UNION ALL of
-// the branches repeats no row. The branches are the rule's subjects in the
-// order requester, assignee, shared, each with the rule's conditions, rule by
-// rule; the placeholders and arguments follow CompileRead's contract (numbered
-// from argBase+1, every id from pol or p). A rule that admits every row (the
-// caller is named by it and it has no conditions) makes the whole predicate
-// the single branch "true". An everyone rule WITH conditions is not special:
-// its disjunct is "(true AND conditions)" and it is a branch like any other, so
-// it can sit beside a requester branch. No branch means no rule can match;
-// callers fall back to CompileRead when there are fewer than two branches.
+// the branches repeats no row. The placeholders and arguments follow
+// CompileRead's contract (numbered from argBase+1, every id from pol or p).
 //
-// Exclusion needs every term to be two-valued: the SQL below never yields NULL
-// (colEq and the conditions carry IS NOT NULL, state is NOT NULL, the share
-// term is an EXISTS), so NOT d_j is true exactly when d_j is false and no row
-// is dropped by "AND NOT". A term that could be NULL would silently remove its
-// rows from every later branch (Security review risk 2); keep new terms
-// two-valued. The text grows with the square of the number of disjuncts (branch
-// i repeats the i-1 before it); a policy has a handful of subjects, so that is
-// small, but it is not meant for hundreds.
+// The split (ADR-010 D6) is on the OR across policies, then on each policy's
+// folded tree: a top-level any gives one branch per child, and a top-level all
+// with exactly one any child gives one branch per child of that any, each
+// ANDed with the all's other children (today's per-subject disjuncts of a
+// converted format-1 rule; at most MaxChildren, 16, per policy). A policy
+// whose tree folds to true admits every row, so the whole predicate is the
+// single branch "true". No branch means no policy can match, or more than
+// ReadBranchThreshold (SP-2) in total, which is counted in
+// authz_read_branches_fallback_total; callers fall back to CompileRead when
+// there are fewer than two branches. A caller that wants that fallback uses
+// ReadPredicate, which plans once and so counts a voided policy once (D5b).
+//
+// Exclusion needs every term to be two-valued, so that NOT d_j is true exactly
+// when d_j is false and no row is dropped by "AND NOT". A uuid cmp carries
+// "IS NOT NULL AND" and shared is an EXISTS, so those are two-valued on any
+// row. A state cmp is not guarded: it renders "(r.state = ANY(...))", and
+// records.state is nullable (PLAN-001's bare rows). It is two-valued only
+// because every caller restricts the rows to one entity type
+// (r.entity_definition_id = $2, internal/records/store/list.go), and
+// records_pipeline_all_or_none_check makes state non-NULL whenever
+// entity_definition_id is set. A caller without that filter must not use these
+// branches. The SQL is left as it is on purpose: adding the guard would change
+// the CI-6 text (ADR-010-E1). A term that could be NULL would silently remove
+// its rows from every later branch (Security review risk 2); keep new terms
+// two-valued. The text grows with the square of the number of branches
+// (branch i repeats the i-1 before it), which is why the threshold exists.
 func ReadBranches(pol *Policy, p identity.Principal, alias string, argBase int) (branches []string, args []any) {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadBranches alias %q is not a plain identifier", alias))
 	}
+	planned := plan(pol, p, OpRead)
+	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
-	var plain []string
-	for _, pr := range plan(pol, p, OpRead) {
-		if pr.everyone && len(pr.conds) == 0 {
-			return []string{"true"}, nil
-		}
-		plain = append(plain, pr.disjuncts(c)...)
-	}
-	for i, d := range plain {
-		b := d
-		for _, prev := range plain[:i] {
-			b += " AND NOT " + prev
-		}
-		branches = append(branches, "("+b+")")
+	branches, over := readBranches(planned, c)
+	if over {
+		countReadFallback(pol)
 	}
 	return branches, c.args
 }
 
-// disjuncts is the rule's SQL split by subject: each is a subject term ANDed
-// with every condition, so their OR is sql. The conditions' arguments are bound
-// once and their text shared. Every disjunct is two-valued (never NULL), which
-// ReadBranches relies on for its AND NOT exclusion.
-func (pr plannedRule) disjuncts(c *compiler) []string {
-	var who []string
-	if pr.everyone {
-		who = []string{"true"}
-	} else {
-		if pr.requester {
-			who = append(who, c.colEq(metadata.ColumnRequesterID, pr.caller))
-		}
-		if pr.assignee {
-			who = append(who, c.colEq(metadata.ColumnAssigneeID, pr.caller))
-		}
-		if pr.shared {
-			who = append(who, c.shared(pr.caller, pr.groups))
+// readBranches is ReadBranches over an existing plan; it counts nothing. over
+// reports that the plan has more than ReadBranchThreshold branches: then it
+// returns none and binds no argument (it counts before it renders).
+func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over bool) {
+	for _, pp := range planned {
+		if pp.err == nil && pp.tree.op == pTrue {
+			return []string{"true"}, false
 		}
 	}
-	conds := make([]string, len(pr.conds))
-	for i, cd := range pr.conds {
-		conds[i] = cd.sql(c)
+	total := 0
+	for _, pp := range planned {
+		if pp.err == nil {
+			total += pp.tree.disjunctCount()
+		}
 	}
-	out := make([]string, len(who))
-	for i, w := range who {
-		out[i] = "(" + strings.Join(append([]string{w}, conds...), " AND ") + ")"
+	if total > ReadBranchThreshold {
+		return nil, true
+	}
+	var plain []string
+	for _, pp := range planned {
+		if pp.err == nil {
+			plain = append(plain, pp.tree.disjuncts(c)...)
+		}
+	}
+	branches = make([]string, 0, len(plain))
+	for i, d := range plain {
+		var b strings.Builder
+		b.WriteString(d)
+		for _, prev := range plain[:i] {
+			b.WriteString(" AND NOT " + prev)
+		}
+		branches = append(branches, "("+b.String()+")")
+	}
+	return branches, false
+}
+
+// splitAt is the index of a top-level all's only any child, the one D6
+// distributes; -1 when n is not an all or has no or several any children.
+func (n pnode) splitAt() int {
+	if n.op != pAll {
+		return -1
+	}
+	at := -1
+	for i, k := range n.kids {
+		if k.op == pAny {
+			if at >= 0 {
+				return -1
+			}
+			at = i
+		}
+	}
+	return at
+}
+
+// disjunctCount is len(n.disjuncts(c)), without rendering anything.
+func (n pnode) disjunctCount() int {
+	if n.op == pAny {
+		return len(n.kids)
+	}
+	if at := n.splitAt(); at >= 0 {
+		return len(n.kids[at].kids)
+	}
+	return 1
+}
+
+// disjunctTrees are the trees n.disjuncts renders, in the same order: their
+// OR is n. The tests evaluate them; the SQL is rendered by disjuncts, which
+// binds the shared children of a distributed all once.
+func (n pnode) disjunctTrees() []pnode {
+	if n.op == pAny {
+		return n.kids
+	}
+	at := n.splitAt()
+	if at < 0 {
+		return []pnode{n}
+	}
+	out := make([]pnode, len(n.kids[at].kids))
+	for i, s := range n.kids[at].kids {
+		kids := slices.Clone(n.kids)
+		kids[at] = s
+		out[i] = pnode{op: pAll, kids: kids}
 	}
 	return out
+}
+
+// disjuncts is the tree's SQL split as ReadBranches describes; their OR is
+// n.sql. The other children of a distributed all are rendered, and their
+// arguments bound, once, and their text shared.
+func (n pnode) disjuncts(c *compiler) []string {
+	if n.op == pAny {
+		out := make([]string, len(n.kids))
+		for i, k := range n.kids {
+			out[i] = k.branchSQL(c)
+		}
+		return out
+	}
+	at := n.splitAt()
+	if at < 0 {
+		return []string{n.branchSQL(c)}
+	}
+	subjects := make([]string, len(n.kids[at].kids))
+	for i, k := range n.kids[at].kids {
+		subjects[i] = k.sql(c)
+	}
+	rest := make([]string, len(n.kids))
+	for i, k := range n.kids {
+		if i != at {
+			rest[i] = k.sql(c)
+		}
+	}
+	out := make([]string, len(subjects))
+	for i, s := range subjects {
+		terms := slices.Clone(rest)
+		terms[at] = s
+		out[i] = "(" + strings.Join(terms, " AND ") + ")"
+	}
+	return out
+}
+
+// branchSQL is n.sql as one disjunct: always one parenthesized term. An all
+// already renders as one; anything else is wrapped, as S10's disjuncts wrapped
+// a lone subject (CI-6: the same SQL text for a converted format-1 policy).
+func (n pnode) branchSQL(c *compiler) string {
+	if n.op == pAll {
+		return n.sql(c)
+	}
+	return "(" + n.sql(c) + ")"
 }
 
 var identRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-
-// plannedRule is a rule resolved against one principal and op: what remains
-// depends only on the row.
-type plannedRule struct {
-	id string
-	// everyone: the rule's Groups or Users name the caller, so the subject
-	// matches every row. Otherwise at least one of the row-dependent subjects
-	// below is set.
-	everyone bool
-	// caller is the caller's principal id; the row-dependent subjects compare
-	// against it, and are dropped when the caller has none.
-	caller    uuid.UUID
-	groups    []uuid.UUID // the caller's groups, for shared
-	requester bool
-	assignee  bool
-	shared    bool
-	conds     []plannedCond
-}
-
-// plannedCond is a condition resolved to a non-empty set: the column must be
-// non-NULL and one of the values. A uuid column has ids, state has strs.
-type plannedCond struct {
-	column string
-	ids    []uuid.UUID
-	strs   []string
-}
-
-// plan resolves pol for p and op, keeping the policy's rule order. A rule that
-// does not grant op, names nobody p can be, or has a condition that is
-// invalid or resolves to an empty set is dropped: it matches no row.
-func plan(pol *Policy, p identity.Principal, op string) []plannedRule {
-	if pol == nil || (op != OpRead && op != OpWrite) {
-		return nil
-	}
-	var out []plannedRule
-	for _, r := range pol.Rules {
-		pr, ok := planRule(r, p, op)
-		if ok {
-			out = append(out, pr)
-		}
-	}
-	return out
-}
-
-func planRule(r Rule, p identity.Principal, op string) (plannedRule, bool) {
-	if !slices.Contains(r.Ops, op) {
-		return plannedRule{}, false
-	}
-	pr := plannedRule{id: r.ID, caller: p.PrincipalID, groups: p.Groups}
-	pr.everyone = intersects(r.Who.Groups, p.Groups) ||
-		(p.PrincipalID != uuid.Nil && slices.Contains(r.Who.Users, p.PrincipalID))
-	if !pr.everyone && p.PrincipalID != uuid.Nil {
-		pr.requester, pr.assignee, pr.shared = r.Who.Requester, r.Who.Assignee, r.Who.Shared
-	}
-	if !pr.everyone && !pr.requester && !pr.assignee && !pr.shared {
-		return plannedRule{}, false
-	}
-	for _, c := range r.Where {
-		pc, ok := planCond(c, p)
-		if !ok {
-			return plannedRule{}, false
-		}
-		pr.conds = append(pr.conds, pc)
-	}
-	return pr, true
-}
-
-func planCond(c Cond, p identity.Principal) (plannedCond, bool) {
-	pc := plannedCond{column: c.Column}
-	switch c.Op {
-	case CondEq, CondIn:
-	default:
-		return pc, false
-	}
-	isState := c.Column == metadata.ColumnState
-	switch c.Column {
-	case metadata.ColumnState, metadata.ColumnRequesterID, metadata.ColumnAssigneeID, metadata.ColumnAssignmentGroupID:
-	default:
-		return pc, false
-	}
-	switch c.Caller {
-	case "":
-		if c.Op == CondEq && len(c.Values) != 1 {
-			return pc, false
-		}
-		for _, v := range c.Values {
-			if isState {
-				pc.strs = append(pc.strs, v)
-				continue
-			}
-			id, err := uuid.Parse(v)
-			if err != nil {
-				return pc, false
-			}
-			pc.ids = append(pc.ids, id)
-		}
-	case CallerSelf:
-		if len(c.Values) > 0 || (c.Column != metadata.ColumnRequesterID && c.Column != metadata.ColumnAssigneeID) || p.PrincipalID == uuid.Nil {
-			return pc, false
-		}
-		pc.ids = []uuid.UUID{p.PrincipalID}
-	case CallerMyGroups:
-		if len(c.Values) > 0 || c.Column != metadata.ColumnAssignmentGroupID {
-			return pc, false
-		}
-		pc.ids = slices.Clone(p.Groups)
-	default:
-		return pc, false
-	}
-	if len(pc.ids) == 0 && len(pc.strs) == 0 {
-		return pc, false // an empty set matches no row
-	}
-	return pc, true
-}
-
-// allows is the Go rendering: the subject matches the row, and so does every
-// condition.
-func (pr plannedRule) allows(r Row) bool {
-	who := pr.everyone ||
-		(pr.requester && eqID(r.RequesterID, pr.caller)) ||
-		(pr.assignee && eqID(r.AssigneeID, pr.caller)) ||
-		(pr.shared && sharedWithCaller(r.SharedWith, pr.caller, pr.groups))
-	if !who {
-		return false
-	}
-	for _, c := range pr.conds {
-		if !c.allows(r) {
-			return false
-		}
-	}
-	return true
-}
-
-func (c plannedCond) allows(r Row) bool {
-	var col *uuid.UUID
-	switch c.column {
-	case metadata.ColumnState:
-		return slices.Contains(c.strs, r.State)
-	case metadata.ColumnRequesterID:
-		col = r.RequesterID
-	case metadata.ColumnAssigneeID:
-		col = r.AssigneeID
-	case metadata.ColumnAssignmentGroupID:
-		col = r.AssignmentGroupID
-	}
-	return col != nil && slices.Contains(c.ids, *col)
-}
 
 // sharedWithCaller is the Go side of the share subject. SharedWith is already
 // pair-matched by SharesFor; matching it against the caller's id and groups
@@ -414,31 +431,6 @@ func (c *compiler) arg(v any) string {
 	return "$" + strconv.Itoa(c.base+len(c.args))
 }
 
-// sql is the SQL rendering of allows, term for term. records.state is NOT
-// NULL; a NULL uuid column is excluded explicitly, so no term is ever NULL
-// and the predicate needs no three-valued reasoning.
-func (pr plannedRule) sql(c *compiler) string {
-	var who []string
-	if pr.everyone {
-		who = []string{"true"}
-	} else {
-		if pr.requester {
-			who = append(who, c.colEq(metadata.ColumnRequesterID, pr.caller))
-		}
-		if pr.assignee {
-			who = append(who, c.colEq(metadata.ColumnAssigneeID, pr.caller))
-		}
-		if pr.shared {
-			who = append(who, c.shared(pr.caller, pr.groups))
-		}
-	}
-	terms := []string{"(" + strings.Join(who, " OR ") + ")"}
-	for _, cd := range pr.conds {
-		terms = append(terms, cd.sql(c))
-	}
-	return "(" + strings.Join(terms, " AND ") + ")"
-}
-
 func (c *compiler) col(name string) string { return c.alias + "." + name }
 
 func (c *compiler) colEq(column string, id uuid.UUID) string {
@@ -454,13 +446,6 @@ func (c *compiler) shared(caller uuid.UUID, groups []uuid.UUID) string {
 		" OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY(" + c.arg(UUIDTexts(groups)) + "::uuid[]))))"
 }
 
-func (cd plannedCond) sql(c *compiler) string {
-	if cd.column == metadata.ColumnState {
-		return "(" + c.col(cd.column) + " = ANY(" + c.arg(cd.strs) + "::text[]))"
-	}
-	return "(" + c.col(cd.column) + " IS NOT NULL AND " + c.col(cd.column) + " = ANY(" + c.arg(UUIDTexts(cd.ids)) + "::uuid[]))"
-}
-
 // UUIDTexts is ids as the text array a uuid[] parameter is bound as. The
 // server's pools run in QueryExecModeExec, where a parameter has no declared
 // type and pgx cannot encode a []uuid.UUID; a []string with an explicit
@@ -472,8 +457,6 @@ func UUIDTexts(ids []uuid.UUID) []string {
 	}
 	return out
 }
-
-func eqID(col *uuid.UUID, id uuid.UUID) bool { return col != nil && *col == id }
 
 func intersects(a, b []uuid.UUID) bool {
 	for _, x := range a {

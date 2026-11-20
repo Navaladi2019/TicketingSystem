@@ -1,0 +1,44 @@
+meta {
+  name: S28.11 The admin creates an incident: 201, state new
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s28_admin_token}}
+  Idempotency-Key: tick884-s28-{{s28_run}}-rec
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S28 {{s28_run}} first routed record",
+      "priority": 3,
+      "affected_service": "email"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('state new, schema version 2', () => {
+    expect(b.state).to.eql('new');
+    expect(b.schema_version).to.eql(2);
+  });
+  bru.setVar('s28_rec', b.id);
+  bru.setVar('s28_rec_at', String(Date.now()));
+  console.log('S28.11 created', b.number, b.id);
+}
+
+docs {
+  Tour step 9. Version 2 of the type (S28.9) is current, so the record is created under it.
+}

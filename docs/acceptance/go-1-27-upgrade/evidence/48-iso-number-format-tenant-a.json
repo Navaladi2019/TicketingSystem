@@ -1,0 +1,22 @@
+{
+  "step": "iso-number-format-tenant-a",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/number-formats/01a1f3dd-40c2-78b7-b56f-358286a9a3ca",
+    "headers": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

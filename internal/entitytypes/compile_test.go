@@ -17,8 +17,7 @@ func TestCompileOfAStoredVersionIsNeverAnInvalidDefinition(t *testing.T) {
 	if err == nil {
 		t.Fatal("compile of a broken stored version succeeded")
 	}
-	var ie *metadata.ErrInvalidDefinition
-	if errors.As(err, &ie) {
+	if _, ok := errors.AsType[*metadata.ErrInvalidDefinition](err); ok {
 		t.Fatalf("stored-version compile error matches *ErrInvalidDefinition: %v", err)
 	}
 	if errors.Is(err, ErrNotFound) {

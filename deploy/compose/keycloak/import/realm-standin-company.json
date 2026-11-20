@@ -1,0 +1,46 @@
+{
+  "realm": "standin-company",
+  "displayName": "Stand-in company login (local stack only)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "resetPasswordAllowed": false,
+  "clients": [
+    {
+      "clientId": "nava-broker",
+      "name": "Nava realm broker client (stand-in company login)",
+      "description": "Deliberately has NO email scope (defaultClientScopes is explicit): the email claims come from the protocol mappers below. Do not add the email scope back.",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-broker-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": ["http://localhost:18081/realms/nava/broker/*", "http://localhost:*/realms/nava/broker/*"],
+      "defaultClientScopes": ["basic", "profile"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {"user.attribute": "email", "claim.name": "email", "jsonType.label": "String",
+                     "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}
+        },
+        {
+          "name": "email-verified-always",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {"claim.name": "email_verified", "claim.value": "true", "jsonType.label": "boolean",
+                     "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}
+        }
+      ]
+    }
+  ]
+}

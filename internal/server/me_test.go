@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -162,9 +163,7 @@ func TestMeIgnoresForgedTenant(t *testing.T) {
 		"baggage": {"/api/v1/me", http.Header{"Baggage": {"tenant_id=" + tenantB.String() + ",nava.tenant_id=" + tenantB.String()}}},
 	} {
 		hdr := http.Header{"Authorization": {auth}}
-		for k, v := range c.header {
-			hdr[k] = v
-		}
+		maps.Copy(hdr, c.header)
 		rec := get(t, h, c.target, hdr)
 		if rec.Code != http.StatusOK {
 			// The validator may refuse an undeclared parameter; a 4xx also
@@ -273,7 +272,7 @@ func TestMeDropsPathWithoutTenantPrefix(t *testing.T) {
 		t.Errorf("groups = %v, want unchanged", me.Groups)
 	}
 	var errLines int
-	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(buf.String()), "\n") {
 		if line == "" {
 			continue
 		}

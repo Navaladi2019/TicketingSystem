@@ -29,6 +29,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
@@ -238,6 +239,11 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	// the interpreter writer's instance, registered once.
 	um, err := uncoercedCounter(acts, tel.MeterProvider)
 	if err != nil {
+		closeAll()
+		return nil, nil, nil, err
+	}
+	// The record activities evaluate access policies (recordports).
+	if err := authz.RegisterMetrics(tel.MeterProvider); err != nil {
 		closeAll()
 		return nil, nil, nil, err
 	}

@@ -1215,6 +1215,24 @@
           "type": "timestamp with time zone",
           "nullable": false,
           "default": "now()"
+        },
+        {
+          "name": "number_format_id",
+          "type": "uuid",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "number_format_version",
+          "type": "integer",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "number_compiled",
+          "type": "jsonb",
+          "nullable": true,
+          "default": ""
         }
       ],
       "primary_key": [
@@ -1233,6 +1251,21 @@
           "ref_columns": [
             "tenant_id",
             "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "entity_definition_versions_number_format_fkey",
+          "columns": [
+            "tenant_id",
+            "number_format_id",
+            "number_format_version"
+          ],
+          "ref_table": "number_format_versions",
+          "ref_columns": [
+            "tenant_id",
+            "format_id",
+            "version"
           ],
           "on_delete": "NO ACTION"
         },
@@ -1953,6 +1986,378 @@
       ]
     },
     {
+      "name": "number_format_versions",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "format_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "document",
+          "type": "jsonb",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "compiled",
+          "type": "jsonb",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "compiled_sha256",
+          "type": "bytea",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "format_id",
+        "version"
+      ],
+      "foreign_keys": [
+        {
+          "name": "number_format_versions_created_by_fkey",
+          "columns": [
+            "tenant_id",
+            "created_by"
+          ],
+          "ref_table": "principals",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "number_format_versions_format_fkey",
+          "columns": [
+            "tenant_id",
+            "format_id"
+          ],
+          "ref_table": "number_formats",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "number_format_versions_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "format_id",
+            "version"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "number_format_versions_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "number_format_versions_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "number_formats",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "key",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "current_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "number_formats_tenant_fkey",
+          "columns": [
+            "tenant_id"
+          ],
+          "ref_table": "tenants",
+          "ref_columns": [
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "number_formats_key_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "key"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "number_formats_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "number_formats_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "number_formats_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "number_formats_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "name": "numbering_epochs",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "epoch",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "compiled_sha256",
+          "type": "bytea",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "literal_head",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "entity_definition_id",
+        "epoch"
+      ],
+      "foreign_keys": [
+        {
+          "name": "numbering_epochs_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "numbering_epochs_compiled_sha256_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "compiled_sha256"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "numbering_epochs_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "epoch"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "numbering_epochs_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "numbering_epochs_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
       "name": "org_units",
       "kind": "table",
       "partition_of": "",
@@ -2659,7 +3064,8 @@
       ],
       "primary_key": [
         "tenant_id",
-        "entity_definition_id"
+        "entity_definition_id",
+        "scope_key"
       ],
       "foreign_keys": [
         {
@@ -2693,17 +3099,6 @@
           "unique": true,
           "columns": [
             "tenant_id",
-            "entity_definition_id"
-          ],
-          "include": [],
-          "predicate": ""
-        },
-        {
-          "name": "record_counters_scoped_key",
-          "method": "btree",
-          "unique": true,
-          "columns": [
-            "tenant_id",
             "entity_definition_id",
             "scope_key"
           ],
@@ -2722,6 +3117,26 @@
           "permissive": true,
           "using": "",
           "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_counters_purge",
+          "command": "DELETE",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(period_end < (now() - '2 days'::interval))",
+          "check": ""
+        },
+        {
+          "name": "record_counters_purge_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_purge"
+          ],
+          "permissive": true,
+          "using": "(period_end < (now() - '2 days'::interval))",
+          "check": ""
         },
         {
           "name": "record_counters_select",
@@ -3854,6 +4269,12 @@
           "type": "timestamp with time zone",
           "nullable": false,
           "default": "now()"
+        },
+        {
+          "name": "time_zone",
+          "type": "text",
+          "nullable": false,
+          "default": "'UTC'::text"
         }
       ],
       "primary_key": [
@@ -3907,11 +4328,22 @@
           "name": "tenants_tenant",
           "command": "SELECT",
           "roles": [
-            "nava_app"
+            "nava_app",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "(id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
           "check": ""
+        },
+        {
+          "name": "tenants_time_zone_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
         }
       ]
     },

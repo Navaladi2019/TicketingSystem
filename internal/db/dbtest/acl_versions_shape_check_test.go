@@ -130,6 +130,9 @@ func TestTICK629ACLShapeCheck(t *testing.T) {
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)
 	seedACL(t, super, tenantA)
+	// TICK-940's tenant-id trigger: the ids the accepted shapes name are
+	// tenant A's.
+	seedACLIDs(t, super, tenantA, `[{"id": "x", "ops": ["read"], "who": {"groups": ["`+shapeU1+`", "`+shapeU2+`"], "users": ["`+shapeU1+`", "`+shapeU2+`"]}}]`)
 	app := asRole(t, "nava_app")
 
 	// Both constraints exist and are validated, not left NOT VALID.
@@ -206,8 +209,9 @@ func TestTICK629ACLShapeCheck(t *testing.T) {
 	}
 }
 
-// Only the two roles that insert acl_versions may EXECUTE the functions its
-// CHECKs call; PUBLIC and every other role may not.
+// Only the role that inserts acl_versions, nava_app since ADR-010-A1 A1-3
+// (TICK-940), may EXECUTE the functions its CHECKs call; PUBLIC and every
+// other role may not.
 func TestTICK629ACLShapeFunctionGrants(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -219,7 +223,7 @@ func TestTICK629ACLShapeFunctionGrants(t *testing.T) {
 			t.Errorf("PUBLIC may EXECUTE %s", fn)
 		}
 		for _, role := range strings.Split(roles, ",") {
-			want := role == "nava_app" || role == "nava_worker"
+			want := role == "nava_app"
 			if got := queryBool(t, super, "SELECT has_function_privilege($1, $2, 'EXECUTE')", role, "public."+fn); got != want {
 				t.Errorf("%s EXECUTE on %s = %v, want %v", role, fn, got, want)
 			}

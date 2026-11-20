@@ -2,11 +2,11 @@
 title: "8. Workflows"
 section: tour
 status: delivered
-sources: [docs/acceptance/guide/s11b.html, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go]
-adrs: [ADR-001, ADR-003]
-stories: [S11a, S11b]
+sources: [docs/acceptance/guide/s11b.html, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S28/S28-13.bru, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go]
+adrs: [ADR-001, ADR-003, ADR-008]
+stories: [S11a, S11b, S27, S28]
 tables: [outbox]
-packages: [internal/workflow/interp, cmd/nava-worker]
+packages: [internal/workflow/interp, cmd/nava-worker, internal/configsurface]
 ---
 
 ## In plain words
@@ -23,7 +23,7 @@ This is the demo the S11b acceptance kit publishes on the `incident` type, which
 
 ```sh
 curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Authorization: Bearer $ADMIN" \
   -H "Idempotency-Key: tour-s11b-demo-v1" \
   -H "Content-Type: application/json" \
   -d '{
@@ -38,15 +38,29 @@ curl -s -X POST "$CORE/api/v1/workflow-definitions/s11b_demo/versions" \
   }'
 ```
 
-Then create an incident as an agent (step 9) and read it again after a minute with `getRecord`, and its history with `getRecordHistory`.
+`$ADMIN` is the administrator's token from [the setup](index.md#before-you-start); on a tenant you onboarded yourself, use its first admin's token ([step 2](02-sign-in.md#a-newly-onboarded-tenants-first-admin)). On such a tenant `incident` is still version 1 unless you published a new version in step 6; either works.
+
+The `timer` step is optional. Without it (`"start": "triage"`), the record routes within a second or so of the create; with it, about a minute later.
+
+Then create an incident (step 9) as the admin or as an agent. A newly onboarded tenant has only its first admin, so create it as the admin. `short_description` is the one field you must send (`state` starts at `new`). This body works on `incident` version 1 and version 2; add `"affected_service"` only after you published version 2 from the example in step 6, because version 1 refuses fields it does not list:
+
+```sh
+curl -i -X POST $CORE/api/v1/records/incident -H "Authorization: Bearer $ADMIN" \
+  -H "Idempotency-Key: tour-inc-1" -H 'Content-Type: application/json' \
+  -d '{"data":{"short_description":"Printer is offline","priority":3}}'
+```
+
+Read it again after a minute with `getRecord` (`GET /api/v1/records/incident/{id}`), and its history with `getRecordHistory` (`.../{id}/history`).
 
 ## What you see
 
-These are the checks the S11b kit makes (Bruno folder `S11b`, requests `S11b-18` and `S11b-24`); this page was not re-run against a tour stack.
+These are the checks the S11b kit makes (Bruno folder `S11b`, requests `S11b-18` and `S11b-24`). The S28 kit (Bruno `S28.10` to `S28.13`) publishes this same definition on a newly onboarded tenant and sees the same answers; it runs in CI as the stack case `s28_first_routed_record`.
 
 - The publish answers `201` with `current: true`, `entity: "incident"` and a server-assigned id for each step (`step_ids` has `wait`, `triage` and `done`).
 - About a minute after the create (the kit allows 60 to 180 s), the incident has `state: "in_progress"` and `version: 2`.
-- The history entry for version 2 has `source: workflow`.
+- The history entry for version 2 has `source: workflow`, `action: update`, `changed: ["/data/state"]` and no `actor_id`.
+
+The history says that *a* workflow made the change, not *which* one: there is no definition key or version on the entry. If the type has more than one published workflow, the history alone does not tell you which wrote the change; look the run up in the Temporal UI (namespace `nava`). The S28 timed run relies on a new tenant having one definition (finding F7).
 
 ## What happens behind it
 
@@ -58,9 +72,20 @@ Each record write also writes a row to a work queue (the "outbox") in the same d
 
 Details: [workflow interpreter](../workflows/nava-interpreter.md), [outbox, relay and worker](../workflows/outbox-relay-worker.md), [S11b](../stories/s11b.md).
 
+## Adding or removing a step type
+
+The step catalog today is `condition`, `branch`, `timer`, `wait_signal`, `update_record` and `end`, with condition operators `eq`, `ne`, `in` and triggers `record.created`, `record.updated`. A tenant's published definition keeps working after an upgrade within a major version: the catalog is additive-only (ADR-008 D12), and the upgrade-compatibility suite (M-X2, S27) checks that on every PR.
+
+- **Adding** a step type, step field, operator or trigger: change `internal/workflow/def` (its `schema.json` and `Parse`), then list the new item in `internal/configsurface/testdata/inventory.json` and add a fixture `internal/configsurface/testdata/fixtures/workflow/<name>.json` that uses it. Without them `task test` fails with `unlisted: …` or `no fixture: …`.
+- **Deprecating** one: keep it in the code and in the inventory, and add `{"item": "workflow.step_types/<name>", "since": "<version>"}` to the inventory's `deprecated` list. It must stay listed and its fixture must keep parsing until the next major.
+- **Removing** one: only with a new major. Raise `"major"` in the inventory and write `docs/upgrade/v<major>.md` naming the item (for example `workflow.step_types/timer`) with the migration. Otherwise `task test` fails with `removed: …` and `task lint` with `compat: removed: …`. No `docs/upgrade/` note exists yet: nothing has been removed.
+
+What each failure line means: [Troubleshooting](../operations/troubleshooting.md#a-lint-or-test-check-fails).
+
 ## Not built yet
 
 - A workflow builder screen.
 - Disabling or deleting a definition. The kit retires its demo by publishing a version that waits a day and writes nothing.
 - An API to send a signal (such as `approve`) to a running workflow, so approvals are not a product feature yet.
 - Conditions on state changes.
+- The record history does not name the workflow or version that wrote a change.

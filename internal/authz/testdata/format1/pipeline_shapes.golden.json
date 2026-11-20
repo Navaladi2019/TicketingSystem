@@ -1,0 +1,69 @@
+{
+  "format": 2,
+  "conditions": [],
+  "policies": [
+    {
+      "name": "s",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "shared": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "w",
+      "ops": [
+        "write"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": [
+              {
+                "cmp": {
+                  "column": "assignee_id",
+                  "op": "eq",
+                  "caller": "self"
+                }
+              },
+              {
+                "shared": true
+              }
+            ]
+          },
+          {
+            "cmp": {
+              "column": "state",
+              "op": "in",
+              "values": [
+                "closed"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "nobody",
+      "ops": [
+        "read"
+      ],
+      "when": {
+        "all": [
+          {
+            "any": []
+          }
+        ]
+      }
+    }
+  ]
+}

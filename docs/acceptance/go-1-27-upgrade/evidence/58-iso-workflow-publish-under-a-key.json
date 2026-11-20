@@ -1,0 +1,57 @@
+{
+  "step": "iso-workflow-publish-under-a-key",
+  "user": "admin@tenant-b.test",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/workflow-definitions/t961_a_mwnjuz8g/versions",
+    "headers": {},
+    "body": {
+      "format": "nava.workflow/v1",
+      "trigger": {
+        "on": "record.created",
+        "entity": "t961_a_mwnjuz8g"
+      },
+      "start": "wait",
+      "steps": [
+        {
+          "key": "wait",
+          "type": "timer",
+          "duration": "PT1H",
+          "next": "mark"
+        },
+        {
+          "key": "mark",
+          "type": "update_record",
+          "set": {
+            "short_description": "triaged"
+          },
+          "next": "done"
+        },
+        {
+          "key": "done",
+          "type": "end"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:workflow_definition_invalid",
+      "title": "Workflow definition invalid",
+      "status": 422,
+      "code": "workflow_definition_invalid",
+      "detail": "The workflow definition is not accepted. See errors for the failing positions; step keys are named, values never.",
+      "instance": "urn:nava:request:fd962c66f016ec135385cda1834f012a",
+      "errors": [
+        {
+          "pointer": "/trigger/entity",
+          "rule": "unknown_entity"
+        }
+      ]
+    },
+    "headers": {
+      "content-type": "application/problem+json"
+    }
+  }
+}

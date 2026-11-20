@@ -217,8 +217,17 @@ stories:
     status: planned
   - id: S18
     issue: TICK-669
-    title: A tenant admin defines a number format and links it to a ticket type
-    status: planned
+    title: A tenant admin defines a number format and links it to a ticket type (release R2, M3)
+    status: delivered
+    verdict: ACCEPTED
+    date: 2026-11-15
+    verdict_comment: "Fresh-stack kit PASS on 26651ace (38 requests, 100 tests), ci:full green; story PR #717"
+    bruno: [S18, S18-API, S18-TZ]
+    evidence:
+      - docs/acceptance/S18/README.md
+      - docs/acceptance/S18/evidence/run-summary.json
+      - docs/acceptance/S18/evidence/schema-after-upgrade.txt
+      - docs/acceptance/S18/evidence/forced-failure/result.txt
   - id: S19
     issue: TICK-678
     title: A record number can carry a branch or other enum code
@@ -238,6 +247,42 @@ stories:
       - docs/acceptance/S25/README.md
       - docs/acceptance/S25/fresh-stack-run.txt
       - docs/acceptance/S25/node20-run.txt
+  - id: S27
+    issue: TICK-878
+    title: CI refuses a design record without its Competitive Gate, and a change that removes a step type or keyword
+    status: delivered
+    verdict: READY
+    date: 2026-11-15
+    verdict_comment: "Acceptance kit s27-competitive-gate.md (TICK-882), status ready"
+    evidence:
+      - docs/acceptance/s27-competitive-gate.md
+  - id: S30
+    issue: TICK-935
+    title: Admins compose access rules from named conditions with AND, OR and NOT
+    status: delivered
+    verdict: READY
+    date: 2026-11-19
+    verdict_comment: "Acceptance kit S30/README.md (TICK-944), verified on a fresh stack"
+    bruno: [S30]
+    evidence:
+      - docs/acceptance/S30/README.md
+      - docs/acceptance/S30/fresh-stack-run.txt
+  - id: GO127
+    issue: TICK-961
+    title: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies
+    status: in-progress
+  - id: S28
+    issue: TICK-879
+    title: A new tenant's time to its first workflow-routed ticket is measured (ADR-008 X1a)
+    status: delivered
+    verdict: READY
+    date: 2026-11-18
+    verdict_comment: "TICK-879 VERDICT: ACCEPTED after the story -> main CI run"
+    bruno:
+      - S28
+    evidence:
+      - docs/quality/x1a-first-routed-record.md
+      - docs/acceptance/s28-first-routed-record.md
 unassigned:
   - path: docs/acceptance/guide/bruno/X1
     reason: API suite for getMe, spans S2 to S6; not one story

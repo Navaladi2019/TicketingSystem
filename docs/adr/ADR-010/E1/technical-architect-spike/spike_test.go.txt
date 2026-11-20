@@ -1,0 +1,227 @@
+// Throwaway spike for TICK-993. Not for commit.
+package spike993
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+)
+
+var (
+	tenant = uuid.MustParse("0a000000-0000-4000-8000-000000000001")
+	defID  = uuid.MustParse("d0000000-0000-4000-8000-000000000001")
+)
+
+type golden struct {
+	Branches []string `json:"branches"`
+	Args     []string `json:"args"`
+}
+
+func principals() map[string]identity.Principal {
+	id := uuid.MustParse
+	c := id("0a000000-0000-4000-8000-0000000000c1")
+	listed := id("44444444-4444-4444-8444-444444444444")
+	return map[string]identity.Principal{
+		"no_id_no_groups":    {TenantID: tenant},
+		"id_no_groups":       {TenantID: tenant, PrincipalID: c},
+		"admin_group":        {TenantID: tenant, PrincipalID: c, Groups: []uuid.UUID{id("11111111-1111-4111-8111-111111111111")}},
+		"service_desk_group": {TenantID: tenant, PrincipalID: c, Groups: []uuid.UUID{id("22222222-2222-4222-8222-222222222222")}},
+		"auditor_group":      {TenantID: tenant, PrincipalID: c, Groups: []uuid.UUID{id("33333333-3333-4333-8333-333333333333")}},
+		"other_group":        {TenantID: tenant, PrincipalID: c, Groups: []uuid.UUID{id("66666666-6666-4666-8666-666666666666")}},
+		"listed_user":        {TenantID: tenant, PrincipalID: listed},
+		"listed_user_group":  {TenantID: tenant, PrincipalID: listed, Groups: []uuid.UUID{id("55555555-5555-4555-8555-555555555555")}},
+	}
+}
+
+// parseArg turns a golden "Type value" back into the Go value main bound.
+func parseArg(s string) any {
+	typ, val, _ := strings.Cut(s, " ")
+	switch typ {
+	case "uuid.UUID":
+		return uuid.MustParse(val)
+	case "[]string":
+		return strings.Fields(strings.Trim(val, "[]"))
+	}
+	panic("arg type " + typ)
+}
+
+// sig is the plan shape: node types, relations, indexes, nesting; no costs.
+func sig(n map[string]any, depth int, out *[]string) {
+	s := strings.Repeat("  ", depth) + fmt.Sprint(n["Node Type"])
+	for _, k := range []string{"Parent Relationship", "Relation Name", "Index Name", "Scan Direction", "Subplan Name"} {
+		if v, ok := n[k]; ok {
+			s += fmt.Sprintf(" %s=%v", k, v)
+		}
+	}
+	*out = append(*out, s)
+	if kids, ok := n["Plans"].([]any); ok {
+		for _, k := range kids {
+			sig(k.(map[string]any), depth+1, out)
+		}
+	}
+}
+
+func explain(t *testing.T, conn *pgx.Conn, generic bool, sql string, args []any) (shape []string, ms float64, root map[string]any) {
+	ctx := context.Background()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenant.String()); err != nil {
+		t.Fatal(err)
+	}
+	if txt := os.Getenv("SPIKE_TEXT"); txt != "" && !generic && strings.Contains(sql, txt) {
+		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) "+sql, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var l string
+			rows.Scan(&l)
+			fmt.Println("    | " + l)
+		}
+		rows.Close()
+	}
+	var raw []byte
+	if generic {
+		res, e := tx.Conn().PgConn().Exec(ctx, "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+sql).ReadAll()
+		err = e
+		if e == nil {
+			raw = res[0].Rows[0][0]
+		}
+	} else {
+		err = tx.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+sql, args...).Scan(&raw)
+	}
+	if err != nil {
+		t.Fatalf("explain: %v\n%s", err, sql)
+	}
+	var doc []map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	plan := doc[0]["Plan"].(map[string]any)
+	sig(plan, 0, &shape)
+	if v, ok := doc[0]["Execution Time"].(float64); ok {
+		ms = v
+	}
+	return shape, ms, plan
+}
+
+func TestSpike993(t *testing.T) {
+	url := os.Getenv("SPIKE_PG_URL")
+	if url == "" {
+		t.Skip("SPIKE_PG_URL")
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	raw, err := os.ReadFile("../internal/authz/testdata/format1/read_branches.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want map[string]map[string]golden
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := []string{"every_subject.json", "onboard_default_incident.json", "seed_allow_all_d_3_27.json"}
+	if f := os.Getenv("SPIKE_ALL"); f == "1" {
+		fixtures = nil
+		for k := range want {
+			fixtures = append(fixtures, k)
+		}
+		sort.Strings(fixtures)
+	}
+	dump := os.Getenv("SPIKE_DUMP")
+	for _, file := range fixtures {
+		src, err := os.ReadFile(filepath.Join("../internal/authz/testdata/format1", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := authz.Decode(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pol := &authz.Policy{Version: 1, EntityType: "golden", Document: d}
+		names := make([]string, 0)
+		for n := range principals() {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			p := principals()[name]
+			w := want[file][name]
+			prB, prA := authz.ReadBranches(pol, p, "r", 2)
+			mainA := make([]any, len(w.Args))
+			for i, a := range w.Args {
+				mainA[i] = parseArg(a)
+			}
+			textEq := strings.Join(prB, "|") == strings.Join(w.Branches, "|")
+			if len(prB) == 0 && len(w.Branches) == 0 {
+				fmt.Printf("%-32s %-19s branches=0 (no access; list falls back to CompileRead)\n", file, name)
+				continue
+			}
+			for _, sortCol := range []string{"updated_at", "created_at"} {
+				build := func(br []string, args []any) (string, []any, string) {
+					q := pipeline.ListQuery{TenantID: tenant, DefinitionID: defID, Where: "true", Args: args,
+						Branches: br, SortColumn: sortCol, Desc: true, Limit: 26}
+					if len(br) == 1 {
+						// One branch: shape it as a single-statement predicate so both texts
+						// are planned (at runtime ReadPredicate uses CompileRead here).
+						q.Branches, q.Where = nil, br[0]+" AND true"
+					}
+					s, a, err := pipeline.PageStatement(q)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return s, a, pipeline.CountStatement(q)
+				}
+				mS, mArgs, mC := build(w.Branches, mainA)
+				pS, pArgs, pC := build(prB, prA)
+				for _, st := range []struct {
+					kind     string
+					m, p     string
+					ma, pa   []any
+				}{
+					{"page", mS, pS, mArgs, pArgs},
+					{"count", mC, pC, mArgs[:len(mArgs)-1], pArgs[:len(pArgs)-1]},
+				} {
+					for _, generic := range []bool{false, true} {
+						ms, mt, mroot := explain(t, conn, generic, st.m, st.ma)
+						ps, pt, proot := explain(t, conn, generic, st.p, st.pa)
+						mode := "custom+ANALYZE"
+						if generic {
+							mode = "generic"
+						}
+						same := strings.Join(ms, "\n") == strings.Join(ps, "\n")
+						fmt.Printf("%-32s %-19s nbr=%d text_eq=%-5v %-10s %-5s %-14s plan_same=%-5v cost main=%.2f pr=%.2f time_ms main=%.3f pr=%.3f\n",
+							file, name, len(prB), textEq, sortCol, st.kind, mode, same,
+							mroot["Total Cost"], proot["Total Cost"], mt, pt)
+						if !same || (dump != "" && strings.Contains(file+name, dump)) {
+							fmt.Printf("--- main shape\n%s\n--- pr shape\n%s\n", strings.Join(ms, "\n"), strings.Join(ps, "\n"))
+						}
+					}
+				}
+			}
+		}
+	}
+}

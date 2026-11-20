@@ -1,0 +1,23 @@
+meta {
+  name: S30.22 AC5 after: Alice's list is the same
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s30_f1_alice'));
+  test('the same ids as before the upgrade', () => expect(N.json().items.map(i => i.id).sort()).to.eql(was.ids));
+  test('the same total as before the upgrade', () => expect(N.json().total).to.eql(was.total));
+}

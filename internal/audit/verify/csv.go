@@ -71,8 +71,7 @@ func verifyCSV(r *bufio.Reader) (*Report, error) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		var se csvSyntaxError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[csvSyntaxError](err); ok {
 			v.lineNo++
 			if v.lineNo == 1 {
 				v.fail(nil, ReasonHeaderInvalid, "column row: "+se.msg)

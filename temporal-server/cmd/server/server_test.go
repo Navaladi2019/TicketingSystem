@@ -153,7 +153,7 @@ func TestServerEndToEnd(t *testing.T) {
 		// Tally flushes to the Prometheus registry on its reporting interval, and
 		// its reporter rewrites '-' and '/' in tag values to '_'.
 		eventually(t, ctx, "deny metric exported", func(context.Context) error {
-			for _, line := range strings.Split(scrape(t, metricsURL), "\n") {
+			for line := range strings.SplitSeq(scrape(t, metricsURL), "\n") {
 				if strings.HasPrefix(line, authz.DeniedMetric+"{") &&
 					strings.Contains(line, `api="_temporal_api_workflowservice_v1_WorkflowService_StartWorkflowExecution"`) &&
 					strings.Contains(line, `identity="nava_core"`) &&
@@ -186,7 +186,7 @@ func startInProcess(t *testing.T) (addr, certDir, metricsURL string) {
 		t.Fatalf("load dev config: %v", err)
 	}
 	// The shipped dynamic config, so the suite runs with the D6-K values.
-	done := make(chan interface{})
+	done := make(chan any)
 	t.Cleanup(func() { close(done) })
 	dc, err := dynamicConfigClient(cfg, configDir, log.NewNoopLogger(), done)
 	if err != nil {
@@ -460,7 +460,7 @@ func TestBootstrapRegistersNamespaceAndSearchAttribute(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	for i := 0; i < 2; i++ { // the second run proves it is idempotent
+	for i := range 2 { // the second run proves it is idempotent
 		if err := ensureNamespace(ctx, conn); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}

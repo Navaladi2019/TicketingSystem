@@ -1,0 +1,518 @@
+{
+  "every_subject.json": {
+    "admin_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [11111111-1111-4111-8111-111111111111]",
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [0a000000-0000-4000-8000-0000000000c1]"
+      ]
+    },
+    "auditor_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [33333333-3333-4333-8333-333333333333]",
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [0a000000-0000-4000-8000-0000000000c1]"
+      ]
+    },
+    "id_no_groups": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string []",
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [0a000000-0000-4000-8000-0000000000c1]"
+      ]
+    },
+    "listed_user": {
+      "branches": [
+        "((true AND (r.state = ANY($3::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($4::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($5::uuid[]))))"
+      ],
+      "args": [
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [44444444-4444-4444-8444-444444444444]"
+      ]
+    },
+    "listed_user_group": {
+      "branches": [
+        "((true AND (r.state = ANY($3::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($4::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($5::uuid[]))))"
+      ],
+      "args": [
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [44444444-4444-4444-8444-444444444444]"
+      ]
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [66666666-6666-4666-8666-666666666666]",
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [0a000000-0000-4000-8000-0000000000c1]"
+      ]
+    },
+    "service_desk_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[])))) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid) AND (r.state = ANY($7::text[])) AND (r.requester_id IS NOT NULL AND r.requester_id = ANY($8::uuid[])) AND (r.assignee_id IS NOT NULL AND r.assignee_id = ANY($9::uuid[]))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [22222222-2222-4222-8222-222222222222]",
+        "[]string [closed open]",
+        "[]string [44444444-4444-4444-8444-444444444444]",
+        "[]string [0a000000-0000-4000-8000-0000000000c1]"
+      ]
+    }
+  },
+  "handbook_loan_application.json": {
+    "admin_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "auditor_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "id_no_groups": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [submitted]"
+      ]
+    },
+    "listed_user": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [submitted]"
+      ]
+    },
+    "listed_user_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [submitted]"
+      ]
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [submitted]"
+      ]
+    },
+    "service_desk_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [submitted]"
+      ]
+    }
+  },
+  "legacy_ids.json": {
+    "admin_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [11111111-1111-4111-8111-111111111111]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [11111111-1111-4111-8111-111111111111]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1"
+      ]
+    },
+    "auditor_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [33333333-3333-4333-8333-333333333333]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [33333333-3333-4333-8333-333333333333]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1"
+      ]
+    },
+    "id_no_groups": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string []",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string []",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1"
+      ]
+    },
+    "listed_user": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string []",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string []",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444"
+      ]
+    },
+    "listed_user_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [55555555-5555-4555-8555-555555555555]",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [55555555-5555-4555-8555-555555555555]",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444"
+      ]
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [66666666-6666-4666-8666-666666666666]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [66666666-6666-4666-8666-666666666666]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1"
+      ]
+    },
+    "service_desk_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)))",
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $10::uuid)) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)) AND NOT ((r.assignee_id IS NOT NULL AND r.assignee_id = $4::uuid)) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $5::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($6::uuid[]))))) AND NOT (EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $7::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($8::uuid[]))))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $9::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [22222222-2222-4222-8222-222222222222]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [22222222-2222-4222-8222-222222222222]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1"
+      ]
+    }
+  },
+  "onboard_default_incident.json": {
+    "admin_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "auditor_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [new]"
+      ]
+    },
+    "id_no_groups": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [new]"
+      ]
+    },
+    "listed_user": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [new]"
+      ]
+    },
+    "listed_user_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [new]"
+      ]
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": [
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid) AND (r.state = ANY($5::text[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $3::uuid)))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [new]"
+      ]
+    },
+    "service_desk_group": {
+      "branches": [
+        "((true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[]))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid)) AND NOT (true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[]))))",
+        "(((r.requester_id IS NOT NULL AND r.requester_id = $5::uuid) AND (r.state = ANY($6::text[]))) AND NOT (true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[]))) AND NOT ((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid)))"
+      ],
+      "args": [
+        "[]string [22222222-2222-4222-8222-222222222222]",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [new]"
+      ]
+    }
+  },
+  "pipeline_shapes.json": {
+    "admin_group": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [11111111-1111-4111-8111-111111111111]"
+      ]
+    },
+    "auditor_group": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [33333333-3333-4333-8333-333333333333]"
+      ]
+    },
+    "id_no_groups": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string []"
+      ]
+    },
+    "listed_user": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string []"
+      ]
+    },
+    "listed_user_group": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 44444444-4444-4444-8444-444444444444",
+        "[]string [55555555-5555-4555-8555-555555555555]"
+      ]
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [66666666-6666-4666-8666-666666666666]"
+      ]
+    },
+    "service_desk_group": {
+      "branches": [
+        "((EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $3::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($4::uuid[]))))))"
+      ],
+      "args": [
+        "uuid.UUID 0a000000-0000-4000-8000-0000000000c1",
+        "[]string [22222222-2222-4222-8222-222222222222]"
+      ]
+    }
+  },
+  "seed_allow_all_d_3_27.json": {
+    "admin_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "auditor_group": {
+      "branches": null,
+      "args": []
+    },
+    "id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "listed_user": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "listed_user_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    },
+    "no_id_no_groups": {
+      "branches": null,
+      "args": []
+    },
+    "other_group": {
+      "branches": null,
+      "args": []
+    },
+    "service_desk_group": {
+      "branches": [
+        "true"
+      ],
+      "args": []
+    }
+  }
+}

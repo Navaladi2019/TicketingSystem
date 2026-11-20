@@ -75,6 +75,15 @@ const (
 	FilterableFieldRemovalUnavailable Code = "filterable_field_removal_unavailable"
 	IndexQuotaExceeded                Code = "index_quota_exceeded"
 	FieldIndexBusy                    Code = "field_index_busy"
+	// ADR-005 (S18): number formats.
+	NumberFormatExists            Code = "number_format_exists"
+	NumberFormatPrefixRequired    Code = "number_format_prefix_required"
+	NumberFormatInvalid           Code = "number_format_invalid"
+	NumberingTemplatesUnavailable Code = "numbering_templates_unavailable"
+	InvalidTimeZone               Code = "invalid_time_zone"
+	NumberFormatOverlap           Code = "number_format_overlap"
+	NumberFormatNotFound          Code = "number_format_not_found"
+	NumberSpaceExhausted          Code = "number_space_exhausted"
 )
 
 // Codes lists every Code constant.
@@ -88,6 +97,8 @@ func Codes() []Code {
 		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
 		FieldNotFilterable, FieldNotReady,
 		FilterableFieldRemovalUnavailable, IndexQuotaExceeded, FieldIndexBusy,
+		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
+		NumberFormatOverlap, NumberFormatNotFound, NumberSpaceExhausted,
 	}
 }
 
@@ -103,6 +114,7 @@ type Entry struct {
 type FieldError struct {
 	Pointer string `json:"pointer"`
 	Rule    string `json:"rule,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // Registry maps a Code to its status, title and fixed detail text.

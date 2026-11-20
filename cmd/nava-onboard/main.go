@@ -93,6 +93,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		{"operator", server.New(cfg.Addr, cfg.HTTP, handler, log)},
 		{"admin", telemetry.NewAdminServer(cfg.AdminAddr, cfg.HTTP, telemetry.NewAdminHandler(log, tel, mon.Routes), log)},
 	}
+	warnDevIdPHosts(ctx, log, cfg.DevIdPHosts)
 	log.InfoContext(ctx, "nava-onboard listening", slog.String("addr", cfg.Addr), slog.String("admin_addr", cfg.AdminAddr))
 
 	stopCtx, stopAll := context.WithCancel(ctx)
@@ -112,6 +113,17 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 		log.WarnContext(ctx, "telemetry shutdown failed", slog.Any("error", telErr))
 	}
 	return errors.Join(append(errs, telErr)...)
+}
+
+// warnDevIdPHosts logs one WARN naming the dev-allowed IdP hosts when the list
+// is not empty. There is no production marker in the config to refuse on, so
+// the warning is the only guard.
+func warnDevIdPHosts(ctx context.Context, log *slog.Logger, hosts []string) {
+	if len(hosts) == 0 {
+		return
+	}
+	log.WarnContext(ctx, "dev IdP allow-list is on: http private IdP hosts are accepted under "+keycloak.DevIdPPathPrefix+"; never set this in production",
+		slog.Any("hosts", hosts))
 }
 
 // backends are the database stores and Keycloak adapters both the operator
@@ -175,15 +187,16 @@ func newBackends(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 	}
 	b.specs = onboard.NewSpecs()
 	b.dir, err = keycloak.NewDirectory(keycloak.DirectoryConfig{
-		BaseURL:    cfg.KeycloakURL,
-		Realm:      cfg.KeycloakRealm,
-		Runtime:    keycloak.ClientCredentials{ClientID: cfg.RuntimeClientID, ClientSecret: cfg.RuntimeClientSecret},
-		Onboarding: &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
-		Registry:   b.reg,
-		IdPs:       b.specs.Source,
-		Invites:    b.store,
-		InviteTTL:  cfg.InviteTTL,
-		Logger:     log,
+		BaseURL:     cfg.KeycloakURL,
+		Realm:       cfg.KeycloakRealm,
+		Runtime:     keycloak.ClientCredentials{ClientID: cfg.RuntimeClientID, ClientSecret: cfg.RuntimeClientSecret},
+		Onboarding:  &keycloak.ClientCredentials{ClientID: cfg.OnboardClientID, ClientSecret: cfg.OnboardClientSecret},
+		Registry:    b.reg,
+		IdPs:        b.specs.Source,
+		Invites:     b.store,
+		InviteTTL:   cfg.InviteTTL,
+		DevIdPHosts: cfg.DevIdPHosts,
+		Logger:      log,
 	}, out)
 	if err != nil {
 		b.close()
@@ -200,7 +213,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 	}
 	svc, err := onboard.New(onboard.Options{
 		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, ACL: onboard.ACLStore{Pool: b.appPool}, Specs: b.specs,
-		Resolver: onboard.NewNetResolver(), Issuer: cfg.Issuer, Log: log,
+		Resolver: onboard.NewNetResolver(), DevIdPHosts: cfg.DevIdPHosts, Issuer: cfg.Issuer, Log: log,
 	})
 	if err != nil {
 		b.close()

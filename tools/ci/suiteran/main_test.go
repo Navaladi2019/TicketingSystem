@@ -36,7 +36,7 @@ func runFixture(t *testing.T, o options) (int, string) {
 		t.Fatalf("run: %v\n%s", err, out.String())
 	}
 	_, rep, _ := strings.Cut(out.String(), "suiteran: registered")
-	for _, l := range strings.Split(rep, "\n") {
+	for l := range strings.SplitSeq(rep, "\n") {
 		if goMatcherRe.MatchString(l) {
 			t.Errorf("report line %q looks like a Go compiler error to setup-go's problem matcher", l)
 		}
@@ -489,7 +489,7 @@ func TestOnboardStreamMissingTheInviteSuiteFails(t *testing.T) {
 func makeRecipe(makefile, target string) []string {
 	var out []string
 	in := false
-	for _, l := range strings.Split(makefile, "\n") {
+	for l := range strings.SplitSeq(makefile, "\n") {
 		switch {
 		case strings.HasPrefix(l, target+":"):
 			in = true

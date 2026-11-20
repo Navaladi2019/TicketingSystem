@@ -200,6 +200,44 @@ func appendTooDeep(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cmd Command
 	return err
 }
 
+// exhaustedEntry is the R2b entry of a create refused with
+// number_space_exhausted (ADR-004-E9): subject the entity type defID (read
+// under RLS in the prefetch), no versions, the refused command's actor,
+// source, source_ref, causation and request id, and a diff of one add of
+// /number_space with the epoch, scope key, width and the counter value that
+// did not fit. It never carries the attempted record data, a candidate
+// field value or the idempotency key. Write never appends it: the caller
+// does, after the create's transaction has ended (ErrNumberSpaceExhausted).
+func exhaustedEntry(ctx context.Context, cmd Command, defID uuid.UUID, ex *ErrNumberSpaceExhausted) (audit.Entry, error) {
+	after, err := json.Marshal(map[string]any{"number_space": map[string]any{
+		"epoch":     ex.Epoch,
+		"scope_key": ex.ScopeKey,
+		"width":     ex.Width,
+		"counter":   ex.Counter,
+	}})
+	if err != nil {
+		return audit.Entry{}, fmt.Errorf("pipeline: encode number_space diff: %w", err)
+	}
+	diff, err := jsondiff.Diff(json.RawMessage(`{}`), after)
+	if err != nil {
+		return audit.Entry{}, fmt.Errorf("pipeline: number_space diff: %w", err)
+	}
+	return audit.Entry{
+		Domain:             audit.DomainRecord,
+		Action:             audit.ActionNumberSpaceExhausted,
+		SubjectType:        audit.SubjectEntityDefinition,
+		SubjectID:          defID,
+		EntityDefinitionID: &defID,
+		Actor:              actor(cmd.Actor.PrincipalID, cmd.Source),
+		Source:             audit.Source(cmd.Source),
+		SourceRef:          cmd.SourceRef,
+		CausationID:        optional(cmd.Causation.OriginID),
+		CausationDepth:     cmd.Causation.Depth,
+		RequestID:          requestID(ctx),
+		Diff:               diff,
+	}, nil
+}
+
 // cascadeDiff is the diff of a cascade entry: one add of /cascade whose value
 // is v (ids, numbers and a reason; never record data). jsondiff writes it,
 // so its bytes are canonical.
@@ -253,8 +291,7 @@ func unionSorted(a, b []string) []string {
 // refused as invalid input, anything else is wrapped unchanged
 // (audit.ErrDuplicateEntry and database errors abort the transaction).
 func mapAppendError(err error) error {
-	var sec *secrets.ErrSecretInDiff
-	if errors.As(err, &sec) {
+	if sec, ok := errors.AsType[*secrets.ErrSecretInDiff](err); ok {
 		return &ErrValidation{Fields: []metadata.FieldError{{Path: string(sec.Path), Code: secrets.Code}}}
 	}
 	return fmt.Errorf("pipeline: audit: %w", err)

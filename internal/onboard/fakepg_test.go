@@ -31,8 +31,6 @@ type scripted struct {
 	cons string      // constraint name of the error
 }
 
-func sp(v string) *string { return &v }
-
 // fakePGServer is a PostgreSQL wire-protocol server (simple query protocol) whose
 // answers a test scripts per statement. It lets the tests drive pgstore's
 // defensive branches (rows the schema forbids, such as a nil tenant or two

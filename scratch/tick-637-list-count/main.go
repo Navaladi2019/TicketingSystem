@@ -55,20 +55,20 @@ type scenario struct {
 // queue; the service desk reads everything.
 func defaultIncident(t uuid.UUID) *authz.Policy {
 	rw := []string{authz.OpRead, authz.OpWrite}
-	return &authz.Policy{Version: 1, Rules: []authz.Rule{
+	return &authz.Policy{Version: 1, Document: authz.ConvertFormat1([]authz.Rule{
 		{ID: "own", Ops: rw, Who: authz.Subject{Requester: true, Assignee: true, Shared: true}},
 		{ID: "team", Ops: rw, Who: authz.Subject{Groups: []uuid.UUID{id(t, "g", 1)}},
 			Where: []authz.Cond{{Column: "assignment_group_id", Op: authz.CondIn, Caller: authz.CallerMyGroups}}},
 		{ID: "desk", Ops: rw, Who: authz.Subject{Groups: []uuid.UUID{id(t, "g", 2)}}},
-	}}
+	})}
 }
 
 // shareHeavy grants reads through shares (and own requests) only.
 func shareHeavy() *authz.Policy {
-	return &authz.Policy{Version: 1, Rules: []authz.Rule{
+	return &authz.Policy{Version: 1, Document: authz.ConvertFormat1([]authz.Rule{
 		{ID: "shared", Ops: []string{authz.OpRead}, Who: authz.Subject{Shared: true}},
 		{ID: "own", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
-	}}
+	})}
 }
 
 func scenarios(t uuid.UUID) []scenario {

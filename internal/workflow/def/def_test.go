@@ -181,7 +181,7 @@ func TestParseReportsEveryUnknownEdge(t *testing.T) {
 
 func TestParseMaxStepsAccepted(t *testing.T) {
 	steps := make([]any, 0, MaxSteps)
-	for i := 0; i < MaxSteps-1; i++ {
+	for i := range MaxSteps - 1 {
 		steps = append(steps, map[string]any{"key": fmt.Sprintf("s%d", i), "type": "timer", "duration": "PT1S", "next": fmt.Sprintf("s%d", i+1)})
 	}
 	steps = append(steps, map[string]any{"key": fmt.Sprintf("s%d", MaxSteps-1), "type": "end"})
@@ -235,8 +235,7 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		d, err := Parse(b)
 		if err != nil {
-			var inv *ErrInvalidDefinition
-			if !errors.As(err, &inv) {
+			if _, ok := errors.AsType[*ErrInvalidDefinition](err); !ok {
 				t.Fatalf("non-validation error: %v", err)
 			}
 			return
@@ -253,7 +252,9 @@ func FuzzParse(f *testing.F) {
 				}
 			}
 		}
-		_ = AssignStepIDs(d, nil)
+		if _, err := AssignStepIDs(d, nil); err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 

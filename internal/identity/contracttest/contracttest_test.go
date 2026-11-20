@@ -71,8 +71,7 @@ func TestSuiteRunFailsWhenACaseIsMissing(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestSuiteRunFailsWhenACaseIsMissing$", "-test.v")
 	cmd.Env = append(os.Environ(), "CONTRACTTEST_MISSING_CASE_CHILD=1")
 	out, err := cmd.CombinedOutput()
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) {
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 		t.Fatalf("Suite.Run with CI-5.06 missing did not fail (err %v):\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "no case covers "+CI5OrgPickerTamper) || !strings.Contains(string(out), "--- FAIL: TestSuiteRunFailsWhenACaseIsMissing/coverage") {

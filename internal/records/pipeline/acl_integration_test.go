@@ -186,7 +186,7 @@ func (w aclWorld) visible(t *testing.T, e env, pol *authz.Policy, p identity.Pri
 			if err != nil {
 				return err
 			}
-			if _, ok := authz.Allows(pol, p, authz.OpRead, row); ok {
+			if _, _, ok := authz.Allows(pol, p, authz.OpRead, row); ok {
 				byGo = append(byGo, id)
 			}
 		}
@@ -219,19 +219,19 @@ func TestCompileReadAgreesWithAllows(t *testing.T) {
 	policies := map[string]*authz.Policy{
 		"nil":       nil,
 		"empty":     {},
-		"requester": {Rules: []authz.Rule{rule("r", authz.Subject{Requester: true})}},
-		"assignee":  {Rules: []authz.Rule{rule("r", authz.Subject{Assignee: true})}},
-		"shared":    {Rules: []authz.Rule{rule("r", authz.Subject{Shared: true})}},
-		"service desk": {Rules: []authz.Rule{
+		"requester": {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Requester: true})})},
+		"assignee":  {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Assignee: true})})},
+		"shared":    {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Shared: true})})},
+		"service desk": {Document: authz.ConvertFormat1([]authz.Rule{
 			rule("desk", authz.Subject{Groups: []uuid.UUID{w.g1}}, authz.Cond{Column: "assignment_group_id", Op: authz.CondIn, Caller: authz.CallerMyGroups}),
 			rule("req", authz.Subject{Requester: true}),
-		}},
-		"open, mine":      {Rules: []authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1, w.u2}}, in("state", "open"), ref("requester_id", authz.CallerSelf))}},
-		"literal group":   {Rules: []authz.Rule{rule("r", authz.Subject{Groups: []uuid.UUID{w.g2, w.g3}}, in("assignment_group_id", w.g2.String()), in("state", "closed", "open"))}},
-		"literal people":  {Rules: []authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1}}, in("requester_id", w.u2.String()), in("assignee_id", w.u1.String()))}},
-		"everything":      {Rules: []authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1, w.u2}})}},
-		"write only":      {Rules: []authz.Rule{{ID: "w", Ops: []string{authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{w.u1}}}}},
-		"invalid ignored": {Rules: []authz.Rule{rule("bad", authz.Subject{Users: []uuid.UUID{w.u1}}, in("data", "x")), rule("ok", authz.Subject{Assignee: true, Shared: true}, in("state", "closed"))}},
+		})},
+		"open, mine":      {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1, w.u2}}, in("state", "open"), ref("requester_id", authz.CallerSelf))})},
+		"literal group":   {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Groups: []uuid.UUID{w.g2, w.g3}}, in("assignment_group_id", w.g2.String()), in("state", "closed", "open"))})},
+		"literal people":  {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1}}, in("requester_id", w.u2.String()), in("assignee_id", w.u1.String()))})},
+		"everything":      {Document: authz.ConvertFormat1([]authz.Rule{rule("r", authz.Subject{Users: []uuid.UUID{w.u1, w.u2}})})},
+		"write only":      {Document: authz.ConvertFormat1([]authz.Rule{{ID: "w", Ops: []string{authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{w.u1}}}})},
+		"invalid ignored": {Document: authz.ConvertFormat1([]authz.Rule{rule("bad", authz.Subject{Users: []uuid.UUID{w.u1}}, in("data", "x")), rule("ok", authz.Subject{Assignee: true, Shared: true}, in("state", "closed"))})},
 	}
 	principals := map[string]identity.Principal{
 		"u1 in g1":       {TenantID: w.f.id, PrincipalID: w.u1, Groups: []uuid.UUID{w.g1}},
@@ -264,7 +264,7 @@ func TestCompileReadAgreesWithAllows(t *testing.T) {
 func TestSharesMatchOnKindAndID(t *testing.T) {
 	e := migrated(t)
 	w := seedACLWorld(t, e)
-	shared := &authz.Policy{Rules: []authz.Rule{{ID: "s", Ops: []string{authz.OpRead}, Who: authz.Subject{Shared: true}}}}
+	shared := &authz.Policy{Document: authz.ConvertFormat1([]authz.Rule{{ID: "s", Ops: []string{authz.OpRead}, Who: authz.Subject{Shared: true}}})}
 	p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1, Groups: []uuid.UUID{w.g1}}
 	bySQL, byGo := w.visible(t, e, shared, p)
 	want := []uuid.UUID{w.sameUUIDGroupShare, w.userShare}
@@ -381,7 +381,8 @@ func TestPolicyStoreReadsTheNewestVersionOfItsTenant(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if pol == nil || pol.Version != 2 || len(pol.Rules) != 1 || pol.Rules[0].ID != "v2" || !pol.Rules[0].Who.Requester {
+		if pol == nil || pol.Version != 2 || pol.EntityType != entityKey || len(pol.Document.Policies) != 1 || pol.Document.Policies[0].Name != "v2" ||
+			pol.Document.Policies[0].When.All[0].Any[0].Cmp.Column != "requester_id" {
 			return fmt.Errorf("tenant A's policy = %+v, want version 2 with rule v2", pol)
 		}
 		return nil
@@ -391,7 +392,7 @@ func TestPolicyStoreReadsTheNewestVersionOfItsTenant(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if pol == nil || pol.Version != 1 || pol.Rules[0].ID != "test-allow-users" {
+		if pol == nil || pol.Version != 1 || pol.Document.Policies[0].LegacyID != "test-allow-users" {
 			return fmt.Errorf("tenant B's policy = %+v, want its own version 1", pol)
 		}
 		return nil
