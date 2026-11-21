@@ -242,3 +242,42 @@ func TestTICK1032Backfill(t *testing.T) {
 	_, err := execIn(super, "", "SELECT org_unit_closure_rebuild_all()")
 	wantSQLState(t, "the superuser runs the backfill", err, "42501")
 }
+
+const recordsOrgUnitKeyMigration = "20261121060000_records_org_unit_entity_definition.sql"
+
+// recordsOrgUnitShape is records_org_unit's key columns, in order, and its
+// predicate, read from the catalogue.
+func recordsOrgUnitShape(t *testing.T) (key, pred string) {
+	t.Helper()
+	super := superNava(t)
+	key = queryString(t, super, `SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+		FROM pg_index i, unnest(i.indkey) WITH ORDINALITY k (attnum, ord)
+		JOIN pg_attribute a ON a.attrelid = 'records'::regclass AND a.attnum = k.attnum
+		WHERE i.indexrelid = 'records_org_unit'::regclass`)
+	pred = queryString(t, super, "SELECT coalesce(pg_get_expr(indpred, indrelid), '') FROM pg_index WHERE indexrelid = 'records_org_unit'::regclass")
+	return key, pred
+}
+
+// Acceptance (SP-1d, critique B1): 20261121060000 replaces records_org_unit
+// with (tenant_id, org_unit_id, entity_definition_id) WHERE org_unit_id IS
+// NOT NULL under the same name, valid, and leaves no build index behind.
+func TestTICK1032RecordsOrgUnitKey(t *testing.T) {
+	m := freshCluster(t)
+	if err := migrateOnlyFS(t, m, migrationsBefore(t, recordsOrgUnitKeyMigration)); err != nil {
+		t.Fatalf("migrate to before %s: %v", recordsOrgUnitKeyMigration, err)
+	}
+	if key, pred := recordsOrgUnitShape(t); key != "tenant_id,org_unit_id" || pred != "(org_unit_id IS NOT NULL)" {
+		t.Fatalf("records_org_unit before %s = (%s) WHERE %s", recordsOrgUnitKeyMigration, key, pred)
+	}
+	migrateAll(t, m)
+	super := superNava(t)
+	if key, pred := recordsOrgUnitShape(t); key != "tenant_id,org_unit_id,entity_definition_id" || pred != "(org_unit_id IS NOT NULL)" {
+		t.Errorf("records_org_unit = (%s) WHERE %s, want (tenant_id,org_unit_id,entity_definition_id) WHERE (org_unit_id IS NOT NULL)", key, pred)
+	}
+	if !queryBool(t, super, "SELECT indisvalid AND indisready FROM pg_index WHERE indexrelid = 'records_org_unit'::regclass") {
+		t.Error("records_org_unit is not valid")
+	}
+	if left := queryString(t, super, "SELECT coalesce(string_agg(relname, ','), '') FROM pg_class WHERE relname IN ('records_org_unit_new', 'records_org_unit_old')"); left != "" {
+		t.Errorf("build indexes left over: %s", left)
+	}
+}

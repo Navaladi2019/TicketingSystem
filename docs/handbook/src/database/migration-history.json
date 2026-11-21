@@ -1112,6 +1112,10 @@
     {
       "file": "20261121050000_org_unit_closure.sql",
       "on_main": false
+    },
+    {
+      "file": "20261121060000_records_org_unit_entity_definition.sql",
+      "on_main": false
     }
   ]
 }

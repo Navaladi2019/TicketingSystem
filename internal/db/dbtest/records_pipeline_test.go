@@ -81,7 +81,8 @@ func TestP309RecordsNotRewritten(t *testing.T) {
 // (TICK-640) replaced its three list indexes with the records_list_* set,
 // each led by (tenant_id, entity_definition_id); P3-36d (TICK-656) added
 // records_list_group_state for the agent's filter[state] list; TICK-947
-// added records_org_unit, partial on org_unit_id IS NOT NULL (ADR-010 D7).
+// added records_org_unit, partial on org_unit_id IS NOT NULL (ADR-010 D7);
+// TICK-1032 (SP-1d) added entity_definition_id to its key.
 func TestP309RecordsIndexSet(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -96,7 +97,7 @@ func TestP309RecordsIndexSet(t *testing.T) {
 		"records_list_state btree (tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)",
 		"records_list_updated btree (tenant_id, entity_definition_id, updated_at DESC, id DESC)",
 		"records_number_key btree (tenant_id, entity_definition_id, number)",
-		"records_org_unit btree (tenant_id, org_unit_id) WHERE (org_unit_id IS NOT NULL)",
+		"records_org_unit btree (tenant_id, org_unit_id, entity_definition_id) WHERE (org_unit_id IS NOT NULL)",
 		"records_pkey btree (tenant_id, id)",
 	}, "\n")
 	if got != want {

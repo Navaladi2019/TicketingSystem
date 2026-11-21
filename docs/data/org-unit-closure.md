@@ -66,6 +66,41 @@ have only a root.
   contract makes them carry `tenant_id`: they are what refuses a row that
   joins one tenant's ancestor to another tenant's descendant.
 
+## `records_org_unit` gains `entity_definition_id` (SP-1d, critique B1)
+
+`db/migrations/20261121060000_records_org_unit_entity_definition.sql` replaces
+`records_org_unit` with `(tenant_id, org_unit_id, entity_definition_id) WHERE
+org_unit_id IS NOT NULL`. The name stays the same, so the region bench and its
+plans refer to the same index. The `(tenant_id, org_unit_id)` prefix still
+backs the NO ACTION check of `records_org_unit_fkey`.
+
+The migration runs with NO TRANSACTION, in three steps:
+
+1. It drops an INVALID `records_org_unit_new` left over from a failed build.
+2. It runs `CREATE INDEX CONCURRENTLY records_org_unit_new`.
+3. In one DO-block transaction, it drops the old index and renames the new
+   one. The DO block uses `lock_timeout` 2 s and retries 5 times, the same
+   way `20261113210000` does.
+
+Each statement commits on its own, but the drop and the rename commit
+together. So `records` always has one of the two indexes: the old one before
+the swap commits, the new one after. Re-running the migration is a no-op
+(`TestNoTransactionMigrationsAreIdempotent`). `TestTICK1032RecordsOrgUnitKey`
+checks the key columns, the predicate, validity, and that no build index is
+left over.
+
+Measured with `scratch/tick-1032-org-unit-closure/swap.sql` (output in
+`swap-out.txt`). Same host and PostgreSQL 16.10. `records` has 1,000,000 rows
+and a 420 MB heap. 400,000 rows in tenant 0 carry one of 200 units, spread
+over 4 entity types.
+
+| Measure | Result |
+| --- | --- |
+| Concurrent build | 803 ms. Writes continue during the build. |
+| Swap transaction (DROP + RENAME) | 14.6 ms with ACCESS EXCLUSIVE on `records`. |
+| Index size | 2,896 kB for the old 2-column key, 3,056 kB for the new key (+5.5%). |
+| `under` leaf with an entity type, 20-unit set (9,998 rows) | Index Only Scan `records_org_unit`, all three columns in `Index Cond`, 72 buffers, 2.93 ms. |
+
 ## Rollout
 
 - The migration locks `org_units` in SHARE mode while it backfills, so no
