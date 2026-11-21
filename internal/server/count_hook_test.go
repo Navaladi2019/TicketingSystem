@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,5 +86,68 @@ func TestCountHooksAreTestOnly(t *testing.T) {
 	}
 	if sawListQuery != 2 {
 		t.Errorf("found %d ListQuery hook assignments in non-test code, want 2 (the list handler)", sawListQuery)
+	}
+}
+
+// The whole module's non-test code: ListQuery.CountDelay and SkipCount are
+// assigned (by selector or keyed literal) only in the list handler, from the
+// handlers fields. A write in internal/records/pipeline or any other package
+// would reach production through the same query.
+func TestListQueryCountHooksAreSetOnlyByTheListHandler(t *testing.T) {
+	root := filepath.Join("..", "..")
+	handler := filepath.Join(root, "internal", "server", "records_list.go")
+	fset := token.NewFileSet()
+	assigned := 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil // not this test's business
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.AssignStmt:
+				for i, lhs := range x.Lhs {
+					sel, ok := lhs.(*ast.SelectorExpr)
+					if !ok || (sel.Sel.Name != "CountDelay" && sel.Sel.Name != "SkipCount") {
+						continue
+					}
+					want := strings.ToLower(sel.Sel.Name[:1]) + sel.Sel.Name[1:]
+					var rhs *ast.SelectorExpr
+					if len(x.Lhs) == len(x.Rhs) {
+						rhs, _ = x.Rhs[i].(*ast.SelectorExpr)
+					}
+					if path != handler || rhs == nil || rhs.Sel.Name != want {
+						t.Errorf("%s: %s assigned in non-test code other than the list handler's copy from handlers.%s", fset.Position(x.Pos()), sel.Sel.Name, want)
+						continue
+					}
+					assigned++
+				}
+			case *ast.KeyValueExpr:
+				if id, ok := x.Key.(*ast.Ident); ok && (id.Name == "CountDelay" || id.Name == "SkipCount") {
+					t.Errorf("%s: %s set in a keyed literal in non-test code", fset.Position(x.Pos()), id.Name)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned != 2 {
+		t.Errorf("found %d handler copies, want 2 (CountDelay and SkipCount in records_list.go)", assigned)
 	}
 }

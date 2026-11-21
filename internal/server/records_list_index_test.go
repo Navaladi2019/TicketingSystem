@@ -231,26 +231,45 @@ func TestObserveIndexedListAttributes(t *testing.T) {
 	if h.listIndexed, err = metric.NewMeterProvider(metric.WithReader(reader)).Meter("t").Float64Histogram("list_indexed"); err != nil {
 		t.Fatal(err)
 	}
-	h.observeIndexedList(t.Context(), time.Second, &pipeline.ListPage{Total: 5, TotalState: pipeline.TotalExact}, true)
-	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(t.Context(), &rm); err != nil {
-		t.Fatal(err)
+	collect := func(page *pipeline.ListPage) map[string]string {
+		t.Helper()
+		h.observeIndexedList(t.Context(), time.Second, page, true)
+		var rm metricdata.ResourceMetrics
+		if err := reader.Collect(t.Context(), &rm); err != nil {
+			t.Fatal(err)
+		}
+		pts := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64]).DataPoints
+		if len(pts) != 1 {
+			t.Fatalf("%d points, want 1", len(pts))
+		}
+		got := map[string]string{}
+		for _, kv := range pts[0].Attributes.ToSlice() {
+			got[string(kv.Key)] = kv.Value.AsString()
+		}
+		return got
 	}
-	pts := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64]).DataPoints
-	if len(pts) != 1 {
-		t.Fatalf("%d points, want 1", len(pts))
-	}
-	got := map[string]string{}
-	for _, kv := range pts[0].Attributes.ToSlice() {
-		got[string(kv.Key)] = kv.Value.AsString()
-	}
-	want := map[string]string{"acl": "narrowing", "selectivity_band": "lt_10", "total_state": "exact"}
-	if len(got) != len(want) {
-		t.Fatalf("attributes %v, want %v", got, want)
-	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("attribute %s = %q, want %q", k, got[k], v)
+	for _, c := range []struct {
+		name string
+		page *pipeline.ListPage
+		want map[string]string
+	}{
+		{"exact", &pipeline.ListPage{Total: 5, TotalState: pipeline.TotalExact}, map[string]string{"acl": "narrowing", "selectivity_band": "lt_10", "total_state": "exact"}},
+		// An unknown page has Total 0 internally; it is not "none" (A2-5).
+		{"unknown", &pipeline.ListPage{Total: 0, TotalState: pipeline.TotalUnknown}, map[string]string{"acl": "narrowing", "selectivity_band": "unknown", "total_state": "unknown"}},
+	} {
+		got := collect(c.page)
+		if len(got) != len(c.want) {
+			t.Fatalf("%s: attributes %v, want %v", c.name, got, c.want)
+		}
+		for k, v := range c.want {
+			if got[k] != v {
+				t.Errorf("%s: attribute %s = %q, want %q", c.name, k, got[k], v)
+			}
+		}
+		// A fresh reader per case: cumulative points would otherwise merge.
+		reader = metric.NewManualReader()
+		if h.listIndexed, err = metric.NewMeterProvider(metric.WithReader(reader)).Meter("t").Float64Histogram("list_indexed"); err != nil {
+			t.Fatal(err)
 		}
 	}
 }
