@@ -375,12 +375,16 @@ their own, in parallel with `integration`; the `integration` job always sets
 two jobs then run one after the other, and a full run would wait about 3
 minutes longer for a job that has no reason to wait.
 
-- **When:** a full run only (`needs.changes.outputs.full`, which is
-  `env.CI_FULL`, because a job's `if:` cannot read `env`) whenever
-  `integration` runs.
-- **full-suite:** on a story-branch pull request without `ci:full`, the job is
-  skipped. `make check-full-suite` accepts that skip only when `FULL=false`
-  (`TestFullSuiteIsolation` in `tools/ci/cichanged`).
+- **When:** whenever `integration` runs and `needs.changes.outputs.full` is
+  true: a full run, or any pull request into a `TICK-*` story branch with no
+  label (TICK-1031). The output is the `full=` line `make ci-stages` writes
+  from the stages step's `CI_FULL`, which carries the story-branch rule. It
+  was `env.CI_FULL` until TICK-1031, which lacks that rule, so #801 and #805
+  merged into S31 with the suite skipped. `make check-ci-steps` fails if the
+  output is wired to anything but `steps.stages.outputs.full`.
+- **full-suite:** `make check-full-suite` accepts a skipped isolation only
+  when `FULL=false` (`TestFullSuiteIsolation` in `tools/ci/cichanged`). On a
+  story-branch pull request `FULL` is always true now, so a skip there is red.
 - **main-red and self-hosted-cleanup:** both `need` the job.
 - **Locally:** unchanged. `make ci-integration` (and so `make ci`) still runs
   the suite after `test-integration`, because `ISOLATION` defaults to 1.

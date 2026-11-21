@@ -116,3 +116,22 @@ steps:
   - job: sdk
     artifact: sdk
     why: the npm pack tarball, the one SDK deliverable (nothing is published, D-8-7)
+
+  # The stages step that decides every job condition, the full output among
+  # them (TICK-1031).
+  - job: changes
+    run: make ci-stages
+    why: unit, integration, stack and full are never decided, so their jobs and the isolation suite stop running
+
+# Job outputs pinned to one expression (TICK-1031). check-ci-steps fails when
+# the job sets the output to anything else, whitespace aside.
+#
+#   job     the ci.yml job id
+#   output  the job's output name
+#   value   the expression it must be
+#   why     what goes wrong when it is another one
+outputs:
+  - job: changes
+    output: full
+    value: ${{ steps.stages.outputs.full }}
+    why: the isolation job and full-suite read it; make ci-stages writes it from the stages step's CI_FULL, story-branch rule included. env.CI_FULL lacks that rule, so PRs 801 and 805 merged into a story branch with the tenant isolation suite skipped
