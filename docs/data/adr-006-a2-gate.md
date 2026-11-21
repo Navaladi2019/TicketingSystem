@@ -4,9 +4,69 @@ Scope: PLAN-007-A2 T-A2-4. The run used the T-A2-2 code (TICK-1046, PR #827,
 head `bc81fe34`) with `CountBudget` = 200 ms in force. Harness:
 `internal/server/records_a2_gate_perf_integration_test.go` (`TestA2Gate`, tags
 `integration perf`, not in CI). Runner: `scratch/tick-1048-a2-gate/run.sh`.
-Raw output: `docs/data/adr-006-a2-gate/run-1/`.
+Raw output: `docs/data/adr-006-a2-gate/run-N/`.
 
-## Verdict (run 1, 2026-11-21 12:45Z)
+## Verdict: PASS (runs 2 and 4, 2026-11-21 22:33–22:49Z, the Technical Lead's bench window)
+
+| Gate | Rule | Result | Status |
+| --- | --- | --- | --- |
+| (2a) host rule | floor p50 ≤ 3 ms and no-filter control p95 ≤ 80.3 ms, before and after | floor 0.54 / 1.11 ms; control p95 **47.4 / 44.4 ms** (n = 3,282 / 3,176) | **Pass**, attempt 1 |
+| (2) non-count p95, band (ii) | ≤ 94 ms | **50.7 ms** (n = 2,787, p50 42.1, p99 57.8); agent-1 alone 49.2 ms | **PASS, final** (passes by 46%). A2-2's formula is not rerun; `CountBudget` stays 200 ms |
+| (3a) S-A2-cancel | count phase ≤ 215 ms at p99; every answer 200 + `unknown`; a further statement; no temp growth | p99 **205.5 ms (+5.5)** single-client, **211.0 ms (+11.0)** at 8 clients; 300 of 300 answered 200 + `unknown` + `total: null` + 50 items; every request ran `commit` after `ROLLBACK TO`; temp_files 22 / temp_bytes 239,756,336 before, after and 60 s after | **PASS** |
+
+The host was idle for the window. `docker ps` showed only the bench database,
+`buildx_buildkit_nava-ci0` and `multica-*`; other containers used a median
+0.65% and at most 14.6% of one core (`run-2/contention.txt`). Run 2 measured
+(2a) and (2) and then stopped: on the idle host no fixture count exceeded the
+budget (slowest 70.2 ms, `run-2/raw.md`), so (3a) had no slow plan. Run 3
+added the anti-correlated field `pw` (115.8 ms, still under). Run 4 made `pw`
+multi-valued (four values per invisible record) and scored (3a)
+(`NAVA_PERF_GATE_ATTEMPTS=0`, floor 1.08 ms before the spike).
+
+### Run 2: band (ii), count skipped, 8 clients, 15 s
+
+| | p50 | p95 | p99 | n |
+| --- | --- | --- | --- | --- |
+| control before (agent list, no filter) | 38.0 | 47.4 | | 3,282 |
+| **band (ii) `filter[kp]=3`, count skipped (agents)** | 42.1 | **50.7** | 57.8 | 2,787 |
+| band (ii), count skipped (agent-1 alone) | | 49.2 | | 2,875 |
+| band (ii) with the budgeted count (reported only) | 64.8 | 75.9 | | 1,824 |
+| control after | 36.7 | 44.4 | | 3,176 |
+
+P3-36's control read 73 ms when it was scored; the same handler reads 44–47 ms
+here (QA's TICK-946 baseline on the same idle host: 59.12 ms on its own
+scenario). The non-count request runs 7 statements; its page statement took
+11.4 ms in the captured request, the other six 1.7–1.9 ms each
+(`run-2/raw.md`, plans in `run-2/plans.md`). Raw samples:
+`run-2/band-samples.txt`.
+
+### Run 4: S-A2-cancel
+
+Cell: **a50, `filter[pw]=1`**. `pw` is 1 on four side rows (`ord` 0–3) of
+each of the 176k records that neither a6 nor a50 sees (704k rows), and on 100
+records a50 sees and 100 a6 sees. So the first page is full (50 of 100) and the
+count must find all 100, past the 1001 cap's early stop. Unbudgeted plain
+count: 442.8 / 452.6 / 462.1 ms (EXPLAIN median 472.4). Visibility-map state
+`none` for `pw`'s pages. Plans: `run-4/plans.md`.
+
+| Run | n | 200 + `unknown` + `total: null` + 50 items | `commit` after `ROLLBACK TO` | count phase p50 / p95 / p99 / max ms | p99 overshoot |
+| --- | --- | --- | --- | --- | --- |
+| 1 client | 100 | 100 | 100 | 203.8 / 205.0 / 205.5 / 205.6 | **+5.5 ms** |
+| 8 clients | 200 | 200 | 200 | 207.7 / 209.2 / 211.0 / 212.6 | **+11.0 ms** |
+
+| Run | count statement p50 / p99 / max ms | statement overshoot p99 | two round trips p50 / p99 ms |
+| --- | --- | --- | --- |
+| 1 client | 201.4 / 202.6 / 202.6 | +2.6 ms | 2.4 / 3.6 |
+| 8 clients | 202.7 / 205.0 / 207.0 | +5.0 ms | 4.9 / 7.7 |
+
+The cancel itself costs 2.6–5.0 ms at p99. Most of the remainder is the two
+round trips A2-2 already budgets (6 ms). At 8 clients the round trips reach
+7.7 ms at p99, so the phase lands at +11.0, inside the 15 ms margin. **No extra
+A2-2 term is needed.** The cell's client latency is 615 ms p50 single-client
+and 1,301 ms at 8 clients: that is the anti-correlated page walk (A2-9, the
+R-a track), not the count, which is capped at the budget.
+
+## Run 1 (2026-11-21 12:45Z, contended host): inconclusive, kept as history
 
 | Gate | Rule | Result | Status |
 | --- | --- | --- | --- |
@@ -72,7 +132,7 @@ erDiagram
     }
 ```
 
-## (2) Band (ii), count skipped: 8 clients, 15 s, ms
+### Run 1: (2) band (ii), count skipped: 8 clients, 15 s, ms
 
 | Attempt | Host before (floor p50 / control p95) | Host after | Non-count p50 / p95 / p99 (agents) | p95, agent-1 alone | With the budgeted count, p50 / p95 (reported only) |
 | --- | --- | --- | --- | --- | --- |
@@ -85,7 +145,7 @@ definition, ACL, registry, page, commit (`run-1/raw.md`). The page statement
 took 17.2 ms server-side in the captured request. Its plan is in
 `run-1/plans.md`.
 
-## (3a) S-A2-cancel
+### Run 1: (3a) S-A2-cancel
 
 Fixture: PR #812's (A2-11). a6 sees 24,055 records (6%) and a50 sees 200,379
 (50%). The side rows `pk`, `pt`, `pb` were not vacuumed and autovacuum was
@@ -141,13 +201,14 @@ What this run shows, and what it doesn't:
 
 ## Rerun
 
-On an idle host (the `nava-*` stacks stopped, and no `nava-it-*` or bench
-containers):
+On an idle host (no `nava-*`, `nava-it-*` or bench containers, no other agent runs):
 
 ```sh
-sh scratch/tick-1048-a2-gate/run.sh                               # (2), (2a) and (3a), about 25 min
-NAVA_PERF_GATE_ATTEMPTS=0 sh scratch/tick-1048-a2-gate/run.sh     # (3a) only
+sh scratch/tick-1048-a2-gate/run.sh                               # (2), (2a) and (3a), about 15 min idle
+NAVA_PERF_GATE_ATTEMPTS=0 sh scratch/tick-1048-a2-gate/run.sh     # (3a) only, about 6 min
 ```
 
-`NAVA_PERF_OUT` sets the report path. The samples, plans, host and contention
-files are written beside it.
+The spike picks the candidate with the slowest plain count. Since run 4 that
+is a50 `pw = 1`, the multi-valued anti-correlated fixture. `NAVA_PERF_OUT`
+sets the report path; samples, plans, host and contention files are written
+beside it.

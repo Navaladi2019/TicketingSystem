@@ -17,7 +17,7 @@
 //     NAVA_PERF_LIST_SECONDS (15) with the count skipped by WithSkipCount;
 //     the same cell with the count (reported only); floor and control after.
 //     An attempt counts only if all four gate readings pass.
-//  2. Spike S-A2-cancel: PR #812's fixture (a6 sees 6%, a50 50%; num pk,
+//  2. Spike S-A2-cancel: PR #812's fixture plus pw (multi-valued, anti-correlated) (a6 sees 6%, a50 50%; num pk,
 //     text pt, bool pb; autovacuum off on the side tables) in visibility-map
 //     state "none" (ANALYZE, no VACUUM). Each candidate count is first run
 //     unbudgeted (EXPLAIN (ANALYZE, BUFFERS), 3 times); the slowest is the
@@ -58,7 +58,7 @@ import (
 )
 
 // gateSchemaExtra: kp is the kit's priority; pk, pt, pb are PR #812's.
-const gateSchemaExtra = `"kp": {"type": "integer"}, "pk": {"type": "number"}, "pt": {"type": "string", "maxLength": 10}, "pb": {"type": "boolean"},
+const gateSchemaExtra = `"kp": {"type": "integer"}, "pk": {"type": "number"}, "pt": {"type": "string", "maxLength": 10}, "pb": {"type": "boolean"}, "pw": {"type": "number"},
     `
 
 // gateControlMS is P3-36's idle no-filter list p95, and the host rule's limit.
@@ -277,6 +277,18 @@ func TestA2Gate(t *testing.T) {
 	e.exec(t, `INSERT INTO rfv_num (tenant_id, field_id, record_id, ord, value) SELECT $1, $2, id, 0, v FROM a2_pk ORDER BY id`, large, fields["pk"])
 	e.exec(t, `INSERT INTO rfv_text (tenant_id, field_id, record_id, ord, value) SELECT $1, $2, id, 0, CASE WHEN tx THEN 'x' ELSE 'y' END FROM a2_pk ORDER BY id`, large, fields["pt"])
 	e.exec(t, `INSERT INTO rfv_bool (tenant_id, field_id, record_id, ord, value) SELECT $1, $2, id, 0, bx FROM a2_pk ORDER BY id`, large, fields["pb"])
+	// pw (TICK-1048 runs 3-4): 1 on every record no fixture agent sees (~176k;
+	// four values each, ord 0-3, from run 4),
+	// plus 100 that a50 sees and 100 that a6 sees, so the count can't stop at
+	// the first page or the 1001 cap.
+	pw := uuid.New()
+	e.exec(t, `INSERT INTO record_index_fields (tenant_id, id, entity_definition_id, field_key, value_type, state, progress, requested_version)
+		VALUES ($1, $2, $3, 'pw', 'num', 'ready', 100, 1)`, large, pw, e.largeDef)
+	e.exec(t, `INSERT INTO rfv_num (tenant_id, field_id, record_id, ord, value)
+		SELECT $1, $2, id, o, 1 FROM (
+			SELECT id, generate_series(0, 3) AS o FROM a2_rec WHERE b >= 560
+			UNION ALL (SELECT id, 0 FROM a2_rec WHERE b >= 60 AND b < 560 ORDER BY id LIMIT 100)
+			UNION ALL (SELECT id, 0 FROM a2_rec WHERE b < 60 ORDER BY id LIMIT 100)) x ORDER BY id, o`, large, pw)
 	e.exec(t, "SET session_replication_role = origin")
 	e.exec(t, "VACUUM (ANALYZE) records, groups")
 	// Visibility-map state "none": ANALYZE, no VACUUM.
@@ -352,6 +364,8 @@ func TestA2Gate(t *testing.T) {
 		{"a50, pk = 3 (broad 50% value, 50% ACL)", "a50", "filter%5Bpk%5D=3"},
 		{"a6, pk = 10 (anti-correlated, 0 visible)", "a6", "filter%5Bpk%5D=10"},
 		{"a6, pk < 5 (every 3 and 4: 78% of the side rows)", "a6", "filter%5Bpk%5D%5Blt%5D=5"},
+		{"a50, pw = 1 (704k invisible side rows, 100 visible)", "a50", "filter%5Bpw%5D=1"},
+		{"a6, pw = 1 (704k invisible side rows, 100 visible)", "a6", "filter%5Bpw%5D=1"},
 	}
 	w("")
 	w("Unbudgeted count time of the handler's count statement, as nava_app: 3 plain runs (the spike picks on these) and 3 EXPLAIN (ANALYZE, BUFFERS) runs:")
