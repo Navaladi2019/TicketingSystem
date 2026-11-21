@@ -1108,6 +1108,10 @@
     {
       "file": "20261120120400_records_org_unit_index.sql",
       "on_main": false
+    },
+    {
+      "file": "20261121050000_org_unit_closure.sql",
+      "on_main": false
     }
   ]
 }
