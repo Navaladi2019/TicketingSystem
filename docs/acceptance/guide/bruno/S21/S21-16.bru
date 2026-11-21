@@ -1,0 +1,42 @@
+meta {
+  name: S21.16 AC2: the same range filter as Alice: the right rows
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const all = await T.all('alice_token', 'filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z');
+  bru.setVar('s21_all_ac2_agent', JSON.stringify({ ids: all.ids, pages: all.pages, items: all.items.map(i => ({ priority: i.data.priority, due_at: i.data.due_at })) }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const all = JSON.parse(bru.getVar('s21_all_ac2_agent'));
+  const want = Number(N.v('s21_ac2_agent_n'));
+  test(`Alice: ${all.ids.length} records over ${all.pages} pages; the JSON scan has ${want}`, () => expect(all.ids.length).to.eql(want));
+  test('the same records as the JSON scan (md5 of the sorted ids)', () => expect(require('crypto').createHash('md5').update([...all.ids].sort().join(',')).digest('hex')).to.eql(N.v('s21_ac2_agent_md5')));
+  test('no record listed twice', () => expect(new Set(all.ids).size).to.eql(all.ids.length));
+  test('total: exact up to 1,000, then 1,000 and total_capped', () => {
+    expect(N.json().total).to.eql(Math.min(want, 1000));
+    expect(N.json().total_capped === true).to.eql(want > 1000);
+  });
+  test('every listed record matches the filter', () => expect(all.items.filter(d => !(d.priority >= 2 && Date.parse(d.due_at) < Date.parse('2026-01-01T12:00:00Z'))).length).to.eql(0));
+  bru.setVar('s21_ids_ac2_agent', JSON.stringify(all.ids));
+}
+
+docs {
+  The same two range filters as Alice, against the JSON scan of what she may read.
+}

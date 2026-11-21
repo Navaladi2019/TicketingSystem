@@ -1,0 +1,30 @@
+24bdd9b4a867eb8ff2ec7e961388c1cab0f8aed3
+modified:  M docs/acceptance/S21/evidence/S21-10.json
+modified:  M docs/acceptance/S21/evidence/S21-11.json
+modified:  M docs/acceptance/S21/evidence/S21-12.json
+modified:  M docs/acceptance/S21/evidence/S21-13.json
+modified:  M docs/acceptance/S21/evidence/S21-14.json
+modified:  M docs/acceptance/S21/evidence/S21-15.json
+modified:  M docs/acceptance/S21/evidence/S21-16.json
+modified:  M docs/acceptance/S21/evidence/S21-18.json
+modified:  M docs/acceptance/S21/evidence/S21-19.json
+modified:  M docs/acceptance/S21/evidence/S21-4.json
+modified:  M docs/acceptance/S21/evidence/S21-5.json
+modified:  M docs/acceptance/S21/evidence/S21-6.json
+modified:  M docs/acceptance/S21/evidence/S21-7.json
+modified:  M docs/acceptance/S21/evidence/S21-8.json
+modified:  M docs/acceptance/S21/evidence/S21-9.json
+modified:  M docs/acceptance/S21/evidence/build.txt
+modified:  D docs/acceptance/S21/evidence/result.txt
+modified:  M docs/acceptance/S21/evidence/run-summary.json
+modified:  M docs/acceptance/S21/evidence/seed.txt
+modified:  M docs/acceptance/S21/evidence/setup.json
+modified:  D docs/acceptance/S21/evidence/single-client.txt
+modified:  D docs/acceptance/S21/evidence/stack1-p95-miss/contention-during-reruns.txt
+modified:  D docs/acceptance/S21/evidence/stack1-p95-miss/rerun-1.txt
+modified:  D docs/acceptance/S21/evidence/stack1-p95-miss/rerun-2.txt
+modified:  D docs/acceptance/S21/evidence/stack1-p95-miss/run1-bruno-excerpt.txt
+modified:  D docs/acceptance/S21/evidence/stack1-p95-miss/single-client.txt
+modified:  M docs/acceptance/S21/evidence/verify.txt
+docker: 16 CPUs, 26260877312 bytes, 29.9.2
+other containers: nava-nava-relay-1 nava-nava-worker-1 nava-nava-core-1 nava-temporal-1 nava-temporal-server-1 nava-nava-purge-1 nava-nava-onboard-1 nava-nava-groupsync-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-otel-collector-1 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 

@@ -1,0 +1,25 @@
+meta {
+  name: S21.7 AC3: the admin filters on due_at before it is flagged: 400 field_not_filterable
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[due_at]=2026-03-01T00:00:00Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/due_at');
+}
+
+docs {
+  `due_at` exists in the schema but is not flagged yet (S21.8 flags it): 400 `field_not_filterable`. A filter on an unflagged field is never a JSON scan of 400k records.
+}

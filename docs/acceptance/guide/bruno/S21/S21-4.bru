@@ -1,0 +1,33 @@
+meta {
+  name: S21.4 The incident type has priority and due_at, neither flagged yet
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('priority is an integer, due_at a date-time string', () => {
+    expect(b.schema.properties.priority.type).to.eql('integer');
+    expect(b.schema.properties.due_at).to.include({ type: 'string', format: 'date-time' });
+  });
+  test('no property is flagged x-nava-filterable yet (fresh stack)', () =>
+    expect(Object.values(b.schema.properties).filter(p => p['x-nava-filterable']).length).to.eql(0));
+  bru.setVar('s21_prev', String(b.version));
+  bru.setVar('s21_def', JSON.stringify({ schema: b.schema, fixed_columns: b.fixed_columns, states: b.states }));
+}
+
+docs {
+  run-kit.sh (tools/kit.mjs setup) added `due_at` before the seed. Kept for S21.8's publish body: the current schema, fixed columns and states.
+}

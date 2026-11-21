@@ -1,0 +1,44 @@
+meta {
+  name: S21.9 AC1: while indexing, filter[priority]=1: 422 field_not_ready with index_progress
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const r = await T.list('admin_a_token', 'filter[due_at]=2026-03-01T00:00:00Z');
+  bru.setVar('s21_due_not_ready', JSON.stringify({ status: r.status, body: r.data }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_ready', 422);
+  const b = N.json();
+  test('index_progress is a whole number from 0 to 99', () => {
+    expect(Number.isInteger(b.index_progress)).to.eql(true);
+    expect(b.index_progress).to.be.within(0, 99);
+  });
+  test('no items and no total', () => { expect(b).to.not.have.property('items'); expect(b).to.not.have.property('total'); });
+  const d = JSON.parse(bru.getVar('s21_due_not_ready'));
+  test('due_at too: 422 field_not_ready with a whole index_progress', () => {
+    expect(d.status).to.eql(422);
+    expect(d.body.code).to.eql('field_not_ready');
+    expect(Number.isInteger(d.body.index_progress)).to.eql(true);
+  });
+  console.log('S21.9 index_progress priority', b.index_progress, 'due_at', d.body.index_progress);
+}
+
+docs {
+  Right after S21.8 the 400k backfill has only started. Both fields answer 422 `field_not_ready`; `index_progress` is the whole percentage done (0 to 99), and it is the only thing the body says about the field (no items, no total).
+}

@@ -1,0 +1,39 @@
+meta {
+  name: S21.17 AC5: a value only in a record Alice cannot see answers as a value that exists nowhere
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[due_at]=2026-12-31T23:59:59Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/s21')(N, bru);
+  const none = await T.list('alice_token', 'filter[due_at]=2026-12-31T23:58:59Z');
+  const ctl = await T.list('alice_token', 'filter[due_at]=2026-12-31T23:57:59Z');
+  const adm = await T.list('admin_a_token', 'filter[due_at]=2026-12-31T23:59:59Z');
+  bru.setVar('s21_ac5', JSON.stringify({ none: { status: none.status, body: none.data }, control: { status: ctl.status, total: ctl.data.total },
+    admin: { status: adm.status, total: adm.data.total } }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s21_ac5'));
+  test('the admin finds the hidden value: total 1', () => { expect(o.admin.status).to.eql(200); expect(o.admin.total).to.eql(Number(N.v('s21_hidden_admin_n'))); expect(o.admin.total).to.eql(1); });
+  test('Alice: no items, total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+  test('the same status and body as a value that exists nowhere', () => { expect(o.none.status).to.eql(200); expect(N.json()).to.eql(o.none.body); });
+  test('the control value she may read: total 1', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); });
+}
+
+docs {
+  seed.sql gives one tenant A record `due_at` 2026-12-31T23:59:59Z and no group: the admin finds it, Alice may not read it. Alice's answer for it is the same as for 2026-12-31T23:58:59Z, which no record has: 200, no items, total 0. The control 2026-12-31T23:57:59Z (a service-desk record) shows her filter does find what she may read.
+}
