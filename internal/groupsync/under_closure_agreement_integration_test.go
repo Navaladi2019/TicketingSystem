@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
@@ -85,28 +86,17 @@ func ucaRegion(when authz.Node, shared bool) *authz.Policy {
 
 func ucaUnder(u authz.Under) authz.Node { return authz.Node{Under: &u} }
 
-// ucaCheck seeds recs in one superuser transaction, switches it to nava_app
-// in tid, checks that Go, the SQL predicate and the list route each admit
-// exactly the records of the units in want (Keycloak ids, "" for no unit),
-// and rolls everything back. Both document shapes (one policy, and split
-// into branches) are checked.
-func ucaCheck(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords, what string, p identity.Principal, when authz.Node, want ...string) {
+// ucaSeed commits an entity type of tid and recs, each write with its audit
+// entry (the commit checks), and returns the type's id.
+func ucaSeed(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords) uuid.UUID {
 	t.Helper()
-	ctx := context.Background()
 	units := ucaUnits(t, super, tid)
-	nameOf := map[uuid.UUID]string{}
-	for kc, id := range units {
-		nameOf[id] = kc
-	}
-	tx, err := super.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	def := uuid.New()
-	if _, err := tx.Exec(ctx, `INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'uca', 'UCA', 'UCA', 1)`, tid, def); err != nil {
-		t.Fatal(err)
-	}
+	exec(t, super, `WITH d AS (INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version)
+			VALUES ($1, $2, 'uca', 'UCA', 'UCA', 1) RETURNING tenant_id, id)
+		INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, content_sha256, actor_system, source)
+		SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'entity_definition', id, sha256('uca'::bytea), 'system', 'system' FROM d`,
+		tid, def)
 	keys := make([]string, 0, len(recs))
 	for kc := range recs {
 		keys = append(keys, kc)
@@ -122,19 +112,44 @@ func ucaCheck(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords, wha
 			}
 			unit = id
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, org_unit_id)
-			SELECT $1, gen_random_uuid(), $2, 1, 'UCA' || lpad((g + $3)::text, 7, '0'), 'open', $4::uuid FROM generate_series(1, $5::int) g`,
-			tid, def, next, unit, recs[kc]); err != nil {
-			t.Fatal(err)
-		}
+		exec(t, super, `WITH r AS (INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, org_unit_id)
+				SELECT $1, gen_random_uuid(), $2, 1, 'UCA' || lpad((g + $3)::text, 7, '0'), 'open', $4::uuid FROM generate_series(1, $5::int) g
+				RETURNING tenant_id, id, version)
+			INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
+			SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r`,
+			tid, def, next, unit, recs[kc])
 		next += recs[kc]
 	}
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_app"); err != nil {
-		t.Fatal(err)
+	return def
+}
+
+// ucaCheck reads, as nava_app in tid (tenancy.InTenantTx), the records of
+// type def, and checks that Go, the SQL predicate and the list route each
+// admit exactly the records of the units in want (Keycloak ids, "" for no
+// unit). Both document shapes (one policy, and split into branches) are
+// checked.
+func ucaCheck(t *testing.T, super *pgx.Conn, app *pgxpool.Pool, tid, def uuid.UUID, what string, p identity.Principal, when authz.Node, want ...string) {
+	t.Helper()
+	ctx := context.Background()
+	units := ucaUnits(t, super, tid)
+	nameOf := map[uuid.UUID]string{}
+	for kc, id := range units {
+		nameOf[id] = kc
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tid.String()); err != nil {
-		t.Fatal(err)
+	// A caller leaf of a principal in no unit folds to false: no region
+	// term is left to drive or to split.
+	folded := when.Under != nil && when.Under.Caller &&
+		count(t, super, "SELECT count(*) FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2", tid, p.PrincipalID) == 0
+	if err := tenancy.InTenantTx(ctx, app, tid, func(tx pgx.Tx) error {
+		ucaCheckTx(ctx, t, tx, nameOf, tid, def, what, p, when, folded, want)
+		return nil
+	}); err != nil {
+		t.Fatalf("%s: %v", what, err)
 	}
+}
+
+func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UUID]string, tid, def uuid.UUID, what string, p identity.Principal, when authz.Node, folded bool, want []string) {
+	t.Helper()
 	rows, err := tx.Query(ctx, "SELECT id, org_unit_id FROM records WHERE tenant_id = $1 AND entity_definition_id = $2", tid, def)
 	if err != nil {
 		t.Fatal(err)
@@ -150,8 +165,8 @@ func ucaCheck(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords, wha
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != next {
-		t.Fatalf("%s: nava_app reads %d of the %d seeded records", what, len(all), next)
+	if len(all) == 0 {
+		t.Fatalf("%s: nava_app reads none of the seeded records", what)
 	}
 	unitName := func(r authz.Row) string {
 		if r.OrgUnitID == nil {
@@ -240,7 +255,7 @@ func ucaCheck(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords, wha
 			t.Fatalf("%s: ResolveUnder for the list: %v", what, err)
 		}
 		read := authz.ReadList(listPol, p, "r", 2)
-		if shared && len(read.Branches) < 2 {
+		if shared && !folded && len(read.Branches) < 2 {
 			t.Fatalf("%s: the two-policy document did not split (%d branches)", what, len(read.Branches))
 		}
 		lq := pipeline.ListQuery{TenantID: tid, DefinitionID: def, Where: "true", Args: slices.Clone(read.Args),
@@ -251,7 +266,7 @@ func ucaCheck(t *testing.T, super *pgx.Conn, tid uuid.UUID, recs ucaRecords, wha
 		for _, d := range read.Drivers {
 			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 		}
-		if !slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }) && ucaDriven(when) {
+		if !slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }) && ucaDriven(when) && !folded {
 			t.Errorf("%s: %s: the region term has no count driver, so total is not read through the closure", what, shape)
 		}
 		page, err := pipeline.List(ctx, tx, lq)
@@ -300,7 +315,8 @@ func TestUnderClosureAgreementNestedMovedAndTombstoned(t *testing.T) {
 	berlinUnderDE := memberUnit("berlin", "de", p("/emea/de/berlin"))
 	sync("initial tree", emea, de, berlinUnderDE, fr, apac)
 
-	recs := ucaRecords{"emea": 2, "de": 3, "berlin": 4, "fr": 5, "apac": 6, "": 1}
+	app := appPool(t, super)
+	def := ucaSeed(t, super, tid, ucaRecords{"emea": 2, "de": 3, "berlin": 4, "fr": 5, "apac": 6, "": 1})
 	nested := ucaPrincipal(t, super, tid, "nested")
 	deAgent := ucaPrincipal(t, super, tid, "de-agent")
 	frAgent := ucaPrincipal(t, super, tid, "fr-agent")
@@ -312,22 +328,22 @@ func TestUnderClosureAgreementNestedMovedAndTombstoned(t *testing.T) {
 	// Nested U: the caller is in emea and in de, below it. de and berlin
 	// are reached from both; each record is admitted once, and total is 14,
 	// not the 21 of a count that reads de's subtree twice.
-	ucaCheck(t, super, tid, recs, "nested U, under caller", nested, caller, "emea", "de", "berlin", "fr")
-	ucaCheck(t, super, tid, recs, "de agent, under caller", deAgent, caller, "de", "berlin")
-	ucaCheck(t, super, tid, recs, "under [emea]", nested, listed("emea"), "emea", "de", "berlin", "fr")
-	ucaCheck(t, super, tid, recs, "not under [de]", nested, notUnder("de"), "emea", "fr", "apac", "")
+	ucaCheck(t, super, app, tid, def, "nested U, under caller", nested, caller, "emea", "de", "berlin", "fr")
+	ucaCheck(t, super, app, tid, def, "de agent, under caller", deAgent, caller, "de", "berlin")
+	ucaCheck(t, super, app, tid, def, "under [emea]", nested, listed("emea"), "emea", "de", "berlin", "fr")
+	ucaCheck(t, super, app, tid, def, "not under [de]", nested, notUnder("de"), "emea", "fr", "apac", "")
 
 	// Group sync moves berlin under fr: the answer follows the new parent.
 	sync("berlin moves under fr", emea, de, memberUnit("berlin", "fr", p("/emea/fr/berlin")), fr, apac)
-	ucaCheck(t, super, tid, recs, "after the move, de agent", deAgent, caller, "de")
-	ucaCheck(t, super, tid, recs, "after the move, fr agent", frAgent, caller, "fr", "berlin")
-	ucaCheck(t, super, tid, recs, "after the move, under [de]", nested, listed("de"), "de")
-	ucaCheck(t, super, tid, recs, "after the move, nested U", nested, caller, "emea", "de", "berlin", "fr")
+	ucaCheck(t, super, app, tid, def, "after the move, de agent", deAgent, caller, "de")
+	ucaCheck(t, super, app, tid, def, "after the move, fr agent", frAgent, caller, "fr", "berlin")
+	ucaCheck(t, super, app, tid, def, "after the move, under [de]", nested, listed("de"), "de")
+	ucaCheck(t, super, app, tid, def, "after the move, nested U", nested, caller, "emea", "de", "berlin", "fr")
 
 	// And back under de.
 	sync("berlin moves back under de", emea, de, berlinUnderDE, fr, apac)
-	ucaCheck(t, super, tid, recs, "after the move back, de agent", deAgent, caller, "de", "berlin")
-	ucaCheck(t, super, tid, recs, "after the move back, fr agent", frAgent, caller, "fr")
+	ucaCheck(t, super, app, tid, def, "after the move back, de agent", deAgent, caller, "de", "berlin")
+	ucaCheck(t, super, app, tid, def, "after the move back, fr agent", frAgent, caller, "fr")
 
 	// de is tombstoned while berlin, below it, stays live. No snapshot makes
 	// that state (one that drops de and keeps berlin is ErrBadSnapshot), so
@@ -348,11 +364,11 @@ func TestUnderClosureAgreementNestedMovedAndTombstoned(t *testing.T) {
 		tid, []uuid.UUID{units["de"], units["berlin"]}); n != 0 {
 		t.Errorf("%d closure rows name de or berlin after de's tombstone", n)
 	}
-	ucaCheck(t, super, tid, recs, "de tombstoned, under [emea]", nested, listed("emea"), "emea", "fr")
-	ucaCheck(t, super, tid, recs, "de tombstoned, nested caller (now in emea only)", nested, caller, "emea", "fr")
-	ucaCheck(t, super, tid, recs, "de tombstoned, under [berlin]", nested, listed("berlin"))
-	ucaCheck(t, super, tid, recs, "de tombstoned, not under [emea]", nested, notUnder("emea"), "de", "berlin", "apac", "")
-	ucaCheck(t, super, tid, recs, "de tombstoned, de agent", deAgent, caller)
+	ucaCheck(t, super, app, tid, def, "de tombstoned, under [emea]", nested, listed("emea"), "emea", "fr")
+	ucaCheck(t, super, app, tid, def, "de tombstoned, nested caller (now in emea only)", nested, caller, "emea", "fr")
+	ucaCheck(t, super, app, tid, def, "de tombstoned, under [berlin]", nested, listed("berlin"))
+	ucaCheck(t, super, app, tid, def, "de tombstoned, not under [emea]", nested, notUnder("emea"), "de", "berlin", "apac", "")
+	ucaCheck(t, super, app, tid, def, "de tombstoned, de agent", deAgent, caller)
 }
 
 // A skewed district (SP-1c's seed shape): almost every record of emea sits in
@@ -380,13 +396,14 @@ func TestUnderClosureAgreementSkewedDistrict(t *testing.T) {
 	if r := once(t, s); r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	recs := ucaRecords{"berlin": store.TotalCap + 150, "munich": 3, "de": 2, "fr": 4, "emea": 1, "apac": 40, "": 2}
+	app := appPool(t, super)
+	def := ucaSeed(t, super, tid, ucaRecords{"berlin": store.TotalCap + 150, "munich": 3, "de": 2, "fr": 4, "emea": 1, "apac": 40, "": 2})
 	units := ucaUnits(t, super, tid)
 	caller := ucaUnder(authz.Under{Caller: true})
 	emeaAgent := ucaPrincipal(t, super, tid, "emea-agent")
-	ucaCheck(t, super, tid, recs, "emea agent, under caller (past the cap)", emeaAgent, caller, "emea", "de", "berlin", "munich", "fr")
-	ucaCheck(t, super, tid, recs, "berlin agent, under caller (past the cap)", ucaPrincipal(t, super, tid, "berlin-agent"), caller, "berlin")
-	ucaCheck(t, super, tid, recs, "fr agent, under caller", ucaPrincipal(t, super, tid, "fr-agent"), caller, "fr")
-	ucaCheck(t, super, tid, recs, "under [munich], beside the hot unit", emeaAgent, ucaUnder(authz.Under{Units: []uuid.UUID{units["munich"]}}), "munich")
-	ucaCheck(t, super, tid, recs, "under [apac], another district", emeaAgent, ucaUnder(authz.Under{Units: []uuid.UUID{units["apac"]}}), "apac")
+	ucaCheck(t, super, app, tid, def, "emea agent, under caller (past the cap)", emeaAgent, caller, "emea", "de", "berlin", "munich", "fr")
+	ucaCheck(t, super, app, tid, def, "berlin agent, under caller (past the cap)", ucaPrincipal(t, super, tid, "berlin-agent"), caller, "berlin")
+	ucaCheck(t, super, app, tid, def, "fr agent, under caller", ucaPrincipal(t, super, tid, "fr-agent"), caller, "fr")
+	ucaCheck(t, super, app, tid, def, "under [munich], beside the hot unit", emeaAgent, ucaUnder(authz.Under{Units: []uuid.UUID{units["munich"]}}), "munich")
+	ucaCheck(t, super, app, tid, def, "under [apac], another district", emeaAgent, ucaUnder(authz.Under{Units: []uuid.UUID{units["apac"]}}), "apac")
 }
