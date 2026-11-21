@@ -97,7 +97,7 @@ erDiagram
 | `org_unit_members_principal` | `(tenant_id, principal_id, org_unit_id)` | "Units of a principal", the set S seed (D7), index-only |
 | `org_unit_members_one_primary` | `(tenant_id, principal_id) WHERE is_primary` | D-11-6, at most one row per principal |
 | `org_units_live_key` | UNIQUE `(tenant_id, id, live)` | The target of the live FK |
-| `records_org_unit` | `(tenant_id, org_unit_id) WHERE org_unit_id IS NOT NULL` | The `under` leaf (`org_unit_id IS NOT NULL AND org_unit_id = ANY(S)`) |
+| `records_org_unit` | `(tenant_id, org_unit_id, entity_definition_id) WHERE org_unit_id IS NOT NULL` since TICK-1032 (SP-1d, critique B1; `docs/data/org-unit-closure.md`). It was `(tenant_id, org_unit_id)`. | The `under` leaf (`org_unit_id IS NOT NULL AND org_unit_id = ANY(S)`) |
 
 No index on `org_units.parent_id` is added: `org_units_parent` exists. The
 FK from `records` needs no index on the `records` side for its own check:
@@ -146,6 +146,7 @@ WHERE NOT EXISTS (SELECT 1 FROM org_units o
 | `20261120120200_records_org_unit_id` | `ADD COLUMN org_unit_id`, `records_org_unit_fkey NOT VALID`, the commit check's new `UPDATE OF` list | Catalogue only |
 | `20261120120300_records_org_unit_fkey_validate` | `VALIDATE` with the TICK-715 migrator policies | ACCESS EXCLUSIVE on `records` for the scan (see Results) |
 | `20261120120400_records_org_unit_index` | `CREATE INDEX CONCURRENTLY records_org_unit` | None that blocks writes |
+| `20261121060000_records_org_unit_entity_definition` (TICK-1032) | Builds the 3-column key `CONCURRENTLY` as `records_org_unit_new`, then drops the old index and renames the new one in one transaction | ACCESS EXCLUSIVE on `records` for the swap only, a catalogue change |
 
 None is per-tenant DDL. Each sets `lock_timeout = '5s'` where it takes a
 lock. Rows written under the old schema read `org_unit_id` NULL, which never

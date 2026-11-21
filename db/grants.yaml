@@ -113,6 +113,8 @@ roles:
       org_units: { SELECT: [] }
       # TICK-947 (ADR-010 D7): a caller's units seed the under set S.
       org_unit_members: { SELECT: [] }
+      # TICK-1032 (ADR-010-A2): the under leaf reads a unit's live subtree.
+      org_unit_closure: { SELECT: [] }
       # Keycloak Registry.TenantOwnsEmailDomain (T18a).
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
@@ -209,6 +211,8 @@ roles:
       # Never keycloak_group_id or name.
       org_units: { SELECT: [tenant_id, id, parent_id, deleted_at] }
       org_unit_members: { SELECT: [tenant_id, org_unit_id, principal_id, is_primary] }
+      # TICK-1032 (ADR-010-A2): a unit's live subtree, for under in policy tests.
+      org_unit_closure: { SELECT: [] }
       records:
         SELECT: []
         INSERT: []
@@ -375,6 +379,9 @@ roles:
       org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name, deleted_at] }
       # Membership and the primary unit (D-11-6); nava_groupsync is the only writer.
       org_unit_members: { SELECT: [], INSERT: [], UPDATE: [is_primary], DELETE: [] }
+      # TICK-1032 (ADR-010-A2): a rebuild deletes the tenant's closure and
+      # inserts it again; no UPDATE.
+      org_unit_closure: { SELECT: [], INSERT: [], DELETE: [] }
       # Group sync reads the recorded admins and auditors groups (P3-04, I1)
       # and deletes a pointer only once its group is tombstoned (ADR-004-E5
       # D5: tenant_admin_group_delete_tombstoned and

@@ -413,6 +413,33 @@ func Paths() []Path {
 			"UPDATE org_units SET parent_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB1, OrgUnitA1),
 		sql("org_units: group sync creates a unit for tenant B", "nava_groupsync", Denied,
 			"INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-ou-new', 'x')", TenantB, NewID),
+		// TICK-1032 (ADR-010-A2): org_unit_closure. Every reader, with no
+		// predicate or another tenant's, sees only its own rows; only group
+		// sync writes it, never across the wall, and the FKs refuse a row
+		// that joins one tenant's ancestor to another's descendant.
+		sql("org_unit_closure: the app reads every closure row", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, ancestor_id, descendant_id FROM org_unit_closure"),
+		sql("org_unit_closure: the app lists tenant B's subtree with tenant B's predicate", "nava_app", Denied,
+			"SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2", TenantB, OrgUnitB1),
+		sql("org_unit_closure: the worker reads tenant B's subtree", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, descendant_id FROM org_unit_closure WHERE ancestor_id = $1", OrgUnitB1),
+		sql("org_unit_closure: group sync reads tenant B's closure", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, ancestor_id FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// Valid keys of tenant A and no such row, so only the grant refuses it.
+		sql("org_unit_closure: the app adds a row to its own closure", "nava_app", Denied,
+			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA2, OrgUnitA1),
+		sql("org_unit_closure: the app drops tenant B's closure", "nava_app", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		sql("org_unit_closure: the worker drops tenant B's closure", "nava_worker", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// Valid keys of tenant B, so only org_unit_closure_insert's WITH
+		// CHECK (tenant A's app.tenant_id) can refuse it.
+		sql("org_unit_closure: group sync adds a row to tenant B's closure", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB2, OrgUnitB1),
+		sql("org_unit_closure: group sync hangs tenant B's unit under tenant A's", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, OrgUnitB2),
+		sql("org_unit_closure: group sync drops tenant B's closure", "nava_groupsync", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,

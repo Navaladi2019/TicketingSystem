@@ -97,7 +97,8 @@ func TestTICK947Schema(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{
-		"records_org_unit":             "CREATE INDEX records_org_unit ON public.records USING btree (tenant_id, org_unit_id) WHERE (org_unit_id IS NOT NULL)",
+		// TICK-1032 (SP-1d, critique B1): entity_definition_id joined the key.
+		"records_org_unit":             "CREATE INDEX records_org_unit ON public.records USING btree (tenant_id, org_unit_id, entity_definition_id) WHERE (org_unit_id IS NOT NULL)",
 		"org_unit_members_pkey":        "CREATE UNIQUE INDEX org_unit_members_pkey ON public.org_unit_members USING btree (tenant_id, org_unit_id, principal_id)",
 		"org_unit_members_principal":   "CREATE INDEX org_unit_members_principal ON public.org_unit_members USING btree (tenant_id, principal_id, org_unit_id)",
 		"org_unit_members_one_primary": "CREATE UNIQUE INDEX org_unit_members_one_primary ON public.org_unit_members USING btree (tenant_id, principal_id) WHERE is_primary",
