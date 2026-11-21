@@ -58,6 +58,9 @@ const (
 	RuleUnknownField  = "unknown_field"  // update_record.set names a field the schema lacks
 	RuleEntityChange  = "entity_change"  // a new version names another trigger entity
 	RuleKey           = "key"            // the definition key has the wrong shape
+	// RuleEntityTypeMismatch: a condition step's policy names an entity type
+	// other than the trigger entity (ADR-010 D9).
+	RuleEntityTypeMismatch = "entity_type_mismatch"
 )
 
 // FieldError is one failing position. Pointer is an RFC 6901 pointer into the
@@ -174,6 +177,10 @@ func (Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in Publ
 			return nil, &InvalidError{Fields: parseFields(in.Body, inv.Paths)}
 		}
 		return nil, err
+	}
+
+	if bad := checkPolicyEntities(d); len(bad) > 0 {
+		return nil, &InvalidError{Fields: bad}
 	}
 
 	entityID, err := entityID(ctx, tx, d.Trigger.Entity)
@@ -300,6 +307,19 @@ func checkSets(d *def.Definition, props map[string]string) []FieldError {
 			if _, ok := props[f]; !ok {
 				bad = append(bad, FieldError{Pointer: "/steps/" + s.Key + "/set/" + escape(f), Rule: RuleUnknownField})
 			}
+		}
+	}
+	return bad
+}
+
+// checkPolicyEntities refuses every condition step whose policy test names an
+// entity type other than the trigger entity. It does not look the policy up:
+// references resolve at run time (ADR-010 D9).
+func checkPolicyEntities(d *def.Definition) []FieldError {
+	var bad []FieldError
+	for _, s := range d.Steps {
+		if s.Type == def.TypeCondition && s.Policy != nil && s.Policy.EntityType != d.Trigger.Entity {
+			bad = append(bad, FieldError{Pointer: "/steps/" + s.Key + "/policy/entity_type", Rule: RuleEntityTypeMismatch})
 		}
 	}
 	return bad

@@ -1,0 +1,26 @@
+meta {
+  name: S32.29 AC4: admin@tenant-b reads tenant B's incident access
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('s32_b_policy', JSON.stringify(N.json()));
+  bru.setVar('s32_b_etag', N.header('ETag'));
+}
+
+docs {
+  Kept for S32.38, which republishes it.
+}

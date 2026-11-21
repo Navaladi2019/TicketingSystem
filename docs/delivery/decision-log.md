@@ -6,6 +6,9 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-21: S32, the missing-policy audit entry stores only a hash of the name; adding the name is a product follow-up](decisions/2026-11-21-s32-policy-ref-audit-hash-only.md)
+- [2026-11-21: S32 has no stack CI case; the fresh-stack acceptance kit is the gate](decisions/2026-11-21-s32-no-stack-ci-case.md)
+- [2026-11-21: PLAN-007-A2 drafted: ADR-006-A2 lands inside S21 as eight tasks; the A2-8 gate stacks into the compiler PR's branch; PR #796 closed](decisions/2026-11-21-plan-007-a2-adr-006-a2.md)
 - [2026-11-20: S30, a format-1 rule id that is not a valid name is renamed when published; no legacy_id is stored](decisions/2026-11-20-s30-format1-rule-names-renamed-on-publish.md)
 - [2026-11-20: PLAN-007-A1 drafted: ADR-006-A1's watch and spikes land as S21b after S21 merges; A1-6 waits for the R-a trigger](decisions/2026-11-20-plan-007-a1-adr-006-a1.md)
 - [2026-11-19: PLAN-011 folds ADR-010-A1 into S30's existing tasks; no separate plan](decisions/2026-11-19-plan-011-folds-adr-010-a1.md)

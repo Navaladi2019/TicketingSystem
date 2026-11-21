@@ -28,6 +28,10 @@ type Activities struct {
 	// Causes finds the run's newest cause when a write's cause went stale
 	// mid-step (TICK-784). Nil leaves a stale cause refused, as ErrForbidden.
 	Causes CauseSource
+	// Policies answers a condition step's named-policy test against the
+	// entity type's current access version (ADR-010 D9, TICK-957). Nil makes
+	// every such test false.
+	Policies PolicyTester
 }
 
 // Re-walk bounds (TICK-784). Each is the number of extra tries inside one
@@ -163,6 +167,22 @@ func (a *Activities) NextStep(ctx context.Context, ref StepRef) (workerguard.Dir
 	}
 }
 
+// policyHolds evaluates a condition step's named-policy test through Policies,
+// in this activity and never in workflow code (I6). With no Policies the test
+// is false: it fails closed.
+func (a *Activities) policyHolds(ctx context.Context, tenant, recordID uuid.UUID, s *def.Step) (bool, error) {
+	if a.Policies == nil {
+		return false, nil
+	}
+	ok, err := a.Policies.Test(ctx, tenant, PolicyTest{
+		RecordID: recordID, EntityType: s.Policy.EntityType, Policy: s.Policy.Name, Who: s.Who, Op: string(s.Op),
+	})
+	if err != nil {
+		return false, rejection(err)
+	}
+	return ok, nil
+}
+
 // recordChangedWait is the signal id d waits on if it is the version's
 // RecordChangedSignal, else nil.
 func (l *loaded) recordChangedWait(d workerguard.Directive) *uuid.UUID {
@@ -201,7 +221,16 @@ func (a *Activities) nextStep(ctx context.Context, tenant uuid.UUID, l *loaded, 
 		switch s.Type {
 		case def.TypeCondition:
 			key = s.Else
-			if s.Holds(record) {
+			holds := false
+			if s.Policy != nil {
+				holds, err = a.policyHolds(ctx, tenant, ref.RecordID, s)
+				if err != nil {
+					return workerguard.Directive{}, 0, err
+				}
+			} else {
+				holds = s.Holds(record)
+			}
+			if holds {
 				key = s.Then
 			}
 			continue

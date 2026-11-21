@@ -309,3 +309,66 @@ func TestValidKey(t *testing.T) {
 		}
 	}
 }
+
+func policyStep() map[string]any {
+	return map[string]any{"key": "check", "type": "condition",
+		"policy": map[string]any{"entity_type": "ticket", "name": "assignee_edit"},
+		"who":    "assignee", "op": "write", "then": "route", "else": "done"}
+}
+
+func TestParsePolicyTest(t *testing.T) {
+	d := base()
+	d["steps"].([]any)[1] = policyStep()
+	got, err := Parse(encode(t, d))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	s, _ := got.Step("check")
+	if s.Policy == nil || s.Policy.EntityType != "ticket" || s.Policy.Name != "assignee_edit" || s.Who != WhoAssignee || s.Op != OpWrite {
+		t.Errorf("step = %+v", s)
+	}
+}
+
+func TestParsePolicyTestRefusals(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(s map[string]any)
+		want string
+	}{
+		{"bad who", func(s map[string]any) { s["who"] = "owner" }, "/steps/1/who"},
+		{"bad op", func(s map[string]any) { s["op"] = "eq" }, "/steps/1/op"},
+		{"missing who", func(s map[string]any) { delete(s, "who") }, "/steps/1/who"},
+		{"missing op", func(s map[string]any) { delete(s, "op") }, "/steps/1/op"},
+		{"bad name", func(s map[string]any) { s["policy"].(map[string]any)["name"] = "Bad-Name" }, "/steps/1/policy/name"},
+		{"bad entity", func(s map[string]any) { s["policy"].(map[string]any)["entity_type"] = "X" }, "/steps/1/policy/entity_type"},
+		{"extra key in policy", func(s map[string]any) { s["policy"].(map[string]any)["x"] = 1 }, "/steps/1/policy/x"},
+		{"missing name", func(s map[string]any) { delete(s["policy"].(map[string]any), "name") }, "/steps/1/policy/name"},
+		{"field beside policy", func(s map[string]any) { s["field"] = "/a" }, "/steps/1/field"},
+		{"value beside policy", func(s map[string]any) { s["value"] = 1 }, "/steps/1/value"},
+		{"extra step key", func(s map[string]any) { s["extra"] = 1 }, "/steps/1/extra"},
+		{"who without policy", func(s map[string]any) {
+			delete(s, "policy")
+			s["field"], s["value"], s["op"] = "/a", 1, "eq"
+		}, "/steps/1/who"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := base()
+			s := policyStep()
+			c.mut(s)
+			d["steps"].([]any)[1] = s
+			_, err := Parse(encode(t, d))
+			inv, ok := errors.AsType[*ErrInvalidDefinition](err)
+			if !ok {
+				t.Fatalf("err = %v, want ErrInvalidDefinition", err)
+			}
+			found := false
+			for _, p := range inv.Paths {
+				found = found || p == c.want
+			}
+			if !found {
+				t.Errorf("paths = %v, want %q", inv.Paths, c.want)
+			}
+		})
+	}
+}
