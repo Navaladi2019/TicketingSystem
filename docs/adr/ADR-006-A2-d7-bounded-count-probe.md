@@ -14,6 +14,8 @@ deciders: Solution Architect (author; verdict); Technical Architect (round-1 cri
 
 # ADR-006 amendment A2: a bounded pre-count picks the count's shape
 
+> **Rev 1 outcome (2026-11-21): A2-11 failed, so A2 is NOT accepted as written.** On PR #812 (`64a6160e`), S-A2-skew passed, and S-A2-anti and S-A2-multi failed. The 6% anti-correlated cell rose by 341-557 ms; no `K` separates "the value is on my records" from "it is on records I can't see". The probe cost 15-19 µs per record, not the 4-7 µs projected. The measured R13 step was 230-470 ms. The Solution Architect declined the visible-sample reshape and referred the choice between a count time budget and a D13 exception to the CTO (TICK-1022 comment thread 01a1fc63). Rev 2 follows that ruling.
+>
 > **Status: PROPOSED, rev 1** (2026-11-21). Every critique item is taken as proposed, so nothing is contested and no CTO tie-break is needed. **A2 becomes ACCEPTED when spikes S-A2-anti and S-A2-skew (A2-11) pass**, the Technical Architect's stated condition. S-A2-multi decides whether A2-12's field cap stays at 3. The compiler PR may be opened and reviewed now. It merges only after A2 is ACCEPTED and the A2-8 gate passes.
 >
 > **Rev 1 changelog (round-1 critique).**

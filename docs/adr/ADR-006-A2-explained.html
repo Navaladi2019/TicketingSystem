@@ -24,6 +24,7 @@ svg text{fill:var(--fg);font:13px sans-serif}
 svg .m{fill:var(--muted)}
 </style></head><body><main>
 <span class="pill">PROPOSED · rev 1 · 2026-11-21</span>
+<div class="box bad"><p><strong>Update, 2026-11-21: the design below failed its own test and is not accepted.</strong> When a common value sits on records the user cannot see, the forced lookup walks every record the user can see. That added 0.3 to 0.6 seconds. No tuning of the guard fixed it. A revision follows the CTO's ruling.</p></div>
 <h1>ADR-006 amendment A2: a cheap capped count decides how the database counts a broad filter</h1>
 <p class="src">Record: <code>docs/adr/ADR-006-A2-d7-bounded-count-probe.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> · Amends ADR-006 D7 · Security &amp; Multi-Tenancy Reviewer: approved. Technical Architect: no blocking item; accept once spikes S-A2-anti and S-A2-skew pass.</p>
 
