@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -311,5 +313,134 @@ func TestShapeCodeLogsNothingAndFormatsNoValue(t *testing.T) {
 	}
 	if strings.Contains(ErrProbe.Error(), "count") || strings.ContainsAny(ErrProbe.Error(), "0123456789") {
 		t.Errorf("ErrProbe = %q", ErrProbe)
+	}
+}
+
+// shapeTx is a pgx.Tx whose QueryRow answers the three statements
+// ChooseListShapes runs: the tenant, N̂_e and P3. It records each P3.
+type shapeTx struct {
+	pgx.Tx
+	tenant   string
+	tenantE  error
+	estimate *int64 // nil: no row
+	estE     error
+	m        int64
+	probeE   error
+	probes   []string
+}
+
+type shapeRow func(dest ...any) error
+
+func (r shapeRow) Scan(dest ...any) error { return r(dest...) }
+
+func (tx *shapeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	switch {
+	case strings.Contains(sql, "entity_record_estimates"):
+		return shapeRow(func(dest ...any) error {
+			switch {
+			case tx.estE != nil:
+				return tx.estE
+			case tx.estimate == nil:
+				return pgx.ErrNoRows
+			}
+			*dest[0].(*int64) = *tx.estimate
+			return nil
+		})
+	case strings.HasSuffix(sql, ") acl_p"):
+		tx.probes = append(tx.probes, sql)
+		return shapeRow(func(dest ...any) error {
+			if tx.probeE != nil {
+				return tx.probeE
+			}
+			*dest[0].(*int64) = tx.m
+			return nil
+		})
+	}
+	return shapeRow(func(dest ...any) error {
+		if tx.tenantE != nil {
+			return tx.tenantE
+		}
+		*dest[0].(*string) = tx.tenant
+		return nil
+	})
+}
+
+// ChooseListShapes' decisions and failures without a database: the switch
+// at m = K* and K* + 1, a missing row (K* = 1,000 and P3 runs), A2-5a (no
+// P3), one P3 per distinct leaf, and every error fails closed with a text
+// that carries no number.
+func TestChooseListShapes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	def := utUnit(99)
+	region := utBound(t, `{"any":[`+utOf(utUnit(2))+`,{"all":[{"cmp":{"column":"state","op":"eq","values":["open"]}},`+utOf(utUnit(2))+`]},{"under":{"of":"caller"}}]}`)
+	est := func(n int64) *int64 { return &n }
+	c3 := func(t *testing.T, sh ListShapes) []bool {
+		t.Helper()
+		return ReadListShaped(region, utMe(), "r", 2, sh).Materialize
+	}
+	for _, tc := range []struct {
+		name     string
+		estimate *int64
+		m        int64
+		probes   int
+		limit    string
+		want     []bool
+	}{
+		{"missing row, m = K*", nil, KStarMin, 2, "LIMIT 1001", []bool{true, true, true}},
+		{"missing row, m = K* + 1", nil, KStarMin + 1, 2, "LIMIT 1001", []bool{false, false, false}},
+		{"bench estimate, m = 3,613", est(400_000), 3613, 2, "LIMIT 3614", []bool{true, true, true}},
+		{"bench estimate, m = 3,614", est(400_000), 3614, 2, "LIMIT 3614", []bool{false, false, false}},
+		{"rare: no probe", est(500), 0, 0, "", []bool{false, false, false}},
+	} {
+		tx := &shapeTx{tenant: utTenant().String(), estimate: tc.estimate, m: tc.m}
+		sh, err := ChooseListShapes(ctx, tx, region, utMe(), def, 51)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if len(tx.probes) != tc.probes {
+			t.Errorf("%s: %d P3 statements, want %d (one per distinct leaf)", tc.name, len(tx.probes), tc.probes)
+		}
+		for _, p := range tx.probes {
+			if !strings.Contains(p, tc.limit+") acl_x "+tc.limit+") acl_p") {
+				t.Errorf("%s: P3 is not capped at %q: %s", tc.name, tc.limit, p)
+			}
+		}
+		if got := c3(t, sh); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: C3 per term %v, want %v", tc.name, got, tc.want)
+		}
+		if lr := ReadListShaped(region, utMe(), "r", 2, sh); tc.probes == 0 && slices.ContainsFunc(lr.Drivers, func(d RegionDriver) bool { return d.From != "" }) {
+			t.Errorf("%s: A2-5a keeps a count driver", tc.name)
+		}
+	}
+
+	// No region term: nothing is read.
+	none := &shapeTx{tenantE: errors.New("must not be read")}
+	if _, err := ChooseListShapes(ctx, none, utBound(t, `{"not":{"under":{"of":"caller"}}}`), utMe(), def, 51); err != nil {
+		t.Errorf("no region term: %v", err)
+	}
+
+	boom := errors.New("connection reset")
+	for _, tc := range []struct {
+		name  string
+		tx    *shapeTx
+		probe bool
+	}{
+		{"tenant unreadable", &shapeTx{tenantE: boom}, false},
+		{"leaf bound for another tenant", &shapeTx{tenant: utUnit(77).String()}, true},
+		{"estimate unreadable", &shapeTx{tenant: utTenant().String(), estE: boom}, false},
+		{"probe fails", &shapeTx{tenant: utTenant().String(), probeE: boom}, true},
+	} {
+		sh, err := ChooseListShapes(ctx, tc.tx, region, utMe(), def, 51)
+		if err == nil || !reflect.DeepEqual(sh, ListShapes{}) {
+			t.Errorf("%s: shapes %+v, err %v; want an error and no shapes", tc.name, sh, err)
+			continue
+		}
+		if tc.probe && !errors.Is(err, ErrProbe) {
+			t.Errorf("%s: %v does not wrap ErrProbe", tc.name, err)
+		}
+		if strings.ContainsAny(strings.ReplaceAll(err.Error(), utUnit(77).String(), ""), "0123456789") {
+			t.Errorf("%s: the error carries a number: %q", tc.name, err)
+		}
 	}
 }
