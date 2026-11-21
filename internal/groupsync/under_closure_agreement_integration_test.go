@@ -31,9 +31,11 @@ import (
 //
 //   - Go: authz.Allows on every record, bound by authz.ResolveUnder;
 //   - SQL: SELECT … WHERE authz.CompileRead;
-//   - the list route: authz.ReadList through pipeline.List, as
+//   - the list route: authz.ReadListShaped through pipeline.List, as
 //     internal/server/records_list.go builds it (ResolveUnder with no rows,
-//     the region count driver, the branches when the document splits): every
+//     the region count driver, the branches when the document splits), with
+//     the page shape the probe picks and with C3 and W0 forced (TICK-1036,
+//     ADR-010-A2 A2-5), the count always CC: every
 //     record on the page once, and total the readable count, capped at
 //     store.TotalCap.
 //
@@ -254,34 +256,48 @@ func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UU
 		if err != nil {
 			t.Fatalf("%s: ResolveUnder for the list: %v", what, err)
 		}
-		read := authz.ReadList(listPol, p, "r", 2)
-		if shared && !folded && len(read.Branches) < 2 {
-			t.Fatalf("%s: the two-policy document did not split (%d branches)", what, len(read.Branches))
-		}
-		lq := pipeline.ListQuery{TenantID: tid, DefinitionID: def, Where: "true", Args: slices.Clone(read.Args),
-			Branches: read.Branches, SortColumn: "updated_at", Desc: true, Limit: len(all) + 1}
-		if read.Branches == nil {
-			lq.Where = read.Where + " AND true"
-		}
-		for _, d := range read.Drivers {
-			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
-		}
-		if !slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }) && ucaDriven(when) && !folded {
-			t.Errorf("%s: %s: the region term has no count driver, so total is not read through the closure", what, shape)
-		}
-		page, err := pipeline.List(ctx, tx, lq)
+		// The list route, as TICK-1036 builds it: each region term's page in
+		// the shape the probe picks (ChooseListShapes, page 51), and forced
+		// C3 and W0, each with the count on CC; every one agrees with Allows.
+		probed, err := authz.ChooseListShapes(ctx, tx, listPol, p, def, 51)
 		if err != nil {
-			t.Fatalf("%s: list: %v", what, err)
+			t.Fatalf("%s: ChooseListShapes: %v", what, err)
 		}
-		pageGot := map[uuid.UUID]int{}
-		for _, r := range page.Records {
-			pageGot[r.ID]++
-		}
-		same(shape+", the list page", pageGot)
-		n := int64(len(wantIDs))
-		if page.Total != min(n, store.TotalCap) || page.TotalCapped != (n > store.TotalCap) {
-			t.Errorf("%s: %s: total = %d (capped %v), want %d of %d readable (capped %v)",
-				what, shape, page.Total, page.TotalCapped, min(n, store.TotalCap), n, n > store.TotalCap)
+		for _, sh := range []struct {
+			how    string
+			shapes authz.ListShapes
+		}{{"probed", probed}, {"C3 forced", authz.FixedListShapes(authz.ShapeC3)}, {"W0 forced", authz.FixedListShapes(authz.ShapeWalk)}} {
+			how, shapes := sh.how, sh.shapes
+			read := authz.ReadListShaped(listPol, p, "r", 2, shapes)
+			if shared && !folded && len(read.Branches) < 2 {
+				t.Fatalf("%s: the two-policy document did not split (%d branches)", what, len(read.Branches))
+			}
+			lq := pipeline.ListQuery{TenantID: tid, DefinitionID: def, Where: "true", Args: slices.Clone(read.Args),
+				Branches: read.Branches, CountBranches: read.CountBranches, Materialize: read.Materialize,
+				SortColumn: "updated_at", Desc: true, Limit: len(all) + 1}
+			if read.Branches == nil {
+				lq.Where, lq.CountWhere = read.Where+" AND true", read.CountWhere+" AND true"
+			}
+			for _, d := range read.Drivers {
+				lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+			}
+			if !slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }) && ucaDriven(when) && !folded {
+				t.Errorf("%s: %s, %s: the region term has no count driver, so total is not read through the closure", what, shape, how)
+			}
+			page, err := pipeline.List(ctx, tx, lq)
+			if err != nil {
+				t.Fatalf("%s: %s: list: %v", what, how, err)
+			}
+			pageGot := map[uuid.UUID]int{}
+			for _, r := range page.Records {
+				pageGot[r.ID]++
+			}
+			same(shape+", "+how+", the list page", pageGot)
+			n := int64(len(wantIDs))
+			if page.Total != min(n, store.TotalCap) || page.TotalCapped != (n > store.TotalCap) {
+				t.Errorf("%s: %s, %s: total = %d (capped %v), want %d of %d readable (capped %v)",
+					what, shape, how, page.Total, page.TotalCapped, min(n, store.TotalCap), n, n > store.TotalCap)
+			}
 		}
 	}
 }

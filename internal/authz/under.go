@@ -25,9 +25,10 @@ import (
 // in Go and nothing walks the tree per request:
 //
 //   - SQL (CompileRead, ReadBranches): the record's unit is one of the
-//     closure's descendants of U (C1, compiler.under). The count statement's
-//     region branch is driven from U through the closure instead (P3,
-//     RegionDriver), capped at K + 1 records.
+//     closure's descendants of U (compiler.under). The list count's region
+//     term is driven from U through the closure instead (CC, RegionDriver),
+//     capped at TotalCap + 1 records, and the list page's is C3 or W0 as the
+//     capped probe P3 picks (shape.go, ADR-010-A2 A2-5).
 //   - Go (Allows): the record's unit has a closure row whose ancestor is in U.
 //     ResolveUnder reads, in one statement, the caller's units and those rows
 //     for the records about to be checked, and binds them to a copy of the
