@@ -35,3 +35,9 @@ func RebuildClosureForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (
 	n, _, err := rebuildClosure(ctx, tx, tenantID, true)
 	return n, err
 }
+
+// SetCountLiveForTest replaces the live org-unit count (a metric read) so a
+// test can make it fail.
+func (s *Syncer) SetCountLiveForTest(f func(context.Context, pgx.Tx, uuid.UUID) (int, error)) {
+	s.countLive = f
+}
