@@ -65,6 +65,8 @@ If OpenObserve is not running (a stack without the `operator` profile), the Coll
 | `AuditDeadLineageCheckDown` (warning) | The dead-lineage check has reported nothing for 5 minutes | The nava-purge `audit dead lineage check failed` log line: a lost grant, a dropped policy or a renamed column |
 | `AuthzPolicyInvalid` (warning) | `authz_policy_invalid_total` grew in the last 10 minutes for an entity type: a stored access policy was voided and grants nothing (ADR-010 R7, S30) | The nava-core log line `authz: access policy voided, it grants nothing` names the entity type and ACL version; the explainer's `invalid` list gives the policy and pointer. Republish a valid document and file a bug on the check that let it through. Its sibling `authz_read_branches_fallback_total` has no alert; see [Core: record ACL](../system/core-acl.md#the-sp-2-branch-threshold-adr-010-d6) |
 
+`authz_policy_ref_missing_total{entity_type}` (nava-worker, S32) counts workflow named-policy tests that named no policy, so denied. It has no alert and should stay at zero; a rise means a workflow names a removed or misspelt policy (ADR-010 R5). The nava-worker warning `authz: workflow policy reference names no policy, it denies` gives `entity_type`, `ref_entity_type` and `policy`, and each one has a `policy_ref_refused` audit entry ([S32](../stories/s32.md#finding-the-missing-policy-entry)).
+
 ### Field index (S21, story branch)
 
 On `TICK-739/filterable-fields`, not yet on `main`, there are no alert rules

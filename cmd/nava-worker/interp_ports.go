@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
@@ -45,6 +46,7 @@ func productionActivities(pool, pipePool *pgxpool.Pool, mp metric.MeterProvider)
 		Writer:      writer,
 		Waits:       workerguard.WaitTracker{Pool: pool},
 		Causes:      workerguard.CauseTracker{Pool: pool},
+		Policies:    recordports.PolicyTester{Pool: pool, Policies: authz.PolicyStore{}},
 	}, nil
 }
 

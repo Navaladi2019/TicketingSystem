@@ -334,7 +334,9 @@ func workflowFixture(name string, b []byte) fixtureResult {
 		for f := range step {
 			r.uses.add("workflow.step_fields", typ+"."+f)
 		}
-		addOp(r.uses, step["op"])
+		if _, policy := step["policy"]; !policy { // a policy test's op is read or write
+			addOp(r.uses, step["op"])
+		}
 		var cases []map[string]json.RawMessage
 		_ = json.Unmarshal(step["cases"], &cases)
 		for _, c := range cases {

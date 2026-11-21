@@ -7,7 +7,7 @@
     "condition_ops": ["eq", "in", "ne"],
     "step_fields": {
       "branch": ["cases", "default", "key", "type"],
-      "condition": ["else", "field", "key", "op", "then", "type", "value"],
+      "condition": ["else", "field", "key", "op", "policy", "then", "type", "value", "who"],
       "end": ["key", "type"],
       "timer": ["duration", "key", "next", "type"],
       "update_record": ["key", "next", "set", "type"],

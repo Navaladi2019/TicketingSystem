@@ -1,0 +1,30 @@
+meta {
+  name: S32.35 AC4: tenant B's audit has no refused reference
+  type: http
+  seq: 35
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?domain=config&subject_type=acl_policy&from={{s32_t0}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('no policy_ref_refused entry in tenant B since S32.1', () => expect(items.filter(e => e.action === 'policy_ref_refused')).to.eql([]));
+  test('only tenant B\'s own access publish (S32.30) is there', () => {
+    expect(items.length).to.be.above(0);
+    items.forEach(e => expect(e.subject_id).to.not.eql(JSON.parse(bru.getVar('s32_ac3_entry')).subject_id));
+  });
+}
+
+docs {
+  The refusal is recorded in the tenant that ran the workflow, and tenant B's log names nothing of tenant A's.
+}

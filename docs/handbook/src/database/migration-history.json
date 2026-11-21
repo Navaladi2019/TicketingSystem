@@ -1090,15 +1090,51 @@
       ]
     },
     {
-      "file": "20261120140000_field_index_tables.sql",
+      "file": "20261120160000_worker_principal_reads.sql",
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
+    },
+    {
+      "file": "20261120160100_audit_log_action_policy_ref_refused.sql",
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
+    },
+    {
+      "file": "20261120160200_audit_log_action_policy_ref_refused_validate.sql",
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
+    },
+    {
+      "file": "20261121100000_field_index_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261120140100_field_index_trigger.sql",
+      "file": "20261121100100_field_index_trigger.sql",
       "on_main": false
     },
     {
-      "file": "20261120140200_field_index_sync_read_committed.sql",
+      "file": "20261121100200_field_index_sync_read_committed.sql",
       "on_main": false
     }
   ]

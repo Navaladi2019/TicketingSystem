@@ -154,7 +154,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\nimages=real\n"
+const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\nimages=real\nfull=false\n"
 
 // The ci-stages.sh scenarios share one clone and run one after another
 // (TICK-597): each runs cichanged, whose go list passes over the whole module
@@ -231,10 +231,11 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	}
 	// TICK-638: a pull request into a story branch (CI_FULL=1) runs every
 	// stage and every stack-case area whatever its diff, even this docs-only
-	// one, and wins over CI_LINT_ONLY. The images still follow the rule: no
-	// Dockerfile changed, so thin. Checked on this diff to save a cichanged
-	// pass (TICK-597).
-	const full = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=thin\n"
+	// one, and wins over CI_LINT_ONLY, and writes full=true, which runs the
+	// isolation job with no ci:full label (TICK-1031). The images still
+	// follow the rule: no Dockerfile changed, so thin. Checked on this diff
+	// to save a cichanged pass (TICK-597).
+	const full = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=thin\nfull=true\n"
 	if got := ciStages(t, dir, base, "CI_FULL=1"); got != full {
 		t.Errorf("CI_FULL=1: GITHUB_OUTPUT = %q, want %q", got, full)
 	}
@@ -244,8 +245,9 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	// TICK-652: a push to main diffs against github.event.before (BASE, a
 	// sha); this docs-only diff then runs lint alone, as above. A zero
 	// before (a new ref) or one this clone lacks (a force push) has no diff,
-	// so the push runs as CI_ALL=1: every stage and area, real images.
-	const all = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\n"
+	// so the push runs as CI_ALL=1: every stage and area, real images, but
+	// not a full run (full=false): only CI_FULL makes one.
+	const all = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\n"
 	for _, b := range []string{"0000000000000000000000000000000000000000", "0123456789abcdef0123456789abcdef01234567"} {
 		if got := ciStages(t, dir, b); got != all {
 			t.Errorf("BASE=%s: GITHUB_OUTPUT = %q, want %q", b, got, all)
@@ -272,12 +274,12 @@ func testLintOnlyGatesAGoChange(t *testing.T, dir, base string) {
 	// cmd/nava-core is in no stack-case area, so the keycloak, pgbouncer and
 	// db cases are skipped, unless ci:full (or a PR into main) sets
 	// CI_AREAS_ALL.
-	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\nimages=thin\n"; got != want {
+	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\nimages=thin\nfull=false\n"; got != want {
 		t.Errorf("with ci:run: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 	// TICK-628: a manual run's images input (CI_IMAGES) overrides the rule;
 	// checked here, beside CI_AREAS_ALL, to save a cichanged pass (TICK-597).
-	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1", "CI_IMAGES=real"), "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\n"; got != want {
+	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1", "CI_IMAGES=real"), "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\n"; got != want {
 		t.Errorf("with ci:full and CI_IMAGES=real: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 }
