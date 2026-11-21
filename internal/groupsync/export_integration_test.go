@@ -35,6 +35,3 @@ func RebuildClosureForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (
 	n, _, err := fullRebuildClosure(ctx, tx, tenantID.String())
 	return n, err
 }
-
-// ClosureInsertSQLForTest is the full-rebuild insert, for a test that explains its plan.
-const ClosureInsertSQLForTest = closureInsertSQL

@@ -140,7 +140,9 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 	}
 	if len(touched) == 0 {
 		var drift bool
-		if err := tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift); err != nil {
+		if err := withHashPlan(ctx, tx, func() error {
+			return tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift)
+		}); err != nil {
 			return 0, false, fmt.Errorf("compare closure: %w", err)
 		}
 		if !drift {
@@ -186,7 +188,7 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 // owner can on Postgres 16, and it would lock the table against another
 // tenant's rebuild), so the plan is made independent of the estimates: with
 // nested loops off the join is a hash join over the work table, linear in the
-// rows. Used for the full-rebuild insert only. SET LOCAL ends with the transaction.
+// rows. Used for the full-rebuild insert and the drift check, which walk the same tree. SET LOCAL ends with the transaction.
 func withHashPlan(ctx context.Context, tx pgx.Tx, fn func() error) error {
 	if _, err := tx.Exec(ctx, "SET LOCAL enable_nestloop = off"); err != nil {
 		return fmt.Errorf("set enable_nestloop: %w", err)
