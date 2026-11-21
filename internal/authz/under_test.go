@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -197,7 +198,7 @@ func TestReadListDrivesRegionTerms(t *testing.T) {
 					t.Errorf("%s: placeholder %s not in the term: %s", tc.name, ph, d.From)
 				}
 			}
-			if d.Key != "acl_d.descendant_id" || !strings.Contains(d.From, "acl_u(id)") ||
+			if d.Key != "acl_d.descendant_id" || !strings.Contains(d.From, "(SELECT DISTINCT acl_ud.id FROM unnest(") ||
 				!strings.Contains(d.From, "acl_up.ancestor_id <> acl_u.id") {
 				t.Errorf("%s: driver = %+v", tc.name, d)
 			}
@@ -379,7 +380,9 @@ func TestPrepareCollectsUnderUnitsAsTenantRefs(t *testing.T) {
 
 // SP-1d change 5: a policy names at most MaxUnderSets distinct under U,
 // refs expanded. Publishing more is a problem at the policy's pointer; the
-// caller is one U, and the same ids in another order or repeated are one U.
+// caller is one U, and the same ids in another order are one U. A leaf that
+// repeats an id is refused on its own (under_duplicate_id, A2-8), and still
+// counts as the U without the repeat (the planner's view of a stored one).
 // The planner voids a stored policy above it, so it fails closed too.
 func TestUnderSetsPerPolicyAreCapped(t *testing.T) {
 	t.Parallel()
@@ -390,7 +393,7 @@ func TestUnderSetsPerPolicyAreCapped(t *testing.T) {
 	}{
 		{"four distinct", `[]`, `{"any":[` + utOf(utUnit(1)) + `,` + utOf(utUnit(2)) + `,` + utOf(utUnit(3)) + `,{"under":{"of":"caller"}}]}`, false},
 		{"five distinct", `[]`, `{"any":[` + five + `]}`, true},
-		{"repeats and reorders count once", `[]`, `{"any":[` + utOf(utUnit(1), utUnit(2)) + `,` + utOf(utUnit(2), utUnit(1)) + `,` + utOf(utUnit(2), utUnit(1), utUnit(2)) +
+		{"repeats and reorders count once", `[]`, `{"any":[` + utOf(utUnit(1), utUnit(2)) + `,` + utOf(utUnit(2), utUnit(1)) + `,` + utOf(utUnit(2), utUnit(1)) +
 			`,{"under":{"of":"caller"}},{"not":{"under":{"of":"caller"}}},` + utOf(utUnit(3)) + `,` + utOf(utUnit(4)) + `]}`, false},
 		{"five through refs", `[{"name":"a","expr":{"any":[` + utOf(utUnit(1)) + `,` + utOf(utUnit(2)) + `]}},{"name":"b","expr":{"any":[{"ref":"a"},` + utOf(utUnit(3)) + `]}}]`,
 			`{"any":[{"ref":"b"},{"ref":"a"},` + utOf(utUnit(4)) + `,` + utOf(utUnit(5)) + `]}`, true},
@@ -435,5 +438,31 @@ func TestSortedIDsIsTextOrder(t *testing.T) {
 	}
 	if len(got) != len(ids)-1 {
 		t.Errorf("%d ids, want %d without the repeat", len(got), len(ids)-1)
+	}
+}
+
+// A2-8 (R2-N1): an id listed twice in one leaf is refused at publish, at
+// every repeat, while the same id in two different leaves is not. A stored
+// leaf with a repeat (published before the rule) is one U for the sets cap.
+func TestUnderDuplicateIDIsRefusedAtTheRepeat(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, when string
+		want       []Problem
+	}{
+		{"X twice", utOf(utUnit(1), utUnit(1)), []Problem{{"/rules/policies/0/when/under/of/1", RuleUnderDuplicateID}}},
+		{"X, Y, X, X", utOf(utUnit(1), utUnit(2), utUnit(1), utUnit(1)), []Problem{
+			{"/rules/policies/0/when/under/of/2", RuleUnderDuplicateID}, {"/rules/policies/0/when/under/of/3", RuleUnderDuplicateID}}},
+		{"X in two leaves is fine", `{"any":[` + utOf(utUnit(1)) + `,` + utOf(utUnit(1), utUnit(2)) + `]}`, nil},
+	} {
+		_, ps := Prepare([]byte(`{"rules":{"format":2,"conditions":[],"policies":[{"name":"p","ops":["read"],"when":`+tc.when+`}]}}`), DefaultMaxDocumentBytes)
+		if !slices.Equal(ps, tc.want) {
+			t.Errorf("%s: problems = %v, want %v", tc.name, ps, tc.want)
+		}
+	}
+	n := Node{Under: &Under{Units: []uuid.UUID{utUnit(1), utUnit(2), utUnit(1)}}}
+	m := Node{Under: &Under{Units: []uuid.UUID{utUnit(2), utUnit(1)}}}
+	if got := underSets(Node{Any: []Node{n, m}}, nil); got != 1 {
+		t.Errorf("underSets of [1 2 1] and [2 1] = %d, want 1", got)
 	}
 }
