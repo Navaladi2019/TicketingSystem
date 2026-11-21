@@ -22,6 +22,11 @@
 # (`cichanged -images`). CI_ALL=1 (main) is always real. CI_IMAGES=real or
 # thin (a manual run's images input) overrides the rule on any other ref. A
 # run without the stack stage writes real, which nothing reads.
+# And full (TICK-1031): true when CI_FULL=1, else false. The workflow's
+# changes job exports it as needs.changes.outputs.full, which gates the
+# isolation job and full-suite's isolation exception, so a pull request into
+# a TICK-* story branch (CI_FULL=1 here, TICK-638) runs the isolation suite
+# with no label. One expression decides both, so they cannot drift apart.
 set -eu
 
 all="ci-lint ci-unit ci-integration ci-stack"
@@ -118,4 +123,5 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
     done >>"$GITHUB_OUTPUT"
     echo "areas=$areas" >>"$GITHUB_OUTPUT"
     echo "images=$images" >>"$GITHUB_OUTPUT"
+    if [ "${CI_FULL:-}" = 1 ]; then echo full=true; else echo full=false; fi >>"$GITHUB_OUTPUT"
 fi

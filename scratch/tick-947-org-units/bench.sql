@@ -1,6 +1,6 @@
 -- TICK-947 benchmark (docs/data/org-units.md). Run by bench.sh as the
 -- superuser on a throwaway postgres:16.10. Shapes follow the real DDL
--- (db/migrations/20261120120000..0400); records is trimmed to the columns
+-- (db/migrations/20261121000000..0400); records is trimmed to the columns
 -- that matter plus a 300-byte data payload. Owner and app roles stand in for
 -- nava_migrator and nava_app, under FORCE RLS.
 \set ON_ERROR_STOP on

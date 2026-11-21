@@ -16,8 +16,8 @@ func TestFixturePasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(problems) > 0 || n != 3 {
-		t.Fatalf("want 3 steps and no problems, got %d and %q", n, problems)
+	if len(problems) > 0 || n != 4 {
+		t.Fatalf("want 3 steps, 1 output and no problems, got %d and %q", n, problems)
 	}
 }
 
@@ -41,6 +41,11 @@ func TestEditsFail(t *testing.T) {
 		{"step allowed to fail", "continue-on-error: false", "continue-on-error: true", `job stack: step "make identity-attacks" may fail unnoticed: step "CI-5 adversarial identity suite (T19)" has continue-on-error [CI-5]`},
 		{"job allowed to fail", "  unit:\n", "  unit:\n    continue-on-error: ${{ github.event_name == 'push' }}\n", `job unit: step "make test" may fail unnoticed: the job has continue-on-error [unit tests]`},
 		{"job removed", "  unit:\n", "  unit-tests:\n", `job unit: step "make test" is missing: no such job [unit tests]`},
+		// TICK-1031: the full output back on env.CI_FULL, which lacks the
+		// story-branch rule, is the regression that skipped isolation.
+		{"pinned output drifts", "full: ${{   steps.stages.outputs.full }}", "full: ${{ env.CI_FULL }}", `job changes: output "full" is "${{ env.CI_FULL }}", want "${{ steps.stages.outputs.full }}" [isolation gate]`},
+		{"pinned output removed", "      full: ${{   steps.stages.outputs.full }}\n", "", `job changes: output "full" is missing [isolation gate]`},
+		{"pinned output's job removed", "  changes:\n", "  stages:\n", `job changes: output "full" is missing: no such job [isolation gate]`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

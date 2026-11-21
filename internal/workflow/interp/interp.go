@@ -150,3 +150,26 @@ type WaitTracker interface {
 func IdempotencyKey(workflowID string, step uuid.UUID) string {
 	return "wf:" + workflowID + ":" + step.String()
 }
+
+// PolicyTest is one named-policy test of a condition step (ADR-010 D9): does
+// the record's Who principal ("requester" or "assignee") hold Op ("read" or
+// "write") on the record under the policy Name of EntityType. Every field is
+// a literal of the definition or the run's record id; no record value.
+type PolicyTest struct {
+	RecordID   uuid.UUID
+	EntityType string
+	Policy     string
+	Who        string
+	Op         string
+}
+
+// PolicyTester answers a PolicyTest for tenant, in an activity (I6), against
+// the entity type's current access version, so a policy narrowed after the run
+// started applies at the next call. It returns false, never an error, for a
+// missing entity type or policy, a voided policy, a record of another entity
+// type, or no principal; it returns ErrNotFound for a record the tenant does
+// not have. The real adapter reads in one tenant transaction keyed on the
+// run's stored tenant (recordports.PolicyTester).
+type PolicyTester interface {
+	Test(ctx context.Context, tenantID uuid.UUID, t PolicyTest) (bool, error)
+}

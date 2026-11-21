@@ -1,4 +1,4 @@
--- TICK-947 (S31 P11-14): validates 20261120120200's records_org_unit_fkey in
+-- TICK-947 (S31 P11-14): validates 20261121000200's records_org_unit_fkey in
 -- its own transaction, with the TICK-715 pattern
 -- (docs/data/fk-validate-force-rls.md): under FORCE ROW LEVEL SECURITY the
 -- owner's foreign-key check runs under both tables' RLS, and nava_migrator
@@ -7,7 +7,7 @@
 -- transaction only; both are dropped before COMMIT, and a failure rolls them
 -- back with everything else (db/fk_validate_force_rls_test.go).
 --
--- Every row that existed before 20261120120200 has org_unit_id NULL, which
+-- Every row that existed before 20261121000200 has org_unit_id NULL, which
 -- MATCH SIMPLE never checks, and every later row was checked on write, so it
 -- cannot fail.
 --
