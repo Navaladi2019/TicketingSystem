@@ -1156,6 +1156,10 @@
     {
       "file": "20261121144100_org_unit_closure_unrooted_warning.sql",
       "on_main": false
+    },
+    {
+      "file": "20261121161036_acl2_under_sets_cap.sql",
+      "on_main": false
     }
   ]
 }

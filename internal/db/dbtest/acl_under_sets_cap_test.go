@@ -19,7 +19,7 @@ import (
 // refuses a format-2 policy that names more than authz.MaxUnderSets distinct
 // under start sets U after its refs expand, as Prepare does since TICK-1034.
 
-const underSetsCapMigration = "20261121144038_acl2_under_sets_cap.sql"
+const underSetsCapMigration = "20261121161036_acl2_under_sets_cap.sql"
 
 // underSetsCapFunctions are the functions underSetsCapMigration creates.
 var underSetsCapFunctions = []string{

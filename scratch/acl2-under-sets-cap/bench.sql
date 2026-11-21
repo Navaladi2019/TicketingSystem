@@ -1,6 +1,6 @@
 -- TICK-1059: cost of acl2_problem before (TICK-940) and after the under-set
 -- cap, per call, on three shapes. Run inside a migrated nava database:
---   psql -v ON_ERROR_STOP=1 -f bench.sql   (after the 20261121144038 Up)
+--   psql -v ON_ERROR_STOP=1 -f bench.sql   (after the 20261121161036 Up)
 -- The shapes: A, 128 member_of leaves, no under (today's documents);
 -- B, 64 policies each with 2 under leaves of distinct ids (128 leaves, 4 U
 -- each, accepted); C, one condition of 120 under leaves (8 x 15) of distinct ids
