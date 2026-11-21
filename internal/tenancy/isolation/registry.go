@@ -50,6 +50,8 @@ const (
 	RecordB2 = "0b000000-0000-4000-8000-0000000000b2"
 	// PrincipalB1 is a tenant B principal who is a member of a group.
 	PrincipalB1 = "0b000000-0000-4000-8000-0000000003b1"
+	// PrincipalB2 is a tenant B principal, primary member of OrgUnitB2 (TICK-952).
+	PrincipalB2 = "0b000000-0000-4000-8000-0000000003b2"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
 	// lookup by them alone would return both rows without isolation.
 	SharedDedupeKey      = "shared-dedupe-key"
@@ -67,6 +69,8 @@ const (
 	// tenant B's record b2 (TICK-947).
 	OrgUnitB1 = "0b000000-0000-4000-8000-0000000005b1"
 	OrgUnitB2 = "0b000000-0000-4000-8000-0000000005b2"
+	// OrgUnitA1 is tenant A's root org unit (TICK-952).
+	OrgUnitA1 = "0a000000-0000-4000-8000-0000000005a1"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -372,6 +376,35 @@ func Paths() []Path {
 			"UPDATE records SET org_unit_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB2, RecordA2),
 		sql("records: the worker reads tenant B's records by unit", "nava_worker", OwnRowsOnly,
 			"SELECT tenant_id FROM records WHERE org_unit_id = $1", OrgUnitB2),
+		// TICK-952 (S31 P11-19, attacks 1 and 5): every role that can see
+		// org_unit_members, with no predicate or another tenant's, sees only
+		// its own; no role writes tenant B's memberships or units; group sync
+		// can neither delete a unit nor un-tombstone, rename or reparent one
+		// across the wall.
+		sql("org_unit_members: the app reads every membership", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, principal_id FROM org_unit_members"),
+		sql("org_unit_members: the worker reads tenant B principal's units", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2", TenantB, PrincipalB1),
+		sql("org_unit_members: group sync reads tenant B principal's units", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, org_unit_id FROM org_unit_members WHERE principal_id = $1", PrincipalB1),
+		sql("org_unit_members: the worker adds tenant B's principal to tenant B's unit", "nava_worker", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB1, PrincipalB2),
+		sql("org_unit_members: the app moves tenant B's primary units", "nava_app", Denied,
+			"UPDATE org_unit_members SET is_primary = NOT is_primary WHERE tenant_id = $1", TenantB),
+		sql("org_unit_members: group sync adds tenant B's principal to tenant A's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, PrincipalB1),
+		sql("org_units: group sync finds a unit by a Keycloak id both tenants hold", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, id FROM org_units WHERE keycloak_group_id = 'kc-ou-shared'"),
+		sql("org_units: group sync deletes its own units", "nava_groupsync", Denied,
+			"DELETE FROM org_units WHERE tenant_id = $1 AND id = $2", TenantA, OrgUnitA1),
+		sql("org_units: group sync un-tombstones tenant B's units", "nava_groupsync", Denied,
+			"UPDATE org_units SET deleted_at = NULL WHERE tenant_id = $1", TenantB),
+		sql("org_units: group sync renames tenant B's unit by its shared Keycloak id", "nava_groupsync", Denied,
+			"UPDATE org_units SET name = 'pwned' WHERE keycloak_group_id = 'kc-ou-shared' AND tenant_id <> $1", TenantA),
+		sql("org_units: group sync hangs tenant A's unit under tenant B's", "nava_groupsync", Denied,
+			"UPDATE org_units SET parent_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB1, OrgUnitA1),
+		sql("org_units: group sync creates a unit for tenant B", "nava_groupsync", Denied,
+			"INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-ou-new', 'x')", TenantB, NewID),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,

@@ -1,0 +1,252 @@
+//go:build integration
+
+package pipeline_test
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"slices"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+)
+
+// TICK-952 (S31 P11-19) adversarial isolation tests, Security & Multi-Tenancy
+// Reviewer. The attacker holds rows no runtime role can write: the superuser
+// with session_replication_role = replica, which skips every foreign key and
+// trigger, forges org-unit rows across the tenant wall. That is strictly more
+// than the owner can do (the owner is held by FORCE RLS and cannot disable
+// the RI triggers), so a pass here covers attack 4's "forged by the owner
+// role". What must hold is that set S, the under leaf and the pipeline's
+// primary-unit lookup never cross the wall on their own predicates, whatever
+// the rows say.
+
+// forge runs stmts as the superuser with foreign keys and triggers off.
+func forge(t *testing.T, e env, stmts ...func(tx pgx.Tx) error) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range stmts {
+		if err := s(tx); err != nil {
+			t.Fatalf("forge: %v", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func execf(sql string, args ...any) func(tx pgx.Tx) error {
+	return func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), sql, args...)
+		return err
+	}
+}
+
+// forgedUnderWorld is underWorld (tenant f with R ── A ── A1, R ── T† ── T1,
+// R ── L ── Lx†; tenant o with live unit X) plus forged rows:
+//
+//   - f's membership of u1 in X, o's unit (attack 4): the caller seed names a
+//     foreign unit;
+//   - f's membership of u1 in tombstoned T (attack 3): the row the live FK
+//     forbids, as if the sync had tombstoned T before removing it;
+//   - Y, a unit of o whose parent is f's unit A (attack 4): the walk down
+//     from A must not cross into o;
+//   - Z, a unit of f whose parent is o's unit X: the walk up from Z must not
+//     read o's tree, and Z is no descendant of X in f;
+//   - records of f in X and in Y (org_unit_id forged past the FK), named
+//     "X" and "Y".
+func forgedUnderWorld(t *testing.T, e env) (underWorld, uuid.UUID) {
+	t.Helper()
+	w := seedUnderWorld(t, e)
+	var other uuid.UUID
+	if err := e.super.QueryRow(context.Background(), `SELECT tenant_id FROM org_units WHERE id = $1`, w.unit["X"]).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	w.unit["Y"], w.unit["Z"] = uuid.New(), uuid.New()
+	ctx := context.Background()
+	sys := identity.Principal{TenantID: w.f.id}
+	for _, name := range []string{"X", "Y", "Z"} {
+		res, err := write(ctx, e, w.p, w.f.id, pipelineCreate(sys, map[string]any{"title": "forged-" + name}))
+		if err != nil {
+			t.Fatalf("seed record %s: %v", name, err)
+		}
+		w.record[name] = res.RecordID
+		w.records = append(w.records, res.RecordID)
+	}
+	forge(t, e,
+		execf(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, w.unit["X"], w.u1),
+		execf(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, w.unit["T"], w.u1),
+		execf(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, 'kc-forged-y', 'Y')`, other, w.unit["Y"], w.unit["A"]),
+		execf(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, 'kc-forged-z', 'Z')`, w.f.id, w.unit["Z"], w.unit["X"]),
+		execf(`UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.record["X"], w.unit["X"]),
+		execf(`UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.record["Y"], w.unit["Y"]),
+		execf(`UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.record["Z"], w.unit["Z"]),
+	)
+	return w, other
+}
+
+// Attacks 3 and 4: forged membership and parent rows never put a unit of
+// another tenant, or a tombstoned unit or its subtree, into set S, in SQL, in
+// Go or in the branch split; the recursive query filters by tenant at every
+// step, on top of RLS.
+func TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows(t *testing.T) {
+	e := migrated(t)
+	w, _ := forgedUnderWorld(t, e)
+	of := func(names ...string) string {
+		s := `{"under":{"of":[`
+		for i, n := range names {
+			if i > 0 {
+				s += ","
+			}
+			s += `"` + w.unit[n].String() + `"`
+		}
+		return s + `]}}`
+	}
+	caller := `{"under":{"of":"caller"}}`
+	u1 := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
+	requester := `{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}`
+	for _, tc := range []struct {
+		name, when string
+		want       []string
+	}{
+		// u1's real units are A and L. The forged X and T memberships add
+		// nothing: X is not f's, T is tombstoned (and so is T1 below it).
+		{"caller: forged memberships in X and tombstoned T add nothing", caller, []string{"A", "A1", "L"}},
+		// The walk down from A does not reach o's Y, though Y's parent is A.
+		{"listed A: o's child Y is not in S", of("A"), []string{"A", "A1"}},
+		{"listed R: the whole live tree, nothing of o's", of("R"), []string{"A", "A1", "L", "R"}},
+		// X is o's unit: as a listed root it is empty; Z, f's unit whose
+		// forged parent is X, is not below it in f.
+		{"listed X: empty, Z is not its descendant in f", of("X"), []string{}},
+		// Y is o's unit: empty as a listed root too.
+		{"listed Y: empty", of("Y"), []string{}},
+		// Z is f's own live unit; its parent being foreign seeds nothing
+		// more than Z.
+		{"listed Z: Z alone", of("Z"), []string{"Z"}},
+		{"listed T, tombstoned with a forged member: empty", of("T"), []string{}},
+		// not under reads the forged records as outside the region; it never
+		// errors or voids because of them.
+		{"not under caller", `{"not":` + caller + `}`, []string{"Lx", "R", "T", "T1", "X", "Y", "Z", "none"}},
+		{"under caller or requester, split", `{"any":[` + caller + `,` + requester + `]}`, []string{"A", "A1", "L"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bySQL, byGo, byBranches := w.rows(t, e, underDoc(t, tc.when), u1)
+			if !slices.Equal(bySQL, tc.want) {
+				t.Errorf("SQL admits %v, want %v", bySQL, tc.want)
+			}
+			if !slices.Equal(byGo, bySQL) {
+				t.Errorf("Allows admits %v, SQL %v", byGo, bySQL)
+			}
+			if byBranches != nil && !slices.Equal(byBranches, bySQL) {
+				t.Errorf("ReadBranches admit %v, SQL %v", byBranches, bySQL)
+			}
+		})
+	}
+}
+
+// Attack 4, the binding: S resolved in tenant f's transaction for a principal
+// that claims tenant o (same principal id) is never used for o. Every policy,
+// not under included, grants nothing: the scope is bound to f, the planner
+// sees o, and the policy is voided rather than read as an empty S.
+func TestUnderSetBoundInOneTenantGrantsNothingToAnother(t *testing.T) {
+	e := migrated(t)
+	w, other := forgedUnderWorld(t, e)
+	intruder := identity.Principal{TenantID: other, PrincipalID: w.u1}
+	for _, when := range []string{
+		`{"under":{"of":"caller"}}`,
+		`{"not":{"under":{"of":"caller"}}}`,
+		`{"under":{"of":["` + w.unit["R"].String() + `"]}}`,
+		`{"not":{"under":{"of":["` + w.unit["X"].String() + `"]}}}`,
+	} {
+		bySQL, byGo, _ := w.rows(t, e, underDoc(t, when), intruder)
+		if len(bySQL) != 0 || len(byGo) != 0 {
+			t.Errorf("%s bound in f, evaluated for o: SQL admits %v, Allows %v; want nothing", when, bySQL, byGo)
+		}
+	}
+}
+
+// Attack 2, the pipeline's lookup: a forged primary membership of the
+// requester in another tenant's unit never becomes the record's org_unit_id.
+// The create fails closed (the tenant-carrying FK refuses it), writes
+// nothing, and no record of f names g's unit. A workflow update_record (and a
+// user update) naming g's unit as org_unit_id is refused before any write.
+func TestRecordNeverGetsAnotherTenantsOrgUnit(t *testing.T) {
+	e := migrated(t)
+	f, g := seedTenant(t, e), seedTenant(t, e)
+	p := newPipeline(e, nil)
+	ctx := context.Background()
+	foreign := seedOrgUnit(t, e, g.id, "Foreign")
+	res := mustCreate(t, e, p, f, map[string]any{"title": "before the forgery"})
+
+	forge(t, e, execf(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES ($1, $2, $3, true)`,
+		f.id, foreign, f.principal.PrincipalID))
+	records := func() int { return count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1`, f.id) }
+	before := records()
+	if _, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "lands in g's unit?"})); err == nil {
+		t.Error("a create whose requester's forged primary unit is another tenant's succeeded")
+	}
+	if n := records(); n != before {
+		t.Errorf("records of f: %d before, %d after the refused create", before, n)
+	}
+
+	var version int64
+	if err := e.super.QueryRow(ctx, `SELECT version FROM records WHERE id = $1`, res.RecordID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	for name, cmd := range map[string]pipeline.Command{
+		"user update": updateCmd(f, res.RecordID, version, map[string]any{"org_unit_id": foreign.String()}),
+		"workflow update_record": {Op: pipeline.OpUpdate, EntityKey: entityKey, RecordID: res.RecordID, ExpectedVersion: version,
+			Data: map[string]any{"org_unit_id": foreign.String()}, Actor: identity.Principal{TenantID: f.id},
+			Source: pipeline.SourceWorkflow, Causation: workflowCausation()},
+	} {
+		_, err := write(ctx, e, p, f.id, cmd)
+		var nw *authz.ErrFieldNotWritable
+		if !errors.As(err, &nw) {
+			t.Errorf("%s naming g's unit: err = %v, want ErrFieldNotWritable", name, err)
+		}
+	}
+	if n := count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1 AND org_unit_id = $2`, f.id, foreign); n != 0 {
+		t.Errorf("%d records of f name g's unit", n)
+	}
+}
+
+var uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+
+// Attack 6: the 10,000 cap refusal, reached through the caller seed, names no
+// id at all: not a unit, not the tenant, not the principal.
+func TestUnderCapErrorNamesNoID(t *testing.T) {
+	e := migrated(t)
+	w := seedACLWorld(t, e)
+	root := uuid.New()
+	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-cap-root', 'root')`, w.f.id, root)
+	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
+		SELECT $1, gen_random_uuid(), $2, 'kc-cap-' || n, 'c' || n FROM generate_series(1, $3::int) n`, w.f.id, root, authz.MaxUnderSet)
+	mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, root, w.u1)
+	p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
+	for _, when := range []string{`{"under":{"of":"caller"}}`, `{"not":{"under":{"of":["` + root.String() + `"]}}}`} {
+		inTx(t, e, w.f.id, func(tx pgx.Tx) error {
+			_, err := authz.ExpandUnder(context.Background(), tx, underDoc(t, when), p)
+			if _, ok := errors.AsType[*authz.UnderSetTooLargeError](err); !ok {
+				t.Fatalf("%s: err = %v, want *authz.UnderSetTooLargeError", when, err)
+			}
+			if id := uuidRE.FindString(err.Error()); id != "" {
+				t.Errorf("%s: the cap error names id %s: %q", when, id, err.Error())
+			}
+			return nil
+		})
+	}
+}
