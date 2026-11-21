@@ -28,7 +28,7 @@ func TestRunExitCodesAndMessages(t *testing.T) {
 			name:    "ok",
 			args:    []string{"-workflow", "testdata/ok.yml", "-required", fixtureRequired},
 			code:    0,
-			wantOut: "check-ci-steps: ok: 3 required steps in testdata/ok.yml\n",
+			wantOut: "check-ci-steps: ok: 4 required steps and outputs in testdata/ok.yml\n",
 		},
 		{
 			name: "required step dropped",
@@ -36,7 +36,7 @@ func TestRunExitCodesAndMessages(t *testing.T) {
 			code: 1,
 			wantErr: []string{
 				`check-ci-steps: job unit: step "make test" is missing [unit tests]` + "\n",
-				"check-ci-steps: " + broken + " must keep every step in " + fixtureRequired + "\n",
+				"check-ci-steps: " + broken + " must keep every step and output in " + fixtureRequired + "\n",
 			},
 			wantNoOut: true,
 		},
@@ -96,6 +96,7 @@ func TestCheckInputErrors(t *testing.T) {
 		{"required step without job", "testdata/ok.yml", writeTemp(t, "steps:\n  - run: make test\n"), "step 1: want job and exactly one of run or artifact"},
 		{"required step with both", "testdata/ok.yml", writeTemp(t, "steps:\n  - job: unit\n    run: make test\n  - job: unit\n    run: make test\n    artifact: x\n"), "step 2: want job and exactly one of run or artifact"},
 		{"required list not yaml", "testdata/ok.yml", writeTemp(t, "steps: [\n"), "f.yml: yaml:"},
+		{"pinned output without value", "testdata/ok.yml", writeTemp(t, "steps:\n  - job: unit\n    run: make test\noutputs:\n  - job: changes\n    output: full\n"), "output 1: want job, output and value"},
 		{"workflow missing", missing, fixtureRequired, "nope.yaml"},
 		{"workflow not yaml", writeTemp(t, "jobs: [\n"), fixtureRequired, "f.yml: yaml:"},
 		{"workflow jobs not a mapping", writeTemp(t, "jobs: [a, b]\n"), fixtureRequired, "cannot unmarshal"},
