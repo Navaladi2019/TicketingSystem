@@ -41,6 +41,12 @@ test("an earlier unknown view is kept when listed is unknown", () => {
   assert.deepEqual(describeTotal(page(null, "unknown"), undefined, first), first);
 });
 
+test("listed takes priority over an earlier unknown view", () => {
+  const first = describeTotal(page(null, "unknown"), 50);
+  assert.equal(first.text, "50+");
+  assert.equal(describeTotal(page(null, "unknown"), 100, first).text, "100+");
+});
+
 test("exact/capped with a null total is a contract error", () => {
   assert.throws(() => describeTotal(page(null, "exact")), TypeError);
   assert.throws(() => describeTotal(page(null, "capped")), TypeError);
