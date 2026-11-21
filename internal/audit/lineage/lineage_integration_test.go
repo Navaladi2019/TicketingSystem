@@ -15,9 +15,11 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/lineage"
@@ -339,7 +342,8 @@ func TestPolicyIsThePredicate(t *testing.T) {
 }
 
 // AC: promtool test rules, AuditDeadLineage silent at 0 and firing at 1, and
-// NumberSpaceNearlyExhausted (TICK-674) firing above 90 %, with the pinned
+// NumberSpaceNearlyExhausted (TICK-674) firing above 90 %, and
+// RecordsListTotalUnknown (TICK-1051) firing above 5 % unknown for 1 h, with the pinned
 // prom/prometheus image (docs/pins.md). Docker is the integration
 // job's, as for the PostgreSQL container.
 func TestAlertRules(t *testing.T) {
@@ -356,12 +360,52 @@ func TestAlertRules(t *testing.T) {
 		t.Fatal("no prom/prometheus row in docs/pins.md")
 	}
 	dir := filepath.Join(root, "deploy", "compose", "prometheus")
+	assertRuleFilesLoaded(t, root, dir, "records.yml")
 	cmd := exec.CommandContext(context.Background(), "docker", "run", "--rm", "--network", "none",
 		"--entrypoint", "promtool", "-v", dir+":/p:ro", "-w", "/p/tests",
-		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml", "numbering_test.yml", "authz_test.yml")
+		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml", "numbering_test.yml", "authz_test.yml", "records_test.yml")
 	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("promtool test rules: %v\n%s", err, out)
+	}
+}
+
+// assertRuleFilesLoaded fails unless the local stack's Prometheus loads each
+// rule file: compose.yaml mounts deploy/compose/prometheus/rules at
+// /etc/prometheus/rules, and a prometheus.yml rule_files glob matches the
+// file there. A rule file promtool passes but Prometheus never loads would
+// otherwise go unnoticed (TICK-1051 AC 2).
+func assertRuleFilesLoaded(t *testing.T, root, dir string, files ...string) {
+	t.Helper()
+	const mount = "/etc/prometheus/rules"
+	compose, err := os.ReadFile(filepath.Join(root, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "./deploy/compose/prometheus/rules:"+mount+":ro") {
+		t.Fatalf("compose.yaml does not mount deploy/compose/prometheus/rules at %s", mount)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "prometheus.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		RuleFiles []string `yaml:"rule_files"`
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("prometheus.yml: %v", err)
+	}
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, "rules", f)); err != nil {
+			t.Fatal(err)
+		}
+		loaded := slices.ContainsFunc(cfg.RuleFiles, func(glob string) bool {
+			ok, err := path.Match(glob, mount+"/"+f)
+			return err == nil && ok
+		})
+		if !loaded {
+			t.Fatalf("prometheus.yml rule_files %q do not load %s/%s", cfg.RuleFiles, mount, f)
+		}
 	}
 }
