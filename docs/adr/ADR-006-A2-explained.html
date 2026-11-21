@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ADR-006 amendment A2 explained (PROPOSED): a cheap capped count decides how the database counts a broad filter</title>
+<title>ADR-006 amendment A2 explained (PROPOSED, rev 2): the ticket count gets a time limit, and may say "unknown"</title>
 <style>
 :root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
 @media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
@@ -23,91 +23,75 @@ dt{font-weight:700;margin-top:8px}
 svg text{fill:var(--fg);font:13px sans-serif}
 svg .m{fill:var(--muted)}
 </style></head><body><main>
-<span class="pill">PROPOSED · rev 1 · 2026-11-21</span>
-<div class="box bad"><p><strong>Update, 2026-11-21: the design below failed its own test and is not accepted.</strong> When a common value sits on records the user cannot see, the forced lookup walks every record the user can see. That added 0.3 to 0.6 seconds. No tuning of the guard fixed it. A revision follows the CTO's ruling.</p></div>
-<h1>ADR-006 amendment A2: a cheap capped count decides how the database counts a broad filter</h1>
-<p class="src">Record: <code>docs/adr/ADR-006-A2-d7-bounded-count-probe.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> · Amends ADR-006 D7 · Security &amp; Multi-Tenancy Reviewer: approved. Technical Architect: no blocking item; accept once spikes S-A2-anti and S-A2-skew pass.</p>
+<span class="pill">PROPOSED · rev 2 · 2026-11-21</span>
+<h1>ADR-006 amendment A2: the ticket count gets a time limit, and may say "unknown"</h1>
+<p class="src">Record: <code>docs/adr/ADR-006-A2-count-time-budget.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> (runs 1–5, and <code>a2-11/</code> for the spikes that ended rev 1) · Amends ADR-006 D7 and the list response · CTO ruling: option (C2) · Pending: Technical Architect and Security &amp; Multi-Tenancy Reviewer critiques of rev 2.</p>
 
 <h2>Words used here</h2>
 <dl>
-<dt>Side table (<code>rfv_text</code>, <code>rfv_num</code>, …)</dt><dd>A table holding one row per record per filterable field, so a filter such as <code>priority = 3</code> can use an index. It is shared by all tenants; row-level security (RLS) keeps each tenant to its own rows.</dd>
-<dt>Row ACL</dt><dd>The rule that decides which records a user may read. A <em>narrowing</em> ACL hides most of them (the test agent sees 6%).</dd>
-<dt>Capped count</dt><dd>The <code>total</code> a list returns, counted only up to 1,001.</dd>
-<dt>Visibility map</dt><dd>PostgreSQL's note of which table pages are known to be readable by everyone without checking each row. Vacuum sets it; edits clear it. The planner uses it to guess cost.</dd>
-<dt>Hash join</dt><dd>A plan that reads all matching rows of one side into memory first. With 192,000 rows and 4 MB of working memory it spills to disk.</dd>
-<dt>p95</dt><dd>The time 95% of requests beat.</dd>
+<dt><code>total</code></dt><dd>The number of matching tickets the user may read, shown next to a list. It is counted only up to 1,000 ("1,000+").</dd>
+<dt>Row ACL</dt><dd>The rule that decides which tickets a user may read. A <em>narrowing</em> ACL hides most of them; the test agent sees about 5–6%.</dd>
+<dt>Side table</dt><dd>A table with one row per ticket per filterable field, so a filter such as "priority = 3" can use an index. It is shared by all tenants; row-level security keeps each tenant to its own rows.</dd>
+<dt>Band (ii)</dt><dd>Filters matching 40% or more of the tickets, for a user with a narrowing ACL. The agreed limit is 350 ms at p95, the time 95% of requests beat.</dd>
+<dt>Statement timeout</dt><dd>A PostgreSQL setting that cancels a query running longer than a given time. A <em>savepoint</em> lets the request carry on after that cancellation.</dd>
 </dl>
 
 <h2>The problem</h2>
-<p>A support agent who can see only their group's tickets lists tickets with <code>priority = 3</code>, a value that half the tickets have. On one freshly built stack this took 34 ms; on another, built the same way, 217 ms, and 578–983 ms p95 under 8 clients. The budget is 350 ms.</p>
-<p>The page of results was always fast. The <code>total</code> was not. PostgreSQL has two ways to count it, and it chooses by guessing costs from the visibility map, which depends on when vacuum last ran. That changes after a bulk backfill and after ordinary edits, and because the side table is shared, one tenant's edits change another tenant's plan.</p>
-
-<svg viewBox="0 0 860 210" width="100%" role="img" aria-label="Two ways to count">
-<rect x="10" y="10" width="410" height="190" rx="8" fill="none" stroke="#cf222e"/>
-<text x="25" y="35" font-weight="bold">Slow: hash join (picked when vacuum is behind)</text>
-<text x="25" y="65">1. Read all 192,000 side rows with priority 3</text>
-<text x="25" y="90">2. Build a hash table (spills at 4 MB)</text>
-<text x="25" y="115">3. Match the agent's visible records against it</text>
-<text x="25" y="150" class="m">100–490 ms, depends on vacuum state</text>
-<rect x="440" y="10" width="410" height="190" rx="8" fill="none" stroke="#1a7f37"/>
-<text x="455" y="35" font-weight="bold">Fast: per-record probe</text>
-<text x="455" y="65">1. Walk the records the agent can see</text>
-<text x="455" y="90">2. Look up each one's value by primary key</text>
-<text x="455" y="115">3. Stop at 1,001 matches (or the end of the visible set)</text>
-<text x="455" y="150" class="m">17–27 ms in every vacuum state</text>
-</svg>
+<p>A support agent who sees only their group's tickets filters on a common value such as "priority = 3". The page of tickets comes back fast. The count beside it sometimes took 0.2 s on one fresh install and 0.03 s on the next, and 0.6–1 s under load. Which way PostgreSQL counts depends on things nobody controls per request: when vacuum last ran, other tenants' edits, and whether the value sits on the agent's own tickets or on tickets they can't see.</p>
+<p>Rev 0 and rev 1 tried to make PostgreSQL always pick the fast way. The tests showed that no rule can know beforehand which way is fast. Forcing the "fast" way on a value that sits on hidden tickets cost 0.3–0.6 s more, and the extra pre-check leaked a 0.2–0.5 s timing signal about hidden tickets.</p>
 
 <h2>Options considered</h2>
 <table>
-<tr><th>Option</th><th>Result</th></tr>
-<tr><td>Refresh statistics (ANALYZE) when a field becomes ready</td><td>Did not help: 255 ms with it, 202 ms without. Statistics were not the cause.</td></tr>
-<tr><td>Run VACUUM when a field becomes ready</td><td>The worker is not allowed to, and edits undo it within hours.</td></tr>
-<tr><td>Tell the planner random reads are cheap (<code>random_page_cost = 1.1</code>)</td><td>Three of five broad filters still took the slow plan. Rejected.</td></tr>
-<tr><td>Always force the per-record probe for ACL users</td><td>Fixed broad values, broke rare ones: up to 8.3 s for a 2% range.</td></tr>
-<tr><td>Accept a budget exception for this band</td><td>Kept as the fallback. The slowness is avoidable, so an exception is the wrong tool.</td></tr>
-<tr><td><strong>Count first, cheaply, then decide (chosen)</strong></td><td>Holds in every band measured.</td></tr>
+<tr><th>Option</th><th>Outcome</th></tr>
+<tr><td>Refresh statistics, vacuum, or change cost settings</td><td>Did not fix it, or could not be run by the app (runs 1–3).</td></tr>
+<tr><td>Force a per-ticket lookup, with pre-checks and guards (rev 0/1)</td><td>Failed its own test: up to +557 ms when the value sits on hidden tickets.</td></tr>
+<tr><td>Decide from a small sample of the user's tickets</td><td>Not tried: an unlucky sample makes it walk every ticket, up to about 3 s.</td></tr>
+<tr><td>Accept the slowness as a budget exception</td><td>It would never close by itself: a permanent hole.</td></tr>
+<tr><td>Add a real database column per filterable field</td><td>Too heavy now; kept as the long-term option.</td></tr>
+<tr><td><strong>Give the count a time limit (chosen by the CTO)</strong></td><td>Bounds the time in every case, with no guessing.</td></tr>
 </table>
 
 <h2>The decision</h2>
 <div class="box good">
-<p>For a list where the user's ACL narrows what they see and a data field is filtered:</p>
 <ol>
-<li>Count that value's side rows in the tenant, <strong>stopping at 20,000</strong>. This costs 0.3–18 ms because it stops early.</li>
-<li>If it reached 20,000, the value is broad. Then count the records the user can see, stopping at 30,000 (the <em>visible-set guard</em>).</li>
-<li>If the user sees 30,000 records or fewer, write the <code>total</code> statement so the database can only use the per-record probe. No settings or hints: the SQL shape itself rules out the hash join. The guard matters because the probe stops early only when matches exist. If the user's records rarely carry the value, it walks every visible record, and that walk must stay small.</li>
-<li>Otherwise, for any field after the first three filtered fields, and for the page of results always, the SQL stays exactly as today.</li>
+<li>The count may run for at most <strong>200 ms</strong>.</li>
+<li>If it finishes, the answer is as today: an exact number, or "1,000+".</li>
+<li>If it doesn't, the page of tickets is still returned in full. The response says <code>total_state: unknown</code> with <code>total: null</code>, and the screen shows "50+" (the matches already listed) instead of a number. It never shows 0.</li>
+<li>If the first page holds every match (fewer than a full page), the count is skipped entirely: the number is exact and free.</li>
 </ol>
 </div>
-<p>ADR-006 rule D7 said no query other than the list itself may read a side table. A2 rewrites D7 to allow exactly this one bounded count, and the code check that enforces D7 is updated to allow that one site only.</p>
+
+<svg viewBox="0 0 860 150" width="100%" role="img" aria-label="Request time budget">
+<text x="10" y="20" font-weight="bold">How 350 ms is split (p95, band (ii))</text>
+<rect x="10" y="35" width="219" height="40" fill="#0969da" opacity=".35"/><text x="18" y="60">page + handler 94 ms</text>
+<rect x="229" y="35" width="28" height="40" fill="#9a6700" opacity=".45"/><text x="231" y="95" class="m">12 ms</text>
+<rect x="257" y="35" width="467" height="40" fill="#1a7f37" opacity=".35"/><text x="270" y="60">count budget 200 ms</text>
+<rect x="724" y="35" width="82" height="40" fill="#cf222e" opacity=".25"/><text x="728" y="60">margin 35</text>
+<text x="10" y="125" class="m">94 = 73 ms idle list p95 (P3-36) + 21 ms worst page time (run 5). 12 = four extra round trips. 35 = the 10% margin A1 uses.</text>
+</svg>
 
 <h2>Evidence</h2>
-<p>Run 5 on the 400,000-ticket test type, database time per request (the host was busy, so database time is the reliable number):</p>
-<table>
-<tr><th>Filter share, ACL user</th><th>Count before</th><th>Pre-count + count after</th></tr>
-<tr><td>40% (the problem band)</td><td>32–114 ms, 3 of 5 spill to disk</td><td>11–18 + 18–26 ms</td></tr>
-<tr><td>2%</td><td>24–34 ms</td><td>5–8 + 19–41 ms</td></tr>
-<tr><td>0.25%</td><td>16–24 ms</td><td>1–2 + 14–34 ms</td></tr>
-<tr><td>0.01%</td><td>4–17 ms</td><td>0.3–1.6 + 5–18 ms</td></tr>
-</table>
-<p>The issue's own case (48% value): 17–27 ms in every vacuum state, against 102–168 ms before.</p>
+<ul>
+<li>Without the limit, the count in this band took 32–114 ms on one machine and up to 0.6 s per request in the spikes. The 8-client p95 reached 578–983 ms on the failing install.</li>
+<li>The page itself took 4–21 ms in this band in every measurement, which is why the page gets no limit here.</li>
+<li>The statement-timeout mechanism already exists in the product for slow filters, so this reuses tested code.</li>
+</ul>
 
 <h2>What must be true before the code merges</h2>
 <ul>
-<li>This amendment is accepted.</li>
-<li>A test reads the database's plan for each field type and operator and fails if a broad count still uses a hash join, or if the 20,000 count stops using its index. It runs on every PostgreSQL upgrade too. This, not the SQL trick, is the guarantee; it catches a PostgreSQL upgrade that changes behaviour.</li>
-<li>A test proves the page and the count select the same records.</li>
-<li>Three spikes, with pass and fail written down first. <strong>Anti-correlated:</strong> a broad value that none of the agent's records carry, at 6% and 50% visibility, must be no more than 10 ms slower than today. This tunes the 30,000 guard. <strong>Skew:</strong> a value common in another tenant but rare in this one must still count through the index in 20 ms or less. <strong>Multi-field:</strong> three broad filters together must be no more than 10 ms slower than today.</li>
-<li>Security's tests: no pre-count on a rejected request or for an admin; another tenant's rows never make a value broad; the counts never appear in logs or metrics.</li>
-<li>The acceptance kit passes the 40% ACL cell inside 350 ms on two fresh stacks in a row.</li>
+<li>The 94 ms page share is measured on a fresh install. If it is larger, the 200 ms shrinks by the same amount, to no less than 100 ms. Below that, the CTO decides again.</li>
+<li>A forced slow count returns the page with "unknown", never an error, and the request carries on normally.</li>
+<li>All the security tests from the earlier attempt carry over. Another tenant's data never changes this tenant's results. A value only on hidden tickets looks exactly like a value that doesn't exist.</li>
+<li>The acceptance kit passes the band (ii) cell within 350 ms on two fresh installs in a row.</li>
 </ul>
 
 <h2>What is being accepted</h2>
 <div class="box bad">
-<p><strong>A timing signal inside a tenant (R13, Low, approved by Security).</strong> The 20,000 count ignores the row ACL. By timing repeated range filters, a user could find the value where the 20,000th record sits, counting tickets they cannot open, and could then notice when one hidden ticket crosses that line. They never see those tickets, their count or their content, and only fields they may read are involved. Today's plan already leaks a fuzzier version of this. Nothing crosses the tenant wall. If a field is secret, it needs a field mask; a row ACL alone does not hide totals. The exact size of the timing step is measured before merge.</p>
-<p><strong>The 20,000 and 30,000 limits are tuned for types up to about 400,000 records.</strong> The existing trigger for re-measuring (a tenant passing 400,000 records) covers re-tuning both. Users who see more than 30,000 records keep today's plan, which is the cheaper one at that visibility.</p>
-<p><strong>Budgets do not change.</strong> The band keeps its 350 ms limit from A1; A2 makes it reliable, it does not claim 150 ms.</p>
+<p><strong>The count may say "unknown" under load.</strong> Users then see "50+" rather than an exact number. An alert fires if more than 5% of filtered lists say "unknown" in an hour.</p>
+<p><strong>A small timing signal stays, and gets smaller.</strong> How long the count takes depends partly on tickets the user can't see, and that already shows in response time today. "Unknown" is a yes/no reading of that same time, so it reveals nothing new. Above 200 ms, every slow count now looks the same, which hides more than today. A value that exists only on hidden tickets always gets an exact 0, because the count is skipped. The Security &amp; Multi-Tenancy Reviewer checks this argument; if they find a gap, it goes back to the CTO.</p>
+<p><strong>Slow pages are not fixed here.</strong> In one test shape, a user who sees half the tickets filtering on a value that sits only on hidden tickets, the page itself took 2–3 s. That is tracked separately (TICK-992).</p>
 </div>
 
 <h2>Invariants</h2>
-<p>Tenant wall (I1) and tenant source (I2) hold: the count runs as the app role under row-level security with the tenant from the verified login. No new grants (I3); the existing custom-plan setting of the app role is now a named dependency. Results and totals are unchanged (I5), with the timing note above. Write path, workflows and cascades are untouched.</p>
+<p>Tenant wall and tenant source hold: no new query, and the count is today's query under row-level security. No new database rights. Results are never wrong: the total is exact, "1,000+", or honestly "unknown".</p>
 </main></body></html>
