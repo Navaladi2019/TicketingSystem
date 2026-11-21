@@ -324,8 +324,8 @@ func seedBenchTree(t *testing.T, super *pgx.Conn, tid uuid.UUID) {
 }
 
 // TICK-1054: a bench-scale full rebuild with no prior ANALYZE (a bulk import
-// before autovacuum has run) finishes within 5 s; without the ANALYZE inside
-// the rebuild the query took 45 to 98 s. The seed and the sync run back to
+// before autovacuum has run) finishes within 5 s; without a statistics-independent plan
+// (withIndexPlan) the query took 45 to 98 s. The seed and the sync run back to
 // back, before autovacuum's naptime.
 func TestClosureFullRebuildWithoutStatisticsIsBounded(t *testing.T) {
 	super, pool := cluster(t)
@@ -405,23 +405,5 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 		}
 		t.Logf("sync after one move (%s): %v (target <= 350ms)", mv.what, time.Since(start))
 		sameRows(t, "bench closure after "+mv.what, closureOf(t, super, tid), wantClosure(units))
-	}
-}
-
-// TICK-1054: fullRebuildClosure runs ANALYZE on org_units and
-// org_unit_closure as nava_groupsync. On Postgres 16 only the table owner (or a
-// role that inherits it) may ANALYZE; anyone else gets a WARNING and the table
-// is skipped, so the statistics never refresh and the call still succeeds.
-// This fails while the sync role cannot analyze the tables it rebuilds.
-func TestSyncRoleCanAnalyzeClosureTables(t *testing.T) {
-	super, _ := cluster(t)
-	if n := count(t, super, `SELECT count(*) FROM pg_class c
-		WHERE c.oid IN ('org_units'::regclass, 'org_unit_closure'::regclass)
-		AND NOT pg_has_role('nava_groupsync', c.relowner, 'USAGE')`); n != 0 {
-		var owner string
-		if err := super.QueryRow(context.Background(), `SELECT relowner::regrole::text FROM pg_class WHERE oid = 'org_units'::regclass`).Scan(&owner); err != nil {
-			t.Fatal(err)
-		}
-		t.Errorf("nava_groupsync cannot ANALYZE %d of org_units, org_unit_closure (owner %s): its ANALYZE is skipped with a WARNING", n, owner)
 	}
 }

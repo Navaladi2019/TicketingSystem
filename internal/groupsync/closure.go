@@ -140,7 +140,9 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 	}
 	if len(touched) == 0 {
 		var drift bool
-		if err := tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift); err != nil {
+		if err := withIndexPlan(ctx, tx, func() error {
+			return tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift)
+		}); err != nil {
 			return 0, false, fmt.Errorf("compare closure: %w", err)
 		}
 		if !drift {
@@ -178,27 +180,43 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 	return rows, true, err
 }
 
+// withIndexPlan runs fn with the planner steered to nested loops over index
+// scans, in tx, then puts the settings back. TICK-1054: on a table with no
+// planner statistics (a bulk import before autovacuum has run) the closure
+// query's plan took 45 to 98 s. The sync role cannot ANALYZE (only the table
+// owner can on Postgres 16, and ANALYZE would lock the table against another
+// tenant's rebuild), so the plan is made independent of statistics instead:
+// each step of the walk is one probe of org_units_parent or org_unit_closure_pkey.
+func withIndexPlan(ctx context.Context, tx pgx.Tx, fn func() error) error {
+	for _, g := range []string{"enable_hashjoin", "enable_mergejoin", "enable_seqscan"} {
+		if _, err := tx.Exec(ctx, "SET LOCAL "+g+" = off"); err != nil {
+			return fmt.Errorf("set %s: %w", g, err)
+		}
+	}
+	if err := fn(); err != nil {
+		return err
+	}
+	for _, g := range []string{"enable_hashjoin", "enable_mergejoin", "enable_seqscan"} {
+		if _, err := tx.Exec(ctx, "SET LOCAL "+g+" = on"); err != nil {
+			return fmt.Errorf("reset %s: %w", g, err)
+		}
+	}
+	return nil
+}
+
 // fullRebuildClosure deletes the tenant's closure and re-inserts it from the
 // live tree: the first import and the drift repair path.
-//
-// TICK-1054: a bulk import leaves org_units with no planner statistics until
-// autovacuum runs, and the rebuild query then took 45 to 98 s. So it runs
-// ANALYZE on org_units first and on org_unit_closure after, in the same
-// transaction (ANALYZE counts the transaction's own writes). The delta path
-// does not.
-func fullRebuildClosure(ctx context.Context, tx pgx.Tx, tid string) (int, bool, error) {
-	if _, err := tx.Exec(ctx, `ANALYZE org_units`); err != nil {
-		return 0, false, fmt.Errorf("analyze org units: %w", err)
-	}
+func fullRebuildClosure(ctx context.Context, tx pgx.Tx, tid string) (rows int, rebuilt bool, err error) {
 	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid`, tid); err != nil {
 		return 0, false, fmt.Errorf("clear closure: %w", err)
 	}
-	tag, err := tx.Exec(ctx, closureInsertSQL, tid)
-	if err != nil {
-		return 0, false, fmt.Errorf("rebuild closure: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `ANALYZE org_unit_closure`); err != nil {
-		return 0, false, fmt.Errorf("analyze closure: %w", err)
-	}
-	return int(tag.RowsAffected()), true, nil
+	err = withIndexPlan(ctx, tx, func() error {
+		tag, err := tx.Exec(ctx, closureInsertSQL, tid)
+		if err != nil {
+			return fmt.Errorf("rebuild closure: %w", err)
+		}
+		rows = int(tag.RowsAffected())
+		return nil
+	})
+	return rows, err == nil, err
 }
