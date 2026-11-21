@@ -34,7 +34,19 @@ type Violation struct {
 // error, and anything after the first value, is not a violation: the request
 // validator answers those as it always has.
 func Check(b []byte) (Violation, bool) {
-	ptr, offset, err := firstError(b)
+	return check(b)
+}
+
+// CheckUTF8 is Check with duplicate member names allowed: it reports only
+// the first invalid UTF-8 (including a lone surrogate escape). It is for a
+// reader that names every duplicate itself, so a duplicate earlier in the
+// text cannot hide invalid bytes after it.
+func CheckUTF8(b []byte) (Violation, bool) {
+	return check(b, jsontext.AllowDuplicateNames(true))
+}
+
+func check(b []byte, base ...jsontext.Options) (Violation, bool) {
+	ptr, offset, err := firstError(b, base...)
 	if err == nil {
 		return Violation{}, false
 	}
@@ -44,7 +56,7 @@ func Check(b []byte) (Violation, bool) {
 	// jsontext exports no sentinel for invalid UTF-8. Read the text again
 	// with only that check off: if the second pass gets past the offset the
 	// first one stopped at, the first error was invalid UTF-8.
-	_, permOffset, permErr := firstError(b, jsontext.AllowInvalidUTF8(true))
+	_, permOffset, permErr := firstError(b, append(base, jsontext.AllowInvalidUTF8(true))...)
 	if permErr == nil || permOffset != offset {
 		return Violation{Pointer: ptr, Rule: RuleInvalidUTF8}, true
 	}

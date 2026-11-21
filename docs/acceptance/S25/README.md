@@ -12,10 +12,12 @@ From the repository root, on the story branch `TICK-801/typescript-sdk`, with Do
 
 ```sh
 make dev-ca                                  # once per checkout: Temporal's dev certificates (deploy/compose/certs/, git-ignored)
-docker compose down -v                       # no volume from an earlier run
-docker compose up -d --wait                  # every service healthy
+export NAVA_IMAGE_TAG=$(sh scripts/acceptance/image-tag.sh)  # this checkout's image tag
+sh scripts/acceptance/fresh-stack.sh         # build, down -v, up --wait, check the tags
 sh docs/acceptance/S25/run.sh                # seed, pack, install, run the example and every check
 ```
+
+The stack runs this checkout's images under their own tag, never the shared `dev` (TICK-1021): `fresh-stack.sh` builds them, fails if `docker compose build` fails, then starts the stack with `--no-build`. `run.sh` stops at its first step if any `nava/*` container runs another tag. A second stack on the same host also needs its own `COMPOSE_PROJECT_NAME` and host ports (`compose.yaml`, header).
 
 `run.sh` seeds tenants A and B, runs `task sdk:build`'s steps (build, `npm pack`), installs the tarball into `examples/sdk-node/`, runs the example and the criteria walk, and counts the replayed create's audit rows in Postgres. It ends with `ALL PASS` and `PASS  C2 one audit_log row`.
 

@@ -2,9 +2,9 @@
 title: "8. Workflows"
 section: tour
 status: delivered
-sources: [docs/acceptance/guide/s11b.html, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S28/S28-13.bru, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go]
-adrs: [ADR-001, ADR-003, ADR-008]
-stories: [S11a, S11b, S27, S28]
+sources: [docs/acceptance/guide/s11b.html, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S28/S28-13.bru, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go, docs/acceptance/S32/README.md, internal/workflow/def/def.go, internal/workflowdefs/workflowdefs.go, internal/authz/policyref.go]
+adrs: [ADR-001, ADR-003, ADR-008, ADR-010]
+stories: [S11a, S11b, S27, S28, S32]
 tables: [outbox]
 packages: [internal/workflow/interp, cmd/nava-worker, internal/configsurface]
 ---
@@ -72,9 +72,26 @@ Each record write also writes a row to a work queue (the "outbox") in the same d
 
 Details: [workflow interpreter](../workflows/nava-interpreter.md), [outbox, relay and worker](../workflows/outbox-relay-worker.md), [S11b](../stories/s11b.md).
 
+## The named-policy test
+
+A `condition` step can test a field (`field`, `op` `eq`/`ne`/`in`, `value`) or, since [S32](../stories/s32.md), a named access policy (ADR-010 D9). The policy test asks whether the record's assignee or requester may read or change it under one policy of the entity type's access document:
+
+```json
+{ "key": "check", "type": "condition",
+  "policy": { "entity_type": "incident", "name": "agents_write" },
+  "who": "assignee", "op": "write",
+  "then": "triaged", "else": "needs_owner" }
+```
+
+- `who` is `assignee` or `requester`; `op` is `read` or `write`. The step has either `policy`, `who` and `op`, or `field`, `op` and `value`, never both.
+- `policy.entity_type` must be the trigger entity. Another type is refused at publish with `422 entity_type_mismatch` at `/steps/<key>/policy/entity_type`.
+- The name is not looked up at publish. It is resolved each time the step runs, against the entity type's **current** access version, so a policy narrowed while a run waits applies from its next check. The definition version stays pinned; only the policy is live.
+- Only that one policy is asked, not the OR of every policy. The answer is "no" when the person column is empty, the person is not a live principal of the tenant, the policy is voided, or the policy does not grant `op`.
+- A name the entity type does not have (including a policy only another tenant has) is "no" as well, and is also logged, counted in `authz_policy_ref_missing_total` and audited as `policy_ref_refused`. See [S32](../stories/s32.md#finding-the-missing-policy-entry) for how an admin finds the entry.
+
 ## Adding or removing a step type
 
-The step catalog today is `condition`, `branch`, `timer`, `wait_signal`, `update_record` and `end`, with condition operators `eq`, `ne`, `in` and triggers `record.created`, `record.updated`. A tenant's published definition keeps working after an upgrade within a major version: the catalog is additive-only (ADR-008 D12), and the upgrade-compatibility suite (M-X2, S27) checks that on every PR.
+The step catalog today is `condition`, `branch`, `timer`, `wait_signal`, `update_record` and `end`, with condition operators `eq`, `ne`, `in`, the condition's named-policy test (`policy`, `who`, `op` `read`/`write`, S32) and triggers `record.created`, `record.updated`. A tenant's published definition keeps working after an upgrade within a major version: the catalog is additive-only (ADR-008 D12), and the upgrade-compatibility suite (M-X2, S27) checks that on every PR.
 
 - **Adding** a step type, step field, operator or trigger: change `internal/workflow/def` (its `schema.json` and `Parse`), then list the new item in `internal/configsurface/testdata/inventory.json` and add a fixture `internal/configsurface/testdata/fixtures/workflow/<name>.json` that uses it. Without them `task test` fails with `unlisted: …` or `no fixture: …`.
 - **Deprecating** one: keep it in the code and in the inventory, and add `{"item": "workflow.step_types/<name>", "since": "<version>"}` to the inventory's `deprecated` list. It must stay listed and its fixture must keep parsing until the next major.

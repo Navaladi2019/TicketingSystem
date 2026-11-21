@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S32: A workflow step can check a named access policy - Nava handbook</title>
+<link rel="stylesheet" href="../assets/handbook.css">
+</head>
+<body data-root="../">
+<aside class="sidebar">
+<a class="brand" href="../index.html">Nava handbook</a>
+<div class="search"><input id="hb-q" type="search" placeholder="Search the handbook" autocomplete="off" aria-label="Search"><ul id="hb-results" hidden></ul></div>
+<nav aria-label="Sections">
+<details class="nav-group"><summary>Start here</summary><ul><li><a href="../index.html">About this handbook</a></li><li><a href="../vision/index.html">What the product is</a></li><li><a href="../vision/goals-and-non-goals.html">Goals and non-goals</a></li></ul></details><details class="nav-group"><summary>Product tour</summary><ul><li><a href="../tour/index.html">Tour at a glance</a></li><li><a href="../tour/01-onboard-a-tenant.html">1. Onboard a tenant</a></li><li><a href="../tour/02-sign-in.html">2. Sign in</a></li><li><a href="../tour/03-create-groups.html">3. Create groups</a></li><li><a href="../tour/04-add-users-to-groups.html">4. Add users to groups</a></li><li><a href="../tour/05-organisation-units.html">5. Organisation units (not built)</a></li><li><a href="../tour/06-create-an-entity-type.html">6. Create an entity type</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Access rules and masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul></details><details class="nav-group"><summary>Concepts</summary><ul><li><a href="../database/tenancy.html">Tenants</a></li><li><a href="../database/identity.html">Users and groups</a></li><li><a href="../database/entity-definitions.html">Entity types</a></li><li><a href="../database/records.html">Records</a></li><li><a href="../database/acl.html">Access rules and masks</a></li><li><a href="../workflows/index.html">Workflows</a></li><li><a href="../database/audit.html">Audit</a></li><li><a href="../database/numbering.html">Record numbers</a></li></ul></details><details class="nav-group"><summary>How it works</summary><ul><li><details><summary><a href="../system/index.html">System map and components</a></summary><ul><li><a href="../system/core-acl.html">Record access rules</a></li><li><a href="../system/access-api.html">Access API: publish, read, explain</a></li><li><a href="../system/core-cascades.html">Cascade bounds</a></li><li><a href="../system/core-masks.html">Field masks</a></li><li><a href="../system/core-metadata.html">Metadata engine</a></li><li><a href="../system/core-numbering.html">Record numbering</a></li><li><a href="../system/core-tenancy.html">Tenant transactions</a></li><li><a href="../system/keycloak.html">keycloak</a></li><li><a href="../system/nava-core.html">nava-core</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-groupsync.html">nava-groupsync</a></li><li><a href="../system/nava-onboard.html">nava-onboard</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/nava-relay.html">nava-relay</a></li><li><a href="../system/nava-worker.html">nava-worker</a></li><li><a href="../system/openobserve.html">openobserve</a></li><li><a href="../system/otel-collector.html">otel-collector</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../system/postgres.html">postgres</a></li><li><a href="../system/prometheus.html">prometheus</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li><li><a href="../system/temporal-ui.html">temporal-ui</a></li><li><a href="../system/temporal.html">temporal (gateway)</a></li></ul></details></li><li><a href="../system/core-write-pipeline.html">The write pipeline</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/id-generation.html">Id generation (UUIDv7)</a></li><li><a href="../workflows/outbox-relay-worker.html">Workflows: outbox, relay, worker</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter</a></li><li><a href="../workflows/audit-seal.html">Audit sealer</a></li><li><details><summary><a href="../security/index.html">Security and tenant isolation</a></summary><ul><li><a href="../security/01-token.html">Token validation</a></li><li><a href="../security/02-tenant-resolution.html">Tenant resolution</a></li><li><a href="../security/03-transaction.html">Tenant transaction</a></li><li><a href="../security/04-database.html">Database: RLS, owner and roles</a></li><li><a href="../security/05-temporal.html">Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/06-opaque-tokens.html">Opaque tokens: cursors and idempotency keys</a></li><li><a href="../security/07-identity-boundary.html">Identity boundary and deprovisioning</a></li><li><a href="../security/08-exports-erasure.html">Audit export and erasure</a></li><li><a href="../security/09-acl-masks-read.html">ACL and field masks on the read side</a></li><li><a href="../security/10-audit-chain.html">Audit chain and offline verify</a></li><li><a href="../security/accepted-risks.html">Accepted risks</a></li></ul></details></li><li><details><summary><a href="../vision/invariants.html">The invariants</a></summary><ul><li><a href="../vision/tenant-wall.html">I1 Tenant wall</a></li><li><a href="../vision/tenant-source.html">I2 Tenant source</a></li><li><a href="../vision/least-privilege-roles.html">I3 Least-privilege roles</a></li><li><a href="../vision/one-write-pipeline.html">I4 One write pipeline</a></li><li><a href="../vision/one-authorization-layer.html">I5 One authorization layer</a></li><li><a href="../vision/durable-path-outbox.html">I6 Durable path</a></li><li><a href="../vision/idempotent-side-effects.html">I7 Idempotent side effects</a></li><li><a href="../vision/contracts-configuration-advisory-ai.html">I8 Contracts and configuration</a></li><li><a href="../vision/bounded-cascades.html">I9 Bounded cascades</a></li></ul></details></li></ul></details><details class="nav-group" open><summary>Reference</summary><ul><li><details><summary><a href="../database/index.html">Database</a></summary><ul><li><a href="../database/schema.html">Schema snapshot</a></li><li><a href="../database/rls.html">Row-level security</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../database/migrations.html">Migration history</a></li><li><a href="../database/idempotency.html">Idempotency</a></li><li><a href="../database/outbox.html">Outbox</a></li><li><a href="../database/workflow-state.html">Workflow state</a></li></ul></details></li><li><details><summary><a href="../adr/index.html">Decisions (ADRs)</a></summary><ul><li><details><summary><a href="../adr/adr-001.html">ADR-001 Platform blueprint</a></summary><ul><li><a href="../adr/adr-001-a1.html">A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-a5.html">A5: a cascade cycle suppresses the re-start</a></li><li><a href="../adr/adr-001-a6.html">A6: audit roles and start rows not tied to a record</a></li><li><a href="../adr/adr-001-e1.html">E1: command inspection for continue-as-new</a></li><li><a href="../adr/adr-001-e3.html">E3: the onboarding role reads its own tenant row</a></li></ul></details></li><li><details><summary><a href="../adr/adr-002.html">ADR-002 /me shows group paths</a></summary><ul><li><a href="../adr/adr-002-e1.html">E1: a line-scoped nolint replaces the api.go exclusion</a></li></ul></details></li><li><a href="../adr/adr-003.html">ADR-003 Retiring interpreter histories</a></li><li><details><summary><a href="../adr/adr-004.html">ADR-004 Audit log and hash chain</a></summary><ul><li><a href="../adr/adr-004-a1.html">A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e1.html">E1: cascade audit entries and diff_truncated</a></li><li><a href="../adr/adr-004-e2.html">E2: verifiability is computed, the trailer must agree</a></li><li><a href="../adr/adr-004-e3.html">E3: the commit-check probe is planned on every call</a></li><li><a href="../adr/adr-004-e4.html">E4: commit-check ceilings are report-only in CI</a></li><li><a href="../adr/adr-004-e5.html">E5: no FK actions on audited tables, no secrets in records</a></li><li><a href="../adr/adr-004-e6.html">E6: the E4-R1 cue is a per-model 1.2x band</a></li><li><a href="../adr/adr-004-e7.html">E7: A1 books the 10 s interval when work is pending</a></li><li><a href="../adr/adr-004-e8.html">E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004-e9.html">E9: the audit row for a number_space_exhausted refusal</a></li></ul></details></li><li><details><summary><a href="../adr/adr-005.html">ADR-005 Record numbering</a></summary><ul><li><a href="../adr/adr-005-e1.html">E1: the first create of a type can fail between M2 and M3</a></li><li><a href="../adr/adr-005-e2.html">E2: grow is refused when a digit touches {seq:N}</a></li></ul></details></li><li><details><summary><a href="../adr/adr-006.html">ADR-006 Filterable tenant fields</a></summary><ul><li><a href="../adr/adr-006-e1.html">E1: the D9 barrier also waits on running xids at or above xmax (proposed)</a></li><li><a href="../adr/adr-006-a1.html">A1: the D13 350 ms residual follows the fan-out, not the ACL</a></li><li><a href="../adr/adr-006-a2.html">A2: the capped count runs under a 200 ms budget; total may be unknown</a></li></ul></details></li><li><details><summary><a href="../adr/adr-007.html">ADR-007 Embedding widget and SDK</a></summary><ul><li><a href="../adr/adr-007-a1.html">A1: embedding clients always name the organization</a></li></ul></details></li><li><a href="../adr/adr-008.html">ADR-008 Competitive Gate in every ADR</a></li><li><a href="../adr/adr-009.html">ADR-009 Records catch up when a default is added</a></li><li><details><summary><a href="../adr/adr-010.html">ADR-010 Composable access rules</a></summary><ul><li><a href="../adr/adr-010-a1.html">A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">E2: a stale If-Match on the access PUT is 412, not 409</a></li></ul></details></li></ul></details></li><li><details open><summary><a href="../stories/index.html">Stories</a></summary><ul><li><a href="../stories/s1.html">Local stack and CI</a></li><li><a href="../stories/s2.html">Tenant isolation in queries</a></li><li><a href="../stories/s3.html">Tenant sign-in</a></li><li><a href="../stories/s4.html">Onboard a tenant</a></li><li><a href="../stories/s5.html">Group changes and deprovisioning</a></li><li><a href="../stories/s6.html">API ground rules</a></li><li><a href="../stories/s7.html">Outbox runs one workflow</a></li><li><a href="../stories/s8.html">Publish an incident type</a></li><li><a href="../stories/s9.html">Log and update an incident</a></li><li><a href="../stories/s10.html">Group-scoped access and masks</a></li><li><a href="../stories/s11a.html">Workflow interpreter on Temporal</a></li><li><a href="../stories/s11b.html">Records start workflows</a></li><li><a href="../stories/s13.html">Verify an audit export offline</a></li><li><a href="../stories/s14.html">One audit log</a></li><li><a href="../stories/s15.html">Audit hash chain</a></li><li><a href="../stories/s16.html">Export and prove the audit log</a></li><li><a href="../stories/s17.html">Record numbers during counter moves</a></li><li><a href="../stories/s18.html">Number formats on ticket types</a></li><li><a href="../stories/hb2.html">Handbook v2: vision and product tour</a></li><li><a href="../stories/s25.html">Install the TypeScript SDK</a></li><li><a href="../stories/s27.html">CI checks the Competitive Gate and the configuration surface</a></li><li><a href="../stories/s30.html">Compose access rules from named conditions</a></li><li class="current"><a href="../stories/s32.html" aria-current="page">A workflow step checks a named policy</a></li><li><a href="../stories/go127.html">Go 1.27, UUIDv7 ids and strict JSON</a></li><li><a href="../stories/s28.html">Time to the first workflow-routed record (X1a)</a></li></ul></details></li><li><a href="../benchmarks/index.html">Benchmarks and budgets</a></li><li><a href="../glossary/index.html">Glossary</a></li></ul></details><details class="nav-group"><summary>Operations</summary><ul><li><a href="../operations/index.html">Operations overview</a></li><li><a href="../operations/local-stack.html">Local stack</a></li><li><a href="../operations/go-toolchain.html">Go toolchain and setup</a></li><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../operations/observability.html">Traces, logs and metrics</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit</a></li><li><a href="../operations/troubleshooting.html">Troubleshooting</a></li><li><a href="../operations/listeners.html">Unpublished listeners</a></li></ul></details>
+</nav>
+</aside>
+<main>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../stories/index.html">stories</a> / <span>S32: A workflow step can check a named access policy</span></nav>
+<article>
+<h1 class="page-title">S32: A workflow step can check a named access policy</h1>
+<p>Story TICK-955 (tasks TICK-956, TICK-957, TICK-958, plan PLAN-011, decision
+<a href="../adr/adr-010.html">ADR-010</a> D9). Kit result <strong>READY</strong>, verified 2026-11-21 on
+a fresh stack, recorded in the
+<a href="../../../docs/acceptance/S32/README.md">acceptance kit</a>. Criteria 1 to 4 pass.</p>
+<h2 id="what-a-user-can-now-do">What a user can now do</h2>
+<ul>
+<li>As a tenant admin, write a workflow <code>condition</code> step that asks "may this
+record's assignee (or its requester) read it (or change it) under policy
+X?" and branch on the answer. The step names the policy; it does not copy
+the rule.</li>
+<li>Narrow or widen that policy and see workflows that are already running
+follow it from their next check. The check reads the entity type's current
+access version every time; it is not pinned to the version the run started
+with.</li>
+<li>Name a policy that does not exist and get "no": the step takes its <code>else</code>
+edge, and the audit log gets a <code>policy_ref_refused</code> entry.</li>
+<li>A workflow can test only its own trigger entity's type. Naming another type
+is refused at publish with <code>422 entity_type_mismatch</code>. A policy that only
+another tenant has is the same as a missing name.</li>
+</ul>
+<p>Not yet: no UI or canvas for the policy test; the admin sends the workflow
+JSON to <code>POST /api/v1/workflow-definitions/{key}/versions</code>.</p>
+<h2 id="the-step">The step</h2>
+<pre><code class="language-json">{ &quot;key&quot;: &quot;check&quot;, &quot;type&quot;: &quot;condition&quot;,
+  &quot;policy&quot;: { &quot;entity_type&quot;: &quot;incident&quot;, &quot;name&quot;: &quot;agents_write&quot; },
+  &quot;who&quot;: &quot;assignee&quot;, &quot;op&quot;: &quot;write&quot;,
+  &quot;then&quot;: &quot;triaged&quot;, &quot;else&quot;: &quot;needs_owner&quot; }
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Values</th>
+<th>Checked at publish</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>policy.entity_type</code></td>
+<td>an entity type key</td>
+<td>must be the trigger entity, else <code>422 entity_type_mismatch</code> at <code>/steps/&lt;key&gt;/policy/entity_type</code></td>
+</tr>
+<tr>
+<td><code>policy.name</code></td>
+<td>a policy name, <code>^[a-z][a-z0-9_]{0,62}$</code></td>
+<td>shape only; the name is looked up at run time</td>
+</tr>
+<tr>
+<td><code>who</code></td>
+<td><code>assignee</code>, <code>requester</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>op</code></td>
+<td><code>read</code>, <code>write</code></td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>A policy test replaces <code>field</code> and <code>value</code>; a step with both is refused.
+The full step catalog is on <a href="../tour/08-workflows.html#the-named-policy-test">Workflows (tour)</a>.</p>
+<h2 id="flow">Flow</h2>
+<figure class="diagram" data-kind="mermaid"><div class="dz-wrap"><pre class="mermaid-src">flowchart TD
+  pub[&quot;Admin publishes a workflow&lt;br/&gt;with a policy test&quot;] --&gt; ent{&quot;policy.entity_type&lt;br/&gt;= trigger entity?&quot;}
+  ent -- no --&gt; bad[&quot;422 entity_type_mismatch,&lt;br/&gt;nothing published&quot;]
+  ent -- yes --&gt; run[&quot;record write starts the run&quot;]
+  run --&gt; next[&quot;NextStep activity reaches the condition step&quot;]
+  next --&gt; tx[&quot;one tenant transaction:&lt;br/&gt;record, current access version,&lt;br/&gt;principal, groups, shares&quot;]
+  tx --&gt; found{&quot;policy of that name&lt;br/&gt;in the current version?&quot;}
+  found -- no --&gt; miss[&quot;false: else edge,&lt;br/&gt;audit policy_ref_refused,&lt;br/&gt;authz_policy_ref_missing_total + 1&quot;]
+  found -- yes --&gt; eval{&quot;does that policy alone&lt;br/&gt;grant op to who?&quot;}
+  eval -- yes --&gt; then[&quot;then edge&quot;]
+  eval -- &quot;no, NULL who, voided policy&quot; --&gt; els[&quot;else edge&quot;]
+</pre></div></figure>
+<h2 id="api-operations">API operations</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Method and path</th>
+<th>Summary</th>
+<th>Responses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>publishWorkflowDefinitionVersion</code></td>
+<td><code>POST /api/v1/workflow-definitions/{key}/versions</code></td>
+<td>Publish the next version of a workflow definition (tenant admin)</td>
+<td>201, 400, 401, 403, 409, 422, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>putEntityTypeAccess</code></td>
+<td><code>PUT /api/v1/entity-types/{key}/access</code></td>
+<td>Publish the next access policy version (tenant admin)</td>
+<td>200, 400, 401, 403, 404, 409, 412, 422, 428, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>createRecord</code></td>
+<td><code>POST /api/v1/records/{entity}</code></td>
+<td>Create a record of an entity type</td>
+<td>201, 400, 401, 403, 404, 409, 422, 429, 500, 501, 503</td>
+</tr>
+<tr>
+<td><code>getRecord</code></td>
+<td><code>GET /api/v1/records/{entity}/{id}</code></td>
+<td>Read a record</td>
+<td>200, 401, 404, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>getRecordHistory</code></td>
+<td><code>GET /api/v1/records/{entity}/{id}/history</code></td>
+<td>A record's change history</td>
+<td>200, 400, 401, 404, 422, 429, 500, 501</td>
+</tr>
+<tr>
+<td><code>listAuditEntries</code></td>
+<td><code>GET /api/v1/audit/entries</code></td>
+<td>The tenant's audit timeline</td>
+<td>200, 400, 401, 403, 429, 500, 501</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-to-try-it">How to try it</h2>
+<ol>
+<li>From the repository root on a fresh stack: <code>make dev-ca</code>,
+<code>docker compose down -v</code>, <code>docker compose up -d --build --wait</code>.</li>
+<li><code>sh docs/acceptance/S32/run.sh</code>. It seeds tenants A and B, makes
+<code>admin@tenant-b.test</code> tenant B's admin, checks tenant A has no other
+incident workflow, runs the Bruno folder <code>S32 workflow policy</code>
+(39 requests), checks from the database that the AC2 run was waiting when
+the policy was narrowed (<code>AC2: PASS</code>), and lists the refused-reference audit
+entries and <code>authz_policy_ref_missing_total</code>.</li>
+<li>Or open <code>docs/acceptance/guide/bruno/</code> in Bruno with the <code>local</code>
+environment and run the folder <code>S32</code> top to bottom. After a failed pass use
+a fresh stack: the restore steps run only at the end.</li>
+</ol>
+<p>The story users are the seeded <code>admin@tenant-a.test</code> (admin, creates the
+incidents), <code>alice@tenant-a.test</code> (agent in <code>/service-desk</code>, the assignee),
+<code>auditor@tenant-a.test</code> (requester) and <code>admin@tenant-b.test</code> (tenant B).</p>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Bruno requests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. assignee may write under <code>agents_write</code>: <code>triaged</code></td>
+<td><code>S32/S32-13.bru</code> (publish), <code>S32/S32-16.bru</code> (<code>triaged</code>), <code>S32/S32-18.bru</code> (history <code>source: workflow</code>), <code>S32/S32-17.bru</code> (control: requester as assignee gets <code>needs_owner</code>)</td>
+</tr>
+<tr>
+<td>2. narrowed while waiting: <code>needs_owner</code></td>
+<td><code>S32/S32-19.bru</code> (timer <code>PT20S</code> before the check), <code>S32/S32-20.bru</code> (create), <code>S32/S32-21.bru</code> (still <code>new</code>), <code>S32/S32-22.bru</code> (narrow <code>agents_write</code> to admins), <code>S32/S32-23.bru</code> (<code>needs_owner</code>), then <code>run.sh</code> step 5</td>
+</tr>
+<tr>
+<td>3. <code>does_not_exist</code>: <code>needs_owner</code> and an audit entry</td>
+<td><code>S32/S32-24.bru</code> (restore <code>agents_write</code>), <code>S32/S32-25.bru</code> (publish accepts the unknown name), <code>S32/S32-27.bru</code>, <code>S32/S32-28.bru</code> (audit)</td>
+</tr>
+<tr>
+<td>4. tenant B's policy: same as missing</td>
+<td><code>S32/S32-30.bru</code> (tenant B adds <code>tenant_b_only</code>), <code>S32/S32-31.bru</code> to <code>S32/S32-35.bru</code>, <code>S32/S32-36.bru</code> (another entity type: 422)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="finding-the-missing-policy-entry">Finding the missing-policy entry</h2>
+<p>Read <code>GET /api/v1/audit/entries?domain=config&amp;subject_type=acl_policy&amp;from=...</code>
+as a tenant admin and look for <code>&quot;action&quot;: &quot;policy_ref_refused&quot;</code> with
+<code>actor_system: &quot;workflow&quot;</code> and <code>source: &quot;workflow&quot;</code>. The subject is the
+entity type's access policy, the same subject as the admin's own access
+publishes. <strong>The entry holds no policy name</strong>: <code>content_sha256</code> is the SHA-256
+of <code>&lt;entity_type&gt;/&lt;name&gt;</code>, so hash the name to match it
+(<code>printf &#x27;incident/does_not_exist&#x27; | sha256sum</code>). The nava-worker log line
+<code>authz: workflow policy reference names no policy, it denies</code> has the name in
+plain text.</p>
+<h2 id="verdict-and-evidence">Verdict and evidence</h2>
+<ul>
+<li>Kit result: READY, verified on a fresh stack at story branch commit
+<code>f249b7b5</code>. <code>S32 workflow policy</code> 39 of 39 requests, 102 of 102 tests, and
+<code>AC2: PASS</code>, in <a href="../../../docs/acceptance/S32/fresh-stack-run.txt">fresh-stack-run.txt</a>.
+A second pass on the same stack: 38 passed and S32.10 skipped, 100 of 100
+tests. The S30 folder still passes (47 of 47). Not re-run for this page.</li>
+<li><code>authz_policy_ref_missing_total{entity_type=&quot;incident&quot;}</code> went from no series
+to 2, one for criterion 3 and one for criterion 4.</li>
+<li>Isolation: the adversarial tests under RLS are TICK-957's
+(<code>internal/records/pipeline/policyref_integration_test.go</code>): the same entity
+type key and policy name in two tenants with different rules, another
+tenant's record, and a run with no <code>workflow_ref</code> of the tenant. The worker's
+reads of <code>principals</code> and <code>group_members</code> and the new audit action are
+TICK-1025's.</li>
+<li>S32 has no stack CI case (<code>s32_*.sh</code>); the fresh-stack kit is the gate. See
+the <a href="../../../docs/delivery/decisions/2026-11-21-s32-no-stack-ci-case.md">decision</a>.</li>
+</ul>
+<h2 id="known-limits">Known limits</h2>
+<ul>
+<li><strong>The audit entry stores only a hash of the name.</strong> An admin has to hash the
+name or read the worker log to match an entry. Adding the name is a product
+follow-up (<a href="../../../docs/delivery/decisions/2026-11-21-s32-policy-ref-audit-hash-only.md">decision</a>).</li>
+<li><strong>A Temporal retry can audit and count one refusal twice.</strong> The test commits
+its own transaction, so a later failure in the same <code>NextStep</code> that Temporal
+retries evaluates the reference again. Accepted: a retry is a new evaluation.</li>
+<li><strong>No alert</strong> on <code>authz_policy_ref_missing_total</code>. It should stay at zero; a
+rise means a workflow names a policy that was removed (ADR-010 R5).</li>
+<li><code>who: requester</code> and <code>op: read</code> are not walked in the kit; TICK-957's
+integration tests cover both. A voided policy is covered by unit tests only.</li>
+<li>AC2 depends on the clock: the narrowing must land inside the 20 s timer.
+<code>run.sh</code> fails if it does not.</li>
+</ul>
+</article>
+<nav class="pager" aria-label="Previous and next page"><a class="prev" href="../stories/s30.html">&larr; S30: Admins compose access rules from named conditions with AND, OR and NOT</a><a class="next" href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies &rarr;</a></nav>
+<section class="backlinks"><h2>Also named by</h2>
+<h3>Story S11b</h3><ul><li><a href="../database/workflow-state.html">Workflow state</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../vision/index.html">What the product is</a></li></ul>
+<h3>Story S30</h3><ul><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li></ul>
+<h3>Story S32</h3><ul><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li></ul>
+<h3>ADR ADR-010</h3><ul><li><a href="../adr/adr-010-a1.html">ADR-010-A1: SP-2 caps, a configurable byte limit, publish as nava_app only</a></li><li><a href="../adr/adr-010-e1.html">ADR-010-E1: CI-6 SQL text equal up to two named rewrites</a></li><li><a href="../adr/adr-010-e2.html">ADR-010-E2: a stale If-Match on the access PUT is 412, not 409</a></li><li><a href="../adr/adr-010.html">ADR-010: Composable access rules</a></li><li><a href="../database/acl.html">Access control and masks</a></li><li><a href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES)</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/08-workflows.html">8. Workflows</a></li><li><a href="../workflows/nava-interpreter.html">Workflow interpreter (nava.interpreter)</a></li></ul>
+<h3>Operation createRecord</h3><ul><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation getRecord</h3><ul><li><a href="../operations/sdk.html">Using the TypeScript SDK</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation getRecordHistory</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
+<h3>Operation listAuditEntries</h3><ul><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../tour/10-audit.html">10. Audit</a></li></ul>
+<h3>Operation publishWorkflowDefinitionVersion</h3><ul><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li></ul>
+<h3>Operation putEntityTypeAccess</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../system/access-api.html">Access API: publish, read and explain an entity type&#x27;s access</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li></ul>
+</section>
+<footer><p class="hb-footer">Content generated against main @ 8d58fd236480 (2026-11-20)</p></footer>
+</main>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/mermaid.min.js"></script>
+<script src="../assets/handbook.js"></script>
+</body>
+</html>

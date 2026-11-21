@@ -1,12 +1,16 @@
 #!/bin/sh
 # S25 acceptance walk (TICK-830). Run from the repository root on a fresh, healthy stack
-# (docker compose down -v && docker compose up -d --wait; see README.md in this directory).
+# of this checkout's images (export NAVA_IMAGE_TAG=$(sh scripts/acceptance/image-tag.sh);
+# sh scripts/acceptance/fresh-stack.sh; see README.md in this directory).
 # Seeds tenants A and B, packs the SDK, installs the tarball into examples/sdk-node, runs the
 # ten-line example and the criteria walk, and counts the replayed create's audit rows in Postgres.
 # Prints no token or password. Exit status is non-zero on any failure.
 set -eu
 A=00000000-0000-4000-8000-0000000000a1
 step() { printf '\n== %s\n' "$*"; }
+
+step "images: every nava/* container on this checkout's tag (TICK-1021)"
+sh scripts/acceptance/check-images.sh
 
 step "readyz (nava-core admin listener)"
 docker compose exec -T nava-core wget -qO- http://127.0.0.1:9090/readyz; echo

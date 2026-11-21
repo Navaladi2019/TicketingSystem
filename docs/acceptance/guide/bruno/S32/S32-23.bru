@@ -1,0 +1,46 @@
+meta {
+  name: S32.23 AC2: once the timer fires, the waiting run routes to needs_owner
+  type: http
+  seq: 23
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s32_ac2}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const t0 = Number(bru.getVar('s32_ac2_at')) || 0;
+  for (;;) {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s32_ac2}}'), method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+    if (!bru.getVar('s32_ac2') || (r.status === 200 && r.data.state !== 'new') || Date.now() - t0 > 120 * 1000) break;
+    await bru.sleep(500);
+  }
+  bru.setVar('s32_ac2_routed_at', String(Date.now()));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('state needs_owner, written by the workflow (version 2)', () => {
+    expect(b.state).to.eql('needs_owner');
+    expect(b.version).to.eql(2);
+  });
+  console.log('s32_ac2 routed to', b.state, 'after', ((Number(bru.getVar('s32_ac2_routed_at')) - Number(bru.getVar('s32_ac2_at'))) / 1000).toFixed(1), 's');
+  test('routed after the narrowing and after the timer', () => {
+    expect(Number(bru.getVar('s32_ac2_routed_at'))).to.be.above(Number(bru.getVar('s32_narrowed_at')));
+    expect(Number(bru.getVar('s32_ac2_routed_at')) - Number(bru.getVar('s32_ac2_at'))).to.be.at.least(19000);
+  });
+}
+
+docs {
+  The run's check reads the current version of `agents_write`, the one S32.22 published.
+}

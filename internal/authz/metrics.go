@@ -39,6 +39,19 @@ const ReadBranchesFallbackMetric = "authz.read_branches.fallback"
 // authz_policy_invalid_total.
 const UnderSetTooLargeMetric = "authz.under_set_too_large"
 
+// PolicyRefMissingMetric counts the workflow policy tests that named no policy
+// (ADR-010 D9): the record's entity type is not the reference's, or the type
+// has no published policy of that name. It denies, is audited, and should stay
+// at zero. Prometheus: authz_policy_ref_missing_total{entity_type}, the label
+// the record's own entity type, never a name from a request or a tenant.
+const PolicyRefMissingMetric = "authz.policy_ref.missing"
+
+// refMissingCounter is the registered PolicyRefMissingMetric counter; nil
+// records nothing.
+//
+//nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
+var refMissingCounter atomic.Pointer[metric.Int64Counter]
+
 // invalidCounter is the registered counter; nil records nothing. Allows and
 // CompileRead are pure functions called from many places, so the counter is
 // registered once per process (RegisterMetrics) rather than passed in.
@@ -78,6 +91,12 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	if err != nil {
 		return fmt.Errorf("authz: %s: %w", UnderSetTooLargeMetric, err)
 	}
+	m, err := meter.Int64Counter(PolicyRefMissingMetric,
+		metric.WithDescription("Workflow policy tests that named a missing entity type or policy and so denied (ADR-010 D9)."))
+	if err != nil {
+		return fmt.Errorf("authz: %s: %w", PolicyRefMissingMetric, err)
+	}
+	refMissingCounter.Store(&m)
 	invalidCounter.Store(&c)
 	fallbackCounter.Store(&f)
 	underTooLargeCounter.Store(&u)
@@ -126,5 +145,12 @@ func countUnderTooLarge(pol *Policy) {
 		slog.String("entity_type", pol.EntityType), slog.Int("version", pol.Version), slog.Int("limit", MaxUnderSet))
 	if c := underTooLargeCounter.Load(); c != nil {
 		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
+	}
+}
+
+// countRefMissing records one workflow policy test that named no policy.
+func countRefMissing(ctx context.Context, entityType string) {
+	if c := refMissingCounter.Load(); c != nil {
+		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", entityType)))
 	}
 }
