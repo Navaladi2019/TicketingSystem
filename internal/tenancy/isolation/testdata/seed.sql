@@ -113,7 +113,9 @@ INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES
 INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', NULL, 'kc-ou-shared', 'Root A'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', NULL, 'kc-ou-shared', 'Root B'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B');
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B'),
+    -- TICK-952: a leaf of tenant A that nothing references (OrgUnitA2).
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a2', '0a000000-0000-4000-8000-0000000005a1', 'kc-ou-a2', 'Leaf A');
 
 -- TICK-947 (ADR-010 D7): org-unit membership. Principal b1 is in both of
 -- tenant B's units, b2's primary; both tenants have a primary member.
