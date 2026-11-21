@@ -17,7 +17,11 @@ has any unit below it, even a live one. A unit on a parent cycle (no root
 above it) has no rows either.
 
 Group sync is the only writer. A rebuild deletes the tenant's rows and
-inserts them again (TICK-1033). The migration's backfill,
+inserts them again (TICK-1033); since TICK-1054 a run that touched units
+replaces only the rows of the touched units' subtrees, and the full rebuild
+remains for the first import and for drift. The drift check (stored and live
+closure compared as sets) runs only on a run that touched no unit, so drift
+outside the touched subtrees is repaired by the next such run. The migration's backfill,
 `org_unit_closure_rebuild_all()`, runs the same recursive statement per
 tenant: live roots, then the live children of every unit reached.
 

@@ -124,13 +124,19 @@ func closureRowCount(ctx context.Context, tx pgx.Tx, tid string) (int, error) {
 // replaced. With none it checks the stored closure against the live one as
 // sets and, on any difference, repairs it by a full rebuild (that repairs a
 // closure left stale before this code shipped, or by hand). An empty stored
-// closure (first import) also takes the full rebuild. It returns the closure's
+// closure (first import) also takes the full rebuild. A run that touched units
+// does not check the rest of the closure for drift; the next run that touches
+// none does. It returns the closure's
 // row count after the call and whether it wrote any row.
 func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt bool, err error) {
 	tid := tenantID.String()
 	have, err := closureRowCount(ctx, tx, tid)
 	if err != nil {
 		return 0, false, err
+	}
+	if len(touched) == 0 && have == 0 {
+		// Empty stored closure: nothing to compare, rebuild without the set check.
+		return fullRebuildClosure(ctx, tx, tid)
 	}
 	if len(touched) == 0 {
 		var drift bool
