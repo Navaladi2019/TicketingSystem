@@ -1,0 +1,38 @@
+meta {
+  name: S32.17 AC1 control: the requester's incident is routed to needs_owner
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s32_ac1_req}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const t0 = Number(bru.getVar('s32_ac1_req_at')) || 0;
+  for (;;) {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s32_ac1_req}}'), method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+    if (!bru.getVar('s32_ac1_req') || (r.status === 200 && r.data.state !== 'new') || Date.now() - t0 > 120 * 1000) break;
+    await bru.sleep(500);
+  }
+  bru.setVar('s32_ac1_req_routed_at', String(Date.now()));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('state needs_owner, written by the workflow (version 2)', () => {
+    expect(b.state).to.eql('needs_owner');
+    expect(b.version).to.eql(2);
+  });
+  console.log('s32_ac1_req routed to', b.state, 'after', ((Number(bru.getVar('s32_ac1_req_routed_at')) - Number(bru.getVar('s32_ac1_req_at'))) / 1000).toFixed(1), 's');
+}

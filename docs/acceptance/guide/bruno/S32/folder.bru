@@ -1,0 +1,8 @@
+meta {
+  name: S32 workflow policy
+  seq: 30
+}
+
+docs {
+  Story S32, TICK-955 (kit TICK-958, PLAN-011 P11-24, ADR-010 D9). A workflow `condition` step asks "may this incident's assignee write it under policy X?" and branches to `triaged` or `needs_owner`. One workflow key, `s32_route`, gets one version per criterion. AC1 S32.13 to S32.18, AC2 S32.19 to S32.24 (a 20-second timer step), AC3 S32.25 to S32.28, AC4 S32.29 to S32.36; restore S32.37 to S32.39. Needs `tools/seed.sh` and admin@tenant-b (`docs/acceptance/S18/tools/kit.mjs admin-b`, then one group sync); `docs/acceptance/S32/run.sh` does both. Story users: `admin@tenant-a`, `agent@tenant-a` is Alice (`/service-desk`, the assignee), `requester@tenant-a` is the seeded `auditor@tenant-a.test`, `admin@tenant-b` is tenant B's admin. Runs again on the same stack: the restore steps leave `s32_route` a no-op and both tenants' incident access as the folder found it. Kit: `docs/acceptance/S32/`.
+}

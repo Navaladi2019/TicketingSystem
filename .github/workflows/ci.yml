@@ -50,10 +50,10 @@
 #   event                          jobs                          suites
 #   pull request, no label         changes, lint, story-branches -
 #   pull request + ci:run          what the diff needs           fast
-#   pull request into TICK-*       every job and area (TICK-638) fast
-#                                  but temporal-server, which
-#                                  runs only when the module
-#                                  changed (TICK-695)
+#   pull request into TICK-*       every job and area (TICK-638) fast, plus
+#                                  but temporal-server, which    the isolation
+#                                  runs only when the module     suite
+#                                  changed (TICK-695)            (TICK-1031)
 #   pull request + ci:full         every job and area            full
 #   push to main                   what the diff since           fast
 #                                  github.event.before needs
@@ -172,7 +172,10 @@ env:
   # identity_attacks, CI-6 sdk, the Temporal isolation cases and the rest),
   # the stack-db and stack-internal phases and their reports. A pull request
   # into a TICK-* story branch runs every job and area (TICK-638) but is a
-  # fast run unless labelled ci:full. Job-level if: cannot read env, so the
+  # fast run unless labelled ci:full, except that the isolation job runs
+  # there too (TICK-1031: it reads needs.changes.outputs.full, which the
+  # stages step derives from its CI_FULL, story rule included, not from this
+  # env). Job-level if: cannot read env, so the
   # jobs that need it there repeat the expression. AR-TICK-652-01.
   CI_FULL: ${{ github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
 
@@ -238,9 +241,13 @@ jobs:
       temporal_server: ${{ steps.tsrv.outputs.temporal_server }}
       # Whether the sdk job runs (TICK-827).
       sdk: ${{ steps.sdk.outputs.sdk }}
-      # env.CI_FULL, for the job-level if: of the isolation job and for
-      # full-suite (TICK-1003): a job's if: cannot read env.
-      full: ${{ env.CI_FULL }}
+      # true on a full run or a pull request into a TICK-* story branch: the
+      # stages step's CI_FULL, written by make ci-stages (TICK-1031). Gates
+      # the isolation job and full-suite's isolation exception (TICK-1003): a
+      # job's if: cannot read env. Not env.CI_FULL, which lacks the story-
+      # branch rule, so #801 and #805 merged with isolation skipped.
+      # check-ci-steps (tools/ci/cisteps/required.yaml) pins this wiring.
+      full: ${{ steps.stages.outputs.full }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -275,7 +282,9 @@ jobs:
           CI_ALL: ${{ github.ref == 'refs/heads/main' && (github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch') && '1' || '' }}
           # Every stage and every stack-case area: a full run (env.CI_FULL:
           # ci:full, a manual run, the daily run, TICK-652) and a pull request
-          # into a TICK-* story branch, no label needed (TICK-638).
+          # into a TICK-* story branch, no label needed (TICK-638). Also the
+          # changes job's full output (TICK-1031), so the isolation job runs
+          # on exactly these runs.
           CI_FULL: ${{ (env.CI_FULL == 'true' || (github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-'))) && '1' || '' }}
           # Any other pull request without the ci:run or ci:full label: lint
           # only (TICK-563).
@@ -604,7 +613,8 @@ jobs:
 
   isolation:
     # TICK-1003: the tenant isolation suite (T11, ADR-001 CI-2) and the two
-    # checks of CI scripts, on a full run only (TICK-652, AR-TICK-652-01), in
+    # checks of CI scripts, on a full run (TICK-652, AR-TICK-652-01) and on
+    # every pull request into a TICK-* story branch (TICK-1031), in
     # parallel with integration. They were the tail of integration, which
     # then took 9.5 to 14 min of its 15 and was cancelled at the bound in
     # runs 44604840061 and 44641187163 with every test green. The suite took
@@ -1059,7 +1069,8 @@ jobs:
     # temporal-server passes when the changes job found the module unchanged
     # (TEMPORAL_SERVER=false). TICK-827: likewise a skipped sdk when the API
     # and the SDK did not change (SDK=false). TICK-1003: likewise a skipped
-    # isolation on a fast run (FULL=false).
+    # isolation when the changes job's full output is false; on a story-branch
+    # pull request it is always true (TICK-1031), so isolation must succeed.
     needs: [changes, lint, unit, temporal-server, integration, isolation, commit-check-budget, stack, coverage, sdk]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && startsWith(github.base_ref, 'TICK-') && (github.event.action != 'labeled' || github.event.label.name == 'ci:run' || github.event.label.name == 'ci:full') }}
     runs-on: ubuntu-latest

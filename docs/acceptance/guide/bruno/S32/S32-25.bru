@@ -1,0 +1,74 @@
+meta {
+  name: S32.25 AC3: the admin publishes s32_route naming does_not_exist: 201
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s32_route/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-wf-ac3
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "check",
+    "steps": [
+      {
+        "key": "check",
+        "type": "condition",
+        "policy": {
+          "entity_type": "incident",
+          "name": "does_not_exist"
+        },
+        "who": "assignee",
+        "op": "write",
+        "then": "triaged",
+        "else": "needs_owner"
+      },
+      {
+        "key": "triaged",
+        "type": "update_record",
+        "set": {
+          "state": "triaged"
+        },
+        "next": "done"
+      },
+      {
+        "key": "needs_owner",
+        "type": "update_record",
+        "set": {
+          "state": "needs_owner"
+        },
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('current, on incident', () => { expect(b.current).to.eql(true); expect(b.entity).to.eql('incident'); });
+  bru.setVar('s32_wf_version', String(b.version));
+}
+
+docs {
+  Publish does not look the policy up (D9: names resolve at run time), so it is accepted.
+}

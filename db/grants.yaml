@@ -136,7 +136,7 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
-      # Field index (ADR-006 D14, P7-01, TICK-741, 20261120140000): the side
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261121100000): the side
       # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
       # runs as the record writer). Publish (P7-04) creates a registry row and
       # flips its state; it never rewrites the key, the field or the type.
@@ -253,8 +253,9 @@ roles:
       number_format_versions: { SELECT: [] }
       numbering_epochs: { SELECT: [] }
       # ADR-010-A1 A1-3 (TICK-940): reads only. No worker code publishes an
-      # ACL, and the tenant-id trigger could not see principals as this
-      # role; a worker publish path needs its own amendment (A1-3 e).
+      # ACL; a worker publish path needs its own amendment (A1-3 e). Since
+      # TICK-1025 the worker reads principals, but only (tenant_id, id,
+      # deleted_at), and it still has no INSERT here.
       acl_versions: { SELECT: [] }
       record_shares: { SELECT: [], INSERT: [] }
       # P3-40 (TICK-709): DefinitionStore.Load and the sink's trigger lookup
@@ -275,6 +276,13 @@ roles:
       # assignment group for its tombstone; groups_select's tenant predicate
       # reads tenant_id. Never path or keycloak_group_id.
       groups: { SELECT: [tenant_id, id, deleted_at] }
+      # TICK-1025 (20261120160000, S32, ADR-010 D9): a condition step's
+      # named-policy test resolves the requester or assignee and their live
+      # groups (authz.PrincipalOf, targetSQL) in the run's tenant tx;
+      # principals_select and group_members_select scope the rows. Never
+      # keycloak_user_id, email, enabled, federated_links or synced_at.
+      principals: { SELECT: [tenant_id, id, deleted_at] }
+      group_members: { SELECT: [tenant_id, group_id, principal_id] }
     # No acl% function (ADR-010-A1 A1-3 c): it no longer inserts acl_versions.
     functions:
       # P7-02 (TICK-742): the records trigger (as the writer) and the P7-05
