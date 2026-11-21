@@ -15,7 +15,7 @@ import (
 
 // identityTables are the tables T16 creates.
 func identityTables() []string {
-	return []string{"group_members", "groups", "org_unit_members", "org_units", "principals"}
+	return []string{"group_members", "groups", "org_unit_closure", "org_unit_members", "org_units", "principals"}
 }
 
 // seedIdentity writes, as the superuser, one principal, group, membership
@@ -32,6 +32,10 @@ func seedIdentity(t *testing.T, super *pgx.Conn, tenants ...string) {
 		// TICK-947: only once a run has applied the migration that creates it.
 		if queryBool(t, super, "SELECT to_regclass('org_unit_members') IS NOT NULL") {
 			exec(t, super, "INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES ($1, $1, $1, true)", id)
+		}
+		// TICK-1032: the root's self-row, once the closure exists.
+		if queryBool(t, super, "SELECT to_regclass('org_unit_closure') IS NOT NULL") {
+			exec(t, super, "INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $1, $1)", id)
 		}
 	}
 }
@@ -82,6 +86,7 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		{"group_members", "INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES ($1, $1, $1)"},
 		{"org_units", "INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, gen_random_uuid(), 'kc-new', 'New')"},
 		{"org_unit_members", "INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $1, $1)"},
+		{"org_unit_closure", "INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $1, $1)"},
 	} {
 		_, err := execIn(sync, tenantA, w.sql, tenantB)
 		wantSQLState(t, "A writes a B row into "+w.name, err, "42501")
@@ -98,6 +103,7 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 		"UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1",
 		"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1",
 		"DELETE FROM org_unit_members WHERE tenant_id = $1",
+		"DELETE FROM org_unit_closure WHERE tenant_id = $1",
 	} {
 		if n, err := execIn(sync, tenantA, w, tenantB); err != nil || n != 0 {
 			t.Errorf("A: %s on B: %d rows, %v; want 0, nil", w, n, err)
@@ -106,8 +112,9 @@ func TestT16TenantRowsInvisible(t *testing.T) {
 	if left := queryString(t, super, `SELECT (SELECT count(*) FROM principals WHERE tenant_id = $1 AND enabled)
 		+ (SELECT count(*) FROM groups WHERE tenant_id = $1) + (SELECT count(*) FROM group_members WHERE tenant_id = $1)
 		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1 AND name = 'Root' AND deleted_at IS NULL)
-		+ (SELECT count(*) FROM org_unit_members WHERE tenant_id = $1 AND is_primary)`, tenantB); left != "5" {
-		t.Errorf("tenant B's identity rows after A's writes: %s of 5 intact", left)
+		+ (SELECT count(*) FROM org_unit_members WHERE tenant_id = $1 AND is_primary)
+		+ (SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1)`, tenantB); left != "6" {
+		t.Errorf("tenant B's identity rows after A's writes: %s of 6 intact", left)
 	}
 }
 

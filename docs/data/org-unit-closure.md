@@ -1,0 +1,96 @@
+# Org-unit closure: live subtrees without a tree walk (TICK-1032)
+
+S31 fix after the Solution Architect's R1 ruling on TICK-946 (ADR-010 D7 as
+amended, ADR-010-A2). Schema:
+`db/migrations/20261121050000_org_unit_closure.sql`. Bench:
+`scratch/tick-1032-org-unit-closure/bench.sql`, output in `bench-out.txt` next
+to it. Tests: `internal/db/dbtest/org_unit_closure_test.go`
+(`TestTICK1032*`), the T16 identity-table tests, and the `org_unit_closure:`
+paths in `internal/tenancy/isolation/registry.go`.
+
+## What the table holds
+
+For each live org unit, `org_unit_closure` lists every live unit at or below
+it, the unit itself included. A row exists only if every unit from the root
+down to the descendant is live. A tombstoned unit has no rows, and neither
+has any unit below it, even a live one. A unit on a parent cycle (no root
+above it) has no rows either.
+
+Group sync is the only writer. A rebuild deletes the tenant's rows and
+inserts them again (TICK-1033). The migration's backfill,
+`org_unit_closure_rebuild_all()`, runs the same recursive statement per
+tenant: live roots, then the live children of every unit reached.
+
+## Access patterns
+
+| Pattern | Query | Served by |
+| --- | --- | --- |
+| `Allows`: is record unit `d` under unit `a`? | `(tenant_id, ancestor_id, descendant_id) = (…)` | PK probe |
+| List leaf: the live subtree of `a` | `descendant_id WHERE (tenant_id, ancestor_id) = (…)` | PK prefix, index-only |
+| Rebuild: drop one tenant's rows | `DELETE … WHERE tenant_id = $1` | PK prefix |
+
+Every query is tenant-scoped by `org_unit_closure_select` (`app.tenant_id`),
+and the tenant is the PK's leading column.
+
+## Evidence
+
+PostgreSQL 16.10 (docs/pins.md) in Docker, 16 CPUs and 24 GiB for the VM, on
+a Windows 11 host that was also running the local stack. `jit = off`, no
+parallel workers. 400 tenants, 13,310 units. Tenant 0 has a 5-level tree of
+11,111 units with fan-out 10. One level-2 unit is tombstoned, which removes
+its 111-unit subtree. Tenants 1 to 9 have 201 units each, and the other 390
+have only a root.
+
+| Measure | Result |
+| --- | --- |
+| Closure rows | 57,777 in total, 53,778 for tenant 0 (11,000 live units, about 4.9 rows per unit). |
+| Storage | heap 4,320 kB, `org_unit_closure_pkey` 5,384 kB, 9,736 kB in total. |
+| Backfill, all 400 tenants | 1,143 ms and 2,729 ms on two runs (the host was shared). |
+| Tenant 0 rebuild (DELETE then INSERT) | DELETE 26 ms. INSERT 1,257 ms: the recursive select is 150 ms, and the two FK triggers are 385 ms and 395 ms (53,778 calls each), 62% of the INSERT. |
+| `Allows` probe, level-4 leaf under the root | Index Only Scan `org_unit_closure_pkey`, 1 row, 4 buffers, 0.059 ms. |
+| List leaf, root's subtree (11,000 rows) | Index Only Scan `org_unit_closure_pkey`, 152 buffers, 0 heap fetches, 5.99 ms. |
+| List leaf, a level-1 unit (1,000 live of 1,111) | Index Only Scan `org_unit_closure_pkey`, 18 buffers, 0.68 ms. |
+| The same with only the RLS predicate | Index Only Scan, `Index Cond` takes `tenant_id` from the policy, 18 buffers, 0.47 ms. |
+
+## Recommendation
+
+- One index, the primary key. It serves all three patterns, and its tenant
+  prefix backs every RLS-scoped read. A second index on
+  `(tenant_id, descendant_id)` would serve only an FK check when a unit is
+  deleted or re-keyed, and neither ever happens: no role holds DELETE on
+  `org_units`, and no role can UPDATE `id`.
+- Write cost: each row writes one heap tuple and one PK entry, and it runs
+  two FK checks. On a full rebuild the checks are most of the cost (780 ms
+  of 1,257 ms at 53,778 rows). If that matters, group sync can write only
+  the rows that changed; that is TICK-1033's call. The FKs stay because the
+  contract makes them carry `tenant_id`: they are what refuses a row that
+  joins one tenant's ancestor to another tenant's descendant.
+
+## Rollout
+
+- The migration locks `org_units` in SHARE mode while it backfills, so no
+  sync transaction changes the tree between the read and the commit. Reads
+  continue. `lock_timeout` is 5 s.
+- Until TICK-1033 ships, nothing keeps the closure up to date after a tree
+  change. Nothing reads it before TICK-1034. If a long-lived stack needs a
+  fresh closure before then, run `SELECT org_unit_closure_rebuild_all()` as
+  `nava_migrator`.
+- Down drops the function and the table. Nothing else depends on either.
+
+```mermaid
+erDiagram
+    org_units ||--o{ org_units : "org_units_parent_fkey (tenant_id, parent_id)"
+    org_units ||--o{ org_unit_closure : "org_unit_closure_ancestor_fkey (tenant_id, ancestor_id) NO ACTION"
+    org_units ||--o{ org_unit_closure : "org_unit_closure_descendant_fkey (tenant_id, descendant_id) NO ACTION"
+    org_units {
+        uuid tenant_id PK
+        uuid id PK
+        uuid parent_id FK
+        timestamptz deleted_at "NULL = live"
+    }
+    org_unit_closure {
+        uuid tenant_id PK
+        uuid ancestor_id PK, FK
+        uuid descendant_id PK, FK
+    }
+```

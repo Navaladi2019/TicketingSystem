@@ -117,6 +117,16 @@ INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     -- TICK-952: a leaf of tenant A that nothing references (OrgUnitA2).
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a2', '0a000000-0000-4000-8000-0000000005a1', 'kc-ou-a2', 'Leaf A');
 
+-- TICK-1032 (ADR-010-A2): the closure of both trees, as group sync's
+-- rebuild writes it: each unit's self-row and root -> child.
+INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000005a1'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000005a2'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a2', '0a000000-0000-4000-8000-0000000005a2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000005b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000005b2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b2');
+
 -- TICK-947 (ADR-010 D7): org-unit membership. Principal b1 is in both of
 -- tenant B's units, b2's primary; both tenants have a primary member.
 INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES
