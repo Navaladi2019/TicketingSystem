@@ -38,6 +38,9 @@ type stats struct {
 	// admins group (tenant_admin_group); the tenant then has no admin.
 	AdminGroupDeleted                bool
 	OrgUnitsWritten, OrgUnitsDeleted int
+	// closureTouched holds the ids of the units added, moved, revived or
+	// tombstoned: the roots of the closure delta.
+	closureTouched []string
 	// OrgMembersWritten counts org_unit_members rows inserted or whose
 	// is_primary changed; OrgMembersRemoved those deleted.
 	OrgMembersWritten, OrgMembersRemoved int
@@ -45,7 +48,7 @@ type stats struct {
 	// included) under any one unit a user belongs to.
 	OrgSubtreeMax int
 	// ClosureRows is the tenant's org_unit_closure row count after the run;
-	// ClosureRebuilt is true when the run deleted and re-inserted it.
+	// ClosureRebuilt is true when the run wrote closure rows (a delta or a full rebuild).
 	ClosureRows    int
 	ClosureRebuilt bool
 	// ClosureUnrooted is the number of live org units with no closure self
@@ -115,8 +118,8 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 		return st, err
 	}
 	// Same transaction as the tree write: both commit or neither does. A run
-	// that wrote or tombstoned no unit changed no parent_id or deleted_at.
-	st.ClosureRows, st.ClosureRebuilt, err = rebuildClosure(ctx, tx, tenantID, st.OrgUnitsWritten > 0 || st.OrgUnitsDeleted > 0)
+	// that touched no unit changed no parent_id or deleted_at.
+	st.ClosureRows, st.ClosureRebuilt, err = rebuildClosure(ctx, tx, tenantID, st.closureTouched)
 	if err != nil {
 		return st, err
 	}
@@ -512,6 +515,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 			ins.Queue(`INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1::uuid, $2::uuid, $3, $4)`,
 				tid, id.String(), u.KeycloakGroupID, u.Name)
 			st.OrgUnitsWritten++
+			st.closureTouched = append(st.closureTouched, id.String())
 			if parent != nil {
 				upd.Queue(`UPDATE org_units SET parent_id = $3::uuid WHERE tenant_id = $1::uuid AND id = $2::uuid`, tid, id.String(), parent.String())
 				moved = append(moved, id.String())
@@ -532,6 +536,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 		// A revive reattaches the unit, like a new one: its parent may have
 		// moved deeper while it was tombstoned, so its chain is checked too.
 		if parentChanged || cur.deleted {
+			st.closureTouched = append(st.closureTouched, id.String())
 			moved = append(moved, id.String())
 		}
 	}
@@ -553,6 +558,7 @@ func applyOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, units []i
 	if len(gone) > 0 {
 		del.Queue(`UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`, tid, gone)
 		st.OrgUnitsDeleted = len(gone)
+		st.closureTouched = append(st.closureTouched, gone...)
 	}
 	// ins, upd; then the membership deletes (a vanishing unit's rows go before
 	// its tombstone); then the tombstone; then the inserts, which only target

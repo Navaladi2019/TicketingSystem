@@ -118,6 +118,45 @@ func TestClosureFollowsTheTree(t *testing.T) {
 		t.Errorf("%d closure rows name a tombstoned unit", n)
 	}
 	step("revive de", root, de, apac)
+	// Delta cases: a subtree moves as a whole, a mid-tree unit becomes a root,
+	// a root moves under another, a unit and its subtree are tombstoned and revived.
+	deUnderApac := unit("de", "apac", p("/apac/de"))
+	munichUnderDe := unit("munich", "de", p("/apac/de/munich"))
+	step("revive munich", root, deUnderApac, munichUnderDe, apac)
+	step("move the de subtree under apac", root, deUnderApac, munichUnderDe, apac)
+	step("de becomes a root", root, unit("de", "", p("/de")), unit("munich", "de", p("/de/munich")), apac)
+	step("root apac moves under de", root, unit("de", "", p("/de")), unit("munich", "de", p("/de/munich")), unit("apac", "de", p("/de/apac")))
+	step("tombstone de, its subtree stays out", root)
+	step("everything returns", root, de, munich, apac)
+}
+
+// The drift check compares sets: a wrong row that replaces a right one leaves
+// the row count equal and is still repaired.
+func TestClosureDriftCheckComparesSetsNotCounts(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+	units := []identity.DirectoryGroup{unit("a", "", path(tid, "/ou/a")), unit("b", "a", path(tid, "/ou/a/b")), unit("c", "a", path(tid, "/ou/a/c"))}
+	user := func(id string) []identity.DirectoryUser {
+		return []identity.DirectoryUser{{KeycloakUserID: id, Email: id + "@a.test", Enabled: true}}
+	}
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u1")})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	// Re-point one row (a,b) to (b,c): same count, wrong set.
+	exec(t, super, `UPDATE org_unit_closure x SET ancestor_id = b.id, descendant_id = c.id
+		FROM org_units a, org_units b, org_units c
+		WHERE x.tenant_id = $1 AND a.tenant_id = $1 AND b.tenant_id = $1 AND c.tenant_id = $1
+		AND a.keycloak_group_id = 'a' AND b.keycloak_group_id = 'b' AND c.keycloak_group_id = 'c'
+		AND x.ancestor_id = a.id AND x.descendant_id = b.id`, tid)
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u2")})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	sameRows(t, "repair of a swapped row", closureOf(t, super, tid), wantClosure(units))
 }
 
 // A run that changes no unit leaves the closure's rows untouched; one that
@@ -250,20 +289,13 @@ func TestClosureQueryMatchesMigrationBackfill(t *testing.T) {
 	sameRows(t, "migration backfill", closureOf(t, super, tid), goRows)
 }
 
-// SP-1b: a full rebuild of 10,111 units is targeted at <= 0.35 s. The test logs
-// the time and never fails on it. A sync that rebuilds a stale closure is
-// timed against one that finds it right; the difference is the rebuild.
-func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
-	super, pool := cluster(t)
-	tid := uuid.New()
-	seedTenant(t, super, tid, 1)
-	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
-	s := newSyncer(t, pool, dir)
+const benchTotal = 10111
 
-	// One root, 10 regions, 100 countries, the rest as leaves: 4 deep.
-	const total = 10111
+// benchUnits is the bench tree: one root, 10 regions, 100 countries, the rest
+// as leaves, 4 deep.
+func benchUnits(tid uuid.UUID) []identity.DirectoryGroup {
 	units := []identity.DirectoryGroup{unit("u0", "", path(tid, "/ou/u0"))}
-	for i := 1; i < total; i++ {
+	for i := 1; i < benchTotal; i++ {
 		var parent int
 		switch {
 		case i <= 10:
@@ -275,19 +307,78 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 		}
 		units = append(units, unit(fmt.Sprintf("u%d", i), fmt.Sprintf("u%d", parent), path(tid, fmt.Sprintf("/ou/u%d", i))))
 	}
-	user := func(email string) []identity.DirectoryUser {
-		return []identity.DirectoryUser{{KeycloakUserID: "u", Email: email, Enabled: true}}
-	}
-	// Seed the tree directly (a sync of 10,111 new units is the import, not
-	// the rebuild) and analyse it, as autovacuum does on a live database.
+	return units
+}
+
+// seedBenchTree writes the bench tree straight into org_units, with no ANALYZE.
+func seedBenchTree(t *testing.T, super *pgx.Conn, tid uuid.UUID) {
+	t.Helper()
 	exec(t, super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), 'u' || i, 'u' || i FROM generate_series(0, $2::int - 1) i`, tid, total)
+		SELECT $1, gen_random_uuid(), 'u' || i, 'u' || i FROM generate_series(0, $2::int - 1) i`, tid, benchTotal)
 	exec(t, super, `UPDATE org_units c SET parent_id = p.id FROM org_units p
 		WHERE c.tenant_id = $1 AND p.tenant_id = $1 AND p.keycloak_group_id = 'u' || (CASE
 			WHEN substr(c.keycloak_group_id, 2)::int <= 10 THEN 0
 			WHEN substr(c.keycloak_group_id, 2)::int <= 110 THEN (substr(c.keycloak_group_id, 2)::int - 11) % 10 + 1
 			ELSE (substr(c.keycloak_group_id, 2)::int - 111) % 100 + 11 END)
 		AND c.keycloak_group_id <> 'u0'`, tid)
+}
+
+// TICK-1054: a bench-scale full rebuild with no prior ANALYZE (a bulk import
+// before autovacuum has run) finishes within 5 s; without a statistics-independent plan
+// (withHashPlan) the query took 45 to 98 s. The seed and the sync run back to
+// back, before autovacuum's naptime.
+func TestClosureFullRebuildWithoutStatisticsIsBounded(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+	units := benchUnits(tid)
+	seedBenchTree(t, super, tid)
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{{KeycloakUserID: "u", Email: "u@a.test", Enabled: true}}})
+	start := time.Now()
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	took := time.Since(start)
+	t.Logf("full rebuild of %d units with no prior ANALYZE: %v", benchTotal, took)
+	if took > 5*time.Second {
+		t.Errorf("full rebuild with no statistics took %v, want <= 5s", took)
+	}
+	sameRows(t, "closure", closureOf(t, super, tid), wantClosure(units))
+
+	// A second sync with the tree unchanged runs the set drift check over the
+	// same unanalysed tables: it is bounded too.
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{{KeycloakUserID: "u", Email: "u2@a.test", Enabled: true}}})
+	start = time.Now()
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	took = time.Since(start)
+	t.Logf("drift check of %d units with no prior ANALYZE: %v", benchTotal, took)
+	if took > 5*time.Second {
+		t.Errorf("drift check with no statistics took %v, want <= 5s", took)
+	}
+}
+
+// SP-1b: a full rebuild of 10,111 units is targeted at <= 0.35 s. The test logs
+// the time and never fails on it. A sync that rebuilds a stale closure is
+// timed against one that finds it right; the difference is the rebuild.
+func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+
+	const total = benchTotal
+	units := benchUnits(tid)
+	user := func(email string) []identity.DirectoryUser {
+		return []identity.DirectoryUser{{KeycloakUserID: "u", Email: email, Enabled: true}}
+	}
+	// Seed the tree directly (a sync of 10,111 new units is the import, not
+	// the rebuild) and analyse it, as autovacuum does on a live database.
+	seedBenchTree(t, super, tid)
 	exec(t, super, "ANALYZE org_units")
 	// Tree unchanged, closure empty (stale): the sync rebuilds it.
 	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u@a.test")})
@@ -306,4 +397,26 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 	t.Logf("%d units, %d closure rows: sync that rebuilds %v; sync that finds the closure right %v (rebuild target <= 350ms)",
 		total, rows, rebuild, time.Since(start))
 	sameRows(t, "bench closure", closureOf(t, super, tid), wantClosure(units))
+
+	// TICK-1054: a sync after one unit move writes a delta, not a rebuild.
+	// Timed for a leaf, a country (100 leaves) and a region (~1,000 units);
+	// the SP-1b target (<= 350ms) is for one move. Logged, never failed on.
+	for i, mv := range []struct {
+		what      string
+		idx       int
+		newParent string
+	}{
+		{"leaf u111 to country u12", 111, "u12"},
+		{"country u11 to region u2", 11, "u2"},
+		{"region u1 under region u2", 1, "u2"},
+	} {
+		units[mv.idx] = unit(units[mv.idx].KeycloakGroupID, mv.newParent, units[mv.idx].Path)
+		dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user(fmt.Sprintf("m%d@a.test", i))})
+		start = time.Now()
+		if r := once(t, s); r.Err != nil {
+			t.Fatal(r.Err)
+		}
+		t.Logf("sync after one move (%s): %v (target <= 350ms)", mv.what, time.Since(start))
+		sameRows(t, "bench closure after "+mv.what, closureOf(t, super, tid), wantClosure(units))
+	}
 }
