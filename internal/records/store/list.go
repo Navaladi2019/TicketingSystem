@@ -44,6 +44,11 @@ type ListQuery struct {
 	// the tenant does not walk the whole sort index (TICK-644). Their rows and
 	// order are those of Where AND (OR of Branches).
 	Branches []string
+
+	// CountWhere, when set, replaces Where in the count statement only: the
+	// same predicate with each broad data filter as a per-record probe
+	// (ADR-006-A2). It binds the same arguments in the same order as Where.
+	CountWhere string
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -225,8 +230,18 @@ func branched(q ListQuery) bool { return len(q.Branches) > 1 }
 // predicate), up to TotalCap+1; the tests and the bench EXPLAIN it. With Branches each branch counts apart,
 // capped by itself, and the exclusive branches add up.
 func CountStatement(q ListQuery) string {
-	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
-	cap1 := fmt.Sprint(TotalCap + 1)
+	w := q.Where
+	if q.CountWhere != "" {
+		w = q.CountWhere
+	}
+	return countStatement(q, w, TotalCap+1)
+}
+
+// countStatement counts the rows of q with w in place of q.Where, up to
+// limit.
+func countStatement(q ListQuery, w string, limit int) string {
+	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + w
+	cap1 := fmt.Sprint(limit)
 	if !branched(q) {
 		return `SELECT count(*) FROM (SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `) c`
 	}
@@ -263,4 +278,17 @@ ORDER BY sort_key ` + outer + ` ` + limit + `
 JOIN entity_definitions d ON d.tenant_id = x.tenant_id AND d.id = x.entity_definition_id
 LEFT JOIN groups g ON g.tenant_id = x.tenant_id AND g.id = x.assignment_group_id
 ORDER BY x.sort_key ` + strings.NewReplacer("updated_at", "x.updated_at", "id", "x.id").Replace(outer)
+}
+
+// VisibleAtMost reports whether at most k records of q's type match q.Where
+// and q.Branches, which hold the row ACL alone (no data filter): the visible
+// set a probing count would walk (ADR-006-A2, guard A). It reads records only,
+// up to k+1 rows per branch, and its count is never returned.
+func VisibleAtMost(ctx context.Context, tx pgx.Tx, q ListQuery, k int) (bool, error) {
+	var n int
+	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
+	if err := tx.QueryRow(ctx, countStatement(q, q.Where, k+1), args...).Scan(&n); err != nil {
+		return false, fmt.Errorf("records/store: count visible records: %w", err)
+	}
+	return n <= k, nil
 }

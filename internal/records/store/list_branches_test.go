@@ -43,3 +43,32 @@ func TestBranchedStatements(t *testing.T) {
 		t.Errorf("one branch is not split:\n%s", sql)
 	}
 }
+
+// ADR-006-A2: CountWhere replaces Where in the count statement only, in both
+// the single and the branched form; the page keeps Where.
+func TestCountWhereIsTheCountsOnly(t *testing.T) {
+	t.Parallel()
+	for _, branches := range [][]string{nil, {"r.a = $3", "r.b = $3"}} {
+		q := store.ListQuery{Where: "PAGE_WHERE", CountWhere: "COUNT_WHERE", Branches: branches, SortColumn: "updated_at", Limit: 51}
+		c := store.CountStatement(q)
+		if !strings.Contains(c, "COUNT_WHERE") || strings.Contains(c, "PAGE_WHERE") {
+			t.Errorf("branches %v: count %s", branches, c)
+		}
+		page, _, err := store.PageStatement(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(page, "COUNT_WHERE") || !strings.Contains(page, "PAGE_WHERE") {
+			t.Errorf("branches %v: page %s", branches, page)
+		}
+		q.CountWhere = ""
+		if c := store.CountStatement(q); !strings.Contains(c, "PAGE_WHERE") {
+			t.Errorf("branches %v: without CountWhere the count is %s", branches, c)
+		}
+	}
+	// The visible-set count is the same shape over the ACL alone, capped at k+1.
+	q := store.ListQuery{Where: "true", Branches: []string{"r.a = $3", "r.b = $3"}}
+	if c := store.VisibleCountStatementForTest(q, 30000); strings.Count(c, "LIMIT 30001") != 3 {
+		t.Errorf("visible count: %s", c)
+	}
+}

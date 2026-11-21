@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, countProbe: opts.countProbe, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -264,6 +264,9 @@ type handlers struct {
 	// listDataTerm replaces the list's data-filter term; nil in every
 	// production build (see listPlan.dataTerm).
 	listDataTerm func(arg string) string
+	// countProbe is the list count probe's configuration (ADR-006-A2): the
+	// defaults unless a test set it.
+	countProbe countProbe
 	// legacyScan widens fieldindex.LegacyScan; nil in every production build.
 	legacyScan func(typeKey, field string) bool
 	store      entitytypes.Store

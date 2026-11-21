@@ -70,6 +70,10 @@ type listFilter struct {
 	// idx is the ready registry row a data filter reads through its side
 	// table; nil for a legacy-scan filter and for a fixed column.
 	idx *pipeline.IndexField
+	// broad marks a ready filter whose pre-count reached broadCap on a
+	// narrowing list with a small visible set: the count probes it per record
+	// (ADR-006-A2). The page never does.
+	broad bool
 	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
 	legacy bool
 	// absentMatches is set for a legacy-scan data filter when one value equals
@@ -261,7 +265,20 @@ func maskedFieldError(err error) error {
 }
 
 // where renders the filters as one predicate with placeholders from base+1.
-func (pl *listPlan) where(base int) (string, []any) {
+func (pl *listPlan) where(base int) (string, []any) { return pl.render(base, false) }
+
+// countWhere is where with each broad filter in its probe form, for the count
+// only (ADR-006-A2). It binds the same arguments in the same order, so the
+// count runs with the page's arguments. It is "" when no filter is broad.
+func (pl *listPlan) countWhere(base int) string {
+	if !slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.broad }) {
+		return ""
+	}
+	w, _ := pl.render(base, true)
+	return w
+}
+
+func (pl *listPlan) render(base int, forCount bool) (string, []any) {
 	var (
 		terms []string
 		args  []any
@@ -287,7 +304,7 @@ func (pl *listPlan) where(base int) (string, []any) {
 						group = append(group, g)
 					}
 				}
-				terms = append(terms, existsTerm(group, next))
+				terms = append(terms, existsTerm(group, next, forCount && f.broad))
 				continue
 			}
 			ors := make([]string, 0, len(f.values))
@@ -510,14 +527,44 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		// statement when there is nothing to split. One plan for both, so a
 		// voided policy is counted once per request (ADR-010 D5b).
 		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
+		// ADR-006-A2: after every refusal above, a narrowing list picks the
+		// count's shape for its broad filters. An actor who reads every row
+		// never runs the pre-count.
+		if pl.hasIndexFilter() && !authz.ReadsEveryRow(pol, p) {
+			broad, err := pl.markBroad(ctx, tx, p.TenantID, h.countProbe)
+			if err != nil {
+				return err
+			}
+			if broad {
+				acl := pipeline.ListQuery{TenantID: p.TenantID, DefinitionID: defID, Where: readSQL, Args: readArgs, Branches: branches}
+				if branches != nil {
+					acl.Where = "true"
+				}
+				_, visibleCap := h.countProbe.limits()
+				few, err := pipeline.VisibleAtMost(ctx, tx, acl, visibleCap)
+				if err != nil {
+					return err
+				}
+				if !few {
+					pl.clearBroad()
+				}
+				if h.countProbe.probe != nil {
+					h.countProbe.probe(few)
+				}
+			}
+		}
 		filt, filtArgs := pl.where(2 + len(readArgs))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
 			Where: filt, Args: append(slices.Clone(readArgs), filtArgs...), Branches: branches,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
 		}
+		lq.CountWhere = pl.countWhere(2 + len(readArgs))
 		if branches == nil {
 			lq.Where = readSQL + " AND " + filt
+			if lq.CountWhere != "" {
+				lq.CountWhere = readSQL + " AND " + lq.CountWhere
+			}
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))

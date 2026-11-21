@@ -229,6 +229,20 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 	return nil, compileRead(planned, c), c.args
 }
 
+// ReadsEveryRow reports whether p's read plan admits every row of the type:
+// some policy's tree folds to true, so the list carries no narrowing row ACL
+// (ReadBranches then has the single branch "true"). It counts nothing, so
+// it may follow ReadPredicate for the same request (D5b). ADR-006-A2 runs its
+// pre-count only when it is false.
+func ReadsEveryRow(pol *Policy, p identity.Principal) bool {
+	for _, pp := range plan(pol, p, OpRead) {
+		if pp.err == nil && pp.tree.op == pTrue {
+			return true
+		}
+	}
+	return false
+}
+
 // ReadBranches is CompileRead's predicate split into branches for a query that
 // answers each branch from its own index and merges them (TICK-644). Their OR
 // admits exactly the rows CompileRead admits and no row matches two of them:

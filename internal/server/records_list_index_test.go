@@ -4,12 +4,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
@@ -91,7 +95,7 @@ func TestExistsTermShape(t *testing.T) {
 		}
 		// The field id is the first argument, so the value is $2.
 		f := listFilter{prop: "f", op: c.op, values: c.vals, idx: &pipeline.IndexField{ID: id, ValueType: c.vt}}
-		sql := existsTerm([]listFilter{f}, next)
+		sql := existsTerm([]listFilter{f}, next, false)
 		for _, want := range []string{"EXISTS (SELECT 1 FROM " + c.table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = $1::uuid AND ", c.wantIn} {
 			if !strings.Contains(sql, want) {
 				t.Errorf("%s %s: %s lacks %q", c.vt, c.op, sql, want)
@@ -196,4 +200,148 @@ func TestIndexedListErrorsAndNilHistogram(t *testing.T) {
 	}
 	// No histogram configured: nothing is recorded and nothing panics.
 	(&handlers{}).observeIndexedList(t.Context(), time.Second, &pipeline.ListPage{Total: 5}, true)
+}
+
+// placeholderRE finds the numbered placeholders of a statement, in order.
+var placeholderRE = regexp.MustCompile(`\$[0-9]+::[a-z]+( precision)?(\[\])?`)
+
+// ADR-006-A2-5: the count's probe form of a filter binds the same arguments
+// as the page's form, in the same order, so the count runs with the page's
+// arguments; only the value side and the OFFSET differ.
+func TestCountWhereBindsTheSameArgumentsAsWhere(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	for _, c := range []struct {
+		vt     fieldindex.ValueType
+		fs     [][2]any // op, value
+		opaque string
+	}{
+		{fieldindex.TypeText, [][2]any{{"eq", "a"}}, `(v.value || '') = $3::text COLLATE "C"`},
+		{fieldindex.TypeText, [][2]any{{"in", []any{"a", "a", "b"}}}, `(v.value || '') = ANY($3::text[])`},
+		{fieldindex.TypeNum, [][2]any{{"gte", 1.0}, {"lt", 5.0}}, `(v.value + 0) >= $3::double precision AND (v.value + 0) < $4::double precision`},
+		{fieldindex.TypeTS, [][2]any{{"gt", now}, {"lte", now.Add(time.Hour)}}, `(v.value + interval '0') > $3::timestamptz AND (v.value + interval '0') <= $4::timestamptz`},
+		{fieldindex.TypeBool, [][2]any{{"eq", true}}, `(v.value OR false) = $3::boolean`},
+	} {
+		id := uuid.New()
+		var fs []listFilter
+		for _, f := range c.fs {
+			vals := []any{f[1]}
+			if vs, ok := f[1].([]any); ok {
+				vals = vs
+			}
+			fs = append(fs, listFilter{prop: "f", op: f[0].(string), values: vals, idx: &pipeline.IndexField{ID: id, ValueType: c.vt}})
+		}
+		// A fixed-column filter after it, so later placeholders must line up too.
+		fs = append(fs, listFilter{prop: "state", col: "state", op: "eq", values: []any{"new"}})
+		pl := &listPlan{filters: fs}
+		if w := pl.countWhere(1); w != "" {
+			t.Errorf("%s: no filter is broad, but countWhere = %s", c.vt, w)
+		}
+		pl.setBroad(id, true)
+		where, args := pl.where(1)
+		count := pl.countWhere(1)
+		if strings.Contains(where, "OFFSET") || strings.Contains(where, "(v.value") {
+			t.Errorf("%s: the page's form changed: %s", c.vt, where)
+		}
+		if !strings.Contains(count, c.opaque) || !strings.Contains(count, " OFFSET 0)") {
+			t.Errorf("%s: count %s lacks %q or OFFSET 0", c.vt, count, c.opaque)
+		}
+		wp, cp := placeholderRE.FindAllString(where, -1), placeholderRE.FindAllString(count, -1)
+		if !slices.Equal(wp, cp) || len(wp) != len(args) {
+			t.Errorf("%s: placeholders differ: where %v, count %v, %d args", c.vt, wp, cp, len(args))
+		}
+		pl.clearBroad()
+		if w := pl.countWhere(1); w != "" {
+			t.Errorf("%s: cleared, but countWhere = %s", c.vt, w)
+		}
+	}
+}
+
+// The pre-count reads one field of the tenant on the value index (plain
+// value side), stops at broadCap, and binds the tenant as $1 and the field as
+// $2 (ADR-006-A2-7).
+func TestPreCountShape(t *testing.T) {
+	t.Parallel()
+	id, tenant := uuid.New(), uuid.New()
+	args := []any{tenant, id.String()}
+	next := func(v any, cast string) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)) + "::" + cast
+	}
+	fs := []listFilter{
+		{prop: "f", op: "gte", values: []any{1.0}, idx: &pipeline.IndexField{ID: id, ValueType: fieldindex.TypeNum}},
+		{prop: "f", op: "lt", values: []any{2.0}, idx: &pipeline.IndexField{ID: id, ValueType: fieldindex.TypeNum}},
+	}
+	sql := preCountSQL(fs, next, defaultBroadCap)
+	want := "SELECT count(*) FROM (SELECT 1 FROM rfv_num v WHERE v.tenant_id = $1 AND v.field_id = $2::uuid AND " +
+		"v.value >= $3::double precision AND v.value < $4::double precision ORDER BY v.value, v.record_id LIMIT " + strconv.Itoa(defaultBroadCap) + ") c"
+	if sql != want || len(args) != 4 {
+		t.Errorf("pre-count:\n got %s\nwant %s\nargs %v", sql, want, args)
+	}
+	// An in list is one ordered arm per distinct value, each also bound by the
+	// field's other comparisons.
+	args = []any{tenant, id.String()}
+	fs = []listFilter{
+		{prop: "f", op: "in", values: []any{"a", "b", "a"}, idx: &pipeline.IndexField{ID: id, ValueType: fieldindex.TypeText}},
+		{prop: "f", op: "gte", values: []any{"a"}, idx: &pipeline.IndexField{ID: id, ValueType: fieldindex.TypeText}},
+	}
+	sql = preCountSQL(fs, next, defaultBroadCap)
+	lim := " LIMIT " + strconv.Itoa(defaultBroadCap)
+	arm := func(v, g string) string {
+		return "(SELECT 1 FROM rfv_text v WHERE v.tenant_id = $1 AND v.field_id = $2::uuid AND v.value = " + v + `::text COLLATE "C" AND v.value >= ` + g + `::text COLLATE "C" ORDER BY v.record_id` + lim + ")"
+	}
+	want = "SELECT count(*) FROM (SELECT 1 FROM (" + arm("$3", "$4") + " UNION ALL " + arm("$5", "$6") + ") u" + lim + ") c"
+	if sql != want || len(args) != 6 {
+		t.Errorf("in pre-count:\n got %s\nwant %s\nargs %v", sql, want, args)
+	}
+}
+
+// fieldGroups keeps one group per field in first-named order and skips
+// fixed columns and legacy-scan filters.
+func TestFieldGroups(t *testing.T) {
+	t.Parallel()
+	a, b := uuid.New(), uuid.New()
+	pl := &listPlan{filters: []listFilter{
+		{prop: "x", idx: &pipeline.IndexField{ID: b, ValueType: fieldindex.TypeNum}},
+		{prop: "state", col: "state"},
+		{prop: "y", idx: &pipeline.IndexField{ID: a, ValueType: fieldindex.TypeText}},
+		{prop: "legacy", legacy: true},
+		{prop: "x", idx: &pipeline.IndexField{ID: b, ValueType: fieldindex.TypeNum}},
+	}}
+	g := pl.fieldGroups()
+	if len(g) != 2 || len(g[0]) != 2 || g[0][0].idx.ID != b || len(g[1]) != 1 || g[1][0].idx.ID != a {
+		t.Errorf("groups = %v", g)
+	}
+}
+
+// Security condition 3 (ADR-006-A2-6): the indexed-list histogram carries
+// exactly its two labels, the selectivity band and ACL presence. The
+// pre-count's outcome and count have no path to it.
+func TestIndexedListMetricHasOnlyItsLabels(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	hist, err := mp.Meter("t").Float64Histogram("h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&handlers{listIndexed: hist}).observeIndexedList(t.Context(), time.Millisecond, &pipeline.ListPage{Total: 3}, true)
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			for _, dp := range m.Data.(metricdata.Histogram[float64]).DataPoints {
+				for _, kv := range dp.Attributes.ToSlice() {
+					keys = append(keys, string(kv.Key))
+				}
+			}
+		}
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"acl", "selectivity_band"}) {
+		t.Errorf("labels = %v", keys)
+	}
 }

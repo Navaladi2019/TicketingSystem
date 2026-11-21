@@ -64,6 +64,9 @@ type options struct {
 	// legacyScan widens the legacy-scan allow-list; only WithLegacyScan
 	// (integration builds) sets it.
 	legacyScan func(typeKey, field string) bool
+	// countProbe overrides the list count probe's caps and observes it
+	// (ADR-006-A2); set by tests only (WithCountProbe).
+	countProbe countProbe
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -184,6 +186,97 @@ func sqlOp(op string) string {
 	return "="
 }
 
+// The bounded count probe (ADR-006-A2, TICK-1022). A narrowing list's capped
+// count joins a broad filter's side rows by a hash that spills, and the
+// planner picks it from the side table's visibility map, so the count reads
+// 100-490 ms on a table autovacuum has not caught up with
+// (docs/data/tick-1022-post-backfill-plan.md). For a broad filter on a small
+// visible set, the count probes the side table once per visible record
+// instead. Both bounds are calibrated at 400k records per type (A2-10).
+const (
+	// defaultBroadCap is the side-row count at which a filter is broad: the
+	// pre-count stops there.
+	defaultBroadCap = 20000
+	// defaultVisibleCap is the most visible records a probing count may walk:
+	// a broad value the caller's records rarely carry probes all of them
+	// (Technical Architect, A2 rev 0, finding 4).
+	defaultVisibleCap = 30000
+)
+
+// countProbe is the probe's configuration: the two caps, and two hooks that
+// see each pre-count's outcome and each probe decision. Only tests set any of
+// it (WithCountProbe); the outcome and the count never reach a log, a span or
+// a metric (A2-6).
+type countProbe struct {
+	caps       func() (broad, visible int)
+	pre, probe func(bool)
+}
+
+// limits are the caps in force: the defaults unless a test set them.
+func (c countProbe) limits() (broad, visible int) {
+	if c.caps == nil {
+		return defaultBroadCap, defaultVisibleCap
+	}
+	return c.caps()
+}
+
+// sideCast is the SQL type of a value type's side value.
+func sideCast(vt fieldindex.ValueType) string {
+	switch vt {
+	case fieldindex.TypeText:
+		return "text"
+	case fieldindex.TypeNum:
+		return "double precision"
+	case fieldindex.TypeTS:
+		return "timestamptz"
+	}
+	return "boolean"
+}
+
+// opaqueValue wraps v.value so that no index of the side table can serve the
+// comparison, and a probe seeks the primary key (tenant_id, record_id,
+// field_id) instead of walking a value range per record. Each keeps every
+// stored value as it is: + 0 keeps +-Infinity, + interval '0' keeps
+// +-infinity, and appending the empty string keeps the column's "C"
+// collation. OR false folds away: a bool probe relies on OFFSET 0 alone and
+// seeks (value, record_id) on its value index, one seek too.
+func opaqueValue(vt fieldindex.ValueType) string {
+	switch vt {
+	case fieldindex.TypeText:
+		return "(v.value || '')"
+	case fieldindex.TypeNum:
+		return "(v.value + 0)"
+	case fieldindex.TypeTS:
+		return "(v.value + interval '0')"
+	}
+	return "(v.value OR false)"
+}
+
+// sideCmp renders the comparisons of one field's filters on its side value,
+// binding the values through next in filter order. probe renders the value
+// opaque; the placeholders and their order are the same either way.
+func sideCmp(fs []listFilter, next func(v any, cast string) string, probe bool) string {
+	vt := fs[0].idx.ValueType
+	cast := sideCast(vt)
+	collate := ""
+	if vt == fieldindex.TypeText {
+		collate = ` COLLATE "C"`
+	}
+	col := "v.value"
+	if probe {
+		col = opaqueValue(vt)
+	}
+	cmps := make([]string, 0, len(fs))
+	for _, f := range fs {
+		if f.op == "in" {
+			cmps = append(cmps, col+" = ANY("+next(arrayOf(f.values), cast+"[]")+")")
+		} else {
+			cmps = append(cmps, col+" "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
+		}
+	}
+	return strings.Join(cmps, " AND ")
+}
+
 // existsTerm renders a ready data filter as a correlated EXISTS on the typed
 // side table (ADR-006 D7). The table name comes from fieldindex.SideTable's
 // fixed set, never from the request. fs are all the filters of one field: their
@@ -191,28 +284,119 @@ func sqlOp(op string) string {
 // element must satisfy every bound (ADR-006 D7), and the planner sees one
 // range, not two unselective halves. A text value is compared under COLLATE
 // "C", the column's own collation, so the value index serves it.
-func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
-	f := fs[0]
-	table, _ := f.idx.ValueType.SideTable()
-	cast := map[fieldindex.ValueType]string{
-		fieldindex.TypeText: "text", fieldindex.TypeNum: "double precision",
-		fieldindex.TypeTS: "timestamptz", fieldindex.TypeBool: "boolean",
-	}[f.idx.ValueType]
-	collate := ""
-	if f.idx.ValueType == fieldindex.TypeText {
-		collate = ` COLLATE "C"`
+//
+// probe is the count's form of a broad filter (ADR-006-A2): OFFSET 0 keeps the
+// EXISTS a per-record SubPlan, which PostgreSQL neither pulls up into a semi
+// join nor hashes, and the value is opaque, so each probe is one seek.
+func existsTerm(fs []listFilter, next func(v any, cast string) string, probe bool) string {
+	table, _ := fs[0].idx.ValueType.SideTable()
+	fieldArg := next(fs[0].idx.ID.String(), "uuid")
+	tail := ")"
+	if probe {
+		tail = " OFFSET 0)"
 	}
-	fieldArg := next(f.idx.ID.String(), "uuid")
-	cmps := make([]string, 0, len(fs))
-	for _, f := range fs {
-		if f.op == "in" {
-			cmps = append(cmps, "v.value = ANY("+next(arrayOf(f.values), cast+"[]")+")")
-		} else {
-			cmps = append(cmps, "v.value "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
+	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + sideCmp(fs, next, probe) + tail
+}
+
+// preCountSQL is the pre-count of one field's filters (ADR-006-A2): its side
+// rows in the tenant, on the value index, up to broadCap. It is the only
+// statement besides the list's EXISTS that reads a side table (D7 as amended
+// by A2), and it carries no row ACL: its result only picks the count's shape
+// and is never returned (A2-6, R13).
+//
+// LIMIT bounds the read only on a plan that stops early, and the planner
+// prices the pre-count from statistics pooled over every tenant's rows: a
+// value broad elsewhere and rare here would take a Seq Scan or a Bitmap Heap
+// Scan that reads every match before the LIMIT applies (Technical Architect,
+// A2 rev 0, finding 5). So the rows are ordered by the value index's own
+// columns, which only an ordered scan of that index returns without a sort.
+// An in list is one capped arm per distinct value: PostgreSQL 16 returns no
+// order from = ANY on a column after the first, so each arm is an equality.
+func preCountSQL(fs []listFilter, next func(v any, cast string) string, broadCap int) string {
+	table, _ := fs[0].idx.ValueType.SideTable()
+	lim := " LIMIT " + strconv.Itoa(broadCap)
+	head := "SELECT 1 FROM " + table + " v WHERE v.tenant_id = $1 AND v.field_id = $2::uuid AND "
+	in := slices.IndexFunc(fs, func(f listFilter) bool { return f.op == "in" })
+	if in < 0 {
+		return "SELECT count(*) FROM (" + head + sideCmp(fs, next, false) + " ORDER BY v.value, v.record_id" + lim + ") c"
+	}
+	rest := slices.Delete(slices.Clone(fs), in, in+1)
+	var vals []any
+	for _, v := range fs[in].values {
+		if !slices.Contains(vals, v) {
+			vals = append(vals, v)
 		}
 	}
-	cmp := strings.Join(cmps, " AND ")
-	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
+	arms := make([]string, len(vals))
+	for k, v := range vals {
+		eq := []listFilter{{prop: fs[in].prop, op: "eq", values: []any{v}, idx: fs[in].idx}}
+		arms[k] = "(" + head + sideCmp(append(eq, rest...), next, false) + " ORDER BY v.record_id" + lim + ")"
+	}
+	return "SELECT count(*) FROM (SELECT 1 FROM (" + strings.Join(arms, " UNION ALL ") + ") u" + lim + ") c"
+}
+
+// fieldGroups are the plan's ready side-table filters grouped by field, in
+// the order the request first names each field.
+func (pl *listPlan) fieldGroups() [][]listFilter {
+	var out [][]listFilter
+	at := map[uuid.UUID]int{}
+	for _, f := range pl.filters {
+		if f.col != "" || f.idx == nil {
+			continue
+		}
+		i, ok := at[f.idx.ID]
+		if !ok {
+			i = len(out)
+			at[f.idx.ID] = i
+			out = append(out, nil)
+		}
+		out[i] = append(out[i], f)
+	}
+	return out
+}
+
+// markBroad runs the pre-count of each ready filtered field and marks the
+// fields that reach broadCap. It reports whether any did. The caller runs it
+// only on a narrowing list, after every refusal (ADR-006-A2-2).
+func (pl *listPlan) markBroad(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cp countProbe) (bool, error) {
+	broadCap, _ := cp.limits()
+	found := false
+	for _, fs := range pl.fieldGroups() {
+		args := []any{tenant, fs[0].idx.ID.String()}
+		next := func(v any, cast string) string {
+			args = append(args, v)
+			return "$" + strconv.Itoa(len(args)) + "::" + cast
+		}
+		var n int
+		if err := tx.QueryRow(ctx, preCountSQL(fs, next, broadCap), args...).Scan(&n); err != nil {
+			return false, fmt.Errorf("list filter pre-count: %w", err)
+		}
+		broad := n >= broadCap
+		if cp.pre != nil {
+			cp.pre(broad)
+		}
+		if broad {
+			found = true
+			pl.setBroad(fs[0].idx.ID, true)
+		}
+	}
+	return found, nil
+}
+
+// setBroad marks or clears every filter of field id.
+func (pl *listPlan) setBroad(id uuid.UUID, b bool) {
+	for i := range pl.filters {
+		if pl.filters[i].idx != nil && pl.filters[i].idx.ID == id {
+			pl.filters[i].broad = b
+		}
+	}
+}
+
+// clearBroad unmarks every filter: the count keeps the plain form.
+func (pl *listPlan) clearBroad() {
+	for i := range pl.filters {
+		pl.filters[i].broad = false
+	}
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.

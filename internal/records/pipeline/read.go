@@ -117,3 +117,9 @@ func IndexFields(ctx context.Context, tx pgx.Tx, tenantID, definitionID uuid.UUI
 	}
 	return m, nil
 }
+
+// VisibleAtMost reports whether at most k records of q's type pass q's row
+// ACL alone (store.VisibleAtMost, ADR-006-A2).
+func VisibleAtMost(ctx context.Context, tx pgx.Tx, q ListQuery, k int) (bool, error) {
+	return store.VisibleAtMost(ctx, tx, q, k)
+}

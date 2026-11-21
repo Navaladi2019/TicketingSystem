@@ -71,9 +71,12 @@ func assetTypeBody(key, prefix string) string {
 }
 
 // filterEnv: tenant A and B each have an "asset" type.
-func newFilterEnv(t *testing.T) *etEnv {
+func newFilterEnv(t *testing.T) *etEnv { return newFilterEnvWith(t) }
+
+// newFilterEnvWith is newFilterEnv with extra handler options.
+func newFilterEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	t.Helper()
-	e := newETEnv(t)
+	e := newETEnvWith(t, extra...)
 	for _, c := range []struct{ tok, key string }{{"admin-a", "fa"}, {"admin-b", "fb"}} {
 		if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", c.tok, c.key, assetTypeBody("asset", "AST")); rec.Code != http.StatusCreated {
 			t.Fatalf("seed asset = %d: %s", rec.Code, rec.Body)

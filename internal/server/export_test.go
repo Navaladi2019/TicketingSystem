@@ -39,5 +39,37 @@ func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, va
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args)) + "::" + cast
 	}
-	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next), args
+	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next, false), args
 }
+
+// ProbeTermForTest is ExistsTermForTest in the count's probe form for a broad
+// filter (ADR-006-A2).
+func ProbeTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, values ...any) (string, []any) {
+	var args []any
+	next := func(v any, cast string) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)) + "::" + cast
+	}
+	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next, true), args
+}
+
+// PreCountForTest is the pre-count statement of one filter on the field
+// fieldID of value type vt, and its arguments: $1 is tenant, $2 the field.
+func PreCountForTest(vt fieldindex.ValueType, tenant, fieldID uuid.UUID, op string, values ...any) (string, []any) {
+	args := []any{tenant, fieldID.String()}
+	next := func(v any, cast string) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)) + "::" + cast
+	}
+	return preCountSQL([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next, defaultBroadCap), args
+}
+
+// WithCountProbe sets the list count probe's caps, read on every request,
+// and two hooks: pre sees each pre-count's outcome (broad or not), probe each
+// decision of a list with a broad filter (true: the count probes).
+func WithCountProbe(caps func() (broad, visible int), pre, probe func(bool)) Option {
+	return func(o *options) { o.countProbe = countProbe{caps: caps, pre: pre, probe: probe} }
+}
+
+// DefaultCountProbeCaps are the production caps.
+func DefaultCountProbeCaps() (broad, visible int) { return defaultBroadCap, defaultVisibleCap }

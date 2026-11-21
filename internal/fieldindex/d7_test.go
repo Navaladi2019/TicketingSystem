@@ -18,6 +18,9 @@ import (
 //
 //   - internal/fieldindex/fieldindex.go: the table names themselves;
 //   - internal/server/records_list_index.go, inside existsTerm: the EXISTS;
+//   - the same file, inside preCountSQL: ADR-006-A2's capped pre-count, the
+//     one other reader, which must bind the tenant as $1, the field as $2
+//     and stop at broadCap (TestD7PreCountIsTheOnlyOtherReader);
 //   - the trigger and the removal/backfill (P7-02, P7-05, P7-07): their
 //     files are listed below when they land, by the task that adds them;
 //   - the isolation suite's attack-path fixture (allowedFiles);
@@ -106,5 +109,62 @@ func TestD7SideTablesAreReadOnlyInTheListEXISTS(t *testing.T) {
 	}
 	if scanned < 100 || found == 0 {
 		t.Fatalf("scanned %d files and found %d rfv_ literals: the walk is not reaching the module", scanned, found)
+	}
+}
+
+// ADR-006-A2-7: in the list compiler, only existsTerm and preCountSQL name a
+// side table (through fieldindex's SideTable), and preCountSQL's text binds
+// the tenant as $1 and the field as $2 and stops at broadCap.
+func TestD7PreCountIsTheOnlyOtherReader(t *testing.T) {
+	p := filepath.Join("..", "server", "records_list_index.go")
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, p, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readers := map[string]bool{}
+	var preLits []string
+	preUsesCap := false
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "SideTable" {
+					readers[fd.Name.Name] = true
+				}
+			case *ast.BasicLit:
+				if fd.Name.Name == "preCountSQL" && x.Kind == token.STRING {
+					preLits = append(preLits, x.Value)
+				}
+			case *ast.Ident:
+				// The cap is preCountSQL's broadCap parameter, set from
+				// countProbe.limits (defaultBroadCap in production).
+				if fd.Name.Name == "preCountSQL" && x.Name == "broadCap" {
+					preUsesCap = true
+				}
+			}
+			return true
+		})
+	}
+	for name := range readers {
+		if name != "existsTerm" && name != "preCountSQL" {
+			t.Errorf("%s names a side table outside existsTerm and preCountSQL (ADR-006 D7, A2-7)", name)
+		}
+	}
+	if !readers["existsTerm"] || !readers["preCountSQL"] {
+		t.Fatalf("readers = %v: the test no longer sees the compiler", readers)
+	}
+	text := strings.Join(preLits, " ")
+	for _, want := range []string{"v.tenant_id = $1", "v.field_id = $2::uuid", " LIMIT "} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preCountSQL lacks %q: %s", want, text)
+		}
+	}
+	if !preUsesCap {
+		t.Error("preCountSQL does not stop at broadCap")
 	}
 }
