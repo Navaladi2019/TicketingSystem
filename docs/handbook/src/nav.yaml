@@ -226,6 +226,8 @@
             label: "E1: the D9 barrier also waits on running xids at or above xmax (proposed)"
           - page: adr/adr-006-a1.md
             label: "A1: the D13 350 ms residual follows the fan-out, not the ACL"
+          - page: adr/adr-006-a2.md
+            label: "A2: the capped count runs under a 200 ms budget; total may be unknown"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
         children:
