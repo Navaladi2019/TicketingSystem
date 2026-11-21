@@ -163,6 +163,10 @@ roles:
       "public.acl2_problem(jsonb)": [EXECUTE]
       "public.acl2_rules_valid(jsonb)": [EXECUTE]
       "public.acl2_id_pointers(jsonb)": [EXECUTE]
+      # TICK-1059: the under-set cap of acl2_problem.
+      "public.acl2_max_under_sets()": [EXECUTE]
+      "public.acl2_under_key(jsonb)": [EXECUTE]
+      "public.acl2_under_union(text,text)": [EXECUTE]
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
   # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
