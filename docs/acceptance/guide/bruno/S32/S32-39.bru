@@ -1,0 +1,38 @@
+meta {
+  name: S32.39 Restore: the admin republishes tenant A's access as S32.11 read it
+  type: http
+  seq: 39
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-restore
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const cur = JSON.parse(bru.getVar('s32_policy'));
+  req.setBody({ rules: cur.rules, masks: cur.masks });
+  req.setHeader('If-Match', bru.getVar('s32_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const was = JSON.parse(bru.getVar('s32_policy'));
+  test('the S32.11 rules', () => expect(N.json().rules).to.eql(was.rules));
+  test('the S32.11 masks', () => expect(N.json().masks).to.eql(was.masks));
+}

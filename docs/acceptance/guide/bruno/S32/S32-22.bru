@@ -1,0 +1,60 @@
+meta {
+  name: S32.22 AC2: the admin removes /service-desk from agents_write
+  type: http
+  seq: 22
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-acc-narrow
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const SD = bru.getVar('s32_sd'), ADM = bru.getVar('s32_admins');
+  const rules = {
+    format: 2,
+    conditions: [{ name: 'is_requester', expr: { cmp: { column: 'requester_id', op: 'eq', caller: 'self' } } }],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'agents_read', ops: ['read'], when: { member_of: { groups: [SD] } } },
+      { name: 'agents_write', ops: ['write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'requesters_see_own', ops: ['read'], when: { ref: 'is_requester' } },
+    ],
+  };
+  req.setBody({ rules, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s32_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('agents_write grants write to the admins group only', () => {
+    const p = b.rules.policies.find(x => x.name === 'agents_write');
+    expect(p.ops).to.eql(['write']);
+    expect(p.when).to.eql({ member_of: { groups: [bru.getVar('s32_admins')] } });
+  });
+  // Only a published version moves the ETag: after a refused PUT the restore keeps the last good one.
+  if (res.getStatus() === 200) bru.setVar('s32_etag', N.header('ETag'));
+  bru.setVar('s32_narrowed_at', String(Date.now()));
+  test('published before the timer fires (within 20 s of the create)', () =>
+    expect(Number(bru.getVar('s32_narrowed_at')) - Number(bru.getVar('s32_ac2_at'))).to.be.below(20000));
+}
+
+docs {
+  `agents_write` now grants write to the admins group only. The waiting run has not checked yet.
+}

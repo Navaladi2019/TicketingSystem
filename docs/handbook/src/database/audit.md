@@ -5,7 +5,7 @@ status: delivered
 tables: [audit_log, audit_log_default, audit_chain_head]
 adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-004-E9, ADR-001-A6]
 stories: [S18]
-sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql]
+sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql, db/migrations/20261120160100_audit_log_action_policy_ref_refused.sql, internal/authz/policyref.go]
 ---
 
 `audit_log` is one append-only log for every audited table (ADR-004). An
@@ -35,8 +35,8 @@ Because of the partitioning:
 and `audit.Actions()` (`internal/audit/entry.go`): `create`, `update`,
 `publish`, `enable`, `disable`, `delete`, `promote`, `rollback`,
 `state_change`, `export`, `erase`, `reseed`, `cascade_cycle`,
-`cascade_too_deep` (ADR-004-E1) and `number_space_exhausted` (ADR-004-E9,
-S18). A `number_space_exhausted` entry records a create refused because its
+`cascade_too_deep` (ADR-004-E1), `number_space_exhausted` (ADR-004-E9,
+S18) and `policy_ref_refused` (ADR-010 D9, S32). A `number_space_exhausted` entry records a create refused because its
 number format's scope is full: domain `record`, subject `entity_definition`
 (the type), both versions NULL, and a `diff` of one `add` of `/number_space`
 with `epoch`, `scope_key`, `width` and `counter`; never the attempted record
@@ -45,6 +45,16 @@ refused create's transaction has ended, never on the allocator pool. The
 CHECK was widened `NOT VALID` (`20261115090000`), then validated
 (`20261115090100`). S18 also adds the subject types `number_format` and
 `tenant_setting`.
+
+A `policy_ref_refused` entry records a workflow `condition` step whose
+named-policy test found no policy of that name for the record's entity type
+(S32). Domain `config`, subject the entity type's `acl_policy` (the same
+subject as the admin's access publishes), `actor_system: workflow`,
+`source: workflow`, no `actor_principal_id`. It does not hold the name:
+`content_sha256` is the SHA-256 of `<entity_type>/<name>`. It is written in
+the worker's tenant transaction of the test, which reads `principals` and
+`group_members` through TICK-1025's grants. The CHECK was widened `NOT VALID`
+(`20261120160100`), then validated (`20261120160200`).
 
 Only `nava_audit_reader` reads `diff` and `diff_salt` (ADR-004-A1). The
 migrator generates the `audit_log` policies from `db/audited-tables.yaml`.

@@ -1,0 +1,43 @@
+meta {
+  name: S32.34 AC4: tenant A's audit has the same missing-policy entry as AC3
+  type: http
+  seq: 34
+}
+
+get {
+  url: {{core_url}}/api/v1/audit/entries?domain=config&subject_type=acl_policy&from={{s32_t0}}&limit=500
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  const want = N.sha256('incident/tenant_b_only');
+  const mine = items.filter(e => e.action === 'policy_ref_refused' && e.content_sha256 === want);
+  test('a policy_ref_refused entry whose content_sha256 is SHA-256("incident/tenant_b_only")', () => expect(mine.length).to.be.above(0));
+  const e = mine[mine.length - 1] || {};
+  test('domain config, subject acl_policy, actor system workflow, source workflow', () => {
+    expect(e.domain).to.eql('config');
+    expect(e.subject_type).to.eql('acl_policy');
+    expect(e.actor_system).to.eql('workflow');
+    expect(e.actor_principal_id == null).to.eql(true);
+    expect(e.source).to.eql('workflow');
+  });
+  const pubs = items.filter(x => x.actor_principal_id === bru.getVar('s32_admin'));
+  test('its subject is the incident access policy: the subject of the admin\'s own access publishes', () => {
+    expect(pubs.length).to.be.above(0);
+    expect(e.subject_id).to.eql(pubs[0].subject_id);
+    expect(e.entity_definition_id).to.eql(pubs[0].subject_id);
+  });
+  test('written after the record was created', () => expect(Date.parse(e.occurred_at)).to.be.at.least(Number(bru.getVar('s32_ac4_at')) - 2000));
+  bru.setVar('s32_ac4_entry', JSON.stringify({ action: e.action, domain: e.domain, subject_type: e.subject_type, subject_id: e.subject_id, actor_system: e.actor_system, source: e.source }));
+  console.log('s32_ac4 entry', e.id, e.occurred_at, 'matching entries', mine.length);
+  test('the same action, domain, subject, actor and source as the AC3 entry', () =>
+    expect(JSON.parse(bru.getVar('s32_ac4_entry'))).to.eql(JSON.parse(bru.getVar('s32_ac3_entry'))));
+}

@@ -73,3 +73,21 @@ func TestEscapeIsRFC6901(t *testing.T) {
 		t.Errorf("escape = %q", got)
 	}
 }
+
+func TestCheckPolicyEntitiesRefusesOtherEntityType(t *testing.T) {
+	body := `{"format":"nava.workflow/v1","trigger":{"on":"record.created","entity":"ticket"},"start":"c","steps":[
+{"key":"c","type":"condition","policy":{"entity_type":"asset","name":"p"},"who":"requester","op":"read","then":"d","else":"d"},
+{"key":"d","type":"end"}]}`
+	d, err := def.Parse([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []FieldError{{Pointer: "/steps/c/policy/entity_type", Rule: RuleEntityTypeMismatch}}
+	if got := checkPolicyEntities(d); !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	d.Trigger.Entity = "asset"
+	if got := checkPolicyEntities(d); len(got) != 0 {
+		t.Errorf("same entity type: %v", got)
+	}
+}
