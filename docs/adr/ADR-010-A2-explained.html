@@ -8,7 +8,7 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
-.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--goodbg);color:var(--good);border:1px solid var(--good)}
 .src{color:var(--muted);font-size:13px}
 table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
 th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
@@ -25,14 +25,14 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">REVISED (rev 1) · 2026-11-21</span> <span class="src">ADR-010-A2 · issue TICK-1040 · PR #818 · amends ADR-010 D4, D7, R1, R8 · evidence: SP-1b to SP-1e (TICK-969, 1038, 1041, 1043), the round-1 critique, the S31 rerun (TICK-951)</span>
+<span class="pill">ACCEPTED · 2026-11-21</span> <span class="src">ADR-010-A2 · issue TICK-1040 · PR #818 · amends ADR-010 D4, D7, R1, R8 · evidence: SP-1b to SP-1e (TICK-969, 1038, 1041, 1043), two critique rounds, the crossover cells, the S31 rerun (TICK-951)</span>
 
 <h1>"Tickets in my region" stops walking the org tree on every request</h1>
 
 <blockquote><strong>In three sentences.</strong>
 (1) The first version of "tickets in my region" rebuilt the list of every unit under you on each request and handed it to the ticket query, which made a regional agent's list about 94 ms slower (200 ms for the largest trees) when the budget had only a few milliseconds to spare.
 (2) We now keep the org tree flattened in a table that is rebuilt whenever the directory changes. Before each list, a quick count decides between two equivalent queries: one for small regions, one for large. The switch point grows with how many tickets the tenant has.
-(3) The mechanism is settled. Whether the slowest case fits the 150 ms budget is measured separately before the story is accepted, and a miss goes to the CTO with costed options.</blockquote>
+(3) The mechanism is settled: the slowest case we measured dropped from +85 ms to about +25 ms. Whether that fits the 150 ms budget is measured on the real handler before the story is accepted. A miss goes to the CTO with costed options.</blockquote>
 
 <h2>1. The problem in plain words</h2>
 <p>An <em>org unit</em> is a box in the company's organisation chart, copied from the company directory every 10 minutes by a job called <em>groupsync</em>: "EMEA", "EMEA / Germany", and so on. Story S31 lets an access policy say <em>in my region</em>: an agent sees a ticket if the person who raised it belongs to the agent's unit <em>or any unit below it</em> (the unit's <em>subtree</em>).</p>
@@ -45,6 +45,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>SP-1b, SP-1c</td><td>A flattened tree works. Single-ticket checks cost ≤ 0.32 ms. No single query shape is fast at every region size: some are fast only for small regions, others only for large ones.</td></tr>
 <tr><td>Critique, round 1</td><td>Three gaps, all found with test data the earlier spikes didn't have:<br/>• the index ignored ticket type, so a region full of <em>other</em> records was slow;<br/>• the "small region" query could still pick the wrong plan;<br/>• the total count could cost a full second for an agent whose only access is "my region".</td></tr>
 <tr><td>SP-1d</td><td>A cheaper way to count "how many tickets are under these units". It never looks at more than the threshold, however big the tree.</td></tr>
+<tr><td>Critique, round 2</td><td>A ticket type that is rare, or concentrated in a few units, can still be slow under a very large region: the check visits every unit. Rare types now skip the probe (+71 ms becomes +7.7 ms). Concentrated types are a named risk.</td></tr>
+<tr><td>Crossover cells</td><td>The two query shapes cost the same at about 3,650 tickets, which sets the switch formula's constant to 0.8. The slowest case at the switch is about +25 ms, down from +85 ms.</td></tr>
 <tr><td>SP-1e</td><td>With the fixes in place:<br/>• the type-aware index takes a mixed region from 220 ms to 1.9 ms;<br/>• the new count takes a region-only agent from about 1 s to about 3 ms;<br/>• the small-region query (C3) has a plan that can't change.<br/>It also showed that a fixed threshold of 1,000 tickets put the slowest case at its worst point: +85 ms just above 1,000.</td></tr>
 </tbody></table>
 
@@ -59,10 +61,12 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <li>At or below K*, the page uses <strong>C3</strong>: read just the region's tickets and sort them.</li>
 <li>Above K*, it uses <strong>W0</strong>, the walk: go through all tickets newest-first and keep the region's, until the page is full.</li>
 </ul></li>
-<li><strong>The threshold K* is where the two cost the same.</strong> C3 reads the region's tickets, so it gets slower as the region grows. The walk reads about (page size × all tickets of the type ÷ the region's tickets), so it gets faster. The two meet at K* = √(page size × tickets of that type). For the benchmark tenant that is about 4,500, kept between 1,000 and 20,000. At the switch point, both shapes read about K* tickets.</li>
+<li><strong>The threshold K* is where the two cost the same.</strong> C3 reads the region's tickets, so it gets slower as the region grows. The walk reads about (page size × all tickets of the type ÷ the region's tickets), so it gets faster. Measured, they meet at K* = 0.8 × √(page size × tickets of that type). For the benchmark tenant that is about 3,600, kept between 1,000 and 20,000. At the switch point, both shapes read about K* tickets.</li>
 <li><strong>Where the ticket total comes from.</strong> A new small table holds each tenant's ticket total per type, refreshed hourly per tenant. A missing or stale number only costs speed, never correctness.</li>
 <li><strong>Every shape asks the same question of every ticket.</strong> The probe chooses <em>how</em> to ask, never <em>who sees what</em>. A test suite runs every case through every shape and the single-ticket check, and fails on any difference.</li>
-<li><strong>Policy limit:</strong> a policy may name at most 4 different starting points for "in region", none nested inside another. Breaking either rule is refused when the policy is saved.</li>
+<li><strong>Rare ticket types skip the probe.</strong> If a type has no more tickets in the whole tenant than K*, the walk is cheap whatever the region size, so the walk is used for both the page and the total.</li>
+<li><strong>Policy limit:</strong> a policy may name at most 4 different starting points for "in region". None may be nested inside another or repeated. Breaking either rule is refused when the policy is saved.</li>
+<li><strong>No refusal on tree size.</strong> We measured up to 10,111 units per tenant. Above that, an alert fires, but groupsync keeps syncing: refusing a sync would also stop removed people from losing access.</li>
 </ol>
 
 <figure><svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
@@ -101,7 +105,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>uniform, 3,000</td><td class="n">+9.6 / +13.1</td><td class="n bad">+47.7 / +63.3</td></tr>
 <tr><td>uniform, 10,000</td><td class="n">+7.1 / +11.8</td><td class="n bad">+20.5 / +26.9</td></tr>
 </tbody></table>
-<p>The region-only failures all sit just above the fixed threshold and fall as the region grows. That is the walk's cost curve, and it is why the switch moves to K*. A last set of measurements finds the exact crossover. My estimate of the worst case at K* is +15 to +25 ms; this is <strong>inferred, not measured</strong>.</p>
+<p>The region-only failures all sit just above the fixed threshold and fall as the region grows. That is the walk's cost curve, and it is why the switch moves to K*. A last set of measurements finds the exact crossover. The crossover cells then measured the fix. With the switch at K*, the slowest set (an even 4,500-ticket region) costs <strong>+25.5 ms</strong> typical for a region-only caller. Every other set is +19 ms or less. The worst cell before the fix was +85 ms.</p>
 <p>Also measured:</p>
 <ul>
 <li>The type-aware index takes the probe from 220 ms to 1.9 ms on a mixed region.</li>
@@ -114,6 +118,8 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <dl>
 <dt>The slowest case may still be over budget (open)</dt>
 <dd>The slowest case is an agent who sees tickets only through "my region", with a region just above K*. TICK-1037 measures it against 150 ms directly. If it fails, the CTO gets two costed options: a dedicated index, which adds a cost to every ticket save, or a product decision on the budget for this kind of user.</dd>
+<dt>Ticket types concentrated outside a large region</dt>
+<dd>Suppose a policy covers most of a 9,000-unit tree, and the type's tickets sit in a few units outside it. The check then visits every unit, at about 10 µs each, which comes to +94 ms. The budget measurement (TICK-1037) includes this case. If it fails, it goes to the CTO with a spike for a different query.</dd>
 <dt>Dormant regions</dt>
 <dd>If every ticket in a large region is older than nearly everything else, the walk has to read far before it fills a page. A metric shows when the walk is used. The fix is the same dedicated index.</dd>
 <dt>Stale ticket totals</dt>
@@ -137,10 +143,10 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>8. What happens next</h2>
 <ol>
-<li>The Technical Architect checks this revision and runs the crossover cells. Those cells fix one constant in the K* formula; they don't reopen the design.</li>
-<li>The Solution Architect gives the verdict (the CTO breaks a tie). This page's status changes to ACCEPTED when that happens.</li>
-<li>The CTO plans it; the ticket-totals task opens and TICK-1036 starts.</li>
+<li><strong>Done:</strong> two critique rounds, the security review and the crossover cells. The Solution Architect accepted A2 on 2026-11-21 with no tie-break needed.</li>
+<li>The CTO plans it. The ticket-totals task opens, and then TICK-1036 starts.</li>
+<li>TICK-1037 measures the real handler against 150 ms for the slowest persona, including the rare and concentrated types. S31 is accepted only if that passes.</li>
 </ol>
 
-<p class="src">Source of truth: <code>docs/adr/ADR-010-A2-region-leaf-closure-probe-switch.md</code>. Archive: <code>docs/adr/ADR-010/A2/</code> (rev 0, critique, SP-1c, SP-1d, SP-1e).</p>
+<p class="src">Source of truth: <code>docs/adr/ADR-010-A2-region-leaf-closure-probe-switch.md</code>. Archive: <code>docs/adr/ADR-010/A2/</code> (rev 0, both critique rounds and the security review, SP-1c, SP-1d, SP-1e, the crossover cells).</p>
 </main></body></html>
