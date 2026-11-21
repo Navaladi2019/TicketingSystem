@@ -10,7 +10,8 @@
 # 3. main.go measures the list's statements with and without the region branch,
 #    for |S| = 10, 100, 1,000, 10,000, with the plain index and then with
 #    R1's fallback index added.
-# Env: SP1_SECONDS (20), SP1_CLIENTS (8), SP1_OUT (bin/acl-perf-region-raw.md).
+# Env: SP1_SECONDS (20), SP1_CLIENTS (8), SP1_OUT (bin/acl-perf-region-raw.md),
+# SP1_INDEX=real (TICK-951: S31's records_org_unit and authz.ExpandUnder).
 # Reuse a kept container with SP1_PG=<name> to skip step 1.
 set -eu
 cd "$(dirname "$0")/../../.."

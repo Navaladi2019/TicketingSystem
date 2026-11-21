@@ -237,23 +237,6 @@ func i5F2ExpandMatches(ctx context.Context, tx pgx.Tx, c *i5F2Case, st *i5F2Stat
 	return nil
 }
 
-// i5UnderLeaves is every under node of d, in its conditions and policies.
-func i5UnderLeaves(d authz.Document) []authz.Under {
-	var out []authz.Under
-	visit := func(n authz.Node, _ string) {
-		if n.Under != nil {
-			out = append(out, *n.Under)
-		}
-	}
-	for _, c := range d.Conditions {
-		i5Walk(c.Expr, visit)
-	}
-	for _, np := range d.Policies {
-		i5Walk(np.When, visit)
-	}
-	return out
-}
-
 // i5F2WorldSetsMatch checks set S directly, for every distinct principal of
 // the run (and a caller with no id): a document with one read policy per
 // leaf, under caller and under each unit of the world plus an id that is no
