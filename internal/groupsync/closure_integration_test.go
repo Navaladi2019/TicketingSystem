@@ -16,6 +16,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // TICK-1033 (S31 fix; ADR-010-A2): group sync rebuilds the tenant's
@@ -406,4 +407,64 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 		t.Logf("sync after one move (%s): %v (target <= 350ms)", mv.what, time.Since(start))
 		sameRows(t, "bench closure after "+mv.what, closureOf(t, super, tid), wantClosure(units))
 	}
+}
+
+// TICK-1054 diagnostic: on the no-statistics bench seed, where does the time
+// go? Logs the rebuild alone (fullRebuildClosure, as nava_groupsync) and the
+// EXPLAIN ANALYZE of the rebuild insert with and without the index-plan
+// settings. Fails only on a query error.
+func TestClosureRebuildPlanWithoutStatistics(t *testing.T) {
+	super, pool := cluster(t)
+	ctx := context.Background()
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	seedBenchTree(t, super, tid)
+	var reltuples float64
+	var analyzed bool
+	if err := super.QueryRow(ctx, `SELECT c.reltuples, s.last_analyze IS NOT NULL OR s.last_autoanalyze IS NOT NULL
+		FROM pg_class c JOIN pg_stat_user_tables s ON s.relid = c.oid WHERE c.oid = 'org_units'::regclass`).Scan(&reltuples, &analyzed); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("org_units before the rebuild: reltuples %.0f, ever analyzed %v", reltuples, analyzed)
+	rollback := errors.New("rollback")
+	explain := func(name string, sets ...string) {
+		var plan []string
+		err := tenancy.InTenantTx(ctx, pool, tid, func(tx pgx.Tx) error {
+			for _, s := range sets {
+				if _, err := tx.Exec(ctx, s); err != nil {
+					return err
+				}
+			}
+			rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+groupsync.ClosureInsertSQLForTest, tid.String())
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var line string
+				if err := rows.Scan(&line); err != nil {
+					return err
+				}
+				plan = append(plan, line)
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			return rollback
+		})
+		if err != nil && !errors.Is(err, rollback) {
+			t.Fatalf("explain %s: %v", name, err)
+		}
+		t.Logf("rebuild insert plan, %s:\n%s", name, strings.Join(plan, "\n"))
+	}
+	explain("index plan (withIndexPlan settings)", "SET LOCAL enable_hashjoin = off", "SET LOCAL enable_mergejoin = off", "SET LOCAL enable_seqscan = off")
+	explain("default planner settings")
+	start := time.Now()
+	if err := tenancy.InTenantTx(ctx, pool, tid, func(tx pgx.Tx) error {
+		_, err := groupsync.RebuildClosureForTest(ctx, tx, tid)
+		return err
+	}); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	t.Logf("fullRebuildClosure alone, no statistics: %v", time.Since(start))
 }
