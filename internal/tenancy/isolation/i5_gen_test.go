@@ -291,12 +291,19 @@ func (w *i5World) orgTree() {
 			w.Records[i].Row.OrgUnitID = &id
 		}
 	}
-	// Every seed must hold the case under_direct_only breaks: a caller whose
-	// unit P (live, no tombstoned ancestor) has records in a live child C.
-	// Drawn alone, 2 of 12 seeds had none (TestI5UnderMutantsCaughtAcrossSeeds),
-	// so Users[1], in one unit, is in P, and records 0 to 7 are in C.
+	// Forced shapes, so no seed can lose them (TestI5OrgTreeIsRandomAndRisky
+	// asserts both on every seed):
+	//   - the case under_direct_only breaks: Users[1], in one unit, is in P
+	//     (live, no tombstoned ancestor), and records 0 to 7 are in its live
+	//     child C. The drawn tree alone may already hold it (the TICK-951
+	//     review caught the mutant on 8 and on 40 seeds without the force);
+	//     the force makes it hold on every seed, not on most.
+	//   - nested U (SP-1e decision, TICK-1035): Users[2], in two units, is in
+	//     P and in C below it, so C's records are reached from both start
+	//     units and must be admitted once.
 	parent, child := i5LiveParentChild(w.Units)
 	w.Members[w.Users[1]] = []uuid.UUID{parent}
+	w.Members[w.Users[2]] = []uuid.UUID{parent, child}
 	for i := range 8 {
 		w.Records[i].Row.OrgUnitID = &child
 	}
