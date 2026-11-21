@@ -180,7 +180,3 @@ codes:
     status: 409
     title: No record number left
     detail: The entity type's number format has no number left in this numbering scope. Nothing was created. A retry fails the same way until the scope changes or a wider format is published. See errors for the scope.
-  - code: access_scope_too_large
-    status: 500
-    title: Access scope too large
-    detail: An access rule of this entity type names an org-unit subtree larger than the server evaluates (10,000 units). Nothing was read or written. An administrator must narrow the rule or the org tree; quote the instance when reporting it.

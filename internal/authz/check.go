@@ -527,6 +527,19 @@ func checkDocument(d Document) *docCheck {
 			k.problems = append(k.problems, Problem{"/policies", RuleDocLeavesExceeded})
 		}
 	}
+	// At most MaxUnderSets distinct under U per policy, refs expanded.
+	// TODO(TODO-S31-01): the database CHECK (acl2_problem) does not check it yet.
+	condExprs := make(map[string]*Node, len(d.Conditions))
+	for i := range d.Conditions {
+		if _, dup := condExprs[d.Conditions[i].Name]; !dup {
+			condExprs[d.Conditions[i].Name] = &d.Conditions[i].Expr
+		}
+	}
+	for i, p := range d.Policies {
+		if underSets(p.When, condExprs) > MaxUnderSets {
+			k.problems = append(k.problems, Problem{"/policies/" + strconv.Itoa(i), RuleUnderSetsExceeded})
+		}
+	}
 	k.lintNots(d, idx)
 	return k
 }

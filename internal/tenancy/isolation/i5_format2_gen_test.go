@@ -64,12 +64,13 @@ type i5F2Case struct {
 	World *i5World `json:"-"`
 }
 
-// bound is the case's policy with set S bound for p (authz.BindUnder) from
-// the world's org tree as the reference computes it (i5Subtree), for every
-// root the document or its previous conditions list. The planner and both
-// renderings are under test here; the database half checks separately that
-// authz.ExpandUnder's query computes the same S (i5F2ExpandMatches). A case
-// with no world (the fixed cases) is returned as it is.
+// bound is the case's policy bound for p (authz.BindUnder) from the world's
+// org tree as the reference computes it (i5Subtree): the caller's units and
+// the closure of every world unit. The planner and both renderings are under
+// test here; the database half checks separately that authz.ResolveUnder's
+// query over the seeded org_unit_closure gives the same answers
+// (i5F2ExpandMatches). A case with no world (the fixed cases) is returned as
+// it is.
 func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
 	if c.Policy == nil || c.World == nil {
 		return c.Policy
@@ -77,24 +78,57 @@ func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
 	return i5Bind(c.Policy, p, c.Prev)
 }
 
-// i5Bind binds pol for p from the reference's S: the caller's set and the
-// subtree of every root listed in pol's document or in prev.
+// i5Bind binds pol for p from the reference's tree.
 func i5Bind(pol *authz.Policy, p identity.Principal, prev []authz.Condition) *authz.Policy {
 	return i5BindWith(pol, p, prev, i5Subtree)
 }
 
-// i5BindWith is i5Bind with set S of one root computed by subtree: the
-// reference's i5Subtree, or an under mutant's broken walk (i5F2Mutants). The
-// caller's set is the union of subtree over its units, as i5CallerSet is.
+// i5BindWith is i5Bind with the closure computed by subtree: the reference's
+// i5Subtree, or an under mutant's broken walk (i5F2Mutants). U of a caller
+// leaf is p's member units; each world unit d is under every unit a (of the
+// world, or listed in pol's document or prev) with d in subtree(a), as
+// org_unit_closure holds it.
 func i5BindWith(pol *authz.Policy, p identity.Principal, prev []authz.Condition, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
 	if pol == nil {
 		return nil
 	}
-	units := map[uuid.UUID][]uuid.UUID{}
-	for _, root := range i5UnderRoots(pol.Document, prev) {
-		units[root] = subtree(p.TenantID, root)
+	return authz.BindUnder(pol, p, i5CallerUnits(p), i5Closure(p.TenantID, i5UnderRoots(pol.Document, prev), subtree))
+}
+
+// i5CallerUnits is p's member units in its world; none for a caller with no
+// id.
+func i5CallerUnits(p identity.Principal) []uuid.UUID {
+	if p.PrincipalID == uuid.Nil {
+		return nil
 	}
-	return authz.BindUnder(pol, p, i5CallerSetWith(p, subtree), units)
+	v, ok := i5Trees.Load(p.TenantID)
+	if !ok {
+		return nil
+	}
+	return slices.Clone(v.(*i5World).Members[p.PrincipalID]) //nolint:forcetypeassert // only orgTree stores
+}
+
+// i5Closure maps every unit of the tenant's world to its ancestors by
+// subtree: the units a, of the world or in extra, whose subtree holds it.
+func i5Closure(tenant uuid.UUID, extra []uuid.UUID, subtree func(tenant, root uuid.UUID) []uuid.UUID) map[uuid.UUID][]uuid.UUID {
+	out := map[uuid.UUID][]uuid.UUID{}
+	v, ok := i5Trees.Load(tenant)
+	if !ok {
+		return out
+	}
+	w := v.(*i5World) //nolint:forcetypeassert // only orgTree stores
+	roots := slices.Clone(extra)
+	for _, u := range w.Units {
+		out[u.ID] = nil
+		roots = append(roots, u.ID)
+	}
+	slices.SortFunc(roots, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	for _, a := range slices.Compact(roots) {
+		for _, d := range subtree(tenant, a) {
+			out[d] = append(out[d], a)
+		}
+	}
+	return out
 }
 
 // i5UnderRoots is every unit an under leaf of d (or of prev) lists.
@@ -891,7 +925,8 @@ func TestI5ReferenceKnowsD5(t *testing.T) {
 		if got := i5Reference(tc.pol, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: reference %v, want %v", tc.name, got, tc.want)
 		}
-		// No world: every set S is empty, as the reference reads it.
+		// No world: U is empty and the closure holds nothing, as the
+		// reference reads it.
 		bound := authz.BindUnder(tc.pol, tc.p, nil, map[uuid.UUID][]uuid.UUID{g: nil})
 		if _, _, got := authz.Allows(bound, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: Allows %v, want %v", tc.name, got, tc.want)

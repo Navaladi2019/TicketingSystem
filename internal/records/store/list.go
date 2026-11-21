@@ -44,6 +44,19 @@ type ListQuery struct {
 	// the tenant does not walk the whole sort index (TICK-644). Their rows and
 	// order are those of Where AND (OR of Branches).
 	Branches []string
+	// CountDrivers, when set, has one entry per branch (or one for Where when
+	// there are no branches): a CountDriver with a From drives that term's
+	// count from the closure (authz.RegionDriver), so the count reads at most
+	// TotalCap+1 records for it whatever the size of the region. The page
+	// never uses them.
+	CountDrivers []CountDriver
+}
+
+// CountDriver drives one count term (authz.RegionDriver): From is a FROM
+// item, Key the column of it that each driven record's org_unit_id equals.
+// Its placeholders are among the term's own, so it binds nothing.
+type CountDriver struct {
+	From, Key string
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -223,18 +236,42 @@ func branched(q ListQuery) bool { return len(q.Branches) > 1 }
 
 // CountStatement counts the rows of q (the tenant, definition, Where and ACL
 // predicate), up to TotalCap+1; the tests and the bench EXPLAIN it. With Branches each branch counts apart,
-// capped by itself, and the exclusive branches add up.
+// capped by itself, and the exclusive branches add up. A term with a
+// CountDriver (the region branch) is counted from its driver
+// (countArm), always, so it reads at most TotalCap+1 records (SP-1d decision
+// 1 on TICK-946: K = 1,000 = TotalCap).
 func CountStatement(q ListQuery) string {
 	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
 	cap1 := fmt.Sprint(TotalCap + 1)
 	if !branched(q) {
-		return `SELECT count(*) FROM (SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `) c`
+		return `SELECT count(*) FROM ` + countArm(q.driver(0), where, cap1) + ` c`
 	}
 	arms := make([]string, len(q.Branches))
 	for i, b := range q.Branches {
-		arms[i] = `(SELECT 1 FROM records r` + where + ` AND ` + b + ` LIMIT ` + cap1 + `)`
+		arms[i] = countArm(q.driver(i), where+` AND `+b, cap1)
 	}
 	return `SELECT count(*) FROM (SELECT 1 FROM (` + strings.Join(arms, ` UNION ALL `) + `) u LIMIT ` + cap1 + `) c`
+}
+
+// countArm is one capped count term over records filtered by where. Driven,
+// it is P3: the driver's units and closure, then for each closure descendant
+// a LATERAL read of that unit's records (records_org_unit), every one also
+// meeting where, so the term's rows are exactly where's and the cap stops
+// the read early.
+func countArm(d CountDriver, where, cap1 string) string {
+	if d.From == "" {
+		return `(SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `)`
+	}
+	return `(SELECT 1 FROM ` + d.From + ` CROSS JOIN LATERAL (SELECT 1 FROM records r` + where +
+		` AND r.org_unit_id = ` + d.Key + ` LIMIT ` + cap1 + `) acl_x LIMIT ` + cap1 + `)`
+}
+
+// driver is the count driver of term i, or none.
+func (q ListQuery) driver(i int) CountDriver {
+	if i < len(q.CountDrivers) {
+		return q.CountDrivers[i]
+	}
+	return CountDriver{}
 }
 
 // branchedPage is the page statement of a branched q: one arm per branch, each

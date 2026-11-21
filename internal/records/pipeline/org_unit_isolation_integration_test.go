@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"regexp"
 	"slices"
 	"testing"
 
@@ -30,9 +29,11 @@ import (
 // trigger, forges org-unit rows across the tenant wall. That is strictly more
 // than the owner can do (the owner is held by FORCE RLS and cannot disable
 // the RI triggers), so a pass here covers attack 4's "forged by the owner
-// role". What must hold is that set S, the under leaf and the pipeline's
-// primary-unit lookup never cross the wall on their own predicates, whatever
-// the rows say.
+// role". What must hold is that the closure, the under leaf and the
+// pipeline's primary-unit lookup never cross the wall on their own
+// predicates, whatever the rows say. The closure is rebuilt from the forged
+// rows (org_unit_closure_rebuild_all walks each tenant under its own RLS), so
+// the forged parents and memberships are what the under leaf reads.
 
 // forge runs stmts as the superuser with foreign keys and triggers off.
 func forge(t *testing.T, e env, stmts ...func(tx pgx.Tx) error) {
@@ -103,6 +104,7 @@ func forgedUnderWorld(t *testing.T, e env) (underWorld, uuid.UUID) {
 		execf(`UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.record["Y"], w.unit["Y"]),
 		execf(`UPDATE records SET org_unit_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.record["Z"], w.unit["Z"]),
 	)
+	rebuildClosure(t, e)
 	return w, other
 }
 
@@ -229,33 +231,6 @@ func TestRecordNeverGetsAnotherTenantsOrgUnit(t *testing.T) {
 	}
 	if n := count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1 AND org_unit_id = $2`, f.id, foreign); n != 0 {
 		t.Errorf("%d records of f name g's unit", n)
-	}
-}
-
-var uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-
-// Attack 6: the 10,000 cap refusal, reached through the caller seed, names no
-// id at all: not a unit, not the tenant, not the principal.
-func TestUnderCapErrorNamesNoID(t *testing.T) {
-	e := migrated(t)
-	w := seedACLWorld(t, e)
-	root := uuid.New()
-	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-cap-root', 'root')`, w.f.id, root)
-	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), $2, 'kc-cap-' || n, 'c' || n FROM generate_series(1, $3::int) n`, w.f.id, root, authz.MaxUnderSet)
-	mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, root, w.u1)
-	p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
-	for _, when := range []string{`{"under":{"of":"caller"}}`, `{"not":{"under":{"of":["` + root.String() + `"]}}}`} {
-		inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-			_, err := authz.ExpandUnder(context.Background(), tx, underDoc(t, when), p)
-			if _, ok := errors.AsType[*authz.UnderSetTooLargeError](err); !ok {
-				t.Fatalf("%s: err = %v, want *authz.UnderSetTooLargeError", when, err)
-			}
-			if id := uuidRE.FindString(err.Error()); id != "" {
-				t.Errorf("%s: the cap error names id %s: %q", when, id, err.Error())
-			}
-			return nil
-		})
 	}
 }
 

@@ -24,6 +24,11 @@ import (
 // caller leaf and for a leaf that lists the unit, in the SQL list predicate
 // and in the Go single-record check alike. The records keep their
 // org_unit_id. Then the caller's own unit goes: access through it stops too.
+//
+// The under leaf reads org_unit_closure (TICK-1034), and nothing here
+// rebuilds it by hand: only group sync keeping the closure current (TICK-1033)
+// makes this pass. It is the merge-order guard of the TICK-1032 security
+// review: until then a removed unit would still grant its old subtree.
 func TestOrgUnitRemovalEndsUnderAccessAndSyncSucceeds(t *testing.T) {
 	super, pool := cluster(t)
 	app := appPool(t, super)
@@ -105,17 +110,22 @@ func underPolicy(u authz.Under) *authz.Policy {
 	}}
 }
 
-// underAccess binds S with authz.ExpandUnder as nava_app in p's tenant, then
-// returns, by name, the records the CompileRead predicate admits and those
-// authz.Allows admits, each sorted.
+// underAccess binds pol with authz.ResolveUnder (the caller's units and the
+// closure probe for every record) as nava_app in p's tenant, then returns, by
+// name, the records the CompileRead predicate admits and those authz.Allows
+// admits, each sorted.
 func underAccess(t *testing.T, app *pgxpool.Pool, p identity.Principal, pol *authz.Policy, units map[string]*uuid.UUID, ids map[string]uuid.UUID) ([]string, []string) {
 	t.Helper()
 	var bySQL, byGo []string
 	err := tenancy.InTenantTx(context.Background(), app, p.TenantID, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		bound, err := authz.ExpandUnder(ctx, tx, pol, p)
+		recs := make([]authz.Row, 0, len(ids))
+		for name, id := range ids {
+			recs = append(recs, authz.Row{ID: id, OrgUnitID: units[name]})
+		}
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p, recs...)
 		if err != nil {
-			return fmt.Errorf("ExpandUnder: %w", err)
+			return fmt.Errorf("ResolveUnder: %w", err)
 		}
 		pred, args := authz.CompileRead(bound, p, "r", 1)
 		rows, err := tx.Query(ctx, "SELECT r.id FROM records r WHERE r.tenant_id = $1 AND "+pred, append([]any{p.TenantID}, args...)...)

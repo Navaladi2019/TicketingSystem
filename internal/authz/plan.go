@@ -92,10 +92,14 @@ type pnode struct {
 	// caller id is never Nil: shared with no caller id folds to false.
 	caller uuid.UUID
 	groups []uuid.UUID
-	// units is an under leaf's set S, sorted and non-empty (pUnder). leaf is
-	// the node it was planned from, set only by a probe plan (under.go).
-	units []uuid.UUID
-	leaf  *Under
+	// units is an under leaf's start units U, sorted and non-empty, tenant
+	// the binding's tenant and ancestors the closure answers ResolveUnder
+	// read for the Go side (pUnder). leaf is the node it was planned from,
+	// set only by a probe plan (under.go).
+	units     []uuid.UUID
+	tenant    uuid.UUID
+	ancestors map[uuid.UUID][]uuid.UUID
+	leaf      *Under
 }
 
 func constant(b bool) pnode {
@@ -167,9 +171,9 @@ type planner struct {
 	dup   map[string]bool // condition names declared twice: a ref to one is unresolved
 	memo  map[string]*expansion
 	stack []string // conditions being expanded, for cycle detection
-	// under is set S bound for p (nil when none). probe plans without S:
-	// an under leaf stays a placeholder, so ExpandUnder can see which
-	// leaves survive folding (under.go).
+	// under is what ResolveUnder bound for p (nil when none). probe plans
+	// without it: an under leaf stays a placeholder, so ResolveUnder can see
+	// which leaves survive folding (under.go).
 	under *underScope
 	probe bool
 }
@@ -205,6 +209,8 @@ func (pl *planner) policy(np NamedPolicy) plannedPolicy {
 		e.rule = RuleDepthExceeded
 	case e.leaves > MaxPolicyLeaves:
 		e.rule = RulePolicyLeavesExceeded
+	case underSets(np.When, pl.conds) > MaxUnderSets:
+		e.rule = RuleUnderSetsExceeded
 	}
 	if e.rule != "" {
 		return plannedPolicy{name: np.Name, err: &PlanError{Policy: np.Name, Rule: e.rule}}
@@ -268,10 +274,10 @@ func (pl *planner) node(n Node) *expansion {
 	return invalid(RuleType) // a SQLSafe, Available kind the planner does not know
 }
 
-// underLeaf plans an under leaf (ADR-010 D7). A caller leaf for a principal
-// with no id is false: it has no units. Otherwise the leaf needs its set S
-// bound for this principal; without it the policy is voided (fails closed).
-// An empty S is false. A probe plan keeps the leaf as a placeholder.
+// underLeaf plans an under leaf (ADR-010 D7 as amended). A caller leaf for a
+// principal with no id is false: it has no units. Otherwise the leaf needs a
+// binding for this principal; without it the policy is voided (fails
+// closed). An empty U is false. A probe plan keeps the leaf as a placeholder.
 func (pl *planner) underLeaf(u Under) *expansion {
 	leaf := func(t pnode) *expansion { return &expansion{tree: t, depth: 1, leaves: 1} }
 	if u.Caller && pl.p.PrincipalID == uuid.Nil {
@@ -280,14 +286,14 @@ func (pl *planner) underLeaf(u Under) *expansion {
 	if pl.probe {
 		return leaf(pnode{op: pUnder, leaf: &u})
 	}
-	s, ok := pl.under.set(u)
+	s, ok := pl.under.start(u)
 	switch {
 	case !ok:
 		return invalid(RuleUnderUnresolved)
 	case len(s) == 0:
 		return leaf(constant(false))
 	}
-	return leaf(pnode{op: pUnder, units: s})
+	return leaf(pnode{op: pUnder, units: s, tenant: pl.under.tenant, ancestors: pl.under.ancestors})
 }
 
 // walk calls f on n and every node below it.
@@ -479,7 +485,9 @@ func (n pnode) eval(r Row) bool {
 	case pShared:
 		return sharedWithCaller(r.SharedWith, n.caller, n.groups)
 	case pUnder:
-		return r.OrgUnitID != nil && inSet(n.units, *r.OrgUnitID)
+		// The Allows probe: a closure row from one of U down to the row's
+		// unit. voidUnreadRow has made sure the unit was read.
+		return r.OrgUnitID != nil && intersects(n.ancestors[*r.OrgUnitID], n.units)
 	}
 	return false
 }
@@ -523,8 +531,7 @@ func (n pnode) sql(c *compiler) string {
 	case pShared:
 		return c.shared(n.caller, n.groups)
 	case pUnder:
-		col := c.col(metadata.ColumnOrgUnitID)
-		return "(" + col + " IS NOT NULL AND " + col + " = ANY(" + c.arg(UUIDTexts(n.units)) + "::uuid[]))"
+		return c.under(n.tenant, n.units)
 	}
 	return "false"
 }

@@ -55,7 +55,7 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 	}
 	// One plan feeds the decision, the trace and the invalid list, so they
 	// describe the same trees Allows judged. A voided policy is counted once.
-	planned := plan(pol, target, OpRead)
+	planned := planRow(pol, target, OpRead, row)
 	countVoided(pol, planned)
 	out.Policy, out.Trace, out.Allow = firstGrant(planned, row)
 	out.RuleID = ruleID(pol, out.Policy)
