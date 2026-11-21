@@ -407,3 +407,21 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 		sameRows(t, "bench closure after "+mv.what, closureOf(t, super, tid), wantClosure(units))
 	}
 }
+
+// TICK-1054: fullRebuildClosure runs ANALYZE on org_units and
+// org_unit_closure as nava_groupsync. On Postgres 16 only the table owner (or a
+// role that inherits it) may ANALYZE; anyone else gets a WARNING and the table
+// is skipped, so the statistics never refresh and the call still succeeds.
+// This fails while the sync role cannot analyze the tables it rebuilds.
+func TestSyncRoleCanAnalyzeClosureTables(t *testing.T) {
+	super, _ := cluster(t)
+	if n := count(t, super, `SELECT count(*) FROM pg_class c
+		WHERE c.oid IN ('org_units'::regclass, 'org_unit_closure'::regclass)
+		AND NOT pg_has_role('nava_groupsync', c.relowner, 'USAGE')`); n != 0 {
+		var owner string
+		if err := super.QueryRow(context.Background(), `SELECT relowner::regrole::text FROM pg_class WHERE oid = 'org_units'::regclass`).Scan(&owner); err != nil {
+			t.Fatal(err)
+		}
+		t.Errorf("nava_groupsync cannot ANALYZE %d of org_units, org_unit_closure (owner %s): its ANALYZE is skipped with a WARNING", n, owner)
+	}
+}
