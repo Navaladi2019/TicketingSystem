@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ADR-006 amendment A2 explained (PROPOSED, rev 2): the ticket count gets a time limit, and may say "unknown"</title>
+<title>ADR-006 amendment A2 explained (ACCEPTED, rev 2.1): the ticket count gets a time limit, and may say "unknown"</title>
 <style>
 :root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
 @media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
@@ -23,9 +23,9 @@ dt{font-weight:700;margin-top:8px}
 svg text{fill:var(--fg);font:13px sans-serif}
 svg .m{fill:var(--muted)}
 </style></head><body><main>
-<span class="pill">PROPOSED · rev 2 · 2026-11-21</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · rev 2.1 · 2026-11-21</span>
 <h1>ADR-006 amendment A2: the ticket count gets a time limit, and may say "unknown"</h1>
-<p class="src">Record: <code>docs/adr/ADR-006-A2-count-time-budget.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> (runs 1–5, and <code>a2-11/</code> for the spikes that ended rev 1) · Amends ADR-006 D7 and the list response · CTO ruling: option (C2) · Pending: Technical Architect and Security &amp; Multi-Tenancy Reviewer critiques of rev 2.</p>
+<p class="src">Record: <code>docs/adr/ADR-006-A2-count-time-budget.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> (runs 1–5, and <code>a2-11/</code> for the spikes that ended rev 1) · Amends ADR-006 D7 and the list response · CTO ruling: option (C2) · Technical Architect: no blocking item, two test additions taken · Security &amp; Multi-Tenancy Reviewer: approved, three tests and one rewording taken · Accepted by the Solution Architect, 2026-11-21.</p>
 
 <h2>Words used here</h2>
 <dl>
@@ -64,10 +64,10 @@ svg .m{fill:var(--muted)}
 <svg viewBox="0 0 860 150" width="100%" role="img" aria-label="Request time budget">
 <text x="10" y="20" font-weight="bold">How 350 ms is split (p95, band (ii))</text>
 <rect x="10" y="35" width="219" height="40" fill="#0969da" opacity=".35"/><text x="18" y="60">page + handler 94 ms</text>
-<rect x="229" y="35" width="28" height="40" fill="#9a6700" opacity=".45"/><text x="231" y="95" class="m">12 ms</text>
-<rect x="257" y="35" width="467" height="40" fill="#1a7f37" opacity=".35"/><text x="270" y="60">count budget 200 ms</text>
-<rect x="724" y="35" width="82" height="40" fill="#cf222e" opacity=".25"/><text x="728" y="60">margin 35</text>
-<text x="10" y="125" class="m">94 = 73 ms idle list p95 (P3-36) + 21 ms worst page time (run 5). 12 = four extra round trips. 35 = the 10% margin A1 uses.</text>
+<rect x="229" y="35" width="14" height="40" fill="#9a6700" opacity=".45"/><text x="226" y="95" class="m">6 ms</text>
+<rect x="243" y="35" width="467" height="40" fill="#1a7f37" opacity=".35"/><text x="270" y="60">count budget 200 ms</text>
+<rect x="710" y="35" width="117" height="40" fill="#cf222e" opacity=".25"/><text x="714" y="60">margin 35 + 15</text>
+<text x="10" y="125" class="m">94 = 73 ms idle list p95 (P3-36) + 21 ms worst page time (run 5). 6 = two extra round trips. 35 = the 10% margin A1 uses; rounding down leaves 15 more.</text>
 </svg>
 
 <h2>Evidence</h2>
@@ -79,8 +79,9 @@ svg .m{fill:var(--muted)}
 
 <h2>What must be true before the code merges</h2>
 <ul>
-<li>The 94 ms page share is measured on a fresh install. If it is larger, the 200 ms shrinks by the same amount, to no less than 100 ms. Below that, the CTO decides again.</li>
-<li>A forced slow count returns the page with "unknown", never an error, and the request carries on normally.</li>
+<li>The 94 ms page share is measured on a fresh install, on a machine that passes the usual quietness checks (a busy machine makes the number meaningless). If it is larger, the 200 ms shrinks by the same amount, to no less than 100 ms. Below that, the CTO decides again.</li>
+<li>A forced slow count returns the page with "unknown", never an error, and the request carries on normally. A test on the real slow plan checks that the database stops the count within 15 ms of the limit.</li>
+<li>After a stopped count, the request is still bound to the same tenant, and the database connection goes back to the pool clean for the next tenant.</li>
 <li>All the security tests from the earlier attempt carry over. Another tenant's data never changes this tenant's results. A value only on hidden tickets looks exactly like a value that doesn't exist.</li>
 <li>The acceptance kit passes the band (ii) cell within 350 ms on two fresh installs in a row.</li>
 </ul>
@@ -88,7 +89,7 @@ svg .m{fill:var(--muted)}
 <h2>What is being accepted</h2>
 <div class="box bad">
 <p><strong>The count may say "unknown" under load.</strong> Users then see "50+" rather than an exact number. An alert fires if more than 5% of filtered lists say "unknown" in an hour.</p>
-<p><strong>A small timing signal stays, and gets smaller.</strong> How long the count takes depends partly on tickets the user can't see, and that already shows in response time today. "Unknown" is a yes/no reading of that same time, so it reveals nothing new. Above 200 ms, every slow count now looks the same, which hides more than today. A value that exists only on hidden tickets always gets an exact 0, because the count is skipped. The Security &amp; Multi-Tenancy Reviewer checks this argument; if they find a gap, it goes back to the CTO.</p>
+<p><strong>A small timing signal stays, and gets smaller.</strong> How long the count takes depends partly on tickets the user can't see, and that already shows in response time today. "Unknown" is a yes/no reading of that same time, so it reveals nothing new. Above 200 ms, every slow count now looks the same, which hides more than today. Asking about a single value that exists only on hidden tickets always gets an exact 0, because the count is skipped. A cleverer query that mixes in visible tickets still runs the count, but its time reflects hidden tickets only in bulk, as today. The Security &amp; Multi-Tenancy Reviewer approved this and rated it Info: one hidden ticket changes the time by about a microsecond, far below normal variation, and nothing from another tenant is read.</p>
 <p><strong>Slow pages are not fixed here.</strong> In one test shape, a user who sees half the tickets filtering on a value that sits only on hidden tickets, the page itself took 2–3 s. That is tracked separately (TICK-992).</p>
 </div>
 
