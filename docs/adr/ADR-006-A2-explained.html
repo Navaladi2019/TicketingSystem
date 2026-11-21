@@ -23,9 +23,9 @@ dt{font-weight:700;margin-top:8px}
 svg text{fill:var(--fg);font:13px sans-serif}
 svg .m{fill:var(--muted)}
 </style></head><body><main>
-<span class="pill">PROPOSED · rev 0 · 2026-11-21</span>
+<span class="pill">PROPOSED · rev 1 · 2026-11-21</span>
 <h1>ADR-006 amendment A2: a cheap capped count decides how the database counts a broad filter</h1>
-<p class="src">Record: <code>docs/adr/ADR-006-A2-d7-bounded-count-probe.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> · Amends ADR-006 D7 · Pending: Technical Architect critique, Security &amp; Multi-Tenancy Reviewer on the timing question.</p>
+<p class="src">Record: <code>docs/adr/ADR-006-A2-d7-bounded-count-probe.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> · Amends ADR-006 D7 · Security &amp; Multi-Tenancy Reviewer: approved. Technical Architect: no blocking item; accept once spikes S-A2-anti and S-A2-skew pass.</p>
 
 <h2>Words used here</h2>
 <dl>
@@ -52,7 +52,7 @@ svg .m{fill:var(--muted)}
 <text x="455" y="35" font-weight="bold">Fast: per-record probe</text>
 <text x="455" y="65">1. Walk the records the agent can see</text>
 <text x="455" y="90">2. Look up each one's value by primary key</text>
-<text x="455" y="115">3. Stop at 1,001 matches</text>
+<text x="455" y="115">3. Stop at 1,001 matches (or the end of the visible set)</text>
 <text x="455" y="150" class="m">17–27 ms in every vacuum state</text>
 </svg>
 
@@ -72,8 +72,9 @@ svg .m{fill:var(--muted)}
 <p>For a list where the user's ACL narrows what they see and a data field is filtered:</p>
 <ol>
 <li>Count that value's side rows in the tenant, <strong>stopping at 20,000</strong>. This costs 0.3–18 ms because it stops early.</li>
-<li>If it reached 20,000, the value is broad. Write the <code>total</code> statement so the database can only use the per-record probe. No settings or hints: the SQL shape itself rules out the hash join.</li>
-<li>Otherwise, and for the page of results always, the SQL stays exactly as today.</li>
+<li>If it reached 20,000, the value is broad. Then count the records the user can see, stopping at 30,000 (the <em>visible-set guard</em>).</li>
+<li>If the user sees 30,000 records or fewer, write the <code>total</code> statement so the database can only use the per-record probe. No settings or hints: the SQL shape itself rules out the hash join. The guard matters because the probe stops early only when matches exist. If the user's records rarely carry the value, it walks every visible record, and that walk must stay small.</li>
+<li>Otherwise, for any field after the first three filtered fields, and for the page of results always, the SQL stays exactly as today.</li>
 </ol>
 </div>
 <p>ADR-006 rule D7 said no query other than the list itself may read a side table. A2 rewrites D7 to allow exactly this one bounded count, and the code check that enforces D7 is updated to allow that one site only.</p>
@@ -92,19 +93,20 @@ svg .m{fill:var(--muted)}
 <h2>What must be true before the code merges</h2>
 <ul>
 <li>This amendment is accepted.</li>
-<li>A test reads the database's plan for each field type and operator and fails if a broad count still uses a hash join. This, not the SQL trick, is the guarantee; it catches a PostgreSQL upgrade that changes behaviour.</li>
+<li>A test reads the database's plan for each field type and operator and fails if a broad count still uses a hash join, or if the 20,000 count stops using its index. It runs on every PostgreSQL upgrade too. This, not the SQL trick, is the guarantee; it catches a PostgreSQL upgrade that changes behaviour.</li>
 <li>A test proves the page and the count select the same records.</li>
-<li>Worst-case fixtures are measured: a broad value that none of the agent's visible records carry, at 6% and about 50% visibility. If the 50% case is slower than today, the design is revised first.</li>
+<li>Three spikes, with pass and fail written down first. <strong>Anti-correlated:</strong> a broad value that none of the agent's records carry, at 6% and 50% visibility, must be no more than 10 ms slower than today. This tunes the 30,000 guard. <strong>Skew:</strong> a value common in another tenant but rare in this one must still count through the index in 20 ms or less. <strong>Multi-field:</strong> three broad filters together must be no more than 10 ms slower than today.</li>
+<li>Security's tests: no pre-count on a rejected request or for an admin; another tenant's rows never make a value broad; the counts never appear in logs or metrics.</li>
 <li>The acceptance kit passes the 40% ACL cell inside 350 ms on two fresh stacks in a row.</li>
 </ul>
 
 <h2>What is being accepted</h2>
 <div class="box bad">
-<p><strong>One coarse timing signal inside a tenant (R13).</strong> The 20,000 count ignores the row ACL, so a user could notice from response time (about 15–40 ms) whether a value is common in their tenant, counting tickets they cannot open. They never see those tickets, their count or their content. Today's plan already leaks more of this through its cost, and its choice is influenced by other tenants' data; A2 makes it one bit from the user's own tenant. Nothing crosses the tenant wall. The Security &amp; Multi-Tenancy Reviewer decides whether this is acceptable; a blocking finding overrides A2.</p>
-<p><strong>The 20,000 cap is tuned for types up to about 400,000 records.</strong> The existing trigger for re-measuring (a tenant passing 400,000 records) covers re-tuning it.</p>
+<p><strong>A timing signal inside a tenant (R13, Low, approved by Security).</strong> The 20,000 count ignores the row ACL. By timing repeated range filters, a user could find the value where the 20,000th record sits, counting tickets they cannot open, and could then notice when one hidden ticket crosses that line. They never see those tickets, their count or their content, and only fields they may read are involved. Today's plan already leaks a fuzzier version of this. Nothing crosses the tenant wall. If a field is secret, it needs a field mask; a row ACL alone does not hide totals. The exact size of the timing step is measured before merge.</p>
+<p><strong>The 20,000 and 30,000 limits are tuned for types up to about 400,000 records.</strong> The existing trigger for re-measuring (a tenant passing 400,000 records) covers re-tuning both. Users who see more than 30,000 records keep today's plan, which is the cheaper one at that visibility.</p>
 <p><strong>Budgets do not change.</strong> The band keeps its 350 ms limit from A1; A2 makes it reliable, it does not claim 150 ms.</p>
 </div>
 
 <h2>Invariants</h2>
-<p>Tenant wall (I1) and tenant source (I2) hold: the count runs as the app role under row-level security with the tenant from the verified login. No new grants (I3). Results and totals are unchanged (I5), with the timing note above. Write path, workflows and cascades are untouched.</p>
+<p>Tenant wall (I1) and tenant source (I2) hold: the count runs as the app role under row-level security with the tenant from the verified login. No new grants (I3); the existing custom-plan setting of the app role is now a named dependency. Results and totals are unchanged (I5), with the timing note above. Write path, workflows and cascades are untouched.</p>
 </main></body></html>
