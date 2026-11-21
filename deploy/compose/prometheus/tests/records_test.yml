@@ -1,0 +1,153 @@
+# promtool test rules for rules/records.yml (TICK-1051, ADR-006-A2 A2-7).
+# Run by internal/audit/lineage.TestAlertRules (integration) with the pinned
+# prom/prometheus image; this directory is not mounted into Prometheus.
+#
+# Every case starts with a 1 h lead-in (0m..60m) of 100 lists/min at 0 %
+# unknown, then the case's episode from 61m. The 1 h ratio at t min into an
+# episode of p % unknown is p * t / 60 %, so 8 % passes 5 % at t = 37.5 min
+# and, with for: 5m, fires from about 43 min (eval 103m) on.
+rule_files:
+  - ../rules/records.yml
+
+evaluation_interval: 1m
+
+tests:
+  # 8 % unknown sustained 2 h: silent at 25 min (3.3 %), pending at 40 min,
+  # firing at 45 min (6 %) and still at the end.
+  - interval: 1m
+    input_series:
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="unknown",job="nava",instance="nava-core:9090"}'
+        values: '0x60 8+8x119'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0+100x60 6092+92x119'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 85m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 100m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: RecordsListTotalUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
+              description: >-
+                unknown means the list's count ran past its 200 ms budget; the page
+                itself was complete, only the total is null. This is the R-a signal,
+                not an outage. It is expected after a field backfill or bulk edits
+                that leave a poor visibility map on the rfv_* tables, until
+                autovacuum runs. Check pg_stat_user_tables (n_dead_tup,
+                last_autovacuum, last_autoanalyze) for the rfv_* tables. If it
+                persists more than 24 h after autovacuum has run, open the R-a /
+                A1-6 follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). The
+                series carries no tenant, field or value.
+      - eval_time: 180m
+        alertname: RecordsListTotalUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
+              description: >-
+                unknown means the list's count ran past its 200 ms budget; the page
+                itself was complete, only the total is null. This is the R-a signal,
+                not an outage. It is expected after a field backfill or bulk edits
+                that leave a poor visibility map on the rfv_* tables, until
+                autovacuum runs. Check pg_stat_user_tables (n_dead_tup,
+                last_autovacuum, last_autoanalyze) for the rfv_* tables. If it
+                persists more than 24 h after autovacuum has run, open the R-a /
+                A1-6 follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). The
+                series carries no tenant, field or value.
+
+  # 4 % unknown sustained 2 h: the 1 h ratio tops out at 4 %, never fires.
+  - interval: 1m
+    input_series:
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="unknown",job="nava",instance="nava-core:9090"}'
+        values: '0x60 4+4x119'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0+100x60 6096+96x119'
+    alert_rule_test:
+      - eval_time: 105m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 130m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 180m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+
+  # 8 % unknown for 25 min, then 0 %: peak 8 % * 25/60 = 3.3 %, never fires.
+  - interval: 1m
+    input_series:
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="unknown",job="nava",instance="nava-core:9090"}'
+        values: '0x60 8+8x24 200x95'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0+100x60 6092+92x24 8400+100x94'
+    alert_rule_test:
+      - eval_time: 85m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 150m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+
+  # No traffic: the counters exist but never move. 0/0 is NaN; the zero
+  # traffic guard keeps the alert silent.
+  - interval: 1m
+    input_series:
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="unknown",job="nava",instance="nava-core:9090"}'
+        values: '0x180'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="narrow",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0x180'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 180m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+
+  # Unknown only under acl="narrowing", the rest under acl="open" (and some
+  # exact narrowing lists): 8 % of all lists, summed over every label, fires.
+  - interval: 1m
+    input_series:
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="narrowing",selectivity_band="narrow",total_state="unknown",job="nava",instance="nava-core:9090"}'
+        values: '0x60 8+8x119'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="narrowing",selectivity_band="narrow",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0+10x60 610+10x119'
+      - series: 'nava_records_list_indexed_duration_seconds_count{acl="open",selectivity_band="broad",total_state="exact",job="nava",instance="nava-core:9090"}'
+        values: '0+90x60 5482+82x119'
+    alert_rule_test:
+      - eval_time: 85m
+        alertname: RecordsListTotalUnknown
+        exp_alerts: []
+      - eval_time: 105m
+        alertname: RecordsListTotalUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
+              description: >-
+                unknown means the list's count ran past its 200 ms budget; the page
+                itself was complete, only the total is null. This is the R-a signal,
+                not an outage. It is expected after a field backfill or bulk edits
+                that leave a poor visibility map on the rfv_* tables, until
+                autovacuum runs. Check pg_stat_user_tables (n_dead_tup,
+                last_autovacuum, last_autoanalyze) for the rfv_* tables. If it
+                persists more than 24 h after autovacuum has run, open the R-a /
+                A1-6 follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). The
+                series carries no tenant, field or value.
