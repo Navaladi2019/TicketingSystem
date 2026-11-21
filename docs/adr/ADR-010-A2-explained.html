@@ -25,104 +25,122 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">DRAFT · 2026-11-21</span> <span class="src">ADR-010-A2 · issue TICK-1040 · amends ADR-010 D7, R1, R8 · evidence: SP-1b (TICK-969), SP-1c (TICK-1038), the S31 rerun (TICK-951, PR #814) · waits on SP-1d</span>
+<span class="pill">REVISED (rev 1) · 2026-11-21</span> <span class="src">ADR-010-A2 · issue TICK-1040 · PR #818 · amends ADR-010 D4, D7, R1, R8 · evidence: SP-1b to SP-1e (TICK-969, 1038, 1041, 1043), the round-1 critique, the S31 rerun (TICK-951)</span>
 
 <h1>"Tickets in my region" stops walking the org tree on every request</h1>
 
 <blockquote><strong>In three sentences.</strong>
-(1) The first version of "tickets in my region" rebuilt the list of every unit under you on each request and sent it into the ticket query, which made a regional agent's ticket list about 94 ms slower (200 ms for the largest trees) when the budget had less than 4 ms to spare.
-(2) We now keep the org tree flattened in a table that is rebuilt whenever the directory changes, and before each list we count "are there more than 1,000 tickets under you?" to pick the faster of two equivalent queries.
-(3) It is fast enough everywhere we measured except mid-sized districts (about +5.7 ms against 3.8 ms of room), and one more experiment (SP-1d) decides whether that gap closes or goes to the CTO.</blockquote>
+(1) The first version of "tickets in my region" rebuilt the list of every unit under you on each request and handed it to the ticket query, which made a regional agent's list about 94 ms slower (200 ms for the largest trees) when the budget had only a few milliseconds to spare.
+(2) We now keep the org tree flattened in a table that is rebuilt whenever the directory changes. Before each list, a quick count decides between two equivalent queries: one for small regions, one for large. The switch point grows with how many tickets the tenant has.
+(3) The mechanism is settled. Whether the slowest case fits the 150 ms budget is measured separately before the story is accepted, and a miss goes to the CTO with costed options.</blockquote>
 
 <h2>1. The problem in plain words</h2>
-<p>An <em>org unit</em> is a box in the company's organisation chart, copied from the company directory (Keycloak) every 10 minutes by a job called <em>groupsync</em>: "EMEA", "EMEA / Germany", and so on. Story S31 lets an access policy say <em>in my region</em>: an agent sees a ticket if the person who raised it belongs to the agent's unit <em>or any unit below it</em>. "Every unit below it" is the unit's <em>subtree</em>.</p>
-<p>The ticket list has a speed budget: 150 ms at the 95th percentile (<em>p95</em>: 95 of every 100 requests are at least this fast) with 800,000 tickets loaded. The support-agent list already uses most of it, leaving <strong>3.8 ms of headroom</strong>. Any new rule must fit inside that.</p>
-<p>The design accepted in ADR-010 (decision D7) found the subtree on each request by walking the tree, collected every unit id in the program, and passed the whole list into the database query. When the real feature was measured (TICK-951):</p>
-<table><thead><tr><th>Subtree size</th><th>Extra time per list (p95)</th><th>Verdict</th></tr></thead><tbody>
-<tr><td>Area, 10 units</td><td class="n">−0.3 ms</td><td class="good">fine</td></tr>
-<tr><td>District, 101 units</td><td class="n">+21.8 ms</td><td class="bad">over</td></tr>
-<tr><td>Region, 1,011 units</td><td class="n">+94.4 ms</td><td class="bad">far over</td></tr>
-<tr><td>10,000 units</td><td class="n">+199.9 ms</td><td class="bad">far over</td></tr>
-</tbody></table>
-<p>The database itself answered in 3 to 4 ms. The time went on walking the tree and on handing the database thousands of ids to plan around. So the fix has to stop doing both.</p>
+<p>An <em>org unit</em> is a box in the company's organisation chart, copied from the company directory every 10 minutes by a job called <em>groupsync</em>: "EMEA", "EMEA / Germany", and so on. Story S31 lets an access policy say <em>in my region</em>: an agent sees a ticket if the person who raised it belongs to the agent's unit <em>or any unit below it</em> (the unit's <em>subtree</em>).</p>
+<p>The ticket list must answer within 150 ms at the 95th percentile (<em>p95</em>: 95 of every 100 requests are at least this fast) with 800,000 tickets loaded, and it already uses most of that.</p>
+<p>The original design (ADR-010 decision D7) found the subtree on each request by walking the tree, then passed every unit id into the database query. The real feature measured +94 ms at a 1,011-unit region and +200 ms at 10,000 units. The database answered in 3 to 4 ms; the time went on the walk and on planning around thousands of ids.</p>
 
-<h2>2. Options considered</h2>
-<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
-<tr><td>Keep D7 (walk per request, pass the list of ids)</td><td class="bad">Rejected: +94 ms at region, +200 ms at 10,000 units.</td></tr>
-<tr><td><strong>C1</strong>: let the database read the subtree from the flattened table inside the query (<code>IN (SELECT …)</code>)</td><td class="bad">Rejected as the final form. Correct, but the database guesses how many tickets a subtree holds from a sampled statistic. For districts the guess is wrong by 8.5×, and the plan it picks flips between runs (+30 to +37 ms in one, fine in another). Used only in the interim.</td></tr>
-<tr><td><strong>C2</strong>: hand the database the subtree as a pre-computed array (<code>= ANY(ARRAY(…))</code>)</td><td class="warn">Fast for small subtrees; disastrous for big ones (reads 380,048 tickets, about +1 s at the top of the tree). Safe only when we already know the subtree is small.</td></tr>
-<tr><td><strong>W0</strong>: walk the tickets newest-first and check each one against the flattened table (the "walk")</td><td class="warn">Fast for big subtrees; slow for tiny ones (it must scan 6,396 tickets to find a page from a 220-ticket area, +30.6 ms).</td></tr>
-<tr><td><strong>A quick count picks C2 or W0 per request</strong></td><td class="good">Chosen: each shape is used only where it is fast. Worst measured case +5.7 ms (district).</td></tr>
-<tr><td>Store a ticket count per unit and pick from that</td><td class="bad">Rejected for now: another table that must stay exact on every ticket create and move, for the same answer the count gives fresh in about a millisecond.</td></tr>
-<tr><td>A planner-hint database extension</td><td class="bad">Rejected: a new component in the database image for one rule; plain SQL (<code>OFFSET 0</code>) already does it.</td></tr>
-<tr><td>Relax the 150 ms budget</td><td class="bad">Not proposed: that is a product decision, and not warranted while SP-1d is untested.</td></tr>
+<h2>2. What we learned while fixing it</h2>
+<p>Four quick experiments (<em>spikes</em>) and a hostile review shaped this. In order:</p>
+<table><thead><tr><th>Step</th><th>What it showed</th></tr></thead><tbody>
+<tr><td>SP-1b, SP-1c</td><td>A flattened tree works. Single-ticket checks cost ≤ 0.32 ms. No single query shape is fast at every region size: some are fast only for small regions, others only for large ones.</td></tr>
+<tr><td>Critique, round 1</td><td>Three gaps, all found with test data the earlier spikes didn't have:<br/>• the index ignored ticket type, so a region full of <em>other</em> records was slow;<br/>• the "small region" query could still pick the wrong plan;<br/>• the total count could cost a full second for an agent whose only access is "my region".</td></tr>
+<tr><td>SP-1d</td><td>A cheaper way to count "how many tickets are under these units". It never looks at more than the threshold, however big the tree.</td></tr>
+<tr><td>SP-1e</td><td>With the fixes in place:<br/>• the type-aware index takes a mixed region from 220 ms to 1.9 ms;<br/>• the new count takes a region-only agent from about 1 s to about 3 ms;<br/>• the small-region query (C3) has a plan that can't change.<br/>It also showed that a fixed threshold of 1,000 tickets put the slowest case at its worst point: +85 ms just above 1,000.</td></tr>
 </tbody></table>
 
 <h2>3. The decision</h2>
 <ol>
-<li><strong>Flatten the tree once.</strong> A table <code>org_unit_closure</code> (a <em>closure table</em>: one row for every "unit A is at or above unit B" pair) holds only paths through units that still exist. When the directory removes a unit, groupsync rebuilds the tenant's rows <em>in the same database transaction</em> as the tree change, so the two can never disagree. A full rebuild for 10,111 units takes about 0.3 s.</li>
-<li><strong>Single ticket:</strong> "is this ticket in my region?" becomes one lookup in that table, at most 0.32 ms. The code that walked the tree, and the 10,000-unit limit that protected it, are deleted.</li>
-<li><strong>Ticket list:</strong> first a <em>probe</em>, a count that stops at 1,001: "how many tickets of this type sit under these units?" At 1,000 or fewer, use C2 (now safe, because we know it is small). Above 1,000, use the walk W0. Count and page use the same shape.</li>
-<li><strong>Both shapes ask the same question of every ticket.</strong> The probe only chooses <em>how</em> to ask, never <em>who sees what</em>. A test suite runs every case through C2, W0 and the single-ticket check and fails on any difference.</li>
-<li><strong>Guards:</strong> the region part of a list reads at most about 1,000 tickets; at most 4 probes per request; a probe error fails the request rather than guessing. The 1,000 threshold is fixed in code, the same for every tenant.</li>
+<li><strong>Flatten the tree once.</strong> A table <code>org_unit_closure</code> (a <em>closure table</em>: one row for every "unit A is at or above unit B" pair) holds only paths through units that still exist. groupsync rebuilds a tenant's rows in the same database transaction as the tree change, one tenant at a time, so the table can never disagree with the tree.</li>
+<li><strong>Single ticket:</strong> one lookup in that table. The code that walked the tree, and the 10,000-unit limit that protected it, are deleted.</li>
+<li><strong>Tidy the start units.</strong> If an agent belongs to both "EMEA" and "EMEA / Germany", "Germany" is dropped, because it's already covered. Otherwise its tickets would be counted twice.</li>
+<li><strong>Ticket list, total count:</strong> the region part is always counted with the capped method, which stops at the list's existing 1,001 cap.</li>
+<li><strong>Ticket list, the page:</strong> a quick probe counts the region's tickets of this type, stopping at the threshold K*.
+<ul>
+<li>At or below K*, the page uses <strong>C3</strong>: read just the region's tickets and sort them.</li>
+<li>Above K*, it uses <strong>W0</strong>, the walk: go through all tickets newest-first and keep the region's, until the page is full.</li>
+</ul></li>
+<li><strong>The threshold K* is where the two cost the same.</strong> C3 reads the region's tickets, so it gets slower as the region grows. The walk reads about (page size × all tickets of the type ÷ the region's tickets), so it gets faster. The two meet at K* = √(page size × tickets of that type). For the benchmark tenant that is about 4,500, kept between 1,000 and 20,000. At the switch point, both shapes read about K* tickets.</li>
+<li><strong>Where the ticket total comes from.</strong> A new small table holds each tenant's ticket total per type, refreshed hourly per tenant. A missing or stale number only costs speed, never correctness.</li>
+<li><strong>Every shape asks the same question of every ticket.</strong> The probe chooses <em>how</em> to ask, never <em>who sees what</em>. A test suite runs every case through every shape and the single-ticket check, and fails on any difference.</li>
+<li><strong>Policy limit:</strong> a policy may name at most 4 different starting points for "in region", none nested inside another. Breaking either rule is refused when the policy is saved.</li>
 </ol>
 
-<figure><svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
-<rect x="10" y="20" width="200" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="110" y="42" text-anchor="middle">Agent opens ticket list</text><text x="110" y="60" text-anchor="middle" fill="#59636e">policy says "in my region"</text>
-<rect x="260" y="20" width="200" height="50" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="360" y="42" text-anchor="middle" font-weight="700">Probe: count to 1,001</text><text x="360" y="60" text-anchor="middle" fill="#59636e">about 1 ms</text>
-<rect x="510" y="0" width="200" height="50" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="610" y="22" text-anchor="middle" font-weight="700">≤ 1,000 → C2</text><text x="610" y="40" text-anchor="middle" fill="#59636e">small set, read directly</text>
-<rect x="510" y="70" width="200" height="50" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="610" y="92" text-anchor="middle" font-weight="700">&gt; 1,000 → walk W0</text><text x="610" y="110" text-anchor="middle" fill="#59636e">newest first, check each</text>
-<line x1="210" y1="45" x2="260" y2="45" stroke="#59636e"/><line x1="460" y1="40" x2="510" y2="25" stroke="#59636e"/><line x1="460" y1="50" x2="510" y2="95" stroke="#59636e"/>
-<rect x="260" y="150" width="450" height="40" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="485" y="175" text-anchor="middle">Same tickets either way; only the speed differs</text>
-<line x1="610" y1="120" x2="610" y2="150" stroke="#59636e"/>
-<rect x="10" y="220" width="200" height="60" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="110" y="244" text-anchor="middle">groupsync: directory changed</text><text x="110" y="264" text-anchor="middle" fill="#59636e">every 10 minutes</text>
-<rect x="260" y="220" width="200" height="60" rx="6" fill="#f6f8fa" stroke="#0969da"/><text x="360" y="244" text-anchor="middle" font-weight="700">org_unit_closure</text><text x="360" y="264" text-anchor="middle" fill="#59636e">rebuilt in same transaction</text>
-<line x1="210" y1="250" x2="260" y2="250" stroke="#59636e"/><line x1="360" y1="220" x2="360" y2="70" stroke="#0969da" stroke-dasharray="4 3"/>
-<rect x="510" y="220" width="200" height="60" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="610" y="244" text-anchor="middle">Single ticket check</text><text x="610" y="264" text-anchor="middle" fill="#59636e">one lookup, ≤ 0.32 ms</text>
-<line x1="460" y1="250" x2="510" y2="250" stroke="#0969da" stroke-dasharray="4 3"/>
-</svg><figcaption>The flattened tree feeds both the single-ticket check and the list; the probe only chooses the list's query shape.</figcaption></figure>
+<figure><svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="20" width="190" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="105" y="42" text-anchor="middle">Agent opens ticket list</text><text x="105" y="60" text-anchor="middle" fill="#59636e">tidy start units</text>
+<rect x="240" y="20" width="210" height="50" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="345" y="42" text-anchor="middle" font-weight="700">Probe: count to K* + 1</text><text x="345" y="60" text-anchor="middle" fill="#59636e">K* = √(page × tickets of type)</text>
+<rect x="500" y="0" width="210" height="50" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="605" y="22" text-anchor="middle" font-weight="700">≤ K* → C3</text><text x="605" y="40" text-anchor="middle" fill="#59636e">read the region's tickets</text>
+<rect x="500" y="70" width="210" height="50" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="605" y="92" text-anchor="middle" font-weight="700">&gt; K* → walk W0</text><text x="605" y="110" text-anchor="middle" fill="#59636e">newest first, stop at a page</text>
+<rect x="240" y="100" width="210" height="40" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="345" y="125" text-anchor="middle">Total: always capped count</text>
+<line x1="200" y1="45" x2="240" y2="45" stroke="#59636e"/><line x1="200" y1="55" x2="240" y2="115" stroke="#59636e"/><line x1="450" y1="40" x2="500" y2="25" stroke="#59636e"/><line x1="450" y1="50" x2="500" y2="95" stroke="#59636e"/>
+<rect x="240" y="165" width="470" height="36" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="475" y="188" text-anchor="middle">Same tickets in every shape; only the speed differs</text>
+<rect x="10" y="235" width="190" height="60" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="105" y="259" text-anchor="middle">groupsync: directory changed</text><text x="105" y="279" text-anchor="middle" fill="#59636e">every 10 minutes</text>
+<rect x="240" y="235" width="210" height="60" rx="6" fill="#f6f8fa" stroke="#0969da"/><text x="345" y="259" text-anchor="middle" font-weight="700">org_unit_closure</text><text x="345" y="279" text-anchor="middle" fill="#59636e">same transaction, tenant lock</text>
+<rect x="500" y="235" width="210" height="60" rx="6" fill="#f6f8fa" stroke="#0969da"/><text x="605" y="259" text-anchor="middle" font-weight="700">ticket totals per type</text><text x="605" y="279" text-anchor="middle" fill="#59636e">refreshed hourly, sets K*</text>
+<line x1="200" y1="265" x2="240" y2="265" stroke="#59636e"/><line x1="345" y1="235" x2="345" y2="70" stroke="#0969da" stroke-dasharray="4 3"/><line x1="605" y1="235" x2="450" y2="60" stroke="#0969da" stroke-dasharray="4 3"/>
+</svg><figcaption>The flattened tree feeds the probe, the count and the single-ticket check. The hourly ticket total sets where the probe switches.</figcaption></figure>
 
-<h2>4. The fix and the migration</h2>
-<p>All of it is already planned as tasks under story S31; this amendment adds no new task, it fixes their content.</p>
-<table><thead><tr><th>Task</th><th>What it does</th></tr></thead><tbody>
-<tr><td>TICK-1032</td><td>Adds <code>org_unit_closure</code>, tenant-walled like every other table (row-level security, tenant id in every key), and fills it for existing tenants.</td></tr>
-<tr><td>TICK-1033</td><td>groupsync rebuilds it in the same transaction as each tree change.</td></tr>
-<tr><td>TICK-1034</td><td>Single-ticket check on the table; deletes the per-request walk and the 10,000-unit limit; lists use C1 meanwhile (correct, not yet fast enough).</td></tr>
-<tr><td>TICK-1036</td><td>The probe switch: C2 at ≤ 1,000, the walk above. <strong>Not C1.</strong></td></tr>
-<tr><td>TICK-1035</td><td>The agreement suite: every case through C2, the walk and the single check, including a removed middle unit and lopsided districts.</td></tr>
-<tr><td>TICK-1037</td><td>Re-measures on a quiet machine. S31 is not accepted until this passes the budget.</td></tr>
+<h2>4. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td>Keep D7 (walk the tree per request)</td><td class="bad">Rejected: +94 ms at region, +200 ms at 10,000 units.</td></tr>
+<tr><td>One query shape for every size (C1, C2, the walk alone)</td><td class="bad">Rejected. Each one is slow at some size. Two of them pick their plan from a sampled statistic, so the same request can be fast one day and slow the next.</td></tr>
+<tr><td>A per-unit index (L1)</td><td class="bad">Rejected. It is a 62 MB index with an extra cost on every ticket save, and it takes 1.1 s at the top of the tree.</td></tr>
+<tr><td>A fixed threshold of 1,000 (the first draft)</td><td class="bad">Rejected: it puts the slowest case just above 1,000 (+85 ms for a region-only agent).</td></tr>
+<tr><td>Two thresholds</td><td class="bad">Rejected: more branches without a lower worst case.</td></tr>
+<tr><td>Ticket totals from the numbering counter, or from database statistics</td><td class="bad">Rejected. The counter resets each numbering period. Database statistics would show one tenant the other tenants' volumes.</td></tr>
+<tr><td><strong>Capped count, plus a probe switching C3 and the walk at K*</strong></td><td class="good">Chosen: both shapes read about K* tickets at the switch and fewer elsewhere, with no new index on tickets.</td></tr>
 </tbody></table>
-<p>There is no data migration for tickets: their stored org unit does not change. Only how it is matched changes.</p>
 
 <h2>5. The evidence</h2>
-<p>SP-1c (TICK-1038) measured each mechanism on S31's real schema with 800,000 tickets, 300 back-to-back pairs per cell against a baseline. Numbers are the extra time per list: typical (median) / 95th percentile, in ms. "Thin" and "hot" are 101-unit districts built to be lopsided: 600 tickets in total, and 22,996 tickets nearly all in one unit.</p>
-<table><thead><tr><th>Mechanism</th><th>area 10</th><th>district 101</th><th>thin</th><th>hot</th><th>region 1,011</th><th>top 10,111</th></tr></thead><tbody>
-<tr><td><strong>Chosen: probe → C2 / walk</strong></td><td class="n">+2.3 / +3.3</td><td class="n bad">+5.7 / +8.5</td><td class="n">+4.8 / +11.4</td><td class="n">+2.7 / +4.3</td><td class="n">+3.9 / +5.5</td><td class="n">+4.4 / +6.7</td></tr>
-<tr><td>Walk only</td><td class="n bad">+30.6 / +71.5</td><td class="n">+3.5 / +5.6</td><td class="n">+8.3 / +26.0</td><td class="n">+1.8 / +3.1</td><td class="n">+1.6 / +2.8</td><td class="n">+0.2 / +0.9</td></tr>
-<tr><td>C2 only</td><td class="n">+1.6 / +2.5</td><td class="n">+7.1 / +9.5</td><td class="n">+2.9 / +4.3</td><td class="n bad">+37.4 / +50.9</td><td class="n bad">+77 / +123</td><td class="n bad">+760 / +1,185</td></tr>
-<tr><td>Probe → C1 / walk</td><td class="n">+2.7 / +3.9</td><td class="n bad">+7.0 / +15.5</td><td class="n bad">+11.9 / +36.5</td><td class="n">+2.9 / +4.6</td><td class="n">+4.0 / +5.9</td><td class="n">+5.0 / +6.8</td></tr>
+<p>From SP-1e, on the 800,000-ticket benchmark: the extra time per list, typical / 95th percentile, in ms, with the first draft's fixed threshold of 1,000. "Agents" have other access too, which fills the page early. A "region-only" caller sees tickets only through "in my region", which is S31's own acceptance persona. "Uniform" sets spread a region's tickets evenly over the year.</p>
+<table><thead><tr><th>Set</th><th>agents</th><th>region-only</th></tr></thead><tbody>
+<tr><td>area, 220 tickets</td><td class="n">+4.0 / +2.7</td><td class="n">+6.1 / +7.6</td></tr>
+<tr><td>district, 3,379</td><td class="n">+5.7 / +7.7</td><td class="n bad">+31.5 / +41.3</td></tr>
+<tr><td>region, 37,930</td><td class="n">+4.0 / +5.1</td><td class="n">+9.4 / +11.0</td></tr>
+<tr><td>whole tree, 380,048</td><td class="n">+2.5 / +2.3</td><td class="n">+5.5 / +8.6</td></tr>
+<tr><td>uniform, 1,001</td><td class="n">+6.1 / +7.5</td><td class="n bad">+85.4 / +161.6</td></tr>
+<tr><td>uniform, 3,000</td><td class="n">+9.6 / +13.1</td><td class="n bad">+47.7 / +63.3</td></tr>
+<tr><td>uniform, 10,000</td><td class="n">+7.1 / +11.8</td><td class="n bad">+20.5 / +26.9</td></tr>
 </tbody></table>
-<p>Also measured: the walk keeps its fast plan on PostgreSQL 16.10 thanks to a one-word SQL trick (<code>OFFSET 0</code>); the largest number of tickets the region part reads under the chosen mechanism is 949; the single-ticket lookup is ≤ 0.32 ms at every size.</p>
-<p><strong>Caveat:</strong> the machine was busy with other work during SP-1c, so these are reliable for <em>comparing</em> mechanisms but are not budget-grade. That is what SP-1d's quiet-machine pass and TICK-1037 are for.</p>
+<p>The region-only failures all sit just above the fixed threshold and fall as the region grows. That is the walk's cost curve, and it is why the switch moves to K*. A last set of measurements finds the exact crossover. My estimate of the worst case at K* is +15 to +25 ms; this is <strong>inferred, not measured</strong>.</p>
+<p>Also measured:</p>
+<ul>
+<li>The type-aware index takes the probe from 220 ms to 1.9 ms on a mixed region.</li>
+<li>The capped count costs 0.7 to 3.2 ms, against 0.6 to 1.1 s before.</li>
+<li>Every shape returned the same tickets, in the same order, for every caller tested.</li>
+</ul>
+<p>The benchmark host was shared with other work, so these numbers compare shapes reliably but are not a budget.</p>
 
 <h2>6. What is being accepted (residual risks)</h2>
 <dl>
-<dt>Mid-sized districts are still over budget (open, not accepted)</dt>
-<dd>About +5.7 ms typical against 3.8 ms of room. Two fixes are queued in SP-1d: a cheaper probe for big subtrees, and removing four "and not already matched" checks the list adds to every branch (39 % of the district's cost). If those fail, the Solution Architect takes it to the CTO as "win back budget elsewhere". The story is not accepted until this is closed.</dd>
-<dt>If SP-1d cannot make the probe cheap at the top of the tree</dt>
-<dd>The threshold drops from 1,000 to 500. The lopsided "thin" district then costs about +7.8 ms. Everything else in this amendment stays.</dd>
-<dt>Timing hint (Info, proposed as AR-TICK-1040-01)</dt>
-<dd>Because the list picks its query from the count, its speed could hint whether more than 1,000 tickets sit under the agent's own units. It never changes which tickets anyone sees, never crosses tenants, and the count is never returned or logged. The security reviewer confirms or blocks this.</dd>
-<dt>A database upgrade could change the walk's plan</dt>
-<dd>The <code>OFFSET 0</code> behaviour is verified on PostgreSQL 16.10 only. A plan test in CI fails if an upgrade changes it.</dd>
+<dt>The slowest case may still be over budget (open)</dt>
+<dd>The slowest case is an agent who sees tickets only through "my region", with a region just above K*. TICK-1037 measures it against 150 ms directly. If it fails, the CTO gets two costed options: a dedicated index, which adds a cost to every ticket save, or a product decision on the budget for this kind of user.</dd>
+<dt>Dormant regions</dt>
+<dd>If every ticket in a large region is older than nearly everything else, the walk has to read far before it fills a page. A metric shows when the walk is used. The fix is the same dedicated index.</dd>
+<dt>Stale ticket totals</dt>
+<dd>If the hourly refresh lags, K* is slightly off. That costs speed only, never who sees what. An age metric alerts at 3 hours.</dd>
+<dt>Timing hint (Low, accepted by the security reviewer)</dt>
+<dd>Response time can hint whether more than K* tickets of a type sit under a policy's units, including tickets the agent can't open. Through K*, it can also hint at the tenant's rough ticket volume. It never crosses tenants and never changes who sees what.</dd>
+<dt>Database upgrades</dt>
+<dd>The two plan-fixing tricks (<code>OFFSET 0</code> and a materialised sub-query) are verified on PostgreSQL 16.10. A plan test in CI fails if an upgrade changes them.</dd>
 </dl>
 
-<h2>7. What happens next</h2>
+<h2>7. The fix and the migration</h2>
+<table><thead><tr><th>Task</th><th>What it does</th></tr></thead><tbody>
+<tr><td>TICK-1032</td><td>The closure table and the type-aware index, tenant-walled, with a cross-tenant test.</td></tr>
+<tr><td>TICK-1033</td><td>groupsync rebuilds the closure in the same transaction, one tenant at a time.</td></tr>
+<tr><td>TICK-1034</td><td>Tidy start units, single-ticket check, capped count, the 4-start-point rule, and deleting the old walk and its limit.</td></tr>
+<tr><td>New, on acceptance</td><td>The ticket-totals table and its hourly refresh job.</td></tr>
+<tr><td>TICK-1036</td><td>The probe and the C3 / walk switch at K*.</td></tr>
+<tr><td>TICK-1035, TICK-1037</td><td>The agreement suite, then the budget measurement on the slowest persona.</td></tr>
+</tbody></table>
+<p>Tickets don't move or change. Only how they are matched changes.</p>
+
+<h2>8. What happens next</h2>
 <ol>
-<li>The Technical Architect critiques this draft and runs SP-1d.</li>
-<li>One revision, then the Solution Architect's verdict (CTO breaks a tie). This page's status changes to ACCEPTED when that happens.</li>
-<li>The CTO plans it; TICK-1036 and TICK-1037 start.</li>
+<li>The Technical Architect checks this revision and runs the crossover cells. Those cells fix one constant in the K* formula; they don't reopen the design.</li>
+<li>The Solution Architect gives the verdict (the CTO breaks a tie). This page's status changes to ACCEPTED when that happens.</li>
+<li>The CTO plans it; the ticket-totals task opens and TICK-1036 starts.</li>
 </ol>
 
-<p class="src">Source of truth: <code>docs/adr/ADR-010-A2-region-leaf-closure-probe-switch.md</code>. Archived spike: <code>docs/adr/ADR-010/A2/sp1c/</code>.</p>
+<p class="src">Source of truth: <code>docs/adr/ADR-010-A2-region-leaf-closure-probe-switch.md</code>. Archive: <code>docs/adr/ADR-010/A2/</code> (rev 0, critique, SP-1c, SP-1d, SP-1e).</p>
 </main></body></html>

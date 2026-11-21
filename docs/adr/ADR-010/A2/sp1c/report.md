@@ -1,5 +1,7 @@
 <!-- SP-1c report (TICK-1038), archived verbatim from the Technical Architect's comment 01a1fca3-ab0f on 2026-11-21. Harness: probe-main.go.txt (renamed from probe-main.go so it is not built), probe.sh. Raw plans: sp1c-raw.md. Console: sp1c-console.log. -->
 
+> **Erratum (A2 critique, TICK-1040 comment 01a1fcb2, spike T1b):** Known 3's claim that C2 forces one plan whatever the statistics say is wrong. C2 walked `records_list_updated` (11,001 rows removed) on a mixed-type district. A2 rev 1 uses C3 instead.
+
 ## SP-1c verdict: none passes. The probe mechanism holds the walk and the row cap, but district-size subtrees stay over the 3.8 ms headroom
 
 **Verdict (one line):** no K and no rendering gives Δp95 ≤ 3.8 ms at every |S|. The best mechanism measured has a worst case of **+5.7 ms** per-pair median at the district (101 units), on server-side time. That mechanism is a probe with K = 1,000, then `= ANY(ARRAY(…))` (C2) at ≤ K and the `OFFSET 0` walk (W0) above K. About 40 % of the district cost is the four `AND NOT` anti-joins. The row criterion passes: every size reads ≤ 949 rows.

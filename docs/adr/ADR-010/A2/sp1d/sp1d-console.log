@@ -1,0 +1,49 @@
+06:02:13 srv2 area (10 units, 220 tickets) probe P0 K=1000 only                              base p95=  6.82 med= +0.47 dp95=  +0.31
+06:02:28 srv2 area (10 units, 220 tickets) probe P3 K=1000 only                              base p95=  7.82 med= +0.46 dp95=  +0.83
+06:02:45 srv2 area (10 units, 220 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches)   base p95=  7.90 med= +2.28 dp95=  +3.89
+06:02:59 srv2 area (10 units, 220 tickets) M3 (P3 K=1000, C2/W0, today's branches)           base p95=  5.62 med= +1.64 dp95=  +2.50
+06:03:12 srv2 area (10 units, 220 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95=  5.19 med= +1.30 dp95=  +2.29
+06:03:28 srv2 area (10 units, 220 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  7.23 med= +1.41 dp95=  +1.74
+06:03:43 srv2 area (10 units, 220 tickets) M3 K=500 (P3, C2/W0, today's branches)            base p95=  7.07 med= +2.03 dp95=  +3.19
+06:03:59 srv2 area (10 units, 220 tickets) no leaf, page: all branches disjoint              base p95= 10.31 med= -0.13 dp95=  +0.14
+06:04:19 srv2 district (101 units, 3379 tickets) probe P0 K=1000 only                        base p95= 11.05 med= +1.12 dp95=  +2.60
+06:04:40 srv2 district (101 units, 3379 tickets) probe P3 K=1000 only                        base p95= 10.16 med= +0.92 dp95=  +1.39
+06:05:26 srv2 district (101 units, 3379 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches) base p95= 20.56 med= +7.70 dp95= +25.70
+06:05:57 srv2 district (101 units, 3379 tickets) M3 (P3 K=1000, C2/W0, today's branches)     base p95= 10.07 med= +6.77 dp95= +15.18
+06:06:18 srv2 district (101 units, 3379 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95=  8.22 med= +5.46 dp95=  +9.39
+06:06:34 srv2 district (101 units, 3379 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  9.09 med= +4.89 dp95=  +9.36
+06:07:02 srv2 district (101 units, 3379 tickets) M3 K=500 (P3, C2/W0, today's branches)      base p95= 12.76 med= +7.59 dp95= +15.31
+06:07:32 srv2 district (101 units, 3379 tickets) no leaf, page: all branches disjoint        base p95= 13.53 med= -0.06 dp95=  +0.61
+06:08:34 srv2 district thin (101 units, 600 tickets) probe P0 K=1000 only                    base p95= 19.71 med= +1.60 dp95=  +4.15
+06:09:03 srv2 district thin (101 units, 600 tickets) probe P3 K=1000 only                    base p95= 11.34 med= +1.24 dp95=  +1.55
+06:09:24 srv2 district thin (101 units, 600 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches) base p95= 11.33 med= +5.47 dp95=  +9.20
+06:09:41 srv2 district thin (101 units, 600 tickets) M3 (P3 K=1000, C2/W0, today's branches) base p95=  9.82 med= +4.79 dp95=  +7.00
+06:09:56 srv2 district thin (101 units, 600 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95=  7.46 med= +3.51 dp95=  +5.48
+06:10:11 srv2 district thin (101 units, 600 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  7.00 med= +2.98 dp95=  +4.23
+06:10:34 srv2 district thin (101 units, 600 tickets) M3 K=500 (P3, C2/W0, today's branches)  base p95=  9.26 med= +5.57 dp95= +17.14
+06:10:52 srv2 district thin (101 units, 600 tickets) no leaf, page: all branches disjoint    base p95= 13.66 med= -0.14 dp95=  -0.88
+06:11:05 srv2 district hot (101 units, 22996 tickets) probe P0 K=1000 only                   base p95=  7.60 med= +0.74 dp95=  +1.25
+06:11:19 srv2 district hot (101 units, 22996 tickets) probe P3 K=1000 only                   base p95= 10.77 med= +0.82 dp95=  +2.30
+06:11:36 srv2 district hot (101 units, 22996 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches) base p95= 10.38 med= +2.92 dp95=  +6.52
+06:11:52 srv2 district hot (101 units, 22996 tickets) M3 (P3 K=1000, C2/W0, today's branches) base p95=  7.82 med= +2.85 dp95=  +4.10
+06:12:30 srv2 district hot (101 units, 22996 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95= 13.80 med= +3.00 dp95=  +9.65
+06:12:50 srv2 district hot (101 units, 22996 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  9.29 med= +3.00 dp95=  +5.08
+06:13:07 srv2 district hot (101 units, 22996 tickets) M3 K=500 (P3, C2/W0, today's branches) base p95=  8.61 med= +3.00 dp95=  +4.39
+06:13:20 srv2 district hot (101 units, 22996 tickets) no leaf, page: all branches disjoint   base p95=  8.16 med= -0.12 dp95=  -0.35
+06:13:34 srv2 region (1011 units, 37930 tickets) probe P0 K=1000 only                        base p95=  7.60 med= +2.13 dp95=  +2.93
+06:13:49 srv2 region (1011 units, 37930 tickets) probe P3 K=1000 only                        base p95= 12.16 med= +0.88 dp95=  +4.78
+06:14:09 srv2 region (1011 units, 37930 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches) base p95= 10.88 med= +4.08 dp95=  +9.41
+06:14:28 srv2 region (1011 units, 37930 tickets) M3 (P3 K=1000, C2/W0, today's branches)     base p95= 10.86 med= +2.88 dp95=  +7.35
+06:14:44 srv2 region (1011 units, 37930 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95=  6.81 med= +1.94 dp95=  +2.90
+06:14:59 srv2 region (1011 units, 37930 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  6.72 med= +1.84 dp95=  +2.37
+06:15:13 srv2 region (1011 units, 37930 tickets) M3 K=500 (P3, C2/W0, today's branches)      base p95=  6.44 med= +1.99 dp95=  +2.37
+06:15:26 srv2 region (1011 units, 37930 tickets) no leaf, page: all branches disjoint        base p95=  6.92 med= -0.06 dp95=  -0.20
+06:15:41 srv2 root (10111 units, 380048 tickets) probe P0 K=1000 only                        base p95=  6.77 med= +4.19 dp95=  +6.41
+06:15:55 srv2 root (10111 units, 380048 tickets) probe P3 K=1000 only                        base p95=  6.32 med= +0.67 dp95=  +0.94
+06:16:14 srv2 root (10111 units, 380048 tickets) M2 = SP-1c (P0 K=1000, C2/W0, today's branches) base p95=  8.10 med= +5.01 dp95=  +6.95
+06:16:29 srv2 root (10111 units, 380048 tickets) M3 (P3 K=1000, C2/W0, today's branches)     base p95=  7.00 med= +0.91 dp95=  +1.89
+06:16:43 srv2 root (10111 units, 380048 tickets) M3r (P3 K=1000, C2/W0, page: region branch disjoint) base p95=  6.11 med= +0.55 dp95=  +0.77
+06:16:57 srv2 root (10111 units, 380048 tickets) M3a (P3 K=1000, C2/W0, page: all branches disjoint) base p95=  5.99 med= +0.36 dp95=  +0.58
+06:17:10 srv2 root (10111 units, 380048 tickets) M3 K=500 (P3, C2/W0, today's branches)      base p95=  5.56 med= +0.71 dp95=  +1.09
+06:17:22 srv2 root (10111 units, 380048 tickets) no leaf, page: all branches disjoint        base p95=  5.75 med= -0.08 dp95=  -0.08
+EXIT 0
