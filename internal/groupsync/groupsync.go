@@ -74,6 +74,8 @@ type Syncer struct {
 	lag  metric.Float64Histogram
 	// subtree is groupsync_org_subtree_max, one observation per applied tenant.
 	subtree metric.Int64Histogram
+	// unrooted is groupsync_org_closure_unrooted_units (TICK-1058).
+	unrooted metric.Int64Counter
 
 	mu      sync.Mutex
 	cursors map[uuid.UUID]string
@@ -81,7 +83,8 @@ type Syncer struct {
 	started time.Time
 }
 
-// New registers groupsync_lag_seconds on mp. pool must log in as
+// New registers groupsync_lag_seconds, groupsync_org_subtree_max and
+// groupsync_org_closure_unrooted_units on mp. pool must log in as
 // nava_groupsync.
 func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvider, log *slog.Logger, opts Options) (*Syncer, error) {
 	if pool == nil || dir == nil {
@@ -118,8 +121,18 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	if err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
+	// TICK-1058: reported, not failed. Failing the sync would not repair the
+	// closure (the rollback keeps the stored one, still without the self row)
+	// and would stop the tenant's principal tombstones and group removals.
+	unr, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Counter(
+		"groupsync_org_closure_unrooted_units",
+		metric.WithDescription("Live org units found with no org_unit_closure self row after a tenant's closure rebuild, summed over applied tenant syncs. Such a unit is outside every region. Any increase is an alert. Never labelled by tenant; the tenant is named in a log line."),
+		metric.WithUnit("{unit}"))
+	if err != nil {
+		return nil, fmt.Errorf("groupsync: %w", err)
+	}
 	return &Syncer{
-		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub,
+		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr,
 		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, started: opts.Now(),
 	}, nil
 }
@@ -209,6 +222,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	var digest string
 	var snapAt time.Time
 	subtreeMax := -1 // -1: nothing applied, nothing to record
+	unrooted := 0
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		var locked bool
 		if err := tx.QueryRow(ctx, lockSQL, LockName(tenantID)).Scan(&locked); err != nil {
@@ -241,6 +255,13 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 				return err
 			}
 			subtreeMax = n
+			// The closure is not rebuilt, but a hand edit since the last
+			// apply can still have left a live unit without its self row
+			// (TICK-1058). An apply heals an orphan that is not in the
+			// snapshot by tombstoning it, so this path is where one lasts.
+			if unrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
+				return err
+			}
 			return nil
 		}
 		st, err := apply(ctx, tx, tenantID, changes, s.opts.Now(), s.opts.MaxOrgUnitDepth)
@@ -248,6 +269,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			return err
 		}
 		subtreeMax = st.OrgSubtreeMax
+		unrooted = st.ClosureUnrooted
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
 				slog.String("tenant_id", tenantID.String()))
@@ -259,6 +281,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			slog.Int("org_members_written", st.OrgMembersWritten), slog.Int("org_members_removed", st.OrgMembersRemoved),
 			slog.Int("org_subtree_max", st.OrgSubtreeMax),
 			slog.Int("org_closure_rows", st.ClosureRows), slog.Bool("org_closure_rebuilt", st.ClosureRebuilt),
+			slog.Int("org_closure_unrooted", st.ClosureUnrooted),
 			slog.Int("ignored_outside_subtree", st.Ignored))
 		return nil
 	})
@@ -268,6 +291,12 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	}
 	if res.Skipped {
 		return res
+	}
+	// Added only after the commit: a rolled-back run reports nothing.
+	if unrooted > 0 {
+		s.unrooted.Add(ctx, int64(unrooted))
+		s.log.WarnContext(ctx, "group sync: live org units have no closure self row and are outside every region",
+			slog.String("tenant_id", tenantID.String()), slog.Int("org_closure_unrooted", unrooted))
 	}
 	if subtreeMax >= 0 {
 		s.subtree.Record(ctx, int64(subtreeMax))

@@ -1,0 +1,190 @@
+host: MINGW64_NT-10.0-26300 naval 3.3.6-bec3d608-341.x86_64 2023-02-22 08:29 UTC x86_64 Msys
+docker VM: 16 CPUs, 26260877312 bytes
+containers running: nava-tick1058-bench-4647 nava-it-tick1059 nava-it-tick1058 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 
+Timing is on.
+SET
+Time: 0.304 ms
+SET
+Time: 0.218 ms
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+Time: 0.898 ms
+CREATE ROLE
+Time: 4.880 ms
+GRANT
+Time: 6.222 ms
+CREATE TABLE
+Time: 30.169 ms
+CREATE INDEX
+Time: 12.934 ms
+CREATE TABLE
+Time: 17.736 ms
+ALTER TABLE
+Time: 5.004 ms
+ALTER TABLE
+Time: 4.466 ms
+CREATE POLICY
+Time: 4.618 ms
+GRANT
+Time: 4.045 ms
+SELECT 400
+Time: 5.561 ms
+SELECT 11111
+Time: 46.814 ms
+INSERT 0 11111
+Time: 208.969 ms
+INSERT 0 399
+Time: 11.733 ms
+INSERT 0 1800
+Time: 36.840 ms
+UPDATE 1
+Time: 5.859 ms
+ANALYZE
+Time: 41.525 ms
+ org_units_rows 
+----------------
+          13310
+(1 row)
+
+Time: 2.056 ms
+== backfill (all 400 tenants, the migration statement per tenant)
+DO
+Time: 1760.839 ms (00:01.761)
+ANALYZE
+Time: 54.005 ms
+== check, tenant 0 (110: the setup tombstones a level-2 unit but not its 110 live descendants, a state group sync never leaves)
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=22.276..22.282 rows=1 loops=1)
+   Buffers: shared hit=677
+   ->  Hash Right Anti Join (actual time=21.863..22.252 rows=110 loops=1)
+         Hash Cond: ((c.ancestor_id = u.id) AND (c.descendant_id = u.id))
+         Buffers: shared hit=677
+         ->  Seq Scan on org_unit_closure c (actual time=0.011..7.006 rows=53778 loops=1)
+               Filter: (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid)
+               Rows Removed by Filter: 3999
+               Buffers: shared hit=540
+         ->  Hash (actual time=4.232..4.233 rows=11110 loops=1)
+               Buckets: 16384  Batches: 1  Memory Usage: 823kB
+               Buffers: shared hit=137
+               ->  Seq Scan on org_units u (actual time=0.010..2.210 rows=11110 loops=1)
+                     Filter: ((deleted_at IS NULL) AND (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid))
+                     Rows Removed by Filter: 2200
+                     Buffers: shared hit=137
+ Planning:
+   Buffers: shared hit=29 read=1
+ Planning Time: 0.337 ms
+ Execution Time: 22.332 ms
+(20 rows)
+
+Time: 23.449 ms
+ unrooted_tenant0 
+------------------
+              110
+(1 row)
+
+Time: 20.703 ms
+== check, tenant 1 (201 units)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.375..0.377 rows=1 loops=1)
+   Buffers: shared hit=259
+   ->  Hash Right Anti Join (actual time=0.373..0.374 rows=0 loops=1)
+         Hash Cond: ((c.ancestor_id = u.id) AND (c.descendant_id = u.id))
+         Buffers: shared hit=259
+         ->  Index Only Scan using org_unit_closure_pkey on org_unit_closure c (actual time=0.034..0.163 rows=401 loops=1)
+               Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
+               Heap Fetches: 401
+               Buffers: shared hit=236
+         ->  Hash (actual time=0.137..0.138 rows=201 loops=1)
+               Buckets: 1024  Batches: 1  Memory Usage: 21kB
+               Buffers: shared hit=23
+               ->  Bitmap Heap Scan on org_units u (actual time=0.034..0.098 rows=201 loops=1)
+                     Recheck Cond: (tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
+                     Filter: (deleted_at IS NULL)
+                     Heap Blocks: exact=21
+                     Buffers: shared hit=23
+                     ->  Bitmap Index Scan on org_units_parent (actual time=0.024..0.024 rows=201 loops=1)
+                           Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
+                           Buffers: shared hit=2
+ Planning Time: 0.264 ms
+ Execution Time: 0.426 ms
+(22 rows)
+
+Time: 1.114 ms
+== one orphan in tenant 0 (FK triggers off): 111
+SET
+Time: 0.440 ms
+INSERT 0 1
+Time: 4.407 ms
+RESET
+Time: 0.177 ms
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=28.533..28.562 rows=1 loops=1)
+   Buffers: shared hit=677
+   ->  Hash Right Anti Join (actual time=27.485..28.519 rows=111 loops=1)
+         Hash Cond: ((c.ancestor_id = u.id) AND (c.descendant_id = u.id))
+         Buffers: shared hit=677
+         ->  Seq Scan on org_unit_closure c (actual time=0.015..8.434 rows=53778 loops=1)
+               Filter: (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid)
+               Rows Removed by Filter: 3999
+               Buffers: shared hit=540
+         ->  Hash (actual time=5.213..5.224 rows=11111 loops=1)
+               Buckets: 16384  Batches: 1  Memory Usage: 823kB
+               Buffers: shared hit=137
+               ->  Seq Scan on org_units u (actual time=0.015..2.740 rows=11111 loops=1)
+                     Filter: ((deleted_at IS NULL) AND (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid))
+                     Rows Removed by Filter: 2200
+                     Buffers: shared hit=137
+ Planning Time: 0.264 ms
+ Execution Time: 28.621 ms
+(18 rows)
+
+Time: 29.436 ms
+ unrooted_tenant0 
+------------------
+              111
+(1 row)
+
+Time: 22.199 ms
+== the same with hash join off (the PK-probe nested loop the planner rejected)
+SET
+Time: 0.217 ms
+SET
+Time: 0.191 ms
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=44.043..44.045 rows=1 loops=1)
+   Buffers: shared hit=44470
+   ->  Nested Loop Anti Join (actual time=4.100..44.006 rows=111 loops=1)
+         Buffers: shared hit=44470
+         ->  Seq Scan on org_units u (actual time=0.010..2.862 rows=11111 loops=1)
+               Filter: ((deleted_at IS NULL) AND (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid))
+               Rows Removed by Filter: 2200
+               Buffers: shared hit=137
+         ->  Index Only Scan using org_unit_closure_pkey on org_unit_closure c (actual time=0.003..0.003 rows=1 loops=11111)
+               Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (ancestor_id = u.id) AND (descendant_id = u.id))
+               Heap Fetches: 11000
+               Buffers: shared hit=44333
+ Planning Time: 0.167 ms
+ Execution Time: 44.083 ms
+(14 rows)
+
+Time: 44.819 ms
+RESET
+Time: 0.220 ms
+RESET
+Time: 0.158 ms
+== tenant 0 rebuild for scale (DELETE then INSERT, the group sync statement)
+BEGIN
+Time: 0.182 ms
+DELETE 53778
+Time: 34.531 ms
+INSERT 0 53778
+Time: 1248.890 ms (00:01.249)
+COMMIT
+Time: 4.264 ms

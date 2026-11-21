@@ -101,6 +101,47 @@ over 4 entity types.
 | Index size | 2,896 kB for the old 2-column key, 3,056 kB for the new key (+5.5%). |
 | `under` leaf with an entity type, 20-unit set (9,998 rows) | Index Only Scan `records_org_unit`, all three columns in `Index Cond`, 72 buffers, 2.93 ms. |
 
+## Unrooted-unit check (TICK-1058)
+
+Since TICK-1034, a live unit with no `(u, u)` row is outside every region:
+`under` never grants for it and `not under` admits it. Such a unit is an
+orphan (its parent row is missing), a unit on a parent cycle, or a live unit
+under a tombstoned ancestor. Group sync never leaves any of the three. Every
+snapshot unit's parent must be in the snapshot, and an apply tombstones every
+unit the snapshot lacks. A hand edit, a bypassed FK, or a bug can still create
+one, so the count is checked.
+
+- Query: `closureUnrootedSQL` in `internal/groupsync/closure.go` counts the
+  tenant's live units with no self row (one anti-join).
+- Group sync runs it after every `rebuildClosure` call, rebuilt or not. It
+  also runs on every unchanged-snapshot cycle, because an orphan written by
+  hand leaves the stored and live row counts equal, and the next apply
+  tombstones it.
+- A count above 0 adds to the counter `groupsync_org_closure_unrooted_units`,
+  with no tenant attribute (T01), and writes a WARN line that names the
+  tenant. The sync does not fail.
+- `org_unit_closure_rebuild_all()` raises a `WARNING` per affected tenant
+  (`db/migrations/20261121144100_org_unit_closure_unrooted_warning.sql`).
+
+**Metric, not fail.** Failing the sync would not repair anything: the rollback
+keeps the stored closure, which still has no self row. It would also stop
+that tenant's principal tombstones and group removals, so deprovisioning
+would wait for a hand fix. In the apply path, the run that reports an orphan
+is the run that heals it.
+
+Bench: `scratch/tick-1058-closure-self-row/bench.sql`, output in
+`bench-out.txt`. Same host and PostgreSQL 16.10 as above, the same 400
+tenants and 13,310 units, `jit = off`. The setup tombstones one level-2 unit
+of tenant 0 but leaves its 110 descendants live, so the check counts 110,
+and 111 with one orphan added.
+
+| Measure | Result |
+| --- | --- |
+| Tenant 0 (11,111 units, 53,778 closure rows) | Hash Right Anti Join: Seq Scan of the closure (93% of the table is this tenant) and of `org_units`, 677 buffers, 22 to 29 ms. |
+| The same, nested loop forced | Index Only Scan `org_unit_closure_pkey`, 11,111 probes, 44,470 buffers, 44 ms. The planner's hash join is cheaper. |
+| Tenant 1 (201 units) | Hash anti-join over an Index Only Scan of the PK prefix, 253 buffers, 0.43 ms. |
+| Against the rebuild it follows | Tenant 0's rebuild is 1,249 ms, so the check adds about 2%. No new index: the PK and `org_units_pkey` serve it. |
+
 ## Rollout
 
 - The migration locks `org_units` in SHARE mode while it backfills, so no
