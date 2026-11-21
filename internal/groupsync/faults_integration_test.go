@@ -78,6 +78,13 @@ func (x *faultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	return x.Tx.QueryRow(ctx, sql, args...)
 }
 
+func (x *faultTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if x.f.hit("Exec: " + sql) {
+		return pgconn.CommandTag{}, errInjected
+	}
+	return x.Tx.Exec(ctx, sql, args...)
+}
+
 func (x *faultTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
 	br := x.Tx.SendBatch(ctx, b)
 	if x.f.hit("Batch.Exec") {
@@ -259,9 +266,19 @@ func TestApplyDatabaseFaultsRollBackAndStayInTheTenant(t *testing.T) {
 	rowsA := func() string { return tenantRows(t, super, a) }
 	rowsB := tenantRows(t, super, b)
 	// apply swallows nothing: every database failure must reach the caller.
-	tried := sweep(t, pool, a, rowsA, func(string) bool { return false }, func(ctx context.Context, tx pgx.Tx) error {
-		return groupsync.ApplyForTest(ctx, tx, a, snap, time.Now(), 8)
-	})
+	// fired collects the statements that took a fault, to show the sweeps
+	// reached the four closure statements (TICK-1033).
+	fired := map[string]bool{}
+	run := func(snap identity.DirectoryChanges) func(context.Context, pgx.Tx) error {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			err := groupsync.ApplyForTest(ctx, tx, a, snap, time.Now(), 8)
+			if err != nil {
+				fired[tx.(*faultTx).f.what] = true
+			}
+			return err
+		}
+	}
+	tried := sweep(t, pool, a, rowsA, func(string) bool { return false }, run(snap))
 	if tried < 20 {
 		t.Fatalf("only %d fault points swept; the sweep is not reaching the writes", tried)
 	}
@@ -271,6 +288,36 @@ func TestApplyDatabaseFaultsRollBackAndStayInTheTenant(t *testing.T) {
 	// The clean run committed the changed directory for A alone.
 	if got := rowsA(); !strings.Contains(got, pa("/devs2")) || strings.Contains(got, "g-evil") || strings.Contains(got, "ou-evil") {
 		t.Fatalf("tenant A rows after the clean run: %s", got)
+	}
+
+	// The closure's four statements. The sweep above changed the tree, so it
+	// reached the DELETE and the INSERT. Now the same directory again with the
+	// closure made stale: no unit changes, so the two drift-check counts run
+	// too, then the repair. Each fault must return an error and leave the tree
+	// and the closure as they were (rowsA covers both).
+	exec(t, super, "DELETE FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id <> descendant_id", a)
+	stale := rowsA()
+	rowsBBefore := tenantRows(t, super, b)
+	sweep(t, pool, a, rowsA, func(string) bool { return false }, run(snap))
+	if got := tenantRows(t, super, b); got != rowsBBefore {
+		t.Fatalf("tenant B changed during the closure sweep: before %s, after %s", rowsBBefore, got)
+	}
+	if rowsA() == stale {
+		t.Fatal("the clean run did not repair the stale closure")
+	}
+	for _, stmt := range []string{
+		"QueryRow: WITH RECURSIVE live",
+		"QueryRow: SELECT count(*) FROM org_unit_closure",
+		"Exec: DELETE FROM org_unit_closure",
+		"Exec: INSERT INTO org_unit_closure",
+	} {
+		hit := false
+		for w := range fired {
+			hit = hit || strings.HasPrefix(w, stmt)
+		}
+		if !hit {
+			t.Errorf("no fault was injected on %q", stmt)
+		}
 	}
 }
 
