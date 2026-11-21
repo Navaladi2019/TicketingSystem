@@ -271,7 +271,10 @@ func perfEnvInt(name string, def int) int {
 	return def
 }
 
-func newPerfEnv(t *testing.T, clients int) *perfEnv {
+func newPerfEnv(t *testing.T, clients int) *perfEnv { return newPerfEnvWith(t, clients) }
+
+// newPerfEnvWith is newPerfEnv with extra handler options (TICK-1022's spikes).
+func newPerfEnvWith(t *testing.T, clients int, extra ...server.Option) *perfEnv {
 	t.Helper()
 	super, base := etCluster(t)
 	pc := base.Config().Copy()
@@ -307,6 +310,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	}
 	reader := etAuditReader(t, pool)
 	opts := []server.Option{server.WithLimiter(perfAllow{}), server.WithPool(pool), server.WithAllocatorPool(alloc), server.WithAuditReader(reader), server.WithCursors(kr)}
+	opts = append(opts, extra...)
 	log := slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	h, err := server.NewHandler(log, tel, tokens, stubPaths{}, opts...)
 	if err != nil {
