@@ -20,10 +20,10 @@ import (
 //  3. a valid row of tenant A is written: the positive control of the
 //     WITH CHECK path, so the others cannot pass on a broken connection,
 //     role or tenant;
-//  4. an UPDATE of both key columns of a closure row is refused with 42501:
-//     there is no UPDATE grant. An UPDATE grant added later, table-wide or on
-//     either column, even with no UPDATE policy (the UPDATE would then reach
-//     0 rows and pass as Denied), turns it red.
+//  4. an UPDATE of each key column of a closure row, one per statement, is
+//     refused with 42501: there is no UPDATE grant. An UPDATE grant added
+//     later, table-wide or on either column, even with no UPDATE policy (the
+//     UPDATE would then reach 0 rows and pass as Denied), turns it red.
 //
 // Paths 1 and 2 each go red when their FK is dropped: the other FK holds
 // (its unit is tenant A's), so the row is written or refused by another
@@ -36,7 +36,7 @@ func closurePaths() []Path {
 			Case: "CI-2", Role: "nava_groupsync", DB: closureForeignDescendant},
 		{Name: "org_unit_closure: group sync writes its own valid tenant A row (positive control of the WITH CHECK path)",
 			Case: "CI-2", Role: "nava_groupsync", DB: closureOwnInsert},
-		{Name: "org_unit_closure: group sync updates both key columns of a closure row: refused with 42501 (no UPDATE grant, table or column)",
+		{Name: "org_unit_closure: group sync updates each key column of a closure row: refused with 42501 (no UPDATE grant, table or column)",
 			Case: "CI-2", Role: "nava_groupsync", DB: closureUpdateRefused},
 	}
 }
@@ -120,8 +120,16 @@ func closureUpdateRefused(ctx context.Context, c Cluster) error {
 		if err := closureControl(ctx, tx); err != nil {
 			return err
 		}
-		_, err := execOne(ctx, tx, "UPDATE org_unit_closure SET ancestor_id = ancestor_id, descendant_id = descendant_id WHERE tenant_id = $1 AND ancestor_id = $2",
-			TenantA, OrgUnitA1)
-		return refused("group sync updates tenant A's closure rows", err)
+		// One column per statement: PostgreSQL wants UPDATE on every column
+		// a SET names, so a two-column SET would still be refused under a
+		// grant on one of them.
+		for _, col := range []string{"ancestor_id", "descendant_id"} {
+			_, err := execOne(ctx, tx, "UPDATE org_unit_closure SET "+col+" = "+col+" WHERE tenant_id = $1 AND ancestor_id = $2",
+				TenantA, OrgUnitA1)
+			if err := refused("group sync updates "+col+" of tenant A's closure rows", err); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
