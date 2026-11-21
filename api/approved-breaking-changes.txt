@@ -7,3 +7,4 @@ GET /api/v1/entity-types/{key}/access response 200 application/json.rules: type 
 GET /api/v1/entity-types/{key}/access response 200 application/json.rules[]: schema removed # TICK-939: same change, the array items are gone
 PUT /api/v1/entity-types/{key}/access response 200 application/json.rules: type changed from [array] to [object] # TICK-939: the PUT response returns the same format-2 document; approved by the Technical Lead as owner of the contract
 PUT /api/v1/entity-types/{key}/access response 200 application/json.rules[]: schema removed # TICK-939: same change, the array items are gone
+GET /api/v1/records/{entity} response 200 application/json.total: type changed from [integer] to [integer null] # TICK-1045: ADR-006-A2 A2-1 makes total nullable (null only for total_state unknown, not produced until T-A2-2); approved by the Technical Lead as owner of the contract

@@ -41,6 +41,7 @@ type listPage struct {
 	Next   *string   `json:"next_cursor"`
 	Total  int       `json:"total"`
 	Capped *bool     `json:"total_capped"`
+	State  string    `json:"total_state"`
 }
 
 func (e *etEnv) list(t *testing.T, token, entity, query string) (*httptest.ResponseRecorder, listPage) {
@@ -229,6 +230,9 @@ func TestListRecordsErrors(t *testing.T) {
 	for _, q := range []string{"filter[nope]=1", "sort=nope", "sort=cost", "filter[cost][like]=1", "filter[triage][gt]=a", "filter[assignee]=x", "filter[token]=x"} {
 		rec, _ := m.list(t, "lookalike-a", "job", q)
 		listCode(t, rec, http.StatusBadRequest, "validation_failed")
+		if strings.Contains(rec.Body.String(), "total_state") {
+			t.Errorf("%s: a problem body carries total_state: %s", q, rec.Body)
+		}
 	}
 	for _, q := range []string{"limit=0", "limit=201"} {
 		rec, _ := m.list(t, "lookalike-a", "job", q)
@@ -284,13 +288,13 @@ func TestListRecordsCrossTenant(t *testing.T) {
 	b := e.mustCreateRec(t, "admin-b", "ticket", "x2", `{"short_description": "b"}`)
 	b2 := e.mustCreateRec(t, "admin-b", "ticket", "x3", `{"short_description": "b2"}`)
 	p := e.mustList(t, "admin-a", "ticket", "")
-	if len(p.Items) != 1 || p.Items[0].ID != a.ID || p.Total != 1 {
+	if len(p.Items) != 1 || p.Items[0].ID != a.ID || p.Total != 1 || p.State != "exact" {
 		t.Errorf("tenant A list: %d items, total %d", len(p.Items), p.Total)
 	}
 	p = e.mustList(t, "admin-b", "ticket", "")
 	wantIDs(t, "tenant B", p.Items, b, b2)
-	if p.Total != 2 {
-		t.Errorf("tenant B total = %d, want 2", p.Total)
+	if p.Total != 2 || p.State != "exact" {
+		t.Errorf("tenant B total = %d state %q, want 2 exact", p.Total, p.State)
 	}
 	// An entity type only tenant B has is a 404 for tenant A.
 	sameResponse(t, "B's type seen by A",
@@ -477,10 +481,10 @@ func TestListRecordsPageStatementsNeedNoSort(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The count is exact up to 1,000 and capped past it (D25).
-	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil {
+	if p := e.mustList(t, "admin-a", "ticket", "limit=1"); p.Total != 800 || p.Capped != nil || p.State != "exact" {
 		t.Errorf("800 matches: total %d capped %v, want exact 800 and no total_capped", p.Total, p.Capped)
 	}
-	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped {
+	if p := e.mustList(t, "admin-a", "change", "limit=1"); p.Total != 1000 || p.Capped == nil || !*p.Capped || p.State != "capped" {
 		t.Errorf("2400 matches: total %d capped %v, want 1000 and total_capped true", p.Total, p.Capped)
 	}
 	for _, sort := range []string{"", "updated_at", "-updated_at", "created_at", "-created_at", "state", "-state"} {

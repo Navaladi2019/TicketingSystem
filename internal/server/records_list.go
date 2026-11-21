@@ -535,7 +535,10 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			}
 			return err
 		}
-		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), Total: page.Total}
+		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), TotalState: api.RecordListTotalState(page.TotalState)}
+		if page.TotalState != pipeline.TotalUnknown {
+			out.Total = &page.Total
+		}
 		if page.TotalCapped {
 			out.TotalCapped = &page.TotalCapped
 		}

@@ -199,6 +199,27 @@ func (e RecordChangeAction) Valid() bool {
 	}
 }
 
+// Defines values for RecordListTotalState.
+const (
+	Capped  RecordListTotalState = "capped"
+	Exact   RecordListTotalState = "exact"
+	Unknown RecordListTotalState = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the RecordListTotalState enum.
+func (e RecordListTotalState) Valid() bool {
+	switch e {
+	case Capped:
+		return true
+	case Exact:
+		return true
+	case Unknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RepublishLinkedReportResultsStatus.
 const (
 	Published RepublishLinkedReportResultsStatus = "published"
@@ -731,12 +752,19 @@ type RecordList struct {
 	// NextCursor Opaque; null on the last page.
 	NextCursor *string `json:"next_cursor"`
 
-	// Total Records the caller may read that match the filters, not only this page. Exact up to 1,000; when more match, `total` is 1,000 and `total_capped` is true.
-	Total int64 `json:"total"`
+	// Total Records the caller may read that match the filters, not only this page. An integer for `exact` (0-1,000) and `capped` (1,000, when more match); `null` for `unknown`, never 0.
+	Total *int64 `json:"total"`
 
-	// TotalCapped Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+	// TotalCapped Deprecated, use `total_state`. Present and true exactly when `total_state` is `capped` (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	TotalCapped *bool `json:"total_capped,omitempty"`
+
+	// TotalState `exact`: `total` is the full count. `capped`: more than 1,000 match and `total` is 1,000. `unknown`: the count ran out of its time budget; the page is still complete; a client must never render `unknown` as 0.
+	TotalState RecordListTotalState `json:"total_state"`
 }
+
+// RecordListTotalState `exact`: `total` is the full count. `capped`: more than 1,000 match and `total` is 1,000. `unknown`: the count ran out of its time budget; the page is still complete; a client must never render `unknown` as 0.
+type RecordListTotalState string
 
 // RepublishLinkedReport defines model for RepublishLinkedReport.
 type RepublishLinkedReport struct {

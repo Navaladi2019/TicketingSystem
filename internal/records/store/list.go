@@ -68,7 +68,20 @@ type ListPage struct {
 	Total    int64
 	// TotalCapped is true when more than TotalCap rows match and Total is TotalCap.
 	TotalCapped bool
+	// TotalState says what Total means: TotalExact or TotalCapped here.
+	TotalState TotalState
 }
+
+// TotalState is how trustworthy ListPage.Total is (ADR-006-A2 A2-1).
+type TotalState string
+
+// The states of a list total. TotalUnknown (the count ran out of its time
+// budget) is not produced yet.
+const (
+	TotalExact   TotalState = "exact"
+	TotalCapped  TotalState = "capped"
+	TotalUnknown TotalState = "unknown"
+)
 
 // TotalCap is the most the list counts: an exact count of a large tenant's
 // matches alone misses the list p95 (P3-36), so past it Total is TotalCap and
@@ -109,7 +122,10 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
 	}
 	defer rows.Close()
-	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap}
+	page := &ListPage{Total: min(total, TotalCap), TotalCapped: total > TotalCap, TotalState: TotalExact}
+	if page.TotalCapped {
+		page.TotalState = TotalCapped
+	}
 	for rows.Next() {
 		var key *string
 		rec, err := scan(rowWithExtra{rows, &key})

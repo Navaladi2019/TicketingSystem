@@ -73,6 +73,16 @@ type ListQuery = store.ListQuery
 // ListPage is one page of a list and its total (capped at store.TotalCap).
 type ListPage = store.ListPage
 
+// TotalState is how trustworthy a ListPage total is.
+type TotalState = store.TotalState
+
+// The states of a list total, the store's.
+const (
+	TotalExact   = store.TotalExact
+	TotalCapped  = store.TotalCapped
+	TotalUnknown = store.TotalUnknown
+)
+
 // List reads one page of the transaction's tenant's records. It reads only.
 func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	page, err := store.List(ctx, tx, q)

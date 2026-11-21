@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/Navaladi2019/TicketingSystem/api"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/apihttp"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
@@ -185,6 +189,68 @@ func TestSelectivityBand(t *testing.T) {
 	} {
 		if got := selectivityBand(c.total, c.capped); got != c.want {
 			t.Errorf("selectivityBand(%d, %v) = %q, want %q", c.total, c.capped, got, c.want)
+		}
+	}
+}
+
+func TestRecordListTotalStateWire(t *testing.T) {
+	t.Parallel()
+	zero := int64(0)
+	for _, c := range []struct {
+		name string
+		in   api.RecordList
+		want []string
+	}{
+		{"unknown is null", api.RecordList{Items: []api.Record{}, TotalState: api.Unknown}, []string{`"total":null`, `"total_state":"unknown"`}},
+		{"exact zero is 0", api.RecordList{Items: []api.Record{}, Total: &zero, TotalState: api.Exact}, []string{`"total":0`, `"total_state":"exact"`}},
+	} {
+		b, err := json.Marshal(c.in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(string(b), w) {
+				t.Errorf("%s: %s lacks %s", c.name, b, w)
+			}
+		}
+	}
+	var out api.RecordList
+	if err := json.Unmarshal([]byte(`{"items":[],"next_cursor":null,"total":null,"total_state":"unknown"}`), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Total != nil || out.TotalState != api.Unknown {
+		t.Errorf("decoded total %v state %q, want nil and unknown", out.Total, out.TotalState)
+	}
+}
+
+func TestObserveIndexedListAttributes(t *testing.T) {
+	t.Parallel()
+	reader := metric.NewManualReader()
+	h := &handlers{}
+	var err error
+	if h.listIndexed, err = metric.NewMeterProvider(metric.WithReader(reader)).Meter("t").Float64Histogram("list_indexed"); err != nil {
+		t.Fatal(err)
+	}
+	h.observeIndexedList(t.Context(), time.Second, &pipeline.ListPage{Total: 5, TotalState: pipeline.TotalExact}, true)
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	pts := rm.ScopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64]).DataPoints
+	if len(pts) != 1 {
+		t.Fatalf("%d points, want 1", len(pts))
+	}
+	got := map[string]string{}
+	for _, kv := range pts[0].Attributes.ToSlice() {
+		got[string(kv.Key)] = kv.Value.AsString()
+	}
+	want := map[string]string{"acl": "narrowing", "selectivity_band": "lt_10", "total_state": "exact"}
+	if len(got) != len(want) {
+		t.Fatalf("attributes %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("attribute %s = %q, want %q", k, got[k], v)
 		}
 	}
 }

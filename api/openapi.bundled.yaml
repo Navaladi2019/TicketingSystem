@@ -1986,7 +1986,7 @@ components:
           description: The record payload, an object.
     RecordList:
       type: object
-      required: [items, next_cursor, total]
+      required: [items, next_cursor, total, total_state]
       properties:
         items:
           type: array
@@ -1996,15 +1996,22 @@ components:
           type: [string, "null"]
           description: Opaque; null on the last page.
         total:
-          type: integer
+          type: [integer, "null"]
           format: int64
           description: >
-            Records the caller may read that match the filters, not only this page. Exact up to 1,000; when more match, `total` is 1,000 and `total_capped` is true.
+            Records the caller may read that match the filters, not only this page. An integer for `exact` (0-1,000) and `capped` (1,000, when more match); `null` for `unknown`, never 0.
+
+        total_state:
+          type: string
+          enum: [exact, capped, unknown]
+          description: >
+            `exact`: `total` is the full count. `capped`: more than 1,000 match and `total` is 1,000. `unknown`: the count ran out of its time budget; the page is still complete; a client must never render `unknown` as 0.
 
         total_capped:
           type: boolean
+          deprecated: true
           description: >
-            Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+            Deprecated, use `total_state`. Present and true exactly when `total_state` is `capped` (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
 
     Record:
       type: object
