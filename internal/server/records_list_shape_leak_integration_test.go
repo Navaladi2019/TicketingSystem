@@ -69,7 +69,7 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 		if n > 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state,
 					requester_id, assignee_id, assignment_group_id, org_unit_id, created_by, created_at, updated_at, data)
-				SELECT r.tenant_id, gen_random_uuid(), r.entity_definition_id, r.version, r.schema_version, r.number || '-c' || g, r.state,
+				SELECT r.tenant_id, gen_random_uuid(), r.entity_definition_id, r.version, r.schema_version, r.number || '-copy' || g, r.state,
 					r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at - g * interval '1 ms', r.data
 				FROM records r, generate_series(1, $3::int) g WHERE r.tenant_id = $1 AND r.id = $2`, e.a.id, in.ID, n); err != nil {
 				t.Fatal(err)
@@ -125,6 +125,21 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 	// response carries total_capped and the field sets compare across shapes.
 	const big, rare = int64(98765431), int64(931)
 	add(1001)
+	// The fixture itself must not hold a banned token, or the body checks
+	// below fail on the fixture and not on a leak (a '-c' || g suffix made
+	// record 3's number end in the token c3).
+	var numbers []string
+	if err := e.super.QueryRow(ctx, `SELECT array_agg(number) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2`, e.a.id, def).Scan(&numbers); err != nil {
+		t.Fatal(err)
+	}
+	if len(numbers) != 1002 {
+		t.Fatalf("the fixture holds %d records, want 1,002", len(numbers))
+	}
+	for _, word := range leakWords() {
+		if leakTokens(strings.Join(numbers, " "))[word] {
+			t.Fatalf("a fixture record number holds the banned token %q", word)
+		}
+	}
 	type seen struct {
 		headers []string
 		keys    []string
@@ -199,7 +214,7 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 					t.Errorf("%s: the %s carry the estimate %d", step.name, text.where, v)
 				}
 			}
-			for _, word := range []string{"c3", "k*", "kstar", "probe", "shape", "materialized", "live_records", "entity_record_estimates", "acl_p"} {
+			for _, word := range leakWords() {
 				if toks[word] {
 					t.Errorf("%s: the %s name %q", step.name, text.where, word)
 				}
@@ -211,6 +226,12 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 			t.Errorf("%s: the response's fields or headers differ by shape: %+v, first %+v", step.name, s, *first)
 		}
 	}
+}
+
+// leakWords are the tokens that would name the shape, K*, the estimate or
+// the probe in a response or a log line.
+func leakWords() []string {
+	return []string{"c3", "k*", "kstar", "probe", "shape", "materialized", "live_records", "entity_record_estimates", "acl_p"}
 }
 
 // leakTokens is the set of s's lower-case tokens: runs of letters, digits,

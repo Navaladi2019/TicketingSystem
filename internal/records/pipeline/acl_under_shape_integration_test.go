@@ -632,9 +632,11 @@ func TestUnderListShapePlans(t *testing.T) {
 	e := migrated(t)
 	w := seedShapeWorld(t, e, 200)
 	w.add(t, e, w.tenant, "O", 30000) // a tenant large enough to walk an index
-	// A closure of a realistic size (2,000 more units below O): over the
-	// handful of rows the tree above holds, a seq scan inside the SubPlan is
-	// cheaper than its PK, which says nothing about the W0 text.
+	// Why the 2,000 extra units and the ANALYZE below (accepted on TICK-1036 as
+	// a data-size effect, consistent with A2-R4): over the handful of closure
+	// rows the tree above holds, PostgreSQL seq-scans org_unit_closure inside
+	// W0's SubPlan instead of probing its PK, which says nothing about the W0
+	// text. A closure of a realistic size, analyzed, gives the plan A2-R4 pins.
 	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
 		SELECT $1, gen_random_uuid(), $2, 'kc-plan-' || g, 'plan-' || g FROM generate_series(1, 2000) g`, w.tenant, w.unit["O"])
 	rebuildClosure(t, e)
