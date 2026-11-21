@@ -180,13 +180,25 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 
 // fullRebuildClosure deletes the tenant's closure and re-inserts it from the
 // live tree: the first import and the drift repair path.
+//
+// TICK-1054: a bulk import leaves org_units with no planner statistics until
+// autovacuum runs, and the rebuild query then took 45 to 98 s. So it runs
+// ANALYZE on org_units first and on org_unit_closure after, in the same
+// transaction (ANALYZE counts the transaction's own writes). The delta path
+// does not.
 func fullRebuildClosure(ctx context.Context, tx pgx.Tx, tid string) (int, bool, error) {
+	if _, err := tx.Exec(ctx, `ANALYZE org_units`); err != nil {
+		return 0, false, fmt.Errorf("analyze org units: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid`, tid); err != nil {
 		return 0, false, fmt.Errorf("clear closure: %w", err)
 	}
 	tag, err := tx.Exec(ctx, closureInsertSQL, tid)
 	if err != nil {
 		return 0, false, fmt.Errorf("rebuild closure: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `ANALYZE org_unit_closure`); err != nil {
+		return 0, false, fmt.Errorf("analyze closure: %w", err)
 	}
 	return int(tag.RowsAffected()), true, nil
 }

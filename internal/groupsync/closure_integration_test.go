@@ -289,20 +289,13 @@ func TestClosureQueryMatchesMigrationBackfill(t *testing.T) {
 	sameRows(t, "migration backfill", closureOf(t, super, tid), goRows)
 }
 
-// SP-1b: a full rebuild of 10,111 units is targeted at <= 0.35 s. The test logs
-// the time and never fails on it. A sync that rebuilds a stale closure is
-// timed against one that finds it right; the difference is the rebuild.
-func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
-	super, pool := cluster(t)
-	tid := uuid.New()
-	seedTenant(t, super, tid, 1)
-	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
-	s := newSyncer(t, pool, dir)
+const benchTotal = 10111
 
-	// One root, 10 regions, 100 countries, the rest as leaves: 4 deep.
-	const total = 10111
+// benchUnits is the bench tree: one root, 10 regions, 100 countries, the rest
+// as leaves, 4 deep.
+func benchUnits(tid uuid.UUID) []identity.DirectoryGroup {
 	units := []identity.DirectoryGroup{unit("u0", "", path(tid, "/ou/u0"))}
-	for i := 1; i < total; i++ {
+	for i := 1; i < benchTotal; i++ {
 		var parent int
 		switch {
 		case i <= 10:
@@ -314,19 +307,65 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 		}
 		units = append(units, unit(fmt.Sprintf("u%d", i), fmt.Sprintf("u%d", parent), path(tid, fmt.Sprintf("/ou/u%d", i))))
 	}
-	user := func(email string) []identity.DirectoryUser {
-		return []identity.DirectoryUser{{KeycloakUserID: "u", Email: email, Enabled: true}}
-	}
-	// Seed the tree directly (a sync of 10,111 new units is the import, not
-	// the rebuild) and analyse it, as autovacuum does on a live database.
+	return units
+}
+
+// seedBenchTree writes the bench tree straight into org_units, with no ANALYZE.
+func seedBenchTree(t *testing.T, super *pgx.Conn, tid uuid.UUID) {
+	t.Helper()
 	exec(t, super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), 'u' || i, 'u' || i FROM generate_series(0, $2::int - 1) i`, tid, total)
+		SELECT $1, gen_random_uuid(), 'u' || i, 'u' || i FROM generate_series(0, $2::int - 1) i`, tid, benchTotal)
 	exec(t, super, `UPDATE org_units c SET parent_id = p.id FROM org_units p
 		WHERE c.tenant_id = $1 AND p.tenant_id = $1 AND p.keycloak_group_id = 'u' || (CASE
 			WHEN substr(c.keycloak_group_id, 2)::int <= 10 THEN 0
 			WHEN substr(c.keycloak_group_id, 2)::int <= 110 THEN (substr(c.keycloak_group_id, 2)::int - 11) % 10 + 1
 			ELSE (substr(c.keycloak_group_id, 2)::int - 111) % 100 + 11 END)
 		AND c.keycloak_group_id <> 'u0'`, tid)
+}
+
+// TICK-1054: a bench-scale full rebuild with no prior ANALYZE (a bulk import
+// before autovacuum has run) finishes within 5 s; without the ANALYZE inside
+// the rebuild the query took 45 to 98 s. The seed and the sync run back to
+// back, before autovacuum's naptime.
+func TestClosureFullRebuildWithoutStatisticsIsBounded(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+	units := benchUnits(tid)
+	seedBenchTree(t, super, tid)
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{{KeycloakUserID: "u", Email: "u@a.test", Enabled: true}}})
+	start := time.Now()
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	took := time.Since(start)
+	t.Logf("full rebuild of %d units with no prior ANALYZE: %v", benchTotal, took)
+	if took > 5*time.Second {
+		t.Errorf("full rebuild with no statistics took %v, want <= 5s", took)
+	}
+	sameRows(t, "closure", closureOf(t, super, tid), wantClosure(units))
+}
+
+// SP-1b: a full rebuild of 10,111 units is targeted at <= 0.35 s. The test logs
+// the time and never fails on it. A sync that rebuilds a stale closure is
+// timed against one that finds it right; the difference is the rebuild.
+func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+
+	const total = benchTotal
+	units := benchUnits(tid)
+	user := func(email string) []identity.DirectoryUser {
+		return []identity.DirectoryUser{{KeycloakUserID: "u", Email: email, Enabled: true}}
+	}
+	// Seed the tree directly (a sync of 10,111 new units is the import, not
+	// the rebuild) and analyse it, as autovacuum does on a live database.
+	seedBenchTree(t, super, tid)
 	exec(t, super, "ANALYZE org_units")
 	// Tree unchanged, closure empty (stale): the sync rebuilds it.
 	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u@a.test")})
