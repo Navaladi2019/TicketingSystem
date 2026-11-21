@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -120,27 +121,27 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 	}
 
 	// The estimates are distinctive numbers, so their text can be looked for.
+	// Every step holds 1,002 records under A, past the CC cap, so every
+	// response carries total_capped and the field sets compare across shapes.
 	const big, rare = int64(98765431), int64(931)
-	add(0)
+	add(1001)
 	type seen struct {
 		headers []string
 		keys    []string
 		item    []string
+		capped  bool
 	}
 	var first *seen
 	for _, step := range []struct {
 		name     string
-		more     int
 		estimate int64
 		c3       bool
 		driven   bool
 	}{
-		{"C3: one record, no estimate", 0, -1, true, true},
-		{"C3: a large estimate", 0, big, true, true},
-		{"W0: more than K* = 1,000 records, no estimate", 1001, -1, false, true},
-		{"A2-5a: a rare estimate", 0, rare, false, false},
+		{"W0: m = 1,002 > K* = 1,000, no estimate", -1, false, true},
+		{"C3: m = 1,002 <= K* = 20,000, a large estimate", big, true, true},
+		{"A2-5a: a rare estimate", rare, false, false},
 	} {
-		add(step.more)
 		setEstimate(step.estimate)
 		if c3, driven := shapeNow(); c3 != step.c3 || driven != step.driven {
 			t.Fatalf("%s: the route would choose C3 = %v, driven = %v; want %v, %v", step.name, c3, driven, step.c3, step.driven)
@@ -151,7 +152,6 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 			t.Fatalf("%s: list = %d %s", step.name, rec.Code, rec.Body)
 		}
 		logs := strings.TrimPrefix(e.logs.String(), before)
-		body := rec.Body.String()
 		var top map[string]json.RawMessage
 		if err := json.Unmarshal(rec.Body.Bytes(), &top); err != nil {
 			t.Fatal(err)
@@ -161,13 +161,21 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 			t.Fatalf("%s: items %v, %v", step.name, items, err)
 		}
 		s := seen{keys: slices.Sorted(maps.Keys(top)), item: slices.Sorted(maps.Keys(items[0]))}
-		for h := range rec.Header() {
-			s.headers = append(s.headers, strings.ToLower(h))
+		_ = json.Unmarshal(top["total_capped"], &s.capped)
+		if !s.capped {
+			t.Errorf("%s: total_capped is not set for 1,002 readable records", step.name)
+		}
+		var values []string
+		for h, vs := range rec.Header() {
 			lh := strings.ToLower(h)
+			s.headers = append(s.headers, lh)
 			for _, bad := range []string{"server-timing", "shape", "probe", "estimate", "kstar", "k-star", "debug"} {
 				if strings.Contains(lh, bad) {
 					t.Errorf("%s: header %q", step.name, h)
 				}
+			}
+			if lh != "x-request-id" { // a random id: any short token turns up in it by chance
+				values = append(values, vs...)
 			}
 		}
 		slices.Sort(s.headers)
@@ -176,34 +184,41 @@ func TestListResponseNamesNoShapeEstimateOrProbe(t *testing.T) {
 				t.Errorf("%s: body field %q", step.name, k)
 			}
 		}
-		for _, text := range []struct{ where, s string }{{"body", body}, {"headers", strings.Join(headerValues(rec.Header()), " ")}, {"logs", logs}} {
-			for _, v := range []int64{big, rare} {
-				if strings.Contains(text.s, strconv.FormatInt(v, 10)) {
+		// Whole tokens only, so an id or a timestamp that merely contains
+		// "c3" or the digits does not count. The rare estimate (3 digits)
+		// is looked for in the headers and logs only: a timestamp's
+		// fraction can be the same token by chance.
+		for _, text := range []struct {
+			where  string
+			s      string
+			values []int64
+		}{{"body", rec.Body.String(), []int64{big}}, {"headers", strings.Join(values, " "), []int64{big, rare}}, {"logs", logs, []int64{big, rare}}} {
+			toks := leakTokens(text.s)
+			for _, v := range text.values {
+				if toks[strconv.FormatInt(v, 10)] {
 					t.Errorf("%s: the %s carry the estimate %d", step.name, text.where, v)
 				}
 			}
-			words := []string{"materialized", "kstar", "live_records", "entity_record_estimates", "acl_p"}
-			if text.where != "body" { // ids and data in the body are free text
-				words = append(words, "c3", "k*", "probe", "shape")
-			}
-			for _, word := range words {
-				if strings.Contains(strings.ToLower(text.s), word) {
+			for _, word := range []string{"c3", "k*", "kstar", "probe", "shape", "materialized", "live_records", "entity_record_estimates", "acl_p"} {
+				if toks[word] {
 					t.Errorf("%s: the %s name %q", step.name, text.where, word)
 				}
 			}
 		}
 		if first == nil {
 			first = &s
-		} else if !slices.Equal(s.headers, first.headers) || !slices.Equal(s.keys, first.keys) || !slices.Equal(s.item, first.item) {
+		} else if !slices.Equal(s.headers, first.headers) || !slices.Equal(s.keys, first.keys) || !slices.Equal(s.item, first.item) || s.capped != first.capped {
 			t.Errorf("%s: the response's fields or headers differ by shape: %+v, first %+v", step.name, s, *first)
 		}
 	}
 }
 
-func headerValues(h http.Header) []string {
-	var out []string
-	for _, vs := range h {
-		out = append(out, vs...)
+// leakTokens is the set of s's lower-case tokens: runs of letters, digits,
+// '_' and '*'.
+func leakTokens(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, tok := range regexp.MustCompile(`[A-Za-z0-9_*]+`).FindAllString(strings.ToLower(s), -1) {
+		out[tok] = true
 	}
 	return out
 }

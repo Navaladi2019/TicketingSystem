@@ -512,7 +512,10 @@ func TestUnderListDuplicateAndNestedU(t *testing.T) {
 		q := listQuery(w.tenant, w.def, read, "updated_at", 100)
 		mut := regexp.MustCompile(`= ANY\(ARRAY\(SELECT acl_ou\.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou\.tenant_id = (\$[0-9]+)::uuid AND acl_ou\.ancestor_id = ANY\((\$[0-9]+)::uuid\[\]\)\)\)`)
 		mq := q
-		mq.Where = mut.ReplaceAllString(q.Where, "= ANY(${2}::uuid[])")
+		// The mutant keeps every placeholder referenced and cast (an
+		// unreferenced $n is 42P18): it reads U's own closure rows only.
+		mq.Where = mut.ReplaceAllString(q.Where, "= ANY(ARRAY(SELECT acl_ou.ancestor_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = ${1}::uuid"+
+			" AND acl_ou.ancestor_id = ANY(${2}::uuid[]) AND acl_ou.descendant_id = acl_ou.ancestor_id))")
 		if mq.Where == q.Where {
 			t.Fatalf("no C3 leaf to mutate: %s", q.Where)
 		}
@@ -550,7 +553,9 @@ type planNode struct {
 	Plans    []planNode `json:"Plans"`
 }
 
-func explain(ctx context.Context, t *testing.T, tx pgx.Tx, sql string, args []any) planNode {
+// explain is sql's JSON EXPLAIN, parsed, and its raw text for a failure
+// message.
+func explain(ctx context.Context, t *testing.T, tx pgx.Tx, sql string, args []any) (planNode, string) {
 	t.Helper()
 	var raw string
 	if err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+sql, args...).Scan(&raw); err != nil {
@@ -562,7 +567,7 @@ func explain(ctx context.Context, t *testing.T, tx pgx.Tx, sql string, args []an
 	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
 		t.Fatalf("plan %s: %v", raw, err)
 	}
-	return plans[0].Plan
+	return plans[0].Plan, raw
 }
 
 // walk calls fn on every node with its ancestors, outermost first.
@@ -594,7 +599,19 @@ func w0Faults(plan planNode, sortIndex string) []string {
 		out = append(out, "records not read from "+sortIndex)
 	}
 	if !sub {
-		out = append(out, "no SubPlan on org_unit_closure_pkey")
+		// Name what reads the closure instead, so a failure tells a seq scan
+		// of a small closure from a hashed SubPlan or a pulled-up join.
+		var seen []string
+		plan.walk(nil, func(n planNode, path []planNode) {
+			if n.Relation == "org_unit_closure" {
+				in := "outside any SubPlan"
+				if slices.ContainsFunc(append(path, n), func(a planNode) bool { return a.Parent == "SubPlan" }) {
+					in = "in a SubPlan"
+				}
+				seen = append(seen, n.Type+" "+n.Index+" "+in)
+			}
+		})
+		out = append(out, fmt.Sprintf("no SubPlan on org_unit_closure_pkey; org_unit_closure is read by %q", seen))
 	}
 	return out
 }
@@ -615,7 +632,14 @@ func TestUnderListShapePlans(t *testing.T) {
 	e := migrated(t)
 	w := seedShapeWorld(t, e, 200)
 	w.add(t, e, w.tenant, "O", 30000) // a tenant large enough to walk an index
+	// A closure of a realistic size (2,000 more units below O): over the
+	// handful of rows the tree above holds, a seq scan inside the SubPlan is
+	// cheaper than its PK, which says nothing about the W0 text.
+	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
+		SELECT $1, gen_random_uuid(), $2, 'kc-plan-' || g, 'plan-' || g FROM generate_series(1, 2000) g`, w.tenant, w.unit["O"])
+	rebuildClosure(t, e)
 	mustExec(t, e.super, `ANALYZE records`)
+	mustExec(t, e.super, `ANALYZE org_unit_closure`)
 	ctx := context.Background()
 	pol := underDoc(t, w.of("R"))
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
@@ -629,12 +653,12 @@ func TestUnderListShapePlans(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if f := w0Faults(explain(ctx, t, tx, sql, args), sort.index); len(f) > 0 {
-				t.Errorf("W0, sort -%s: %v\n%s", sort.col, f, sql)
+			if plan, raw := explain(ctx, t, tx, sql, args); len(w0Faults(plan, sort.index)) > 0 {
+				t.Errorf("W0, sort -%s: %v\n%s\nEXPLAIN (FORMAT JSON):\n%s", sort.col, w0Faults(plan, sort.index), sql, raw)
 			}
 			mut := strings.ReplaceAll(sql, " OFFSET 0))", "))")
-			if mut == sql || len(w0Faults(explain(ctx, t, tx, mut, args), sort.index)) == 0 {
-				t.Errorf("mutant walk_without_offset is not caught, sort -%s", sort.col)
+			if plan, raw := explain(ctx, t, tx, mut, args); mut == sql || len(w0Faults(plan, sort.index)) == 0 {
+				t.Errorf("mutant walk_without_offset is not caught, sort -%s\nEXPLAIN (FORMAT JSON):\n%s", sort.col, raw)
 			}
 
 			read = authz.ReadListShaped(bound, w.u1, "r", 2, authz.FixedListShapes(authz.ShapeC3))
@@ -642,22 +666,22 @@ func TestUnderListShapePlans(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if f := c3Faults(explain(ctx, t, tx, sql, args)); len(f) > 0 {
-				t.Errorf("C3, sort -%s: %v\n%s", sort.col, f, sql)
+			if plan, raw := explain(ctx, t, tx, sql, args); len(c3Faults(plan)) > 0 {
+				t.Errorf("C3, sort -%s: %v\n%s\nEXPLAIN (FORMAT JSON):\n%s", sort.col, c3Faults(plan), sql, raw)
 			}
 			// Acceptance test 10: at C3 the page holds no OFFSET 0 closure probe.
 			if strings.Contains(sql, "OFFSET 0") {
 				t.Errorf("C3 page holds an OFFSET 0 walk: %s", sql)
 			}
 			mut = strings.Replace(sql, "AS MATERIALIZED (", "AS (", 1)
-			if mut == sql || len(c3Faults(explain(ctx, t, tx, mut, args))) == 0 {
-				t.Errorf("mutant c3_without_materialized is not caught, sort -%s", sort.col)
+			if plan, raw := explain(ctx, t, tx, mut, args); mut == sql || len(c3Faults(plan)) == 0 {
+				t.Errorf("mutant c3_without_materialized is not caught, sort -%s\nEXPLAIN (FORMAT JSON):\n%s", sort.col, raw)
 			}
 		}
 
 		// P3: the records are read per unit, under a Limit, inside the
 		// nested loop over the closure.
-		plan := explain(ctx, t, tx, authz.ProbeStatement(authz.KStarMin), []any{w.tenant, []string{w.unit["R"].String()}, w.def})
+		plan, raw := explain(ctx, t, tx, authz.ProbeStatement(authz.KStarMin), []any{w.tenant, []string{w.unit["R"].String()}, w.def})
 		var scans, limited int
 		plan.walk(nil, func(n planNode, path []planNode) {
 			if n.Relation != "records" {
@@ -672,7 +696,7 @@ func TestUnderListShapePlans(t *testing.T) {
 			}
 		})
 		if scans == 0 || limited != scans {
-			t.Errorf("P3 reads records %d times, %d of them under a per-unit Limit in a Nested Loop", scans, limited)
+			t.Errorf("P3 reads records %d times, %d of them under a per-unit Limit in a Nested Loop\nEXPLAIN (FORMAT JSON):\n%s", scans, limited, raw)
 		}
 		return nil
 	})

@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -442,5 +445,100 @@ func TestChooseListShapes(t *testing.T) {
 		if strings.ContainsAny(strings.ReplaceAll(err.Error(), utUnit(77).String(), ""), "0123456789") {
 			t.Errorf("%s: the error carries a number: %q", tc.name, err)
 		}
+	}
+}
+
+// The I5 format-2 agreement's CI seed (TestI5Format2Agreement, seed
+// 20261109) found ReadPredicate returning the list page's W0 text where
+// ReadBranches renders the predicate form. On random documents with under
+// leaves, ReadPredicate's branches are ReadBranches' and its single
+// predicate is CompileRead's, and ReadListShaped's count terms are the same
+// text whatever the shape. At least one document's page differs from its
+// predicate, so the check would see the regression.
+func TestReadPredicateMatchesReadBranchesWithUnderSeed20261109(t *testing.T) {
+	t.Parallel()
+	r := rand.New(rand.NewPCG(20261109, 0))
+	me := utMe()
+	differs := 0
+	for i := range 300 {
+		d := ptRandomDoc(r)
+		for j := range d.Policies {
+			leaf := Node{Under: &Under{Caller: true}}
+			if r.IntN(2) == 0 {
+				leaf = Node{Under: &Under{Units: []uuid.UUID{utUnit(1 + r.IntN(2))}}}
+			}
+			switch r.IntN(4) {
+			case 0:
+				d.Policies[j].When = Node{Any: []Node{leaf, d.Policies[j].When}}
+			case 1:
+				d.Policies[j].When = Node{All: []Node{leaf, d.Policies[j].When}}
+			case 2:
+				d.Policies[j].When = leaf
+			}
+		}
+		pol := BindUnder(&Policy{EntityType: "pt_seed", Document: d}, me, []uuid.UUID{utUnit(1)}, utClosure())
+		branches, bargs := ReadBranches(pol, me, "r", 2)
+		pb, where, pargs := ReadPredicate(pol, me, "r", 2)
+		if len(branches) >= 2 {
+			if !slices.Equal(pb, branches) || !reflect.DeepEqual(pargs, bargs) {
+				t.Fatalf("doc %d: ReadPredicate's branches differ from ReadBranches'\n%q\n%q", i, pb, branches)
+			}
+		} else {
+			pred, cargs := CompileRead(pol, me, "r", 2)
+			if pb != nil || where != pred || !reflect.DeepEqual(pargs, cargs) {
+				t.Fatalf("doc %d: ReadPredicate %q, CompileRead %q", i, where, pred)
+			}
+		}
+		for _, sh := range []ListShapes{{}, FixedListShapes(ShapeC3), FixedListShapes(ShapeWalk)} {
+			lr := ReadListShaped(pol, me, "r", 2, sh)
+			if !slices.Equal(lr.CountBranches, pb) || (pb == nil && lr.CountWhere != where) {
+				t.Fatalf("doc %d: the count terms follow the shape", i)
+			}
+			if pageText(lr) != countText(lr) {
+				differs++
+			}
+		}
+	}
+	if differs == 0 {
+		t.Error("no document's page differs from its predicate: the test cannot see a page text in ReadPredicate")
+	}
+}
+
+// Every placeholder P3 and each leaf text binds carries its cast, ::uuid or
+// ::uuid[], as W0's do: the server's pools run in QueryExecModeExec, where an
+// uncast placeholder has no type (42P18 when nothing else types it).
+func TestShapeTextsCastEveryPlaceholder(t *testing.T) {
+	t.Parallel()
+	ph := regexp.MustCompile(`\$[0-9]+(::uuid(\[\])?)?`)
+	check := func(name, sql string) {
+		t.Helper()
+		found := ph.FindAllStringSubmatch(sql, -1)
+		if len(found) == 0 {
+			t.Errorf("%s binds nothing: %s", name, sql)
+		}
+		for _, m := range found {
+			if m[1] == "" {
+				t.Errorf("%s: %s has no cast: %s", name, m[0], sql)
+			}
+		}
+	}
+	check("P3", ProbeStatement(KStarMin))
+	for _, tc := range shapeCases() {
+		if strings.Contains(tc.when, "cmp") {
+			continue // a cmp's state values are text[], cast as such
+		}
+		for _, sh := range []ListShapes{FixedListShapes(ShapeC3), FixedListShapes(ShapeWalk), {rare: true}} {
+			lr := ReadListShaped(utBound(t, tc.when), utMe(), "r", 2, sh)
+			check(tc.name+" page", pageText(lr))
+			check(tc.name+" count", countText(lr))
+			for _, d := range lr.Drivers {
+				if d.From != "" {
+					check(tc.name+" driver", d.From)
+				}
+			}
+		}
+	}
+	if !strings.Contains(pageText(ReadListShaped(utBound(t, `{"under":{"of":"caller"}}`), utMe(), "r", 2, FixedListShapes(ShapeC3))), "= ANY(ARRAY(") {
+		t.Error("the C3 case renders no C3 leaf")
 	}
 }

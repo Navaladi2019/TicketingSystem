@@ -231,8 +231,10 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadPredicate alias %q is not a plain identifier", alias))
 	}
+	// The predicate form, as ReadBranches and CompileRead render it: the
+	// count terms of the unprobed read, never a page shape (TICK-1036).
 	lr := ReadList(pol, p, alias, argBase)
-	return lr.Branches, lr.Where, lr.Args
+	return lr.CountBranches, lr.CountWhere, lr.Args
 }
 
 // ListRead is the list read path's access SQL from one plan (ReadList).
