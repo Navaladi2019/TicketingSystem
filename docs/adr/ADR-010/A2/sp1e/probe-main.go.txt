@@ -1,0 +1,697 @@
+//go:build perf
+
+// SP-1c (TICK-1038, ADR-010 R1 option (i)): the SP-1b agent list with the
+// region leaf chosen per request by a capped probe, on S31's migrated schema
+// (records_org_unit partial index, no bench indexes).
+//
+//	probe  SELECT count(*) FROM (SELECT 1 FROM records r WHERE r.tenant_id = $1
+//	       AND r.org_unit_id IS NOT NULL AND r.org_unit_id IN (closure sub) LIMIT K+1) p
+//	C1     r.org_unit_id IN (SELECT descendant_id FROM org_unit_closure ...)   (<= K)
+//	W0     EXISTS (SELECT 1 FROM org_unit_closure c WHERE ... AND c.descendant_id = r.org_unit_id OFFSET 0)  (> K)
+//	W1     the same EXISTS without OFFSET 0 (does the planner pull it up?)
+//	M<K>   probe + C1 or W0, in the request's transaction (the mechanism)
+//
+// Phases (SP1C_PHASE): setup | explain | paired. Bench only.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const cols = `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
+  r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+  r.data, r.causation_origin_id, r.causation_depth, r.updated_at AS sort_key`
+
+var base = []string{
+	`(true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[])))`,
+	`((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid))`,
+	`((r.assignee_id IS NOT NULL AND r.assignee_id = $5::uuid))`,
+	`(EXISTS (SELECT 1 FROM record_shares acl_share WHERE acl_share.tenant_id = r.tenant_id AND acl_share.record_id = r.id AND ((acl_share.principal_kind = 'user' AND acl_share.principal_id = $6::uuid) OR (acl_share.principal_kind = 'group' AND acl_share.principal_id = ANY($7::uuid[])))))`,
+}
+
+const closureSub = `SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($9::uuid[])`
+
+var leaves = map[string]string{
+	"C1": `(true AND (r.org_unit_id IS NOT NULL AND r.org_unit_id IN (` + closureSub + `)))`,
+	"W0": `(true AND (r.org_unit_id IS NOT NULL AND EXISTS (SELECT 1 FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($9::uuid[]) AND acl_ou.descendant_id = r.org_unit_id OFFSET 0)))`,
+	"C2": `(true AND (r.org_unit_id IS NOT NULL AND r.org_unit_id = ANY(ARRAY(` + closureSub + `))))`,
+	"W1": `(true AND (r.org_unit_id IS NOT NULL AND EXISTS (SELECT 1 FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($9::uuid[]) AND acl_ou.descendant_id = r.org_unit_id)))`,
+}
+
+const probeSQL = `SELECT count(*) FROM (SELECT 1 FROM records r WHERE r.tenant_id = $1 AND r.org_unit_id IS NOT NULL AND r.org_unit_id IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($2::uuid[])) LIMIT $3) p`
+
+// branches: solo drops the four AND NOTs from the region branch (anti-join share).
+func branches(leaf string, solo bool) []string {
+	d := slices.Clone(base)
+	if leaf != "" {
+		d = append(d, leaves[leaf])
+	}
+	var out []string
+	for i := range d {
+		b := d[i]
+		if !(solo && i == 4) {
+			for j := 0; j < i; j++ {
+				b += " AND NOT " + d[j]
+			}
+		}
+		out = append(out, "("+b+")")
+	}
+	return out
+}
+
+func where(b string) string {
+	return "WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND true AND (" + b + ")"
+}
+
+func countSQL(leaf string) string {
+	var parts []string
+	for _, b := range branches(leaf, false) {
+		parts = append(parts, "(SELECT 1 FROM records r "+where(b)+" LIMIT 1001)")
+	}
+	return strings.ReplaceAll("SELECT count(*) FROM (SELECT 1 FROM ("+strings.Join(parts, " UNION ALL ")+") u LIMIT 1001) c", "$9", "$8")
+}
+
+func pageSQL(leaf string, solo bool) string {
+	var parts []string
+	for _, b := range branches(leaf, solo) {
+		parts = append(parts, "(SELECT "+cols+" FROM records r\n"+where(b)+" ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT $8)")
+	}
+	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       x.sort_key::text FROM (
+` + strings.Join(parts, "\nUNION ALL\n") + `
+ORDER BY sort_key DESC NULLS FIRST, id DESC LIMIT $8
+) x
+JOIN entity_definitions d ON d.tenant_id = x.tenant_id AND d.id = x.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = x.tenant_id AND g.id = x.assignment_group_id
+ORDER BY x.sort_key DESC NULLS FIRST, x.id DESC`
+}
+
+type agent struct {
+	id     string
+	groups []string
+}
+
+type env struct {
+	super  *pgx.Conn
+	app    *pgxpool.Pool
+	tenant string
+	def    string
+	agents []agent
+	out    *os.File
+	plans  strings.Builder
+}
+
+func must(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func envInt(k string, d int) int {
+	if v, err := strconv.Atoi(os.Getenv(k)); err == nil && v >= 0 {
+		return v
+	}
+	return d
+}
+
+func pct(d []time.Duration, p float64) float64 {
+	if len(d) == 0 {
+		return 0
+	}
+	s := slices.Clone(d)
+	slices.Sort(s)
+	i := int(float64(len(s))*p+0.999999) - 1
+	i = max(0, min(i, len(s)-1))
+	return float64(s[i].Microseconds()) / 1000
+}
+
+func (e *env) w(f string, a ...any) { fmt.Fprintf(e.out, f, a...) }
+
+func md5id(ctx context.Context, c *pgx.Conn, k string) string {
+	var id string
+	must(c.QueryRow(ctx, "SELECT md5($1)::uuid::text", k).Scan(&id))
+	return id
+}
+
+func countArgs(args []any) []any { return append(slices.Clone(args[:7]), args[8:]...) }
+
+func (e *env) args(a agent, u []string) []any {
+	args := []any{e.tenant, e.def, a.groups, a.id, a.id, a.id, a.groups, 51}
+	if u != nil {
+		args = append(args, u)
+	}
+	return args
+}
+
+func (e *env) tx(ctx context.Context, f func(pgx.Tx) error) (time.Duration, error) {
+	t0 := time.Now()
+	tx, err := e.app.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", e.tenant); err != nil {
+		return 0, err
+	}
+	if err := f(tx); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return time.Since(t0), nil
+}
+
+func listIn(ctx context.Context, tx pgx.Tx, cs, ps string, args []any) error {
+	var n int
+	if err := tx.QueryRow(ctx, cs, countArgs(args)...).Scan(&n); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, ps, args...)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+// variant is one request shape: baseline, a fixed leaf, probe only, or the mechanism.
+type variant struct {
+	name string
+	run  func(ctx context.Context, tx pgx.Tx, a agent) error
+}
+
+func foreign() string {
+	b, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+	allowed := map[string]bool{"buildx_buildkit_nava-ci0": true, "multica-backend-1": true, "multica-frontend-1": true, "multica-postgres-1": true, os.Getenv("SP1C_PG"): true}
+	var f []string
+	for _, n := range strings.Fields(string(b)) {
+		if !allowed[n] {
+			f = append(f, n)
+		}
+	}
+	return strings.Join(f, " ")
+}
+
+func (e *env) floor(ctx context.Context) (float64, float64) {
+	var lat []time.Duration
+	for i := 0; i < 400; i++ {
+		t0 := time.Now()
+		var one int
+		must(e.app.QueryRow(ctx, "SELECT 1").Scan(&one))
+		lat = append(lat, time.Since(t0))
+	}
+	return pct(lat, .5), pct(lat, .95)
+}
+
+// --- plan walking (as SP-1b) ---
+
+type node = map[string]any
+
+func num(n node, k string) float64 { v, _ := n[k].(float64); return v }
+
+func children(n node) []node {
+	var out []node
+	ps, _ := n["Plans"].([]any)
+	for _, p := range ps {
+		out = append(out, p.(node))
+	}
+	return out
+}
+
+func findBranches(n node) []node {
+	t, _ := n["Node Type"].(string)
+	if t == "Append" || t == "Merge Append" {
+		var direct []node
+		for _, c := range children(n) {
+			if r, _ := c["Parent Relationship"].(string); r == "Member" {
+				direct = append(direct, c)
+			}
+		}
+		if len(direct) >= 4 {
+			return direct
+		}
+	}
+	for _, c := range children(n) {
+		if b := findBranches(c); b != nil {
+			return b
+		}
+	}
+	return nil
+}
+
+type stats struct {
+	shape                  []string
+	read, removed, closure float64
+	branchMS               float64
+}
+
+func walk(n node, s *stats) {
+	t, _ := n["Node Type"].(string)
+	loops := num(n, "Actual Loops")
+	label := t
+	if ix, ok := n["Index Name"].(string); ok {
+		label += " " + ix
+	} else if rel, ok := n["Relation Name"].(string); ok {
+		label += " " + rel
+	}
+	if r, _ := n["Parent Relationship"].(string); r == "InitPlan" || r == "SubPlan" {
+		label = r + "(" + label + ")"
+	}
+	if loops == 0 {
+		label += " [never executed]"
+	}
+	s.shape = append(s.shape, label)
+	rel, _ := n["Relation Name"].(string)
+	if rel == "records" {
+		s.read += num(n, "Actual Rows")*loops + (num(n, "Rows Removed by Filter")+num(n, "Rows Removed by Index Recheck"))*loops
+		s.removed += (num(n, "Rows Removed by Filter") + num(n, "Rows Removed by Index Recheck")) * loops
+	}
+	if rel == "org_unit_closure" {
+		s.closure += num(n, "Actual Rows") * loops
+	}
+	for _, c := range children(n) {
+		walk(c, s)
+	}
+}
+
+type planInfo struct {
+	planMS, execMS float64
+	region         *stats
+}
+
+func (e *env) explain(ctx context.Context, title, sql string, args []any, keep bool) planInfo {
+	var pi planInfo
+	_, err := e.tx(ctx, func(tx pgx.Tx) error {
+		var raw []byte
+		if err := tx.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) "+sql, args...).Scan(&raw); err != nil {
+			return err
+		}
+		var doc []map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return err
+		}
+		pi.planMS, _ = doc[0]["Planning Time"].(float64)
+		pi.execMS, _ = doc[0]["Execution Time"].(float64)
+		root := doc[0]["Plan"].(node)
+		if b := findBranches(root); len(b) >= 5 {
+			s := &stats{branchMS: num(b[4], "Actual Total Time")}
+			walk(b[4], s)
+			pi.region = s
+		} else {
+			s := &stats{branchMS: num(root, "Actual Total Time")}
+			walk(root, s)
+			pi.region = s
+		}
+		if !keep {
+			return nil
+		}
+		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+sql, args...)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&e.plans, "\n#### %s\n\n```\n", title)
+		for rows.Next() {
+			var l string
+			if err := rows.Scan(&l); err != nil {
+				return err
+			}
+			if len(l) > 300 {
+				l = l[:300] + fmt.Sprintf("… (%d chars)", len(l))
+			}
+			fmt.Fprintf(&e.plans, "%s\n", l)
+		}
+		fmt.Fprint(&e.plans, "```\n")
+		return rows.Err()
+	})
+	must(err)
+	return pi
+}
+
+func (e *env) exec(ctx context.Context, sql string) time.Duration {
+	t0 := time.Now()
+	_, err := e.super.Exec(ctx, sql)
+	must(err)
+	d := time.Since(t0)
+	fmt.Printf("super: %.90s (%v)\n", sql, d.Round(time.Millisecond))
+	return d
+}
+
+type set struct {
+	label string
+	root  string
+	units int
+	match int // records of the ticket definition under root
+	all   int // records of any definition under root (what the probe counts)
+}
+
+// setup: closure over live units only (SP-1b build, plus deleted_at IS NULL),
+// then the two skewed districts.
+//
+//	district 2/3 (pre 2327) "hot": 20,000 extra tickets moved from region 9 into
+//	    one branch of it, so |S| = 101 but the records sit in one unit.
+//	district 2/4 (pre 2428) "thin": all but 600 of its records moved to
+//	    region 9, so |S| = 101 with few records.
+const setupSQL = `
+SET session_replication_role = replica;
+UPDATE records r SET org_unit_id = (SELECT id FROM bench_ou WHERE pre = 2327 + 1 + 1 + 3)
+WHERE r.id IN (
+  SELECT id FROM records WHERE tenant_id = $T AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 1 + 9*1011 AND pre < 1 + 10*1011)
+  ORDER BY md5(id::text) LIMIT 20000);
+UPDATE records r SET org_unit_id = (SELECT id FROM bench_ou WHERE pre = 1 + 9*1011 + 1 + 1 + 1)
+WHERE r.id IN (
+  SELECT id FROM records WHERE tenant_id = $T AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 2428 AND pre < 2529)
+  ORDER BY md5(id::text) OFFSET 600);
+SET session_replication_role = origin;
+`
+
+func main() {
+	ctx := context.Background()
+	secs := envInt("SP1C_SECONDS", 15)
+	phase := os.Getenv("SP1C_PHASE")
+	only := regexp.MustCompile(os.Getenv("SP1C_ONLY"))
+	super, err := pgx.Connect(ctx, os.Getenv("SP1C_SUPER_URL"))
+	must(err)
+	defer super.Close(ctx)
+	pc, err := pgxpool.ParseConfig(os.Getenv("SP1C_APP_URL"))
+	must(err)
+	pc.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pc.MaxConns = 3
+	app, err := pgxpool.NewWithConfig(ctx, pc)
+	must(err)
+	defer app.Close()
+	out, err := os.OpenFile(os.Getenv("SP1C_OUT"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	must(err)
+	defer out.Close()
+	e := &env{super: super, app: app, out: out}
+
+	var agentsGroup string
+	must(super.QueryRow(ctx, `SELECT t.tenant_id::text, d.id::text, t.agents::text FROM perf_tenant t
+		JOIN entity_definitions d ON d.tenant_id = t.tenant_id AND d.key = 'ticket' WHERE t.tn = 0`).Scan(&e.tenant, &e.def, &agentsGroup))
+	var pcm, ver string
+	must(super.QueryRow(ctx, "SELECT coalesce((SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole WHERE r.rolname = 'nava_app'), ''), version()").Scan(&pcm, &ver))
+	e.w("\n## %s phase=%s secs=%d\n\n`%s`. nava_app role settings: `%s`. Foreign containers at start: `%s`.\n", time.Now().UTC().Format(time.RFC3339), phase, secs, ver, pcm, foreign())
+
+	if phase == "setup" {
+		e.exec(ctx, strings.ReplaceAll(setupSQL, "$T", "'"+e.tenant+"'"))
+		build := `INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id, depth)
+WITH RECURSIVE c(tenant_id, ancestor_id, descendant_id, depth) AS (
+  SELECT tenant_id, id, id, 0 FROM org_units WHERE tenant_id = '` + e.tenant + `' AND deleted_at IS NULL
+  UNION ALL
+  SELECT c.tenant_id, c.ancestor_id, o.id, c.depth + 1
+  FROM c JOIN org_units o ON o.tenant_id = c.tenant_id AND o.parent_id = c.descendant_id AND o.deleted_at IS NULL
+) SELECT * FROM c`
+		e.w("\n### Closure build (live units only)\n\n| Run | INSERT ms | rows |\n| --- | --- | --- |\n")
+		for i := 1; i <= 3; i++ {
+			e.exec(ctx, "TRUNCATE org_unit_closure")
+			d := e.exec(ctx, build)
+			var n int
+			must(super.QueryRow(ctx, "SELECT count(*) FROM org_unit_closure").Scan(&n))
+			e.w("| %d | %.1f | %d |\n", i, float64(d.Microseconds())/1000, n)
+		}
+		e.exec(ctx, "VACUUM (ANALYZE) records")
+		e.exec(ctx, "VACUUM (ANALYZE) org_unit_closure")
+		e.exec(ctx, "CHECKPOINT")
+		return
+	}
+
+	for n := 1; n <= 200; n++ {
+		u := (n*24 + 7) % 5000
+		g := []string{agentsGroup, md5id(ctx, super, fmt.Sprintf("g0/%d", u%50)), md5id(ctx, super, fmt.Sprintf("g0/%d", (u+17)%50)), md5id(ctx, super, fmt.Sprintf("g0/%d", (u+34)%50))}
+		e.agents = append(e.agents, agent{id: md5id(ctx, super, fmt.Sprintf("u0/%d", u)), groups: g})
+	}
+	var sets []*set
+	for _, a := range []struct {
+		pre  int
+		name string
+	}{{3, "area"}, {2, "district"}, {2428, "district thin"}, {2327, "district hot"}, {1, "region"}, {0, "root"}, {2529, "district mixed"}, {3035, "uniform m=1001"}, {3136, "uniform m=3000"}, {3237, "uniform m=10000"}} {
+		s := &set{}
+		must(super.QueryRow(ctx, "SELECT id::text FROM bench_ou WHERE pre = $1", a.pre).Scan(&s.root))
+		must(super.QueryRow(ctx, `SELECT (SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2),
+			(SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $3 AND org_unit_id IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2)),
+			(SELECT count(*) FROM records WHERE tenant_id = $1 AND org_unit_id IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2))`,
+			e.tenant, s.root, e.def).Scan(&s.units, &s.match, &s.all))
+		s.label = fmt.Sprintf("%s (%d units, %d tickets)", a.name, s.units, s.match)
+		sets = append(sets, s)
+	}
+	var total int
+	must(super.QueryRow(ctx, "SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2", e.tenant, e.def).Scan(&total))
+	e.w("\nLarge tenant tickets: %d.\n", total)
+
+	switch phase {
+	case "explain":
+		e.exec(ctx, "SELECT pg_prewarm(c.oid) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'i')")
+		e.w("\n### Plans: region branch of the page statement, agents[0]\n\n| Set | leaf | page plan / exec ms | region branch ms | region branch plan | records read / removed | closure rows |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+		bi := e.explain(ctx, "baseline", pageSQL("", false), e.args(e.agents[0], nil), true)
+		e.w("| baseline | none | %.1f / %.1f | n/a | n/a | n/a | n/a |\n", bi.planMS, bi.execMS)
+		for _, s := range sets {
+			for _, l := range []struct {
+				leaf string
+				solo bool
+				name string
+			}{{"C1", false, "C1"}, {"W0", false, "W0"}, {"W1", false, "W1"}, {"C2", false, "C2"}, {"W0", true, "W0, no AND NOT"}, {"C1", true, "C1, no AND NOT"}} {
+				pi := e.explain(ctx, s.label+" "+l.name, pageSQL(l.leaf, l.solo), e.args(e.agents[0], []string{s.root}), !l.solo)
+				e.w("| %s | %s | %.1f / %.1f | %.2f | %s | %.0f / %.0f | %.0f |\n", s.label, l.name, pi.planMS, pi.execMS, pi.region.branchMS, strings.Join(pi.region.shape, " > "), pi.region.read, pi.region.removed, pi.region.closure)
+			}
+			ci := e.explain(ctx, s.label+" W0 count", countSQL("W0"), countArgs(e.args(e.agents[0], []string{s.root})), true)
+			e.w("| %s | W0 count | %.1f / %.1f | %.2f | %s | %.0f / %.0f | %.0f |\n", s.label, ci.planMS, ci.execMS, ci.region.branchMS, strings.Join(ci.region.shape, " > "), ci.region.read, ci.region.removed, ci.region.closure)
+		}
+		e.w("\n### Probe plans (records counted = min(all, K+1))\n\n| Set | K | records under root (any type) | probe plan / exec ms | plan | records read |\n| --- | --- | --- | --- | --- | --- |\n")
+		for _, s := range sets {
+			for _, k := range []int{250, 1000, 4000} {
+				pi := e.explain(ctx, fmt.Sprintf("%s probe K=%d", s.label, k), probeSQL, []any{e.tenant, []string{s.root}, k + 1}, k == 1000)
+				e.w("| %s | %d | %d | %.2f / %.2f | %s | %.0f |\n", s.label, k, s.all, pi.planMS, pi.execMS, strings.Join(pi.region.shape, " > "), pi.region.read)
+			}
+		}
+		e.w("\n### Plans\n%s", e.plans.String())
+		return
+	case "e-setup", "e-check", "e-plans", "e-wall", "e-write":
+		e.sp1e(ctx, phase, sets, only, envInt("SP1C_PAIRS", 300))
+		return
+	case "check", "explain2", "srv2", "wall2":
+		e.sp1d(ctx, phase, sets, only, envInt("SP1C_PAIRS", 300))
+		return
+	case "paired":
+	case "server":
+		e.server(ctx, sets, only, envInt("SP1C_PAIRS", 300))
+		return
+	default:
+		must(fmt.Errorf("SP1C_PHASE must be setup, explain or paired"))
+	}
+
+	// Paired 1-client pass: baseline and variant alternate in one loop.
+	f50, f95 := e.floor(ctx)
+	gate := "PASS"
+	if f50 > 3 {
+		gate = "FAIL"
+	}
+	e.w("\nTransport floor (`SELECT 1` x400, 1 client): p50 %.2f, p95 %.2f ms. P3-36 gate (p50 <= 3 ms): **%s**.\n", f50, f95, gate)
+	fmt.Printf("floor p50 %.2f p95 %.2f %s\n", f50, f95, gate)
+	e.w("\n| Set | variant | pairs | base p50 | base p95 | var p50 | var p95 | Δp50 | **Δp95** | median per-pair Δ | probe picked C1 / W0 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	bcs, bps := countSQL(""), pageSQL("", false)
+	baseline := func(ctx context.Context, tx pgx.Tx, a agent) error { return listIn(ctx, tx, bcs, bps, e.args(a, nil)) }
+	ks := []int{250, 1000, 4000}
+	if v := os.Getenv("SP1C_KS"); v != "" {
+		ks = nil
+		for _, f := range strings.Split(v, ",") {
+			k, err := strconv.Atoi(f)
+			must(err)
+			ks = append(ks, k)
+		}
+	}
+	for _, s := range sets {
+		u := []string{s.root}
+		var vs []variant
+		for _, l := range []string{"C1", "W0"} {
+			cs, ps := countSQL(l), pageSQL(l, false)
+			vs = append(vs, variant{l, func(ctx context.Context, tx pgx.Tx, a agent) error { return listIn(ctx, tx, cs, ps, e.args(a, u)) }})
+		}
+		c1c, c1p, w0c, w0p := countSQL("C1"), pageSQL("C1", false), countSQL("W0"), pageSQL("W0", false)
+		for _, k := range ks {
+			vs = append(vs, variant{fmt.Sprintf("probe only K=%d", k), func(ctx context.Context, tx pgx.Tx, a agent) error {
+				var n int
+				if err := tx.QueryRow(ctx, probeSQL, e.tenant, u, k+1).Scan(&n); err != nil {
+					return err
+				}
+				return listIn(ctx, tx, bcs, bps, e.args(a, nil))
+			}})
+			vs = append(vs, variant{fmt.Sprintf("M K=%d", k), func(ctx context.Context, tx pgx.Tx, a agent) error {
+				var n int
+				if err := tx.QueryRow(ctx, probeSQL, e.tenant, u, k+1).Scan(&n); err != nil {
+					return err
+				}
+				if n <= k {
+					return listIn(ctx, tx, c1c, c1p, e.args(a, u))
+				}
+				return listIn(ctx, tx, w0c, w0p, e.args(a, u))
+			}})
+		}
+		for _, v := range vs {
+			name := s.label + " " + v.name
+			if !only.MatchString(name) {
+				continue
+			}
+			picked := ""
+			if strings.HasPrefix(v.name, "M K=") {
+				k, _ := strconv.Atoi(strings.TrimPrefix(v.name, "M K="))
+				picked = "W0"
+				if min(s.all, k+1) <= k {
+					picked = "C1"
+				}
+			}
+			pair := func(i int) (time.Duration, time.Duration) {
+				a := e.agents[i%len(e.agents)]
+				run := func(f func(context.Context, pgx.Tx, agent) error) time.Duration {
+					d, err := e.tx(ctx, func(tx pgx.Tx) error { return f(ctx, tx, a) })
+					must(err)
+					return d
+				}
+				if i%2 == 0 {
+					b := run(baseline)
+					return b, run(v.run)
+				}
+				vv := run(v.run)
+				return run(baseline), vv
+			}
+			for i, warm := 0, time.Now().Add(8*time.Second); i < len(e.agents) && time.Now().Before(warm); i++ {
+				pair(i)
+			}
+			var bs, vv, ds []time.Duration
+			for i, stop := 0, time.Now().Add(time.Duration(secs)*time.Second); time.Now().Before(stop); i++ {
+				b, x := pair(i)
+				bs, vv, ds = append(bs, b), append(vv, x), append(ds, x-b)
+			}
+			b50, b95, v50, v95 := pct(bs, .5), pct(bs, .95), pct(vv, .5), pct(vv, .95)
+			fmt.Printf("%s %-60s pairs=%5d base p95=%6.2f var p95=%7.2f dp95=%+7.2f\n", time.Now().UTC().Format("15:04:05"), name, len(bs), b95, v95, v95-b95)
+			e.w("| %s | %s | %d | %.2f | %.2f | %.2f | %.2f | %+.2f | **%+.2f** | %+.2f | %s |\n", s.label, v.name, len(bs), b50, b95, v50, v95, v50-b50, v95-b95, pct(ds, .5), picked)
+		}
+	}
+	f50, f95 = e.floor(ctx)
+	e.w("\nTransport floor at end: p50 %.2f, p95 %.2f ms. Foreign containers at end: `%s`.\n", f50, f95, foreign())
+}
+
+type stmt struct {
+	sql  string
+	args []any
+}
+
+// srvMS runs each statement under EXPLAIN (ANALYZE, TIMING OFF) as nava_app
+// in one transaction and returns the summed planning + execution ms: the
+// database's own cost, without transport or client noise.
+func (e *env) srvMS(ctx context.Context, ss []stmt) float64 {
+	var total float64
+	_, err := e.tx(ctx, func(tx pgx.Tx) error {
+		for _, s := range ss {
+			var raw []byte
+			if err := tx.QueryRow(ctx, "EXPLAIN (ANALYZE, TIMING OFF, SUMMARY ON, FORMAT JSON) "+s.sql, s.args...).Scan(&raw); err != nil {
+				return err
+			}
+			var doc []map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				return err
+			}
+			p, _ := doc[0]["Planning Time"].(float64)
+			x, _ := doc[0]["Execution Time"].(float64)
+			total += p + x
+		}
+		return nil
+	})
+	must(err)
+	return total
+}
+
+func fpct(d []float64, p float64) float64 {
+	s := slices.Clone(d)
+	slices.Sort(s)
+	i := int(float64(len(s))*p+0.999999) - 1
+	return s[max(0, min(i, len(s)-1))]
+}
+
+func (e *env) server(ctx context.Context, sets []*set, only *regexp.Regexp, pairs int) {
+	e.exec(ctx, "SELECT pg_prewarm(c.oid) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'i')")
+	ks := []int{100, 250, 500, 1000}
+	e.w("\n### Server-side paired pass: planning + execution ms per request (count + page [+ probe]), EXPLAIN (ANALYZE, TIMING OFF), %d pairs per variant, baseline and variant alternate\n\n| Set | variant | pairs | base p50 | base p95 | var p50 | var p95 | Δp50 | **Δp95** | median per-pair Δ | p95 per-pair Δ |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", pairs)
+	list := func(leaf string, a agent, u []string) []stmt {
+		args := e.args(a, u)
+		return []stmt{{countSQL(leaf), countArgs(args)}, {pageSQL(leaf, false), args}}
+	}
+	for _, s := range sets {
+		u := []string{s.root}
+		type v struct {
+			name string
+			ss   func(a agent) []stmt
+		}
+		vs := []v{
+			{"C1", func(a agent) []stmt { return list("C1", a, u) }},
+			{"W0", func(a agent) []stmt { return list("W0", a, u) }},
+		}
+		for _, k := range ks {
+			vs = append(vs, v{fmt.Sprintf("probe K=%d", k), func(a agent) []stmt {
+				return append([]stmt{{probeSQL, []any{e.tenant, u, k + 1}}}, list("", a, nil)...)
+			}})
+		}
+		vs = append(vs, v{"C2", func(a agent) []stmt { return list("C2", a, u) }})
+		for _, k := range []int{500, 1000} {
+			vs = append(vs, v{fmt.Sprintf("M2 K=%d", k), func(a agent) []stmt {
+				leaf := "W0"
+				if s.all <= k {
+					leaf = "C2"
+				}
+				return append([]stmt{{probeSQL, []any{e.tenant, u, k + 1}}}, list(leaf, a, u)...)
+			}})
+		}
+		for _, k := range []int{250, 1000} {
+			vs = append(vs, v{fmt.Sprintf("M K=%d", k), func(a agent) []stmt {
+				leaf := "W0"
+				if s.all <= k {
+					leaf = "C1"
+				}
+				return append([]stmt{{probeSQL, []any{e.tenant, u, k + 1}}}, list(leaf, a, u)...)
+			}})
+		}
+		for _, x := range vs {
+			name := s.label + " " + x.name
+			if !only.MatchString(name) {
+				continue
+			}
+			for i := 0; i < 20; i++ { // warm-up
+				e.srvMS(ctx, list("", e.agents[i], nil))
+				e.srvMS(ctx, x.ss(e.agents[i]))
+			}
+			var bs, vv, ds []float64
+			for i := 0; i < pairs; i++ {
+				a := e.agents[i%len(e.agents)]
+				var b, y float64
+				if i%2 == 0 {
+					b = e.srvMS(ctx, list("", a, nil))
+					y = e.srvMS(ctx, x.ss(a))
+				} else {
+					y = e.srvMS(ctx, x.ss(a))
+					b = e.srvMS(ctx, list("", a, nil))
+				}
+				bs, vv, ds = append(bs, b), append(vv, y), append(ds, y-b)
+			}
+			b50, b95, v50, v95 := fpct(bs, .5), fpct(bs, .95), fpct(vv, .5), fpct(vv, .95)
+			fmt.Printf("%s server %-58s base p95=%6.2f var p95=%7.2f dp95=%+7.2f med=%+6.2f\n", time.Now().UTC().Format("15:04:05"), name, b95, v95, v95-b95, fpct(ds, .5))
+			e.w("| %s | %s | %d | %.2f | %.2f | %.2f | %.2f | %+.2f | **%+.2f** | %+.2f | %+.2f |\n", s.label, x.name, pairs, b50, b95, v50, v95, v50-b50, v95-b95, fpct(ds, .5), fpct(ds, .95))
+		}
+	}
+	e.w("\nForeign containers at end: `%s`.\n", foreign())
+}
