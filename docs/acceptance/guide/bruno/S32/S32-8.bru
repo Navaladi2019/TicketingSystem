@@ -1,0 +1,23 @@
+meta {
+  name: S32.8 admin@tenant-b is tenant B's admin
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  const g = N.json().group_paths.find(x => x.path === '/admins');
+  test('admin@tenant-b is in /admins of tenant B', () => expect(g, 'group_paths /admins').to.be.an('object'));
+  bru.setVar('s32_b_admins', g ? g.id : '');
+}

@@ -267,6 +267,17 @@ stories:
     evidence:
       - docs/acceptance/S30/README.md
       - docs/acceptance/S30/fresh-stack-run.txt
+  - id: S32
+    issue: TICK-955
+    title: A workflow step can check a named access policy
+    status: delivered
+    verdict: READY
+    date: 2026-11-21
+    verdict_comment: "Acceptance kit S32/README.md (TICK-958), verified on a fresh stack"
+    bruno: [S32]
+    evidence:
+      - docs/acceptance/S32/README.md
+      - docs/acceptance/S32/fresh-stack-run.txt
   - id: GO127
     issue: TICK-961
     title: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies

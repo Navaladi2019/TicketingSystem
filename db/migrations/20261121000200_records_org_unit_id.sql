@@ -12,7 +12,7 @@
 --     NO ACTION, no ON DELETE: units are tombstoned, never deleted (D7), and
 --     a tombstoned unit stays a valid target. Added NOT VALID (no scan under
 --     ACCESS EXCLUSIVE); new and updated rows are checked from here on, and
---     20261120120300 validates it with the TICK-715 pattern.
+--     20261121000300 validates it with the TICK-715 pattern.
 --   - The audit commit check is replaced with one whose UPDATE OF list adds
 --     org_unit_id: db/grants.yaml gives nava_app and nava_worker UPDATE on the
 --     column (D8: moved by a workflow step), and CI-A3 requires every
@@ -24,7 +24,7 @@
 --     makes the migration fail and be re-run instead of queueing behind a
 --     long record transaction.
 --
--- The index is 20261120120400 (CREATE INDEX CONCURRENTLY, its own file).
+-- The index is 20261121000400 (CREATE INDEX CONCURRENTLY, its own file).
 
 -- +goose Up
 

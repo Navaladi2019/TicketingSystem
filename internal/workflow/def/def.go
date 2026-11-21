@@ -87,6 +87,26 @@ type Condition struct {
 	Value json.RawMessage `json:"value,omitempty"`
 }
 
+// PolicyRef names an access policy by (entity type key, policy name)
+// (ADR-010 D9). It is a literal; Parse does not check that the policy exists,
+// references resolve at run time.
+type PolicyRef struct {
+	EntityType string `json:"entity_type"`
+	Name       string `json:"name"`
+}
+
+// Who values of a policy test: whose access the test asks about.
+const (
+	WhoRequester = "requester"
+	WhoAssignee  = "assignee"
+)
+
+// Ops of a policy test (Step.Op when Step.Policy is set).
+const (
+	OpRead  Op = "read"
+	OpWrite Op = "write"
+)
+
 // Case is one arm of a branch step. A branch evaluates its cases in array
 // order with Holds; the first case that holds wins and its Next is taken. When
 // no case holds, the branch takes Default.
@@ -105,6 +125,10 @@ type Step struct {
 	Condition
 	Then string `json:"then,omitempty"`
 	Else string `json:"else,omitempty"`
+	// Policy, Who and Op (OpRead or OpWrite) form the named-policy test: set
+	// instead of Field and Value. Holds does not evaluate it.
+	Policy *PolicyRef `json:"policy,omitempty"`
+	Who    string     `json:"who,omitempty"`
 
 	// branch
 	Cases   []Case `json:"cases,omitempty"`

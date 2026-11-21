@@ -66,13 +66,39 @@
         { "if": { "properties": { "type": { "const": "end" } }, "required": ["type"] }, "then": { "$ref": "#/$defs/end_step" } }
       ]
     },
+    "policy_test": {
+      "description": "Named-policy test (ADR-010 D9): op is the access operation asked of the policy. The policy is not looked up at publish; it resolves at run time.",
+      "type": "object",
+      "required": ["policy", "who", "op"],
+      "properties": {
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entity_type", "name"],
+          "properties": {
+            "entity_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,40}$" },
+            "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" }
+          }
+        },
+        "who": { "enum": ["requester", "assignee"] },
+        "op": { "enum": ["read", "write"] }
+      }
+    },
     "condition_step": {
-      "allOf": [{ "$ref": "#/$defs/condition" }],
       "required": ["then", "else"],
       "properties": {
-        "key": true, "type": true, "field": true, "op": true, "value": true,
+        "key": true, "type": true, "field": true, "op": true, "value": true, "policy": true, "who": true,
         "then": { "$ref": "#/$defs/edge" },
         "else": { "$ref": "#/$defs/edge" }
+      },
+      "if": { "required": ["policy"] },
+      "then": {
+        "allOf": [{ "$ref": "#/$defs/policy_test" }],
+        "properties": { "field": false, "value": false }
+      },
+      "else": {
+        "allOf": [{ "$ref": "#/$defs/condition" }],
+        "properties": { "policy": false, "who": false }
       },
       "additionalProperties": false
     },

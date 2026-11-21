@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 amendment A2 explained (ACCEPTED, rev 2.1): the ticket count gets a time limit, and may say "unknown"</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:90%}
+.box{border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:14px 0;background:var(--soft)}
+.good{background:var(--goodbg);border-color:var(--good)}
+.bad{background:var(--badbg);border-color:var(--bad)}
+dt{font-weight:700;margin-top:8px}
+svg text{fill:var(--fg);font:13px sans-serif}
+svg .m{fill:var(--muted)}
+</style></head><body><main>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · rev 2.1 · 2026-11-21</span>
+<h1>ADR-006 amendment A2: the ticket count gets a time limit, and may say "unknown"</h1>
+<p class="src">Record: <code>docs/adr/ADR-006-A2-count-time-budget.md</code> · Issue TICK-1022 · Evidence: <code>docs/adr/ADR-006/spikes/a2-bounded-probe/</code> (runs 1–5, and <code>a2-11/</code> for the spikes that ended rev 1) · Amends ADR-006 D7 and the list response · CTO ruling: option (C2) · Technical Architect: no blocking item, two test additions taken · Security &amp; Multi-Tenancy Reviewer: approved, three tests and one rewording taken · Accepted by the Solution Architect, 2026-11-21.</p>
+
+<h2>Words used here</h2>
+<dl>
+<dt><code>total</code></dt><dd>The number of matching tickets the user may read, shown next to a list. It is counted only up to 1,000 ("1,000+").</dd>
+<dt>Row ACL</dt><dd>The rule that decides which tickets a user may read. A <em>narrowing</em> ACL hides most of them; the test agent sees about 5–6%.</dd>
+<dt>Side table</dt><dd>A table with one row per ticket per filterable field, so a filter such as "priority = 3" can use an index. It is shared by all tenants; row-level security keeps each tenant to its own rows.</dd>
+<dt>Band (ii)</dt><dd>Filters matching 40% or more of the tickets, for a user with a narrowing ACL. The agreed limit is 350 ms at p95, the time 95% of requests beat.</dd>
+<dt>Statement timeout</dt><dd>A PostgreSQL setting that cancels a query running longer than a given time. A <em>savepoint</em> lets the request carry on after that cancellation.</dd>
+</dl>
+
+<h2>The problem</h2>
+<p>A support agent who sees only their group's tickets filters on a common value such as "priority = 3". The page of tickets comes back fast. The count beside it sometimes took 0.2 s on one fresh install and 0.03 s on the next, and 0.6–1 s under load. Which way PostgreSQL counts depends on things nobody controls per request: when vacuum last ran, other tenants' edits, and whether the value sits on the agent's own tickets or on tickets they can't see.</p>
+<p>Rev 0 and rev 1 tried to make PostgreSQL always pick the fast way. The tests showed that no rule can know beforehand which way is fast. Forcing the "fast" way on a value that sits on hidden tickets cost 0.3–0.6 s more, and the extra pre-check leaked a 0.2–0.5 s timing signal about hidden tickets.</p>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Outcome</th></tr>
+<tr><td>Refresh statistics, vacuum, or change cost settings</td><td>Did not fix it, or could not be run by the app (runs 1–3).</td></tr>
+<tr><td>Force a per-ticket lookup, with pre-checks and guards (rev 0/1)</td><td>Failed its own test: up to +557 ms when the value sits on hidden tickets.</td></tr>
+<tr><td>Decide from a small sample of the user's tickets</td><td>Not tried: an unlucky sample makes it walk every ticket, up to about 3 s.</td></tr>
+<tr><td>Accept the slowness as a budget exception</td><td>It would never close by itself: a permanent hole.</td></tr>
+<tr><td>Add a real database column per filterable field</td><td>Too heavy now; kept as the long-term option.</td></tr>
+<tr><td><strong>Give the count a time limit (chosen by the CTO)</strong></td><td>Bounds the time in every case, with no guessing.</td></tr>
+</table>
+
+<h2>The decision</h2>
+<div class="box good">
+<ol>
+<li>The count may run for at most <strong>200 ms</strong>.</li>
+<li>If it finishes, the answer is as today: an exact number, or "1,000+".</li>
+<li>If it doesn't, the page of tickets is still returned in full. The response says <code>total_state: unknown</code> with <code>total: null</code>, and the screen shows "50+" (the matches already listed) instead of a number. It never shows 0.</li>
+<li>If the first page holds every match (fewer than a full page), the count is skipped entirely: the number is exact and free.</li>
+</ol>
+</div>
+
+<svg viewBox="0 0 860 150" width="100%" role="img" aria-label="Request time budget">
+<text x="10" y="20" font-weight="bold">How 350 ms is split (p95, band (ii))</text>
+<rect x="10" y="35" width="219" height="40" fill="#0969da" opacity=".35"/><text x="18" y="60">page + handler 94 ms</text>
+<rect x="229" y="35" width="14" height="40" fill="#9a6700" opacity=".45"/><text x="226" y="95" class="m">6 ms</text>
+<rect x="243" y="35" width="467" height="40" fill="#1a7f37" opacity=".35"/><text x="270" y="60">count budget 200 ms</text>
+<rect x="710" y="35" width="117" height="40" fill="#cf222e" opacity=".25"/><text x="714" y="60">margin 35 + 15</text>
+<text x="10" y="125" class="m">94 = 73 ms idle list p95 (P3-36) + 21 ms worst page time (run 5). 6 = two extra round trips. 35 = the 10% margin A1 uses; rounding down leaves 15 more.</text>
+</svg>
+
+<h2>Evidence</h2>
+<ul>
+<li>Without the limit, the count in this band took 32–114 ms on one machine and up to 0.6 s per request in the spikes. The 8-client p95 reached 578–983 ms on the failing install.</li>
+<li>The page itself took 4–21 ms in this band in every measurement, which is why the page gets no limit here.</li>
+<li>The statement-timeout mechanism already exists in the product for slow filters, so this reuses tested code.</li>
+</ul>
+
+<h2>What must be true before the code merges</h2>
+<ul>
+<li>The 94 ms page share is measured on a fresh install, on a machine that passes the usual quietness checks (a busy machine makes the number meaningless). If it is larger, the 200 ms shrinks by the same amount, to no less than 100 ms. Below that, the CTO decides again.</li>
+<li>A forced slow count returns the page with "unknown", never an error, and the request carries on normally. A test on the real slow plan checks that the database stops the count within 15 ms of the limit.</li>
+<li>After a stopped count, the request is still bound to the same tenant, and the database connection goes back to the pool clean for the next tenant.</li>
+<li>All the security tests from the earlier attempt carry over. Another tenant's data never changes this tenant's results. A value only on hidden tickets looks exactly like a value that doesn't exist.</li>
+<li>The acceptance kit passes the band (ii) cell within 350 ms on two fresh installs in a row.</li>
+</ul>
+
+<h2>What is being accepted</h2>
+<div class="box bad">
+<p><strong>The count may say "unknown" under load.</strong> Users then see "50+" rather than an exact number. An alert fires if more than 5% of filtered lists say "unknown" in an hour.</p>
+<p><strong>A small timing signal stays, and gets smaller.</strong> How long the count takes depends partly on tickets the user can't see, and that already shows in response time today. "Unknown" is a yes/no reading of that same time, so it reveals nothing new. Above 200 ms, every slow count now looks the same, which hides more than today. Asking about a single value that exists only on hidden tickets always gets an exact 0, because the count is skipped. A cleverer query that mixes in visible tickets still runs the count, but its time reflects hidden tickets only in bulk, as today. The Security &amp; Multi-Tenancy Reviewer approved this and rated it Info: one hidden ticket changes the time by about a microsecond, far below normal variation, and nothing from another tenant is read.</p>
+<p><strong>Slow pages are not fixed here.</strong> In one test shape, a user who sees half the tickets filtering on a value that sits only on hidden tickets, the page itself took 2–3 s. That is tracked separately (TICK-992).</p>
+</div>
+
+<h2>Invariants</h2>
+<p>Tenant wall and tenant source hold: no new query, and the count is today's query under row-level security. No new database rights. Results are never wrong: the total is exact, "1,000+", or honestly "unknown".</p>
+</main></body></html>
