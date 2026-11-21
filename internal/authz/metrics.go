@@ -31,14 +31,6 @@ const PolicyInvalidMetric = "authz.policy.invalid"
 // (ReadBranchBound), so a rise means a document published since needs a look.
 const ReadBranchesFallbackMetric = "authz.read_branches.fallback"
 
-// UnderSetTooLargeMetric counts the evaluations ExpandUnder refused because an
-// under leaf's set S holds more than MaxUnderSet org units (ADR-010 D7). The
-// request gets 500 access_scope_too_large, so any rise is alert-worthy: the
-// tenant's org tree outgrew the cap (groupsync_org_subtree_max shows it first).
-// Prometheus: authz_under_set_too_large_total{entity_type}. No tenant, as for
-// authz_policy_invalid_total.
-const UnderSetTooLargeMetric = "authz.under_set_too_large"
-
 // PolicyRefMissingMetric counts the workflow policy tests that named no policy
 // (ADR-010 D9): the record's entity type is not the reference's, or the type
 // has no published policy of that name. It denies, is audited, and should stay
@@ -65,12 +57,6 @@ var invalidCounter atomic.Pointer[metric.Int64Counter]
 //nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
 var fallbackCounter atomic.Pointer[metric.Int64Counter]
 
-// underTooLargeCounter is the registered UnderSetTooLargeMetric counter; nil
-// records nothing.
-//
-//nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
-var underTooLargeCounter atomic.Pointer[metric.Int64Counter]
-
 // RegisterMetrics registers the authorizer's metrics on mp. A process that
 // evaluates policies calls it once at start; until it does, nothing is
 // counted (the log line is still written).
@@ -86,11 +72,6 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	if err != nil {
 		return fmt.Errorf("authz: %s: %w", ReadBranchesFallbackMetric, err)
 	}
-	u, err := meter.Int64Counter(UnderSetTooLargeMetric,
-		metric.WithDescription("Access checks refused because an under leaf's org-unit set has more than 10,000 units (ADR-010 D7); each is a 500 access_scope_too_large."))
-	if err != nil {
-		return fmt.Errorf("authz: %s: %w", UnderSetTooLargeMetric, err)
-	}
 	m, err := meter.Int64Counter(PolicyRefMissingMetric,
 		metric.WithDescription("Workflow policy tests that named a missing entity type or policy and so denied (ADR-010 D9)."))
 	if err != nil {
@@ -99,7 +80,6 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	refMissingCounter.Store(&m)
 	invalidCounter.Store(&c)
 	fallbackCounter.Store(&f)
-	underTooLargeCounter.Store(&u)
 	return nil
 }
 
@@ -134,17 +114,6 @@ func countInvalid(pol *Policy, pp plannedPolicy) {
 func countReadFallback(pol *Policy) {
 	if c := fallbackCounter.Load(); c != nil {
 		(*c).Add(context.Background(), 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
-	}
-}
-
-// countUnderTooLarge records one ExpandUnder refused for a set S above
-// MaxUnderSet, and logs it without any id.
-func countUnderTooLarge(pol *Policy) {
-	ctx := context.Background()
-	slog.ErrorContext(ctx, "authz: under set too large, access refused",
-		slog.String("entity_type", pol.EntityType), slog.Int("version", pol.Version), slog.Int("limit", MaxUnderSet))
-	if c := underTooLargeCounter.Load(); c != nil {
-		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", pol.EntityType)))
 	}
 }
 

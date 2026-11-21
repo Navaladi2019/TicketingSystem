@@ -1,16 +1,18 @@
 //go:build integration
 
-// TICK-950 P11-17 (ADR-010 D7, D5a) against a real PostgreSQL as nava_app,
-// under RLS: authz.ExpandUnder computes set S from a real org-unit tree with
-// one recursive query over live units, and the under leaf gives the same rows
-// in SQL (CompileRead, ReadBranches) and in Go (Allows over the single-record
-// loader, which fills Row.OrgUnitID). A tombstoned unit drops out of S with
-// its whole subtree, live descendants included; a NULL org_unit_id is never
-// under; more than authz.MaxUnderSet units is a typed error.
+// TICK-950 P11-17 and TICK-1034 (ADR-010 D7 as amended, D5a) against a real
+// PostgreSQL as nava_app, under RLS: the under leaf reads org_unit_closure,
+// filled from a real org-unit tree, and gives the same rows in SQL
+// (CompileRead, ReadBranches) and in Go (Allows over the single-record loader,
+// which fills Row.OrgUnitID, bound by authz.ResolveUnder's closure probe). A
+// tombstoned unit drops out with its whole subtree, live descendants included;
+// a NULL org_unit_id is never under; a region of more than 10,000 units is a
+// normal answer, and its count reads at most K + 1 records.
 package pipeline_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -102,7 +104,31 @@ func seedUnderWorld(t *testing.T, e env) underWorld {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
+	rebuildClosure(t, e)
 	return w
+}
+
+// rebuildClosure fills org_unit_closure from org_units, for every tenant, as
+// the migration's backfill does (org_unit_closure_rebuild_all, nava_migrator
+// only). The tests seed org_units directly, so they seed the closure the same
+// way; group sync keeps it current in production (TICK-1033).
+func rebuildClosure(t *testing.T, e env) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_migrator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "SELECT org_unit_closure_rebuild_all()"); err != nil {
+		t.Fatalf("rebuild the closure: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // names maps record ids back to their unit names, sorted.
@@ -117,16 +143,28 @@ func (w underWorld) names(ids []uuid.UUID) []string {
 	return out
 }
 
-// rows returns, for pol bound by ExpandUnder in a tenant transaction, the
-// records the SQL predicate admits, those Allows admits over the loader's
-// rows, and those the ReadBranches UNION ALL admits (nil when it does not
-// split).
+// rows returns, for pol bound by ResolveUnder in a tenant transaction (with
+// the loader's row of every record), the records the SQL predicate admits,
+// those Allows admits over the loader's rows, and those the ReadBranches
+// UNION ALL admits (nil when it does not split). It also checks that the list
+// count with the closure-driven region term equals the count without it.
 func (w underWorld) rows(t *testing.T, e env, pol *authz.Policy, p identity.Principal) (bySQL, byGo, byBranches []string) {
 	t.Helper()
 	ctx := context.Background()
 	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-		bound, err := authz.ExpandUnder(ctx, tx, pol, p)
+		recs := make([]authz.Row, len(w.records))
+		for i, id := range w.records {
+			rec, err := pipelineGet(ctx, tx, w.f.id, id)
+			if err != nil {
+				return err
+			}
+			recs[i] = rec
+		}
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p, recs...)
 		if err != nil {
+			return err
+		}
+		if err := w.countsAgree(ctx, tx, bound, p); err != nil {
 			return err
 		}
 		const from = `SELECT r.id FROM records r JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
@@ -142,12 +180,8 @@ func (w underWorld) rows(t *testing.T, e env, pol *authz.Policy, p identity.Prin
 		}
 		bySQL = w.names(ids)
 		var goIDs []uuid.UUID
-		for _, id := range w.records {
-			rec, err := pipelineGet(ctx, tx, w.f.id, id)
-			if err != nil {
-				return err
-			}
-			if _, _, ok := authz.Allows(bound, p, authz.OpRead, rec); ok {
+		for i, id := range w.records {
+			if _, _, ok := authz.Allows(bound, p, authz.OpRead, recs[i]); ok {
 				goIDs = append(goIDs, id)
 			}
 		}
@@ -179,6 +213,39 @@ func (w underWorld) rows(t *testing.T, e env, pol *authz.Policy, p identity.Prin
 	return bySQL, byGo, byBranches
 }
 
+// countsAgree runs the list's capped count for pol twice, as the list route
+// builds it (authz.ReadList): with the closure drivers and without them. The
+// driven region term must count exactly the rows the plain one does.
+func (w underWorld) countsAgree(ctx context.Context, tx pgx.Tx, pol *authz.Policy, p identity.Principal) error {
+	read := authz.ReadList(pol, p, "r", 2)
+	q := pipeline.ListQuery{TenantID: w.f.id, DefinitionID: w.def(ctx, tx), Where: "true", Args: read.Args, Branches: read.Branches}
+	if read.Branches == nil {
+		q.Where = read.Where
+	}
+	args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
+	var plain, driven int64
+	if err := tx.QueryRow(ctx, pipeline.CountStatement(q), args...).Scan(&plain); err != nil {
+		return fmt.Errorf("plain count: %w", err)
+	}
+	for _, d := range read.Drivers {
+		q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+	}
+	if err := tx.QueryRow(ctx, pipeline.CountStatement(q), args...).Scan(&driven); err != nil {
+		return fmt.Errorf("driven count %s: %w", pipeline.CountStatement(q), err)
+	}
+	if plain != driven {
+		return fmt.Errorf("driven count %d, plain count %d: %s", driven, plain, pipeline.CountStatement(q))
+	}
+	return nil
+}
+
+// def is the world's entity definition id.
+func (w underWorld) def(ctx context.Context, tx pgx.Tx) uuid.UUID {
+	var id uuid.UUID
+	_ = tx.QueryRow(ctx, `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, w.f.id, aclKey).Scan(&id)
+	return id
+}
+
 func underDoc(t *testing.T, when string) *authz.Policy {
 	t.Helper()
 	d, err := authz.Decode([]byte(`{"format":2,"conditions":[],"policies":[{"name":"p","ops":["read"],"when":` + when + `}]}`))
@@ -201,6 +268,13 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 	caller := `{"under":{"of":"caller"}}`
 	u1 := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
 	u2 := identity.Principal{TenantID: w.f.id, PrincipalID: w.u2}
+	// u3 is a member of A and of A1 below it: overlapping caller units.
+	u3 := identity.Principal{TenantID: w.f.id, PrincipalID: uuid.New()}
+	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
+		w.f.id, u3.PrincipalID, "kc-"+u3.PrincipalID.String())
+	for _, unit := range []string{"A", "A1"} {
+		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, w.unit[unit], u3.PrincipalID)
+	}
 	noID := identity.Principal{TenantID: w.f.id, Groups: []uuid.UUID{w.g1}}
 	requester := `{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}`
 	for _, tc := range []struct {
@@ -213,13 +287,16 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 		{"descendant", of("A"), u1, []string{"A", "A1"}},
 		{"tombstoned ancestor: T and its live child T1 are out", of("R"), u1, []string{"A", "A1", "L", "R"}},
 		{"tombstoned leaf is out", of("L"), u1, []string{"L"}},
-		{"a tombstoned unit listed: empty S, false", of("Lx"), u1, []string{}},
+		{"a tombstoned unit listed: no closure row, false", of("Lx"), u1, []string{}},
 		{"tombstoned root listed: its live child is out too", of("T"), u1, []string{}},
 		{"two roots, overlapping", of("A", "A1", "L"), u1, []string{"A", "A1", "L"}},
-		{"another tenant's unit: empty S", of("X"), u1, []string{}},
+		{"another tenant's unit: no closure row in this tenant", of("X"), u1, []string{}},
 		{"NULL org_unit_id and the excluded units are not under", `{"not":` + of("R") + `}`, u1, []string{"Lx", "T", "T1", "none"}},
 		{"caller: u1's units A and L", caller, u1, []string{"A", "A1", "L"}},
-		// D7 (fail closed): T1 dropped out of S with tombstoned T's subtree,
+		// The AC's EMEA and EMEA/Germany: rows and count as for A alone (the
+		// count driver drops A1, which is below A; countsAgree checks it).
+		{"caller: u3 in A and A1, same as A alone", caller, u3, []string{"A", "A1"}},
+		// D7 (fail closed): T1 dropped out with tombstoned T's subtree,
 		// so being a direct member of it grants nothing; listing it neither.
 		{"caller: u2 is a member of live T1 below tombstoned T: excluded", caller, u2, []string{}},
 		{"a listed live unit below a tombstoned one: excluded", of("T1"), u1, []string{}},
@@ -242,8 +319,8 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 	}
 
 	// Unbound, the same policies grant nothing: the planner voids a policy
-	// whose under leaf has no set S for the caller (fails closed), even under
-	// a not.
+	// whose under leaf has no binding for the caller (fails closed), even
+	// under a not.
 	for _, when := range []string{of("R"), `{"not":` + of("R") + `}`, caller} {
 		pol := underDoc(t, when)
 		inTx(t, e, w.f.id, func(tx pgx.Tx) error {
@@ -259,47 +336,159 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 			return nil
 		})
 	}
+
+	// of [ids] that became nested after a tree move (the AC): L moves under
+	// A, the closure is rebuilt, and of [A, L] gives the rows and the capped
+	// count of of [A] alone.
+	mustExec(t, e.super, `UPDATE org_units SET parent_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.unit["L"], w.unit["A"])
+	rebuildClosure(t, e)
+	alone, nested := underDoc(t, of("A")), underDoc(t, of("A", "L"))
+	wantRows, _, _ := w.rows(t, e, alone, u1)
+	gotRows, gotGo, _ := w.rows(t, e, nested, u1)
+	if want := []string{"A", "A1", "L"}; !slices.Equal(wantRows, want) {
+		t.Fatalf("of [A] after the move admits %v, want %v", wantRows, want)
+	}
+	if !slices.Equal(gotRows, wantRows) || !slices.Equal(gotGo, wantRows) {
+		t.Errorf("of [A, L] after the move: SQL %v, Allows %v; want of [A]'s %v", gotRows, gotGo, wantRows)
+	}
+	if a, n := w.drivenCount(t, e, alone, u1), w.drivenCount(t, e, nested, u1); a != n || a != int64(len(wantRows)) {
+		t.Errorf("capped count of [A] %d, of [A, L] %d; want both %d", a, n, len(wantRows))
+	}
 }
 
-// More than authz.MaxUnderSet units in S is *authz.UnderSetTooLargeError;
-// exactly MaxUnderSet is fine.
-func TestUnderSetAboveTheCapIsATypedError(t *testing.T) {
+// drivenCount is the list's capped count for pol, with the closure drivers,
+// as the list route runs it.
+func (w underWorld) drivenCount(t *testing.T, e env, pol *authz.Policy, p identity.Principal) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var n int64
+	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p)
+		if err != nil {
+			return err
+		}
+		read := authz.ReadList(bound, p, "r", 2)
+		q := pipeline.ListQuery{TenantID: w.f.id, DefinitionID: w.def(ctx, tx), Where: "true", Args: read.Args, Branches: read.Branches}
+		if read.Branches == nil {
+			q.Where = read.Where
+		}
+		for _, d := range read.Drivers {
+			q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+		}
+		return tx.QueryRow(ctx, pipeline.CountStatement(q), append([]any{q.TenantID, q.DefinitionID}, q.Args...)...).Scan(&n)
+	})
+	return n
+}
+
+// A region of more than 10,000 units (the old MaxUnderSet) is a normal
+// answer now (TICK-1034): Allows, the list predicate and the count answer for
+// a record deep in it. The driven count reads at most K + 1 = 1,001 records of
+// a region holding more, so its cost does not grow with the region.
+func TestUnderAboveTenThousandUnitsIsANormalAnswer(t *testing.T) {
 	e := migrated(t)
 	w := seedACLWorld(t, e)
 	ctx := context.Background()
 	root := uuid.New()
 	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-cap-root', 'root')`, w.f.id, root)
-	// root plus MaxUnderSet-1 children: exactly MaxUnderSet units.
 	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), $2, 'kc-cap-' || n, 'c' || n FROM generate_series(1, $3::int) n`, w.f.id, root, authz.MaxUnderSet-1)
+		SELECT $1, gen_random_uuid(), $2, 'kc-cap-' || n, 'c' || n FROM generate_series(1, 10001) n`, w.f.id, root)
+	rebuildClosure(t, e)
+	var def uuid.UUID
+	if err := e.super.QueryRow(ctx, `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = $2`, w.f.id, aclKey).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	// 1,500 records spread over the region's units, past the audit commit
+	// check (replica role): this test reads answers and plans, not audit.
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data)
+		SELECT $1, gen_random_uuid(), $2, 1, 1, 'BIG-' || g, 'open', u.id, now(), now(), '{}'
+		FROM generate_series(1, 1500) g
+		JOIN LATERAL (SELECT id FROM org_units WHERE tenant_id = $1 AND keycloak_group_id = 'kc-cap-' || (g % 10001 + 1)) u ON true`, w.f.id, def); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, e.super, `ANALYZE records`)
+	mustExec(t, e.super, `ANALYZE org_unit_closure`)
+
 	pol := underDoc(t, `{"under":{"of":["`+root.String()+`"]}}`)
 	p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
 	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-		if _, err := authz.ExpandUnder(ctx, tx, pol, p); err != nil {
-			t.Errorf("S of exactly %d units: %v", authz.MaxUnderSet, err)
+		var deep uuid.UUID
+		var unit uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT id, org_unit_id FROM records WHERE tenant_id = $1 AND number = 'BIG-1500'`, w.f.id).Scan(&deep, &unit); err != nil {
+			return err
+		}
+		row := authz.Row{ID: deep, State: "open", OrgUnitID: &unit}
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p, row)
+		if err != nil {
+			return fmt.Errorf("ResolveUnder over 10,002 units: %w", err)
+		}
+		if _, _, ok := authz.Allows(bound, p, authz.OpRead, row); !ok {
+			t.Error("a record in the region is refused")
+		}
+		read := authz.ReadList(bound, p, "r", 2)
+		q := pipeline.ListQuery{TenantID: w.f.id, DefinitionID: def, Where: read.Where, Args: read.Args}
+		for _, d := range read.Drivers {
+			q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+		}
+		if len(q.CountDrivers) != 1 || q.CountDrivers[0].From == "" {
+			t.Fatalf("the region term has no count driver: %+v", read.Drivers)
+		}
+		args := append([]any{w.f.id, def}, q.Args...)
+		var n int64
+		if err := tx.QueryRow(ctx, pipeline.CountStatement(q), args...).Scan(&n); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		if n != 1001 {
+			t.Errorf("capped count = %d, want 1001 (TotalCap + 1)", n)
+		}
+		var plan string
+		if err := tx.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+pipeline.CountStatement(q), args...).Scan(&plan); err != nil {
+			return fmt.Errorf("explain: %w", err)
+		}
+		if got := recordsRead(t, plan); got > 1001 {
+			t.Errorf("the driven count read %d records, want at most 1001:\n%s", got, plan)
 		}
 		return nil
 	})
-	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, gen_random_uuid(), $2, 'kc-cap-over', 'over')`, w.f.id, root)
-	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-		_, err := authz.ExpandUnder(ctx, tx, pol, p)
-		var big *authz.UnderSetTooLargeError
-		if !errors.As(err, &big) {
-			t.Errorf("S of %d units: err = %v, want *authz.UnderSetTooLargeError", authz.MaxUnderSet+1, err)
+}
+
+// recordsRead sums, over every scan of records in a JSON EXPLAIN ANALYZE
+// plan, the rows it returned times its loops: the records the statement read.
+func recordsRead(t *testing.T, plan string) int64 {
+	t.Helper()
+	var nodes []struct {
+		Plan map[string]any `json:"Plan"`
+	}
+	if err := json.Unmarshal([]byte(plan), &nodes); err != nil || len(nodes) != 1 {
+		t.Fatalf("plan: %v", err)
+	}
+	var walk func(n map[string]any) int64
+	walk = func(n map[string]any) int64 {
+		var sum int64
+		if n["Relation Name"] == "records" {
+			rows, _ := n["Actual Rows"].(float64)
+			loops, _ := n["Actual Loops"].(float64)
+			sum += int64(rows * loops)
 		}
-		if err != nil && strings.Contains(err.Error(), root.String()) {
-			t.Error("the error names a unit id")
+		kids, _ := n["Plans"].([]any)
+		for _, k := range kids {
+			if m, ok := k.(map[string]any); ok {
+				sum += walk(m)
+			}
 		}
-		return nil
-	})
-	// A tombstoned child brings S back under the cap.
-	mustExec(t, e.super, `UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1 AND keycloak_group_id = 'kc-cap-over'`, w.f.id)
-	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
-		if _, err := authz.ExpandUnder(ctx, tx, pol, p); err != nil {
-			t.Errorf("after tombstoning one unit: %v", err)
-		}
-		return nil
-	})
+		return sum
+	}
+	return walk(nodes[0].Plan)
 }
 
 func pipelineCreate(actor identity.Principal, data map[string]any) pipeline.Command {
@@ -330,6 +519,7 @@ func TestCreateUnderAnUnderOnlyWriteGrant(t *testing.T) {
 	child := uuid.New()
 	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, $4, 'In child')`,
 		f.id, child, in, "kc-"+child.String())
+	rebuildClosure(t, e)
 	inTx(t, e, f.id, func(tx pgx.Tx) error {
 		prep, ps := authz.Prepare([]byte(`{"rules":{"format":2,"conditions":[],"policies":[{"name":"region","ops":["read","write"],"when":{"under":{"of":["`+in.String()+`"]}}}]}}`), authz.DefaultMaxDocumentBytes)
 		if len(ps) > 0 {

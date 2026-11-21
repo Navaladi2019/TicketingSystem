@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -55,7 +57,7 @@ func Explain(pol *Policy, admin, target identity.Principal, row Row) Explanation
 	}
 	// One plan feeds the decision, the trace and the invalid list, so they
 	// describe the same trees Allows judged. A voided policy is counted once.
-	planned := plan(pol, target, OpRead)
+	planned := planRow(pol, target, OpRead, row)
 	countVoided(pol, planned)
 	out.Policy, out.Trace, out.Allow = firstGrant(planned, row)
 	out.RuleID = ruleID(pol, out.Policy)
@@ -142,6 +144,75 @@ const (
 	usersInTenantSQL  = `SELECT id FROM principals WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
 	unitsInTenantSQL  = `SELECT id FROM org_units WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`
 )
+
+// nestedUnitsSQL is every closure pair among ids with the ancestor above the
+// descendant: PK probes on org_unit_closure_pkey, under the tenant.
+const nestedUnitsSQL = `SELECT ancestor_id, descendant_id FROM org_unit_closure
+WHERE tenant_id = $1 AND ancestor_id = ANY($2::uuid[]) AND descendant_id = ANY($2::uuid[]) AND ancestor_id <> descendant_id`
+
+// NestedUnderUnits returns a Problem, RuleUnderNested at the leaf's
+// .../under/of pointer, for every under {"of": [ids]} that lists a unit and
+// one of its ancestors in the transaction tenant's closure (SP-1e). It reads
+// the org-unit refs of Prepare, grouped by their leaf; a leaf with one id
+// costs nothing, and all leaves share one statement. Like NotInTenant it
+// filters by tenant_id on top of row-level security, and names no id.
+func NestedUnderUnits(ctx context.Context, tx pgx.Tx, refs []TenantRef) ([]Problem, error) {
+	leaves := map[string][]uuid.UUID{}
+	var order []string
+	var ids []uuid.UUID
+	for _, r := range refs {
+		if r.Kind != KindOrgUnit {
+			continue
+		}
+		i := strings.LastIndex(r.Pointer, "/")
+		if i < 0 {
+			continue
+		}
+		leaf := r.Pointer[:i]
+		if _, seen := leaves[leaf]; !seen {
+			order = append(order, leaf)
+		}
+		leaves[leaf] = append(leaves[leaf], r.ID)
+		ids = append(ids, r.ID)
+	}
+	multi := false
+	for _, l := range leaves {
+		multi = multi || len(sortedIDs(l)) > 1
+	}
+	if !multi {
+		return nil, nil
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("authz: %w", err)
+	}
+	rows, err := tx.Query(ctx, nestedUnitsSQL, tenant, UUIDTexts(sortedIDs(ids)))
+	if err != nil {
+		return nil, fmt.Errorf("authz: check nested under ids: %w", err)
+	}
+	type pair struct{ a, d uuid.UUID }
+	var pairs []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.a, &p.d); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("authz: check nested under ids: %w", err)
+		}
+		pairs = append(pairs, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("authz: check nested under ids: %w", err)
+	}
+	var out []Problem
+	for _, leaf := range order {
+		ls := leaves[leaf]
+		if slices.ContainsFunc(pairs, func(p pair) bool { return slices.Contains(ls, p.a) && slices.Contains(ls, p.d) }) {
+			out = append(out, Problem{leaf, RuleUnderNested})
+		}
+	}
+	return out, nil
+}
 
 // NotInTenant returns a Problem for every ref whose id is not a live group,
 // user or org unit (an under {"of": [ids]}, TICK-950) of the transaction's

@@ -254,7 +254,8 @@ func i5SentinelCaller() uuid.UUID { return uuid.MustParse("0f000000-0000-4000-80
 // planner or compiler exists to prevent. Each breaks the SQL side only, so
 // authz.Allows (and the reference) is the oracle the database run compares
 // against. under_direct_only and under_ignores_tombstone are S31's (TICK-951
-// P11-18): set S bound from a broken walk of the org tree.
+// P11-18, reworked for the closure by TICK-1034): the leaf's closure
+// subquery rewritten to a broken walk of the org tree.
 func i5F2Mutants() map[string]i5F2Compiler {
 	return map[string]i5F2Compiler{
 		// not_unguarded: a uuid cmp loses "col IS NOT NULL AND", so it is
@@ -298,17 +299,25 @@ func i5F2Mutants() map[string]i5F2Compiler {
 				return n
 			})), p, alias, argBase)
 		},
-		// under_direct_only: set S is the caller's units (or the listed
+		// under_direct_only: the region is the caller's units (or the listed
 		// roots) without their descendants, so a record in a unit below them
-		// drops out of the region.
+		// drops out of it. The leaf reads the closure in SQL, so the mutant
+		// rewrites the leaf's subquery to the closure's self rows: a live unit
+		// of U, never one below it (i5SubtreeDirectOnly is its Go model).
 		"under_direct_only": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
-			return authz.CompileRead(i5F2BoundWith(c, p, i5SubtreeDirectOnly), p, alias, argBase)
+			sql, args := authz.CompileRead(c.bound(p), p, alias, argBase)
+			return i5UnderSubquery.ReplaceAllString(sql, `IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou`+
+				` WHERE acl_ou.tenant_id = $1::uuid AND acl_ou.ancestor_id = ANY($2::uuid[]) AND acl_ou.descendant_id = acl_ou.ancestor_id)`), args
 		},
-		// under_ignores_tombstone: tombstoned units stay in S, and so does a
-		// live unit below one, so access through a unit removed from the
-		// directory survives the sync.
+		// under_ignores_tombstone: tombstoned units stay in the region, and so
+		// does a live unit below one, so access through a unit removed from
+		// the directory survives the sync. Rewritten to a walk down org_units from U that never reads
+		// deleted_at (i5SubtreeIgnoresTombstone is its Go model).
 		"under_ignores_tombstone": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
-			return authz.CompileRead(i5F2BoundWith(c, p, i5SubtreeIgnoresTombstone), p, alias, argBase)
+			sql, args := authz.CompileRead(c.bound(p), p, alias, argBase)
+			return i5UnderSubquery.ReplaceAllString(sql, `IN (WITH RECURSIVE acl_w(id) AS (SELECT o.id FROM org_units o`+
+				` WHERE o.tenant_id = $1::uuid AND o.id = ANY($2::uuid[]) UNION SELECT k.id FROM acl_w`+
+				` JOIN org_units k ON k.tenant_id = $1::uuid AND k.parent_id = acl_w.id) SELECT id FROM acl_w)`), args
 		},
 		// shared_nil_caller: shared holds for a caller with no id through its
 		// groups' shares, where D5 folds it to false. Compiled as a caller
@@ -332,7 +341,12 @@ func i5F2Mutants() map[string]i5F2Compiler {
 	}
 }
 
-// i5F2BoundWith is c.bound(p) with set S from subtree instead of the
+// i5UnderSubquery matches the under leaf's closure subquery as
+// authz.CompileRead renders it; $1 is its tenant placeholder, $2 its U.
+var i5UnderSubquery = regexp.MustCompile(`IN \(SELECT acl_ou\.descendant_id FROM org_unit_closure acl_ou` +
+	` WHERE acl_ou\.tenant_id = (\$[0-9]+)::uuid AND acl_ou\.ancestor_id = ANY\((\$[0-9]+)::uuid\[\]\)\)`)
+
+// i5F2BoundWith is c.bound(p) with the closure from subtree instead of the
 // reference's walk; a case with no world is returned as it is.
 func i5F2BoundWith(c *i5F2Case, p identity.Principal, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
 	if c.Policy == nil || c.World == nil {

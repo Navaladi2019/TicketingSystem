@@ -52,7 +52,7 @@ func LookupKind(name string) (NodeKind, bool) {
 
 // sqlRendered and goRendered are the kinds the format-2 tree renders in SQL
 // and in Go (plan.go, TICK-937 P11-05): all, any, not, cmp, shared and under
-// (TICK-950, with set S bound by ExpandUnder) render
+// (TICK-950; on the closure since TICK-1034) render
 // node for node in pnode.sql and pnode.eval; ref is expanded and member_of
 // folded to a constant by the one planner both renderings share, so both
 // renderings cover them by construction. A new kind is added to both in the

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 )
 
 // The record ACL (PLAN-003 S10, P3-31; ADR-001 I5: one authorization layer,
@@ -118,7 +119,7 @@ type Policy struct {
 	Version            int
 	Document           Document
 	Masks              []Mask
-	// under is set S bound for one principal by ExpandUnder or BindUnder
+	// under is what ResolveUnder (or BindUnder) bound for one principal
 	// (under.go); nil until then. A policy as PolicyReader returns it has none.
 	under *underScope
 }
@@ -148,9 +149,17 @@ type Row struct {
 // reported. A voided policy grants nothing and is counted. A nil policy
 // allows nothing.
 func Allows(pol *Policy, p identity.Principal, op string, r Row) (policy string, trace []TraceStep, ok bool) {
-	planned := plan(pol, p, op)
+	planned := planRow(pol, p, op, r)
 	countVoided(pol, planned)
 	return firstGrant(planned, r)
+}
+
+// planRow is plan for the Go check of r: a policy reaching an under leaf is
+// voided when the binding does not hold r's org unit (under.go).
+func planRow(pol *Policy, p identity.Principal, op string, r Row) []plannedPolicy {
+	planned := plan(pol, p, op)
+	voidUnreadRow(pol, p, planned, r)
+	return planned
 }
 
 // firstGrant is Allows over an existing plan: the first valid policy, in declared
@@ -221,6 +230,43 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadPredicate alias %q is not a plain identifier", alias))
 	}
+	lr := ReadList(pol, p, alias, argBase)
+	return lr.Branches, lr.Where, lr.Args
+}
+
+// ListRead is the list read path's access SQL from one plan (ReadList).
+type ListRead struct {
+	// Branches and Where are ReadPredicate's: two or more branches, or none
+	// and the single predicate in Where.
+	Branches []string
+	Where    string
+	Args     []any
+	// Drivers holds one entry per branch, or one for Where when there are no
+	// branches: the closure driver of that term's count when it is a region
+	// term (an under leaf, alone or ANDed with other terms), else the zero
+	// RegionDriver. The page never uses them.
+	Drivers []RegionDriver
+}
+
+// RegionDriver drives the count of a region term from its start units U
+// through the closure (SP-1d decision 1 on TICK-946, P3): for each unit of U
+// not below another unit of U, every closure descendant of it, and then the
+// records of each descendant, so a capped count reads at most its cap of
+// records whatever the size of the subtree. From is a FROM item over U and
+// the closure; the records it drives are those whose org_unit_id equals Key.
+// The units kept have disjoint subtrees (a unit has one parent), so no record
+// is reached twice. From uses only placeholders the term itself binds, so a
+// statement that holds both binds no extra argument.
+type RegionDriver struct {
+	From, Key string
+}
+
+// ReadList is ReadPredicate with the count's region drivers, from the same
+// plan, so a voided policy is counted once.
+func ReadList(pol *Policy, p identity.Principal, alias string, argBase int) ListRead {
+	if !identRE.MatchString(alias) {
+		panic(fmt.Sprintf("authz: ReadList alias %q is not a plain identifier", alias))
+	}
 	planned := plan(pol, p, OpRead)
 	countVoided(pol, planned)
 	c := &compiler{alias: alias, base: argBase}
@@ -229,10 +275,30 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 		countReadFallback(pol)
 	}
 	if len(branches) >= 2 {
-		return branches, "", c.args
+		var drivers []RegionDriver
+		for _, pp := range planned {
+			if pp.err == nil {
+				for _, t := range pp.tree.disjunctTrees() {
+					drivers = append(drivers, c.driver(t))
+				}
+			}
+		}
+		return ListRead{Branches: branches, Args: c.args, Drivers: drivers}
 	}
 	c = &compiler{alias: alias, base: argBase}
-	return nil, compileRead(planned, c), c.args
+	out := ListRead{Where: compileRead(planned, c)}
+	out.Args = c.args
+	var only []pnode
+	for _, pp := range planned {
+		if pp.err == nil {
+			only = append(only, pp.tree)
+		}
+	}
+	out.Drivers = []RegionDriver{{}}
+	if len(only) == 1 {
+		out.Drivers[0] = c.driver(only[0])
+	}
+	return out
 }
 
 // ReadBranches is CompileRead's predicate split into branches for a query that
@@ -430,6 +496,70 @@ type compiler struct {
 	alias string
 	base  int
 	args  []any
+	// unders are the placeholders of each under leaf rendered, by tenant and
+	// U, so the same leaf binds once and a RegionDriver can reuse them.
+	unders map[string]underArgs
+}
+
+// underArgs are the placeholders of an under leaf: its tenant and its U.
+type underArgs struct{ tenant, units string }
+
+func underKey(tenant uuid.UUID, units []uuid.UUID) string {
+	return tenant.String() + "/" + strings.Join(UUIDTexts(units), ",")
+}
+
+// under is the SQL of an under leaf: the row's unit is a closure descendant
+// of one of U (C1 on records_org_unit, TICK-1034). It is the only place the
+// leaf's list SQL is written, so ADR-010-A2's list shape changes this text
+// alone. The tenant and U are each one argument; U is sorted and non-empty.
+func (c *compiler) under(tenant uuid.UUID, units []uuid.UUID) string {
+	a := c.underArgs(tenant, units)
+	col := c.col(metadata.ColumnOrgUnitID)
+	return "(" + col + " IS NOT NULL AND " + col + " IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
+		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[])))"
+}
+
+func (c *compiler) underArgs(tenant uuid.UUID, units []uuid.UUID) underArgs {
+	key := underKey(tenant, units)
+	if a, ok := c.unders[key]; ok {
+		return a
+	}
+	if c.unders == nil {
+		c.unders = map[string]underArgs{}
+	}
+	a := underArgs{tenant: c.arg(tenant), units: c.arg(UUIDTexts(units))}
+	c.unders[key] = a
+	return a
+}
+
+// driver is the RegionDriver of a term already rendered by c: its under leaf
+// when the term is one, or an all with one as a child (the first); else the
+// zero driver. The leaf's placeholders are those its rendering bound.
+func (c *compiler) driver(t pnode) RegionDriver {
+	leaf := t
+	if t.op == pAll {
+		i := slices.IndexFunc(t.kids, func(k pnode) bool { return k.op == pUnder })
+		if i < 0 {
+			return RegionDriver{}
+		}
+		leaf = t.kids[i]
+	}
+	if leaf.op != pUnder {
+		return RegionDriver{}
+	}
+	a, ok := c.unders[underKey(leaf.tenant, leaf.units)]
+	if !ok {
+		return RegionDriver{}
+	}
+	return RegionDriver{
+		From: "(SELECT acl_u.id FROM unnest(" + a.units + "::uuid[]) acl_u(id)" +
+			" WHERE NOT EXISTS (SELECT 1 FROM org_unit_closure acl_up WHERE acl_up.tenant_id = " + a.tenant + "::uuid" +
+			" AND acl_up.ancestor_id = ANY(" + a.units + "::uuid[]) AND acl_up.ancestor_id <> acl_u.id" +
+			" AND acl_up.descendant_id = acl_u.id)) acl_u" +
+			" CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
+			" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = acl_u.id) acl_d",
+		Key: "acl_d.descendant_id",
+	}
 }
 
 func (c *compiler) arg(v any) string {

@@ -9,6 +9,7 @@
 package server_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -435,6 +436,7 @@ func TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	rebuildOrgUnitClosure(t, e.super)
 	under := func(of string) string {
 		return `{"format": 2, "conditions": [], "policies": [{"name": "unit", "ops": ["read", "write"], "when": {"under": {"of": ` + of + `}}}]}`
 	}
@@ -507,6 +509,180 @@ func TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree(t *testing.T) {
 	}
 	if x := decodeExplanation(t, e.explain(t, "admin-a", "job", out.ID, e.a.user.PrincipalID.String())); x.Decision != "deny" || len(x.Invalid) != 0 {
 		t.Errorf("explain the record in the tombstoned unit = %+v, want deny with no invalid policy", x)
+	}
+}
+
+// SP-1d change 5 (TICK-1034): a policy naming 5 distinct under U is 422
+// under_sets_exceeded at the policy's pointer, and nothing is stored; 4
+// publishes. Repeated U (the same ids reordered) count once.
+// covers: putEntityTypeAccess 422
+func TestS31UnderAtMostFourDistinctSetsPerPolicy(t *testing.T) {
+	e := newPatchEnv(t)
+	units := make([]uuid.UUID, 5)
+	for i := range units {
+		units[i] = uuid.New()
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, $3, $3)`,
+			e.a.id, units[i], fmt.Sprintf("s31-sets-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	of := func(ids ...uuid.UUID) string {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = `"` + id.String() + `"`
+		}
+		return `{"under": {"of": [` + strings.Join(parts, ", ") + `]}}`
+	}
+	doc := func(leaves ...string) string {
+		return `{"rules": {"format": 2, "conditions": [], "policies": [` +
+			`{"name": "open", "ops": ["read"], "when": {"cmp": {"column": "state", "op": "eq", "values": ["new"]}}},` +
+			`{"name": "regions", "ops": ["read"], "when": {"any": [` + strings.Join(leaves, ", ") + `]}}]}}`
+	}
+	v0, n0 := e.s30Counts(t)
+	five := doc(of(units[0]), of(units[1]), of(units[2]), of(units[3]), `{"under": {"of": "caller"}}`)
+	got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-sets-five"), `W/"1"`, five)
+	wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+	if ps := pointerRules(t, got); !slices.Equal(ps, []string{"/rules/policies/1 under_sets_exceeded"}) {
+		t.Errorf("five distinct U = %v, want only /rules/policies/1 under_sets_exceeded", ps)
+	}
+	if v, n := e.s30Counts(t); v != v0 || n != n0 {
+		t.Fatalf("a refused body wrote")
+	}
+	four := doc(of(units[0], units[1]), of(units[1], units[0]), of(units[2]), of(units[3]), `{"under": {"of": "caller"}}`)
+	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-sets-four"), `W/"1"`, four); got.Code != http.StatusOK {
+		t.Fatalf("four distinct U (one repeated) = %d %s, want 200", got.Code, got.Body)
+	}
+}
+
+// SP-1e (TICK-1034): an under leaf that lists a unit and one of its
+// ancestors, in the tenant's closure, is 422 under_nested at the leaf's
+// .../under/of pointer, the ids not echoed, and nothing is stored. Two
+// sibling units publish.
+// covers: putEntityTypeAccess 422
+func TestS31UnderRefusesNestedListedUnits(t *testing.T) {
+	e := newPatchEnv(t)
+	a, a1, b := uuid.New(), uuid.New(), uuid.New()
+	for _, u := range []struct {
+		id     uuid.UUID
+		parent any
+		key    string
+	}{{a, nil, "s31-nest-a"}, {a1, a, "s31-nest-a1"}, {b, nil, "s31-nest-b"}} {
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, $4, $4)`,
+			e.a.id, u.id, u.parent, u.key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rebuildOrgUnitClosure(t, e.super)
+	doc := func(ids ...uuid.UUID) string {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = `"` + id.String() + `"`
+		}
+		return `{"rules": {"format": 2, "conditions": [], "policies": [` +
+			`{"name": "open", "ops": ["read"], "when": {"cmp": {"column": "state", "op": "eq", "values": ["new"]}}},` +
+			`{"name": "region", "ops": ["read"], "when": {"any": [{"shared": true}, {"under": {"of": [` + strings.Join(parts, ", ") + `]}}]}}]}}`
+	}
+	v0, n0 := e.s30Counts(t)
+	for name, ids := range map[string][]uuid.UUID{"ancestor first": {a, a1}, "descendant first": {a1, a}, "beside a sibling": {b, a1, a}} {
+		got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-nest-"+name), `W/"1"`, doc(ids...))
+		wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		if ps := pointerRules(t, got); !slices.Equal(ps, []string{"/rules/policies/1/when/any/1/under/of under_nested"}) {
+			t.Errorf("%s: problems = %v, want only /rules/policies/1/when/any/1/under/of under_nested", name, ps)
+		}
+		for _, id := range ids {
+			if strings.Contains(got.Body.String(), id.String()) {
+				t.Errorf("%s: the 422 repeats an org-unit id", name)
+			}
+		}
+	}
+	if v, n := e.s30Counts(t); v != v0 || n != n0 {
+		t.Fatalf("a refused body wrote")
+	}
+	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-nest-siblings"), `W/"1"`, doc(a, b)); got.Code != http.StatusOK {
+		t.Fatalf("two sibling units = %d %s, want 200", got.Code, got.Body)
+	}
+}
+
+// Attack (TICK-1034, the SP-1e delta): tenant A's admin lists two units of
+// tenant B, one below the other in B's closure, in one under leaf. The
+// nested check filters the closure by the transaction's tenant, so B's tree
+// is never read for A: the answer is foreign_id at each id's pointer, never
+// under_nested, and the body is the same as for two ids no tenant has. An
+// under_nested here would be an oracle for tenant B's org structure.
+// covers: putEntityTypeAccess 422
+func TestS31NestedCheckNeverReadsAnotherTenantsTree(t *testing.T) {
+	e := newPatchEnv(t)
+	p, p1 := uuid.New(), uuid.New()
+	for _, u := range []struct {
+		id     uuid.UUID
+		parent any
+		key    string
+	}{{p, nil, "s31-xnest-p"}, {p1, p, "s31-xnest-p1"}} {
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, $4, $4)`,
+			e.b.id, u.id, u.parent, u.key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rebuildOrgUnitClosure(t, e.super)
+	doc := func(ids ...uuid.UUID) string {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = `"` + id.String() + `"`
+		}
+		return `{"rules": {"format": 2, "conditions": [], "policies": [` +
+			`{"name": "region", "ops": ["read"], "when": {"under": {"of": [` + strings.Join(parts, ", ") + `]}}}]}}`
+	}
+	v0, n0 := e.s30Counts(t)
+	want := []string{"/rules/policies/0/when/under/of/0 foreign_id", "/rules/policies/0/when/under/of/1 foreign_id"}
+	var bodies []string
+	for name, ids := range map[string][]uuid.UUID{
+		"B's ancestor and descendant": {p, p1},
+		"no tenant's ids":             {uuid.New(), uuid.New()},
+	} {
+		got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-xnest-"+name), `W/"1"`, doc(ids...))
+		wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+		ps := pointerRules(t, got)
+		slices.Sort(ps)
+		if !slices.Equal(ps, want) {
+			t.Errorf("%s: problems = %v, want %v (no under_nested)", name, ps, want)
+		}
+		for _, id := range ids {
+			if strings.Contains(got.Body.String(), id.String()) {
+				t.Errorf("%s: the 422 repeats an org-unit id", name)
+			}
+		}
+		bodies = append(bodies, sameProblem(t, got))
+	}
+	if bodies[0] != bodies[1] {
+		t.Errorf("tenant B's nested units and unknown ids give different bodies, an oracle: %q", bodies)
+	}
+	if v, n := e.s30Counts(t); v != v0 || n != n0 {
+		t.Fatalf("a refused body wrote")
+	}
+}
+
+// rebuildOrgUnitClosure fills org_unit_closure from org_units for every
+// tenant, as the migration's backfill does (nava_migrator only). The tests
+// seed org_units directly, so they seed the closure the same way; group sync
+// keeps it current in production (TICK-1033).
+func rebuildOrgUnitClosure(t *testing.T, super interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}) {
+	t.Helper()
+	ctx := t.Context()
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_migrator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "SELECT org_unit_closure_rebuild_all()"); err != nil {
+		t.Fatalf("rebuild the closure: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 

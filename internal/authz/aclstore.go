@@ -189,7 +189,7 @@ func (a ACL) CanRead(ctx context.Context, tx pgx.Tx, p identity.Principal, entit
 	if err != nil {
 		return err
 	}
-	if pol, err = ExpandUnder(ctx, tx, pol, p); err != nil {
+	if pol, err = ResolveUnder(ctx, tx, pol, p, r); err != nil {
 		return err
 	}
 	if _, _, ok := Allows(pol, p, OpRead, r); !ok {
@@ -210,7 +210,11 @@ func (a ACL) CanWrite(ctx context.Context, tx pgx.Tx, p identity.Principal, enti
 	if err != nil {
 		return err
 	}
-	if pol, err = ExpandUnder(ctx, tx, pol, p); err != nil {
+	rows := []Row{*after}
+	if before != nil {
+		rows = append(rows, *before)
+	}
+	if pol, err = ResolveUnder(ctx, tx, pol, p, rows...); err != nil {
 		return err
 	}
 	if before != nil {

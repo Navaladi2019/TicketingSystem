@@ -16,14 +16,14 @@ import (
 func TestUnderBoundForOtherGroupsVoidsThePolicy(t *testing.T) {
 	t.Parallel()
 	// G1 = {ga, gb}: member_of gc is false, the under leaf folds away and
-	// ExpandUnder binds rest without a query (a nil tx would panic).
+	// ResolveUnder binds rest without a query (a nil tx would panic).
 	when := `{"all":[{"member_of":{"groups":["` + ptGC().String() + `"]}},{"not":{"under":{"of":"caller"}}}]}`
 	pol := ptWhen(t, when)
 	pol.EntityType = "ut_under_other_groups"
 	g1 := utMe()
-	bound, err := ExpandUnder(context.Background(), nil, pol, g1)
+	bound, err := ResolveUnder(context.Background(), nil, pol, g1)
 	if err != nil {
-		t.Fatalf("ExpandUnder for G1: %v", err)
+		t.Fatalf("ResolveUnder for G1: %v", err)
 	}
 	// G2 = {ga, gb, gc}: the leaf survives, and S was never resolved.
 	g2 := utMe()

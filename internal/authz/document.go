@@ -53,7 +53,59 @@ const (
 	RuleForeignID            = "foreign_id"
 	RuleNotAvailable         = "not_available"
 	RuleDocumentTooLarge     = "document_too_large"
+	// RuleUnderSetsExceeded: a policy names more distinct under start sets
+	// than MaxUnderSets (SP-1d change 5 on TICK-946).
+	RuleUnderSetsExceeded = "under_sets_exceeded"
+	// RuleUnderNested: an under leaf lists a unit and one of its ancestors
+	// (SP-1e, beside change 5 on TICK-946): the closure already gives the
+	// descendant through its ancestor, so the pair is refused at publish.
+	RuleUnderNested = "under_nested"
 )
+
+// MaxUnderSets is the most distinct under start sets U one policy may name,
+// after refs expand (SP-1d change 5, ADR-010-A2): {"of": "caller"} is one U,
+// and a listed {"of": [ids]} is one U per set of ids, in any order. It bounds
+// the region terms a list's count drives through the closure.
+const MaxUnderSets = 4
+
+// underSets is the number of distinct under start sets reachable from n,
+// refs expanded through conds; each condition is walked once, so a cycle
+// (refused elsewhere) ends. It saturates just above MaxUnderSets.
+func underSets(n Node, conds map[string]*Node) int {
+	seen := map[string]bool{}
+	visited := map[string]bool{}
+	var walk func(Node)
+	walk = func(n Node) {
+		if len(seen) > MaxUnderSets {
+			return
+		}
+		switch n.Kind() {
+		case NodeAll:
+			for _, k := range n.All {
+				walk(k)
+			}
+		case NodeAny:
+			for _, k := range n.Any {
+				walk(k)
+			}
+		case NodeNot:
+			walk(*n.Not)
+		case NodeRef:
+			if c, ok := conds[n.Ref]; ok && !visited[n.Ref] {
+				visited[n.Ref] = true
+				walk(*c)
+			}
+		case NodeUnder:
+			key := "caller"
+			if !n.Under.Caller {
+				key = strings.Join(UUIDTexts(sortedIDs(n.Under.Units)), ",")
+			}
+			seen[key] = true
+		}
+	}
+	walk(n)
+	return len(seen)
+}
 
 // MaxChildren is the most children an all or any node has (D3); it has at
 // least one.

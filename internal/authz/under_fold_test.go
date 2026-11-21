@@ -6,7 +6,7 @@ import (
 )
 
 // A policy whose under leaf folds away beside a deciding constant (a member_of
-// the caller passes, inside an any) must grant through ExpandUnder exactly as
+// the caller passes, inside an any) must grant through ResolveUnder exactly as
 // it would with S bound: the leaf's value cannot matter, so no query runs and
 // the policy is not voided (TICK-950 review, I5 seed 20261109 doc #41).
 func TestUnderLeafFoldedAwayDoesNotVoidThePolicy(t *testing.T) {
@@ -17,9 +17,9 @@ func TestUnderLeafFoldedAwayDoesNotVoidThePolicy(t *testing.T) {
 		`{"any":[` + member + `,{"not":{"under":{"of":"caller"}}}]}`,
 	} {
 		pol := ptWhen(t, when)
-		bound, err := ExpandUnder(context.Background(), nil, pol, utMe())
+		bound, err := ResolveUnder(context.Background(), nil, pol, utMe())
 		if err != nil {
-			t.Fatalf("%s: ExpandUnder: %v", when, err)
+			t.Fatalf("%s: ResolveUnder: %v", when, err)
 		}
 		if _, _, ok := Allows(bound, utMe(), OpRead, Row{State: "open"}); !ok {
 			t.Errorf("%s: a member is refused: the folded-away under leaf voided the policy", when)

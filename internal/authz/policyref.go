@@ -126,7 +126,7 @@ func TestPolicyRef(ctx context.Context, tx pgx.Tx, store PolicyReader, in Policy
 // that does not grant op, and a voided policy, which is counted
 // (PolicyInvalidMetric, D5b). It is the pure part of TestPolicyRef.
 func NamedPolicyAllows(pol *Policy, name string, p identity.Principal, op string, r Row) bool {
-	for _, pp := range plan(pol, p, op) {
+	for _, pp := range planRow(pol, p, op, r) {
 		if pp.name != name {
 			continue
 		}

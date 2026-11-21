@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
-	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
@@ -238,7 +236,6 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 		problem.InternalError: true, problem.EntityTypeExists: true, problem.NumberPrefixTaken: true, problem.IfMatchRequired: true, problem.VersionConflict: true,
 		problem.HistoryTooLong: true, problem.FilterTooExpensive: true, problem.ExportInProgress: true, problem.ChainAlive: true,
 		problem.NumberFormatExists: true, problem.NumberingTemplatesUnavailable: true,
-		problem.AccessScopeTooLarge: true,
 	}
 	reg := loadTestRegistry(t)
 	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
@@ -254,25 +251,6 @@ func TestResponseErrorKnowsEveryCode(t *testing.T) {
 		case !noFields[code] && !carries:
 			t.Errorf("%s is missing from the responseError switch (or from this test's noFields list): %s", code, rec.Body)
 		}
-	}
-}
-
-// An under leaf's set S above authz.MaxUnderSet (TICK-950, ADR-010 D7) is
-// its own 500, access_scope_too_large, from any route and however wrapped,
-// and the body names no id.
-func TestUnderSetTooLargeIsAccessScopeTooLarge(t *testing.T) {
-	t.Parallel()
-	reg := loadTestRegistry(t)
-	h := &handlers{reg: reg, log: slog.New(slog.DiscardHandler)}
-	respond := h.responseError(apihttp.New(nil, reg, h.log, ""))
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
-	respond(rec, req, fmt.Errorf("list records: %w", &authz.UnderSetTooLargeError{EntityType: "incident"}))
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), `"code":"access_scope_too_large"`) {
-		t.Fatalf("response = %d %s, want 500 access_scope_too_large", rec.Code, rec.Body)
-	}
-	if strings.Contains(rec.Body.String(), "incident") {
-		t.Errorf("the body echoes the error text: %s", rec.Body)
 	}
 }
 
