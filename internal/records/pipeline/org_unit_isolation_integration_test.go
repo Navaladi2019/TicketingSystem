@@ -73,8 +73,11 @@ func execf(sql string, args ...any) func(tx pgx.Tx) error {
 //     forbids, as if the sync had tombstoned T before removing it;
 //   - Y, a unit of o whose parent is f's unit A (attack 4): the walk down
 //     from A must not cross into o;
-//   - Z, a unit of f whose parent is o's unit X: the walk up from Z must not
-//     read o's tree, and Z is no descendant of X in f;
+//   - Z, a unit of f whose parent is o's unit X: no walk reads o's tree, Z is
+//     no descendant of X in f, and since no walk from f's live roots reaches
+//     Z, the closure has no row for it: Z is in no region, not even its own
+//     (fail closed, as under a tombstone; Security & Multi-Tenancy Reviewer,
+//     TICK-1034);
 //   - records of f in X and in Y (org_unit_id forged past the FK), named
 //     "X" and "Y".
 func forgedUnderWorld(t *testing.T, e env) (underWorld, uuid.UUID) {
@@ -143,9 +146,9 @@ func TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows(t *testing.T) {
 		{"listed X: empty, Z is not its descendant in f", of("X"), []string{}},
 		// Y is o's unit: empty as a listed root too.
 		{"listed Y: empty", of("Y"), []string{}},
-		// Z is f's own live unit; its parent being foreign seeds nothing
-		// more than Z.
-		{"listed Z: Z alone", of("Z"), []string{"Z"}},
+		// Z is f's live unit, but its forged parent is o's X: no walk from f's live roots reaches it, so the closure has no (Z, Z) row and Z is in no region (fail closed, as under a tombstone).
+		{"listed Z: orphaned by a foreign parent, outside every region", of("Z"), []string{}},
+		{"not under listed Z: the orphan reads as outside", `{"not":` + of("Z") + `}`, []string{"A", "A1", "L", "Lx", "R", "T", "T1", "X", "Y", "Z", "none"}},
 		{"listed T, tombstoned with a forged member: empty", of("T"), []string{}},
 		// not under reads the forged records as outside the region; it never
 		// errors or voids because of them.
