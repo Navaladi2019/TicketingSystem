@@ -1,6 +1,14 @@
 name: ci
 on: pull_request
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      unit: ${{ steps.stages.outputs.unit }}
+      full: ${{   steps.stages.outputs.full }}
+    steps:
+      - id: stages
+        run: make ci-stages
   unit:
     if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-latest
