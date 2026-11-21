@@ -342,7 +342,8 @@ paths:
         `not_in_tenant`); at most 4 distinct `under` start sets in a policy
         after references expand, where `{"of": "caller"}` is one and the same
         ids in any order are one (`under_sets_exceeded` at the policy's
-        pointer); an unknown node kind (`unknown_key`); a name that is
+        pointer); no `under` that lists a unit and one of its ancestors
+        (`under_nested` at that `under`'s `of`); an unknown node kind (`unknown_key`); a name that is
         not `^[a-z][a-z0-9_]{0,62}$` or repeats (`invalid_name`,
         `duplicate_name`). `rules` and `masks` are each limited to the
         platform's configured limit, 32 KiB by default, measured on the stored

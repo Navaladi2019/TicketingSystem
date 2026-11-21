@@ -64,6 +64,7 @@ count and the page bind the same arguments.
 | No binding for the principal planned | the policy is voided, `under_unresolved` (fails closed, counted in `authz_policy_invalid_total`) |
 | `Allows` on a row whose unit `ResolveUnder` did not read | every policy reaching `under` is voided, `under_unresolved`, so `not under` never admits it |
 | More than 4 distinct U in one policy | refused at publish, 422 `under_sets_exceeded` at `/rules/policies/<i>`; a stored one is voided by the planner |
+| A listed `of` that holds a unit and one of its ancestors | refused at publish, 422 `under_nested` at that leaf's `.../under/of` (SP-1e); one closure statement for all leaves (`NestedUnderUnits`). Ids that become nested later, after a tree move, still read correctly: the count driver drops the unit below |
 
 There is no size cap: the 10,000-unit `MaxUnderSet`, its 500
 `access_scope_too_large` and `authz_under_set_too_large_total` are gone
@@ -77,6 +78,9 @@ tenant's live `org_units`: a foreign, tombstoned or unknown unit is 422
 `foreign_id` at that pointer, the same ids `acl2_tenant_ids` (TICK-947)
 refuses past the route. It also counts each policy's distinct U, refs
 expanded: `{"of": "caller"}` is one U, and the same ids in any order are one.
+`NestedUnderUnits` then refuses a leaf that lists a unit and one of its
+ancestors in the tenant's closure (422 `under_nested` at the leaf's `of`),
+in the route and in `PublishIfNone`, beside `NotInTenant`.
 
 ## Creates
 

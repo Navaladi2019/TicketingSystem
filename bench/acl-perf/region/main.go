@@ -17,8 +17,8 @@
 // SP1_INDEX=real (TICK-951 P11-18) reruns it against S31's schema: the
 // migration's partial index records_org_unit (TICK-947) instead of the bench
 // indexes, no R1 phase, and rows whose set S comes from the database in the
-// same transaction as the count and page. TICK-1034 deleted
-// authz.ExpandUnder (and its 10,000 cap): set S is now read from
+// same transaction as the count and page: the closure (TICK-1034), which
+// replaced the request-time expansion and its 10,000 cap. Set S is read from
 // org_unit_closure, so these rows measure the closure read plus the list.
 // The region leaf's own rendering (C1, the capped count) is TICK-1037's
 // bench.

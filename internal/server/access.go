@@ -283,6 +283,12 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 			for i := range scope {
 				scope[i].Rule = authz.RuleForeignID
 			}
+			// SP-1e: no under leaf lists a unit and its ancestor.
+			nested, err := authz.NestedUnderUnits(ctx, tx, prep.Refs)
+			if err != nil {
+				return err
+			}
+			scope = append(scope, nested...)
 		}
 		if all := append(fieldProblems, scope...); len(all) > 0 {
 			return &accessPolicyError{all}

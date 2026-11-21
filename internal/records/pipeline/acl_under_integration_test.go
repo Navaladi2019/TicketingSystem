@@ -268,6 +268,13 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 	caller := `{"under":{"of":"caller"}}`
 	u1 := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
 	u2 := identity.Principal{TenantID: w.f.id, PrincipalID: w.u2}
+	// u3 is a member of A and of A1 below it: overlapping caller units.
+	u3 := identity.Principal{TenantID: w.f.id, PrincipalID: uuid.New()}
+	mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
+		w.f.id, u3.PrincipalID, "kc-"+u3.PrincipalID.String())
+	for _, unit := range []string{"A", "A1"} {
+		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, w.unit[unit], u3.PrincipalID)
+	}
 	noID := identity.Principal{TenantID: w.f.id, Groups: []uuid.UUID{w.g1}}
 	requester := `{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}`
 	for _, tc := range []struct {
@@ -286,6 +293,9 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 		{"another tenant's unit: no closure row in this tenant", of("X"), u1, []string{}},
 		{"NULL org_unit_id and the excluded units are not under", `{"not":` + of("R") + `}`, u1, []string{"Lx", "T", "T1", "none"}},
 		{"caller: u1's units A and L", caller, u1, []string{"A", "A1", "L"}},
+		// The AC's EMEA and EMEA/Germany: rows and count as for A alone (the
+		// count driver drops A1, which is below A; countsAgree checks it).
+		{"caller: u3 in A and A1, same as A alone", caller, u3, []string{"A", "A1"}},
 		// D7 (fail closed): T1 dropped out with tombstoned T's subtree,
 		// so being a direct member of it grants nothing; listing it neither.
 		{"caller: u2 is a member of live T1 below tombstoned T: excluded", caller, u2, []string{}},
@@ -326,6 +336,48 @@ func TestUnderSetFromARealTreeAgreesInSQLAndGo(t *testing.T) {
 			return nil
 		})
 	}
+
+	// of [ids] that became nested after a tree move (the AC): L moves under
+	// A, the closure is rebuilt, and of [A, L] gives the rows and the capped
+	// count of of [A] alone.
+	mustExec(t, e.super, `UPDATE org_units SET parent_id = $3 WHERE tenant_id = $1 AND id = $2`, w.f.id, w.unit["L"], w.unit["A"])
+	rebuildClosure(t, e)
+	alone, nested := underDoc(t, of("A")), underDoc(t, of("A", "L"))
+	wantRows, _, _ := w.rows(t, e, alone, u1)
+	gotRows, gotGo, _ := w.rows(t, e, nested, u1)
+	if want := []string{"A", "A1", "L"}; !slices.Equal(wantRows, want) {
+		t.Fatalf("of [A] after the move admits %v, want %v", wantRows, want)
+	}
+	if !slices.Equal(gotRows, wantRows) || !slices.Equal(gotGo, wantRows) {
+		t.Errorf("of [A, L] after the move: SQL %v, Allows %v; want of [A]'s %v", gotRows, gotGo, wantRows)
+	}
+	if a, n := w.drivenCount(t, e, alone, u1), w.drivenCount(t, e, nested, u1); a != n || a != int64(len(wantRows)) {
+		t.Errorf("capped count of [A] %d, of [A, L] %d; want both %d", a, n, len(wantRows))
+	}
+}
+
+// drivenCount is the list's capped count for pol, with the closure drivers,
+// as the list route runs it.
+func (w underWorld) drivenCount(t *testing.T, e env, pol *authz.Policy, p identity.Principal) int64 {
+	t.Helper()
+	ctx := context.Background()
+	var n int64
+	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p)
+		if err != nil {
+			return err
+		}
+		read := authz.ReadList(bound, p, "r", 2)
+		q := pipeline.ListQuery{TenantID: w.f.id, DefinitionID: w.def(ctx, tx), Where: "true", Args: read.Args, Branches: read.Branches}
+		if read.Branches == nil {
+			q.Where = read.Where
+		}
+		for _, d := range read.Drivers {
+			q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+		}
+		return tx.QueryRow(ctx, pipeline.CountStatement(q), append([]any{q.TenantID, q.DefinitionID}, q.Args...)...).Scan(&n)
+	})
+	return n
 }
 
 // A region of more than 10,000 units (the old MaxUnderSet) is a normal

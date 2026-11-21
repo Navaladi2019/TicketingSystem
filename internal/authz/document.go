@@ -56,6 +56,10 @@ const (
 	// RuleUnderSetsExceeded: a policy names more distinct under start sets
 	// than MaxUnderSets (SP-1d change 5 on TICK-946).
 	RuleUnderSetsExceeded = "under_sets_exceeded"
+	// RuleUnderNested: an under leaf lists a unit and one of its ancestors
+	// (SP-1e, beside change 5 on TICK-946): the closure already gives the
+	// descendant through its ancestor, so the pair is refused at publish.
+	RuleUnderNested = "under_nested"
 )
 
 // MaxUnderSets is the most distinct under start sets U one policy may name,
