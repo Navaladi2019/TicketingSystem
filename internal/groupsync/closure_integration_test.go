@@ -326,7 +326,7 @@ func seedBenchTree(t *testing.T, super *pgx.Conn, tid uuid.UUID) {
 
 // TICK-1054: a bench-scale full rebuild with no prior ANALYZE (a bulk import
 // before autovacuum has run) finishes within 5 s; without a statistics-independent plan
-// (withIndexPlan) the query took 45 to 98 s. The seed and the sync run back to
+// (withHashPlan) the query took 45 to 98 s. The seed and the sync run back to
 // back, before autovacuum's naptime.
 func TestClosureFullRebuildWithoutStatisticsIsBounded(t *testing.T) {
 	super, pool := cluster(t)
@@ -457,7 +457,7 @@ func TestClosureRebuildPlanWithoutStatistics(t *testing.T) {
 		}
 		t.Logf("rebuild insert plan, %s:\n%s", name, strings.Join(plan, "\n"))
 	}
-	explain("index plan (withIndexPlan settings)", "SET LOCAL enable_hashjoin = off", "SET LOCAL enable_mergejoin = off", "SET LOCAL enable_seqscan = off")
+	explain("hash plan (withHashPlan settings)", "SET LOCAL enable_nestloop = off")
 	explain("default planner settings")
 	start := time.Now()
 	if err := tenancy.InTenantTx(ctx, pool, tid, func(tx pgx.Tx) error {
