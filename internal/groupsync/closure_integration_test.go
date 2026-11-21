@@ -118,6 +118,45 @@ func TestClosureFollowsTheTree(t *testing.T) {
 		t.Errorf("%d closure rows name a tombstoned unit", n)
 	}
 	step("revive de", root, de, apac)
+	// Delta cases: a subtree moves as a whole, a mid-tree unit becomes a root,
+	// a root moves under another, a unit and its subtree are tombstoned and revived.
+	deUnderApac := unit("de", "apac", p("/apac/de"))
+	munichUnderDe := unit("munich", "de", p("/apac/de/munich"))
+	step("revive munich", root, deUnderApac, munichUnderDe, apac)
+	step("move the de subtree under apac", root, deUnderApac, munichUnderDe, apac)
+	step("de becomes a root", root, unit("de", "", p("/de")), unit("munich", "de", p("/de/munich")), apac)
+	step("root apac moves under de", root, unit("de", "", p("/de")), unit("munich", "de", p("/de/munich")), unit("apac", "de", p("/de/apac")))
+	step("tombstone de, its subtree stays out", root)
+	step("everything returns", root, de, munich, apac)
+}
+
+// The drift check compares sets: a wrong row that replaces a right one leaves
+// the row count equal and is still repaired.
+func TestClosureDriftCheckComparesSetsNotCounts(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s := newSyncer(t, pool, dir)
+	units := []identity.DirectoryGroup{unit("a", "", path(tid, "/ou/a")), unit("b", "a", path(tid, "/ou/a/b")), unit("c", "a", path(tid, "/ou/a/c"))}
+	user := func(id string) []identity.DirectoryUser {
+		return []identity.DirectoryUser{{KeycloakUserID: id, Email: id + "@a.test", Enabled: true}}
+	}
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u1")})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	// Re-point one row (a,b) to (b,c): same count, wrong set.
+	exec(t, super, `UPDATE org_unit_closure x SET ancestor_id = b.id, descendant_id = c.id
+		FROM org_units a, org_units b, org_units c
+		WHERE x.tenant_id = $1 AND a.tenant_id = $1 AND b.tenant_id = $1 AND c.tenant_id = $1
+		AND a.keycloak_group_id = 'a' AND b.keycloak_group_id = 'b' AND c.keycloak_group_id = 'c'
+		AND x.ancestor_id = a.id AND x.descendant_id = b.id`, tid)
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user("u2")})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	sameRows(t, "repair of a swapped row", closureOf(t, super, tid), wantClosure(units))
 }
 
 // A run that changes no unit leaves the closure's rows untouched; one that

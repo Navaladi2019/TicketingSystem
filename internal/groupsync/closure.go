@@ -39,7 +39,6 @@ const closureCTE = `WITH RECURSIVE live (id) AS (
 const (
 	closureInsertSQL = `INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) ` +
 		closureCTE + `SELECT $1::uuid, ancestor_id, descendant_id FROM closure`
-	closureExpectedSQL = closureCTE + `SELECT count(*) FROM closure`
 
 	// closureUnrootedSQL (TICK-1058) counts the tenant's live units with no
 	// (u, u) row: one anti-join, each unit probing org_unit_closure_pkey. Such
@@ -64,25 +63,118 @@ func unrootedUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (int, err
 	return n, nil
 }
 
-// rebuildClosure makes the tenant's closure equal its live tree, in tx. It
-// runs when the run changed the tree (treeChanged), and also when the stored
-// row count disagrees with the live tree's: that repairs a closure left stale
-// before this code shipped (the TICK-1032 migration to this task) or by hand.
-// It returns the closure's row count after the call.
-func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, treeChanged bool) (rows int, rebuilt bool, err error) {
+// closureDriftSQL (TICK-1054) reports whether the stored closure and the live
+// one differ as sets: a row in one and not the other, either way. Comparing row
+// counts would miss a wrong row that replaces a right one.
+const closureDriftSQL = closureCTE + `SELECT EXISTS (
+	(SELECT ancestor_id, descendant_id FROM closure
+	 EXCEPT SELECT ancestor_id, descendant_id FROM org_unit_closure WHERE tenant_id = $1::uuid)
+	UNION ALL
+	(SELECT ancestor_id, descendant_id FROM org_unit_closure WHERE tenant_id = $1::uuid
+	 EXCEPT SELECT ancestor_id, descendant_id FROM closure))`
+
+const (
+	// closureAffectedSQL: the units whose closure rows can change when the
+	// touched units ($2) were added, moved, revived or tombstoned: the touched
+	// units, everything that was under them (old closure) and everything now
+	// under them (live-or-not children, walked down; UNION ends a cycle).
+	closureAffectedSQL = `WITH RECURSIVE seed (id) AS (
+	SELECT unnest($2::uuid[])
+	UNION SELECT c.descendant_id FROM org_unit_closure c
+	WHERE c.tenant_id = $1::uuid AND c.ancestor_id = ANY($2::uuid[])
+), d (id) AS (
+	SELECT id FROM seed
+	UNION SELECT u.id FROM d JOIN org_units u ON u.tenant_id = $1::uuid AND u.parent_id = d.id
+	WHERE u.deleted_at IS NULL
+) SELECT id FROM d`
+
+	// closureDeltaInsertSQL writes the rows of the affected units ($2): for each
+	// live one, walk up through live parents; it has rows only if the walk
+	// reaches a root. Same rows as closureCTE for these descendants.
+	closureDeltaInsertSQL = `WITH RECURSIVE up (descendant_id, ancestor_id) AS (
+	SELECT u.id, u.id FROM org_units u
+	WHERE u.tenant_id = $1::uuid AND u.id = ANY($2::uuid[]) AND u.deleted_at IS NULL
+	UNION
+	SELECT up.descendant_id, p.id FROM up
+	JOIN org_units c ON c.tenant_id = $1::uuid AND c.id = up.ancestor_id
+	JOIN org_units p ON p.tenant_id = $1::uuid AND p.id = c.parent_id
+	WHERE p.deleted_at IS NULL
+), rooted AS (
+	SELECT DISTINCT up.descendant_id FROM up
+	JOIN org_units r ON r.tenant_id = $1::uuid AND r.id = up.ancestor_id AND r.parent_id IS NULL
+)
+INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id)
+SELECT $1::uuid, up.ancestor_id, up.descendant_id FROM up
+WHERE up.descendant_id IN (SELECT descendant_id FROM rooted)`
+)
+
+func closureRowCount(ctx context.Context, tx pgx.Tx, tid string) (int, error) {
+	var n int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1::uuid`, tid).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count closure: %w", err)
+	}
+	return n, nil
+}
+
+// rebuildClosure makes the tenant's closure equal its live tree, in tx.
+//
+// touched holds the ids of the units the run added, moved, revived or
+// tombstoned (nil when none). With touched units and a non-empty stored
+// closure it writes a delta: only the rows of the touched units' subtrees are
+// replaced. With none it checks the stored closure against the live one as
+// sets and, on any difference, repairs it by a full rebuild (that repairs a
+// closure left stale before this code shipped, or by hand). An empty stored
+// closure (first import) also takes the full rebuild. It returns the closure's
+// row count after the call and whether it wrote any row.
+func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt bool, err error) {
 	tid := tenantID.String()
-	var want, have int
-	if !treeChanged {
-		if err := tx.QueryRow(ctx, closureExpectedSQL, tid).Scan(&want); err != nil {
-			return 0, false, fmt.Errorf("count live closure: %w", err)
+	have, err := closureRowCount(ctx, tx, tid)
+	if err != nil {
+		return 0, false, err
+	}
+	if len(touched) == 0 {
+		var drift bool
+		if err := tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift); err != nil {
+			return 0, false, fmt.Errorf("compare closure: %w", err)
 		}
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1::uuid`, tid).Scan(&have); err != nil {
-			return 0, false, fmt.Errorf("count closure: %w", err)
-		}
-		if want == have {
+		if !drift {
 			return have, false, nil
 		}
+		return fullRebuildClosure(ctx, tx, tid)
 	}
+	if have == 0 {
+		return fullRebuildClosure(ctx, tx, tid)
+	}
+	ar, err := tx.Query(ctx, closureAffectedSQL, tid, touched)
+	if err != nil {
+		return 0, false, fmt.Errorf("find affected units: %w", err)
+	}
+	var affected []string
+	for ar.Next() {
+		var id uuid.UUID
+		if err := ar.Scan(&id); err != nil {
+			ar.Close()
+			return 0, false, fmt.Errorf("find affected units: %w", err)
+		}
+		affected = append(affected, id.String())
+	}
+	ar.Close()
+	if err := ar.Err(); err != nil {
+		return 0, false, fmt.Errorf("find affected units: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid AND descendant_id = ANY($2::uuid[])`, tid, affected); err != nil {
+		return 0, false, fmt.Errorf("clear affected closure rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, closureDeltaInsertSQL, tid, affected); err != nil {
+		return 0, false, fmt.Errorf("write closure delta: %w", err)
+	}
+	rows, err = closureRowCount(ctx, tx, tid)
+	return rows, true, err
+}
+
+// fullRebuildClosure deletes the tenant's closure and re-inserts it from the
+// live tree: the first import and the drift repair path.
+func fullRebuildClosure(ctx context.Context, tx pgx.Tx, tid string) (int, bool, error) {
 	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid`, tid); err != nil {
 		return 0, false, fmt.Errorf("clear closure: %w", err)
 	}
