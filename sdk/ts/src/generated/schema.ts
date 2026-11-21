@@ -785,10 +785,18 @@ export interface components {
             next_cursor: string | null;
             /**
              * Format: int64
-             * @description Records the caller may read that match the filters, not only this page. Exact up to 1,000; when more match, `total` is 1,000 and `total_capped` is true.
+             * @description Records the caller may read that match the filters, not only this page. An integer for `exact` (0-1,000) and `capped` (1,000, when more match); `null` for `unknown`, never 0.
              */
-            total: number;
-            /** @description Present and true when `total` was capped at 1,000 (counting a large tenant's matches exactly misses the list p95). Absent otherwise. */
+            total: number | null;
+            /**
+             * @description `exact`: `total` is the full count. `capped`: more than 1,000 match and `total` is 1,000. `unknown`: the count ran out of its time budget; the page is still complete; a client must never render `unknown` as 0.
+             * @enum {string}
+             */
+            total_state: "exact" | "capped" | "unknown";
+            /**
+             * @deprecated
+             * @description Deprecated, use `total_state`. Present and true exactly when `total_state` is `capped` (counting a large tenant's matches exactly misses the list p95). Absent otherwise.
+             */
             total_capped?: boolean;
         };
         Record: {

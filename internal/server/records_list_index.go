@@ -274,5 +274,6 @@ func (h *handlers) observeIndexedList(ctx context.Context, d time.Duration, page
 	}
 	h.listIndexed.Record(ctx, d.Seconds(), metric.WithAttributes(
 		attribute.String("selectivity_band", selectivityBand(page.Total, page.TotalCapped)),
-		attribute.String("acl", acl)))
+		attribute.String("acl", acl),
+		attribute.String("total_state", string(page.TotalState))))
 }
