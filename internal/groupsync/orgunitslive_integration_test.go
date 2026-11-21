@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -42,33 +43,7 @@ func TestOrgUnitsLiveMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gauge := func() int64 {
-		t.Helper()
-		var rm metricdata.ResourceMetrics
-		if err := reader.Collect(context.Background(), &rm); err != nil {
-			t.Fatal(err)
-		}
-		for _, sm := range rm.ScopeMetrics {
-			for _, m := range sm.Metrics {
-				if m.Name != "groupsync_org_units_live_max" {
-					continue
-				}
-				g, ok := m.Data.(metricdata.Gauge[int64])
-				if !ok {
-					t.Fatalf("groupsync_org_units_live_max is %T, want an int64 gauge", m.Data)
-				}
-				if len(g.DataPoints) != 1 {
-					t.Fatalf("%d data points, want 1 (no tenant label)", len(g.DataPoints))
-				}
-				if g.DataPoints[0].Attributes.Len() != 0 {
-					t.Error("the gauge carries attributes; a tenant id must never be one")
-				}
-				return g.DataPoints[0].Value
-			}
-		}
-		t.Fatal("groupsync_org_units_live_max not reported")
-		return 0
-	}
+	gauge := func() int64 { return liveGauge(t, reader) }
 	cycleAll := func() {
 		t.Helper()
 		rs, err := s.Once(context.Background())
@@ -131,19 +106,85 @@ func TestOrgUnitsAboveCertifiedStillSync(t *testing.T) {
 	if got := count(t, super, "SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1", tid); got < n-1 {
 		t.Errorf("closure has %d rows, want it rebuilt for %d units", got, n)
 	}
+	if v := liveGauge(t, reader); v != n {
+		t.Errorf("gauge = %d, want %d", v, n)
+	}
+}
+
+// liveGauge reads groupsync_org_units_live_max: an int64 gauge with one data
+// point and no attributes.
+func liveGauge(t *testing.T, reader metric.Reader) int64 {
+	t.Helper()
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {
 		t.Fatal(err)
 	}
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name == "groupsync_org_units_live_max" {
-				if v := m.Data.(metricdata.Gauge[int64]).DataPoints[0].Value; v != n {
-					t.Errorf("gauge = %d, want %d", v, n)
-				}
-				return
+			if m.Name != "groupsync_org_units_live_max" {
+				continue
 			}
+			g, ok := m.Data.(metricdata.Gauge[int64])
+			if !ok {
+				t.Fatalf("groupsync_org_units_live_max is %T, want an int64 gauge", m.Data)
+			}
+			if len(g.DataPoints) != 1 {
+				t.Fatalf("%d data points, want 1 (no tenant label)", len(g.DataPoints))
+			}
+			if g.DataPoints[0].Attributes.Len() != 0 {
+				t.Error("the gauge carries attributes; a tenant id must never be one")
+			}
+			return g.DataPoints[0].Value
 		}
 	}
 	t.Fatal("groupsync_org_units_live_max not reported")
+	return 0
+}
+
+// A failing count never refuses the sync (A2-7, AR-TICK-901-01): the applied
+// rows commit, the cursor advances, and the gauge keeps its last value. The
+// failing count is a real failed statement, which aborts a transaction unless
+// it runs in a savepoint.
+func TestOrgUnitsLiveCountFailureDoesNotRefuseSync(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	reader := metric.NewManualReader()
+	s, err := groupsync.New(pool, dir, metric.NewMeterProvider(metric.WithReader(reader)), slog.New(slog.DiscardHandler), groupsync.Options{MaxOrgUnitDepth: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: flatUnits(tid, 12)})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got := liveGauge(t, reader); got != 12 {
+		t.Fatalf("gauge = %d, want 12", got)
+	}
+	s.SetCountLiveForTest(func(ctx context.Context, tx pgx.Tx, _ uuid.UUID) (int, error) {
+		var n int
+		return n, tx.QueryRow(ctx, "SELECT count(*) FROM no_such_table_for_tick_1072").Scan(&n)
+	})
+
+	// Applied path: the tombstones commit although the count fails.
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: flatUnits(tid, 8)})
+	r := once(t, s)
+	if r.Err != nil || r.Unchanged {
+		t.Fatalf("applied cycle with a failing count = %+v, want an applied success", r)
+	}
+	if n := count(t, super, "SELECT count(*) FROM org_units WHERE tenant_id = $1 AND deleted_at IS NULL", tid); n != 8 {
+		t.Errorf("%d live units after the cycle, want 8 (the apply committed)", n)
+	}
+	if got := liveGauge(t, reader); got != 12 {
+		t.Errorf("gauge = %d, want the previous 12", got)
+	}
+	// The cursor advanced: the next cycle is unchanged, and its count fails
+	// too (unchanged path) without refusing it.
+	if r := once(t, s); r.Err != nil || !r.Unchanged {
+		t.Fatalf("next cycle = %+v, want unchanged (cursor advanced)", r)
+	}
+	if got := liveGauge(t, reader); got != 12 {
+		t.Errorf("gauge = %d after the unchanged cycle, want 12", got)
+	}
 }

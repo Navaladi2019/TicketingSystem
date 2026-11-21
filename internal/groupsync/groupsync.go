@@ -87,6 +87,8 @@ type Syncer struct {
 	// liveUnits is each tenant's last counted live org units; a tenant not
 	// re-counted in a cycle (lock held elsewhere, failed apply) keeps it.
 	liveUnits map[uuid.UUID]int
+	// countLive counts a tenant's live org units; a test swaps it to fail.
+	countLive func(context.Context, pgx.Tx, uuid.UUID) (int, error)
 	started   time.Time
 }
 
@@ -140,14 +142,14 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	}
 	live, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Gauge(
 		"groupsync_org_units_live_max",
-		metric.WithDescription("Largest live org-unit count of any tenant visited in the cycle, set once per cycle. Never labelled by tenant. Alerted above the 10,111 units ADR-010-A2 is certified to; it never gates a sync."),
+		metric.WithDescription("Largest live org-unit count of any tenant visited in the cycle, set once per cycle. Never labelled by tenant. Alerted above the ADR-010-A2 certified tree (rules/groupsync.yml); it never gates a sync."),
 		metric.WithUnit("{unit}"))
 	if err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
 	return &Syncer{
 		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, unitsLive: live,
-		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, started: opts.Now(),
+		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),
 	}, nil
 }
 
@@ -239,6 +241,28 @@ func countLiveOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (int,
 	return n, nil
 }
 
+// liveUnitsBestEffort counts in a savepoint. The count is a metric: if it
+// fails, the savepoint is rolled back (so the tenant's transaction is not
+// aborted and still commits its tombstones and removals), a warning names the
+// tenant, and -1 is returned so the tenant keeps its last known count
+// (ADR-010-A2 A2-7: nothing refuses a sync on this value).
+func (s *Syncer) liveUnitsBestEffort(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) int {
+	sp, err := tx.Begin(ctx)
+	if err == nil {
+		var n int
+		if n, err = s.countLive(ctx, sp, tenantID); err == nil {
+			if err = sp.Commit(ctx); err == nil {
+				return n
+			}
+		} else {
+			_ = sp.Rollback(ctx)
+		}
+	}
+	s.log.WarnContext(ctx, "group sync: counting live org units failed; the tenant keeps its last known count",
+		slog.String("tenant_id", tenantID.String()), slog.Any("error", err))
+	return -1
+}
+
 // lockSQL is transaction-scoped, so it is released with the transaction and
 // is safe through PgBouncer's transaction mode.
 const lockSQL = `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`
@@ -304,8 +328,8 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			if unrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
 				return err
 			}
-			liveUnits, err = countLiveOrgUnits(ctx, tx, tenantID)
-			return err
+			liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
+			return nil
 		}
 		st, err := apply(ctx, tx, tenantID, changes, s.opts.Now(), s.opts.MaxOrgUnitDepth)
 		if err != nil {
@@ -313,9 +337,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		}
 		subtreeMax = st.OrgSubtreeMax
 		unrooted = st.ClosureUnrooted
-		if liveUnits, err = countLiveOrgUnits(ctx, tx, tenantID); err != nil {
-			return err
-		}
+		liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
 				slog.String("tenant_id", tenantID.String()))
