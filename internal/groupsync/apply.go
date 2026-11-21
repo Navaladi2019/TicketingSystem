@@ -48,6 +48,9 @@ type stats struct {
 	// ClosureRebuilt is true when the run deleted and re-inserted it.
 	ClosureRows    int
 	ClosureRebuilt bool
+	// ClosureUnrooted is the number of live org units with no closure self
+	// row after the run (TICK-1058); anything above 0 is reported, not failed.
+	ClosureUnrooted int
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -115,6 +118,9 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 	// that wrote or tombstoned no unit changed no parent_id or deleted_at.
 	st.ClosureRows, st.ClosureRebuilt, err = rebuildClosure(ctx, tx, tenantID, st.OrgUnitsWritten > 0 || st.OrgUnitsDeleted > 0)
 	if err != nil {
+		return st, err
+	}
+	if st.ClosureUnrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
 		return st, err
 	}
 	return st, nil
