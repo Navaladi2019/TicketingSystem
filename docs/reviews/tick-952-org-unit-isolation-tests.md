@@ -1,6 +1,6 @@
 # Review: PR #810, TICK-952 (S31 P11-19) org-unit isolation tests
 
-Reviewer: Quality, Testing & CI Advisor. Head reviewed: `TICK-952/org-unit-isolation-tests` at the single commit "adversarial org-unit isolation tests and review". Specs read first: the TICK-952 attack list, `db/migrations/20261120120000_org_unit_members.sql`, `store.primaryUnitSQL`, and the `Denied` and `OwnRowsOnly` semantics in `internal/tenancy/isolation/registry.go` and `paths_isolation_test.go`.
+Reviewer: Quality, Testing & CI Advisor. Head reviewed: `TICK-952/org-unit-isolation-tests` at the single commit "adversarial org-unit isolation tests and review". Specs read first: the TICK-952 attack list, `db/migrations/20261121000000_org_unit_members.sql`, `store.primaryUnitSQL`, and the `Denied` and `OwnRowsOnly` semantics in `internal/tenancy/isolation/registry.go` and `paths_isolation_test.go`.
 
 **Verdict: CHANGES.** Two new registry paths cannot go Red. One guard named in attack 1 has no path that can go Red. The isolation suite, which is the only thing that runs the 12 new paths, did not run in CI on this PR.
 

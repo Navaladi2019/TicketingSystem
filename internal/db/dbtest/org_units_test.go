@@ -23,8 +23,8 @@ import (
 // (seedIdentity): tenant X's unit X has principal X as its primary member.
 
 const (
-	orgUnitMembersMigration = "20261120120000_org_unit_members.sql"
-	recordsOrgUnitMigration = "20261120120200_records_org_unit_id.sql"
+	orgUnitMembersMigration = "20261121000000_org_unit_members.sql"
+	recordsOrgUnitMigration = "20261121000200_records_org_unit_id.sql"
 )
 
 // beforeOrgUnits returns the manifests as they were before TICK-947 when
@@ -323,11 +323,11 @@ func TestTICK947UnderForeignIDs(t *testing.T) {
 	}
 }
 
-// AR-S30-01's one-off check: 20261120120100 refuses to apply while a stored
+// AR-S30-01's one-off check: 20261121000100 refuses to apply while a stored
 // row names an under id that is not a live org unit of its own tenant, and
 // leaves no migrator policy behind; once the row is gone it applies.
 func TestTICK947MigrationRefusesStoredForeignUnder(t *testing.T) {
-	const trigger = "20261120120100_acl_tenant_ids_org_units.sql"
+	const trigger = "20261121000100_acl_tenant_ids_org_units.sql"
 	m := freshCluster(t)
 	if err := migrateOnlyFS(t, m, migrationsBefore(t, trigger)); err != nil {
 		t.Fatalf("migrate to before %s: %v", trigger, err)
