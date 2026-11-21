@@ -436,8 +436,8 @@ func Paths() []Path {
 		// CHECK (tenant A's app.tenant_id) can refuse it.
 		sql("org_unit_closure: group sync adds a row to tenant B's closure", "nava_groupsync", Denied,
 			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB2, OrgUnitB1),
-		sql("org_unit_closure: group sync hangs tenant B's unit under tenant A's", "nava_groupsync", Denied,
-			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, OrgUnitB2),
+		// group sync hanging tenant B's unit under tenant A's (A, A1, B2) is
+		// in closurePaths: it must fail on the descendant FK exactly.
 		sql("org_unit_closure: group sync drops tenant B's closure", "nava_groupsync", Denied,
 			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
