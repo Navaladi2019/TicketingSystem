@@ -80,11 +80,21 @@ func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
 // i5Bind binds pol for p from the reference's S: the caller's set and the
 // subtree of every root listed in pol's document or in prev.
 func i5Bind(pol *authz.Policy, p identity.Principal, prev []authz.Condition) *authz.Policy {
+	return i5BindWith(pol, p, prev, i5Subtree)
+}
+
+// i5BindWith is i5Bind with set S of one root computed by subtree: the
+// reference's i5Subtree, or an under mutant's broken walk (i5F2Mutants). The
+// caller's set is the union of subtree over its units, as i5CallerSet is.
+func i5BindWith(pol *authz.Policy, p identity.Principal, prev []authz.Condition, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
+	if pol == nil {
+		return nil
+	}
 	units := map[uuid.UUID][]uuid.UUID{}
 	for _, root := range i5UnderRoots(pol.Document, prev) {
-		units[root] = i5Subtree(p.TenantID, root)
+		units[root] = subtree(p.TenantID, root)
 	}
-	return authz.BindUnder(pol, p, i5CallerSet(p), units)
+	return authz.BindUnder(pol, p, i5CallerSetWith(p, subtree), units)
 }
 
 // i5UnderRoots is every unit an under leaf of d (or of prev) lists.
@@ -473,6 +483,14 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 			has["caller with no id"] = has["caller with no id"] || p.PrincipalID == uuid.Nil
 			has["caller with no id, in a group"] = has["caller with no id, in a group"] || (p.PrincipalID == uuid.Nil && len(p.Groups) > 0)
 			has["caller in no group"] = has["caller in no group"] || len(p.Groups) == 0
+			if p.PrincipalID != uuid.Nil {
+				has[fmt.Sprintf("caller in %d org units", len(w.Members[p.PrincipalID]))] = true
+				for _, u := range w.Members[p.PrincipalID] {
+					if _, deadAbove := i5UnitDepth(w.Units, u); deadAbove {
+						has["caller in a live unit below a tombstoned one"] = true
+					}
+				}
+			}
 		}
 		if c.Policy == nil {
 			has["nil policy"] = true
@@ -578,9 +596,11 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 					has["record in a tombstoned unit"] = true
 				}
 			}
-			// Unit 4 of i5TreeShape is live, below tombstoned unit 3.
-			if *rec.Row.OrgUnitID == w.Units[4].ID {
+			switch depth, deadAbove := i5UnitDepth(w.Units, *rec.Row.OrgUnitID); {
+			case deadAbove && !slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == *rec.Row.OrgUnitID && u.Dead }):
 				has["record in a live unit below a tombstoned one"] = true
+			case depth >= 3 && !deadAbove:
+				has["record in a live unit at depth 3 or more"] = true
 			}
 		}
 	}
@@ -636,7 +656,9 @@ func TestI5Format2GeneratorCoversTheRiskyShapes(t *testing.T) {
 		"unresolved ref", "voided policy", "ref shared between policies", "duplicate condition name",
 		"self-referencing condition (cycle)", "previous conditions differ", "nil requester", "nil assignee", "nil group",
 		"under caller", "under a tombstoned unit", "under a unit with live descendants", "under a unit that does not exist",
-		"not over under", "nil org unit", "record in a tombstoned unit", "record in a live unit below a tombstoned one"} {
+		"not over under", "nil org unit", "record in a tombstoned unit", "record in a live unit below a tombstoned one",
+		"record in a live unit at depth 3 or more", "caller in 0 org units", "caller in 1 org units",
+		"caller in 2 org units", "caller in 3 org units", "caller in a live unit below a tombstoned one"} {
 		if !has[want] {
 			t.Errorf("the default seed's format-2 run has no %s", want)
 		}

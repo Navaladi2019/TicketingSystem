@@ -253,7 +253,8 @@ func i5SentinelCaller() uuid.UUID { return uuid.MustParse("0f000000-0000-4000-80
 // i5F2Mutants are deliberately broken compilers, each the bug a guard in the
 // planner or compiler exists to prevent. Each breaks the SQL side only, so
 // authz.Allows (and the reference) is the oracle the database run compares
-// against. The `under` mutants are S31's (TICK-951 P11-18).
+// against. under_direct_only and under_ignores_tombstone are S31's (TICK-951
+// P11-18): set S bound from a broken walk of the org tree.
 func i5F2Mutants() map[string]i5F2Compiler {
 	return map[string]i5F2Compiler{
 		// not_unguarded: a uuid cmp loses "col IS NOT NULL AND", so it is
@@ -297,6 +298,18 @@ func i5F2Mutants() map[string]i5F2Compiler {
 				return n
 			})), p, alias, argBase)
 		},
+		// under_direct_only: set S is the caller's units (or the listed
+		// roots) without their descendants, so a record in a unit below them
+		// drops out of the region.
+		"under_direct_only": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
+			return authz.CompileRead(i5F2BoundWith(c, p, i5SubtreeDirectOnly), p, alias, argBase)
+		},
+		// under_ignores_tombstone: tombstoned units stay in S, and so does a
+		// live unit below one, so access through a unit removed from the
+		// directory survives the sync.
+		"under_ignores_tombstone": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
+			return authz.CompileRead(i5F2BoundWith(c, p, i5SubtreeIgnoresTombstone), p, alias, argBase)
+		},
 		// shared_nil_caller: shared holds for a caller with no id through its
 		// groups' shares, where D5 folds it to false. Compiled as a caller
 		// with a sentinel id (whose user shares match nothing) and the same
@@ -316,6 +329,36 @@ func i5F2Mutants() map[string]i5F2Compiler {
 				return n
 			})), q, alias, argBase)
 		},
+	}
+}
+
+// i5F2BoundWith is c.bound(p) with set S from subtree instead of the
+// reference's walk; a case with no world is returned as it is.
+func i5F2BoundWith(c *i5F2Case, p identity.Principal, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
+	if c.Policy == nil || c.World == nil {
+		return c.Policy
+	}
+	return i5BindWith(c.Policy, p, c.Prev, subtree)
+}
+
+// i5UnderModel is an under mutant's model: Allows over the policy bound with
+// S from subtree. The binding depends only on the case and the principal, so
+// it is made once for each and reused for every record (the models run per
+// record, and the walk is the cost).
+func i5UnderModel(allows func(*authz.Policy, identity.Principal, authz.Row) bool, subtree func(tenant, root uuid.UUID) []uuid.UUID) func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+	type key struct {
+		c *i5F2Case
+		p string
+	}
+	bound := map[key]*authz.Policy{}
+	return func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+		k := key{c, fmt.Sprint(p)}
+		pol, ok := bound[k]
+		if !ok {
+			pol = i5F2BoundWith(c, p, subtree)
+			bound[k] = pol
+		}
+		return allows(pol, p, rec.row(p))
 	}
 }
 
@@ -533,6 +576,8 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 			}
 			return n
 		}),
+		"under_direct_only":       i5UnderModel(allows, i5SubtreeDirectOnly),
+		"under_ignores_tombstone": i5UnderModel(allows, i5SubtreeIgnoresTombstone),
 		"shared_nil_caller": func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
 			if c.Policy == nil || p.PrincipalID != uuid.Nil || len(p.Groups) == 0 {
 				return allows(c.bound(p), p, rec.row(p))

@@ -13,10 +13,17 @@
 // Bench only: no runtime code is involved or changed. region.sql must have
 // run first. Env: SP1_SUPER_URL, SP1_APP_URL, SP1_SECONDS (20), SP1_CLIENTS
 // (8), SP1_OUT (raw report path).
+//
+// SP1_INDEX=real (TICK-951 P11-18) reruns it against S31's schema: the
+// migration's partial index records_org_unit (TICK-947) instead of the bench
+// indexes, no R1 phase, and rows whose set S comes from the runtime's own
+// authz.ExpandUnder (its recursive query, tombstones walked) in the same
+// transaction as the count and page, as the list handler runs it.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -25,8 +32,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
 const cols = `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
@@ -167,6 +178,83 @@ func (e *env) request(ctx context.Context, cs, ps string, args []any) (time.Dura
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", e.tenant); err != nil {
 		return 0, err
 	}
+	var n int
+	if err := tx.QueryRow(ctx, cs, countArgs(args)...).Scan(&n); err != nil {
+		return 0, err
+	}
+	rows, err := tx.Query(ctx, ps, args...)
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return time.Since(t0), nil
+}
+
+// underRoot is a format-2 document with one read policy, {"under": {"of":
+// [root]}}: set S is root's live subtree, with no org_unit_members needed.
+func underRoot(root string) *authz.Policy {
+	return &authz.Policy{Version: 1, Document: authz.Document{
+		Format: authz.FormatV2, Conditions: []authz.Condition{},
+		Policies: []authz.NamedPolicy{{Name: "region", Ops: []string{authz.OpRead},
+			When: authz.Node{Under: &authz.Under{Units: []uuid.UUID{uuid.MustParse(root)}}}}},
+	}}
+}
+
+// expand runs authz.ExpandUnder in tx and returns set S as the leaf binds it
+// (the one argument CompileRead renders), or refused when |S| is over
+// authz.MaxUnderSet (the handler's 500 access_scope_too_large).
+func (e *env) expand(ctx context.Context, tx pgx.Tx, pol *authz.Policy, a agent) (ids []string, refused bool, err error) {
+	p := identity.Principal{TenantID: uuid.MustParse(e.tenant), PrincipalID: uuid.MustParse(a.id)}
+	bound, err := authz.ExpandUnder(ctx, tx, pol, p)
+	var big *authz.UnderSetTooLargeError
+	if errors.As(err, &big) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	pred, args := authz.CompileRead(bound, p, "r", 0)
+	if len(args) != 1 || !strings.Contains(pred, "r.org_unit_id = ANY($1::uuid[])") {
+		return nil, false, fmt.Errorf("unexpected under rendering %s %v", pred, args)
+	}
+	ids, ok := args[0].([]string)
+	if !ok {
+		return nil, false, fmt.Errorf("set S argument is %T", args[0])
+	}
+	return ids, false, nil
+}
+
+// requestExpand is request with set S from e.expand in the same transaction,
+// before the count and page. A refusal ends the request there.
+func (e *env) requestExpand(ctx context.Context, cs, ps string, a agent, pol *authz.Policy, refusals *int64, mu *sync.Mutex) (time.Duration, error) {
+	t0 := time.Now()
+	tx, err := e.app.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", e.tenant); err != nil {
+		return 0, err
+	}
+	ids, refused, err := e.expand(ctx, tx, pol, a)
+	if err != nil {
+		return 0, err
+	}
+	if refused {
+		mu.Lock()
+		*refusals++
+		mu.Unlock()
+		return time.Since(t0), tx.Commit(ctx)
+	}
+	args := e.args(a, ids)
 	var n int
 	if err := tx.QueryRow(ctx, cs, countArgs(args)...).Scan(&n); err != nil {
 		return 0, err
@@ -351,18 +439,44 @@ func main() {
 			explainRow(r)
 		}
 	}
-	phase("plain", []string{
-		"DROP INDEX IF EXISTS records_bench_org_unit_updated",
-		"CREATE INDEX IF NOT EXISTS records_bench_org_unit ON records (tenant_id, org_unit_id)",
-	}, true)
-	phase("plain + R1", []string{
-		"CREATE INDEX IF NOT EXISTS records_bench_org_unit_updated ON records (tenant_id, org_unit_id, updated_at DESC, id DESC)",
-	}, false)
+	realSchema := os.Getenv("SP1_INDEX") == "real"
+	if !realSchema {
+		phase("plain", []string{
+			"DROP INDEX IF EXISTS records_bench_org_unit_updated",
+			"CREATE INDEX IF NOT EXISTS records_bench_org_unit ON records (tenant_id, org_unit_id)",
+		}, true)
+		phase("plain + R1", []string{
+			"CREATE INDEX IF NOT EXISTS records_bench_org_unit_updated ON records (tenant_id, org_unit_id, updated_at DESC, id DESC)",
+		}, false)
+	} else {
+		var valid bool
+		must(super.QueryRow(ctx, "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('records_org_unit')").Scan(&valid))
+		if !valid {
+			must(errors.New("records_org_unit (TICK-947 migration) is missing or invalid"))
+		}
+		phase("records_org_unit", []string{
+			"DROP INDEX IF EXISTS records_bench_org_unit_updated",
+			"DROP INDEX IF EXISTS records_bench_org_unit",
+		}, true)
+		// Set S from authz.ExpandUnder, whole subtrees, in the request.
+		fmt.Fprint(e.out, "\n## ExpandUnder + list (ms per request: BEGIN, set_config, ExpandUnder, count, page, COMMIT)\n\n| Subtree | units | index | n | refused | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+		cs, ps := countSQL(5), pageSQL(5)
+		var mu sync.Mutex
+		for _, s := range sets {
+			pol := underRoot(s.ids[0])
+			var refusals int64
+			p50, p95, p99, cnt := e.load(ctx, "expand+list "+s.node, clients, secs, func(ctx context.Context, a agent) (time.Duration, error) {
+				return e.requestExpand(ctx, cs, ps, a, pol, &refusals, &mu)
+			})
+			fmt.Fprintf(e.out, "| %s | %d | records_org_unit | %d | %d | %.2f | **%.2f** | %.2f |\n", s.node, s.size, cnt, refusals, p50, p95, p99)
+		}
+	}
 
 	// D7's expansion, per subtree root, alone.
 	fmt.Fprint(e.out, "\n## Subtree expansion (ms per request: BEGIN, set_config, recursive query, COMMIT)\n\n| Subtree | units | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- |\n")
 	for _, s := range sets {
 		root := []string{s.ids[0]}
+		pol := underRoot(s.ids[0])
 		var got int
 		p50, p95, p99, _ := e.load(ctx, "expand "+s.node, clients, secs, func(ctx context.Context, _ agent) (time.Duration, error) {
 			t0 := time.Now()
@@ -374,7 +488,16 @@ func main() {
 			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", e.tenant); err != nil {
 				return 0, err
 			}
-			if err := tx.QueryRow(ctx, expandSQL, e.tenant, root).Scan(&got); err != nil {
+			if realSchema {
+				ids, refused, err := e.expand(ctx, tx, pol, e.agents[0])
+				if err != nil {
+					return 0, err
+				}
+				got = len(ids)
+				if refused {
+					got = -1 // over authz.MaxUnderSet
+				}
+			} else if err := tx.QueryRow(ctx, expandSQL, e.tenant, root).Scan(&got); err != nil {
 				return 0, err
 			}
 			return time.Since(t0), tx.Commit(ctx)

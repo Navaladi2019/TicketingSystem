@@ -1,4 +1,4 @@
-# Region access at 800k: `org_unit_id = ANY(S)` (SP-1)
+# Region access at 800k: `org_unit_id = ANY(S)` (SP-1, S31 rerun)
 
 Scope: TICK-932, PLAN-011 P11-01, ADR-010 D7 and R1. The question: on the
 P3-36 800k bench, does the support-agent incident list (`sort=-updated_at`,
@@ -8,7 +8,118 @@ when the read predicate gains D7's leaf
 `org_unit_id IS NOT NULL AND org_unit_id = ANY($S)`, for |S| = 10, 100, 1,000
 and 10,000?
 
-## Verdict
+## S31 rerun on the real schema (TICK-951 P11-18, 2026-11-21)
+
+**R1: FAIL, confirmed on the real migration, index and expansion.** On S31's
+story branch, the region leaf costs **+94.4 ms p95 for a 1,011-unit region**
+when set S comes from the runtime's own `authz.ExpandUnder` in the request.
+At |S| = 10,000 it costs **+199.9 ms p95**. These are 1-client deltas against
+a baseline measured in the same run. Projected onto the 146.2 ms handler p95,
+that is about 241 ms and 346 ms. Even the database work alone is over the
+150 ms budget: 156.9 ms and 262.4 ms p95. Under ADR-010 R1 this is the
+trigger, and it goes on S31 (TICK-946). The fallback decision is still open:
+SP-1b (TICK-969) tested the closure table, and the Solution Architect's
+option (i), SP-1c, has not run.
+
+What changed from SP-1:
+
+- **Schema.** `records.org_unit_id`, its FK and the partial index
+  `records_org_unit (tenant_id, org_unit_id) WHERE org_unit_id IS NOT NULL`
+  now come from S31's migrations (TICK-947), not from `region.sql`. The bench
+  indexes are dropped. There is no R1-index phase, since SP-1 and SP-1b showed
+  the planner does not use that index where it would matter.
+- **Leaf.** The region branch is the same text `authz.CompileRead` renders,
+  `(r.org_unit_id IS NOT NULL AND r.org_unit_id = ANY($n::uuid[]))`. The
+  harness checks this on every expanded request.
+- **Expansion.** The new "ExpandUnder + list" rows run `authz.ExpandUnder` for
+  `{"under": {"of": [root]}}` inside the request transaction, then the count
+  and page with the S it returns. That is the list handler's order of work.
+  The "|S| = k" rows bind the first k units, as SP-1 did, so the two runs
+  compare.
+
+### 1 client, 10 s per row (scored by delta)
+
+ms per request. Baseline is the 4-branch list with no region leaf, from the
+same run: p50 37.5, p95 62.4.
+
+| Row | Units in S | n | p50 | **p95** | Δp50 / **Δp95** | SP-1 Δp95 (plain) |
+| --- | --- | --- | --- | --- | --- | --- |
+| \|S\| = 10, bound | 10 | 316 | 30.5 | 48.6 | −7.0 / −13.9 | +2.7 |
+| \|S\| = 100, bound | 100 | 234 | 38.0 | 75.3 | +0.6 / +12.9 | +0.8 |
+| \|S\| = 1,000, bound | 1,000 | 185 | 51.2 | 91.4 | +13.7 / **+29.0** | +7.7 |
+| \|S\| = 10,000, bound | 10,000 | 53 | 193.0 | **262.4** | +155.5 / **+199.9** | +157.6 |
+| ExpandUnder + list, area 0/0/0 | 10 | 243 | 38.0 | 62.2 | +0.5 / −0.3 | n/a |
+| ExpandUnder + list, district 0/0 | 101 | 180 | 53.8 | 84.3 | +16.3 / **+21.8** | n/a |
+| ExpandUnder + list, region 0 | 1,011 | 108 | 83.5 | **156.9** | +46.0 / **+94.4** | n/a |
+| ExpandUnder + list, root | 10,111: refused | 51 | 179.4 | **304.8** | +141.9 / **+242.3** | n/a |
+
+ExpandUnder alone (BEGIN, set_config, ExpandUnder, COMMIT; floor 13.4 p50,
+25.9 p95):
+
+| Subtree | Units | p50 | p95 |
+| --- | --- | --- | --- |
+| area 0/0/0 | 10 | 12.9 | 24.9 |
+| district 0/0 | 101 | 19.8 | 41.3 |
+| region 0 | 1,011 | 41.4 | 120.0 |
+| root | 10,111: refused | 222.3 | 321.7 |
+
+### 8 clients, 20 s per row (not scored)
+
+The floor was 5.9 ms p50 and 14.3 ms p95, against P3-36's 3 ms gate. The
+P3-36 handler run refused to measure (`host busy: transport floor p50 5.29 ms
+> 3 ms gate`). The |S| = 100 row is an outlier: 831 ms p95 with n = 451,
+while its plan executes in 3.3 ms. That points to a contention spike during
+that row, not a plan change.
+
+| Row | n | p50 | p95 |
+| --- | --- | --- | --- |
+| baseline | 4,095 | 35.6 | 63.6 |
+| \|S\| = 10 / 100 / 1,000 / 10,000, bound | 2,303 / 451 / 1,472 / 372 | 61.0 / 312.0 / 98.5 / 365.3 | 132.8 / 831.2 / 196.0 / 1,171.5 |
+| ExpandUnder + list, area / district / region / root | 2,790 / 2,363 / 1,333 / 241 | 53.4 / 63.4 / 110.7 / 615.8 | 83.4 / 102.0 / 197.4 / 967.2 |
+| ExpandUnder alone, area / district / region / root | 5,809 / 3,785 / 1,432 / 346 | 19.4 / 31.9 / 86.6 / 432.9 | 42.7 / 60.2 / 189.7 / 624.1 |
+
+### What the rerun adds to SP-1 and SP-1b
+
+1. **Plans: no change.** In every bound row (EXPLAIN of agent 1) each of the five branches keeps its own
+   index scan under the `Merge Append`. The region branch walks
+   `records_list_updated` with a filter, and the page executes in 3 to 4 ms
+   at every |S|. As in SP-1, the time goes to planning and binding S, not to
+   reading rows. The partial index changes nothing here.
+2. **The real expansion is the larger cost below 10,000 units.** At region
+   size, ExpandUnder alone is 120 ms p95 against SP-1's 28.9 ms for D7's
+   bare walk. The real query also walks each seed's ancestors to drop
+   tombstoned branches, and it returns `(caller, root, id)` rows instead of
+   a count. (Known: these numbers. Inferred, not profiled: the extra cost is
+   the walk up and shipping 1,011 rows to Go.) After subtracting the floor,
+   H1 (≤ 5 ms p95) holds only at area size: about +15 ms at district size and
+   +94 ms at region size.
+3. **A refusal is not cheap (Breaks under load).** A caller whose subtree is
+   over `authz.MaxUnderSet` is refused only after the whole walk: 10,111 rows
+   reach Go, then `ExpandUnder` counts them. That costs 304.8 ms p95 for a 500
+   response. A walk capped at `MaxUnderSet + 1` rows would refuse at once.
+   This is routed to the `under` leaf's owner (TICK-950) as a finding. It
+   does not change R1.
+
+### Known gaps
+
+- **The host was busier than in SP-1.** Its transport floor was 13.4 ms p50
+  in the 1-client pass, against SP-1's 5.8 ms. The `nava` dev stack (13
+  containers), another task's integration container (`nava-t1022-it-1108`),
+  `buildx_buildkit_nava-ci0` and `multica-*` were up. That is outside P3-36's
+  allow-list. They are not this run's containers, so they were not stopped.
+  Absolute values are not scored. The verdict uses deltas, and the rows that
+  decide it (+94 ms and +200 ms p95) are far above the noise.
+  The negative deltas at 10 units are that noise.
+- **One pass per row, not paired.** SP-1b's paired method would tighten the
+  small deltas. It cannot change the verdict.
+- **Database work only.** The handler measurement was refused by its floor
+  gate, so the projection adds deltas to P3-36's 146.2 ms.
+
+Raw reports (every plan): `bin/acl-perf-region-real-raw.md` (8 clients) and
+`bin/acl-perf-region-real-1c-raw.md` (1 client). Both are attached to
+TICK-951, not committed.
+
+## SP-1 verdict (2026-11-15, bench schema)
 
 **R1: FAIL at |S| = 10,000 with both indexes.** The region leaf adds about
 136 ms p50 and 158 ms p95 per list request, even with one client. Projected
@@ -181,6 +292,8 @@ query: one branch, `ORDER BY updated_at DESC, id DESC LIMIT 51`.
 sh bench/acl-perf/region/run.sh          # about 20 minutes: seed, region.sql, the 8-client pass
 SP1_PG=<kept container> SP1_CLIENTS=1 SP1_SECONDS=10 sh bench/acl-perf/region/run.sh   # the 1-client pass
 ```
+
+S31 rerun on the real schema (TICK-951): the same commands with `SP1_INDEX=real`, for example `SP1_INDEX=real sh bench/acl-perf/region/run.sh`, then `SP1_PG=<kept container> SP1_INDEX=real SP1_CLIENTS=1 SP1_SECONDS=10 sh bench/acl-perf/region/run.sh`. Run them from the story branch, so the seed carries S31's migrations.
 
 It needs Docker and Go. It is not in CI. The raw reports, with every plan,
 go to `bin/acl-perf-region-raw.md`. The container is kept. Remove it with
