@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
@@ -36,5 +37,6 @@ func productionActivities(pool, pipePool *pgxpool.Pool) (*interp.Activities, err
 		Writer:      recordports.NewWriter(pool, pipePool),
 		Waits:       workerguard.WaitTracker{Pool: pool},
 		Causes:      workerguard.CauseTracker{Pool: pool},
+		Policies:    recordports.PolicyTester{Pool: pool, Policies: authz.PolicyStore{}},
 	}, nil
 }

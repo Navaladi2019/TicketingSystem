@@ -459,3 +459,65 @@ func TestWorkflowDefinitionPublishNeedsAnIdempotencyKeyAndRefusesItsReuse(t *tes
 		t.Errorf("%d versions, %v, want 1", n, err)
 	}
 }
+
+// wfPolicyBody is a valid definition whose condition step carries a
+// named-policy test (ADR-010 D9).
+func wfPolicyBody(entity, policy string) string {
+	return fmt.Sprintf(`{
+  "format": "nava.workflow/v1",
+  "trigger": {"on": "record.created", "entity": %q},
+  "start": "gate",
+  "steps": [
+    {"key": "gate", "type": "condition", "policy": %s, "who": "requester", "op": "read", "then": "done", "else": "done"},
+    {"key": "done", "type": "end"}
+  ]
+}`, entity, policy)
+}
+
+// A policy test publishes without the policy existing (references resolve at
+// run time), replays to one version, and is refused with a pointer when its
+// shape is wrong or its entity type is not the workflow's own.
+// covers: publishWorkflowDefinitionVersion 422
+func TestWorkflowDefinitionPolicyTest(t *testing.T) {
+	e := newWFEnv(t)
+	ok := wfPolicyBody("incident", `{"entity_type": "incident", "name": "no_such_policy"}`)
+	if code, b := e.wfPublish(t, "admin-a", "gate_flow", "p1", ok); code != http.StatusCreated {
+		t.Fatalf("valid policy test = %d: %s", code, b)
+	}
+	if code, b := e.wfPublish(t, "admin-a", "gate_flow", "p1", ok); code != http.StatusCreated {
+		t.Fatalf("replay = %d: %s", code, b)
+	}
+	var n int
+	if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM workflow_definition_versions WHERE tenant_id = $1`, e.a.id).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("%d versions after a replay, %v, want 1", n, err)
+	}
+
+	for i, tc := range []struct{ name, body, pointer, rule string }{
+		{"bad who", strings.Replace(ok, `"requester"`, `"owner"`, 1), "/steps/gate/who", "invalid"},
+		{"bad op", strings.Replace(ok, `"op": "read"`, `"op": "delete"`, 1), "/steps/gate/op", "invalid"},
+		{"bad name", wfPolicyBody("incident", `{"entity_type": "incident", "name": "Bad-Name"}`), "/steps/gate/policy/name", "invalid"},
+		{"extra key", wfPolicyBody("incident", `{"entity_type": "incident", "name": "p", "x": 1}`), "/steps/gate/policy/x", "invalid"},
+		{"another entity type", wfPolicyBody("incident", `{"entity_type": "task", "name": "p"}`), "/steps/gate/policy/entity_type", workflowdefs.RuleEntityTypeMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, b := e.wfPublish(t, "admin-a", "gate_bad", fmt.Sprintf("pb-%d", i), tc.body)
+			if code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d: %s", code, b)
+			}
+			var p etProblem
+			if err := json.Unmarshal(b, &p); err != nil || p.Code != problem.WorkflowDefinitionInvalid {
+				t.Fatalf("problem = %+v, %v: %s", p, err, b)
+			}
+			if !slices.ContainsFunc(p.Errors, func(f problem.FieldError) bool { return f.Pointer == tc.pointer && f.Rule == tc.rule }) {
+				t.Errorf("errors %+v lack %q (%s)", p.Errors, tc.pointer, tc.rule)
+			}
+		})
+	}
+	if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM workflow_definitions WHERE tenant_id = $1 AND key = 'gate_bad'`, e.a.id).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d definitions written by refused publishes, %v", n, err)
+	}
+	// Another tenant's key is the unknown-key response.
+	if rec := e.do(t, http.MethodGet, "/api/v1/workflow-definitions/gate_flow", "admin-b", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("another tenant's key = %d, want 404", rec.Code)
+	}
+}

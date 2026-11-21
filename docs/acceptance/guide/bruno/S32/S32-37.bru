@@ -1,0 +1,46 @@
+meta {
+  name: S32.37 Restore: s32_route becomes a no-op: 201
+  type: http
+  seq: 37
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s32_route/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-wf-noop
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.created",
+      "entity": "incident"
+    },
+    "start": "done",
+    "steps": [
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('current, on incident', () => { expect(b.current).to.eql(true); expect(b.entity).to.eql('incident'); });
+  bru.setVar('s32_wf_version', String(b.version));
+}
+
+docs {
+  A definition cannot be deleted. Its current version now ends at once, so tenant A's later incidents keep their state.
+}

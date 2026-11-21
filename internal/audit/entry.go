@@ -23,7 +23,8 @@ const (
 )
 
 // Action is audit_log.action, the closed R2 list with ADR-004-E1's two
-// cascade actions and ADR-004-E9's number_space_exhausted.
+// cascade actions, ADR-004-E9's number_space_exhausted and TICK-1025's
+// policy_ref_refused.
 // audit_log_action_check mirrors it (TestP510bSubjectTypesMirrorRegistry).
 type Action string
 
@@ -46,6 +47,10 @@ const (
 	// ActionNumberSpaceExhausted records a create refused because its
 	// number format's scope has no number left (ADR-004-E9).
 	ActionNumberSpaceExhausted Action = "number_space_exhausted"
+	// ActionPolicyRefRefused records a workflow condition step whose
+	// named-policy reference was refused: the policy is missing, voided or
+	// of the wrong type (TICK-1025, ADR-010 D9). It is not a policy update.
+	ActionPolicyRefRefused Action = "policy_ref_refused"
 )
 
 // Source is audit_log.source, the closed R2 channel list.
@@ -70,7 +75,7 @@ func Actions() []Action {
 	return []Action{
 		ActionCreate, ActionUpdate, ActionPublish, ActionEnable, ActionDisable, ActionDelete,
 		ActionPromote, ActionRollback, ActionStateChange, ActionExport, ActionErase, ActionReseed,
-		ActionCascadeCycle, ActionCascadeTooDeep, ActionNumberSpaceExhausted,
+		ActionCascadeCycle, ActionCascadeTooDeep, ActionNumberSpaceExhausted, ActionPolicyRefRefused,
 	}
 }
 

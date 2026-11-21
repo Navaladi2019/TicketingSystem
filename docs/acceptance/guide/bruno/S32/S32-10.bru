@@ -1,0 +1,50 @@
+meta {
+  name: S32.10 The admin adds the states triaged and needs_owner: 201
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick958-s32-{{s32_run}}-states
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script (the current incident version plus two states)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  if (bru.getVar('s32_has_states') === 'true') { bru.runner.skipRequest(); }
+  const schema = JSON.parse(bru.getVar('s32_cur_schema'));
+  const states = JSON.parse(bru.getVar('s32_states'));
+  for (const s of ['triaged', 'needs_owner']) {
+    states.states.push(s);
+    states.transitions.push({ from: 'new', to: s });
+    schema.properties.state.enum.push(s);
+  }
+  req.setBody({ definition: { schema, fixed_columns: JSON.parse(bru.getVar('s32_fixed')), states } });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('current, with triaged and needs_owner', () => {
+    expect(b.current).to.eql(true);
+    expect(b.states.states).to.include.members(['triaged', 'needs_owner']);
+  });
+}
+
+docs {
+  The story's workflow sets `state` to `triaged` or `needs_owner`, which the seeded incident type does not have. Two states and the transitions `new -> triaged` and `new -> needs_owner`: a compatible version. Skipped when the type already has them (a second pass).
+}

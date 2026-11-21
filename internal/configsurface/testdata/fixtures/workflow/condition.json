@@ -4,7 +4,8 @@
   "start": "is_high",
   "steps": [
     { "key": "is_high", "type": "condition", "field": "/priority", "op": "eq", "value": 1, "then": "is_open", "else": "done" },
-    { "key": "is_open", "type": "condition", "field": "/state", "op": "ne", "value": "closed", "then": "done", "else": "done" },
+    { "key": "is_open", "type": "condition", "field": "/state", "op": "ne", "value": "closed", "then": "can_edit", "else": "done" },
+    { "key": "can_edit", "type": "condition", "policy": { "entity_type": "incident", "name": "assignee_edit" }, "who": "assignee", "op": "write", "then": "done", "else": "done" },
     { "key": "done", "type": "end" }
   ]
 }
