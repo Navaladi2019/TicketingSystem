@@ -538,8 +538,8 @@ func checkDocument(d Document) *docCheck {
 			k.problems = append(k.problems, Problem{"/policies", RuleDocLeavesExceeded})
 		}
 	}
-	// At most MaxUnderSets distinct under U per policy, refs expanded.
-	// TODO(TODO-S31-01): the database CHECK (acl2_problem) does not check it yet.
+	// At most MaxUnderSets distinct under U per policy, refs expanded. The
+	// database CHECK (acl2_problem, TICK-1059) refuses the same documents.
 	condExprs := make(map[string]*Node, len(d.Conditions))
 	for i := range d.Conditions {
 		if _, dup := condExprs[d.Conditions[i].Name]; !dup {
