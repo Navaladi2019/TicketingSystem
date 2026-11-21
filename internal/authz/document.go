@@ -60,6 +60,9 @@ const (
 	// (SP-1e, beside change 5 on TICK-946): the closure already gives the
 	// descendant through its ancestor, so the pair is refused at publish.
 	RuleUnderNested = "under_nested"
+	// RuleUnderDuplicateID: an under leaf lists the same unit twice
+	// (ADR-010-A2 A2-8, R2-N1), reported at the second occurrence.
+	RuleUnderDuplicateID = "under_duplicate_id"
 )
 
 // MaxUnderSets is the most distinct under start sets U one policy may name,

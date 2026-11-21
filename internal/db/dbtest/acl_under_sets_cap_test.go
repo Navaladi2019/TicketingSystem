@@ -96,9 +96,11 @@ func TestTICK1059UnderSetsCap(t *testing.T) {
 
 	accepted := []struct{ name, doc string }{
 		// caller, {u1}, {u1,u2} through the ref, {u3}: four. The same set
-		// again in another order, repeated or in upper case is not a new U.
+		// again in another order or in upper case is not a new U. (An id
+		// repeated inside one leaf is refused by the route since TICK-1036,
+		// under_duplicate_id; see the duplicate case below.)
 		{"four distinct U through a ref, repeats folded", underDoc(cond, true,
-			under(), under(u2, u1), under(strings.ToUpper(u1), u2, u1), under(u3))},
+			under(), under(u2, u1), under(strings.ToUpper(u1), u2), under(u3))},
 		{"four distinct U written out", underDoc(under(u1), false, under(), under(u1), under(u2), under(u3, u4))},
 		// Only policies are capped; an unused condition is not (D4).
 		{"five U in a condition no policy refs", underDoc(`{"any": [`+under()+`, `+under(u1)+`, `+under(u2)+`, `+under(u3)+`, `+under(u4)+`]}`,
@@ -134,6 +136,20 @@ func TestTICK1059UnderSetsCap(t *testing.T) {
 				t.Errorf("%s: DETAIL %+v, want rules under_sets_exceeded at /policies/0", what, d)
 			}
 		}
+	}
+
+	// A2-8 (TICK-1036): an id listed twice in one leaf is refused by the
+	// route only. The database CHECK still accepts it, and counts it as one
+	// U; Prepare refuses it with under_duplicate_id at the repeat. The
+	// agreement loop below therefore does not hold this document.
+	dup := underDoc(under(), false, under(u1, u2, u1))
+	seedACLIDs(t, super, tenantA, dup)
+	if err := insert(app, tenantA, dup); err != nil {
+		t.Errorf("a leaf listing u1 twice: nava_app insert = %v, want accepted (route-only rule)", err)
+	}
+	if _, ps := authz.Prepare([]byte(`{"rules": `+dup+`}`), authz.DefaultMaxDocumentBytes); len(ps) != 1 ||
+		ps[0].Rule != authz.RuleUnderDuplicateID || ps[0].Pointer != "/rules/policies/0/when/any/0/under/of/2" {
+		t.Errorf("a leaf listing u1 twice: Prepare problems %v, want only under_duplicate_id at /rules/policies/0/when/any/0/under/of/2", ps)
 	}
 
 	// Go and the database agree on the same documents.

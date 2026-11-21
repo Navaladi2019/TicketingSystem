@@ -617,8 +617,13 @@ func (k *docCheck) scan(n Node, ptr string, d int, in *exprInfo, outer int) {
 		leaf()
 		// Each listed unit must be a live org unit of the publishing tenant,
 		// at the same pointer the database's acl2_id_pointers reports.
+		// A unit listed twice in one leaf is refused at every repeat
+		// (A2-8, R2-N1); a repeat is still checked as a tenant ref.
 		for i, id := range n.Under.Units {
 			k.refs = append(k.refs, TenantRef{kp + "/of/" + strconv.Itoa(i), KindOrgUnit, id})
+			if slices.Contains(n.Under.Units[:i], id) {
+				k.problems = append(k.problems, Problem{kp + "/of/" + strconv.Itoa(i), RuleUnderDuplicateID})
+			}
 		}
 	}
 }

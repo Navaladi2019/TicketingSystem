@@ -589,3 +589,85 @@ func TestCreateUnderAnUnderOnlyWriteGrant(t *testing.T) {
 		t.Fatalf("a refused create wrote: %d records, want %d", n, before)
 	}
 }
+
+// dupU returns args with every bound U equal to {x} replaced by {x, x}: the
+// U a caller that skipped Go's sortedIDs dedup would bind (R2-N1).
+func dupU(args []any, x uuid.UUID) []any {
+	out := slices.Clone(args)
+	for i, a := range out {
+		if s, ok := a.([]string); ok && len(s) == 1 && s[0] == x.String() {
+			out[i] = []string{s[0], s[0]}
+		}
+	}
+	return out
+}
+
+// ADR-010-A2 A2-4, R2-N1: U = {A, A} gives the same rows and capped count as
+// U = {A}. Go binds U without repeats, so the test binds the repeat itself;
+// the SQL DISTINCT on the unnest(U) source is what holds then. With the
+// DISTINCT removed (the u_not_canonical mutant, duplicate id) the driven
+// count reads every record of A's subtree twice, and the test sees it.
+func TestUnderDuplicateUCountsOnce(t *testing.T) {
+	e := migrated(t)
+	w := seedUnderWorld(t, e)
+	ctx := context.Background()
+	p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
+	pol := underDoc(t, `{"under":{"of":["`+w.unit["A"].String()+`"]}}`)
+	inTx(t, e, w.f.id, func(tx pgx.Tx) error {
+		bound, err := authz.ResolveUnder(ctx, tx, pol, p)
+		if err != nil {
+			return err
+		}
+		read := authz.ReadList(bound, p, "r", 2)
+		q := pipeline.ListQuery{TenantID: w.f.id, DefinitionID: w.def(ctx, tx), Where: read.Where, Args: read.Args}
+		for _, d := range read.Drivers {
+			q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
+		}
+		if len(q.CountDrivers) != 1 || q.CountDrivers[0].From == "" {
+			t.Fatalf("the region term has no count driver: %+v", read.Drivers)
+		}
+		count := func(sql string, args []any) int64 {
+			var n int64
+			if err := tx.QueryRow(ctx, sql, append([]any{q.TenantID, q.DefinitionID}, args...)...).Scan(&n); err != nil {
+				t.Fatalf("count %s: %v", sql, err)
+			}
+			return n
+		}
+		rows := func(args []any) []string {
+			r, err := tx.Query(ctx, `SELECT r.id FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND `+read.Where,
+				append([]any{q.TenantID, q.DefinitionID}, args...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, err := pgx.CollectRows(r, pgx.RowTo[uuid.UUID])
+			if err != nil {
+				t.Fatal(err)
+			}
+			return w.names(ids)
+		}
+		dup := dupU(q.Args, w.unit["A"])
+		if fmt.Sprint(dup) == fmt.Sprint(q.Args) {
+			t.Fatalf("no U {A} bound in %v", q.Args)
+		}
+		want := []string{"A", "A1"}
+		if got := rows(q.Args); !slices.Equal(got, want) {
+			t.Fatalf("U = {A} admits %v, want %v", got, want)
+		}
+		if got := rows(dup); !slices.Equal(got, want) {
+			t.Errorf("U = {A, A} admits %v, want %v", got, want)
+		}
+		cc := pipeline.CountStatement(q)
+		if a, aa := count(cc, q.Args), count(cc, dup); a != 2 || aa != 2 {
+			t.Errorf("capped count: U = {A} %d, U = {A, A} %d; want both 2", a, aa)
+		}
+		// Mutant u_not_canonical (duplicate id): no DISTINCT on U.
+		mut := strings.Replace(cc, "(SELECT DISTINCT acl_ud.id FROM unnest(", "(SELECT acl_ud.id FROM unnest(", 1)
+		if mut == cc {
+			t.Fatalf("the count statement has no DISTINCT U to remove: %s", cc)
+		}
+		if n := count(mut, dup); n == 2 {
+			t.Errorf("mutant without DISTINCT counts %d for U = {A, A}; the test cannot see a repeat", n)
+		}
+		return nil
+	})
+}

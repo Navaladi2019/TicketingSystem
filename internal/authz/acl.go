@@ -551,15 +551,28 @@ func (c *compiler) driver(t pnode) RegionDriver {
 	if !ok {
 		return RegionDriver{}
 	}
-	return RegionDriver{
-		From: "(SELECT acl_u.id FROM unnest(" + a.units + "::uuid[]) acl_u(id)" +
-			" WHERE NOT EXISTS (SELECT 1 FROM org_unit_closure acl_up WHERE acl_up.tenant_id = " + a.tenant + "::uuid" +
-			" AND acl_up.ancestor_id = ANY(" + a.units + "::uuid[]) AND acl_up.ancestor_id <> acl_u.id" +
-			" AND acl_up.descendant_id = acl_u.id)) acl_u" +
-			" CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
-			" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = acl_u.id) acl_d",
-		Key: "acl_d.descendant_id",
-	}
+	return RegionDriver{From: regionFrom(a), Key: "acl_d.descendant_id"}
+}
+
+// canonicalU is a FROM item acl_u(id) over the canonical U bound at a.units
+// (ADR-010-A2 A2-4): U made DISTINCT first (R2-N1), then every unit dropped
+// that has another unit of U as a closure ancestor. The Go side already binds
+// U sorted and without repeats (sortedIDs); the SQL DISTINCT is the guard that
+// still holds if a future caller binds a U with a repeat, which would make
+// every unnest(U) rendering count a record twice.
+func canonicalU(a underArgs) string {
+	return "(SELECT acl_u.id FROM (SELECT DISTINCT acl_ud.id FROM unnest(" + a.units + "::uuid[]) acl_ud(id)) acl_u" +
+		" WHERE NOT EXISTS (SELECT 1 FROM org_unit_closure acl_up WHERE acl_up.tenant_id = " + a.tenant + "::uuid" +
+		" AND acl_up.ancestor_id = ANY(" + a.units + "::uuid[]) AND acl_up.ancestor_id <> acl_u.id" +
+		" AND acl_up.descendant_id = acl_u.id)) acl_u"
+}
+
+// regionFrom is the region driver's FROM item: the canonical U, then every
+// closure descendant acl_d of each of its units.
+func regionFrom(a underArgs) string {
+	return canonicalU(a) +
+		" CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
+		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = acl_u.id) acl_d"
 }
 
 func (c *compiler) arg(v any) string {
