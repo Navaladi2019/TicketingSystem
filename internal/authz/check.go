@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/acl"
+	"github.com/Navaladi2019/TicketingSystem/internal/platform/strictjson"
 )
 
 // The save-time checks of an access policy (ADR-010 D4, amendment A1; PLAN-011
@@ -81,9 +82,19 @@ type Prepared struct {
 
 // Prepare checks a publish body `{"rules": <format 1 or 2>, "masks": [...]}`
 // and returns what to store, or every problem with a pointer into the body.
-// maxBytes is the limit on the stored text of rules and of masks (A1-2c); a
-// body above it is refused with document_too_large and nothing else is checked.
+// Invalid UTF-8 is checked first: a body with any is refused with that one
+// invalid_utf8 problem, whatever its size (TICK-1019). After that, maxBytes is
+// the limit on the stored text of rules and of masks (A1-2c); a body above it
+// is refused with document_too_large and nothing else is checked.
 func Prepare(body []byte, maxBytes int) (*Prepared, []Problem) {
+	// strictjson reads the body first, so invalid UTF-8 anywhere is refused
+	// here, at its pointer, and nothing below ever reads it as U+FFFD
+	// (TICK-1019). It lets a duplicate name through: the duplicate scans below
+	// name every one at its pointer, as the database does (C2), and the reads
+	// below keep the last one, which json/v2 would merge into the first.
+	if v, bad := strictjson.CheckUTF8(body); bad {
+		return nil, []Problem{{v.Pointer, v.Rule}}
+	}
 	var top any
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&top); err != nil || dec.More() {

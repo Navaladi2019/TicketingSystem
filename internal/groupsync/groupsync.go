@@ -258,6 +258,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			slog.Int("org_units_written", st.OrgUnitsWritten), slog.Int("org_units_deleted", st.OrgUnitsDeleted),
 			slog.Int("org_members_written", st.OrgMembersWritten), slog.Int("org_members_removed", st.OrgMembersRemoved),
 			slog.Int("org_subtree_max", st.OrgSubtreeMax),
+			slog.Int("org_closure_rows", st.ClosureRows), slog.Bool("org_closure_rebuilt", st.ClosureRebuilt),
 			slog.Int("ignored_outside_subtree", st.Ignored))
 		return nil
 	})

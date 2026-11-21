@@ -15,9 +15,11 @@
 # neither the API nor the SDK changed (SDK=false, the
 # needs.changes.outputs.sdk of make ci-sdk-changed).
 #
-# And for isolation (TICK-1003): the tenant isolation suite's job runs on a
-# full run only (TICK-652, AR-TICK-652-01), so it may be skipped when the run
-# is not one (FULL=false, the needs.changes.outputs.full of env.CI_FULL).
+# And for isolation (TICK-1003): the tenant isolation suite's job runs when
+# the changes job's full output is true (FULL, from make ci-stages). Since
+# TICK-1031 that output is true on every story-branch pull request, so in
+# the workflow this exception no longer fires there; it stays so FULL=false
+# keeps its meaning if the job is ever reused.
 set -eu
 
 want="changes lint unit temporal-server integration isolation commit-check-budget stack coverage sdk"
@@ -32,7 +34,7 @@ for job in $want; do
             elif [ "$job" = sdk ] && [ "${SDK:-}" = false ]; then
                 echo "full-suite: $job: skipped, neither the API nor the SDK changed (TICK-827)"
             elif [ "$job" = isolation ] && [ "${FULL:-}" = false ]; then
-                echo "full-suite: $job: skipped, a fast run (TICK-1003; ci:full runs it)"
+                echo "full-suite: $job: skipped, FULL=false (TICK-1003)"
             else
                 echo "full-suite: $job: skipped, want success" >&2
                 bad=1

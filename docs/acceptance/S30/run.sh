@@ -1,7 +1,8 @@
 #!/bin/sh
 # S30 acceptance walk (TICK-944, PLAN-011 P11-12). Run from the repository root
-# on a fresh, healthy stack (README.md in this directory):
-#   docker compose down -v && docker compose up -d --wait && sh docs/acceptance/S30/run.sh
+# on a fresh, healthy stack of this checkout's images (README.md in this directory):
+#   export NAVA_IMAGE_TAG=$(sh scripts/acceptance/image-tag.sh)
+#   sh scripts/acceptance/fresh-stack.sh && sh docs/acceptance/S30/run.sh
 # Seeds tenants A and B, shows how tenant A's incident ACL is stored before
 # and after, runs the Bruno folders `S30 composable access` and `S10 access`
 # (AC5: the S10 answers are unchanged), reads
@@ -27,6 +28,9 @@ metric() {
   MSYS_NO_PATHCONV=1 docker compose exec -T nava-core wget -qO- http://127.0.0.1:9090/metrics |
     grep -E '^authz_(policy_invalid|read_branches_fallback)_total' || echo "(no authz_policy_invalid_total or authz_read_branches_fallback_total series yet: zero)"
 }
+
+step "images: every nava/* container on this checkout's tag (TICK-1021)"
+sh scripts/acceptance/check-images.sh
 
 step "readyz (nava-core admin listener)"
 MSYS_NO_PATHCONV=1 docker compose exec -T nava-core wget -qO- http://127.0.0.1:9090/readyz; echo

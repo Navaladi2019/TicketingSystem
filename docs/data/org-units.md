@@ -3,8 +3,8 @@
 Decision: [ADR-010](../adr/ADR-010-composable-access-rules.md) D7, D8;
 PLAN-011 C5, D-11-6, D-11-11. Design: SP-2,
 `acl-format2-caps.md` section 5 ([link](acl-format2-caps.md)).
-Schema: `db/migrations/20261120120000_org_unit_members.sql` to
-`20261120120400_records_org_unit_index.sql`. Bench:
+Schema: `db/migrations/20261121000000_org_unit_members.sql` to
+`20261121000400_records_org_unit_index.sql`. Bench:
 `scratch/tick-947-org-units/bench.sql`, output in `bench-out.txt` next to it.
 Tests: `internal/db/dbtest/org_units_test.go` (`TestTICK947*`), the T16
 identity tests, the isolation registry and
@@ -125,7 +125,7 @@ unit all get 23514 with `{"code": "foreign_id", "pointer": ...}`, as groups and
 users do, so the answer is no oracle for which ids exist. The lookup is one
 `count(*)` over the distinct ids, backed by `org_units_pkey`.
 
-`20261120120100` refuses to apply while any stored `acl_versions` row names
+`20261121000100` refuses to apply while any stored `acl_versions` row names
 an `under` id that is not a live unit of its own tenant (AR-S30-01's one-off
 check). To list them by hand, as the superuser:
 
@@ -141,11 +141,11 @@ WHERE NOT EXISTS (SELECT 1 FROM org_units o
 
 | File | What | Lock |
 |---|---|---|
-| `20261120120000_org_unit_members` | `org_units.deleted_at`, `live`, `org_units_live_key`; drop `org_units_delete`; `org_unit_members` with RLS and its 3 indexes | Rewrites `org_units` (one row per unit) under ACCESS EXCLUSIVE |
-| `20261120120100_acl_tenant_ids_org_units` | The trigger's org-unit lookup; the AR-S30-01 check | ACCESS EXCLUSIVE on `acl_versions` and `org_units` for the check, both small |
-| `20261120120200_records_org_unit_id` | `ADD COLUMN org_unit_id`, `records_org_unit_fkey NOT VALID`, the commit check's new `UPDATE OF` list | Catalogue only |
-| `20261120120300_records_org_unit_fkey_validate` | `VALIDATE` with the TICK-715 migrator policies | ACCESS EXCLUSIVE on `records` for the scan (see Results) |
-| `20261120120400_records_org_unit_index` | `CREATE INDEX CONCURRENTLY records_org_unit` | None that blocks writes |
+| `20261121000000_org_unit_members` | `org_units.deleted_at`, `live`, `org_units_live_key`; drop `org_units_delete`; `org_unit_members` with RLS and its 3 indexes | Rewrites `org_units` (one row per unit) under ACCESS EXCLUSIVE |
+| `20261121000100_acl_tenant_ids_org_units` | The trigger's org-unit lookup; the AR-S30-01 check | ACCESS EXCLUSIVE on `acl_versions` and `org_units` for the check, both small |
+| `20261121000200_records_org_unit_id` | `ADD COLUMN org_unit_id`, `records_org_unit_fkey NOT VALID`, the commit check's new `UPDATE OF` list | Catalogue only |
+| `20261121000300_records_org_unit_fkey_validate` | `VALIDATE` with the TICK-715 migrator policies | ACCESS EXCLUSIVE on `records` for the scan (see Results) |
+| `20261121000400_records_org_unit_index` | `CREATE INDEX CONCURRENTLY records_org_unit` | None that blocks writes |
 | `20261121060000_records_org_unit_entity_definition` (TICK-1032) | Builds the 3-column key `CONCURRENTLY` as `records_org_unit_new`, then drops the old index and renames the new one in one transaction | ACCESS EXCLUSIVE on `records` for the swap only, a catalogue change |
 
 None is per-tenant DDL. Each sets `lock_timeout = '5s'` where it takes a
