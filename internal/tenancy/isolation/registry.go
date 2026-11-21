@@ -71,6 +71,10 @@ const (
 	OrgUnitB2 = "0b000000-0000-4000-8000-0000000005b2"
 	// OrgUnitA1 is tenant A's root org unit (TICK-952).
 	OrgUnitA1 = "0a000000-0000-4000-8000-0000000005a1"
+	// OrgUnitA2 is a leaf unit of tenant A that no membership and no record
+	// references, so a DELETE of it can only be stopped by a grant or a
+	// policy, never by a foreign key (TICK-952 QA review item 1).
+	OrgUnitA2 = "0a000000-0000-4000-8000-0000000005a2"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -365,7 +369,7 @@ func Paths() []Path {
 		sql("org_unit_members: group sync adds tenant A's principal to tenant B's unit", "nava_groupsync", Denied,
 			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitB2, PrincipalA1),
 		sql("org_unit_members: group sync moves tenant B's primary units", "nava_groupsync", Denied,
-			"UPDATE org_unit_members SET is_primary = NOT is_primary WHERE tenant_id = $1", TenantB),
+			"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND is_primary", TenantB),
 		sql("org_unit_members: group sync drops tenant B's memberships", "nava_groupsync", Denied,
 			"DELETE FROM org_unit_members WHERE tenant_id = $1", TenantB),
 		sql("org_units: the worker reads tenant B's unit tree", "nava_worker", OwnRowsOnly,
@@ -390,13 +394,17 @@ func Paths() []Path {
 		sql("org_unit_members: the worker adds tenant B's principal to tenant B's unit", "nava_worker", Denied,
 			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB1, PrincipalB2),
 		sql("org_unit_members: the app moves tenant B's primary units", "nava_app", Denied,
-			"UPDATE org_unit_members SET is_primary = NOT is_primary WHERE tenant_id = $1", TenantB),
+			"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND is_primary", TenantB),
+		// Valid keys of tenant B, so only org_unit_members_insert's WITH
+		// CHECK (tenant A's app.tenant_id) can refuse it (QA review item 2).
+		sql("org_unit_members: group sync adds tenant B's principal to tenant B's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB1, PrincipalB2),
 		sql("org_unit_members: group sync adds tenant B's principal to tenant A's unit", "nava_groupsync", Denied,
 			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, PrincipalB1),
 		sql("org_units: group sync finds a unit by a Keycloak id both tenants hold", "nava_groupsync", OwnRowsOnly,
 			"SELECT tenant_id, id FROM org_units WHERE keycloak_group_id = 'kc-ou-shared'"),
 		sql("org_units: group sync deletes its own units", "nava_groupsync", Denied,
-			"DELETE FROM org_units WHERE tenant_id = $1 AND id = $2", TenantA, OrgUnitA1),
+			"DELETE FROM org_units WHERE tenant_id = $1 AND id = $2", TenantA, OrgUnitA2),
 		sql("org_units: group sync un-tombstones tenant B's units", "nava_groupsync", Denied,
 			"UPDATE org_units SET deleted_at = NULL WHERE tenant_id = $1", TenantB),
 		sql("org_units: group sync renames tenant B's unit by its shared Keycloak id", "nava_groupsync", Denied,

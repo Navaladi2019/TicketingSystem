@@ -5,14 +5,21 @@ package pipeline_test
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
@@ -196,8 +203,9 @@ func TestRecordNeverGetsAnotherTenantsOrgUnit(t *testing.T) {
 		f.id, foreign, f.principal.PrincipalID))
 	records := func() int { return count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1`, f.id) }
 	before := records()
-	if _, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "lands in g's unit?"})); err == nil {
-		t.Error("a create whose requester's forged primary unit is another tenant's succeeded")
+	_, err := write(ctx, e, p, f.id, createCmd(f, map[string]any{"title": "lands in g's unit?"}))
+	if pe, ok := errors.AsType[*pgconn.PgError](err); !ok || pe.Code != "23503" || pe.ConstraintName != "records_org_unit_fkey" {
+		t.Errorf("a create whose requester's forged primary unit is another tenant's: err = %v, want 23503 on records_org_unit_fkey", err)
 	}
 	if n := records(); n != before {
 		t.Errorf("records of f: %d before, %d after the refused create", before, n)
@@ -248,5 +256,104 @@ func TestUnderCapErrorNamesNoID(t *testing.T) {
 			}
 			return nil
 		})
+	}
+}
+
+// orgDir is an identity.DirectoryAdmin whose only method in use is
+// ChangesSince: one fixed snapshot per tenant, empty for the rest.
+type orgDir struct {
+	identity.DirectoryAdmin
+	snaps map[uuid.UUID]identity.DirectoryChanges
+}
+
+func (d orgDir) ChangesSince(_ context.Context, id uuid.UUID, _ string) (identity.DirectoryChanges, string, error) {
+	return d.snaps[id], "", nil
+}
+
+// groupsyncPool is a nava_groupsync pool on the platform database, built as
+// cmd/nava-groupsync builds its own (QueryExecModeExec).
+func groupsyncPool(t *testing.T, e env) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw, _ := testPassword("nava_groupsync")
+	u.User = url.UserPassword("nava_groupsync", pw)
+	u.Path = "/" + e.platform
+	cfg, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// Attack 7 end to end (QA review item 3): the real group sync applies tenant
+// f's directory, where the requester's nava_primary_org_unit names a path
+// that exists only in tenant g and the requester is in two units of f; then
+// the real pipeline creates the requester's ticket. Its org_unit_id is NULL.
+// The same create with the attribute naming one of f's units stores that
+// unit, so the NULL is the attack's doing, not a broken lookup.
+func TestCreateAfterSyncWithForeignPrimaryPathLeavesOrgUnitNull(t *testing.T) {
+	e := migrated(t)
+	f, g := seedTenant(t, e), seedTenant(t, e)
+	p := newPipeline(e, nil)
+	ctx := context.Background()
+	for i, tn := range []tenantFixture{f, g} {
+		mustExec(t, e.super, `INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id) VALUES ($1, 'https://kc/realms/nava', $2)`,
+			tn.id, "org-tick952-"+string(rune('a'+i)))
+	}
+	pathOf := func(tn tenantFixture, rest string) string { return "/t/" + tn.id.String() + rest }
+	user := func(tn tenantFixture, primary string) identity.DirectoryUser {
+		return identity.DirectoryUser{KeycloakUserID: "kc-" + tn.principal.PrincipalID.String(), Enabled: true, PrimaryOrgUnitPath: primary}
+	}
+	unit := func(tn tenantFixture, kc, rest string) identity.DirectoryGroup {
+		return identity.DirectoryGroup{KeycloakGroupID: kc, Path: pathOf(tn, rest), Name: kc,
+			MemberKeycloakUserIDs: []string{"kc-" + tn.principal.PrincipalID.String()}}
+	}
+	sync := func(fPrimary string) {
+		t.Helper()
+		dir := orgDir{snaps: map[uuid.UUID]identity.DirectoryChanges{
+			f.id: {Users: []identity.DirectoryUser{user(f, fPrimary)},
+				OrgUnits: []identity.DirectoryGroup{unit(f, "ou-f-1", "/ou/one"), unit(f, "ou-f-2", "/ou/two")}},
+			g.id: {Users: []identity.DirectoryUser{user(g, pathOf(g, "/ou/only-g"))},
+				OrgUnits: []identity.DirectoryGroup{unit(g, "ou-only-g", "/ou/only-g")}},
+		}}
+		s, err := groupsync.New(groupsyncPool(t, e), dir, noop.NewMeterProvider(), slog.New(slog.DiscardHandler), groupsync.Options{MaxOrgUnitDepth: 8})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs, err := s.Once(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rs {
+			if r.Err != nil {
+				t.Fatalf("sync tenant %s: %v", r.TenantID, r.Err)
+			}
+		}
+	}
+
+	sync(pathOf(g, "/ou/only-g"))
+	res := mustCreate(t, e, p, f, map[string]any{"title": "primary path only in g"})
+	if got := recordUnit(t, e, res.RecordID); got != nil {
+		t.Errorf("org_unit_id = %s, want NULL: the primary attribute named a path only tenant g has", got)
+	}
+
+	// Control: the attribute names f's own unit, and the same create stores it.
+	sync(pathOf(f, "/ou/two"))
+	var want uuid.UUID
+	if err := e.super.QueryRow(ctx, `SELECT id FROM org_units WHERE tenant_id = $1 AND keycloak_group_id = 'ou-f-2'`, f.id).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	res = mustCreate(t, e, p, f, map[string]any{"title": "primary path in f"})
+	if got := recordUnit(t, e, res.RecordID); got == nil || *got != want {
+		t.Errorf("control: org_unit_id = %v, want f's unit %s", got, want)
 	}
 }
