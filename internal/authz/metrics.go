@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -37,6 +38,28 @@ const ReadBranchesFallbackMetric = "authz.read_branches.fallback"
 // at zero. Prometheus: authz_policy_ref_missing_total{entity_type}, the label
 // the record's own entity type, never a name from a request or a tenant.
 const PolicyRefMissingMetric = "authz.policy_ref.missing"
+
+// UnderListShapeMetric counts the region terms of list requests by the page
+// shape chosen (ADR-010-A2 A2-10): shape="c3" or "walk", A2-5a's rare-type
+// shortcut counted as walk. Prometheus: authz_under_list_shape_total{shape}.
+// No tenant, user, unit, count or K* attribute: the shape is the only one.
+const UnderListShapeMetric = "authz.under_list_shape"
+
+// UnderProbeMetric is the duration of each P3 probe in seconds (A2-10), with
+// no attribute at all. Prometheus: authz_under_probe_seconds.
+const UnderProbeMetric = "authz_under_probe_seconds"
+
+// The values of UnderListShapeMetric's shape attribute.
+const (
+	shapeLabelC3   = "c3"
+	shapeLabelWalk = "walk"
+)
+
+//nolint:gochecknoglobals // one process-wide counter, set once at start (RegisterMetrics)
+var shapeCounter atomic.Pointer[metric.Int64Counter]
+
+//nolint:gochecknoglobals // one process-wide histogram, set once at start (RegisterMetrics)
+var probeHistogram atomic.Pointer[metric.Float64Histogram]
 
 // refMissingCounter is the registered PolicyRefMissingMetric counter; nil
 // records nothing.
@@ -77,6 +100,20 @@ func RegisterMetrics(mp metric.MeterProvider) error {
 	if err != nil {
 		return fmt.Errorf("authz: %s: %w", PolicyRefMissingMetric, err)
 	}
+	sh, err := meter.Int64Counter(UnderListShapeMetric,
+		metric.WithDescription("Region terms of list requests by the page shape the probe chose, c3 or walk (ADR-010-A2 A2-5, A2-10). No tenant label."))
+	if err != nil {
+		return fmt.Errorf("authz: %s: %w", UnderListShapeMetric, err)
+	}
+	ph, err := meter.Float64Histogram(UnderProbeMetric,
+		metric.WithDescription("Duration of the capped region probe P3 of a list request (ADR-010-A2 A2-5, A2-10). No label."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1))
+	if err != nil {
+		return fmt.Errorf("authz: %s: %w", UnderProbeMetric, err)
+	}
+	shapeCounter.Store(&sh)
+	probeHistogram.Store(&ph)
 	refMissingCounter.Store(&m)
 	invalidCounter.Store(&c)
 	fallbackCounter.Store(&f)
@@ -121,5 +158,23 @@ func countReadFallback(pol *Policy) {
 func countRefMissing(ctx context.Context, entityType string) {
 	if c := refMissingCounter.Load(); c != nil {
 		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("entity_type", entityType)))
+	}
+}
+
+// countShape records one region term's page shape.
+func countShape(ctx context.Context, s ListShape) {
+	label := shapeLabelWalk
+	if s == ShapeC3 {
+		label = shapeLabelC3
+	}
+	if c := shapeCounter.Load(); c != nil {
+		(*c).Add(ctx, 1, metric.WithAttributes(attribute.String("shape", label)))
+	}
+}
+
+// observeProbe records one P3's duration.
+func observeProbe(ctx context.Context, d time.Duration) {
+	if h := probeHistogram.Load(); h != nil {
+		(*h).Record(ctx, d.Seconds())
 	}
 }

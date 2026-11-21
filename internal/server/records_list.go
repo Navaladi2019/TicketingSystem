@@ -466,15 +466,26 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if pol, err = authz.ResolveUnder(ctx, tx, pol, p); err != nil {
 			return err
 		}
-		read := authz.ReadList(pol, p, "r", 2)
+		// The page shape of each region term, from a capped probe in this
+		// transaction (ADR-010-A2 A2-5, A2-5a). It selects SQL text only:
+		// the rows are the same in every shape. A probe error is a 500,
+		// never another shape. Nothing about the choice reaches the
+		// response or a log line (A2-6 requirement 2).
+		shapes, err := authz.ChooseListShapes(ctx, tx, pol, p, defID, pl.limit+1)
+		if err != nil {
+			return err
+		}
+		read := authz.ReadListShaped(pol, p, "r", 2, shapes)
 		filt, filtArgs := pl.where(2 + len(read.Args))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
 			Where: filt, Args: append(slices.Clone(read.Args), filtArgs...), Branches: read.Branches,
+			CountBranches: read.CountBranches, Materialize: read.Materialize,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
 		}
 		if read.Branches == nil {
 			lq.Where = read.Where + " AND " + filt
+			lq.CountWhere = read.CountWhere + " AND " + filt
 		}
 		for _, d := range read.Drivers {
 			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})

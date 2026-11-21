@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -236,16 +237,26 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 
 // ListRead is the list read path's access SQL from one plan (ReadList).
 type ListRead struct {
-	// Branches and Where are ReadPredicate's: two or more branches, or none
-	// and the single predicate in Where.
+	// Branches and Where are the page's terms, split as ReadPredicate splits
+	// them: two or more branches, or none and the single predicate in Where.
+	// A region term's under leaf is in its page shape (shape.go): C3 or W0.
 	Branches []string
 	Where    string
-	Args     []any
+	// CountBranches and CountWhere are the same terms for the count
+	// statement, the leaf in its predicate form (TICK-1034's CC, unchanged),
+	// or W0 under A2-5a. They bind the same placeholders as the page terms.
+	CountBranches []string
+	CountWhere    string
+	Args          []any
 	// Drivers holds one entry per branch, or one for Where when there are no
 	// branches: the closure driver of that term's count when it is a region
 	// term (an under leaf, alone or ANDed with other terms), else the zero
-	// RegionDriver. The page never uses them.
+	// RegionDriver. The page never uses them; A2-5a has none.
 	Drivers []RegionDriver
+	// Materialize has one entry per term, as Drivers: true when the term is
+	// a region term rendered C3, whose page statement reads the term's rows
+	// into a MATERIALIZED CTE before it sorts them.
+	Materialize []bool
 }
 
 // RegionDriver drives the count of a region term from its start units U
@@ -262,43 +273,95 @@ type RegionDriver struct {
 }
 
 // ReadList is ReadPredicate with the count's region drivers, from the same
-// plan, so a voided policy is counted once.
+// plan, so a voided policy is counted once. Its region terms are in the
+// unprobed page shape, W0 (ReadListShaped with the zero ListShapes).
 func ReadList(pol *Policy, p identity.Principal, alias string, argBase int) ListRead {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadList alias %q is not a plain identifier", alias))
 	}
+	return ReadListShaped(pol, p, alias, argBase, ListShapes{})
+}
+
+// ReadListShaped is ReadList with each region term in the page shape shapes
+// gives it (ChooseListShapes for the list route, FixedListShapes for tests).
+// The shapes change the SQL text only, never the rows (ADR-010-A2 A2-6).
+func ReadListShaped(pol *Policy, p identity.Principal, alias string, argBase int, shapes ListShapes) ListRead {
+	if !identRE.MatchString(alias) {
+		panic(fmt.Sprintf("authz: ReadListShaped alias %q is not a plain identifier", alias))
+	}
 	planned := plan(pol, p, OpRead)
 	countVoided(pol, planned)
-	c := &compiler{alias: alias, base: argBase}
-	branches, over := readBranches(planned, c)
+	out, over, _ := readList(planned, alias, argBase, shapes)
 	if over {
 		countReadFallback(pol)
 	}
-	if len(branches) >= 2 {
-		var drivers []RegionDriver
+	return out
+}
+
+// readList is ReadListShaped over an existing plan; it counts nothing. It
+// also returns the distinct region leaves that drive a term: the leaves
+// ChooseListShapes probes. The count's terms are rendered first, then the
+// page's. Both bind the same arguments in the same order: a leaf's
+// placeholders do not depend on its text, and every other term renders the
+// same text in both.
+func readList(planned []plannedPolicy, alias string, argBase int, shapes ListShapes) (ListRead, bool, []regionLeaf) {
+	var out ListRead
+	count := &compiler{alias: alias, base: argBase, walk: shapes.rare}
+	branches, over := readBranches(planned, count)
+	split := len(branches) >= 2
+	var keys []string
+	if split {
+		out.CountBranches = branches
 		for _, pp := range planned {
 			if pp.err == nil {
 				for _, t := range pp.tree.disjunctTrees() {
-					drivers = append(drivers, c.driver(t))
+					keys = append(keys, count.driverKey(t))
 				}
 			}
 		}
-		return ListRead{Branches: branches, Args: c.args, Drivers: drivers}
-	}
-	c = &compiler{alias: alias, base: argBase}
-	out := ListRead{Where: compileRead(planned, c)}
-	out.Args = c.args
-	var only []pnode
-	for _, pp := range planned {
-		if pp.err == nil {
-			only = append(only, pp.tree)
+	} else {
+		count = &compiler{alias: alias, base: argBase, walk: shapes.rare}
+		out.CountWhere = compileRead(planned, count)
+		var only []pnode
+		for _, pp := range planned {
+			if pp.err == nil {
+				only = append(only, pp.tree)
+			}
+		}
+		keys = []string{""}
+		if len(only) == 1 {
+			keys[0] = count.driverKey(only[0])
 		}
 	}
-	out.Drivers = []RegionDriver{{}}
-	if len(only) == 1 {
-		out.Drivers[0] = c.driver(only[0])
+	var leaves []regionLeaf
+	for _, k := range keys {
+		if k != "" && !slices.ContainsFunc(leaves, func(l regionLeaf) bool { return l.key == k }) {
+			leaves = append(leaves, count.leaf[k])
+		}
 	}
-	return out
+	c3 := func(k string) bool { return slices.Contains(keys, k) && shapes.c3For(k) }
+	page := &compiler{alias: alias, base: argBase, walk: true, c3: c3}
+	if split {
+		out.Branches, _ = readBranches(planned, page)
+	} else {
+		out.Where = compileRead(planned, page)
+	}
+	if !reflect.DeepEqual(page.args, count.args) {
+		panic("authz: the page and count terms bind different arguments")
+	}
+	out.Args = count.args
+	out.Drivers = make([]RegionDriver, len(keys))
+	out.Materialize = make([]bool, len(keys))
+	for i, k := range keys {
+		if k == "" {
+			continue
+		}
+		out.Materialize[i] = c3(k)
+		if !shapes.rare {
+			out.Drivers[i] = count.driverOf(k)
+		}
+	}
+	return out, over, leaves
 }
 
 // ReadBranches is CompileRead's predicate split into branches for a query that
@@ -377,7 +440,7 @@ func readBranches(planned []plannedPolicy, c *compiler) (branches []string, over
 		var b strings.Builder
 		b.WriteString(d)
 		for _, prev := range plain[:i] {
-			b.WriteString(" AND NOT " + prev)
+			b.WriteString(" AND NOT " + c.negated(prev))
 		}
 		branches = append(branches, "("+b.String()+")")
 	}
@@ -497,8 +560,30 @@ type compiler struct {
 	base  int
 	args  []any
 	// unders are the placeholders of each under leaf rendered, by tenant and
-	// U, so the same leaf binds once and a RegionDriver can reuse them.
+	// U, so the same leaf binds once and a RegionDriver can reuse them; leaf
+	// is the same leaf's tenant and U.
 	unders map[string]underArgs
+	leaf   map[string]regionLeaf
+	// walk renders every under leaf W0 (the page; the count under A2-5a),
+	// else in the predicate form. c3, when set, names the leaves rendered C3
+	// instead (the page of a region term the probe chose C3 for).
+	walk bool
+	c3   func(key string) bool
+	// c3Neg holds, for each leaf rendered C3, its C3 text then its predicate
+	// text: a later branch negates an earlier one with the leaf in the
+	// predicate form (a hashed subplan, as before A2), so only the C3 term's
+	// own MATERIALIZED CTE reads the leaf through ARRAY(), and a C3 page
+	// holds no OFFSET 0 walk probe.
+	c3Neg []string
+}
+
+// negated is branch text as a later branch negates it: any C3 leaf in the
+// predicate form.
+func (c *compiler) negated(branch string) string {
+	if len(c.c3Neg) == 0 {
+		return branch
+	}
+	return strings.NewReplacer(c.c3Neg...).Replace(branch)
 }
 
 // underArgs are the placeholders of an under leaf: its tenant and its U.
@@ -509,14 +594,52 @@ func underKey(tenant uuid.UUID, units []uuid.UUID) string {
 }
 
 // under is the SQL of an under leaf: the row's unit is a closure descendant
-// of one of U (C1 on records_org_unit, TICK-1034). It is the only place the
-// leaf's list SQL is written, so ADR-010-A2's list shape changes this text
-// alone. The tenant and U are each one argument; U is sorted and non-empty.
+// of one of U. It is the only place the leaf's SQL is written. It has three
+// texts of one predicate (ADR-010-A2 A2-6), all two-valued:
+//
+//   - the predicate form, IN (closure descendants of U): CompileRead,
+//     ReadBranches and the count statement (TICK-1034's CC, unchanged);
+//   - W0, EXISTS (one closure-PK probe … OFFSET 0): the list page;
+//   - C3, = ANY(ARRAY(closure descendants of U)): the list page of a region
+//     term the probe chose C3 for, inside its MATERIALIZED CTE.
+//
+// The tenant and U are each one argument, the same in every text; U is
+// sorted and non-empty.
 func (c *compiler) under(tenant uuid.UUID, units []uuid.UUID) string {
 	a := c.underArgs(tenant, units)
 	col := c.col(metadata.ColumnOrgUnitID)
+	switch {
+	case c.c3 != nil && c.c3(underKey(tenant, units)):
+		text := c3Leaf(col, a)
+		if !slices.Contains(c.c3Neg, text) {
+			c.c3Neg = append(c.c3Neg, text, predicateLeaf(col, a))
+		}
+		return text
+	case c.walk:
+		return walkLeaf(col, a)
+	}
+	return predicateLeaf(col, a)
+}
+
+// predicateLeaf is the leaf's predicate form (TICK-1034): the row's unit IN
+// the closure descendants of U.
+func predicateLeaf(col string, a underArgs) string {
 	return "(" + col + " IS NOT NULL AND " + col + " IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
 		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[])))"
+}
+
+// walkLeaf is W0 (A2-5): one closure-PK probe per row, kept a SubPlan by
+// OFFSET 0 so the page walks its sort index in order.
+func walkLeaf(col string, a underArgs) string {
+	return "(" + col + " IS NOT NULL AND EXISTS (SELECT 1 FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = " + a.tenant +
+		"::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[]) AND acl_ou.descendant_id = " + col + " OFFSET 0))"
+}
+
+// c3Leaf is C3's leaf (A2-5): the row's unit among U's closure descendants,
+// read once into an array.
+func c3Leaf(col string, a underArgs) string {
+	return "(" + col + " IS NOT NULL AND " + col + " = ANY(ARRAY(SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
+		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[]))))"
 }
 
 func (c *compiler) underArgs(tenant uuid.UUID, units []uuid.UUID) underArgs {
@@ -529,29 +652,38 @@ func (c *compiler) underArgs(tenant uuid.UUID, units []uuid.UUID) underArgs {
 	}
 	a := underArgs{tenant: c.arg(tenant), units: c.arg(UUIDTexts(units))}
 	c.unders[key] = a
+	if c.leaf == nil {
+		c.leaf = map[string]regionLeaf{}
+	}
+	c.leaf[key] = regionLeaf{key: key, tenant: tenant, units: units}
 	return a
 }
 
-// driver is the RegionDriver of a term already rendered by c: its under leaf
-// when the term is one, or an all with one as a child (the first); else the
-// zero driver. The leaf's placeholders are those its rendering bound.
-func (c *compiler) driver(t pnode) RegionDriver {
+// driverKey is the key of the under leaf that drives a term already rendered
+// by c: the term itself when it is one, or an all's first under child; else
+// "". The leaf's placeholders are those its rendering bound.
+func (c *compiler) driverKey(t pnode) string {
 	leaf := t
 	if t.op == pAll {
 		i := slices.IndexFunc(t.kids, func(k pnode) bool { return k.op == pUnder })
 		if i < 0 {
-			return RegionDriver{}
+			return ""
 		}
 		leaf = t.kids[i]
 	}
 	if leaf.op != pUnder {
-		return RegionDriver{}
+		return ""
 	}
-	a, ok := c.unders[underKey(leaf.tenant, leaf.units)]
-	if !ok {
-		return RegionDriver{}
+	key := underKey(leaf.tenant, leaf.units)
+	if _, ok := c.unders[key]; !ok {
+		return ""
 	}
-	return RegionDriver{From: regionFrom(a), Key: "acl_d.descendant_id"}
+	return key
+}
+
+// driverOf is the RegionDriver of the leaf key rendered by c.
+func (c *compiler) driverOf(key string) RegionDriver {
+	return RegionDriver{From: regionFrom(c.unders[key]), Key: "acl_d.descendant_id"}
 }
 
 // canonicalU is a FROM item acl_u(id) over the canonical U bound at a.units
