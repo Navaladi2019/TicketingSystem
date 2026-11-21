@@ -2,7 +2,9 @@
 // step (TICK-297). The list is tools/ci/cisteps/required.yaml; a step counts
 // when its job runs it as a line of run: (or, for a report, uploads the named
 // artifact with if-no-files-found: error), without `if: false` on the job or
-// step and without continue-on-error.
+// step and without continue-on-error. The list's outputs pin a job output to
+// one expression (TICK-1031): the changes job's full must be the stages
+// step's, not a second copy of the full-run rule that can drift from it.
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 package main
@@ -45,10 +47,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "check-ci-steps:", p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(stderr, "check-ci-steps: %s must keep every step in %s\n", *workflow, *required)
+		fmt.Fprintf(stderr, "check-ci-steps: %s must keep every step and output in %s\n", *workflow, *required)
 		return 1
 	}
-	fmt.Fprintf(stdout, "check-ci-steps: ok: %d required steps in %s\n", n, *workflow)
+	fmt.Fprintf(stdout, "check-ci-steps: ok: %d required steps and outputs in %s\n", n, *workflow)
 	return 0
 }
 
@@ -67,6 +69,15 @@ func (r required) String() string {
 	return fmt.Sprintf("job %s: step %q", r.Job, r.Run)
 }
 
+// output is one entry of required.yaml's outputs: the job's output must be
+// Value, whitespace aside.
+type output struct {
+	Job    string `yaml:"job"`
+	Output string `yaml:"output"`
+	Value  string `yaml:"value"`
+	Why    string `yaml:"why"`
+}
+
 type step struct {
 	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
@@ -77,16 +88,18 @@ type step struct {
 }
 
 type job struct {
-	If              yaml.Node `yaml:"if"`
-	ContinueOnError yaml.Node `yaml:"continue-on-error"`
-	Steps           []step    `yaml:"steps"`
+	If              yaml.Node         `yaml:"if"`
+	ContinueOnError yaml.Node         `yaml:"continue-on-error"`
+	Steps           []step            `yaml:"steps"`
+	Outputs         map[string]string `yaml:"outputs"`
 }
 
-// check returns one problem per required step the workflow does not run, and
-// the number of required steps.
+// check returns one problem per required step the workflow does not run and
+// per pinned output it does not set as listed, and the number of both.
 func check(workflowPath, requiredPath string) ([]string, int, error) {
 	var list struct {
-		Steps []required `yaml:"steps"`
+		Steps   []required `yaml:"steps"`
+		Outputs []output   `yaml:"outputs"`
 	}
 	if err := decode(requiredPath, &list); err != nil {
 		return nil, 0, err
@@ -97,6 +110,11 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 	for i, r := range list.Steps {
 		if r.Job == "" || (r.Run == "") == (r.Artifact == "") {
 			return nil, 0, fmt.Errorf("%s: step %d: want job and exactly one of run or artifact", requiredPath, i+1)
+		}
+	}
+	for i, o := range list.Outputs {
+		if o.Job == "" || o.Output == "" || o.Value == "" {
+			return nil, 0, fmt.Errorf("%s: output %d: want job, output and value", requiredPath, i+1)
 		}
 	}
 	var wf struct {
@@ -112,7 +130,33 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 			problems = append(problems, fmt.Sprintf("%s %s [%s]", r, p, r.Why))
 		}
 	}
-	return problems, len(list.Steps), nil
+	for _, o := range list.Outputs {
+		if p := findOutput(wf.Jobs, o); p != "" {
+			problems = append(problems, fmt.Sprintf("job %s: output %q %s [%s]", o.Job, o.Output, p, o.Why))
+		}
+	}
+	return problems, len(list.Steps) + len(list.Outputs), nil
+}
+
+// findOutput returns why o's job does not set o.Output to o.Value, or "".
+func findOutput(jobs map[string]job, o output) string {
+	j, ok := jobs[o.Job]
+	if !ok {
+		return "is missing: no such job"
+	}
+	got, ok := j.Outputs[o.Output]
+	if !ok {
+		return "is missing"
+	}
+	if squash(got) != squash(o.Value) {
+		return fmt.Sprintf("is %q, want %q", squash(got), squash(o.Value))
+	}
+	return ""
+}
+
+// squash collapses every run of whitespace to one space.
+func squash(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // find returns why r is not run, or "" when it is.

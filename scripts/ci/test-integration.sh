@@ -48,14 +48,33 @@ shards=${DBTEST_SHARDS:-3}
 shard_pgs=""
 i=1
 while [ "$i" -le "$shards" ]; do shard_pgs="$shard_pgs nava-it-pg-$id-s$i"; i=$((i + 1)); done
+# NAVA_IT_SOLO: packages that run as their own group on a cluster of their
+# own, beside the shared group, instead of inside its -p 1 chain (TICK-1021).
+# The shared group was the critical path: on run 44760743332 it took 696 s
+# one package after another, 348 s of it internal/server and 130 s
+# internal/records/pipeline, while the dbtest shards were done after 145 s.
+# A solo package must not need the PgBouncers, which front the shared
+# cluster only. Its cluster is named after the shards (-s<n>), so make
+# reap-integration finds it. None on a run with go test arguments.
+solo=""
+solo_pgs=""
+if [ "$shards" -gt 0 ]; then
+    for p in ${NAVA_IT_SOLO-./internal/server}; do
+        solo="$solo $p"
+        solo_pgs="$solo_pgs nava-it-pg-$id-s$i"
+        i=$((i + 1))
+    done
+fi
 # Every go test gets a -timeout well below the integration job's
-# timeout-minutes (10), so a hung test panics with Go's goroutine dump, which
+# timeout-minutes (15), so a hung test panics with Go's goroutine dump, which
 # names it, before GitHub cancels the step with an empty log (TICK-225). The
-# tests take under a minute and start about two minutes into the job. A later
-# -timeout in the script's arguments wins.
+# tests start about 1.5 minutes into the job; the slowest package,
+# internal/server, took 348 s on run 44760743332, so 6m left it 12 s
+# (TICK-1021). 8m panics at about 9.5 minutes. A later -timeout in the
+# script's arguments wins.
 # NAVA_IT_GO_TIMEOUT: a slower host sets more (the self-hosted runner, whose
 # integration job has 30 minutes and shares the host with other jobs, TICK-641).
-timeout=${NAVA_IT_GO_TIMEOUT:-6m}
+timeout=${NAVA_IT_GO_TIMEOUT:-8m}
 # NAVA_IT_COVERAGE (a path, make test-integration sets it): every go test
 # below writes an atomic profile over ./... into $covdir, and the script merges
 # them there at the end, the integration half of make check-coverage
@@ -91,7 +110,7 @@ stop() { for j in $fgpid $procs; do kill "${j%%:*}" 2>/dev/null || true; done; }
 # rm -v: the postgres image declares a data VOLUME, and an anonymous volume
 # outlives its container unless removed with it (TICK-641, self-hosted runner).
 # shellcheck disable=SC2086
-trap 'docker rm -fv "$name" $shard_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
+trap 'docker rm -fv "$name" $shard_pgs $solo_pgs $bouncers >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$logs" "$pipes" ${covdir:+"$covdir"}' EXIT
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 # fgrun <command>: runs it in the background and waits, so INT and TERM reach the
@@ -116,7 +135,7 @@ start_pg() { # start_pg <name> [docker run options]
         -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
 }
 start_pg "$name" --network-alias pg
-for c in $shard_pgs; do start_pg "$c"; done
+for c in $shard_pgs $solo_pgs; do start_pg "$c"; done
 
 # Two PgBouncers in front of the shared cluster (T06): pooled.ini is the
 # setting under test, noprep.ini the same with max_prepared_statements = 0
@@ -150,7 +169,7 @@ fgrun go run ./tools/ci/testlog warm-up </dev/null
 # at once: polling a removed one only repeats "No such object" until the
 # deadline (TICK-182).
 deadline=$(( $(date +%s) + 120 ))
-for c in "$name" $shard_pgs $bouncers; do
+for c in "$name" $shard_pgs $solo_pgs $bouncers; do
     while :; do
         st=$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$c" 2>/dev/null) || {
             echo "integration: container $c of run $id vanished: something outside this run removed it" \
@@ -191,10 +210,12 @@ fi
 #   shared  the other packages that use the shared cluster or its PgBouncers,
 #           -p 1 since they create the same roles
 #   own     the packages that use neither (health starts its own container)
+# and one group per NAVA_IT_SOLO package, on its own cluster.
 shared=""
 own=""
 for p in $pkgs; do
     [ "$p" = ./internal/db/dbtest ] && continue
+    case " $solo " in *" $p "*) continue ;; esac
     if grep -q -e NAVA_TEST_PG_URL -e NAVA_TEST_PGBOUNCER "$p"/*_test.go; then shared="$shared $p"; else own="$own $p"; fi
 done
 # TestCommitCheckBudget is not dealt to a shard: it measures absolute µs
@@ -206,7 +227,7 @@ done
 # timing ratio, not meaningful on a saturated shared host.
 tests=$(go test -tags integration -list . ./internal/db/dbtest | grep '^Test' | grep -vx -e 'TestCommitCheckBudget' -e 'TestP511CommitCheckPooledSession')
 total=$(echo "$tests" | wc -l | tr -d ' ')
-echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; own cluster:$own"
+echo "dbtest: $total tests over $shards clusters; shared cluster:$shared; solo clusters:$solo; own cluster:$own"
 
 # run <group> <go test arguments>: in the background. The output streams to
 # the log as it arrives, each line prefixed with [<group>] (tools/ci/testlog),
@@ -230,6 +251,14 @@ for c in $shard_pgs; do
     sel=$(echo "$tests" | awk -v n="$shards" -v i="$i" 'NR % n == i % n' | paste -s -d '|' -)
     NAVA_TEST_PG_URL=$(pg_url "$c") run "dbtest-$i" -run "^($sel)\$" ./internal/db/dbtest
     i=$((i + 1))
+done
+# shellcheck disable=SC2086
+set -- $solo_pgs
+for p in $solo; do
+    echo "$pkgs" | grep -qx "$p" || { echo "NAVA_IT_SOLO: $p has no integration tests" >&2; exit 1; }
+    # The group is named after the package's last element: solo-server.
+    NAVA_TEST_PG_URL=$(pg_url "$1") run "solo-${p##*/}" "$p"
+    shift
 done
 # shellcheck disable=SC2086
 [ -z "$shared" ] || run shared -p 1 $shared

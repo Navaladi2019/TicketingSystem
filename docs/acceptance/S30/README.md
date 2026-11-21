@@ -14,10 +14,12 @@ From the repository root, on the story branch, with Docker, Node.js 20 or later 
 
 ```sh
 make dev-ca                       # once per checkout: Temporal's dev certificates
-docker compose down -v            # no volume from an earlier run
-docker compose up -d --wait       # every service healthy
+export NAVA_IMAGE_TAG=$(sh scripts/acceptance/image-tag.sh)  # this checkout's image tag
+sh scripts/acceptance/fresh-stack.sh  # build, down -v, up --wait, check the tags
 sh docs/acceptance/S30/run.sh     # seed, the S30 and S10 Bruno folders, the metric, the D6 check
 ```
+
+The stack runs this checkout's images under their own tag, never the shared `dev` (TICK-1021): `fresh-stack.sh` builds them, fails if `docker compose build` fails, then starts the stack with `--no-build`. `run.sh` stops at its first step if any `nava/*` container runs another tag. A second stack on the same host also needs its own `COMPOSE_PROJECT_NAME` and host ports (`compose.yaml`, header).
 
 `run.sh` does the following, in order:
 

@@ -5,9 +5,9 @@ status: delivered
 build: production
 workflows: [nava.interpreter]
 activities: [nava.interpreter.NextStep, nava.interpreter.ApplyStep, nava.workflow_ref.Close]
-adrs: [ADR-001, ADR-001-A5, ADR-003]
+adrs: [ADR-001, ADR-001-A5, ADR-003, ADR-010]
 invariants: [I2, I6, I7, I9]
-tables: [outbox, workflow_ref, workflow_cause, workflow_definitions, workflow_definition_versions, cascade_start, records]
+tables: [outbox, workflow_ref, workflow_cause, workflow_definitions, workflow_definition_versions, cascade_start, records, acl_versions, audit_log]
 packages: [internal/workflow/interp, internal/workflow/recordports, internal/workflowdefs, internal/workflow/testdata/histories, cmd/nava-worker]
 sources:
   - docs/architecture/workflow-interpreter.md
@@ -33,6 +33,9 @@ sources:
   - cmd/nava-worker/interp_ports.go:29-41
   - cmd/nava-worker/main.go:236
   - scripts/ci/workflowcheck.sh:13
+  - internal/workflow/interp/activities.go
+  - internal/workflow/recordports/policytest.go
+  - internal/authz/policyref.go
 tests:
   - TestProductionBuildWiresTheDatabasePorts
   - TestProductionBuildInterpreterNeedsAPool
@@ -76,13 +79,22 @@ tests:
   - TestRetiredHistoriesManifest
   - TestScanGetVersionCalls
   - TestReplayGetVersionKeepsHistoriesGreen
+  - TestNextStepPolicyTest
+  - TestNextStepPolicyTestFailsClosed
+  - TestNamedPolicyAllows
+  - TestPolicyTest_SameNameInTwoTenantsSeesOnlyItsOwn
+  - TestPolicyTest_MissingDeniesCountsAndAudits
+  - TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest
+  - TestPolicyTest_NullPrincipalIsFalse
+  - TestPolicyTest_ForeignRecordAndTenantAreRefused
 ---
 
 Registered in the production build and running in the stack since S11b. `interpreterActivities` (`cmd/nava-worker/interp_default.go:19-24`) returns `productionActivities` (`cmd/nava-worker/interp_ports.go:29-41`):
 
 - the definition store is `workflowdefs.Reader`, which reads published versions from `workflow_definition_versions` (P3-41);
 - the record reader and writer are `recordports`. The writer writes through the records pipeline as `source=workflow`, with its `TxRunner` on a separate pipeline pool (P3-43);
-- `workerguard.WaitTracker` and `workerguard.CauseTracker` keep `workflow_ref.record_changed_signal_id` and the run's newest `workflow_cause` row.
+- `workerguard.WaitTracker` and `workerguard.CauseTracker` keep `workflow_ref.record_changed_signal_id` and the run's newest `workflow_cause` row;
+- the policy tester is `recordports.PolicyTester` over `authz.TestPolicyRef` (S32, ADR-010 D9). It answers a `condition` step's named-policy test; see [below](#named-policy-tests).
 
 Every port reaches the database through `workerguard.InTenantTx`. With workflows off (the activity-only worker) it returns nil, and `registerInterpreter` (`cmd/nava-worker/interp.go:14-20`) registers nothing. The `interptest` build still wires file-backed fakes for the S11a demos. With `NAVA_INTERPTEST_PORTS=db` it runs the production ports instead, which the crash case uses. Proof: `TestProductionBuildWiresTheDatabasePorts`, `TestProductionBuildInterpreterNeedsAPool`, `TestProductionBuildWithWorkflowsOffRegistersNoInterpreter`, `TestProductionBuildLinksNoFakes`, `TestInterptestBuildWiresTheFakes`, `TestInterptestBuildProductionPorts`, `TestInterpreterCrashRealPipelineAppliesOnce`.
 
@@ -142,6 +154,23 @@ sequenceDiagram
 - Wait bounds of a timer or `wait_signal`: 1 s to 30 days (`internal/workerguard/directive.go:76-77`). Proof: `TestWaitBoundsMatchTheGuard`.
 
 `NextStep` is the one activity whose result the guard lets carry a `workerguard.Directive`, and `nava.interpreter` the one workflow that may receive one (`directive.go:41,49`).
+
+## Named-policy tests
+
+A `condition` step with `policy`, `who` and `op` (S32) is evaluated inside `NextStep`, never in workflow code (I6). `NextStep` calls the `PolicyTester` port; with none wired the test is false, so it fails closed (`TestNextStepPolicyTestFailsClosed`).
+
+`recordports.PolicyTester.Test` opens one tenant transaction, first reads the calling run's `workflow_ref` row and refuses the call as forbidden unless its stored `tenant_id` is the verified tenant, then calls `authz.TestPolicyRef` in that transaction. Everything is read there: the record, the entity type's **current** `acl_versions` row, the principal and its groups, and the shares. The definition version stays pinned, but the policy does not: a policy narrowed after the run started applies at the next test (`TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest`).
+
+| Case | Result | Proof |
+|---|---|---|
+| Policy grants `op` to the record's `who` (judged by that policy alone) | `then` | `TestNextStepPolicyTest`, `TestNamedPolicyAllows` |
+| Policy does not grant it, or is voided (counted by `authz_policy_invalid_total`) | `else` | `TestNamedPolicyAllows` |
+| `who` column NULL, or not a live principal of the tenant | `else` | `TestPolicyTest_NullPrincipalIsFalse` |
+| The record's type is not `policy.entity_type`, or the type has no policy of that name | `else`; warning log, `authz_policy_ref_missing_total{entity_type}` + 1, audit `policy_ref_refused` in the same transaction | `TestPolicyTest_MissingDeniesCountsAndAudits` |
+| Same type key and name in another tenant | never seen; only the run's tenant's rows | `TestPolicyTest_SameNameInTwoTenantsSeesOnlyItsOwn` |
+| Another tenant's record, or no `workflow_ref` of the tenant | not found / forbidden, non-retryable | `TestPolicyTest_ForeignRecordAndTenantAreRefused` |
+
+If the audit write fails, the attempt fails and is retried. The test commits its own transaction, so if a later part of the same `NextStep` fails and Temporal retries it, a missing reference is audited and counted again (accepted). The publish-time check that `policy.entity_type` is the trigger entity is in `workflowdefs` (`422 entity_type_mismatch`).
 
 ## Signals and idempotency
 
