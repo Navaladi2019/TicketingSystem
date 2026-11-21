@@ -1,11 +1,11 @@
 package authz
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -63,7 +63,7 @@ type underScope struct {
 	callerOK          bool
 	caller            []uuid.UUID
 	// ancestors maps a record's org unit to its closure ancestors in the
-	// union of every U, sorted. A unit missing from it was not read.
+	// union of every U. A unit missing from it was not read.
 	ancestors map[uuid.UUID][]uuid.UUID
 	// rest: the caller leaf, when not callerOK, folded away in ResolveUnder's
 	// probe plan, so its value cannot change any policy's result; it reads as
@@ -78,7 +78,8 @@ type underScope struct {
 // itself included (none for a tombstoned unit or one below a tombstone), as
 // org_unit_closure holds them. It is what ResolveUnder binds after its query,
 // exported so a test without a database can give the planner its own model
-// of the tree. A nil pol stays nil.
+// of the tree. closure is copied, its lists are not: the caller must not
+// change them afterwards. A nil pol stays nil.
 func BindUnder(pol *Policy, p identity.Principal, caller []uuid.UUID, closure map[uuid.UUID][]uuid.UUID) *Policy {
 	if pol == nil {
 		return nil
@@ -87,7 +88,7 @@ func BindUnder(pol *Policy, p identity.Principal, caller []uuid.UUID, closure ma
 	sc := &underScope{tenant: p.TenantID, principal: p.PrincipalID, groups: groupsFingerprint(p.Groups), callerOK: true,
 		caller: sortedIDs(caller), ancestors: make(map[uuid.UUID][]uuid.UUID, len(closure))}
 	for unit, ids := range closure {
-		sc.ancestors[unit] = sortedIDs(ids)
+		sc.ancestors[unit] = ids // only intersected, never ordered
 	}
 	out.under = sc
 	return &out
@@ -305,9 +306,11 @@ func (n pnode) hasUnder() bool {
 	return found
 }
 
-// sortedIDs is ids sorted and without repeats, a new slice.
+// sortedIDs is ids sorted and without repeats, a new slice. Byte order is
+// the order of the ids' canonical text (lower-case hex at fixed positions),
+// so the bound arrays read the same as before, without formatting each id.
 func sortedIDs(ids []uuid.UUID) []uuid.UUID {
 	out := slices.Clone(ids)
-	slices.SortFunc(out, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	slices.SortFunc(out, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 	return slices.Compact(out)
 }

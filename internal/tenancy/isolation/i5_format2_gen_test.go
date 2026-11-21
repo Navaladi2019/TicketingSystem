@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -62,6 +63,10 @@ type i5F2Case struct {
 	Principals []identity.Principal
 	// World is the world the case was drawn in; bound reads its org tree.
 	World *i5World `json:"-"`
+	// boundMemo caches bound per policy and principal; nil caches nothing.
+	// The checks call bound once per row, and a fresh binding copies the
+	// world's closure.
+	boundMemo *sync.Map `json:"-"`
 }
 
 // bound is the case's policy bound for p (authz.BindUnder) from the world's
@@ -75,7 +80,17 @@ func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
 	if c.Policy == nil || c.World == nil {
 		return c.Policy
 	}
-	return i5Bind(c.Policy, p, c.Prev)
+	if c.boundMemo == nil {
+		return i5Bind(c.Policy, p, c.Prev)
+	}
+	groups := slices.Clone(p.Groups)
+	slices.SortFunc(groups, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	key := fmt.Sprintf("%p/%s/%s/%v", c.Policy, p.TenantID, p.PrincipalID, groups)
+	if v, ok := c.boundMemo.Load(key); ok {
+		return v.(*authz.Policy) //nolint:forcetypeassert // only bound stores
+	}
+	v, _ := c.boundMemo.LoadOrStore(key, i5Bind(c.Policy, p, c.Prev))
+	return v.(*authz.Policy) //nolint:forcetypeassert // only bound stores
 }
 
 // i5Bind binds pol for p from the reference's tree.
@@ -110,7 +125,51 @@ func i5CallerUnits(p identity.Principal) []uuid.UUID {
 
 // i5Closure maps every unit of the tenant's world to its ancestors by
 // subtree: the units a, of the world or in extra, whose subtree holds it.
+// The world's part is computed once per tenant and subtree function
+// (i5ClosureMemo): a run binds about 15,000 times, and each fresh build walks
+// every unit's subtree. The map returned is shared; BindUnder copies it.
 func i5Closure(tenant uuid.UUID, extra []uuid.UUID, subtree func(tenant, root uuid.UUID) []uuid.UUID) map[uuid.UUID][]uuid.UUID {
+	key := i5ClosureKey{tenant, reflect.ValueOf(subtree).Pointer()}
+	base, ok := i5ClosureMemo.Load(key)
+	if !ok {
+		base, _ = i5ClosureMemo.LoadOrStore(key, i5ClosureOf(tenant, nil, subtree))
+	}
+	out := base.(map[uuid.UUID][]uuid.UUID) //nolint:forcetypeassert // only i5Closure stores
+	var more []uuid.UUID
+	for _, a := range extra {
+		if _, inWorld := out[a]; !inWorld && !slices.Contains(more, a) {
+			more = append(more, a)
+		}
+	}
+	if len(more) == 0 {
+		return out
+	}
+	// A listed id that is no unit of the world: its subtree, if any, on a copy.
+	cp := make(map[uuid.UUID][]uuid.UUID, len(out))
+	for k, v := range out {
+		cp[k] = slices.Clone(v)
+	}
+	for _, a := range more {
+		for _, d := range subtree(tenant, a) {
+			cp[d] = append(cp[d], a)
+		}
+	}
+	return cp
+}
+
+// i5ClosureKey identifies one memoized world closure.
+type i5ClosureKey struct {
+	tenant  uuid.UUID
+	subtree uintptr
+}
+
+// i5ClosureMemo holds i5ClosureOf per i5ClosureKey.
+//
+//nolint:gochecknoglobals // test-only memo of a pure function of the generated worlds
+var i5ClosureMemo sync.Map
+
+// i5ClosureOf is i5Closure computed afresh.
+func i5ClosureOf(tenant uuid.UUID, extra []uuid.UUID, subtree func(tenant, root uuid.UUID) []uuid.UUID) map[uuid.UUID][]uuid.UUID {
 	out := map[uuid.UUID][]uuid.UUID{}
 	v, ok := i5Trees.Load(tenant)
 	if !ok {
@@ -166,6 +225,7 @@ func i5F2Generate(seed uint64) (*i5World, []i5F2Case) {
 	for i := range cases {
 		cases[i].Policy, cases[i].Prev = w.f2Policy(r)
 		cases[i].World = w
+		cases[i].boundMemo = &sync.Map{}
 		for range i5Principals {
 			cases[i].Principals = append(cases[i].Principals, w.principal(r))
 		}

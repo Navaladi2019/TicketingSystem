@@ -417,3 +417,23 @@ func TestUnderSetsPerPolicyAreCapped(t *testing.T) {
 		}
 	}
 }
+
+// sortedIDs orders by bytes; that must be the order of the ids' text, which
+// the bound U arrays (and so the SQL arguments) have always used.
+func TestSortedIDsIsTextOrder(t *testing.T) {
+	t.Parallel()
+	ids := make([]uuid.UUID, 500)
+	for i := range ids {
+		ids[i] = uuid.New()
+	}
+	ids = append(ids, ids[3], uuid.Nil, uuid.Max)
+	got := sortedIDs(ids)
+	for i := 1; i < len(got); i++ {
+		if strings.Compare(got[i-1].String(), got[i].String()) >= 0 {
+			t.Fatalf("%s before %s", got[i-1], got[i])
+		}
+	}
+	if len(got) != len(ids)-1 {
+		t.Errorf("%d ids, want %d without the repeat", len(got), len(ids)-1)
+	}
+}
