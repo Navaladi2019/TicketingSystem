@@ -199,8 +199,11 @@ const (
 	defaultBroadCap = 20000
 	// defaultVisibleCap is the most visible records a probing count may walk:
 	// a broad value the caller's records rarely carry probes all of them
-	// (Technical Architect, A2 rev 0, finding 4).
+	// (A2-3a, the visible-set guard).
 	defaultVisibleCap = 30000
+	// maxPreCounted is the most fields one request pre-counts (A2-12): the
+	// first ones in field-id order. Further fields keep today's SQL.
+	maxPreCounted = 3
 )
 
 // countProbe is the probe's configuration: the two caps, and two hooks that
@@ -336,7 +339,8 @@ func preCountSQL(fs []listFilter, next func(v any, cast string) string, broadCap
 }
 
 // fieldGroups are the plan's ready side-table filters grouped by field, in
-// the order the request first names each field.
+// field-id order (A2-12's canonical order, independent of how the request
+// spells its filters).
 func (pl *listPlan) fieldGroups() [][]listFilter {
 	var out [][]listFilter
 	at := map[uuid.UUID]int{}
@@ -352,16 +356,22 @@ func (pl *listPlan) fieldGroups() [][]listFilter {
 		}
 		out[i] = append(out[i], f)
 	}
+	slices.SortFunc(out, func(a, b []listFilter) int { return strings.Compare(a[0].idx.ID.String(), b[0].idx.ID.String()) })
 	return out
 }
 
-// markBroad runs the pre-count of each ready filtered field and marks the
+// markBroad runs the pre-count of the first maxPreCounted ready filtered
+// fields (A2-12) and marks the
 // fields that reach broadCap. It reports whether any did. The caller runs it
 // only on a narrowing list, after every refusal (ADR-006-A2-2).
 func (pl *listPlan) markBroad(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cp countProbe) (bool, error) {
 	broadCap, _ := cp.limits()
 	found := false
-	for _, fs := range pl.fieldGroups() {
+	groups := pl.fieldGroups()
+	if len(groups) > maxPreCounted {
+		groups = groups[:maxPreCounted]
+	}
+	for _, fs := range groups {
 		args := []any{tenant, fs[0].idx.ID.String()}
 		next := func(v any, cast string) string {
 			args = append(args, v)

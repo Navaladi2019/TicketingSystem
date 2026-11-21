@@ -405,3 +405,27 @@ func TestListCountProbePlans(t *testing.T) {
 		}
 	}
 }
+
+// A2-12: a request pre-counts at most three fields, the first in field-id
+// order; a fourth keeps today's SQL in the count, and the rows are the same.
+func TestListCountProbePreCountsAtMostThreeFields(t *testing.T) {
+	e, rec := newProbeEnv(t)
+	e.createAssets(t, "admin-a")
+	for _, f := range []struct{ key, vt string }{{"name", "text"}, {"qty", "num"}, {"due", "ts"}, {"vip", "bool"}} {
+		e.flagField(t, e.a.id, "asset", f.key, f.vt, "ready", 100)
+	}
+	narrowUser(t, e)
+	q := "filter[name][in]=alpha,gamma&filter[qty][gte]=1&filter[due][gte]=2026-01-01&filter[vip]=true"
+	rec.set(1<<30, 30000)
+	plain := e.mustList(t, "user-a", "asset", q).Total
+	if pre, _ := rec.take(); len(pre) != 3 {
+		t.Errorf("four fields: %d pre-counts, want 3", len(pre))
+	}
+	rec.set(1, 30000)
+	if got := e.mustList(t, "user-a", "asset", q).Total; got != plain {
+		t.Errorf("probing total %d, plain %d", got, plain)
+	}
+	if pre, probe := rec.take(); len(pre) != 3 || !slices.Equal(probe, []bool{true}) {
+		t.Errorf("four broad fields: pre %v probe %v", pre, probe)
+	}
+}

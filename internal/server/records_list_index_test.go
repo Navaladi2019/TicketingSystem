@@ -273,6 +273,12 @@ func TestPreCountShape(t *testing.T) {
 		{prop: "f", op: "lt", values: []any{2.0}, idx: &pipeline.IndexField{ID: id, ValueType: fieldindex.TypeNum}},
 	}
 	sql := preCountSQL(fs, next, defaultBroadCap)
+	// A2-7: the rendered SQL, by regex, carries the tenant, the field and the cap.
+	for _, re := range []string{`v\.tenant_id = \$1\b`, `v\.field_id = \$2(::uuid)?\b`, `LIMIT ` + strconv.Itoa(defaultBroadCap) + `\b`} {
+		if !regexp.MustCompile(re).MatchString(sql) {
+			t.Errorf("pre-count %s does not match %s", sql, re)
+		}
+	}
 	want := "SELECT count(*) FROM (SELECT 1 FROM rfv_num v WHERE v.tenant_id = $1 AND v.field_id = $2::uuid AND " +
 		"v.value >= $3::double precision AND v.value < $4::double precision ORDER BY v.value, v.record_id LIMIT " + strconv.Itoa(defaultBroadCap) + ") c"
 	if sql != want || len(args) != 4 {
@@ -296,11 +302,12 @@ func TestPreCountShape(t *testing.T) {
 	}
 }
 
-// fieldGroups keeps one group per field in first-named order and skips
-// fixed columns and legacy-scan filters.
+// fieldGroups keeps one group per field, in field-id order, and skips fixed
+// columns and legacy-scan filters (A2-12's canonical order).
 func TestFieldGroups(t *testing.T) {
 	t.Parallel()
-	a, b := uuid.New(), uuid.New()
+	a := uuid.MustParse("00000000-0000-4000-8000-00000000000a")
+	b := uuid.MustParse("00000000-0000-4000-8000-00000000000b")
 	pl := &listPlan{filters: []listFilter{
 		{prop: "x", idx: &pipeline.IndexField{ID: b, ValueType: fieldindex.TypeNum}},
 		{prop: "state", col: "state"},
@@ -309,7 +316,7 @@ func TestFieldGroups(t *testing.T) {
 		{prop: "x", idx: &pipeline.IndexField{ID: b, ValueType: fieldindex.TypeNum}},
 	}}
 	g := pl.fieldGroups()
-	if len(g) != 2 || len(g[0]) != 2 || g[0][0].idx.ID != b || len(g[1]) != 1 || g[1][0].idx.ID != a {
+	if len(g) != 2 || len(g[0]) != 1 || g[0][0].idx.ID != a || len(g[1]) != 2 || g[1][0].idx.ID != b {
 		t.Errorf("groups = %v", g)
 	}
 }
