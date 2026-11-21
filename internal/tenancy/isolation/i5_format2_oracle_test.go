@@ -341,6 +341,27 @@ func i5F2BoundWith(c *i5F2Case, p identity.Principal, subtree func(tenant, root 
 	return i5BindWith(c.Policy, p, c.Prev, subtree)
 }
 
+// i5UnderModel is an under mutant's model: Allows over the policy bound with
+// S from subtree. The binding depends only on the case and the principal, so
+// it is made once for each and reused for every record (the models run per
+// record, and the walk is the cost).
+func i5UnderModel(allows func(*authz.Policy, identity.Principal, authz.Row) bool, subtree func(tenant, root uuid.UUID) []uuid.UUID) func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+	type key struct {
+		c *i5F2Case
+		p string
+	}
+	bound := map[key]*authz.Policy{}
+	return func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+		k := key{c, fmt.Sprint(p)}
+		pol, ok := bound[k]
+		if !ok {
+			pol = i5F2BoundWith(c, p, subtree)
+			bound[k] = pol
+		}
+		return allows(pol, p, rec.row(p))
+	}
+}
+
 // i5F2MutantNames is i5F2Mutants' keys in order.
 func i5F2MutantNames() []string {
 	var names []string
@@ -555,12 +576,8 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 			}
 			return n
 		}),
-		"under_direct_only": func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
-			return allows(i5F2BoundWith(c, p, i5SubtreeDirectOnly), p, rec.row(p))
-		},
-		"under_ignores_tombstone": func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
-			return allows(i5F2BoundWith(c, p, i5SubtreeIgnoresTombstone), p, rec.row(p))
-		},
+		"under_direct_only":       i5UnderModel(allows, i5SubtreeDirectOnly),
+		"under_ignores_tombstone": i5UnderModel(allows, i5SubtreeIgnoresTombstone),
 		"shared_nil_caller": func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
 			if c.Policy == nil || p.PrincipalID != uuid.Nil || len(p.Groups) == 0 {
 				return allows(c.bound(p), p, rec.row(p))

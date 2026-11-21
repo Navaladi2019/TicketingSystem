@@ -21,6 +21,11 @@ import (
 // difference, so most seeds cost one generation.
 const i5UnderSeeds = 8
 
+// i5UnderPrincipals is how many of each case's principals the cross-seed
+// check reads. 20 find both mutants on every seed of the run; if a seed ever
+// needed more, the test fails rather than passing on a short read.
+const i5UnderPrincipals = 20
+
 // TestI5OrgTreeIsRandomAndRisky: every seed's tree holds the shapes the under
 // mutants need (i5TreeRisky), stays within the depth and size bounds, lists
 // parents before children, and differs between seeds; callers are in 0 to 3
@@ -97,7 +102,7 @@ func i5UnderMutantDiffers(w *i5World, cases []i5F2Case, subtree func(tenant, roo
 		if c.Policy == nil || len(i5UnderLeaves(c.Policy.Document)) == 0 {
 			continue
 		}
-		for _, p := range c.Principals {
+		for _, p := range c.Principals[:min(len(c.Principals), i5UnderPrincipals)] {
 			want, mutant := c.bound(p), i5F2BoundWith(c, p, subtree)
 			for _, rec := range w.Records {
 				row := rec.row(p)
