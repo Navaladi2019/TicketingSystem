@@ -345,4 +345,26 @@ func TestClosureRebuildTimeAtBenchScale(t *testing.T) {
 	t.Logf("%d units, %d closure rows: sync that rebuilds %v; sync that finds the closure right %v (rebuild target <= 350ms)",
 		total, rows, rebuild, time.Since(start))
 	sameRows(t, "bench closure", closureOf(t, super, tid), wantClosure(units))
+
+	// TICK-1054: a sync after one unit move writes a delta, not a rebuild.
+	// Timed for a leaf, a country (100 leaves) and a region (~1,000 units);
+	// the SP-1b target (<= 350ms) is for one move. Logged, never failed on.
+	for i, mv := range []struct {
+		what      string
+		idx       int
+		newParent string
+	}{
+		{"leaf u111 to country u12", 111, "u12"},
+		{"country u11 to region u2", 11, "u2"},
+		{"region u1 under region u2", 1, "u2"},
+	} {
+		units[mv.idx] = unit(units[mv.idx].KeycloakGroupID, mv.newParent, units[mv.idx].Path)
+		dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: user(fmt.Sprintf("m%d@a.test", i))})
+		start = time.Now()
+		if r := once(t, s); r.Err != nil {
+			t.Fatal(r.Err)
+		}
+		t.Logf("sync after one move (%s): %v (target <= 350ms)", mv.what, time.Since(start))
+		sameRows(t, "bench closure after "+mv.what, closureOf(t, super, tid), wantClosure(units))
+	}
 }
