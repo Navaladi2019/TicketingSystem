@@ -1091,15 +1091,39 @@
     },
     {
       "file": "20261120160000_worker_principal_reads.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
     },
     {
       "file": "20261120160100_audit_log_action_policy_ref_refused.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
     },
     {
       "file": "20261120160200_audit_log_action_policy_ref_refused_validate.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "e2e039fa",
+      "date": "2026-11-21",
+      "pr": "813",
+      "story": "",
+      "tickets": [
+        "TICK-955",
+        "TICK-1025"
+      ]
     },
     {
       "file": "20261121000000_org_unit_members.sql",
@@ -1127,6 +1151,10 @@
     },
     {
       "file": "20261121060000_records_org_unit_entity_definition.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261121144100_org_unit_closure_unrooted_warning.sql",
       "on_main": false
     }
   ]
