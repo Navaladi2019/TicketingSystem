@@ -9,6 +9,7 @@
 package server_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -435,6 +436,7 @@ func TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	rebuildOrgUnitClosure(t, e.super)
 	under := func(of string) string {
 		return `{"format": 2, "conditions": [], "policies": [{"name": "unit", "ops": ["read", "write"], "when": {"under": {"of": ` + of + `}}}]}`
 	}
@@ -507,6 +509,73 @@ func TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree(t *testing.T) {
 	}
 	if x := decodeExplanation(t, e.explain(t, "admin-a", "job", out.ID, e.a.user.PrincipalID.String())); x.Decision != "deny" || len(x.Invalid) != 0 {
 		t.Errorf("explain the record in the tombstoned unit = %+v, want deny with no invalid policy", x)
+	}
+}
+
+// SP-1d change 5 (TICK-1034): a policy naming 5 distinct under U is 422
+// under_sets_exceeded at the policy's pointer, and nothing is stored; 4
+// publishes. Repeated U (the same ids reordered) count once.
+// covers: putEntityTypeAccess 422
+func TestS31UnderAtMostFourDistinctSetsPerPolicy(t *testing.T) {
+	e := newPatchEnv(t)
+	units := make([]uuid.UUID, 5)
+	for i := range units {
+		units[i] = uuid.New()
+		if _, err := e.super.Exec(t.Context(), `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, $3, $3)`,
+			e.a.id, units[i], fmt.Sprintf("s31-sets-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	of := func(ids ...uuid.UUID) string {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = `"` + id.String() + `"`
+		}
+		return `{"under": {"of": [` + strings.Join(parts, ", ") + `]}}`
+	}
+	doc := func(leaves ...string) string {
+		return `{"rules": {"format": 2, "conditions": [], "policies": [` +
+			`{"name": "open", "ops": ["read"], "when": {"cmp": {"column": "state", "op": "eq", "values": ["new"]}}},` +
+			`{"name": "regions", "ops": ["read"], "when": {"any": [` + strings.Join(leaves, ", ") + `]}}]}}`
+	}
+	v0, n0 := e.s30Counts(t)
+	five := doc(of(units[0]), of(units[1]), of(units[2]), of(units[3]), `{"under": {"of": "caller"}}`)
+	got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-sets-five"), `W/"1"`, five)
+	wantProblem(t, got, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
+	if ps := pointerRules(t, got); !slices.Equal(ps, []string{"/rules/policies/1 under_sets_exceeded"}) {
+		t.Errorf("five distinct U = %v, want only /rules/policies/1 under_sets_exceeded", ps)
+	}
+	if v, n := e.s30Counts(t); v != v0 || n != n0 {
+		t.Fatalf("a refused body wrote")
+	}
+	four := doc(of(units[0], units[1]), of(units[1], units[0]), of(units[2]), of(units[3]), `{"under": {"of": "caller"}}`)
+	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("s31-sets-four"), `W/"1"`, four); got.Code != http.StatusOK {
+		t.Fatalf("four distinct U (one repeated) = %d %s, want 200", got.Code, got.Body)
+	}
+}
+
+// rebuildOrgUnitClosure fills org_unit_closure from org_units for every
+// tenant, as the migration's backfill does (nava_migrator only). The tests
+// seed org_units directly, so they seed the closure the same way; group sync
+// keeps it current in production (TICK-1033).
+func rebuildOrgUnitClosure(t *testing.T, super interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}) {
+	t.Helper()
+	ctx := t.Context()
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE nava_migrator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, "SELECT org_unit_closure_rebuild_all()"); err != nil {
+		t.Fatalf("rebuild the closure: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 

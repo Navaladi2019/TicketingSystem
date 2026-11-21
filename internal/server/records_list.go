@@ -461,19 +461,23 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		// index-ordered branch per subject (TICK-644); CompileRead is the single
 		// statement when there is nothing to split. One plan for both, so a
 		// voided policy is counted once per request (ADR-010 D5b).
-		// Set S of every under leaf, one query, before rendering (ADR-010 D7).
-		if pol, err = authz.ExpandUnder(ctx, tx, pol, p); err != nil {
+		// The caller's units for an under leaf, before rendering; the leaf
+		// reads the closure in SQL (ADR-010 D7 as amended, TICK-1034).
+		if pol, err = authz.ResolveUnder(ctx, tx, pol, p); err != nil {
 			return err
 		}
-		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
-		filt, filtArgs := pl.where(2 + len(readArgs))
+		read := authz.ReadList(pol, p, "r", 2)
+		filt, filtArgs := pl.where(2 + len(read.Args))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
-			Where: filt, Args: append(slices.Clone(readArgs), filtArgs...), Branches: branches,
+			Where: filt, Args: append(slices.Clone(read.Args), filtArgs...), Branches: read.Branches,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
 		}
-		if branches == nil {
-			lq.Where = readSQL + " AND " + filt
+		if read.Branches == nil {
+			lq.Where = read.Where + " AND " + filt
+		}
+		for _, d := range read.Drivers {
+			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))

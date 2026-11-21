@@ -20,7 +20,7 @@ import (
 //
 // So: for random documents with under leaves (caller and listed, under
 // not, inside refs), for every principal for which UnderNeeded is false
-// (ExpandUnder runs no query and binds only rest), the decision on every row,
+// (ResolveUnder runs no query and binds only rest), the decision on every row,
 // read and write, and the read SQL must be the same as with S bound to
 // nothing, to every unit, and to the two mixed bindings (caller full and
 // listed roots empty, and the reverse). If they differ, the leaf mattered and
@@ -63,12 +63,12 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 		for name, p := range principals {
 			pol := &Policy{EntityType: "ut_rest_adversarial", Document: d}
 			if UnderNeeded(pol, p) {
-				continue // ExpandUnder queries; the integration and I5 suites cover that path
+				continue // ResolveUnder queries; the integration and I5 suites cover that path
 			}
 			folded++
-			got, err := ExpandUnder(context.Background(), nil, pol, p)
+			got, err := ResolveUnder(context.Background(), nil, pol, p)
 			if err != nil {
-				t.Fatalf("%s: ExpandUnder with no surviving leaf: %v", name, err)
+				t.Fatalf("%s: ResolveUnder with no surviving leaf: %v", name, err)
 			}
 			// The joint extremes, and the two mixed bindings: a pair such as
 			// all[under caller, not under X] that matters only when the caller's
@@ -88,7 +88,7 @@ func TestUnderRestNeverDecidesALeafThatMatters(t *testing.T) {
 					for _, o := range oracles {
 						checked++
 						if _, _, w := Allows(o.pol, p, op, row); g != w {
-							t.Fatalf("%s %s row %d: rest decided a leaf that matters: ExpandUnder=%v, %s=%v\ndocument: %+v",
+							t.Fatalf("%s %s row %d: rest decided a leaf that matters: ResolveUnder=%v, %s=%v\ndocument: %+v",
 								name, op, ri, g, o.name, w, d)
 						}
 					}

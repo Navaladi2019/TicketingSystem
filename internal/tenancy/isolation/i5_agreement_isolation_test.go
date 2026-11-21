@@ -196,6 +196,14 @@ func i5SeedWorld(ctx context.Context, tx pgx.Tx, w *i5World) error {
 			b.Queue(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.Tenant, u, principal)
 		}
 	}
+	// The closure, from the reference's tree (TICK-1034): each live unit
+	// with no tombstoned ancestor reaches itself and every live unit below
+	// it. Group sync keeps it in production (TICK-1033); the test seeds it.
+	for _, u := range w.Units {
+		for _, d := range i5Subtree(w.Tenant, u.ID) {
+			b.Queue(`INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)`, w.Tenant, u.ID, d)
+		}
+	}
 	for i, rec := range w.Records {
 		b.Queue(`INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, requester_id, assignee_id, assignment_group_id, org_unit_id)
 			VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9)`,

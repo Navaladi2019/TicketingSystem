@@ -16,9 +16,12 @@
 //
 // SP1_INDEX=real (TICK-951 P11-18) reruns it against S31's schema: the
 // migration's partial index records_org_unit (TICK-947) instead of the bench
-// indexes, no R1 phase, and rows whose set S comes from the runtime's own
-// authz.ExpandUnder (its recursive query, tombstones walked) in the same
-// transaction as the count and page, as the list handler runs it.
+// indexes, no R1 phase, and rows whose set S comes from the database in the
+// same transaction as the count and page. TICK-1034 deleted
+// authz.ExpandUnder (and its 10,000 cap): set S is now read from
+// org_unit_closure, so these rows measure the closure read plus the list.
+// The region leaf's own rendering (C1, the capped count) is TICK-1037's
+// bench.
 package main
 
 import (
@@ -37,7 +40,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
-	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
 const cols = `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
@@ -208,26 +210,15 @@ func underRoot(root string) *authz.Policy {
 	}}
 }
 
-// expand runs authz.ExpandUnder in tx and returns set S as the leaf binds it
-// (the one argument CompileRead renders), or refused when |S| is over
-// authz.MaxUnderSet (the handler's 500 access_scope_too_large).
-func (e *env) expand(ctx context.Context, tx pgx.Tx, pol *authz.Policy, a agent) (ids []string, refused bool, err error) {
-	p := identity.Principal{TenantID: uuid.MustParse(e.tenant), PrincipalID: uuid.MustParse(a.id)}
-	bound, err := authz.ExpandUnder(ctx, tx, pol, p)
-	var big *authz.UnderSetTooLargeError
-	if errors.As(err, &big) {
-		return nil, true, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	pred, args := authz.CompileRead(bound, p, "r", 0)
-	if len(args) != 1 || !strings.Contains(pred, "r.org_unit_id = ANY($1::uuid[])") {
-		return nil, false, fmt.Errorf("unexpected under rendering %s %v", pred, args)
-	}
-	ids, ok := args[0].([]string)
-	if !ok {
-		return nil, false, fmt.Errorf("set S argument is %T", args[0])
+// closureSetSQL is root's live subtree from org_unit_closure (TICK-1032).
+const closureSetSQL = `SELECT coalesce(array_agg(descendant_id::text), '{}') FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2::uuid`
+
+// expand returns set S of pol's one listed root, read from the closure in tx.
+// refused is always false: TICK-1034 deleted the 10,000-unit cap.
+func (e *env) expand(ctx context.Context, tx pgx.Tx, pol *authz.Policy, _ agent) (ids []string, refused bool, err error) {
+	root := pol.Document.Policies[0].When.Under.Units[0]
+	if err := tx.QueryRow(ctx, closureSetSQL, e.tenant, root.String()).Scan(&ids); err != nil {
+		return nil, false, fmt.Errorf("closure set: %w", err)
 	}
 	return ids, false, nil
 }
@@ -458,8 +449,8 @@ func main() {
 			"DROP INDEX IF EXISTS records_bench_org_unit_updated",
 			"DROP INDEX IF EXISTS records_bench_org_unit",
 		}, true)
-		// Set S from authz.ExpandUnder, whole subtrees, in the request.
-		fmt.Fprint(e.out, "\n## ExpandUnder + list (ms per request: BEGIN, set_config, ExpandUnder, count, page, COMMIT)\n\n| Subtree | units | index | n | refused | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+		// Set S from the closure, whole subtrees, in the request.
+		fmt.Fprint(e.out, "\n## Closure set + list (ms per request: BEGIN, set_config, closure read, count, page, COMMIT)\n\n| Subtree | units | index | n | refused | p50 | p95 | p99 |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		cs, ps := countSQL(5), pageSQL(5)
 		var mu sync.Mutex
 		for _, s := range sets {
@@ -495,7 +486,7 @@ func main() {
 				}
 				got = len(ids)
 				if refused {
-					got = -1 // over authz.MaxUnderSet
+					got = -1
 				}
 			} else if err := tx.QueryRow(ctx, expandSQL, e.tenant, root).Scan(&got); err != nil {
 				return 0, err

@@ -2,7 +2,7 @@
 
 TICK-952, story TICK-946 (S31), ADR-010 I1, I3, D7, D8. The attacker holds a valid token for tenant A, or controls tenant A's Keycloak directory (its groups and the `nava_primary_org_unit` user attribute). They try to see or write tenant B's org-unit rows, to give a record of A a unit of B, or to widen `under` access after a directory change. Every attack below is a runnable `//go:build integration` test, and the passing ones stay as regression guards.
 
-**Verdict: no exploitable isolation gap.** Every guard holds at the database (FORCE RLS, grants, foreign keys that carry `tenant_id`). The `under` set-S query and the primary-unit lookup filter by tenant on top of RLS. The reviewer's verdict on TICK-947, TICK-948 and TICK-949 is in the PR description of this change.
+**Verdict: no exploitable isolation gap.** Every guard holds at the database (FORCE RLS, grants, foreign keys that carry `tenant_id`). The `under` leaf's closure reads (TICK-1034; the set-S query before it) and the primary-unit lookup filter by tenant on top of RLS. The reviewer's verdict on TICK-947, TICK-948 and TICK-949 is in the PR description of this change.
 
 ## Paths to data
 
@@ -12,8 +12,7 @@ TICK-952, story TICK-946 (S31), ADR-010 I1, I3, D7, D8. The attacker holds a val
 | `org_units` writes (`nava_groupsync`) | the sync's tenant | FORCE RLS. There is no DELETE grant or policy. The parent FK is `(tenant_id, parent_id)` |
 | `records.org_unit_id` on create (`pipeline.resolveUnit`, `store.PrimaryUnit`) | the write transaction's tenant | `primaryUnitSQL` filters `m.tenant_id`, RLS, and the FK `(tenant_id, org_unit_id)` |
 | `records.org_unit_id` from a body (API, workflow `update_record`) | n/a | `refuseOrgUnit`, `field_not_writable` on create and update, for every source |
-| Set S (`authz.ExpandUnder`, `expandSQL`) | `tenancy.TenantOf(tx)` | every step of the recursive query filters `tenant_id = $1`. `scopeFor` drops a binding made for another tenant or principal |
-| The 10,000 cap (`UnderSetTooLargeError`) | n/a | the error carries the entity type only |
+| The `under` leaf (`authz.ResolveUnder`, `resolveSQL`; `compiler.under`, `RegionDriver`), TICK-1034 | `tenancy.TenantOf(tx)` | every read of `org_unit_members` and `org_unit_closure` filters `tenant_id` explicitly, on top of FORCE RLS on both tables. The closure is built per tenant under that tenant's RLS (`org_unit_closure_rebuild_all`, group sync), and its FKs carry `tenant_id`. `scopeFor` drops a binding made for another tenant, principal or groups |
 
 ```mermaid
 sequenceDiagram
@@ -21,7 +20,7 @@ sequenceDiagram
     participant GS as groupsync (nava_groupsync)
     participant DB as org_units / org_unit_members (FORCE RLS, tenant FKs)
     participant PL as write pipeline
-    participant AZ as ExpandUnder (set S)
+    participant AZ as under leaf (ResolveUnder, closure)
     A->>GS: snapshot naming B's unit ids, B's paths, B's path as primary
     GS->>DB: only rows of A, under A's app.tenant_id
     DB-->>GS: B's rows unreachable (RLS), cross-tenant keys refused (23503)
@@ -29,8 +28,8 @@ sequenceDiagram
     PL-->>A: 422 field_not_writable, nothing written
     PL->>DB: primary unit of the requester, tenant A only
     A->>AZ: under caller / under of [B's unit]
-    AZ->>DB: recursive walk, tenant_id = A at every step, live units only
-    AZ-->>A: S holds no unit of B and no tombstoned subtree
+    AZ->>DB: org_unit_closure, tenant_id = A, live paths only
+    AZ-->>A: no unit of B and no tombstoned subtree is under any U
 ```
 
 ## Attack table
@@ -42,10 +41,12 @@ sequenceDiagram
 | 3 | A tombstoned unit grants through `under`, including to a member whose row was not removed | The live FK refuses a member of a tombstoned unit, and refuses tombstoning a unit that still has a member, for every role (23503). groupsync deletes members before the tombstone, in one transaction. A forged member row in a tombstoned unit adds nothing to S, and neither does its live subtree | `TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows`; `TestTICK947MembershipConstraints`; `acl_under_integration_test.go` `TestUnderSetFromARealTreeAgreesInSQLAndGo` |
 | 4 | Set S contains a unit of B: a forged membership of an A principal in B's unit, B's unit hung under A's tree, A's unit hung under B's, `under of [B's unit]`, or S bound in A and evaluated for a principal that claims B | S never holds a unit of B (SQL, Go and branch split agree). A binding made for another tenant voids the policy, `not under` included | `TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows`, `TestUnderSetBoundInOneTenantGrantsNothingToAnother` |
 | 5 | groupsync deletes an org unit. A crafted directory payload with B's Keycloak ids or paths un-tombstones, renames or reparents B's unit | No DELETE grant (42501). B's tombstoned unit keeps its `deleted_at`, and B's live unit, members and rows are unchanged. A gets units of its own, never on B's ids | `internal/groupsync/orgunit_isolation_integration_test.go` `TestDirectoryPayloadNeverUntombstonesAnotherTenantsUnit`; registry `org_units:` paths; `TestTICK947GroupsyncCannotDeleteOrgUnits` |
-| 6 | The 10,000 cap error leaks unit ids | The error, reached through the caller seed or a listed root, contains no UUID. The HTTP body is the fixed `access_scope_too_large` problem | `TestUnderCapErrorNamesNoID`; `internal/server/entitytypes_test.go` `TestUnderSetTooLargeIsAccessScopeTooLarge` |
+| 6 | The 10,000 cap error leaks unit ids | Gone with the cap (TICK-1034): there is no size refusal and no `access_scope_too_large` problem, so no error names a unit. A region of more than 10,000 units is a normal answer | `acl_under_integration_test.go` `TestUnderAboveTenThousandUnitsIsANormalAnswer` |
 | 7 | `nava_primary_org_unit` names a group path that exists only in B | When the user is in no A unit, or in two, no primary is set, and the pipeline's lookup returns NULL, so a new ticket's `org_unit_id` stays NULL. B's own primary is unchanged. (When the user is in exactly one A unit, D-11-6 falls back to that A unit, which is the user's own unit) | `TestPrimaryOrgUnitPathOnlyInAnotherTenantSetsNoPrimary`; end to end through the real group sync and a real pipeline create, with a control that stores A's unit: `internal/records/pipeline/org_unit_isolation_integration_test.go` `TestCreateAfterSyncWithForeignPrimaryPathLeavesOrgUnitNull`; `orgmembers_isolation_integration_test.go` `TestPrimaryOrgUnitNeverResolvesAcrossTenants` |
 
-The forged rows in attacks 2 to 4 are written by the superuser with `session_replication_role = replica`, which skips every FK and trigger. That attacker is stronger than the owner role: the owner is held by FORCE RLS and cannot disable the RI triggers. These tests therefore show that set S and the lookup do not depend on the FKs alone.
+**Orphaned units (attack 4, TICK-1034).** A unit whose `parent_id` is missing from its tenant, which only a forged row can produce, has no closure rows. So `under` is false for it and `not under` is true, like a tombstoned subtree. This is a deliberate change from TICK-950's `expandSQL`, which seeded it as a root. Decided by the Security & Multi-Tenancy Reviewer on TICK-1034. The rows `listed Z: orphaned by a foreign parent, outside every region` and `not under listed Z: the orphan reads as outside` in `TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows` pin both sides. A rebuild check that counts live units with no self row is TICK-1058.
+
+The forged rows in attacks 2 to 4 are written by the superuser with `session_replication_role = replica`, which skips every FK and trigger. That attacker is stronger than the owner role: the owner is held by FORCE RLS and cannot disable the RI triggers. These tests therefore show that the `under` leaf and the lookup do not depend on the FKs alone. Since TICK-1034 the forged world's closure is rebuilt from the forged rows, so the leaf reads what the forger wrote: the per-tenant walk under RLS reaches neither B's unit hung under A's tree nor A's unit hung under B's.
 
 ## Red check (QA review round 1)
 
