@@ -69,8 +69,9 @@ const (
 	// under this, so the host disk's slow band (17 to 26 ms on the WSL2
 	// reference host) is not scored as the code's cost.
 	perfCommitGateMS = 10.0
-	// perfCommitAttempts is how often a gated create row is run before the
-	// host is reported invalid for creates.
+	// perfCommitAttempts is how often a gated scored row is run before the
+	// host is reported invalid: create rows (all gates) and, since TICK-1040,
+	// list and get rows (the container watch).
 	perfCommitAttempts = 3
 	// perfHostGateMS is the host-speed gate (CTO, 2026-11-10 15:58 UTC): a
 	// 1-client `BEGIN; COMMIT` probe run just before each create attempt
@@ -856,7 +857,8 @@ type perfResult struct {
 	// 2026-11-10 19:49 reading (creates only).
 	storage float64
 	// intruders are containers outside perfAllowedContainers seen while the
-	// attempt ran; any one voids the attempt.
+	// attempt ran; any one voids the attempt, for every scored row
+	// (watched).
 	intruders []string
 	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
 	open *perfOpen
@@ -884,10 +886,20 @@ func lastCommit(ss []perfStmt) (time.Duration, bool) {
 	return 0, false
 }
 
-// label names a result in the report tables: a scored create row carries its
+// watched reports a scored latency row: one that is re-run when another
+// container ran during it. Create rows have the host and storage gates too.
+// List and get rows are watched since TICK-1040: the transport floor is
+// checked once before the first row, so a bench or integration cluster that
+// starts later contended a list window without voiding it (QA, 2026-11-21
+// 07:23, P3-36 baseline runs 1 and 2b).
+func (sc perfScenario) watched() bool {
+	return sc.unscored == "" && (sc.kind == "create" || sc.kind == "list" || sc.kind == "get")
+}
+
+// label names a result in the report tables: a watched row carries its
 // attempt.
 func (r *perfResult) label() string {
-	if r.attempt > 0 && r.sc.kind == "create" && r.sc.unscored == "" {
+	if r.attempt > 0 && r.sc.watched() {
 		return fmt.Sprintf("%s, attempt %d", r.sc.name, r.attempt)
 	}
 	return r.sc.name
@@ -896,10 +908,11 @@ func (r *perfResult) label() string {
 // commitP50 is the row's storage window, in ms.
 func (r *perfResult) commitP50() float64 { return pct(r.commits, .5) }
 
-// gated reports a create row attempt that failed a gate: the host-speed
-// probe or the storage window. The transport floor gate stops the whole run.
+// gated reports a watched row attempt that failed a gate: for creates the
+// host-speed probe or the storage window, for every watched row another
+// container during the attempt. The transport floor gate stops the whole run.
 func (r *perfResult) gated() bool {
-	return r.sc.kind == "create" && r.sc.unscored == "" && r.gateReason() != ""
+	return r.sc.watched() && r.gateReason() != ""
 }
 
 // gateReason names the gates the attempt failed, or "" when it is valid.
@@ -1351,10 +1364,10 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		if sc.before != nil {
 			sc.before()
 		}
-		// A scored create row runs until its storage window passes the
-		// gate, at most perfCommitAttempts times; every attempt is reported.
+		// A watched row runs until it passes its gates, at most
+		// perfCommitAttempts times; every attempt is reported.
 		attempts := 1
-		if sc.kind == "create" && sc.unscored == "" {
+		if sc.watched() {
 			attempts = perfCommitAttempts
 		}
 		for a := 1; a <= attempts; a++ {
@@ -1367,6 +1380,10 @@ func TestRecordsACLPerf800k(t *testing.T) {
 				st.quiesceWait = e.quiesce(t)
 				probe = e.hostProbe(t, &st)
 				storage = e.storageProbe(t)
+			} else if sc.watched() {
+				st.isolationWait = isolate(t)
+			}
+			if sc.watched() {
 				watch = watchContainers(t.Context(), stop)
 			}
 			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
@@ -1408,7 +1425,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	for name, bad := range invalid {
 		if bad {
-			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms, storage probe <= %.0f ms, no other container) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+			t.Errorf("HOST INVALID: %s had no valid attempt (no other container; creates also host probe <= %.1f ms, storage probe <= %.0f ms) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -1469,7 +1486,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	reportOpen(w, results)
-	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). An attempt is also void if a container other than the run's database, the buildkit builder and the three Multica platform containers runs during it. A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). Every scored row, list and get rows included (TICK-1040), waits before each attempt until no container runs other than the run's database, the buildkit builder and the three Multica platform containers, and the attempt is void if another one runs during it (docker ps every 5 s). A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Storage probe p50 | In-trace commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
@@ -1487,9 +1504,12 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 			v = "**MISS** (retry_later)"
 		}
 		attempt, probe, storage, commit, trips, rl := "-", "-", "-", "-", "-", "-"
+		if r.sc.watched() {
+			attempt = strconv.Itoa(max(r.attempt, 1))
+		}
 		if r.sc.kind == "create" {
 			n, _, _ := roundTrips(r.stmtSQL)
-			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
+			commit, trips = fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
 			probe, rl, storage = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10), fmt.Sprintf("%.2f", r.storage)
 		}
 		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, storage, commit, trips, rl, r.target(), v)
