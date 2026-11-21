@@ -133,18 +133,15 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	// TICK-1058: reported, not failed. Failing the sync would not repair the
 	// closure (the rollback keeps the stored one, still without the self row)
 	// and would stop the tenant's principal tombstones and group removals.
-	unr, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Counter(
+	unr, unrErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Counter(
 		"groupsync_org_closure_unrooted_units",
 		metric.WithDescription("Live org units found with no org_unit_closure self row after a tenant's closure rebuild, summed over applied tenant syncs. Such a unit is outside every region. Any increase is an alert. Never labelled by tenant; the tenant is named in a log line."),
 		metric.WithUnit("{unit}"))
-	if err != nil {
-		return nil, fmt.Errorf("groupsync: %w", err)
-	}
-	live, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Gauge(
+	live, liveErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Gauge(
 		"groupsync_org_units_live_max",
 		metric.WithDescription("Largest live org-unit count of any tenant visited in the cycle, set once per cycle. Never labelled by tenant. Alerted above the ADR-010-A2 certified tree (rules/groupsync.yml); it never gates a sync."),
 		metric.WithUnit("{unit}"))
-	if err != nil {
+	if err := errors.Join(unrErr, liveErr); err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
 	return &Syncer{
@@ -235,10 +232,8 @@ func (s *Syncer) Run(ctx context.Context) error {
 // transaction, so no extra cross-tenant read is made.
 func countLiveOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (int, error) {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM org_units WHERE tenant_id = $1::uuid AND deleted_at IS NULL`, tenantID.String()).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count live org units: %w", err)
-	}
-	return n, nil
+	err := tx.QueryRow(ctx, `SELECT count(*) FROM org_units WHERE tenant_id = $1::uuid AND deleted_at IS NULL`, tenantID.String()).Scan(&n)
+	return n, err // the caller logs it; the count never fails a sync
 }
 
 // liveUnitsBestEffort counts in a savepoint. The count is a metric: if it
