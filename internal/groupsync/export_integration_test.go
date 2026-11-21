@@ -25,3 +25,13 @@ func ApplyForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, c identity
 func (s *Syncer) PlaceInviteesForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, p InviteePlacer) error {
 	return s.placeInvitees(ctx, tx, tenantID, p)
 }
+
+// RebuildClosureForTest runs the rebuild group sync runs after a tree write
+// (rebuildClosure with treeChanged), in tx, under tx's tenant. It lets a test
+// rebuild over a tree state no snapshot produces: a tombstoned unit with a
+// live child (a snapshot that drops a parent but keeps its child is refused
+// with ErrBadSnapshot). It returns the closure's row count.
+func RebuildClosureForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (int, error) {
+	n, _, err := rebuildClosure(ctx, tx, tenantID, true)
+	return n, err
+}

@@ -52,6 +52,30 @@ func TestI5OrgTreeIsRandomAndRisky(t *testing.T) {
 				t.Errorf("seed %d: root %d is tombstoned", i5DefaultSeed+s, i)
 			}
 		}
+		// The forced shapes (orgTree): Users[1] in a live P whose live child
+		// C holds records 0 to 7, and Users[2] in P and C (nested U).
+		if p1 := w.Members[w.Users[1]]; len(p1) != 1 {
+			t.Errorf("seed %d: Users[1] is in %d units, want the forced parent alone", i5DefaultSeed+s, len(p1))
+		} else {
+			parent := p1[0]
+			c := w.Records[0].Row.OrgUnitID
+			child := slices.IndexFunc(w.Units, func(u i5Unit) bool { return c != nil && u.ID == *c })
+			_, deadAbove := i5UnitDepth(w.Units, parent)
+			switch {
+			case child < 0 || w.Units[child].Dead || w.Units[child].Parent != parent:
+				t.Errorf("seed %d: record 0 is not in a live child of Users[1]'s unit", i5DefaultSeed+s)
+			case deadAbove || slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == parent && u.Dead }):
+				t.Errorf("seed %d: Users[1]'s unit is tombstoned or below a tombstone", i5DefaultSeed+s)
+			}
+			for i := range 8 {
+				if r := w.Records[i].Row.OrgUnitID; r == nil || c == nil || *r != *c {
+					t.Errorf("seed %d: record %d is not in the forced child", i5DefaultSeed+s, i)
+				}
+			}
+			if c != nil && !slices.Equal(w.Members[w.Users[2]], []uuid.UUID{parent, *c}) {
+				t.Errorf("seed %d: Users[2] is in %v, want the nested pair %v", i5DefaultSeed+s, w.Members[w.Users[2]], []uuid.UUID{parent, *c})
+			}
+		}
 		for p, units := range w.Members {
 			if len(units) > 3 {
 				t.Errorf("seed %d: principal %s in %d units", i5DefaultSeed+s, p, len(units))
