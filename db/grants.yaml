@@ -115,6 +115,8 @@ roles:
       org_unit_members: { SELECT: [] }
       # TICK-1032 (ADR-010-A2): the under leaf reads a unit's live subtree.
       org_unit_closure: { SELECT: [] }
+      # TICK-1070 (ADR-010-A2 A2-9): the list leaf reads N-hat_e to set K*.
+      entity_record_estimates: { SELECT: [] }
       # Keycloak Registry.TenantOwnsEmailDomain (T18a).
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
@@ -217,6 +219,14 @@ roles:
       org_unit_members: { SELECT: [tenant_id, org_unit_id, principal_id, is_primary] }
       # TICK-1032 (ADR-010-A2): a unit's live subtree, for under in policy tests.
       org_unit_closure: { SELECT: [] }
+      # TICK-1070 (ADR-010-A2 A2-9, D-11A2-2): the N-hat_e refresh job upserts
+      # each type's count under its tenant; the key is never updated, and no
+      # row is deleted.
+      entity_record_estimates: { SELECT: [], INSERT: [], UPDATE: [live_records, refreshed_at] }
+      # TICK-1070 (D-11A2-2): the refresh job lists tenants through
+      # binding_lookup (allow-listed, USING (true)); tenant_id only, never the
+      # issuer, org id or aliases.
+      tenant_identity_binding: { SELECT: [tenant_id] } # binding_lookup
       records:
         SELECT: []
         INSERT: []

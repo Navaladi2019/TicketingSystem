@@ -76,7 +76,7 @@ With no tenant set, or an empty one, they match no row.
 | Table | Tenant policies | Allow-listed (do not test `app.tenant_id`) |
 | --- | --- | --- |
 | `tenants` | `tenants_tenant` (SELECT, app), `tenants_onboard_select`, `tenants_onboard_insert` (provisioning only), `tenants_activate` (UPDATE provisioning → active, own tenant) (onboard) | none |
-| `tenant_identity_binding` | none | `binding_lookup` (SELECT TO nava_app, nava_groupsync), `binding_onboard` (INSERT TO nava_onboard, provisioning tenants visible to it) |
+| `tenant_identity_binding` | none | `binding_lookup` (SELECT TO nava_app, nava_groupsync, nava_worker; the worker holds `SELECT (tenant_id)` only, TICK-1070), `binding_onboard` (INSERT TO nava_onboard, provisioning tenants visible to it) |
 | `records` | `records_select`, `records_insert`, `records_update` (app, worker) | none |
 | `outbox` | `outbox_select`, `outbox_insert` (app, worker) | `outbox_relay_select`, `outbox_relay_update` (pending rows only), `outbox_purge_select`, `outbox_purge` |
 | `workflow_ref` | `workflow_ref_select`, `workflow_ref_insert` (app, worker), `workflow_ref_update` (worker) | `workflow_ref_purge_select`, `workflow_ref_purge` |

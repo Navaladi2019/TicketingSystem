@@ -136,6 +136,61 @@ func TestExemptionsAreAllowListed(t *testing.T) {
 	}
 }
 
+// TestTICK1070EstimatesRegistered: entity_record_estimates keeps its
+// isolation-registry rows (TICK-1070, ADR-010-A2 A2-9). Each reader reads
+// only its own tenant's rows; the app's write, the worker's cross-tenant
+// insert, upsert, update and delete, and the worker's read of a binding
+// column other than tenant_id are each refused; and the worker's
+// binding_lookup read is an exemption the allow-list backs.
+func TestTICK1070EstimatesRegistered(t *testing.T) {
+	type want struct {
+		role   string
+		expect Expect
+		verb   string // the statement's first word
+		table  string
+	}
+	wants := []want{
+		{"nava_app", OwnRowsOnly, "SELECT", "entity_record_estimates"},
+		{"nava_app", Denied, "SELECT", "entity_record_estimates"},
+		{"nava_app", Denied, "UPDATE", "entity_record_estimates"},
+		{"nava_worker", OwnRowsOnly, "SELECT", "entity_record_estimates"},
+		{"nava_worker", Denied, "INSERT", "entity_record_estimates"},
+		{"nava_worker", Denied, "UPDATE", "entity_record_estimates"},
+		{"nava_worker", Denied, "DELETE", "entity_record_estimates"},
+		{"nava_worker", Denied, "SELECT", "tenant_identity_binding"},
+	}
+	for _, w := range wants {
+		found := false
+		for _, p := range Paths() {
+			if p.SQL == nil || p.Role != w.role || p.SQL.Expect != w.expect {
+				continue
+			}
+			q := strings.TrimSpace(p.SQL.Query)
+			if strings.HasPrefix(q, w.verb+" ") && strings.Contains(q, " "+w.table) &&
+				strings.HasPrefix(p.Name, w.table+": ") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no registry path: %s %s on %s, expect %v", w.role, w.verb, w.table, w.expect)
+		}
+	}
+	upsert := false
+	for _, p := range Paths() {
+		if p.SQL != nil && p.Role == "nava_worker" && p.SQL.Expect == Denied && strings.Contains(p.SQL.Query, "entity_record_estimates") &&
+			strings.Contains(p.SQL.Query, "ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE") {
+			upsert = true
+		}
+	}
+	if !upsert {
+		t.Error("no registry path for the worker's cross-tenant upsert of entity_record_estimates")
+	}
+	if !slices.Contains(Exemptions(), Exemption{"nava_worker", "public.tenant_identity_binding", "SELECT", "binding_lookup"}) {
+		t.Error("nava_worker's binding_lookup read is not an exemption")
+	}
+}
+
 // TestCursorPathsHold runs the CI-8 cursor checks without a database, so
 // ci-unit catches a cursor regression before the isolation stage.
 func TestCursorPathsHold(t *testing.T) {

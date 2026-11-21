@@ -160,6 +160,13 @@ INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 'ticket', 'Ticket B', 'TCK', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 'incident', 'Incident B', 'INC', 1);
 
+-- TICK-1070 (ADR-010-A2 A2-9): N-hat_e for each seeded type, as the refresh
+-- job writes it. Tenant B has more rows, one per type.
+INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2, now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 3, now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 1, now());
+
 INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 SELECT v.tenant_id::uuid, v.id::uuid, v.definition_id::uuid, v.version, v.schema::json,
        sha256(convert_to(v.schema, 'UTF8')), '{}',

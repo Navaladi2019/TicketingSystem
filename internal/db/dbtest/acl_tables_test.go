@@ -257,6 +257,7 @@ func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*gran
 	m = beforeUnderSetsCap(fsys, m)
 	m, a = beforeOrgUnits(fsys, m, a)
 	m, a = beforeOrgUnitClosure(fsys, m, a)
+	m, a = beforeEntityRecordEstimates(fsys, m, a)
 	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)

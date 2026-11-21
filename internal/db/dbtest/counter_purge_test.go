@@ -25,8 +25,15 @@ const (
 // ADR-001 A.3 allow-list (internal/db/catalog.AllowList), so a run without
 // them fails the gate, and db/grants.yaml names the columns M1 adds. A run
 // that already has a file keeps it.
+//
+// It also adds bindingLookupWorkerMigration (TICK-1070) when fsys lacks it:
+// the gate pins binding_lookup's roles, nava_worker included, and the
+// migration is one ALTER POLICY on a table 00002 creates.
 func withCounterPurge(t *testing.T, fsys fs.FS) fs.FS {
 	t.Helper()
+	if _, err := fs.Stat(fsys, bindingLookupWorkerMigration); err != nil {
+		fsys = withMigrationFrom(t, fsys, bindingLookupWorkerMigration)
+	}
 	if _, err := fs.Stat(fsys, counterPurgeMigration); err == nil {
 		return fsys
 	}

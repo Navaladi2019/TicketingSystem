@@ -164,3 +164,5 @@ exempt:
     reason: "Mirror of the identity provider written by group sync (TICK-947, ADR-010 D7). R2 has no subject type for it (I8)."
   org_unit_closure:
     reason: "Derived from org_units by group sync's rebuild (TICK-1032, ADR-010-A2); holds no fact of its own. R2 has no subject type for it (I8)."
+  entity_record_estimates:
+    reason: "Derived data: the refresh job's count of each entity type's records (TICK-1070, ADR-010-A2 A2-9); holds no fact of its own and is not configuration. R2 has no subject type for it (I8)."
