@@ -283,6 +283,9 @@ func Exemptions() []Exemption {
 		{"nava_relay", "public.outbox", "UPDATE", "outbox_relay_update"},
 		{"nava_app", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 		{"nava_groupsync", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
+		// TICK-1070 (D-11A2-2): the N-hat_e refresh job lists tenants; its
+		// grant is tenant_id only.
+		{"nava_worker", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 	}
 }
 
@@ -440,6 +443,35 @@ func Paths() []Path {
 			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, OrgUnitB2),
 		sql("org_unit_closure: group sync drops tenant B's closure", "nava_groupsync", Denied,
 			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// TICK-1070 (ADR-010-A2 A2-9): entity_record_estimates. Both readers
+		// see only their own tenant's N-hat_e, by key or with no predicate;
+		// only the worker writes it, never across the wall, and nobody
+		// deletes a row. The FK refuses a row naming another tenant's type.
+		sql("entity_record_estimates: the app reads every estimate", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, entity_definition_id, live_records FROM entity_record_estimates"),
+		sql("entity_record_estimates: the app reads tenant B's estimate by its key", "nava_app", Denied,
+			"SELECT live_records FROM entity_record_estimates WHERE tenant_id = $1 AND entity_definition_id = $2", TenantB, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker reads tenant B's estimates", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, live_records FROM entity_record_estimates WHERE tenant_id = $1", TenantB),
+		sql("entity_record_estimates: the app writes its own estimate", "nava_app", Denied,
+			"UPDATE entity_record_estimates SET live_records = 0 WHERE tenant_id = $1", TenantA),
+		// Valid keys of tenant B, so only entity_record_estimates_insert's
+		// WITH CHECK (tenant A's app.tenant_id) can refuse it.
+		sql("entity_record_estimates: the worker upserts tenant B's estimate", "nava_worker", Denied,
+			"INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES ($1, $2, 0, now()) "+
+				"ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET live_records = EXCLUDED.live_records, refreshed_at = EXCLUDED.refreshed_at",
+			TenantB, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker zeroes tenant B's estimates", "nava_worker", Denied,
+			"UPDATE entity_record_estimates SET live_records = 0 WHERE tenant_id = $1", TenantB),
+		sql("entity_record_estimates: the worker counts tenant B's type under tenant A", "nava_worker", Denied,
+			"INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES ($1, $2, 0, now())",
+			TenantA, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker drops tenant B's estimates", "nava_worker", Denied,
+			"DELETE FROM entity_record_estimates WHERE tenant_id = $1", TenantB),
+		// TICK-1070 (D-11A2-2): binding_lookup lists every tenant, but the
+		// worker's grant stops at tenant_id.
+		sql("tenant_identity_binding: the worker reads tenant B's issuer and org", "nava_worker", Denied,
+			"SELECT issuer, org_id FROM tenant_identity_binding WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,

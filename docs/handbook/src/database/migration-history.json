@@ -1160,6 +1160,14 @@
     {
       "file": "20261121161036_acl2_under_sets_cap.sql",
       "on_main": false
+    },
+    {
+      "file": "20261121163600_entity_record_estimates.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261121163700_binding_lookup_worker.sql",
+      "on_main": false
     }
   ]
 }

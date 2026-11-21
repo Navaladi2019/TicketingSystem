@@ -122,7 +122,7 @@ func TestT09EveryTableForcesRLS(t *testing.T) {
 	want := strings.Join(sorted(append(append(platformTables(), identityTables()...), "tenant_email_domain", "pending_invite", "tenant_admin_group", "entity_definitions", "entity_definition_versions", "record_counters", "cascade_start", "tenant_auditor_group",
 		"audit_log", "audit_log_default", "audit_chain_head", "record_write_keys", "acl_versions", "record_shares",
 		"number_formats", "number_format_versions", "numbering_epochs",
-		"workflow_definitions", "workflow_definition_versions", "workflow_cause")), ",")
+		"workflow_definitions", "workflow_definition_versions", "workflow_cause", "entity_record_estimates")), ",")
 	if got != want {
 		t.Fatalf("tables with ENABLE + FORCE RLS = %s, want %s", got, want)
 	}
