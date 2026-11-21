@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"slices"
 	"strings"
@@ -36,7 +37,10 @@ import (
 // A policy reaching an under leaf that was not resolved for the principal it
 // is planned for (ExpandUnder not called, or called for another principal) is
 // voided with RuleUnderUnresolved: it grants nothing and is counted in
-// authz_policy_invalid_total, never read as false under a not.
+// authz_policy_invalid_total, never read as false under a not. The principal
+// is its tenant, its id and its groups: which leaves fold away depends on the
+// groups (member_of, shared), so a binding made for groups G1 and read for G2
+// could read a leaf that survives under G2 as rest's empty S (TICK-1029).
 
 // MaxUnderSet is the most org units one under leaf's set S may hold (D7).
 // Above it ExpandUnder returns *UnderSetTooLargeError, which the API answers
@@ -64,6 +68,7 @@ func (e *UnderSetTooLargeError) Error() string {
 // resolved.
 type underScope struct {
 	tenant, principal uuid.UUID
+	groups            [sha256.Size]byte // groupsFingerprint of the principal's groups
 	callerOK          bool
 	caller            []uuid.UUID
 	units             map[uuid.UUID][]uuid.UUID
@@ -85,7 +90,7 @@ func BindUnder(pol *Policy, p identity.Principal, caller []uuid.UUID, units map[
 		return nil
 	}
 	out := *pol
-	sc := &underScope{tenant: p.TenantID, principal: p.PrincipalID, callerOK: true, caller: sortedIDs(caller), units: map[uuid.UUID][]uuid.UUID{}}
+	sc := &underScope{tenant: p.TenantID, principal: p.PrincipalID, groups: groupsFingerprint(p.Groups), callerOK: true, caller: sortedIDs(caller), units: map[uuid.UUID][]uuid.UUID{}}
 	for root, ids := range units {
 		sc.units[root] = sortedIDs(ids)
 	}
@@ -222,7 +227,7 @@ func ExpandUnder(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Princip
 	if err != nil {
 		return nil, fmt.Errorf("authz: expand under: %w", err)
 	}
-	bound := bindRest(pol, identity.Principal{TenantID: tenant, PrincipalID: p.PrincipalID}, caller, units)
+	bound := bindRest(pol, identity.Principal{TenantID: tenant, PrincipalID: p.PrincipalID, Groups: p.Groups}, caller, units)
 	if !need.caller {
 		bound.under.callerOK = false // folded away: rest, not a resolved set
 	}
@@ -245,12 +250,27 @@ func bindRest(pol *Policy, p identity.Principal, caller []uuid.UUID, units map[u
 	return out
 }
 
-// scopeFor is pol's binding when it was made for p, else nil.
+// scopeFor is pol's binding when it was made for p (tenant, id and groups),
+// else nil.
 func scopeFor(pol *Policy, p identity.Principal) *underScope {
-	if pol == nil || pol.under == nil || pol.under.tenant != p.TenantID || pol.under.principal != p.PrincipalID {
+	if pol == nil || pol.under == nil || pol.under.tenant != p.TenantID || pol.under.principal != p.PrincipalID ||
+		pol.under.groups != groupsFingerprint(p.Groups) {
 		return nil
 	}
 	return pol.under
+}
+
+// groupsFingerprint identifies a set of groups: SHA-256 over the ids sorted
+// and without repeats, so the same groups in another order or listed twice
+// keep the binding. member_of and shared read the groups as a set.
+func groupsFingerprint(groups []uuid.UUID) [sha256.Size]byte {
+	h := sha256.New()
+	for _, g := range sortedIDs(groups) {
+		h.Write(g[:])
+	}
+	var out [sha256.Size]byte
+	h.Sum(out[:0])
+	return out
 }
 
 // set is leaf's set S, sorted, and whether it was resolved. A caller leaf for

@@ -136,6 +136,8 @@ func TestUnderLeafUnboundVoidsThePolicy(t *testing.T) {
 	other.PrincipalID = ptOther()
 	otherTenant := utMe()
 	otherTenant.TenantID = uuid.New()
+	otherGroups := utMe()
+	otherGroups.Groups = []uuid.UUID{ptGA()}
 	for name, tc := range map[string]struct {
 		pol *Policy
 		p   identity.Principal
@@ -143,6 +145,7 @@ func TestUnderLeafUnboundVoidsThePolicy(t *testing.T) {
 		"not bound":                  {ptWhen(t, when), utMe()},
 		"bound for another caller":   {utBound(t, when), other},
 		"bound for another tenant":   {utBound(t, when), otherTenant},
+		"bound for other groups":     {utBound(t, when), otherGroups},
 		"a listed root not bound":    {utBound(t, `{"not":`+utOf(utUnit(4))+`}`), utMe()},
 		"one of two roots not bound": {utBound(t, `{"not":`+utOf(utUnit(1), utUnit(4))+`}`), utMe()},
 	} {
