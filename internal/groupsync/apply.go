@@ -44,6 +44,10 @@ type stats struct {
 	// OrgSubtreeMax is the largest number of live units (the unit itself
 	// included) under any one unit a user belongs to.
 	OrgSubtreeMax int
+	// ClosureRows is the tenant's org_unit_closure row count after the run;
+	// ClosureRebuilt is true when the run deleted and re-inserted it.
+	ClosureRows    int
+	ClosureRebuilt bool
 	// Ignored is the number of snapshot groups and org units whose path is
 	// outside the subtree they may be written to.
 	Ignored int
@@ -105,6 +109,12 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 		return st, err
 	}
 	if err := applyOrgUnits(ctx, tx, tenantID, units, changes.Users, userIDs, maxDepth, &st); err != nil {
+		return st, err
+	}
+	// Same transaction as the tree write: both commit or neither does. A run
+	// that wrote or tombstoned no unit changed no parent_id or deleted_at.
+	st.ClosureRows, st.ClosureRebuilt, err = rebuildClosure(ctx, tx, tenantID, st.OrgUnitsWritten > 0 || st.OrgUnitsDeleted > 0)
+	if err != nil {
 		return st, err
 	}
 	return st, nil
