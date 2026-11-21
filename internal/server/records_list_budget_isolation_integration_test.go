@@ -14,9 +14,11 @@
 //     count statement and opens no SAVEPOINT list_count, so the budget gives
 //     no timing oracle on a refused request.
 //   - TestCountBudgetTenantWall: A2-8 (5) AC 2, A2-6 (b). Tenant B's 100k side
-//     rows on the value, half of them forged under tenant A's field id, change
-//     nothing in tenant A's items, total or total_state, with the count
-//     completing (exact) and with it out of budget (unknown).
+//     rows on the value, plus rows forged under tenant A's field id that
+//     reference tenant A's own record ids (the EXISTS's v.tenant_id predicate
+//     and RLS are all that keep them out), change nothing in tenant A's items,
+//     total or total_state, with the count completing (exact) and with it out
+//     of budget (unknown).
 //   - TestCountBudgetACLDeniedBroadValueLooksAbsent: A2-8 (5) AC 3, A2-6 (c).
 //     A value on 20k records the agent cannot read answers exactly like a
 //     value that exists nowhere: exact, total 0, and no count statement for
@@ -297,8 +299,8 @@ func viewOf(t *testing.T, e *etEnv, token, query string) tenantView {
 }
 
 // AC 2, A2-6 (b): tenant B's side rows on the value, including rows forged
-// under tenant A's field id, change nothing tenant A sees, whether the count
-// completes or runs out of budget.
+// under tenant A's field id that point at tenant A's own record ids, change
+// nothing tenant A sees, whether the count completes or runs out of budget.
 func TestCountBudgetTenantWall(t *testing.T) {
 	e := newFilterEnv(t)
 	aField := e.flagField(t, e.a.id, "asset", "name", "text", "ready", 100)
@@ -307,7 +309,7 @@ func TestCountBudgetTenantWall(t *testing.T) {
 	for i := range 5 {
 		mine = append(mine, e.mustCreateRec(t, "admin-a", "asset", fmt.Sprintf("hot%d", i), fmt.Sprintf(`{"short_description": "a%d", "name": "hot"}`, i)).ID)
 	}
-	e.mustCreateRec(t, "admin-a", "asset", "cold", `{"short_description": "c", "name": "cold"}`)
+	cold := e.mustCreateRec(t, "admin-a", "asset", "cold", `{"short_description": "c", "name": "cold"}`)
 	// Tenant B's own records with the value, so its side table is not empty
 	// of real rows either.
 	e.mustCreateRec(t, "admin-b", "asset", "bhot", `{"short_description": "b", "name": "hot"}`)
@@ -361,13 +363,32 @@ func TestCountBudgetTenantWall(t *testing.T) {
 		return out
 	}
 	before := look("without B's rows")
+	// Volume: 100k tenant B side rows on the value with no record behind them,
+	// half under B's field id and half under A's.
 	fakeSideRows(t, e, "text", e.b.id, bField, 50000, "'hot'")
-	// The same field id in tenant B cannot happen through the registry; forge
-	// it, so the tenant predicate alone is what keeps the rows out.
 	fakeSideRows(t, e, "text", e.b.id, aField, 50000, "'hot'")
-	var forged int
-	if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM rfv_text WHERE tenant_id = $1 AND field_id = $2 AND value = 'hot'`, e.b.id, aField).Scan(&forged); err != nil || forged != 50000 {
-		t.Fatalf("fixture: %d forged rows under A's field id in B, %v", forged, err)
+	// The forgery that can leak: tenant B rows under tenant A's field id whose
+	// record_id is each of tenant A's real records, cold included, with the
+	// value hot. The registry cannot produce them. They satisfy the EXISTS's
+	// v.record_id = r.id, v.field_id and v.value for A's records, so only its
+	// v.tenant_id = r.tenant_id predicate and forced RLS on rfv_text keep them
+	// out: a leak turns A's total 5 into 6 and surfaces cold, the newest
+	// record, in items.
+	if _, err := e.super.Exec(t.Context(), "SET session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(t.Context(), `INSERT INTO rfv_text (tenant_id, field_id, record_id, ord, value)
+		SELECT $1, $2, r.id, 0, 'hot' FROM records r WHERE r.tenant_id = $3`, e.b.id, aField, e.a.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.super.Exec(t.Context(), "SET session_replication_role = origin"); err != nil {
+		t.Fatal(err)
+	}
+	var forged, forgedCold int
+	if err := e.super.QueryRow(t.Context(), `SELECT count(*), count(*) FILTER (WHERE r.id = $4)
+		FROM rfv_text v JOIN records r ON r.tenant_id = $3 AND r.id = v.record_id
+		WHERE v.tenant_id = $1 AND v.field_id = $2 AND v.value = 'hot'`, e.b.id, aField, e.a.id, cold.ID).Scan(&forged, &forgedCold); err != nil || forged != 6 || forgedCold != 1 {
+		t.Fatalf("fixture: %d tenant B rows under A's field id reference A's records (%d the cold one), want 6 (1): %v", forged, forgedCold, err)
 	}
 	after := look("with B's rows")
 	for _, r := range runs {
