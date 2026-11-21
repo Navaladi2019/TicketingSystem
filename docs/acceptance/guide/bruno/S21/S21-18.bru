@@ -25,7 +25,7 @@ tests {
   N.status(200);
   const b = N.json();
   const mine = b.items.map(i => i.id);
-  test(`Bob lists tenant B's ${N.v('s21_b_p1_n')} priority-1 incidents`, () => { expect(b.total).to.eql(Number(N.v('s21_b_p1_n'))); expect(mine.length).to.eql(b.total); });
+  test(`Bob lists tenant B's ${N.v('s21_b_p1_n')} priority-1 incidents`, () => { expect(b.total).to.eql(Number(N.v('s21_b_p1_n'))); expect(mine.length).to.eql(b.total); expect(b.total_state).to.eql('exact'); });
   const a = new Set(JSON.parse(bru.getVar('s21_ids_p1_admin')));
   test("none of them is in tenant A's priority-1 list", () => expect(mine.filter(id => a.has(id)).length).to.eql(0));
   test("tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records", () =>

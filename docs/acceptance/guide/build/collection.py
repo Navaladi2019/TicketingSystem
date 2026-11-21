@@ -3892,19 +3892,38 @@ module.exports = (N, bru) => {
       return { status: r.status, data: r.data, ms: Date.now() - t0 };
     },
     list(v, query) { return T.call(v, 'GET', '/api/v1/records/incident?' + query); },
-    // Every record a filter lists, page by page (limit 200, next_cursor).
+    // The total contract of a list body (ADR-006-A2 A2-1): null when it holds,
+    // else what is wrong. total_state is exact, capped or unknown; total is an
+    // integer for exact (0 to 1,000) and capped (1,000) and null for unknown,
+    // never 0; total_capped is true exactly when capped (absent otherwise).
+    contract(b) {
+      if (!b || typeof b !== 'object') return 'no body';
+      const s = b.total_state;
+      if (!['exact', 'capped', 'unknown'].includes(s)) return `total_state ${JSON.stringify(s)}`;
+      if (!('total' in b)) return 'no total';
+      if (s === 'unknown' && b.total !== null) return `unknown with total ${JSON.stringify(b.total)}`;
+      if (s === 'exact' && !(Number.isInteger(b.total) && b.total >= 0 && b.total <= 1000)) return `exact with total ${JSON.stringify(b.total)}`;
+      if (s === 'capped' && b.total !== 1000) return `capped with total ${JSON.stringify(b.total)}`;
+      if ((b.total_capped === true) !== (s === 'capped')) return `total_capped ${JSON.stringify(b.total_capped)} with ${s}`;
+      return null;
+    },
+    // Every record a filter lists, page by page (limit 200, next_cursor), with
+    // each page's total_state and any page that breaks the total contract.
     async all(v, query) {
-      const items = [];
+      const items = [], states = [], broken = [];
       let cursor = null, first = null, pages = 0;
       do {
         const r = await T.list(v, query + '&limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
         if (r.status !== 200) throw new Error(`list ${query} as ${v}: HTTP ${r.status} ${JSON.stringify(r.data)}`);
         if (!first) first = r.data;
+        const bad = T.contract(r.data);
+        if (bad) broken.push(`page ${pages + 1}: ${bad}`);
+        states.push(r.data.total_state);
         items.push(...r.data.items);
         cursor = r.data.next_cursor;
         pages++;
       } while (cursor);
-      return { items, ids: items.map(i => i.id), first, pages };
+      return { items, ids: items.map(i => i.id), first, pages, states, broken };
     },
     // md5 of the ids sorted as strings and joined by ',' (as tools/expect.sql).
     md5: (ids) => crypto.createHash('md5').update([...ids].sort().join(',')).digest('hex'),
@@ -3917,13 +3936,16 @@ module.exports = (N, bru) => {
     },
     // One p95 cell: `clients` callers list with `query` for `seconds` (after
     // 2 s of warm-up that is not counted), each paced to rate/clients
-    // requests a second so the tenant stays under its 50/s rate limit.
+    // requests a second so the tenant stays under its 50/s rate limit. Counts
+    // the total_state of every 200 (unknown_share is its percentage of them)
+    // and keeps up to 5 bodies' contract breaks.
     async cell(v, query, seconds, { clients = 8, rate = 40 } = {}) {
       const tok = await T.fresh(v);
       const url = N.url('{{core_url}}/api/v1/records/incident' + (query ? '?' + query : ''));
       const period = (clients * 1000) / rate;
-      const ms = [], statuses = {};
+      const ms = [], statuses = {}, states = {}, broken = [];
       const warm = Date.now() + 2000, end = warm + seconds * 1000;
+      const started_at = new Date(warm).toISOString();
       const client = async () => {
         while (Date.now() < end) {
           const t0 = Date.now();
@@ -3932,6 +3954,12 @@ module.exports = (N, bru) => {
           if (t0 >= warm) {
             ms.push(t1 - t0);
             statuses[r.status] = (statuses[r.status] || 0) + 1;
+            if (r.status === 200) {
+              const s = r.data && r.data.total_state;
+              states[s] = (states[s] || 0) + 1;
+              const bad = T.contract(r.data);
+              if (bad && broken.length < 5) broken.push(bad);
+            }
           }
           const wait = period - (t1 - t0);
           if (wait > 0) await bru.sleep(wait);
@@ -3940,7 +3968,10 @@ module.exports = (N, bru) => {
       await Promise.all(Array.from({ length: clients }, client));
       ms.sort((a, b) => a - b);
       const q = (p) => ms.length ? ms[Math.max(0, Math.ceil(p * ms.length) - 1)] : null;
-      return { n: ms.length, rps: Math.round((ms.length / seconds) * 10) / 10, p50: q(0.5), p95: q(0.95), max: ms[ms.length - 1], statuses };
+      const ok = statuses[200] || 0;
+      const unknown_share = ok ? Math.round(((states.unknown || 0) / ok) * 1000) / 10 : null;
+      return { started_at, n: ms.length, rps: Math.round((ms.length / seconds) * 10) / 10, p50: q(0.5), p95: q(0.95), max: ms[ms.length - 1], statuses,
+               total_states: states, unknown_share, broken };
     },
   };
   return T;
@@ -3968,17 +3999,27 @@ def s21():
             n, "GET", inc + "?" + query, auth=tok,
             pre=S21_T + f"""
 const all = await T.all('{tok}', '{query}');
-bru.setVar('s21_all_{var}', JSON.stringify({{ ids: all.ids, pages: all.pages, items: all.items.map(i => ({{ priority: i.data.priority, due_at: i.data.due_at }})) }}));""",
+bru.setVar('s21_all_{var}', JSON.stringify({{ ids: all.ids, pages: all.pages, states: all.states, broken: all.broken, items: all.items.map(i => ({{ priority: i.data.priority, due_at: i.data.due_at }})) }}));""",
             desc=desc,
             tests=f"""N.status(200);
+{S21_TT}
 const all = JSON.parse(bru.getVar('s21_all_{var}'));
 const want = Number(N.v('s21_{var}_n'));
 test(`{who}: ${{all.ids.length}} records over ${{all.pages}} pages; the JSON scan has ${{want}}`, () => expect(all.ids.length).to.eql(want));
 test('the same records as the JSON scan (md5 of the sorted ids)', () => expect(require('crypto').createHash('md5').update([...all.ids].sort().join(',')).digest('hex')).to.eql(N.v('s21_{var}_md5')));
 test('no record listed twice', () => expect(new Set(all.ids).size).to.eql(all.ids.length));
-test('total: exact up to 1,000, then 1,000 and total_capped', () => {{
-  expect(N.json().total).to.eql(Math.min(want, 1000));
-  expect(N.json().total_capped === true).to.eql(want > 1000);
+const first = N.json();
+test(`every page meets the total contract (A2-1): this page ${{first.total_state}}, the limit-200 pages ${{JSON.stringify(all.states)}}`, () => {{
+  expect(T.contract(first)).to.eql(null);
+  expect(all.broken).to.eql([]);
+}});
+test('total: exact up to 1,000, capped at 1,000 past it, or null when unknown', () => {{
+  if (first.total_state === 'unknown') expect(first.total).to.eql(null);
+  else {{ expect(first.total).to.eql(Math.min(want, 1000)); expect(first.total_state).to.eql(want > 1000 ? 'capped' : 'exact'); }}
+}});
+if (want < 50) test(`a short result (${{want}} < 50 matches): exact on the first page (A2-4)`, () => {{
+  expect(first.total_state).to.eql('exact');
+  expect(first.total).to.eql(want);
 }});
 test('every listed record matches the filter', () => expect(all.items.filter(d => !({check})).length).to.eql(0));
 bru.setVar('s21_ids_{var}', JSON.stringify(all.ids));""")
@@ -4135,7 +4176,7 @@ for (const id of edit.slice(3, 5)) {
   out.edits.push({ status: r.status, id });
 }
 const vd = await T.list('admin_a_token', 'filter[due_at]=""" + S21_VD + """');
-out.vd = { status: vd.status, ids: vd.data.items.map(i => i.id), total: vd.data.total };
+out.vd = { status: vd.status, ids: vd.data.items.map(i => i.id), total: vd.data.total, total_state: vd.data.total_state };
 bru.setVar('s21_after', JSON.stringify(out));""",
                 desc="After both fields are ready: 2 more creates and 2 more edits onto " + S21_VC + ". The filter lists exactly the 10 records written on it (5 created, 5 edited, during and after indexing) and not the one moved off it; " + S21_VD + " lists exactly that one.",
                 tests="""N.status(200);
@@ -4147,12 +4188,12 @@ test('after the flip: 2 creates 201, 2 edits 200', () => {
 const want = [...d.creates, ...d.edits, ...a.creates, ...a.edits].map(x => x.id).sort();
 const got = N.json().items.map(i => i.id).sort();
 test('exactly the 10 records written on the value, none missed across the flip', () => expect(got).to.eql(want));
-test('total 10', () => expect(N.json().total).to.eql(10));
+test('total 10, exact: a short first page (A2-4)', () => { expect(N.json().total).to.eql(10); expect(N.json().total_state).to.eql('exact'); expect(N.json()).to.not.have.property('total_capped'); });
 test('the record moved off the value while indexing is not listed', () => expect(got).to.not.include(d.moved.id));
-test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eql(200); expect(a.vd.ids).to.eql([d.moved.id]); expect(a.vd.total).to.eql(1); });"""),
+test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eql(200); expect(a.vd.ids).to.eql([d.moved.id]); expect(a.vd.total).to.eql(1); expect(a.vd.total_state).to.eql('exact'); });"""),
             exact("S21.13 AC1: filter[priority]=1 as the admin gives exactly the JSON scan's rows", "admin", "admin_a_token",
                   "filter[priority]=1", "p1_admin",
-                  "Every page of `filter[priority]=1` (limit 200) as the admin, against `tools/expect.sql`'s JSON scan of tenant A (`data->>'priority' = '1'`, 1% of 400k): the same count and the same ids. `total` is exact up to 1,000.", p1),
+                  "Every page of `filter[priority]=1` (limit 200) as the admin, against `tools/expect.sql`'s JSON scan of tenant A (`data->>'priority' = '1'`, 1% of 400k): the same count and the same ids. Every page meets the total contract (ADR-006-A2 A2-1): `total_state` exact, capped or unknown; `total` exact up to 1,000, 1,000 when capped, null when unknown. A result shorter than the page answers exact (A2-4).", p1),
             exact("S21.14 AC1: filter[priority]=1 as Alice gives exactly the JSON scan's rows she may read", "Alice", "alice_token",
                   "filter[priority]=1", "p1_agent",
                   "The same filter as Alice, against the JSON scan restricted to what the default incident ACL lets her read (assigned to service-desk, or raised by her).", p1),
@@ -4168,22 +4209,22 @@ test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eq
 const none = await T.list('alice_token', 'filter[due_at]=""" + S21_NOWHERE + """');
 const ctl = await T.list('alice_token', 'filter[due_at]=""" + S21_CONTROL + """');
 const adm = await T.list('admin_a_token', 'filter[due_at]=""" + S21_HIDDEN + """');
-bru.setVar('s21_ac5', JSON.stringify({ none: { status: none.status, body: none.data }, control: { status: ctl.status, total: ctl.data.total },
-  admin: { status: adm.status, total: adm.data.total } }));""",
+bru.setVar('s21_ac5', JSON.stringify({ none: { status: none.status, body: none.data }, control: { status: ctl.status, total: ctl.data.total, total_state: ctl.data.total_state },
+  admin: { status: adm.status, total: adm.data.total, total_state: adm.data.total_state } }));""",
                 desc="seed.sql gives one tenant A record `due_at` " + S21_HIDDEN + " and no group: the admin finds it, Alice may not read it. Alice's answer for it is the same as for " + S21_NOWHERE + ", which no record has: 200, no items, total 0. The control " + S21_CONTROL + " (a service-desk record) shows her filter does find what she may read.",
                 tests="""N.status(200);
 const o = JSON.parse(bru.getVar('s21_ac5'));
-test('the admin finds the hidden value: total 1', () => { expect(o.admin.status).to.eql(200); expect(o.admin.total).to.eql(Number(N.v('s21_hidden_admin_n'))); expect(o.admin.total).to.eql(1); });
-test('Alice: no items, total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+test('the admin finds the hidden value: total 1', () => { expect(o.admin.status).to.eql(200); expect(o.admin.total).to.eql(Number(N.v('s21_hidden_admin_n'))); expect(o.admin.total).to.eql(1); expect(o.admin.total_state).to.eql('exact'); });
+test('Alice: no items, total 0, exact (never unknown: A2-4)', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); expect(N.json().total_state).to.eql('exact'); });
 test('the same status and body as a value that exists nowhere', () => { expect(o.none.status).to.eql(200); expect(N.json()).to.eql(o.none.body); });
-test('the control value she may read: total 1', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); });"""),
+test('the control value she may read: total 1, exact', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); expect(o.control.total_state).to.eql('exact'); });"""),
             req("S21.18 AC5: tenant B's priority-1 records never match tenant A's filter", "GET", inc + "?filter[priority]=1&limit=200", auth="bob_token",
                 pre=S21_T + "\nawait T.fresh('bob_token');",
                 desc="Tenant B has 50 incidents, all priority 1. Bob's own list finds them (B flagged nothing, so `priority` is still the seed type's legacy scan there, PLAN-007 D-7-6), and none of them is among the admin's S21.13 rows: tenant A's count is the tenant A scan, not the all-tenant one.",
                 tests="""N.status(200);
 const b = N.json();
 const mine = b.items.map(i => i.id);
-test(`Bob lists tenant B's ${N.v('s21_b_p1_n')} priority-1 incidents`, () => { expect(b.total).to.eql(Number(N.v('s21_b_p1_n'))); expect(mine.length).to.eql(b.total); });
+test(`Bob lists tenant B's ${N.v('s21_b_p1_n')} priority-1 incidents`, () => { expect(b.total).to.eql(Number(N.v('s21_b_p1_n'))); expect(mine.length).to.eql(b.total); expect(b.total_state).to.eql('exact'); });
 const a = new Set(JSON.parse(bru.getVar('s21_ids_p1_admin')));
 test("none of them is in tenant A's priority-1 list", () => expect(mine.filter(id => a.has(id)).length).to.eql(0));
 test("tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records", () =>
@@ -4193,29 +4234,35 @@ test("tenant A's list is the tenant A scan, short of the all-tenant scan by tena
 const secs = Number(N.v('s21_p95_seconds') || 15);
 const a = Number(N.v('s21_a_n'));
 const share = (n) => Math.round((Number(N.v(n)) / a) * 10000) / 100 + '%';
+// The sixth column: the total_state every 200 of the cell must have. Only
+// the >= 40% ACL cell is pinned (ADR-006-A2 A2-8 (7)): more than a page
+// matches, so never exact, and its count may run out of budget.
 const cells = [
-  ['admin', 'admin_a_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, no narrowing ACL', 350],
-  ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150],
-  ['admin', 'admin_a_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150],
-  ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350],
-  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL', 350],
-  ['Alice', 'alice_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150],
-  ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null],
-  ['Alice', 'alice_token', '', 'no filter (control, reported only)', null],
+  ['admin', 'admin_a_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, no narrowing ACL', 350, null],
+  ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150, null],
+  ['admin', 'admin_a_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150, null],
+  ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350, null],
+  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL', 350, ['capped', 'unknown']],
+  ['Alice', 'alice_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150, null],
+  ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null, null],
+  ['Alice', 'alice_token', '', 'no filter (control, reported only)', null, null],
 ];
 const out = [];
-for (const [who, v, q, band, limit] of cells) {
+for (const [who, v, q, band, limit, allowed] of cells) {
   const r = await T.cell(v, q, secs);
-  out.push({ who, filter: q || '(none)', band, limit_ms: limit, ...r });
-  console.log(`S21.19 ${who} ${q || '(none)'}: p50 ${r.p50} p95 ${r.p95} max ${r.max} ms, ${r.n} requests (${r.rps}/s), ${JSON.stringify(r.statuses)}`);
+  out.push({ who, filter: q || '(none)', band, limit_ms: limit, allowed_states: allowed, ...r });
+  console.log(`S21.19 ${who} ${q || '(none)'}: p50 ${r.p50} p95 ${r.p95} max ${r.max} ms, ${r.n} requests (${r.rps}/s), ${JSON.stringify(r.statuses)}, total_state ${JSON.stringify(r.total_states)}, unknown ${r.unknown_share}%`);
 }
 bru.setVar('s21_p95', JSON.stringify(out));""",
-                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL and for the >= 40% band with one (Alice); 150 ms for every other filter. No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored.",
+                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL and for the >= 40% band with one (Alice); 150 ms for every other filter. No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).",
                 tests="""N.status(200);
 const cells = JSON.parse(bru.getVar('s21_p95'));
 cells.forEach(c => {
-  test(`${c.who} ${c.filter} (${c.band}): only 200s, ${c.n} requests`, () => { expect(Object.keys(c.statuses)).to.eql(['200']); expect(c.n).to.be.above(0); });
+  test(`${c.who} ${c.filter} (${c.band}): only 200s, ${c.n} requests, p50 ${c.p50} p95 ${c.p95} max ${c.max} ms, from ${c.started_at}`, () => { expect(Object.keys(c.statuses)).to.eql(['200']); expect(c.n).to.be.above(0); });
   if (c.limit_ms !== null) test(`${c.who} ${c.filter}: p95 ${c.p95} ms <= ${c.limit_ms} ms (p50 ${c.p50}, max ${c.max})`, () => expect(c.p95).to.be.at.most(c.limit_ms));
+  test(`${c.who} ${c.filter}: every 200 meets the total contract; total_state ${JSON.stringify(c.total_states)}, unknown ${c.unknown_share}%`, () => expect(c.broken).to.eql([]));
+  if (c.allowed_states) test(`${c.who} ${c.filter}: every total_state in ${JSON.stringify(c.allowed_states)} (unknown ${c.unknown_share}%)`, () =>
+    expect(Object.keys(c.total_states).filter(s => !c.allowed_states.includes(s))).to.eql([]));
 });"""),
         ],
     }

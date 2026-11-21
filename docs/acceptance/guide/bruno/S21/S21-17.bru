@@ -20,18 +20,18 @@ script:pre-request {
   const none = await T.list('alice_token', 'filter[due_at]=2026-12-31T23:58:59Z');
   const ctl = await T.list('alice_token', 'filter[due_at]=2026-12-31T23:57:59Z');
   const adm = await T.list('admin_a_token', 'filter[due_at]=2026-12-31T23:59:59Z');
-  bru.setVar('s21_ac5', JSON.stringify({ none: { status: none.status, body: none.data }, control: { status: ctl.status, total: ctl.data.total },
-    admin: { status: adm.status, total: adm.data.total } }));
+  bru.setVar('s21_ac5', JSON.stringify({ none: { status: none.status, body: none.data }, control: { status: ctl.status, total: ctl.data.total, total_state: ctl.data.total_state },
+    admin: { status: adm.status, total: adm.data.total, total_state: adm.data.total_state } }));
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);
   const o = JSON.parse(bru.getVar('s21_ac5'));
-  test('the admin finds the hidden value: total 1', () => { expect(o.admin.status).to.eql(200); expect(o.admin.total).to.eql(Number(N.v('s21_hidden_admin_n'))); expect(o.admin.total).to.eql(1); });
-  test('Alice: no items, total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+  test('the admin finds the hidden value: total 1', () => { expect(o.admin.status).to.eql(200); expect(o.admin.total).to.eql(Number(N.v('s21_hidden_admin_n'))); expect(o.admin.total).to.eql(1); expect(o.admin.total_state).to.eql('exact'); });
+  test('Alice: no items, total 0, exact (never unknown: A2-4)', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); expect(N.json().total_state).to.eql('exact'); });
   test('the same status and body as a value that exists nowhere', () => { expect(o.none.status).to.eql(200); expect(N.json()).to.eql(o.none.body); });
-  test('the control value she may read: total 1', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); });
+  test('the control value she may read: total 1, exact', () => { expect(o.control.status).to.eql(200); expect(o.control.total).to.eql(1); expect(o.control.total_state).to.eql('exact'); });
 }
 
 docs {
