@@ -35,21 +35,26 @@
 package server_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
@@ -98,7 +103,8 @@ type gateSpike struct {
 	code, items      int
 	state            string
 	totalNull        bool
-	phase, countStmt float64 // ms
+	phase, countStmt float64 // ms; phase leaves out set
+	set              float64 // ms: TICK-1083's injected SET LOCAL round trip, -1 if none
 	latency          float64 // ms, client side
 	after            []string
 }
@@ -137,7 +143,7 @@ func TestA2Gate(t *testing.T) {
 	normal := e.h
 	skip := e.handlerWith(t, server.WithSkipCount())
 
-	w("# TICK-1048 A2-8 (2), (2a), (3a), raw (%s)", time.Now().UTC().Format(time.RFC3339))
+	w("# TICK-1048 / TICK-1083 A2-8 (2), (2a), (3a), raw (%s)", time.Now().UTC().Format(time.RFC3339))
 	w("")
 	t0 := time.Now()
 	e.seed(t)
@@ -305,23 +311,165 @@ func TestA2Gate(t *testing.T) {
 		e.scalar(t, `SELECT string_agg(relname || ' ' || round(100.0 * relallvisible / nullif(relpages, 0)) || '% all-visible', ', ' ORDER BY relname)
 			FROM pg_class WHERE relname IN ('rfv_num', 'rfv_text', 'rfv_bool')`))
 
+	// TICK-1083 (T-A2-4b): the spike runs on up to three cells, each picked
+	// from its own candidate list. "base" is TICK-1048's: the slowest plain
+	// count under the server's settings. "spill" is a hash-join count with
+	// work_mem 64kB that writes temp files before the budget cancels it.
+	// "parallel" is a count whose plan has a Gather that launches workers. A
+	// cell's settings are a SET LOCAL inside the handler's SAVEPOINT, just
+	// before the count (gateCountTracer), so the page statement runs on the
+	// server's settings. That SET LOCAL is one more round trip inside the
+	// count phase; the phase is reported without it, and the trip apart.
+	// NAVA_PERF_SPIKE_CELLS (base,spill,parallel) picks the cells.
+	type cand struct {
+		label, token, q string
+		params          map[string]string
+	}
+	type cell struct {
+		name, why string
+		cands     []cand
+		// qualifies says whether a candidate's EXPLAIN plan has the shape the
+		// cell needs (a spill, a launched Gather); "" means it does.
+		qualifies func(plan string) string
+	}
+	spillParams := func(extra map[string]string) map[string]string {
+		p := map[string]string{"work_mem": "64kB", "max_parallel_workers_per_gather": "0"}
+		maps.Copy(p, extra)
+		return p
+	}
+	cells := []cell{
+		{name: "base", why: "TICK-1048's cell: the slowest plain count under the server's settings", cands: []cand{
+			{"a6, pk = 3 (broad 50% value, 6% ACL)", "a6", "filter%5Bpk%5D=3", nil},
+			{"a6, three broad fields", "a6", "filter%5Bpk%5D=3&filter%5Bpt%5D=x&filter%5Bpb%5D=true", nil},
+			{"a6, pk = 20 (partly correlated, 500 visible)", "a6", "filter%5Bpk%5D=20", nil},
+			{"a50, pk = 3 (broad 50% value, 50% ACL)", "a50", "filter%5Bpk%5D=3", nil},
+			{"a6, pk = 10 (anti-correlated, 0 visible)", "a6", "filter%5Bpk%5D=10", nil},
+			{"a6, pk < 5 (every 3 and 4: 78% of the side rows)", "a6", "filter%5Bpk%5D%5Blt%5D=5", nil},
+			{"a50, pw = 1 (704k invisible side rows, 100 visible)", "a50", "filter%5Bpw%5D=1", nil},
+			{"a6, pw = 1 (704k invisible side rows, 100 visible)", "a6", "filter%5Bpw%5D=1", nil},
+		}},
+		{name: "spill", why: "a hash-join count with work_mem 64kB that spills to temp files before the budget cancels it", cands: []cand{
+			{"a50, pk = 3", "a50", "filter%5Bpk%5D=3", spillParams(nil)},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", spillParams(nil)},
+			{"a50, pk = 3", "a50", "filter%5Bpk%5D=3", spillParams(map[string]string{"enable_nestloop": "off"})},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", spillParams(map[string]string{"enable_nestloop": "off"})},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", spillParams(map[string]string{"enable_nestloop": "off", "enable_mergejoin": "off"})},
+			{"a50, pk < 5", "a50", "filter%5Bpk%5D%5Blt%5D=5", spillParams(map[string]string{"enable_nestloop": "off", "enable_mergejoin": "off"})},
+			{"a50, pw = 1 and pk < 5", "a50", "filter%5Bpw%5D=1&filter%5Bpk%5D%5Blt%5D=5", spillParams(map[string]string{"enable_nestloop": "off", "enable_mergejoin": "off"})},
+			{"a50, three broad fields", "a50", "filter%5Bpk%5D=3&filter%5Bpt%5D=x&filter%5Bpb%5D=true", spillParams(map[string]string{"enable_nestloop": "off", "enable_mergejoin": "off"})},
+		}, qualifies: func(plan string) string {
+			// The first UNION ALL branch runs when the budget expires.
+			b := gateBranch1(plan)
+			if !strings.Contains(b, "Hash Semi Join") && !strings.Contains(b, "Hash Join") {
+				return "no hash join in branch 1"
+			}
+			if !strings.Contains(b, "temp written=") {
+				return "no temp writes in branch 1"
+			}
+			return ""
+		}},
+		{name: "parallel", why: "a count whose plan has a Gather that launches workers", cands: []cand{
+			{"a50, pk = 3", "a50", "filter%5Bpk%5D=3", nil},
+			{"a6, three broad fields", "a6", "filter%5Bpk%5D=3&filter%5Bpt%5D=x&filter%5Bpb%5D=true", nil},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", map[string]string{"parallel_setup_cost": "0", "parallel_tuple_cost": "0"}},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", map[string]string{"parallel_setup_cost": "0", "parallel_tuple_cost": "0", "max_parallel_workers_per_gather": "1"}},
+			{"a50, pw = 1", "a50", "filter%5Bpw%5D=1", map[string]string{"enable_nestloop": "off"}},
+			{"a50, pk < 5", "a50", "filter%5Bpk%5D%5Blt%5D=5", map[string]string{"enable_nestloop": "off"}},
+			{"a50, pw = 1 and pk < 5", "a50", "filter%5Bpw%5D=1&filter%5Bpk%5D%5Blt%5D=5", map[string]string{"enable_nestloop": "off"}},
+		}, qualifies: func(plan string) string {
+			// A launched Gather in the first UNION ALL branch that is still
+			// running at the budget (EXPLAIN total >= 1.25 x budget): the
+			// cancel lands while its workers run.
+			b := gateBranch1(plan)
+			m := gateGather.FindStringSubmatch(b)
+			if m == nil {
+				return "no Gather in branch 1"
+			}
+			if !gateWorkersLaunched.MatchString(b) {
+				return "no worker launched in branch 1"
+			}
+			var total float64
+			_, _ = fmt.Sscanf(m[1], "%g", &total)
+			if total < 1.25*float64(store.CountBudget.Milliseconds()) {
+				return fmt.Sprintf("branch-1 Gather ends at %.0f ms (EXPLAIN)", total)
+			}
+			return ""
+		}},
+	}
+	want := map[string]bool{}
+	for _, c := range strings.Split(cmp.Or(os.Getenv("NAVA_PERF_SPIKE_CELLS"), "base,spill,parallel"), ",") {
+		want[strings.TrimSpace(c)] = true
+	}
+
+	// setOf is the SET LOCAL statements a cell's settings take.
+	setOf := func(params map[string]string) string {
+		var ss []string
+		for _, k := range slices.Sorted(maps.Keys(params)) {
+			ss = append(ss, "SET LOCAL "+k+" = '"+params[k]+"'")
+		}
+		return strings.Join(ss, "; ")
+	}
+	paramsOf := func(params map[string]string) string {
+		if len(params) == 0 {
+			return "server settings"
+		}
+		var kv []string
+		for _, k := range slices.Sorted(maps.Keys(params)) {
+			kv = append(kv, k+" = "+params[k])
+		}
+		return strings.Join(kv, ", ")
+	}
+	var setErrors atomic.Int64
+	pools := map[string]*pgxpool.Pool{}
+	handlers := map[string]http.Handler{}
+	// A cell's pool traces like e.pool and, through gateCountTracer, sends
+	// the cell's SET LOCAL right after the handler's SAVEPOINT list_count:
+	// the settings hold for the count statement alone and end at ROLLBACK TO.
+	poolFor := func(params map[string]string) (*pgxpool.Pool, http.Handler) {
+		if len(params) == 0 {
+			return e.pool, normal
+		}
+		key := paramsOf(params)
+		if p, ok := pools[key]; ok {
+			return p, handlers[key]
+		}
+		pc := e.pool.Config().Copy()
+		pc.ConnConfig.Tracer = gateCountTracer{set: setOf(params), errs: &setErrors}
+		p, err := pgxpool.NewWithConfig(t.Context(), pc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(p.Close)
+		pools[key], handlers[key] = p, e.handlerWith(t, server.WithPool(p))
+		return p, handlers[key]
+	}
+
 	// The count statement of a request, as the handler sent it.
-	countOf := func(token, q string) (perfStmt, bool) {
+	countOf := func(h http.Handler, token, q, set string) (perfStmt, bool) {
 		tr := newPerfTrace()
-		rec := serveOn(context.WithValue(t.Context(), perfTraceKey{}, tr), normal, http.MethodGet, "/api/v1/records/ticket?"+q, token, "", "")
+		rec := serveOn(context.WithValue(t.Context(), perfTraceKey{}, tr), h, http.MethodGet, "/api/v1/records/ticket?"+q, token, "", "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("candidate %s as %s = %d: %s", q, token, rec.Code, rec.Body)
 		}
 		for i, s := range tr.stmts {
-			if strings.HasPrefix(strings.TrimSpace(s.SQL), "SAVEPOINT list_count") && i+1 < len(tr.stmts) {
-				return tr.stmts[i+1], true
+			if strings.HasPrefix(strings.TrimSpace(s.SQL), "SAVEPOINT list_count") {
+				for _, x := range tr.stmts[i+1:] {
+					if set == "" || x.SQL != set {
+						return x, true
+					}
+				}
 			}
 		}
 		return perfStmt{}, false
 	}
-	explain := func(s perfStmt) (string, float64) {
+	explain := func(set string, s perfStmt) (string, float64) {
 		var lines []string
 		if err := tenancy.InTenantTx(t.Context(), e.pool, large, func(tx pgx.Tx) error {
+			if set != "" {
+				if _, err := tx.Exec(t.Context(), set); err != nil {
+					return err
+				}
+			}
 			rows, err := tx.Query(t.Context(), "EXPLAIN (ANALYZE, BUFFERS, SETTINGS) "+s.SQL, s.Args...)
 			if err != nil {
 				return err
@@ -343,9 +491,14 @@ func TestA2Gate(t *testing.T) {
 	}
 	// plain is the count's own time without EXPLAIN's per-row timing, as the
 	// handler pays it: EXPLAIN (ANALYZE) inflates a hash build severalfold.
-	plain := func(s perfStmt) float64 {
+	plain := func(set string, s perfStmt) float64 {
 		var ms float64
 		if err := tenancy.InTenantTx(t.Context(), e.pool, large, func(tx pgx.Tx) error {
+			if set != "" {
+				if _, err := tx.Exec(t.Context(), set); err != nil {
+					return err
+				}
+			}
 			var n int64
 			t0 := time.Now()
 			err := tx.QueryRow(t.Context(), s.SQL, s.Args...).Scan(&n)
@@ -356,186 +509,328 @@ func TestA2Gate(t *testing.T) {
 		}
 		return ms
 	}
-	type cand struct{ label, token, q string }
-	cands := []cand{
-		{"a6, pk = 3 (broad 50% value, 6% ACL)", "a6", "filter%5Bpk%5D=3"},
-		{"a6, three broad fields", "a6", "filter%5Bpk%5D=3&filter%5Bpt%5D=x&filter%5Bpb%5D=true"},
-		{"a6, pk = 20 (partly correlated, 500 visible)", "a6", "filter%5Bpk%5D=20"},
-		{"a50, pk = 3 (broad 50% value, 50% ACL)", "a50", "filter%5Bpk%5D=3"},
-		{"a6, pk = 10 (anti-correlated, 0 visible)", "a6", "filter%5Bpk%5D=10"},
-		{"a6, pk < 5 (every 3 and 4: 78% of the side rows)", "a6", "filter%5Bpk%5D%5Blt%5D=5"},
-		{"a50, pw = 1 (704k invisible side rows, 100 visible)", "a50", "filter%5Bpw%5D=1"},
-		{"a6, pw = 1 (704k invisible side rows, 100 visible)", "a6", "filter%5Bpw%5D=1"},
+	// temp reads pg_stat_database's cumulative counters, which only show that
+	// a spill happened, and what is in pgsql_tmp now, which shows a leak:
+	// pg_ls_tmpdir() lists its files; pg_ls_dir also lists a parallel hash's
+	// shared fileset directories, which pg_ls_tmpdir() skips.
+	type tempReading struct {
+		files, bytes, tmpFiles, tmpBytes, tmpEntries, workers int64
 	}
-	w("")
-	w("Unbudgeted count time of the handler's count statement, as nava_app: 3 plain runs (the spike picks on these) and 3 EXPLAIN (ANALYZE, BUFFERS) runs:")
-	w("")
-	w("| Candidate | count statement? | plain runs, ms | plain median ms | EXPLAIN runs, ms | EXPLAIN median ms |")
-	w("| --- | --- | --- | --- | --- | --- |")
-	var pick *cand
-	var pickMS float64
-	for i, c := range cands {
-		s, ok := countOf(c.token, c.q)
-		if !ok {
-			w("| %s | no: the first page holds every match (A2-4 shortcut) | | | | |", c.label)
-			continue
-		}
-		var ms []float64
-		var plan string
-		for range 3 {
-			p, x := explain(s)
-			ms, plan = append(ms, x), p
-		}
-		slices.Sort(ms)
-		pl := []float64{plain(s), plain(s), plain(s)}
-		slices.Sort(pl)
-		w("| %s | yes | %.1f, %.1f, %.1f | %.1f | %.1f, %.1f, %.1f | %.1f |", c.label, pl[0], pl[1], pl[2], pl[1], ms[0], ms[1], ms[2], ms[1])
-		plans = append(plans, "### S-A2-cancel candidate, unbudgeted count: "+c.label+"\n\n```sql\n"+strings.TrimSpace(s.SQL)+"\n```\n\n```\n"+plan+"\n```")
-		writePlans()
-		if pl[1] > pickMS {
-			pick, pickMS = &cands[i], pl[1]
-		}
-	}
-	if pick == nil || pickMS <= float64(store.CountBudget.Milliseconds()) {
-		w("")
-		w("**No candidate count exceeds CountBudget unbudgeted: S-A2-cancel cannot run.**")
-		t.Fatal("no candidate count exceeds the budget")
-	}
-	w("")
-	w("Spike cell: **%s**, unbudgeted plain median %.1f ms against a %s budget.", pick.label, pickMS, store.CountBudget)
-
-	path := "/api/v1/records/ticket?" + pick.q
-	one := func(run string) gateSpike {
-		tr := newPerfTrace()
-		t0 := time.Now()
-		rec := serveOn(context.WithValue(t.Context(), perfTraceKey{}, tr), normal, http.MethodGet, path, pick.token, "", "")
-		g := gateSpike{run: run, code: rec.Code, latency: fiMS(time.Since(t0)), phase: -1, countStmt: -1}
-		var raw map[string]json.RawMessage
-		var p listPage
-		if json.Unmarshal(rec.Body.Bytes(), &raw) == nil && json.Unmarshal(rec.Body.Bytes(), &p) == nil {
-			g.state, g.items, g.totalNull = p.State, len(p.Items), string(raw["total"]) == "null"
-		}
-		sp := -1
-		for i, s := range tr.stmts {
-			sql := strings.TrimSpace(s.SQL)
-			switch {
-			case strings.HasPrefix(sql, "SAVEPOINT list_count"):
-				sp = i
-			case strings.HasPrefix(sql, "ROLLBACK TO SAVEPOINT list_count") && sp >= 0:
-				g.phase = fiMS(s.Start + s.Dur - tr.stmts[sp].Start)
-				if sp+1 < i {
-					g.countStmt = fiMS(tr.stmts[sp+1].Dur)
-				}
-				for _, a := range tr.stmts[i+1:] {
-					f := firstLine(normSQL(a.SQL))
-					g.after = append(g.after, f[:min(40, len(f))])
-				}
-			}
-		}
-		return g
-	}
-	temp := func(label string) string {
-		var files, bytes int64
-		if err := e.pool.QueryRow(t.Context(), `SELECT temp_files, temp_bytes FROM pg_stat_database WHERE datname = current_database()`).Scan(&files, &bytes); err != nil {
+	temp := func() tempReading {
+		var r tempReading
+		if err := e.super.QueryRow(t.Context(), `SELECT temp_files, temp_bytes FROM pg_stat_database WHERE datname = current_database()`).Scan(&r.files, &r.bytes); err != nil {
 			t.Fatal(err)
 		}
-		return fmt.Sprintf("%s: temp_files %d, temp_bytes %d", label, files, bytes)
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*), coalesce(sum(size), 0) FROM pg_ls_tmpdir()`).Scan(&r.tmpFiles, &r.tmpBytes); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_ls_dir('base/pgsql_tmp', true, false)`).Scan(&r.tmpEntries); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'parallel worker'`).Scan(&r.workers); err != nil {
+			t.Fatal(err)
+		}
+		return r
 	}
-	tb := temp("before")
-	var spikes []gateSpike
-	for i := range 5 {
-		_ = one(fmt.Sprintf("warm-up %d", i))
+	tempStr := func(label string, r tempReading) string {
+		return fmt.Sprintf("%s: temp_files %d, temp_bytes %d; pg_ls_tmpdir() %d files (%d bytes); base/pgsql_tmp entries %d; parallel workers running %d",
+			label, r.files, r.bytes, r.tmpFiles, r.tmpBytes, r.tmpEntries, r.workers)
 	}
-	floorSpike := e.transportFloor(t, clients)
-	for range 100 {
-		spikes = append(spikes, one("1-client"))
-	}
-	per := perfEnvInt("NAVA_PERF_SPIKE_PER_CLIENT", 25)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	for range clients {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for range per {
-				g := one(fmt.Sprintf("%d-client", clients))
-				mu.Lock()
-				spikes = append(spikes, g)
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-	ta := temp("after")
-	time.Sleep(60 * time.Second)
-	t60 := temp("after 60 s")
-	w("- transport floor before the spike: p50 %.2f ms; other containers: %v", pct(floorSpike, .5), foreignContainers(t.Context()))
-	w("- %s; %s; %s", tb, ta, t60)
 
-	csv := &strings.Builder{}
-	csv.WriteString("run,status,total_state,total_null,items,count_phase_ms,count_stmt_ms,latency_ms,statements_after_rollback_to\n")
-	for _, s := range spikes {
-		fmt.Fprintf(csv, "%s,%d,%s,%v,%d,%.3f,%.3f,%.3f,%s\n", s.run, s.code, s.state, s.totalNull, s.items, s.phase, s.countStmt, s.latency, strings.Join(s.after, " | "))
-	}
-	_ = os.WriteFile(filepath.Join(dir, "spike-samples.csv"), []byte(csv.String()), 0o600)
-	w("")
-	w("| Run | n | status 200 + unknown + total null + full page | further statement after ROLLBACK TO | count phase p50 / p95 / p99 / max ms | p99 overshoot over %s | client latency p50 / p95 ms |", store.CountBudget)
-	w("| --- | --- | --- | --- | --- | --- | --- |")
+	// P3-36's host gates around each cell (TICK-1083): a cell scored beside
+	// a busy host is not evidence.
 	allPass := true
-	for _, run := range []string{"1-client", fmt.Sprintf("%d-client", clients)} {
-		var ph, lat []time.Duration
-		ok, further := 0, 0
-		n := 0
-		for _, s := range spikes {
-			if s.run != run {
+	var verdicts []string
+	for _, c := range cells {
+		if !want[c.name] {
+			continue
+		}
+		w("")
+		w("### Cell %s: %s", c.name, c.why)
+		w("")
+		cellBefore := host("cell " + c.name + " host gate, before")
+		w("")
+		w("Unbudgeted count time of the handler's count statement, as nava_app: 3 plain runs (the cell picks on these) and 3 EXPLAIN (ANALYZE, BUFFERS) runs:")
+		w("")
+		w("| Candidate | settings | count statement? | plan shape | plain runs, ms | plain median ms | EXPLAIN runs, ms | EXPLAIN median ms |")
+		w("| --- | --- | --- | --- | --- | --- | --- | --- |")
+		var pick *cand
+		var pickMS float64
+		for i, cd := range c.cands {
+			_, h := poolFor(cd.params)
+			set := setOf(cd.params)
+			s, ok := countOf(h, cd.token, cd.q, set)
+			if !ok {
+				w("| %s | %s | no: the first page holds every match (A2-4 shortcut) | | | | | |", cd.label, paramsOf(cd.params))
 				continue
 			}
-			n++
-			if s.code == http.StatusOK && s.state == "unknown" && s.totalNull && s.items == 50 {
-				ok++
+			var ms []float64
+			var plan string
+			for range 3 {
+				p, x := explain(set, s)
+				ms, plan = append(ms, x), p
 			}
-			if len(s.after) > 0 {
-				further++
+			slices.Sort(ms)
+			pl := []float64{plain(set, s), plain(set, s), plain(set, s)}
+			slices.Sort(pl)
+			shape, bad := "any", ""
+			if c.qualifies != nil {
+				if bad = c.qualifies(plan); bad == "" {
+					shape = "qualifies"
+				} else {
+					shape = bad
+				}
 			}
-			if s.phase >= 0 {
-				ph = append(ph, time.Duration(s.phase*float64(time.Millisecond)))
-			}
-			lat = append(lat, time.Duration(s.latency*float64(time.Millisecond)))
-		}
-		p99 := pct(ph, .99)
-		over := p99 - float64(store.CountBudget.Milliseconds())
-		pass := ok == n && further == n && len(ph) == n && over <= gateOvershootMS
-		allPass = allPass && pass
-		w("| %s | %d | %d | %d | %.1f / %.1f / %.1f / %.1f | **%+.1f ms** (limit +%.0f) | %.1f / %.1f |", run, n, ok, further,
-			pct(ph, .5), pct(ph, .95), p99, pct(ph, 1), over, gateOvershootMS, pct(lat, .5), pct(lat, .95))
-	}
-	w("")
-	w("Count statement alone (QueryRow to its error, client side) on the unknown answers, and the two round trips around it (SAVEPOINT + SET LOCAL Exec, ROLLBACK TO Exec):")
-	w("")
-	w("| Run | unknown n | count statement p50 / p99 / max ms | statement overshoot p99 | two round trips p50 / p99 ms |")
-	w("| --- | --- | --- | --- | --- |")
-	for _, run := range []string{"1-client", fmt.Sprintf("%d-client", clients)} {
-		var cs, rt []time.Duration
-		for _, s := range spikes {
-			if s.run == run && s.state == "unknown" && s.countStmt >= 0 {
-				cs = append(cs, time.Duration(s.countStmt*float64(time.Millisecond)))
-				rt = append(rt, time.Duration((s.phase-s.countStmt)*float64(time.Millisecond)))
+			w("| %s | %s | yes | %s | %.1f, %.1f, %.1f | %.1f | %.1f, %.1f, %.1f | %.1f |", cd.label, paramsOf(cd.params), shape, pl[0], pl[1], pl[2], pl[1], ms[0], ms[1], ms[2], ms[1])
+			plans = append(plans, "### Cell "+c.name+", unbudgeted count: "+cd.label+" ("+paramsOf(cd.params)+")\n\n```sql\n"+strings.TrimSpace(s.SQL)+"\n```\n\n```\n"+plan+"\n```")
+			writePlans()
+			if bad == "" && pl[1] > pickMS {
+				pick, pickMS = &c.cands[i], pl[1]
 			}
 		}
-		w("| %s | %d | %.1f / %.1f / %.1f | %+.1f ms | %.1f / %.1f |", run, len(cs), pct(cs, .5), pct(cs, .99), pct(cs, 1),
-			pct(cs, .99)-float64(store.CountBudget.Milliseconds()), pct(rt, .5), pct(rt, .99))
-	}
-	if len(spikes) > 0 {
+		if pick == nil || pickMS <= float64(store.CountBudget.Milliseconds()) {
+			w("")
+			w("**Cell %s: no qualifying candidate count exceeds CountBudget unbudgeted: not scored.**", c.name)
+			verdicts = append(verdicts, c.name+": NOT SCORED")
+			allPass = false
+			continue
+		}
 		w("")
-		w("Statements after ROLLBACK TO in one request: %s", strings.Join(spikes[0].after, " | "))
+		w("Spike cell %s: **%s** (%s), unbudgeted plain median %.1f ms against a %s budget.", c.name, pick.label, paramsOf(pick.params), pickMS, store.CountBudget)
+
+		_, h := poolFor(pick.params)
+		set := setOf(pick.params)
+		path := "/api/v1/records/ticket?" + pick.q
+		one := func(run string) gateSpike {
+			tr := newPerfTrace()
+			t0 := time.Now()
+			rec := serveOn(context.WithValue(t.Context(), perfTraceKey{}, tr), h, http.MethodGet, path, pick.token, "", "")
+			g := gateSpike{run: run, code: rec.Code, latency: fiMS(time.Since(t0)), phase: -1, countStmt: -1, set: -1}
+			var raw map[string]json.RawMessage
+			var p listPage
+			if json.Unmarshal(rec.Body.Bytes(), &raw) == nil && json.Unmarshal(rec.Body.Bytes(), &p) == nil {
+				g.state, g.items, g.totalNull = p.State, len(p.Items), string(raw["total"]) == "null"
+			}
+			sp := -1
+			for i, s := range tr.stmts {
+				sql := strings.TrimSpace(s.SQL)
+				switch {
+				case strings.HasPrefix(sql, "SAVEPOINT list_count"):
+					sp = i
+				case strings.HasPrefix(sql, "ROLLBACK TO SAVEPOINT list_count") && sp >= 0:
+					g.phase = fiMS(s.Start + s.Dur - tr.stmts[sp].Start)
+					for _, x := range tr.stmts[sp+1 : i] {
+						if set != "" && x.SQL == set {
+							g.set = fiMS(x.Dur)
+							g.phase -= g.set
+						} else {
+							g.countStmt = fiMS(x.Dur)
+						}
+					}
+					for _, a := range tr.stmts[i+1:] {
+						f := firstLine(normSQL(a.SQL))
+						g.after = append(g.after, f[:min(40, len(f))])
+					}
+				}
+			}
+			return g
+		}
+		tb := temp()
+		var spikes []gateSpike
+		for i := range 5 {
+			_ = one(fmt.Sprintf("warm-up %d", i))
+		}
+		floorSpike := e.transportFloor(t, clients)
+		for range 100 {
+			spikes = append(spikes, one("1-client"))
+		}
+		per := perfEnvInt("NAVA_PERF_SPIKE_PER_CLIENT", 25)
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for range clients {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range per {
+					g := one(fmt.Sprintf("%d-client", clients))
+					mu.Lock()
+					spikes = append(spikes, g)
+					mu.Unlock()
+				}
+			}()
+		}
+		wg.Wait()
+		ta := temp()
+		time.Sleep(60 * time.Second)
+		t60 := temp()
+		w("- transport floor before the spike: p50 %.2f ms; other containers: %v", pct(floorSpike, .5), foreignContainers(t.Context()))
+		w("- %s", tempStr("before", tb))
+		w("- %s", tempStr("after", ta))
+		w("- %s", tempStr("after 60 s", t60))
+		w("- temp files written during the spike (cumulative counter; it shows the spill, not a leak): %d files, %d bytes", ta.files-tb.files, ta.bytes-tb.bytes)
+
+		name := "spike-samples.csv"
+		if c.name != "base" {
+			name = "spike-samples-" + c.name + ".csv"
+		}
+		csv := &strings.Builder{}
+		csv.WriteString("run,status,total_state,total_null,items,count_phase_ms,count_stmt_ms,harness_set_local_ms,latency_ms,statements_after_rollback_to\n")
+		for _, s := range spikes {
+			fmt.Fprintf(csv, "%s,%d,%s,%v,%d,%.3f,%.3f,%.3f,%.3f,%s\n", s.run, s.code, s.state, s.totalNull, s.items, s.phase, s.countStmt, s.set, s.latency, strings.Join(s.after, " | "))
+		}
+		_ = os.WriteFile(filepath.Join(dir, name), []byte(csv.String()), 0o600)
+		w("")
+		w("| Run | n | status 200 + unknown + total null + full page | further statement after ROLLBACK TO | count phase p50 / p95 / p99 / max ms | p99 overshoot over %s | client latency p50 / p95 ms |", store.CountBudget)
+		w("| --- | --- | --- | --- | --- | --- | --- |")
+		pass := true
+		for _, run := range []string{"1-client", fmt.Sprintf("%d-client", clients)} {
+			var ph, lat []time.Duration
+			ok, further, n := 0, 0, 0
+			for _, s := range spikes {
+				if s.run != run {
+					continue
+				}
+				n++
+				if s.code == http.StatusOK && s.state == "unknown" && s.totalNull && s.items == 50 {
+					ok++
+				}
+				if len(s.after) > 0 {
+					further++
+				}
+				if s.phase >= 0 {
+					ph = append(ph, time.Duration(s.phase*float64(time.Millisecond)))
+				}
+				lat = append(lat, time.Duration(s.latency*float64(time.Millisecond)))
+			}
+			p99 := pct(ph, .99)
+			over := p99 - float64(store.CountBudget.Milliseconds())
+			pass = pass && ok == n && further == n && len(ph) == n && over <= gateOvershootMS
+			w("| %s | %d | %d | %d | %.1f / %.1f / %.1f / %.1f | **%+.1f ms** (limit +%.0f) | %.1f / %.1f |", run, n, ok, further,
+				pct(ph, .5), pct(ph, .95), p99, pct(ph, 1), over, gateOvershootMS, pct(lat, .5), pct(lat, .95))
+		}
+		w("")
+		w("Count statement alone (QueryRow to its error, client side) on the unknown answers, and the two round trips around it (SAVEPOINT + SET LOCAL Exec, ROLLBACK TO Exec):")
+		w("")
+		w("| Run | unknown n | count statement p50 / p99 / max ms | statement overshoot p99 | two round trips p50 / p99 ms |")
+		w("| --- | --- | --- | --- | --- |")
+		for _, run := range []string{"1-client", fmt.Sprintf("%d-client", clients)} {
+			var cs, rt []time.Duration
+			for _, s := range spikes {
+				if s.run == run && s.state == "unknown" && s.countStmt >= 0 {
+					cs = append(cs, time.Duration(s.countStmt*float64(time.Millisecond)))
+					rt = append(rt, time.Duration((s.phase-s.countStmt)*float64(time.Millisecond)))
+				}
+			}
+			w("| %s | %d | %.1f / %.1f / %.1f | %+.1f ms | %.1f / %.1f |", run, len(cs), pct(cs, .5), pct(cs, .99), pct(cs, 1),
+				pct(cs, .99)-float64(store.CountBudget.Milliseconds()), pct(rt, .5), pct(rt, .99))
+		}
+		if set != "" {
+			var sd []time.Duration
+			for _, s := range spikes {
+				if s.set >= 0 {
+					sd = append(sd, time.Duration(s.set*float64(time.Millisecond)))
+				}
+			}
+			w("")
+			w("The harness's SET LOCAL (`%s`), sent after SAVEPOINT and left out of the count phase above: %d of %d requests, p50 %.2f / p99 %.2f ms; failed %d times.",
+				set, len(sd), len(spikes), pct(sd, .5), pct(sd, .99), setErrors.Load())
+		}
+		if len(spikes) > 0 {
+			w("")
+			w("Statements after ROLLBACK TO in one request: %s", strings.Join(spikes[0].after, " | "))
+		}
+		var notes []string
+		w("")
+		if cellAfter := host("cell " + c.name + " host gate, after"); !cellBefore.ok() || !cellAfter.ok() {
+			pass = false
+			notes = append(notes, "INCONCLUSIVE: a host gate failed")
+		}
+		if setErrors.Load() > 0 {
+			pass = false
+			notes = append(notes, "the harness's SET LOCAL failed")
+		}
+		if c.name == "spill" {
+			if ta.files <= tb.files {
+				pass = false
+				notes = append(notes, "no temp file written during the spike: the cell did not spill")
+			}
+			if ta.tmpFiles != 0 || ta.tmpEntries != 0 || t60.tmpFiles != 0 || t60.tmpEntries != 0 {
+				pass = false
+				notes = append(notes, "pgsql_tmp not empty after the run")
+			}
+		}
+		if ta.workers != 0 || t60.workers != 0 {
+			pass = false
+			notes = append(notes, "parallel workers still running after the run")
+		}
+		v := "PASS"
+		if !pass {
+			v = "FAIL"
+		}
+		if len(notes) > 0 {
+			v += " (" + strings.Join(notes, "; ") + ")"
+		}
+		w("")
+		w("**(3a) cell %s verdict: %s**", c.name, v)
+		verdicts = append(verdicts, c.name+": "+v)
+		allPass = allPass && pass
 	}
 	w("")
 	if allPass {
-		w("**(3a) verdict: PASS** (temp readings above)")
+		w("**(3a) verdict: PASS** (%s)", strings.Join(verdicts, "; "))
 	} else {
-		w("**(3a) verdict: FAIL** on at least one rule above (temp readings above)")
+		w("**(3a) verdict: FAIL or not scored** (%s)", strings.Join(verdicts, "; "))
 	}
 	writePlans()
+}
+
+// gateCountTracer is perfTracer plus set, sent on the same connection right
+// after the handler's SAVEPOINT list_count (TICK-1083). Inside the savepoint
+// it holds for the count statement alone, and ROLLBACK TO ends it. The
+// nested Exec is traced like any statement, so the harness sees its time.
+type gateCountTracer struct {
+	perfTracer
+	set string
+	// errs counts failed injected SET LOCALs, shared by the pool's conns.
+	errs *atomic.Int64
+}
+
+type gateSQLKey struct{}
+
+func (g gateCountTracer) TraceQueryStart(ctx context.Context, c *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(g.perfTracer.TraceQueryStart(ctx, c, d), gateSQLKey{}, d.SQL)
+}
+
+func (g gateCountTracer) TraceQueryEnd(ctx context.Context, c *pgx.Conn, d pgx.TraceQueryEndData) {
+	g.perfTracer.TraceQueryEnd(ctx, c, d)
+	sql, _ := ctx.Value(gateSQLKey{}).(string)
+	if g.set == "" || d.Err != nil || !strings.HasPrefix(strings.TrimSpace(sql), "SAVEPOINT list_count") {
+		return
+	}
+	if _, err := c.Exec(ctx, g.set); err != nil {
+		g.errs.Add(1)
+	}
+}
+
+// gateWorkersLaunched matches a Gather that launched at least one worker;
+// gateGather captures a Gather's actual total time.
+var (
+	gateWorkersLaunched = regexp.MustCompile(`Workers Launched: [1-9]`)
+	gateGather          = regexp.MustCompile(`Gather +\(cost=[^)]*\) \(actual time=[0-9.]+\.\.([0-9.]+) `)
+)
+
+// gateBranch1 is the part of a count plan under its first UNION ALL branch,
+// the one the executor runs first (the whole plan if there is no Append).
+func gateBranch1(plan string) string {
+	i := strings.Index(plan, `Subquery Scan on "*SELECT* 1"`)
+	if i < 0 {
+		return plan
+	}
+	b := plan[i:]
+	if j := strings.Index(b, `Subquery Scan on "*SELECT* 2"`); j >= 0 {
+		b = b[:j]
+	}
+	return b
 }
 
 // a2gms is planning plus execution time of an EXPLAIN (ANALYZE) output, in ms.
