@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -442,7 +443,7 @@ func TestTheByteLimitSettingIsNotExposed(t *testing.T) {
 	payload := `{"rules": [], "max_document_bytes": ` + needle + `, "NAVA_ACL_MAX_DOCUMENT_BYTES": ` + needle + `}`
 	for _, o := range ops {
 		rec := e.access(t, o.method, o.path, "admin-a", "expose-"+o.method+o.path, `W/"1"`, payload)
-		if strings.Contains(rec.Body.String(), needle) {
+		if carriesNeedle(rec.Body.Bytes(), needle) {
 			t.Errorf("%s %s = %d carries the limit: %s", o.method, o.path, rec.Code, rec.Body)
 		}
 	}
@@ -457,8 +458,73 @@ func TestTheByteLimitSettingIsNotExposed(t *testing.T) {
 		e.access(t, http.MethodGet, accessPath, "admin-a", "", "", ""),
 		e.access(t, http.MethodPut, accessPath, "admin-a", "expose-ok", `W/"1"`, `{"rules": []}`),
 	} {
-		if strings.Contains(rec.Body.String(), needle) {
+		if carriesNeedle(rec.Body.Bytes(), needle) {
 			t.Errorf("response carries the limit: %s", rec.Body)
+		}
+	}
+}
+
+// idKeys are the response members that carry a random request, trace or
+// span id (problem+json `instance` is urn:nava:request:<hex>): a five-digit
+// needle turns up inside such an id on a measurable share of runs (TICK-1102).
+var idKeys = map[string]bool{
+	"instance": true, "request_id": true, "requestId": true,
+	"trace_id": true, "traceId": true, "span_id": true, "spanId": true, "traceparent": true,
+}
+
+// carriesNeedle reports whether body contains needle once every random id is
+// removed: idKeys members are dropped from a JSON body, and in any body each
+// UUID and urn:nava:request id is blanked, since a route may echo the random
+// {id} of its path. What is left is matched as text.
+func carriesNeedle(body []byte, needle string) bool {
+	text := string(body)
+	var v any
+	if json.Unmarshal(body, &v) == nil {
+		b, err := json.Marshal(stripIDs(v))
+		if err == nil {
+			text = string(b)
+		}
+	}
+	text = randomID.ReplaceAllString(text, "<id>")
+	return strings.Contains(text, needle)
+}
+
+var randomID = regexp.MustCompile(`(?i)urn:nava:request:[0-9a-z-]*|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+func stripIDs(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if idKeys[k] {
+				delete(x, k)
+				continue
+			}
+			x[k] = stripIDs(e)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = stripIDs(e)
+		}
+	}
+	return v
+}
+
+func TestCarriesNeedleIgnoresRandomIDs(t *testing.T) {
+	for _, c := range []struct {
+		body string
+		want bool
+	}{
+		// Run 45024439126 attempt 1: the 405's instance held 54321.
+		{`{"status": 405, "instance": "urn:nava:request:a62e543214374ceb"}`, false},
+		{`{"detail": "no such record a62e5432-1437-4ceb-8f00-000000000000"}`, false},
+		{`{"trace_id": "0054321", "errors": [{"request_id": "54321"}]}`, false},
+		{`404 page not found urn:nava:request:a62e543214374ceb`, false},
+		{`{"status": 422, "detail": "the document is over 54321 bytes", "instance": "urn:nava:request:1"}`, true},
+		{`{"settings": {"max_document_bytes": 54321}}`, true},
+		{`limit 54321`, true},
+	} {
+		if got := carriesNeedle([]byte(c.body), "54321"); got != c.want {
+			t.Errorf("carriesNeedle(%s) = %v, want %v", c.body, got, c.want)
 		}
 	}
 }
