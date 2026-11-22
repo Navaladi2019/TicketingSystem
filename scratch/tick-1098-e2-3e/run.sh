@@ -52,10 +52,19 @@ mkdir -p "$out"
     echo "### other containers at start: $(docker ps --format '{{.Names}}' | grep -v "^$pg\$" | tr '\n' ' ')"
     echo "### NAVA_PERF_SPIKE_CELLS=$NAVA_PERF_SPIKE_CELLS NAVA_PERF_GATE_ATTEMPTS=$NAVA_PERF_GATE_ATTEMPTS"
 } | tee "$out/host.txt"
-# Every 10 s, the Docker VM's load average and the other containers' CPU.
+# Every 10 s, the Docker VM's load average, the other containers' CPU and,
+# on a Windows host, the count of host-side Go, lint and test processes
+# outside Docker (TICK-1098 window 1: other sessions' go and golangci-lint
+# ran beside the gates, which docker stats cannot see). server.test is this
+# run's own binary.
+hostprocs() {
+    command -v tasklist >/dev/null 2>&1 || return 0
+    tasklist 2>/dev/null | awk '{print $1}' | grep -i -E '^(golangci-lint|go|.*[.]test|node)[.]exe$' |
+        sort | uniq -c | awk '{printf "%s=%s ", $2, $1}'
+}
 (
     while :; do
-        echo "$(date -u +%H:%M:%S) load $(docker exec "$pg" cut -d' ' -f1-3 /proc/loadavg 2>/dev/null) $(docker stats --no-stream --format '{{.Name}}={{.CPUPerc}}' | grep -v "^$pg=" | tr '\n' ' ')"
+        echo "$(date -u +%H:%M:%S) load $(docker exec "$pg" cut -d' ' -f1-3 /proc/loadavg 2>/dev/null) $(docker stats --no-stream --format '{{.Name}}={{.CPUPerc}}' | grep -v "^$pg=" | tr '\n' ' ') host: $(hostprocs)"
         sleep 10
     done
 ) > "$out/contention.txt" 2>/dev/null &
