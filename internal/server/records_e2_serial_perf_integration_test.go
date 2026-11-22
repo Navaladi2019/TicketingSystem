@@ -128,6 +128,9 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 			b.after = s.host(label + ": after")
 			s.last = &b.after
 			r.tried = append(r.tried, b)
+			for _, x := range b.samples {
+				fmt.Fprintf(&s.csv, "%s,%d,%d,%s,%v,%d,%s,%.3f,%.3f,%.3f\n", name, i+1, try+1, arm, b.ok(), x.code, x.state, x.phase, x.countStmt, x.latency)
+			}
 			s.w("- %s: n %d, unknown %d, peak parallel workers %d (%d samples); gates %s", label, len(b.samples), unknownOf(b.samples), b.peakWorkers, b.workerSamples, okWord(b.ok()))
 			if b.ok() {
 				got = &b
@@ -140,9 +143,6 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 			return r
 		}
 		r.blocks[arm] = append(r.blocks[arm], *got)
-		for _, x := range got.samples {
-			fmt.Fprintf(&s.csv, "%s,%d,%s,%d,%s,%.3f,%.3f,%.3f\n", name, i+1, arm, x.code, x.state, x.phase, x.countStmt, x.latency)
-		}
 	}
 	return r
 }

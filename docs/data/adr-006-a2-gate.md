@@ -8,13 +8,81 @@ Raw output: `docs/data/adr-006-a2-gate/run-N/`. TICK-1083 (T-A2-4b) added the
 spill-then-cancel and parallel-plan cells: see
 [its section](#tick-1083-t-a2-4b-spill-then-cancel-and-parallel-plan-cells).
 
+## (3e) serial-count check (TICK-1098, ADR-006-E2 E2-4)
+
+**(3e) INCONCLUSIVE (host), window 1 (2026-11-22 17:38–17:49Z). No block
+passed its host gates, so nothing was pooled. Window 2 (from 17:52Z) was lost
+when Docker Desktop and the WSL VM stopped responding mid-run. The rerun is
+pending.**
+
+Harness: `TestA2Gate` with `NAVA_PERF_SPIKE_CELLS=serial`
+(`internal/server/records_e2_serial_perf_integration_test.go`). Runner:
+`scratch/tick-1098-e2-3e/run.sh`. Raw output:
+`docs/data/adr-006-a2-gate/run-e2-3e/window-N/`. Code: T-E2-1 (TICK-1097) at
+`d814a15b` plus this harness. PostgreSQL 16.10 in Docker 29.9.2 (WSL2 VM:
+16 CPUs, 24.5 GiB), P3-01's memory settings, server parallel settings
+`max_parallel_workers_per_gather = 2`, `max_parallel_workers = 8`,
+`max_worker_processes = 8`. Seed: P3-36's 800k records (400k on the large
+tenant) plus the kit's `kp`.
+
+- **Arm A:** the shipped handler (`CountBudget` 170 ms; the savepoint `Exec`
+  adds `SET LOCAL max_parallel_workers_per_gather = 0`). **Arm B:**
+  `WithCountArm(140 ms, true)` (server settings). Both run on the harness's
+  pool with no `gateCountTracer`, so no setting is forced.
+- **Blocks:** 8 clients × 15 s, A, B, B, A. Each cell is its own ABBA: band
+  (ii) runs before the S-A2-cancel fixture, because that fixture reassigns
+  every large-tenant record and empties the agents' view, and `a50, pk = 3`
+  runs after it. The (2a) gate runs before and after each block, and adjacent
+  blocks share the reading between them. A failed block is rerun up to twice.
+  `parallel worker` backends are sampled every 50 ms on their own connection.
+- **Band (ii):** `filter[kp]=3` (48% of the type) over P3-36's 200 agents
+  (about 6% visible each), the harness's stand-in for the kit's Alice (about
+  5% through one group), as in (2).
+
+| Window | Cell | Block 1 (arm A) tries: before / after control p95, ms (gate 80.3) | Outcome |
+| --- | --- | --- | --- |
+| 1 | band (ii) | 131.8 / 125.4; 117.4 / 110.2; 136.6 / 139.4 (floor passed every time) | void after 3 tries. Arm A answered 993 / 1,223 / 1,243 requests, 0 `unknown`, peak 0 workers (not pooled) |
+| 1 | `a50, pk = 3` | 744.3 / 167.6 (floor 16.62 ms, fail); 174.9 / 97.1; 108.7 / 100.8 | void after 3 tries. Arm A: 200 / 446, 481 / 492, 254 / 509 `unknown` (not pooled) |
+| 2 | — | — | lost: Docker stopped responding after the seed (17:57Z) |
+
+Window 1 had no other container running, and the Docker VM's load stayed
+between 0.8 and 3.5 on 16 CPUs (`window-1/contention.txt`). The control's p50
+was 58–77 ms, against 47.4 ms p95 in TICK-1048 run 2, so the host itself was
+slow. At 17:50Z the Windows host was running other sessions' builds:
+`golangci-lint` and 16–25 `go.exe` processes, which `docker stats` can't
+see. Since window 2, `run.sh` records those processes in `contention.txt`.
+
+**What window 1 does show (not a verdict):**
+
+- **Plan check on `a50, pk = 3`** (`window-1/plans.md`, replayed from the
+  traced savepoint `Exec` on one connection, with only `SET LOCAL
+  statement_timeout = 0` added so that ANALYZE can finish). Arm A: no
+  `Gather` (`Settings: … max_parallel_workers_per_gather = '0'`), 66.7 ms
+  single-client. Arm B: `Gather`, 2 workers planned, **2 launched**, 49.9 ms.
+  So the server's settings do give this count workers. Whether they launch
+  under 8 clients is what the run's peak worker count shows.
+- **(3a) leak reading after (3e) (E2-3): PASS.** `pg_ls_tmpdir()` listed 0
+  files after the run and 60 s later. `temp_files` rose by 1,665 (3.99 GB)
+  during the `a50` cell, so the reading covered a cell that spilled.
+  `base/pgsql_tmp` had 0 entries and 0 workers were left.
+- Under 8-client load on a slow host, arm A's serial `a50` count often ran
+  past 170 ms (up to 98% `unknown` in one try). Arm B was never reached. The
+  pass line needs arm B's share, measured on a clean host.
+
+Rerun on a quiet host (no `nava-*` stacks, no other sessions' `go` or
+`golangci-lint`), avoiding 08:00–10:00 UTC:
+
+```sh
+sh scratch/tick-1098-e2-3e/run.sh     # about 11 min: 2 min seed, then gates and blocks
+```
+
 ## Verdict: PASS (runs 2 and 4, 2026-11-21 22:33–22:49Z, the Technical Lead's bench window)
 
 | Gate | Rule | Result | Status |
 | --- | --- | --- | --- |
 | (2a) host rule | floor p50 ≤ 3 ms and no-filter control p95 ≤ 80.3 ms, before and after | floor 0.54 / 1.11 ms; control p95 **47.4 / 44.4 ms** (n = 3,282 / 3,176) | **Pass**, attempt 1 |
 | (2) non-count p95, band (ii) | ≤ 94 ms | **50.7 ms** (n = 2,787, p50 42.1, p99 57.8); agent-1 alone 49.2 ms | **PASS, final** (passes by 46%). A2-2's formula is not rerun; `CountBudget` stays 200 ms |
-| (3a) S-A2-cancel | count phase ≤ 215 ms at p99; every answer 200 + `unknown`; a further statement; no temp growth | p99 **205.5 ms (+5.5)** single-client, **211.0 ms (+11.0)** at 8 clients; 300 of 300 answered 200 + `unknown` + `total: null` + 50 items; every request ran `commit` after `ROLLBACK TO`; temp_files 22 / temp_bytes 239,756,336 before, after and 60 s after | **PASS** |
+| (3a) S-A2-cancel | count phase ≤ 215 ms at p99; every answer 200 + `unknown`; a further statement; no temp growth (since E2-3: no `pg_ls_tmpdir()` file after the run and 60 s later) | p99 **205.5 ms (+5.5)** single-client, **211.0 ms (+11.0)** at 8 clients; 300 of 300 answered 200 + `unknown` + `total: null` + 50 items; every request ran `commit` after `ROLLBACK TO`; temp_files 22 / temp_bytes 239,756,336 before, after and 60 s after | **PASS** |
 
 The host was idle for the window. `docker ps` showed only the bench database,
 `buildx_buildkit_nava-ci0` and `multica-*`; other containers used a median
@@ -225,11 +293,16 @@ candidate a rerun should pick.
   parameters instead. The page walk then spilled too (94 GB of temp writes in
   one spike, on a host Defender was loading), so that try was discarded and
   is not reported.
-- **Leak check:** `pg_ls_tmpdir()` (files) and `pg_ls_dir('base/pgsql_tmp')`
-  (which also lists a parallel hash's shared fileset directories, skipped by
-  `pg_ls_tmpdir()`), right after the spike and 60 s later, plus the count of
-  `parallel worker` backends. `pg_stat_database.temp_files` is reported only
-  to show that a spill happened.
+- **Leak check (reworded by ADR-006-E2 E2-3, TICK-1098):** "`pg_ls_tmpdir()`
+  lists no `pgsql_tmp` files after the run, and none 60 s later." Any file at
+  either reading is a FAIL line in `raw.md` and fails the cell, on every cell.
+  `pg_stat_database.temp_files` / `temp_bytes` are spill context only: they
+  prove a spill happened, never a leak, and feed no verdict. The
+  `pg_ls_dir('base/pgsql_tmp')` listing (which also shows a parallel hash's
+  shared fileset directories, skipped by `pg_ls_tmpdir()`) and the count of
+  `parallel worker` backends are reported and gate nothing. Before TICK-1098
+  the harness gated the spill cell on `temp_files` rising and on the listing,
+  and every cell on the worker count.
 - **Host gates around each cell** (P3-36's floor and control, before and
   after). The sampler in `run.sh` also records the Docker VM's load average:
   a `buildx` build runs in BuildKit's own containers, which `docker stats`
