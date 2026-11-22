@@ -1,0 +1,16 @@
+### 2026-11-21T06:30:37Z postgres:16.10
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: nava-aclperf-pg-2176 nava-it-pgb-noprep-164726451 nava-it-pgb-pooled-164726451 nava-it-pg-164726451 nava-nava-relay-1 nava-nava-worker-1 nava-nava-core-1 nava-temporal-1 nava-temporal-server-1 nava-nava-purge-1 nava-nava-onboard-1 nava-nava-groupsync-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-otel-collector-1 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 
+=== RUN   TestRecordsACLPerf800k
+    records_perf_integration_test.go:1319: perf: 400 tenants, types and ACLs created through the API
+    records_perf_integration_test.go:1319: perf: seeded in 3m44s
+    records_perf_integration_test.go:1326: QUIESCE VACUUM (ANALYZE) and CHECKPOINT after the seed: 50s
+    records_perf_integration_test.go:1328: FLOOR SELECT 1 round trip, 8 clients: p50=8.91 p95=26.66 p99=50.88 ms
+    records_perf_integration_test.go:1330: host busy: transport floor p50 8.91 ms > 3 ms gate; no numbers taken
+--- FAIL: TestRecordsACLPerf800k (363.64s)
+FAIL
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/server	364.539s
+FAIL
+kept: nava-aclperf-pg-2151
+EXIT 1

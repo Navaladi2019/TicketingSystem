@@ -1,0 +1,429 @@
+//go:build perf
+
+// SP-1e (TICK-1043): A2 revision inputs. The B1 index key, probe P3 with
+// entity_definition_id, the count statement's region branch always
+// closure-driven and capped (CC), and only the page switching:
+// <= K -> C3 or L1, > K -> W0. Scored on paired wall-clock behind P3-36's
+// floor gate (8 clients x 200 SELECT 1, p50 <= 3 ms); server-side EXPLAIN is
+// diagnostic only.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const sp1eK = 1000
+
+// P3e: P3 with the entity filter A2-5 adds ($4 = entity definition).
+const probeP3e = `SELECT count(*) FROM (SELECT 1 FROM unnest($2::uuid[]) acl_u(id) CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = acl_u.id) acl_c CROSS JOIN LATERAL (SELECT 1 FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $4 AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_c.descendant_id LIMIT $3) acl_x LIMIT $3) p`
+
+// U is assumed canonical: no unit in U is a descendant of another, so the
+// per-ancestor closure sets are disjoint and the unnest renderings never
+// return a record twice (the bench always has |U| = 1).
+func andNots() string {
+	var b string
+	for _, x := range base {
+		b += " AND NOT " + x
+	}
+	return b
+}
+
+const unnestClosure = `unnest($9::uuid[]) acl_u(id) CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = acl_u.id) acl_c`
+
+// countCC: today's count with the region branch always closure-driven and capped.
+func countCC() string {
+	bs := branches("", false)
+	var parts []string
+	for _, b := range bs {
+		parts = append(parts, "(SELECT 1 FROM records r "+where(b)+" LIMIT 1001)")
+	}
+	parts = append(parts, `(SELECT 1 FROM `+unnestClosure+` CROSS JOIN LATERAL (SELECT 1 FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_c.descendant_id`+andNots()+` LIMIT 1001) acl_x LIMIT 1001)`)
+	return strings.ReplaceAll("SELECT count(*) FROM (SELECT 1 FROM ("+strings.Join(parts, " UNION ALL ")+") u LIMIT 1001) c", "$9", "$8")
+}
+
+// region branch of the page statement, per shape.
+func regionPart(shape string) string {
+	order := " ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT $8)"
+	switch shape {
+	case "C3":
+		b := branches("C2", false)[4]
+		return "(WITH acl_m AS MATERIALIZED (SELECT " + cols + " FROM records r " + where(b) + ") SELECT * FROM acl_m ORDER BY sort_key DESC NULLS FIRST, id DESC LIMIT $8)"
+	case "L1":
+		return "(SELECT acl_x.* FROM " + unnestClosure + " CROSS JOIN LATERAL (SELECT " + cols + " FROM records r WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_c.descendant_id" + andNots() + " ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT $8) acl_x ORDER BY acl_x.sort_key DESC NULLS FIRST, acl_x.id DESC LIMIT $8)"
+	default: // C1, C2, W0: the leaf inside today's branch
+		return "(SELECT " + cols + " FROM records r\n" + where(branches(shape, false)[4]) + order
+	}
+}
+
+func pageShape(shape string) string {
+	var parts []string
+	for _, b := range branches("", false) {
+		parts = append(parts, "(SELECT "+cols+" FROM records r\n"+where(b)+" ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT $8)")
+	}
+	parts = append(parts, regionPart(shape))
+	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       x.sort_key::text FROM (
+` + strings.Join(parts, "\nUNION ALL\n") + `
+ORDER BY sort_key DESC NULLS FIRST, id DESC LIMIT $8
+) x
+JOIN entity_definitions d ON d.tenant_id = x.tenant_id AND d.id = x.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = x.tenant_id AND g.id = x.assignment_group_id
+ORDER BY x.sort_key DESC NULLS FIRST, x.id DESC`
+}
+
+// mechanisms
+type emech struct {
+	name  string
+	small string // page shape at <= K ("" = no probe, use big always)
+	big   string // page shape above K
+	count string // "CC" or "today" (today's count with the given leaf)
+}
+
+var (
+	mC3   = emech{"MC3: P3e, CC count, page C3 <= K / W0 > K", "C3", "W0", "CC"}
+	mL1   = emech{"ML1: P3e, CC count, page L1 <= K / W0 > K", "L1", "W0", "CC"}
+	mL1a  = emech{"L1 at every size (no probe), CC count", "", "L1", "CC"}
+	mRef  = emech{"reference: today's count + C1 page (no probe)", "", "C1", "today-C1"}
+	mBase = emech{"baseline: no region leaf", "", "", "none"}
+)
+
+func (e *env) estmts(m emech, s *set, a agent) []stmt {
+	u := []string{s.root}
+	args := e.args(a, u)
+	var ss []stmt
+	if m.count == "none" {
+		b := e.args(a, nil)
+		return []stmt{{countSQL(""), countArgs(b)}, {pageSQL("", false), b}}
+	}
+	shape := m.big
+	if m.small != "" {
+		ss = append(ss, stmt{probeP3e, []any{e.tenant, u, sp1eK + 1, e.def}})
+		if s.match <= sp1eK {
+			shape = m.small
+		}
+	}
+	cs := countCC()
+	if m.count == "today-C1" {
+		cs = countSQL("C1")
+	}
+	return append(ss, stmt{cs, countArgs(args)}, stmt{pageShape(shape), args})
+}
+
+// floor8 is P3-36's gate: 8 clients x 200 SELECT 1 on a dedicated pool.
+func floor8(ctx context.Context) (float64, float64) {
+	pc, err := pgxpool.ParseConfig(os.Getenv("SP1C_APP_URL"))
+	must(err)
+	pc.MaxConns = 8
+	p, err := pgxpool.NewWithConfig(ctx, pc)
+	must(err)
+	defer p.Close()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var out []time.Duration
+	for c := 0; c < 8; c++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var lat []time.Duration
+			for i := 0; i < 200; i++ {
+				t0 := time.Now()
+				var one int
+				must(p.QueryRow(ctx, "SELECT 1").Scan(&one))
+				lat = append(lat, time.Since(t0))
+			}
+			mu.Lock()
+			out = append(out, lat...)
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return pct(out, .5), pct(out, .95)
+}
+
+func (e *env) gate(ctx context.Context, label string) bool {
+	f50, f95 := floor8(ctx)
+	ok := f50 <= 3
+	v := "PASS"
+	if !ok {
+		v = "REFUSED: not scored"
+	}
+	e.w("\nFloor gate (%s): `SELECT 1`, 8 clients x 200: p50 %.2f, p95 %.2f ms -> **%s**. Foreign containers: `%s`.\n", label, f50, f95, v, foreign())
+	fmt.Printf("gate %s p50 %.2f p95 %.2f %s\n", label, f50, f95, v)
+	return ok
+}
+
+const sp1eSetup = `
+SET session_replication_role = replica;
+-- (4) district mixed (pre 2529): keep 900 tickets, add 150,000 records of another type.
+UPDATE records SET org_unit_id = (SELECT id FROM bench_ou WHERE pre = 9103)
+ WHERE tenant_id = $T AND id IN (SELECT id FROM records WHERE tenant_id = $T AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 2529 AND pre < 2630)
+   AND entity_definition_id = $D ORDER BY md5(id::text) OFFSET 900);
+DROP TABLE IF EXISTS bench_other_def;
+CREATE TABLE bench_other_def AS SELECT * FROM entity_definitions WHERE tenant_id = $T AND id = $D;
+UPDATE bench_other_def SET id = md5('bench-other-def')::uuid, key = 'bench_other', number_prefix = 'BOTH';
+DO $$ DECLARE c text; BEGIN
+  SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) INTO c FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'entity_definitions' AND is_generated = 'NEVER';
+  EXECUTE format('INSERT INTO entity_definitions (%s) SELECT %s FROM bench_other_def ON CONFLICT DO NOTHING', c, c);
+END $$;
+DROP TABLE IF EXISTS bench_mixed_src;
+CREATE UNLOGGED TABLE bench_mixed_src AS SELECT * FROM records WHERE tenant_id = $T AND entity_definition_id = $D ORDER BY md5(id::text || 'mixed') LIMIT 150000;
+UPDATE bench_mixed_src m SET id = gen_random_uuid(), entity_definition_id = md5('bench-other-def')::uuid,
+  org_unit_id = (SELECT b.id FROM bench_ou b WHERE b.depth = 4 AND b.pre >= 2529 AND b.pre < 2630 ORDER BY b.pre OFFSET (abs(hashtext(m.id::text)) % 90) LIMIT 1);
+DO $$ DECLARE c text; BEGIN
+  SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) INTO c FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'records' AND is_generated = 'NEVER';
+  EXECUTE format('INSERT INTO records (%s) SELECT %s FROM bench_mixed_src', c, c);
+END $$;
+DROP TABLE bench_mixed_src;
+-- (5) time-uniform sparse districts in region 3: empty them, then move m random tickets of regions 4-8 in.
+UPDATE records SET org_unit_id = (SELECT id FROM bench_ou WHERE pre = 9103)
+ WHERE tenant_id = $T AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 3035 AND pre < 3338);
+WITH src AS (SELECT id, row_number() OVER () AS rn FROM (SELECT id FROM records WHERE tenant_id = $T AND entity_definition_id = $D
+        AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 4045 AND pre < 9100) ORDER BY md5(id::text || 'u1') LIMIT 1001) z),
+     br AS (SELECT id, row_number() OVER (ORDER BY pre) - 1 AS bn FROM bench_ou WHERE depth = 4 AND pre >= 3035 AND pre < 3136)
+UPDATE records r SET org_unit_id = br.id FROM src, br WHERE r.tenant_id = $T AND r.id = src.id AND br.bn = src.rn % 90;
+WITH src AS (SELECT id, row_number() OVER () AS rn FROM (SELECT id FROM records WHERE tenant_id = $T AND entity_definition_id = $D
+        AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 4045 AND pre < 9100) ORDER BY md5(id::text || 'u3') LIMIT 3000) z),
+     br AS (SELECT id, row_number() OVER (ORDER BY pre) - 1 AS bn FROM bench_ou WHERE depth = 4 AND pre >= 3136 AND pre < 3237)
+UPDATE records r SET org_unit_id = br.id FROM src, br WHERE r.tenant_id = $T AND r.id = src.id AND br.bn = src.rn % 90;
+WITH src AS (SELECT id, row_number() OVER () AS rn FROM (SELECT id FROM records WHERE tenant_id = $T AND entity_definition_id = $D
+        AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 4045 AND pre < 9100) ORDER BY md5(id::text || 'u10') LIMIT 10000) z),
+     br AS (SELECT id, row_number() OVER (ORDER BY pre) - 1 AS bn FROM bench_ou WHERE depth = 4 AND pre >= 3237 AND pre < 3338)
+UPDATE records r SET org_unit_id = br.id FROM src, br WHERE r.tenant_id = $T AND r.id = src.id AND br.bn = src.rn % 90;
+SET session_replication_role = origin;
+`
+
+func (e *env) setIndex(ctx context.Context, key string) {
+	e.exec(ctx, "DROP INDEX IF EXISTS records_org_unit")
+	switch key {
+	case "old":
+		e.exec(ctx, "CREATE INDEX records_org_unit ON records (tenant_id, org_unit_id) WHERE org_unit_id IS NOT NULL")
+	default:
+		e.exec(ctx, "CREATE INDEX records_org_unit ON records (tenant_id, org_unit_id, entity_definition_id) WHERE org_unit_id IS NOT NULL")
+	}
+	e.exec(ctx, "ANALYZE records")
+}
+
+func (e *env) l1Index(ctx context.Context, on bool) {
+	if on {
+		e.exec(ctx, "CREATE INDEX IF NOT EXISTS records_ou_list ON records (tenant_id, entity_definition_id, org_unit_id, updated_at DESC NULLS FIRST, id DESC) WHERE org_unit_id IS NOT NULL")
+	} else {
+		e.exec(ctx, "DROP INDEX IF EXISTS records_ou_list")
+	}
+	e.exec(ctx, "ANALYZE records")
+}
+
+func (e *env) sp1e(ctx context.Context, phase string, sets []*set, only *regexp.Regexp, pairs int) {
+	nobody := agent{id: md5id(ctx, e.super, "sp1e/nobody"), groups: []string{}}
+	byName := func(n string) *set {
+		for _, s := range sets {
+			if strings.HasPrefix(s.label, n+" (") {
+				return s
+			}
+		}
+		must(fmt.Errorf("no set %s", n))
+		return nil
+	}
+	small := []*set{byName("area"), byName("district thin"), byName("district mixed")}
+	switch phase {
+	case "e-setup":
+		e.exec(ctx, strings.NewReplacer("$T", "'"+e.tenant+"'", "$D", "'"+e.def+"'").Replace(sp1eSetup))
+		e.setIndex(ctx, "B1")
+		e.exec(ctx, "VACUUM (ANALYZE) records")
+		e.exec(ctx, "CHECKPOINT")
+		e.w("\n### SP-1e setup done: district mixed (900 tickets + 150,000 bench_other), uniform districts m = 1001 / 3000 / 10000, records_org_unit on the B1 key.\n")
+	case "e-check":
+		e.l1Index(ctx, true)
+		e.w("\n### SP-1e equality check vs reference (today's count + C1 page): page ids in order and capped count, 40 agents + the count-only caller per set\n\n| Set | MC3 | ML1 | L1 everywhere | count-only caller (MC3, ML1, L1) | probe P3e (K+1 capped) |\n| --- | --- | --- | --- | --- | --- |\n")
+		for _, s := range sets {
+			ok := make([]int, 3)
+			for i := 0; i < 40; i++ {
+				ref, rn := e.result(ctx, e.estmts(mRef, s, e.agents[i]))
+				for j, m := range []emech{mC3, mL1, mL1a} {
+					if got, gn := e.result(ctx, e.estmts(m, s, e.agents[i])); got == ref && gn == rn {
+						ok[j]++
+					}
+				}
+			}
+			ref, rn := e.result(ctx, e.estmts(mRef, s, nobody))
+			co := ""
+			for _, m := range []emech{mC3, mL1, mL1a} {
+				got, gn := e.result(ctx, e.estmts(m, s, nobody))
+				co += fmt.Sprintf("%v ", got == ref && gn == rn)
+			}
+			var pc int
+			_, err := e.tx(ctx, func(tx pgx.Tx) error {
+				return tx.QueryRow(ctx, probeP3e, e.tenant, []string{s.root}, sp1eK+1, e.def).Scan(&pc)
+			})
+			must(err)
+			e.w("| %s | %d/40 | %d/40 | %d/40 | %s(count %d) | %d |\n", s.label, ok[0], ok[1], ok[2], co, rn, pc)
+			fmt.Printf("check %s %v %s count=%d probe=%d\n", s.label, ok, co, rn, pc)
+		}
+		e.l1Index(ctx, false)
+	case "e-plans":
+		row := func(title, sql string, args []any) {
+			pi := e.explain(ctx, title, sql, args, true)
+			e.w("| %s | %.2f / %.2f | %.2f | %s | %.0f / %.0f |\n", title, pi.planMS, pi.execMS, pi.region.branchMS, strings.Join(pi.region.shape, " > "), pi.region.read, pi.region.removed)
+		}
+		hdr := "\n| case | plan / exec ms | region branch ms | region branch (or statement) plan | records read / removed |\n| --- | --- | --- | --- | --- |\n"
+		mixed := byName("district mixed")
+		pa := func(s *set, a agent) []any { return e.args(a, []string{s.root}) }
+		// (4) both index keys.
+		e.w("%s", "\n### (4) mixed entity types, both index keys (diagnostic EXPLAIN, agents[0])\n" + hdr)
+		for _, key := range []string{"old", "B1"} {
+			e.setIndex(ctx, key)
+			row(fmt.Sprintf("%s key: probe P3e K=1000, %s", key, mixed.label), probeP3e, []any{e.tenant, []string{mixed.root}, sp1eK + 1, e.def})
+			for _, sh := range []string{"C2", "C3"} {
+				row(fmt.Sprintf("%s key: page %s, %s", key, sh, mixed.label), pageShape(sh), pa(mixed, e.agents[0]))
+			}
+		}
+		// (7) plan stability at two n_distinct values (+ the sampled one), L1 index present.
+		e.l1Index(ctx, true)
+		e.w("%s", "\n### (7) <= K shapes: plan stability over n_distinct(records.org_unit_id) (diagnostic EXPLAIN, agents[0], records_ou_list present)\n" + hdr)
+		for _, nd := range []string{"sampled", "1000", "9000"} {
+			if nd != "sampled" {
+				e.exec(ctx, "ALTER TABLE records ALTER COLUMN org_unit_id SET (n_distinct = "+nd+")")
+			}
+			e.exec(ctx, "ANALYZE records")
+			var got float64
+			must(e.super.QueryRow(ctx, "SELECT n_distinct FROM pg_stats WHERE tablename = 'records' AND attname = 'org_unit_id'").Scan(&got))
+			for _, s := range small {
+				for _, sh := range []string{"C2", "C3", "L1"} {
+					row(fmt.Sprintf("n_distinct %s (%.0f): page %s, %s", nd, got, sh, s.label), pageShape(sh), pa(s, e.agents[0]))
+				}
+			}
+		}
+		e.exec(ctx, "ALTER TABLE records ALTER COLUMN org_unit_id RESET (n_distinct)")
+		e.exec(ctx, "ANALYZE records")
+		// (5) the page above K: W0 vs L1; and (6) the count-only caller's count.
+		e.w("%s", "\n### (5) page above K, W0 vs L1, and (6) the count-only caller's CC count (diagnostic EXPLAIN)\n" + hdr)
+		for _, s := range sets {
+			if s.match > sp1eK {
+				row("page W0, "+s.label, pageShape("W0"), pa(s, e.agents[0]))
+				row("page L1, "+s.label, pageShape("L1"), pa(s, e.agents[0]))
+			}
+			row("count-only caller: CC count, "+s.label, countCC(), countArgs(pa(s, nobody)))
+		}
+		for _, n := range []string{"district", "uniform m=1001"} {
+			s := byName(n)
+			row("count-only caller: today's W0 count (SP-1c), "+s.label, countSQL("W0"), countArgs(pa(s, nobody)))
+		}
+		e.l1Index(ctx, false)
+		e.w("\n### SP-1e plans\n%s", e.plans.String())
+	case "e-wall":
+		type cell struct {
+			m     emech
+			nob   bool
+			label string
+		}
+		run := func(cells []cell, label string) {
+			if !e.gate(ctx, label) {
+				e.w("\n**%s: not scored** (floor gate refused). Stopped.\n", label)
+				return
+			}
+			e.w("\n### SP-1e paired wall-clock, %s, %d pairs per cell (BEGIN, set_config, statements, COMMIT from the client; baseline = same caller, today's list with no region leaf)\n\n| Set | variant | caller | pairs | base p50 | base p95 | var p50 | var p95 | **median per-pair Δ** | **Δp95** |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", label, pairs)
+			for _, s := range sets {
+				for _, c := range cells {
+					name := s.label + " " + c.m.name + " " + c.label
+					if !only.MatchString(name) {
+						continue
+					}
+					pick := func(i int) agent {
+						if c.nob {
+							return nobody
+						}
+						return e.agents[i%len(e.agents)]
+					}
+					for i := 0; i < 20; i++ {
+						e.wallMS(ctx, e.estmts(mBase, s, pick(i)))
+						e.wallMS(ctx, e.estmts(c.m, s, pick(i)))
+					}
+					var bs, vv, ds []float64
+					for i := 0; i < pairs; i++ {
+						a := pick(i)
+						var b, y float64
+						if i%2 == 0 {
+							b = e.wallMS(ctx, e.estmts(mBase, s, a))
+							y = e.wallMS(ctx, e.estmts(c.m, s, a))
+						} else {
+							y = e.wallMS(ctx, e.estmts(c.m, s, a))
+							b = e.wallMS(ctx, e.estmts(mBase, s, a))
+						}
+						bs, vv, ds = append(bs, b), append(vv, y), append(ds, y-b)
+					}
+					b50, b95, v50, v95 := fpct(bs, .5), fpct(bs, .95), fpct(vv, .5), fpct(vv, .95)
+					fmt.Printf("%s wall %-50s %-45s %-10s base p95=%6.2f med=%+6.2f dp95=%+7.2f\n", time.Now().UTC().Format("15:04:05"), s.label, c.m.name[:min(len(c.m.name), 45)], c.label, b95, fpct(ds, .5), v95-b95)
+					e.w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %.2f | **%+.2f** | **%+.2f** |\n", s.label, c.m.name, c.label, pairs, b50, b95, v50, v95, fpct(ds, .5), v95-b95)
+				}
+			}
+			e.gate(ctx, label+", at end")
+		}
+		e.l1Index(ctx, false)
+		run([]cell{{mC3, false, "agents"}, {mC3, true, "count-only"}}, "phase A (B1 key, no records_ou_list)")
+		e.l1Index(ctx, true)
+		run([]cell{{mL1, false, "agents"}, {mL1a, false, "agents"}, {mL1, true, "count-only"}}, "phase B (B1 key + records_ou_list)")
+		e.l1Index(ctx, false)
+	case "e-write":
+		e.writeCost(ctx)
+	}
+}
+
+// writeCost: L1's index on records. ABA: without, with, without. Single-row
+// INSERT transactions (synchronous_commit on), and one 50,000-row INSERT.
+// session_replication_role = replica (no triggers, no FK checks): this
+// isolates index maintenance, the only thing that differs between A and B.
+func (e *env) writeCost(ctx context.Context) {
+	var colList string
+	must(e.super.QueryRow(ctx, `SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'records' AND is_generated = 'NEVER'`).Scan(&colList))
+	e.exec(ctx, "SET session_replication_role = replica")
+	e.exec(ctx, "DROP TABLE IF EXISTS bench_tpl, bench_bulk")
+	e.exec(ctx, "CREATE UNLOGGED TABLE bench_tpl AS SELECT * FROM records WHERE tenant_id = '"+e.tenant+"' AND entity_definition_id = '"+e.def+"' AND org_unit_id IS NOT NULL LIMIT 1")
+		e.exec(ctx, "CREATE UNLOGGED TABLE bench_bulk AS SELECT * FROM records WHERE tenant_id = '"+e.tenant+"' AND entity_definition_id = '"+e.def+"' AND org_unit_id IS NOT NULL ORDER BY md5(id::text) LIMIT 50000")
+	ins := "INSERT INTO records (" + colList + ") SELECT " + colList + " FROM bench_tpl"
+	e.w("\n### L1 write cost on records (ABA; replica role: index maintenance only)\n\n| Pass | records_ou_list | single-row INSERT n | p50 ms | p95 ms | WAL bytes / row | 50,000-row INSERT ms | WAL bytes / row (bulk) |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for i, with := range []bool{false, true, false} {
+		if with {
+			e.exec(ctx, "CREATE INDEX records_ou_list ON records (tenant_id, entity_definition_id, org_unit_id, updated_at DESC NULLS FIRST, id DESC) WHERE org_unit_id IS NOT NULL")
+		} else {
+			e.exec(ctx, "DROP INDEX IF EXISTS records_ou_list")
+		}
+		e.exec(ctx, "CHECKPOINT")
+		var lat []float64
+		var w0, w1 int64
+		must(e.super.QueryRow(ctx, "SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").Scan(&w0))
+		for n := 0; n < 2000; n++ {
+			_, err := e.super.Exec(ctx, "UPDATE bench_tpl SET id = gen_random_uuid(), number = 'W' || gen_random_uuid()::text")
+			must(err)
+			t0 := time.Now()
+			_, err = e.super.Exec(ctx, ins)
+			must(err)
+			lat = append(lat, float64(time.Since(t0).Microseconds())/1000)
+		}
+		must(e.super.QueryRow(ctx, "SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").Scan(&w1))
+		e.exec(ctx, "UPDATE bench_bulk SET id = gen_random_uuid(), number = 'B' || gen_random_uuid()::text")
+		var b0, b1 int64
+		must(e.super.QueryRow(ctx, "SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").Scan(&b0))
+		d := e.exec(ctx, "INSERT INTO records ("+colList+") SELECT "+colList+" FROM bench_bulk")
+		must(e.super.QueryRow(ctx, "SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").Scan(&b1))
+		e.w("| %d | %v | 2000 | %.3f | %.3f | %d | %.0f | %d |\n", i+1, with, fpct(lat, .5), fpct(lat, .95), (w1-w0)/2000, float64(d.Microseconds())/1000, (b1-b0)/50000)
+	}
+	var sz, base int64
+	e.exec(ctx, "CREATE INDEX records_ou_list ON records (tenant_id, entity_definition_id, org_unit_id, updated_at DESC NULLS FIRST, id DESC) WHERE org_unit_id IS NOT NULL")
+	must(e.super.QueryRow(ctx, "SELECT pg_relation_size('records_ou_list'), pg_relation_size('records_org_unit')").Scan(&sz, &base))
+	e.w("\nrecords_ou_list size: %d MB (records_org_unit on the B1 key: %d MB).\n", sz>>20, base>>20)
+	e.exec(ctx, "DROP INDEX records_ou_list")
+	e.exec(ctx, "SET session_replication_role = origin")
+}
