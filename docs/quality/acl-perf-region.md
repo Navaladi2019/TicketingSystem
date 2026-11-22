@@ -10,15 +10,109 @@ and 10,000?
 
 ## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
 
-**Status: Step 0 open (one clean baseline pass of two). Region rows built
-and smoke-checked; no row scored.**
-R1's baseline stays 146.2 ms until a second clean pass exists. Nothing below
-is a verdict.
+**R1: FAIL on one row, `bench_conc` for the agents (residual A2-R6).** That
+row's handler p95 is **161.57 ms** against 150 ms, in a valid attempt (floor
+0.64 / 1.16 ms, no foreign container). R1 is judged on the worst persona, so
+R1 fails. Every other row passes, both personas, and at most 87.29 ms p95
+(the region-only caller at region size). The A2-R1 cells (m ≈ K\*: uniform
+m = 3,000 / 4,500) pass at 79.92 / 86.83 and 65.65 / 76.71 ms.
+
+**Step 0: three clean passes (55.48, 128.25, 175.47 ms p95). No two agree
+within 5 ms.** The median is 128.25 ms, used for the information-only
+Δ below.
+
+**Known:** on this host the 8-client P3-36 row moves by 120 ms between
+passes, and every gate passes on all three: floor ≤ 1.67 ms, no foreign
+container. It is not a stable baseline here.
+
+**Inferred:** the load is outside Docker. Windows Defender (`MsMpEng`)
+had the most CPU time on the host. This is not profiled. The paired 1-client
+base inside each region row (27 to 63 ms p95) is the comparable reference,
+and the verdict does not depend on either baseline.
+
+### Scored run (2026-11-22, 07:56 to 08:39 UTC, PR #846 at `c5483ec1`)
+
+- **Host.** The P3-36 reference host, freed by the human (Technical Lead,
+  07:47Z). Pre-flight `docker ps` at 07:47:54Z: `buildx_buildkit_nava-ci0`
+  (idle) and `multica-*` only. The run started its own database alone, and
+  the 10 s container sampler saw no `nava-it-` / `nava-ci-` /
+  `nava-aclperf-` container in 246 samples.
+- **Method:** as reviewed in TICK-1087 (METHOD: OK at `c5483ec1`).
+  `NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^region:' sh bench/acl-perf/run.sh`.
+  Each row is 1 client, paired, with a floor gate at the start and end of
+  every attempt. Region setup took 10 min 59 s.
+- **K\* per set** (A2-9, from the refresher's N̂_e, page 51). The shape is
+  **predicted** from m and K\*, not read from the probe:
+
+| Set | Type | \|S\| | m | N̂_e | K\* | Predicted shape |
+| --- | --- | --- | --- | --- | --- | --- |
+| area / district | ticket | 10 / 101 | 220 / 3,379 | 400,000 | 3,613 | C3 |
+| region / root | ticket | 1,011 / 10,111 | 37,930 / 380,048 | 400,000 | 3,613 | W0 |
+| district hot / thin | ticket | 101 | 22,996 / 600 | 400,000 | 3,613 | W0 / C3 |
+| uniform m = 1,001 / 3,000 | ticket | 101 | as named | 400,000 | 3,613 | C3 |
+| uniform m = 4,500 / 10,000 | ticket | 101 | as named | 400,000 | 3,613 | W0 |
+| `bench_rare` at root | bench_rare | 10,111 | 500 | 500 | 1,000 | A2-5a (rare: W0, no probe) |
+| `bench_conc`, regions 0–8 | bench_conc | 9,099 | 0 | 20,000 | 1,000 | C3 |
+
+- **Rows**: handler p95 in ms, scored against 150 ms. "Base" is the paired
+  plain agent request from the same client. "Δ vs Step 0" is the worst
+  persona's p95 minus 128.25 ms. Both deltas are for information only.
+
+| Set | Agents p95 | Count-only p95 | Agents base p95 / Δ | Count-only base p95 / Δ | Δ vs Step 0 | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| area (10) | 68.26 | 72.32 | 51.12 / +17.14 | 52.83 / +19.49 | −55.9 | pass |
+| district (101) | 85.94 | 86.62 | 52.02 / +33.91 | 52.86 / +33.76 | −41.6 | pass |
+| region (1,011) | 67.56 (attempt 2) | 81.90 (attempt 3) | 50.73 / +16.83 | 59.41 / +22.49 | −46.4 | pass |
+| root (10,111) | 79.54 | 68.62 | 57.83 / +21.71 | 49.98 / +18.63 | −48.7 | pass |
+| district hot | 65.21 | 64.46 | 48.68 / +16.54 | 47.98 / +16.48 | −63.0 | pass |
+| district thin | 64.68 | 65.49 | 46.65 / +18.04 | 47.05 / +18.45 | −62.8 | pass |
+| uniform m = 1,001 | 66.44 | 67.76 | 44.94 / +21.50 | 47.31 / +20.44 | −60.5 | pass |
+| uniform m = 3,000 | 79.92 | 86.83 | 47.61 / +32.31 | 52.57 / +34.27 | −41.4 | pass |
+| uniform m = 4,500 | 65.65 | 76.71 | 47.82 / +17.83 | 47.89 / +28.82 | −51.5 | pass |
+| uniform m = 10,000 | 64.51 | 63.48 | 46.91 / +17.60 | 40.57 / +22.91 | −63.7 | pass |
+| `bench_rare` at root | 44.98 | 40.84 | 29.84 / +15.14 | 27.26 / +13.58 | −83.3 | pass |
+| **`bench_conc`, regions 0–8 (9,099)** | **161.57** | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | +33.3 | **FAIL** (agents) |
+
+Voided attempts (the floor gate, re-run by the harness): region (agents)
+attempt 1, with an end floor of 6.75 ms; region (count-only) attempts 1 and
+2, with floors of 3.19 and 3.21 ms. They are not scored. Every row and gate
+line is in `acl-perf-region/tick1037-region-run1.md`. The full raw report
+(1.4 MB, every plan) is attached to TICK-1037.
+
+**What `bench_conc` shows.** Diagnostic only: the score above stands.
+
+- **Known: the cost is A2-R6's.** All of it is in the region statements.
+  - The probe takes 20.4 / 39.2 ms (p50 / p95) and the page 20.8 / 44.0 ms
+    for the agents.
+  - The region-only caller also pays the CC count: 28.3 / 37.4 ms.
+  - Each of these visits all 9,099 units of S for a type with no record
+    there.
+  - The median cost is +40.9 ms for the agents and +68.3 ms for the
+    region-only caller. That is the same order as X3's +93.9 ms on the probe
+    harness.
+- **Known: the agents attempt was also noisier than the count-only one.**
+  - Even `BEGIN` and `commit` ran at an 8 to 9 ms p95, against about 4 ms in
+    the count-only row, and the paired base's p95 was 87.33 ms against
+    40 to 60 ms elsewhere.
+  - The gate passed, so the attempt is scored as it is (A2-11: no other
+    basis).
+- **Inferred:** without that noise, the agents row would sit near the
+  count-only row's 123.53 ms. That is still a small margin at 9,099 units,
+  for a cost that grows at about 10 µs per unit of S.
+- **Not tested here:** `bench_conc` at the certified 10,111 units (root).
+
+**Routing (issue "On a fail"):**
+- The failing row goes on S31 (TICK-946) as an R1 trigger to the Solution
+  Architect.
+- A2-R6 goes to the CTO as option (iii), with A2-11's two costed options and
+  a sparse-type rendering spike.
+- A2-R1 does not trigger: the m ≈ K\* cells pass.
+- This is not a groupsync refusal (A2-7).
 
 ### Step 0: baseline passes (agent list, `sort=-updated_at`, no `under` leaf)
 
-The CTO granted an idle-host window: 2026-11-22, 02:40 to 04:10 UTC
-(TICK-1037). Each pass is the unchanged P3-36 handler row: a fresh 800k seed,
+Windows from the CTO: 2026-11-22, 02:40 to 04:10 UTC (passes 1 and 2) and
+the second one, opened early at 07:47 UTC (passes 3 and 4) (TICK-1037). Each pass is the unchanged P3-36 handler row: a fresh 800k seed,
 8 clients, 20 s, behind the transport floor gate and the TICK-1040 container
 watch.
 
@@ -30,17 +124,18 @@ NAVA_PERF_ONLY='^agent list, sort=-updated_at$' sh bench/acl-perf/run.sh
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 02:41:28 | 1.05 / 1.64 | 3,451 | 44.88 | **55.48** | Only the allowed containers: `buildx_buildkit_nava-ci0` (idle), `multica-*` | **clean** |
 | 2 | 02:44:54 | 1.64 / 2.27 | 2,956 / 3,963 | 51.34 / 43.25 | 76.17 / 65.74 | `nava-it-pg-68222908` (02:46), `nava-it-pg-118522456` (02:51), each with `-pgb-pooled` / `-pgb-noprep` sidecars, from another task's `scripts/ci/test-integration.sh` | **void** (CTO terms: a new `nava-*` container during a pass voids it) |
+| 3 | 07:47:59 | 1.19 / 2.37 | 1,933 | 77.22 | **128.25** | Only the allowed containers (pre-flight 07:47:54Z) | **clean** |
+| 4 | 07:52:30 | 1.67 / 2.57 | 1,921 | 70.32 | **175.47** | Only the allowed containers | **clean** |
 
 - **Pass 2 is not scored**, its second attempt included. The harness gated
   attempt 1 and waited for the containers before attempt 2. The CTO's terms
   void the whole pass, so the 65.74 ms is not patched in.
-- **Pass 1 is far under 146.2 ms.** The host was idle (floor 1.05 ms against
-  the 3 ms gate). The 146.2 ms (2026-11-09) and 131.96 ms passes ran on a busier
-  host. One pass does not replace the baseline. The second clean pass decides,
-  and a third runs if the two differ by more than 5 ms.
+- Passes 1 and 3 differ by more than 5 ms, so pass 4 ran. All three clean
+  passes stand, and none is dropped.
 - Code: `TICK-946/in-my-region` at `7e1055ca` (TICK-1036 and TICK-1071 merged).
-- Raw: `acl-perf-region/tick1037-baseline-pass1.md`, `-pass2.md` (header,
-  plans, container samples).
+- Raw: `acl-perf-region/tick1037-baseline-pass1.md` to `-pass4.md` (header,
+  plans, container samples). Passes 3 and 4 ran at `c5483ec1`, where the
+  P3-36 row is unchanged.
 
 ### Region rows through the handler (method, for review before scoring)
 
