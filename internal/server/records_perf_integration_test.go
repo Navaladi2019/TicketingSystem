@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -82,7 +83,13 @@ const (
 	perfHostProbeN = 200
 	// perfFloorGateMS is the transport floor gate: a busy host gives no
 	// numbers at all.
-	perfFloorGateMS  = 3.0
+	perfFloorGateMS = 3.0
+	// perfBaseTailGate is the paired-base tail gate on region rows
+	// (TICK-1091 item 1): an attempt whose paired base request has p95/p50
+	// above it had in-attempt host noise, which the floor gate (the
+	// attempt's edges only) cannot see. Set before the bench_conc rerun;
+	// the other 26 TICK-1037 attempts were 1.34 to 1.65.
+	perfBaseTailGate = 2.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
 	// perfShortTimeout is the bound check's data-filter statement timeout:
@@ -253,6 +260,12 @@ type perfEnv struct {
 	// composed is set once the large tenant's ACL is the S30 composed
 	// document (TICK-944, records_perf_format2_integration_test.go).
 	composed bool
+	// region is the TICK-1037 region bench state, set by its first scenario
+	// (records_perf_region_integration_test.go).
+	region *perfRegion
+	// pairBase are the tokens whose requests are a paired row's base: their
+	// latencies go to pairLat, not lat (TICK-1037).
+	pairBase map[string]bool
 }
 
 func perfEnvInt(name string, def int) int {
@@ -307,7 +320,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -762,7 +775,7 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 // and not held to 50 ms.
 func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 	t.Helper()
-	return map[string]perfExtra{
+	m := map[string]perfExtra{
 		"create, agent, gapless type": {
 			before: func() {
 				// Through the API (a mode-only publish), so the change is audited.
@@ -779,12 +792,14 @@ func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 		"composed: agent list, filter[state]=new":              {before: e.composedBefore(t)},
 		"composed: single GET, agent":                          {before: e.composedBefore(t)},
 	}
+	maps.Copy(m, e.regionExtras(t)) // TICK-1037
+	return m
 }
 
 func (e *perfEnv) defs(t *testing.T) []perfDef {
 	t.Helper()
 	admin := []string{"admin-large"}
-	return []perfDef{
+	return append([]perfDef{
 		{"agent list by group, default sort, page 1", "list", "large", func() []perfReq { return listReqs(e.agents, "") }, 0},
 		{"agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"requester list (heavy requesters), page 1", "list", "large", func() []perfReq { return listReqs(e.requesters, "") }, 0},
@@ -825,7 +840,7 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"composed: agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"composed: agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
 		{"composed: single GET, agent", "get", "large", func() []perfReq { return e.getReqs(t, e.agents, 5) }, 0},
-	}
+	}, e.regionDefs(t)...) // TICK-1037: last, it rewrites org_unit_id and the ACLs
 }
 
 // ---- measurement -----------------------------------------------------------
@@ -860,6 +875,15 @@ type perfResult struct {
 	// attempt ran; any one voids the attempt, for every scored row
 	// (watched).
 	intruders []string
+	// pairLat are the paired base requests' latencies (TICK-1037): the
+	// same client, interleaved with the scored requests in lat.
+	pairLat []time.Duration
+	// floorStart and floorEnd are the 1-client transport floor p50 in ms,
+	// measured just before and just after a region row attempt (TICK-1037,
+	// A2-11; Technical Architect, TICK-1087 item 1). The run-level floor is
+	// taken once before every row, ~17 min before the region rows start,
+	// so it cannot refuse a region attempt; these can. 0 when not measured.
+	floorStart, floorEnd float64
 	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
 	open *perfOpen
 }
@@ -893,6 +917,11 @@ func lastCommit(ss []perfStmt) (time.Duration, bool) {
 // starts later contended a list window without voiding it (QA, 2026-11-21
 // 07:23, P3-36 baseline runs 1 and 2b).
 func (sc perfScenario) watched() bool {
+	// TICK-1037: a region information row is unscored but keeps every
+	// gate (container watch, floor, base tail) and their re-runs.
+	if isRegionRow(sc.name) {
+		return true
+	}
 	return sc.unscored == "" && (sc.kind == "create" || sc.kind == "list" || sc.kind == "get")
 }
 
@@ -926,6 +955,16 @@ func (r *perfResult) gateReason() string {
 	}
 	if len(r.intruders) > 0 {
 		why = append(why, "other containers during the attempt: "+strings.Join(r.intruders, " "))
+	}
+	if r.floorStart > perfFloorGateMS || r.floorEnd > perfFloorGateMS {
+		why = append(why, fmt.Sprintf("floor p50 %.2f / %.2f > %.0f ms", r.floorStart, r.floorEnd, perfFloorGateMS))
+	}
+	// TICK-1091: in-attempt host noise; the floor gate only sees the
+	// attempt's edges. Only region rows have pairLat.
+	if len(r.pairLat) > 0 {
+		if b50, b95 := pct(r.pairLat, .50), pct(r.pairLat, .95); b50 > 0 && b95/b50 > perfBaseTailGate {
+			why = append(why, fmt.Sprintf("paired base p95/p50 %.2f > %.1f", b95/b50, perfBaseTailGate))
+		}
 	}
 	return strings.Join(why, ", ")
 }
@@ -1190,6 +1229,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			defer wg.Done()
 			var (
 				lat     []time.Duration
+				pairLat []time.Duration
 				holds   []perfHold
 				commits []time.Duration
 			)
@@ -1215,6 +1255,12 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				if rec.Code == http.StatusUnprocessableEntity {
 					atomic.AddInt64(&res.timeouts, 1)
 				}
+				// Only a region row pairs: the base tokens are the plain
+				// agents, whose own rows keep every latency in lat.
+				if isRegionRow(sc.name) && e.pairBase[r.token] {
+					pairLat = append(pairLat, el)
+					continue
+				}
 				lat = append(lat, el)
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
 					holds = append(holds, h)
@@ -1229,6 +1275,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			}
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
+			res.pairLat = append(res.pairLat, pairLat...)
 			res.holds = append(res.holds, holds...)
 			res.commits = append(res.commits, commits...)
 			for k, v := range stmts {
@@ -1383,6 +1430,12 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			} else if sc.watched() {
 				st.isolationWait = isolate(t)
 			}
+			// Region rows: the floor gate per attempt, at its start and its
+			// end, as the crossover cells gated each chunk (TICK-1087 item 1).
+			floorStart := 0.0
+			if isRegionRow(sc.name) {
+				floorStart = pct(e.transportFloor(t, 1), .50)
+			}
 			if sc.watched() {
 				watch = watchContainers(t.Context(), stop)
 			}
@@ -1390,6 +1443,10 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			close(stop)
 			if watch != nil {
 				r.intruders = <-watch
+			}
+			if isRegionRow(sc.name) {
+				r.floorStart, r.floorEnd = floorStart, pct(e.transportFloor(t, 1), .50)
+				t.Logf("FLOOR %s attempt %d: 1-client SELECT 1 p50 %.2f ms before, %.2f ms after (gate %.0f ms)", sc.name, a, r.floorStart, r.floorEnd, perfFloorGateMS)
 			}
 			r.attempt, r.probe, r.setup, r.storage = a, probe, st, storage
 			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms storage probe=%6.2f in-trace commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
@@ -1408,6 +1465,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", out)
+	e.regionReport(t, results, out) // TICK-1037
 	invalid := map[string]bool{}
 	for _, r := range results {
 		switch p95 := pct(r.lat, .95); {
