@@ -452,7 +452,7 @@ func TestAppendTenantFromTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(context.Background()) //nolint:errcheck // rollback after a failed/read-only check; the error adds nothing
 	_, err = Append(context.Background(), tx, recordEntry(uuid.New(), 1, `[]`))
 	if !errors.Is(err, ErrInvalidEntry) {
 		t.Fatalf("no tenant: err = %v, want ErrInvalidEntry", err)

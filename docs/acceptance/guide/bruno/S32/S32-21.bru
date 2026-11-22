@@ -1,0 +1,29 @@
+meta {
+  name: S32.21 AC2: 3 s later it is still new: the run waits on its timer
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s32_ac2}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  await bru.sleep(3000);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('state new, version 1', () => { expect(N.json().state).to.eql('new'); expect(N.json().version).to.eql(1); });
+}
+
+docs {
+  `run.sh` shows from `workflow_ref` that the run had started before S32.22.
+}

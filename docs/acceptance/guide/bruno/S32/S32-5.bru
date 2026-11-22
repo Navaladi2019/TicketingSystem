@@ -1,0 +1,24 @@
+meta {
+  name: S32.5 Alice's principal id and /service-desk
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s32_alice', N.json().user_id);
+  const sd = N.json().group_paths.find(g => g.path === '/service-desk');
+  test('Alice is in /service-desk', () => expect(sd, 'group_paths /service-desk').to.be.an('object'));
+  bru.setVar('s32_sd', sd ? sd.id : '');
+}

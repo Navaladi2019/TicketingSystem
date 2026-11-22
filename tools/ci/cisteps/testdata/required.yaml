@@ -8,3 +8,8 @@ steps:
   - job: stack
     artifact: ci5-report
     why: the CI-5 report
+outputs:
+  - job: changes
+    output: full
+    value: ${{ steps.stages.outputs.full }}
+    why: isolation gate

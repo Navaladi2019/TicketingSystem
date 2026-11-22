@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 amendment A3 explained: a small ticket type under a large region reads its own records</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--goodbg);color:var(--good);border:1px solid var(--good)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+td.n{text-align:right;white-space:nowrap}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:660px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">ACCEPTED · 2026-11-22</span> <span class="src">ADR-010-A3 · issue TICK-946 (R1 thread) · amends ADR-010-A2 A2-5, A2-6, A2-7, A2-10, A2-R6 · evidence: SP-1f (TICK-1092), TICK-1037 (PR #846)</span>
+
+<h1>"Tickets in my region": when a ticket type is small, read its tickets instead of visiting every unit</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) For a ticket type with few records under a very large region, the current query visits every unit of the region looking for them, so it gets slower as the org chart grows. One benchmark row failed the 150 ms budget at 9,099 units.
+(2) In that case the query now starts from the other side: it turns the region into an in-memory set once, then reads the type's own records and keeps those inside the set. A count the list already runs decides which side to start from.
+(3) The spike passed every line of its contract (worst case 75.85 ms at the largest certified tree), results are unchanged by construction, and nothing is added that a tenant can configure.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>An <em>org unit</em> is a box in the company's organisation chart ("EMEA", "EMEA / Germany"). A policy can say <em>in my region</em>: an agent sees a ticket if it was raised in the agent's unit or in any unit below it. The set of those units is the agent's <em>subtree</em>, written S. The ticket list has to answer within 150 ms at the 95th percentile (<em>p95</em>: 95 of every 100 requests are at least that fast).</p>
+<p>Amendment A2 made this fast for the common case. Its query starts from the units: for each unit in S, it looks up that unit's tickets. That is cheap when the units hold many tickets of the type being listed. It is wasteful for a <em>concentrated</em> type: one with, say, 20,000 records in the whole tenant, almost none of them under S. The query then visits all 9,099 units and finds almost nothing, at about 3.4 to 5.9 microseconds per unit. The re-measurement (TICK-1037) scored that row at 161.57 ms, over budget.</p>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+<tr><td>Start from the type's records when the type is small next to the subtree (shape <strong>R</strong>)</td><td class="good">Chosen</td><td>Its cost follows the type's size, not the subtree's. One query text and one probe text change. Measured by SP-1f.</td></tr>
+<tr><td>Keep A2 and simply re-run the benchmark</td><td class="bad">Rejected</td><td>A clean re-run of A2 did pass (99 ms), so the earlier fail was mostly a busy host. But the cost still grows with every unit, and its 50 ms margin has already been eaten once by noise.</td></tr>
+<tr><td>A new index on tickets sorted by unit</td><td class="bad">Rejected</td><td>It also starts from the units, so it visits all 9,099 of them. It slows down every ticket create.</td></tr>
+<tr><td>Ask the product owner for a looser budget for region-only agents</td><td class="bad">Not needed</td><td>The CTO ruled this goes to the human only if the spike fails. It passed.</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<ol>
+<li><strong>A third query shape, R.</strong> The region condition becomes "this ticket's unit is in the set of units under U". PostgreSQL builds that set once as a <em>hash table</em> (an in-memory lookup that answers "is X in the set?" in constant time) and checks each of the type's records against it. A small trick, wrapping the test in <code>IS TRUE</code>, stops the database from rewriting it back into the unit-by-unit form.</li>
+<li><strong>Choosing R.</strong> Before the list, A2 already runs a quick <em>probe</em>. A3 adds a count of the subtree's units to the same statement. N̂<sub>e</sub> is the tenant's estimated number of records of this type. If the count is at least N̂<sub>e</sub> / α, the subtree is big next to the type, and R is used. Otherwise the probe carries on exactly as in A2. No extra round trip to the database.</li>
+<li><strong>A ceiling on R (added in revision 1).</strong> The count stops at 20,222 units, twice the largest certified tree. A subtree that big never gets R, because the in-memory set might no longer fit, and without it the database would compare every record with every unit: billions of steps on a database every tenant shares. Such a tenant keeps A2's slower but bounded cost. The ceiling costs about 1.7 ms on the benchmark row.</li>
+<li><strong>α = 3.3, measured.</strong> R costs about the same at every subtree size; A2 grows with it. The two lines cross at about 6,000 units for a 20,000-record type, so α = 20,000 / 6,000 ≈ 3.3 (see the chart).</li>
+<li><strong>Skip the count when R cannot win.</strong> For a large type such as the main ticket type (400,000 records), R could only win on a tree far above the certified 10,111 units, so the count is skipped and the probe costs exactly what it did under A2.</li>
+<li><strong>Same results, always.</strong> Every shape asks the same yes/no question of each ticket. A wrong estimate or count changes speed, never which tickets you see. An error returns 500; it never silently switches shape.</li>
+</ol>
+
+<figure>
+<svg viewBox="0 0 700 360" role="img" aria-label="Extra time per request against subtree size: A2 rises from about 10 ms to 57 ms, R stays near 37 to 42 ms; they cross near 6,000 units">
+<rect x="0" y="0" width="700" height="360" fill="#fff"/>
+<g stroke="#d1d9e0" stroke-width="1">
+<line x1="60" y1="300" x2="640" y2="300"/><line x1="60" y1="213.3" x2="640" y2="213.3"/><line x1="60" y1="126.7" x2="640" y2="126.7"/><line x1="60" y1="40" x2="640" y2="40"/>
+</g>
+<g font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#59636e">
+<text x="50" y="304" text-anchor="end">0</text><text x="50" y="217" text-anchor="end">20</text><text x="50" y="131" text-anchor="end">40</text><text x="50" y="44" text-anchor="end">60 ms</text>
+<text x="60" y="320" text-anchor="middle">1,011</text><text x="270" y="320" text-anchor="middle">4,044</text><text x="405" y="320" text-anchor="middle">≈ 6,000</text><text x="620" y="320" text-anchor="middle">9,099 units</text>
+<text x="350" y="345" text-anchor="middle">Subtree size |S| (type with 20,000 records, none under S). Extra time per request, median, count-only agent</text>
+</g>
+<line x1="405" y1="40" x2="405" y2="300" stroke="#9a6700" stroke-dasharray="5 4"/>
+<text x="411" y="56" font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#9a6700">crossover: α = 20,000 / 6,000 ≈ 3.3</text>
+<polyline fill="none" stroke="#cf222e" stroke-width="2.5" points="60,257.1 130,237.2 200,199.0 270,174.8 620,51.3"/>
+<polyline fill="none" stroke="#0969da" stroke-width="2.5" points="60,117.1 130,141.0 270,119.7 620,141.8"/>
+<g fill="#cf222e"><circle cx="60" cy="257.1" r="4"/><circle cx="130" cy="237.2" r="4"/><circle cx="200" cy="199.0" r="4"/><circle cx="270" cy="174.8" r="4"/><circle cx="620" cy="51.3" r="4"/></g>
+<g fill="#0969da"><circle cx="60" cy="117.1" r="4"/><circle cx="130" cy="141.0" r="4"/><circle cx="270" cy="119.7" r="4"/><circle cx="620" cy="141.8" r="4"/></g>
+<circle cx="200" cy="51.3" r="4" fill="none" stroke="#0969da" stroke-width="1.5"/>
+<g font-family="Segoe UI,Arial,sans-serif" font-size="12.5" font-weight="600">
+<text x="560" y="40" fill="#cf222e">A2 (by unit)</text><text x="560" y="165" fill="#0969da">R (by record)</text>
+</g>
+</svg>
+<figcaption>SP-1f α sweep. The hollow point at 3,033 units was a noisy pair and is left out of the fit. Left of the line A2 is cheaper; right of it R is.</figcaption>
+</figure>
+
+<figure>
+<svg viewBox="0 0 700 250" role="img" aria-label="Selector flow">
+<rect width="700" height="250" fill="#fff"/>
+<g font-family="Segoe UI,Arial,sans-serif" font-size="12.5" fill="#1f2328">
+<rect x="10" y="95" width="120" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="70" y="116" text-anchor="middle">List request,</text><text x="70" y="132" text-anchor="middle">region leaf</text>
+<rect x="160" y="95" width="130" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="225" y="116" text-anchor="middle">Type tiny?</text><text x="225" y="132" text-anchor="middle">(A2 rare shortcut)</text>
+<rect x="160" y="10" width="130" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="225" y="35" text-anchor="middle">A2 walk, no probe</text>
+<rect x="320" y="95" width="140" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="390" y="116" text-anchor="middle">Can R win at all?</text><text x="390" y="132" text-anchor="middle">N̂e ≤ 3.3 × 10,111</text>
+<rect x="320" y="190" width="140" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="390" y="215" text-anchor="middle">A2 probe, unchanged</text>
+<rect x="490" y="95" width="140" height="50" rx="6" fill="#f6f8fa" stroke="#d1d9e0"/><text x="560" y="116" text-anchor="middle">Count units n,</text><text x="560" y="132" text-anchor="middle">stop at 20,222</text>
+<rect x="470" y="10" width="180" height="40" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="560" y="35" text-anchor="middle">N̂e/3.3 ≤ n &lt; 20,222: R</text>
+<rect x="470" y="190" width="180" height="40" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="560" y="215" text-anchor="middle">Otherwise: A2 shapes</text>
+</g>
+<g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#a)">
+<line x1="130" y1="120" x2="158" y2="120"/><line x1="225" y1="95" x2="225" y2="52"/><line x1="290" y1="120" x2="318" y2="120"/><line x1="390" y1="145" x2="390" y2="188"/><line x1="460" y1="120" x2="488" y2="120"/><line x1="560" y1="95" x2="560" y2="52"/><line x1="560" y1="145" x2="560" y2="188"/>
+</g>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#59636e"/></marker></defs>
+<g font-family="Segoe UI,Arial,sans-serif" font-size="11" fill="#59636e"><text x="232" y="75">yes</text><text x="294" y="112">no</text><text x="396" y="170">no</text><text x="464" y="112">yes</text></g>
+</svg>
+<figcaption>Which shape a region list uses. The unit count and the A2 probe are one database statement.</figcaption>
+</figure>
+
+<h2>4. The evidence (SP-1f, 2026-11-22)</h2>
+<p>Same benchmark harness as TICK-1037, run alone on the host, each request paired with a plain request so host load can be subtracted. All 68 rows scored on the first attempt. The current mechanism ran first in the same window as the <em>control</em>.</p>
+<table><thead><tr><th>Subtree size</th><th>A2 control, agents</th><th>R, agents</th><th>A2 control, region-only agent</th><th>R, region-only agent</th></tr></thead><tbody>
+<tr><td>9,099 units, no records of the type under it</td><td class="n">79.58 ms</td><td class="n good">67.66 ms</td><td class="n">99.26 ms</td><td class="n good">64.40 ms</td></tr>
+<tr><td>10,111 units (largest certified), all records under it</td><td class="n">41.86 ms</td><td class="n good">36.43 ms</td><td class="n">46.52 ms</td><td class="n warn">75.85 ms</td></tr>
+</tbody></table>
+<ul>
+<li><strong>Budget:</strong> every R cell is under 150 ms p95, and every other benchmark row is below its earlier value.</li>
+<li><strong>Same results:</strong> 0 mismatches across 201 callers and 17 data sets. The existing agreement tests pass with R forced.</li>
+<li><strong>Stable plans:</strong> the database picked the same plan under two very different statistics settings.</li>
+<li><strong>The earlier fail:</strong> it stands as scored. The control shows it was mostly host load: the paired baseline was 26 ms here against 87 ms then.</li>
+</ul>
+
+<h2>5. What we are accepting</h2>
+<table><thead><tr><th>Residual risk</th><th>Why acceptable</th><th>What would reopen it</th></tr></thead><tbody>
+<tr><td>α was measured on one type size (20,000 records)</td><td>R is only chosen up to about 33,400 records at the certified tree, close to the measured point</td><td>A later bench where R is slower than A2 below α</td></tr>
+<tr><td>When a type sits <em>entirely</em> under the subtree, R is a little slower than A2 (+6 ms)</td><td>Both far under budget; seeing it would need a second probe</td><td>Such a list within 30 ms of budget</td></tr>
+<tr><td>The count may still use an index that scans the tenant's whole unit-tagged slice</td><td>Bounded today; the implementation checks the plan and removes the cause</td><td>The plan test shows the old index</td></tr>
+<tr><td>Just under the 20,222-unit ceiling, the database might still misjudge the set's size and skip the in-memory set</td><td>Measured flip point is around 160,000 to 255,000 estimated units, far above the ceiling; a plan test pins 20,222</td><td>The plan test at 20,222 units, or a change to the memory settings</td></tr>
+<tr><td>R assumes the database plans each query with its actual values (custom plans), as nava-core does today</td><td>A cached generic plan would turn the count into a full scan (275 ms against 7 ms)</td><td>Any change to statement caching re-runs the plan test under generic plans</td></tr>
+<tr><td>Timing can hint, inside one tenant, whether the type has more than about 33,400 records and whether the agent's subtree has at least N̂<sub>e</sub> / 3.3 units</td><td>Same class as the accepted risk AR-TICK-1040-01, which gains the security reviewer's sentence (approved); nothing crosses tenants</td><td>As for AR-TICK-1040-01</td></tr>
+</tbody></table>
+
+<h2>6. What happens next</h2>
+<ol>
+<li>The Technical Architect's critique asked for one change, the ceiling above, which revision 1 adopts. The Security &amp; Multi-Tenancy Reviewer approved, with the risk sentence rewritten. The Technical Architect then approved revision 1, and the Solution Architect accepted A3 on 2026-11-22. No tie-break was needed.</li>
+<li>On ACCEPTED, the Technical Lead opens one implementation task, starting from the spike's code, with tests that force R and pin its plan.</li>
+<li>A clean re-run of the region benchmark has since passed under A2 alone (70 ms and 83 ms against 150 ms), so story S31 does not wait for A3. A3 widens the safety margin; after its task lands, the benchmark re-runs with the new rows, and a pass closes the remaining margin risk.</li>
+</ol>
+<p class="src">Glossary: <strong>N̂<sub>e</sub></strong> the tenant's estimated record count of the listed type, refreshed hourly. <strong>U</strong> the units a rule starts from. <strong>S</strong> those units and every unit below them. <strong>Closure table</strong> a table with one row per "unit A is at or above unit B" pair. <strong>Spike</strong> a short, timeboxed experiment.</p>
+
+</main></body></html>

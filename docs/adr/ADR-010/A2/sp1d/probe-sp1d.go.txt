@@ -1,0 +1,278 @@
+//go:build perf
+
+// SP-1d (TICK-1041): a records-driven probe and disjoint-branch compilation
+// on top of SP-1c's mechanism (probe K = 1,000, C2 <= K, W0 > K).
+package main
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// probeLateral is the records-driven probe: walk the caller's closure rows in
+// PK order and take at most K+1 records per unit, stopping at K+1 in total.
+// No unique-ify of the closure set. With overlapping U (an ancestor and its
+// descendant both in U) a record can be counted twice: the probe over-counts,
+// which only moves the switch to the walk earlier, never visibility.
+const probeLateral = `SELECT count(*) FROM (SELECT 1 FROM org_unit_closure acl_ou CROSS JOIN LATERAL (SELECT 1 FROM records r WHERE r.tenant_id = $1 AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_ou.descendant_id LIMIT $3) x WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($2::uuid[]) LIMIT $3) p`
+
+// probeUnnest (P3) is P2 with the closure reached per ancestor through
+// unnest(U): ancestor_id = <one id> is an equality the planner prices at
+// about 5 rows per ancestor, so it keeps the PK index scan instead of P2's
+// Seq Scan over the closure at root.
+const probeUnnest = `SELECT count(*) FROM (SELECT 1 FROM unnest($2::uuid[]) acl_u(id) CROSS JOIN LATERAL (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = acl_u.id) c CROSS JOIN LATERAL (SELECT 1 FROM records r WHERE r.tenant_id = $1 AND r.org_unit_id IS NOT NULL AND r.org_unit_id = c.descendant_id LIMIT $3) x LIMIT $3) p`
+
+// mode: 0 = today's compilation (each branch AND NOT every earlier one),
+// 1 = region branch without its four AND NOTs, 2 = no AND NOT anywhere.
+// Modes 1 and 2 let branches overlap, so the page de-duplicates on
+// (sort_key, id) and the count on id.
+func branchesMode(leaf string, mode int) []string {
+	d := slices.Clone(base)
+	if leaf != "" {
+		d = append(d, leaves[leaf])
+	}
+	var out []string
+	for i := range d {
+		b := d[i]
+		if mode == 0 || (mode == 1 && i != 4) {
+			for j := 0; j < i; j++ {
+				b += " AND NOT " + d[j]
+			}
+		}
+		out = append(out, "("+b+")")
+	}
+	return out
+}
+
+func countSQLMode(leaf string, mode int) string {
+	if mode == 0 {
+		return countSQL(leaf)
+	}
+	var parts []string
+	for _, b := range branchesMode(leaf, mode) {
+		parts = append(parts, "(SELECT r.id FROM records r "+where(b)+" LIMIT 1001)")
+	}
+	return strings.ReplaceAll("SELECT count(*) FROM (SELECT DISTINCT u.id FROM ("+strings.Join(parts, " UNION ALL ")+") u LIMIT 1001) c", "$9", "$8")
+}
+
+func pageSQLMode(leaf string, mode int) string {
+	if mode == 0 {
+		return pageSQL(leaf, false)
+	}
+	var parts []string
+	for _, b := range branchesMode(leaf, mode) {
+		parts = append(parts, "(SELECT "+cols+" FROM records r\n"+where(b)+" ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT $8)")
+	}
+	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       x.sort_key::text FROM (
+SELECT DISTINCT ON (u.sort_key, u.id) u.* FROM (
+` + strings.Join(parts, "\nUNION ALL\n") + `
+) u ORDER BY u.sort_key DESC NULLS FIRST, u.id DESC LIMIT $8
+) x
+JOIN entity_definitions d ON d.tenant_id = x.tenant_id AND d.id = x.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = x.tenant_id AND g.id = x.assignment_group_id
+ORDER BY x.sort_key DESC NULLS FIRST, x.id DESC`
+}
+
+type mech struct {
+	name   string
+	probe  string // "" = no probe
+	k      int
+	mode   int // page compilation
+	cmode  int // count compilation
+	noLeaf bool // probe + today's baseline list: the probe's cost alone
+	bare   bool // no probe, no region leaf: the compilation mode's cost alone
+}
+
+func (e *env) mechStmts(m mech, s *set, a agent) []stmt {
+	u := []string{s.root}
+	var ss []stmt
+	if m.probe != "" {
+		ss = append(ss, stmt{m.probe, []any{e.tenant, u, m.k + 1}})
+	}
+	if m.noLeaf || m.bare {
+		args := e.args(a, nil)
+		return append(ss, stmt{countSQLMode("", m.cmode), countArgs(args)}, stmt{pageSQLMode("", m.mode), args})
+	}
+	leaf := "W0"
+	if s.all <= m.k {
+		leaf = "C2"
+	}
+	args := e.args(a, u)
+	return append(ss, stmt{countSQLMode(leaf, m.cmode), countArgs(args)}, stmt{pageSQLMode(leaf, m.mode), args})
+}
+
+func (e *env) wallMS(ctx context.Context, ss []stmt) float64 {
+	d, err := e.tx(ctx, func(tx pgx.Tx) error {
+		for _, s := range ss {
+			rows, err := tx.Query(ctx, s.sql, s.args...)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	must(err)
+	return float64(d.Microseconds()) / 1000
+}
+
+// result returns the page ids in order and the capped count (the last two
+// statements; a leading probe is skipped).
+func (e *env) result(ctx context.Context, ss []stmt) (string, int) {
+	var ids []string
+	var n int
+	_, err := e.tx(ctx, func(tx pgx.Tx) error {
+		c, p := ss[len(ss)-2], ss[len(ss)-1]
+		if err := tx.QueryRow(ctx, c.sql, c.args...).Scan(&n); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, p.sql, p.args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			v, err := rows.Values()
+			if err != nil {
+				return err
+			}
+			ids = append(ids, fmt.Sprint(v[1]))
+		}
+		rows.Close()
+		return rows.Err()
+	})
+	must(err)
+	return strings.Join(ids, ","), n
+}
+
+func (e *env) probeCount(ctx context.Context, q string, u []string, k int) int {
+	var n int
+	_, err := e.tx(ctx, func(tx pgx.Tx) error { return tx.QueryRow(ctx, q, e.tenant, u, k+1).Scan(&n) })
+	must(err)
+	return n
+}
+
+var sp1dMechs = []mech{
+	{name: "probe P0 K=1000 only", probe: probeSQL, k: 1000, noLeaf: true},
+	{name: "probe P3 K=1000 only", probe: probeUnnest, k: 1000, noLeaf: true},
+	{name: "M2 = SP-1c (P0 K=1000, C2/W0, today's branches)", probe: probeSQL, k: 1000},
+	{name: "M3 (P3 K=1000, C2/W0, today's branches)", probe: probeUnnest, k: 1000},
+	{name: "M3r (P3 K=1000, C2/W0, page: region branch disjoint)", probe: probeUnnest, k: 1000, mode: 1},
+	{name: "M3a (P3 K=1000, C2/W0, page: all branches disjoint)", probe: probeUnnest, k: 1000, mode: 2},
+	{name: "M3 K=500 (P3, C2/W0, today's branches)", probe: probeUnnest, k: 500},
+	{name: "no leaf, page: all branches disjoint", mode: 2, bare: true},
+	{name: "probe P2 K=1000 only", probe: probeLateral, k: 1000, noLeaf: true},
+	{name: "M3a+ (P3 K=1000, C2/W0, page and count all disjoint)", probe: probeUnnest, k: 1000, mode: 2, cmode: 2},
+}
+
+func (e *env) sp1d(ctx context.Context, phase string, sets []*set, only *regexp.Regexp, pairs int) {
+	e.exec(ctx, "SELECT pg_prewarm(c.oid) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'i')")
+	baseStmts := func(a agent) []stmt {
+		args := e.args(a, nil)
+		return []stmt{{countSQL(""), countArgs(args)}, {pageSQL("", false), args}}
+	}
+	switch phase {
+	case "check":
+		e.w("\n### SP-1d equality check, 40 agents per set: page ids in order and capped count equal to SP-1c's M2; probes P0 / P2 / P3\n\n| Set | M3 | M3r | M3a | no-leaf disjoint = baseline | probe P0 / P2 / P3 at K=1000; K=500 |\n| --- | --- | --- | --- | --- | --- |\n")
+		for _, s := range sets {
+			ok := make([]int, 4)
+			for i := 0; i < 40; i++ {
+				a := e.agents[i]
+				ref, rn := e.result(ctx, e.mechStmts(sp1dMechs[2], s, a))
+				for j, m := range sp1dMechs[3:6] {
+					if got, gn := e.result(ctx, e.mechStmts(m, s, a)); got == ref && gn == rn {
+						ok[j]++
+					}
+				}
+				bref, bn := e.result(ctx, baseStmts(a))
+				if got, gn := e.result(ctx, e.mechStmts(sp1dMechs[7], s, a)); got == bref && gn == bn {
+					ok[3]++
+				}
+			}
+			pk := ""
+			for _, k := range []int{1000, 500} {
+				pk += fmt.Sprintf("%d / %d / %d; ", e.probeCount(ctx, probeSQL, []string{s.root}, k), e.probeCount(ctx, probeLateral, []string{s.root}, k), e.probeCount(ctx, probeUnnest, []string{s.root}, k))
+			}
+			e.w("| %s | %d/40 | %d/40 | %d/40 | %d/40 | %s |\n", s.label, ok[0], ok[1], ok[2], ok[3], pk)
+			fmt.Printf("check %s %v %s\n", s.label, ok, pk)
+		}
+	case "explain2":
+		e.w("\n### SP-1d plans (agents[0])\n\n| Set | statement | plan / exec ms | plan shape (region branch, or whole statement) | records read |\n| --- | --- | --- | --- | --- |\n")
+		for _, s := range sets {
+			for _, k := range []int{500, 1000} {
+				for _, p := range []struct{ n, q string }{{"P0", probeSQL}, {"P2", probeLateral}, {"P3", probeUnnest}} {
+					pi := e.explain(ctx, fmt.Sprintf("%s probe %s K=%d", s.label, p.n, k), p.q, []any{e.tenant, []string{s.root}, k + 1}, k == 1000)
+					e.w("| %s | probe %s K=%d | %.2f / %.2f | %s | %.0f |\n", s.label, p.n, k, pi.planMS, pi.execMS, strings.Join(pi.region.shape, " > "), pi.region.read)
+				}
+			}
+			for _, m := range sp1dMechs[3:6] {
+				ss := e.mechStmts(m, s, e.agents[0])
+				n := len(ss)
+				ci := e.explain(ctx, s.label+" "+m.name+" count", ss[n-2].sql, ss[n-2].args, true)
+				pi := e.explain(ctx, s.label+" "+m.name+" page", ss[n-1].sql, ss[n-1].args, true)
+				e.w("| %s | %s count | %.2f / %.2f | %s | %.0f |\n", s.label, m.name, ci.planMS, ci.execMS, strings.Join(ci.region.shape, " > "), ci.region.read)
+				e.w("| %s | %s page | %.2f / %.2f | %s | %.0f |\n", s.label, m.name, pi.planMS, pi.execMS, strings.Join(pi.region.shape, " > "), pi.region.read)
+			}
+		}
+		e.w("\n### SP-1d plans\n%s", e.plans.String())
+	case "srv2", "wall2":
+		timer, kind := e.srvMS, "server-side (EXPLAIN ANALYZE, TIMING OFF: planning + execution)"
+		if phase == "wall2" {
+			timer, kind = e.wallMS, "wall-clock (BEGIN, set_config, statements, COMMIT, from the client)"
+			f50, f95 := e.floor(ctx)
+			gate := "PASS"
+			if f50 > 3 {
+				gate = "FAIL"
+			}
+			e.w("\nTransport floor (`SELECT 1` x400, 1 client): p50 %.2f, p95 %.2f ms. P3-36 gate (p50 <= 3 ms): **%s**. Foreign containers: `%s`.\n", f50, f95, gate, foreign())
+			fmt.Printf("floor p50 %.2f p95 %.2f %s\n", f50, f95, gate)
+		}
+		e.w("\n### SP-1d paired pass, %s, %d pairs per cell; baseline = today's compilation without a region leaf; baseline and variant alternate\n\n| Set | variant | pairs | base p50 | base p95 | var p50 | var p95 | **median per-pair Δ** | **Δp95** | p95 per-pair Δ |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", kind, pairs)
+		for _, s := range sets {
+			for _, m := range sp1dMechs {
+				name := s.label + " " + m.name
+				if !only.MatchString(name) {
+					continue
+				}
+				for i := 0; i < 20; i++ {
+					timer(ctx, baseStmts(e.agents[i]))
+					timer(ctx, e.mechStmts(m, s, e.agents[i]))
+				}
+				var bs, vv, ds []float64
+				for i := 0; i < pairs; i++ {
+					a := e.agents[i%len(e.agents)]
+					var b, y float64
+					if i%2 == 0 {
+						b = timer(ctx, baseStmts(a))
+						y = timer(ctx, e.mechStmts(m, s, a))
+					} else {
+						y = timer(ctx, e.mechStmts(m, s, a))
+						b = timer(ctx, baseStmts(a))
+					}
+					bs, vv, ds = append(bs, b), append(vv, y), append(ds, y-b)
+				}
+				b50, b95, v50, v95 := fpct(bs, .5), fpct(bs, .95), fpct(vv, .5), fpct(vv, .95)
+				fmt.Printf("%s %s %-78s base p95=%6.2f med=%+6.2f dp95=%+7.2f\n", time.Now().UTC().Format("15:04:05"), phase, name, b95, fpct(ds, .5), v95-b95)
+				e.w("| %s | %s | %d | %.2f | %.2f | %.2f | %.2f | **%+.2f** | **%+.2f** | %+.2f |\n", s.label, m.name, pairs, b50, b95, v50, v95, fpct(ds, .5), v95-b95, fpct(ds, .95))
+			}
+		}
+		if phase == "wall2" {
+			f50, f95 := e.floor(ctx)
+			e.w("\nTransport floor at end: p50 %.2f, p95 %.2f ms.\n", f50, f95)
+		}
+		e.w("\nForeign containers at end: `%s`.\n", foreign())
+	}
+}

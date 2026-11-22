@@ -57,7 +57,7 @@ func newPatchEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	return e
 }
 
-var patchKey int
+var patchKey int //nolint:gochecknoglobals // test-only counter for unique idempotency keys
 
 // patch sends a merge patch. ifMatch "" sends no If-Match header.
 func (e *etEnv) patch(t *testing.T, token, entity, id, ifMatch, body string) *httptest.ResponseRecorder {

@@ -1,0 +1,42 @@
+meta {
+  name: S32.16 AC1: Alice's incident is routed to triaged
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s32_ac1}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const t0 = Number(bru.getVar('s32_ac1_at')) || 0;
+  for (;;) {
+    const r = await N.send({ url: N.url('{{core_url}}/api/v1/records/incident/{{s32_ac1}}'), method: 'GET',
+      headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token') }, timeout: 15000 }).catch(() => ({ status: 0, data: {} }));
+    if (!bru.getVar('s32_ac1') || (r.status === 200 && r.data.state !== 'new') || Date.now() - t0 > 120 * 1000) break;
+    await bru.sleep(500);
+  }
+  bru.setVar('s32_ac1_routed_at', String(Date.now()));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('state triaged, written by the workflow (version 2)', () => {
+    expect(b.state).to.eql('triaged');
+    expect(b.version).to.eql(2);
+  });
+  console.log('s32_ac1 routed to', b.state, 'after', ((Number(bru.getVar('s32_ac1_routed_at')) - Number(bru.getVar('s32_ac1_at'))) / 1000).toFixed(1), 's');
+}
+
+docs {
+  Waits up to 120 s after S32.14 for the workflow's write.
+}

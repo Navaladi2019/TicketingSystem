@@ -134,7 +134,8 @@ func mineExplain(ctx context.Context, pool *pgxpool.Pool, tenant uuid.UUID, sql 
 			return rows.Err()
 		}))
 		var v float64
-		fmt.Sscan(mineExecRE.FindStringSubmatch(sb.String())[1], &v)
+		_, err := fmt.Sscan(mineExecRE.FindStringSubmatch(sb.String())[1], &v)
+		mineMust(err)
 		if i > 0 {
 			ms = append(ms, v)
 		}

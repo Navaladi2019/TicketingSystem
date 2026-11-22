@@ -311,8 +311,11 @@ shards ran every one of them. Extra arguments (`ARGS=-run ...`) run every
 package one after another on the shared cluster, as before.
 
 **Integration timeout and the log (TICK-225).** Every `go test` in the script
-runs with `-timeout 8m` (6m until TICK-1021: `internal/server` took 348 s on
-run 44760743332, 12 s from the panic), against the job's `timeout-minutes: 15`;
+runs with `-timeout 11m` (6m until TICK-1021: `internal/server` took 348 s on
+run 44760743332, 12 s from the panic; 8m until TICK-1100: run 45012776252 ran
+1.57x slower on westus2 runners and timed out twice with no test failing),
+against the job's `timeout-minutes: 15`. When green runs of the slowest package
+go over about 70 % of the limit, split the package instead of raising it again;
 the numbers below are TICK-225's, when the job had 10. A green run
 starts its tests about 2 minutes into the job (set-up 17 s, clusters and test
 compile 85 to 100 s) and they take under a minute, so 6 minutes is several
@@ -375,12 +378,16 @@ their own, in parallel with `integration`; the `integration` job always sets
 two jobs then run one after the other, and a full run would wait about 3
 minutes longer for a job that has no reason to wait.
 
-- **When:** a full run only (`needs.changes.outputs.full`, which is
-  `env.CI_FULL`, because a job's `if:` cannot read `env`) whenever
-  `integration` runs.
-- **full-suite:** on a story-branch pull request without `ci:full`, the job is
-  skipped. `make check-full-suite` accepts that skip only when `FULL=false`
-  (`TestFullSuiteIsolation` in `tools/ci/cichanged`).
+- **When:** whenever `integration` runs and `needs.changes.outputs.full` is
+  true: a full run, or any pull request into a `TICK-*` story branch with no
+  label (TICK-1031). The output is the `full=` line `make ci-stages` writes
+  from the stages step's `CI_FULL`, which carries the story-branch rule. It
+  was `env.CI_FULL` until TICK-1031, which lacks that rule, so #801 and #805
+  merged into S31 with the suite skipped. `make check-ci-steps` fails if the
+  output is wired to anything but `steps.stages.outputs.full`.
+- **full-suite:** `make check-full-suite` accepts a skipped isolation only
+  when `FULL=false` (`TestFullSuiteIsolation` in `tools/ci/cichanged`). On a
+  story-branch pull request `FULL` is always true now, so a skip there is red.
 - **main-red and self-hosted-cleanup:** both `need` the job.
 - **Locally:** unchanged. `make ci-integration` (and so `make ci`) still runs
   the suite after `test-integration`, because `ISOLATION` defaults to 1.
@@ -439,7 +446,7 @@ Renovate).**
 | A build-tagged test file stops compiling and CI stays green, because `go vet` and `go test` build untagged files only and the tagged suites run only in the stack jobs (TICK-286 finding 4: a duplicate `onboardPostRaw` behind `identitystack && acceptance` on `main`) | `vet-tags` in the lint job (`tools/ci/buildtags`, TICK-320): finds every module (each `go.mod` outside `testdata`), reads every `//go:build` line, takes for each file every minimal set of custom tags that builds it (one for `a && b`, one per side of `a || b`; GOOS, GOARCH and `go1.N` take their linux/amd64 values), and runs `go vet -tags <set> ./...` in the module once per distinct set, so a new tag or module is covered with no edit. A file with more than 16 custom tags fails the step instead of being skipped. `TestBrokenTaggedFileFails` vets a fixture whose `stacktag && accept` test redeclares a `stacktag` helper and expects exactly that set to fail; `TestRepositoryCoversTheAcceptanceTag` keeps the `acceptance,identitystack` set discovered. Tags are never combined beyond what one file needs, so two tags no file uses together are not built together |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
-| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 8m` in `test-integration.sh` (below the job's 15 minutes; 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
+| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 11m` in `test-integration.sh` (below the job's 15 minutes; 8m until TICK-1100, 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | A change to `nava.interpreter` breaks determinism, so runs already in flight fail on their next workflow task after a deploy (Epic 09 AC2) | The replay gate in the `unit` job (`make test`), below: `TestReplayRecordedHistories` replays every history under `internal/workflow/testdata/histories/`; `TestHistoriesAppendOnly` keeps the ones on `main` unchanged; `TestHistoriesHoldReferencesOnly` keeps them references only (ADR-001 R1) |
 | A branch's migration merges with a version older than one already on `main`, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE=origin/main` for every event, also pull requests into a story branch (TICK-309), and full history: fails naming each added migration, its version and `main`'s newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |

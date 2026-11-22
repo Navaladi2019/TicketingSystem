@@ -27,7 +27,7 @@ import (
 )
 
 // numberingModes are the two allocation paths, each with its incident type.
-var numberingModes = []struct {
+var numberingModes = []struct { //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	mode metadata.NumberingMode
 	def  func() metadata.Definition
 }{

@@ -1,0 +1,4 @@
+### 2026-11-22T10:09:16Z postgres:16.10, commit 7de2a4a8
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: multica-backend-1 multica-frontend-1 multica-postgres-1 

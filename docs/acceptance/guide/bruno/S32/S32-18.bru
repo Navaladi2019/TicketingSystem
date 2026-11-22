@@ -1,0 +1,26 @@
+meta {
+  name: S32.18 AC1: the history shows the workflow's write
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s32_ac1}}/history
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('newest: source workflow set state triaged; then the admin create', () => {
+    expect(items[0].source).to.eql('workflow');
+    expect(items[0].after.state).to.eql('triaged');
+    expect(items[items.length - 1].action).to.eql('create');
+  });
+}

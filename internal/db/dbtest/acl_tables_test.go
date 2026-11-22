@@ -42,7 +42,7 @@ const aclEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_
 	SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'acl_policy', entity_definition_id, entity_definition_id,
 		version, 'system', 'system', sha256('acl') FROM r`
 
-var aclTables = []string{"acl_versions", "record_shares"}
+var aclTables = []string{"acl_versions", "record_shares"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // seedACL writes, as the superuser, for each tenant: seedPipeline's rows
 // (among them a principal and a group whose id is the tenant id), ACL version
