@@ -1,0 +1,61 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[due_at]=2026-12-30T12:00:17Z",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "type": "urn:nava:problem:field_not_ready",
+      "title": "Field not ready",
+      "status": 422,
+      "code": "field_not_ready",
+      "detail": "The field is flagged x-nava-filterable but its existing values are still being indexed. Retry later; index_progress is the whole percentage done.",
+      "instance": "urn:nava:request:1c68d373cfc7f29979419043ae3642a2",
+      "index_progress": 0
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 422",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code field_not_ready",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    },
+    {
+      "test": "due_at was not ready before the writes either",
+      "status": "pass"
+    },
+    {
+      "test": "3 creates, each 201",
+      "status": "pass"
+    },
+    {
+      "test": "3 edits, each 200 at version 2",
+      "status": "pass"
+    },
+    {
+      "test": "the moved record: created 201, moved 200",
+      "status": "pass"
+    },
+    {
+      "test": "priority still indexing after the writes",
+      "status": "pass"
+    }
+  ]
+}

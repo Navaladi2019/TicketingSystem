@@ -2,6 +2,15 @@
 
 Kit task TICK-749 (PLAN-007 P7-09). Story branch `TICK-739/filterable-fields` at `7284e2f2` (every task merged: TICK-741 to TICK-748, the P7-07 fixes TICK-989 to TICK-992, and the ADR-006-A1 budget row, TICK-1001). Design: ADR-006 D1 to D10, D12, D13 as amended by ADR-006-A1, D14. Budget row: `docs/budgets.md`, "Filtering on a flagged data field (S21)".
 
+**ADR-006-A2 A2-8 (7) MET (TICK-1049, 2026-11-22 08:43Z to 09:40Z): two consecutive valid green fresh stacks, `evidence/a2-stack1/` and `evidence/a2-stack2/`, both built from `49c3ab50`** (this kit + `TICK-1046/count-budget` at `39921c66`, with TICK-1084). Each run's `host-check.txt` shows a quiet host at start, and its `p95.txt` ends `run validity: VALID` and `kit report: PASS`. Both Bruno folders: 0 failed tests. Both `verify.sql`: side tables equal the JSON scan, and tenant B has no index rows.
+
+| Stack | ≥ 40% ACL p95 (350) | its `unknown` | `rfv_num` all-visible at the cell | page plan (`page-plan.txt`) | admin no-filter control p95 (≤ 80) | Alice no-filter control p95 |
+|---|---|---|---|---|---|---|
+| `a2-stack1/` | **85** | 0% (584 `capped`) | 88.5% | ordered `records_list_group` walk, 115 rows, 2.1 ms | 42 | 54 |
+| `a2-stack2/` | **66** | 0% (585 `capped`) | 100% | ordered, 115 rows, 3.8 ms | 36 | 162 |
+
+Every other D13 cell passed on both stacks (`p95.txt`). Another job's `nava-aclperf-pg-*` container came up while each run was already going (`other-containers.txt`). The rule only checks the host at start, plus the control, so this is recorded and doesn't void either run. A2-7 expects `unknown` to be high on a fresh stack, but it was 0% in this cell on both: once TICK-1084 made the page cheap, the capped count fits well inside its budget.
+
 **After TICK-1084 (2026-11-22 04:38Z to 07:03Z, `fadf9f60` = this kit + `TICK-1046/count-budget` at `39921c66`): the ≥ 40% ACL cell held on all 4 fresh stacks (132, 247, 173, 133 ms p95, limit 350; every response `capped`, `unknown` 0%).** On every stack its page plan walks `records_list_group` in order: 115 rows read, 1.8 to 7.5 ms (`page-plan.txt`). **A2-8 (7) is still 0 of 2.** Only the first stack was green end to end. On the other three, cells that A2 doesn't change missed on a busy host: the 150 ms cells and the 0.5-2% band. Other agents' `go vet` / integration jobs were running, and the admin no-filter control was over P3-36's 80 ms gate on two of them. On the fourth stack a connection to nava-core timed out during the controls. The 08:00-10:00Z host freeze stopped further runs.
 
 | Run (evidence) | ≥ 40% ACL p95 (350) | page plan | admin no-filter control p95 | Failed cells (limit) |
