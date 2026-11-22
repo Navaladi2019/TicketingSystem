@@ -1,0 +1,921 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-10-30T23:03:00Z",
+          "data": {
+            "description": "S21 internal note 57",
+            "due_at": "2026-06-21T15:41:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 57",
+            "state": "closed"
+          },
+          "id": "37c8ec7e-86f3-c0b5-464c-ac4f0b3c0dae",
+          "number": "INC0000057",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T23:03:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T20:04:00Z",
+          "data": {
+            "assignment_group": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "description": "S21 internal note 236",
+            "due_at": "2026-10-06T14:27:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 236",
+            "state": "closed"
+          },
+          "id": "7baf541d-0af2-bab8-0328-ccc6a20b874c",
+          "number": "INC0000236",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T20:04:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T18:24:00Z",
+          "data": {
+            "description": "S21 internal note 336",
+            "due_at": "2026-03-08T15:37:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 336",
+            "state": "resolved"
+          },
+          "id": "2e710876-625f-c80a-b7cd-5dcafa8ec7bf",
+          "number": "INC0000336",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-31T18:24:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T17:05:00Z",
+          "data": {
+            "description": "S21 internal note 415",
+            "due_at": "2026-10-08T21:21:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 415",
+            "state": "resolved"
+          },
+          "id": "068c72ab-46d0-4816-d7c7-cf7cc1f0b3f3",
+          "number": "INC0000415",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-31T17:05:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T14:55:00Z",
+          "data": {
+            "description": "S21 internal note 545",
+            "due_at": "2026-05-06T22:27:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 545",
+            "state": "resolved"
+          },
+          "id": "7f5e623d-936e-59fe-7642-c61ee2921066",
+          "number": "INC0000545",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-31T14:55:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T14:45:00Z",
+          "data": {
+            "description": "S21 internal note 555",
+            "due_at": "2026-12-24T12:07:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 555",
+            "state": "closed"
+          },
+          "id": "8f351aa4-4250-c9b1-82c2-04b1bc534038",
+          "number": "INC0000555",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T14:45:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:53:00Z",
+          "data": {
+            "description": "S21 internal note 787",
+            "due_at": "2026-01-18T08:01:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 787",
+            "state": "new"
+          },
+          "id": "3149035b-059f-6e30-304b-42e2cf96cd41",
+          "number": "INC0000787",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T10:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:42:00Z",
+          "data": {
+            "description": "S21 internal note 798",
+            "due_at": "2026-02-13T08:00:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 798",
+            "state": "new"
+          },
+          "id": "3042f3c0-e2ca-1e24-d722-72a903d58215",
+          "number": "INC0000798",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T10:42:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T10:35:00Z",
+          "data": {
+            "description": "S21 internal note 805",
+            "due_at": "2026-03-27T02:43:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 805",
+            "state": "closed"
+          },
+          "id": "69507afa-e4d1-0d9b-d6a5-8bd62bfebee3",
+          "number": "INC0000805",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-31T10:35:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T09:18:00Z",
+          "data": {
+            "description": "S21 internal note 882",
+            "due_at": "2026-01-06T23:55:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 882",
+            "state": "resolved"
+          },
+          "id": "41a78407-4514-51f5-ae5f-4ed5d81f368c",
+          "number": "INC0000882",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-31T09:18:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T05:34:00Z",
+          "data": {
+            "description": "S21 internal note 1106",
+            "due_at": "2026-08-25T00:14:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1106",
+            "state": "new"
+          },
+          "id": "05433a6e-6b26-103b-d253-c4852d71362f",
+          "number": "INC0001106",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T05:34:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T04:42:00Z",
+          "data": {
+            "description": "S21 internal note 1158",
+            "due_at": "2026-10-01T19:04:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1158",
+            "state": "in_progress"
+          },
+          "id": "92f76397-93f3-9e48-3b3e-a926395d88d5",
+          "number": "INC0001158",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-31T04:42:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T03:06:00Z",
+          "data": {
+            "description": "S21 internal note 1254",
+            "due_at": "2026-04-22T11:24:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1254",
+            "state": "resolved"
+          },
+          "id": "e730edbe-205d-a3df-8b87-796b5a93675d",
+          "number": "INC0001254",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-31T03:06:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "removed": false
+          },
+          "created_at": "2026-10-30T03:05:00Z",
+          "data": {
+            "assignment_group": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "description": "S21 internal note 1255",
+            "due_at": "2026-12-10T20:43:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1255",
+            "state": "new"
+          },
+          "id": "78a32d49-aace-caab-2a3e-b43604ed7813",
+          "number": "INC0001255",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T03:05:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T02:44:00Z",
+          "data": {
+            "description": "S21 internal note 1276",
+            "due_at": "2026-08-19T13:50:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1276",
+            "state": "new"
+          },
+          "id": "8a20c92d-fecc-7aa9-6605-a7f495b8c32e",
+          "number": "INC0001276",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T02:44:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-30T02:29:00Z",
+          "data": {
+            "description": "S21 internal note 1291",
+            "due_at": "2026-12-30T11:26:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1291",
+            "state": "new"
+          },
+          "id": "9b4ee29d-ac19-7394-6a75-1ebe6eefdeaf",
+          "number": "INC0001291",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-31T02:29:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T23:26:00Z",
+          "data": {
+            "description": "S21 internal note 1474",
+            "due_at": "2026-08-24T22:24:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1474",
+            "state": "resolved"
+          },
+          "id": "2ed157ce-0fec-509b-b635-4f7d9f61b298",
+          "number": "INC0001474",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T23:26:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T23:13:00Z",
+          "data": {
+            "description": "S21 internal note 1487",
+            "due_at": "2026-11-13T17:47:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1487",
+            "state": "closed"
+          },
+          "id": "a7a85eac-6496-bd62-fd1d-0f2b1581e70f",
+          "number": "INC0001487",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-30T23:13:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T22:18:00Z",
+          "data": {
+            "description": "S21 internal note 1542",
+            "due_at": "2026-05-26T13:13:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1542",
+            "state": "resolved"
+          },
+          "id": "d54d6d7a-f31b-76be-ff40-d1aefff82db7",
+          "number": "INC0001542",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T22:18:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T20:17:00Z",
+          "data": {
+            "description": "S21 internal note 1663",
+            "due_at": "2026-12-19T09:49:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1663",
+            "state": "resolved"
+          },
+          "id": "ddae1b69-2f9c-9b6a-4c02-afb2ab07ce20",
+          "number": "INC0001663",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T20:17:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T19:10:00Z",
+          "data": {
+            "description": "S21 internal note 1730",
+            "due_at": "2026-07-12T07:54:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1730",
+            "state": "in_progress"
+          },
+          "id": "8aa9720a-45e0-7613-1def-14f411f7740c",
+          "number": "INC0001730",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-30T19:10:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T16:19:00Z",
+          "data": {
+            "description": "S21 internal note 1901",
+            "due_at": "2026-07-28T02:04:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 1901",
+            "state": "new"
+          },
+          "id": "bba57869-cb0b-b50d-54a8-2c49ef3941c3",
+          "number": "INC0001901",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-30T16:19:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T12:34:00Z",
+          "data": {
+            "description": "S21 internal note 2126",
+            "due_at": "2026-04-01T21:00:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2126",
+            "state": "resolved"
+          },
+          "id": "91583a44-f249-ca06-44cd-9835ba5a197a",
+          "number": "INC0002126",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T12:34:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T11:43:00Z",
+          "data": {
+            "description": "S21 internal note 2177",
+            "due_at": "2026-09-06T00:06:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2177",
+            "state": "closed"
+          },
+          "id": "9d82009a-6504-57e1-89d8-7421dc5dea3e",
+          "number": "INC0002177",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-30T11:43:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:48:00Z",
+          "data": {
+            "description": "S21 internal note 2232",
+            "due_at": "2026-06-06T04:17:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2232",
+            "state": "resolved"
+          },
+          "id": "4f831a6b-2b0c-9278-d22e-307f8935a64b",
+          "number": "INC0002232",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T10:48:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:45:00Z",
+          "data": {
+            "description": "S21 internal note 2235",
+            "due_at": "2026-06-06T19:58:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2235",
+            "state": "resolved"
+          },
+          "id": "1298c475-7f82-0f4f-30c8-613d546e379a",
+          "number": "INC0002235",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-30T10:45:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T10:36:00Z",
+          "data": {
+            "description": "S21 internal note 2244",
+            "due_at": "2026-02-14T08:58:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2244",
+            "state": "closed"
+          },
+          "id": "0a66ee7c-94de-33d7-61a2-da252ff3b77d",
+          "number": "INC0002244",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-30T10:36:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T07:56:00Z",
+          "data": {
+            "description": "S21 internal note 2404",
+            "due_at": "2026-03-29T12:40:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2404",
+            "state": "closed"
+          },
+          "id": "a468aca0-20ec-a5e0-ab69-541b8780dbab",
+          "number": "INC0002404",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-30T07:56:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-29T05:41:00Z",
+          "data": {
+            "description": "S21 internal note 2539",
+            "due_at": "2026-08-03T00:53:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2539",
+            "state": "closed"
+          },
+          "id": "c96c582a-3932-5d8d-e6db-384c0ea688fd",
+          "number": "INC0002539",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-30T05:41:00Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "removed": false
+          },
+          "created_at": "2026-10-28T22:34:00Z",
+          "data": {
+            "assignment_group": "01a200e8-b6eb-73a9-a2c0-e71630a4030b",
+            "description": "S21 internal note 2966",
+            "due_at": "2026-09-13T06:54:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2966",
+            "state": "closed"
+          },
+          "id": "50dd5f23-f034-c07a-bbc7-c462ff0b2ef5",
+          "number": "INC0002966",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T22:34:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T22:09:00Z",
+          "data": {
+            "description": "S21 internal note 2991",
+            "due_at": "2026-04-28T16:01:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 2991",
+            "state": "closed"
+          },
+          "id": "e22ec357-6d75-c725-c78e-2cfb1875c3da",
+          "number": "INC0002991",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T22:09:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T21:33:00Z",
+          "data": {
+            "description": "S21 internal note 3027",
+            "due_at": "2026-08-30T00:03:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3027",
+            "state": "resolved"
+          },
+          "id": "3e4b0f13-6044-5521-4f54-e23003ec89a6",
+          "number": "INC0003027",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-29T21:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T19:53:00Z",
+          "data": {
+            "description": "S21 internal note 3127",
+            "due_at": "2026-08-02T02:11:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3127",
+            "state": "closed"
+          },
+          "id": "12e9d13b-6f99-bf8f-122d-a3637e85e154",
+          "number": "INC0003127",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T19:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:23:00Z",
+          "data": {
+            "description": "S21 internal note 3217",
+            "due_at": "2026-11-22T03:54:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3217",
+            "state": "closed"
+          },
+          "id": "e6931f6e-4c55-dc83-c802-68a0b74f82f8",
+          "number": "INC0003217",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T18:23:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:22:00Z",
+          "data": {
+            "description": "S21 internal note 3218",
+            "due_at": "2026-07-21T16:13:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3218",
+            "state": "in_progress"
+          },
+          "id": "7258391c-514c-9312-2294-995e0af5628c",
+          "number": "INC0003218",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-29T18:22:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T18:03:00Z",
+          "data": {
+            "description": "S21 internal note 3237",
+            "due_at": "2026-12-01T15:25:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3237",
+            "state": "closed"
+          },
+          "id": "ef2e7e1b-1ee6-8856-7448-b904d93f8e2f",
+          "number": "INC0003237",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T18:03:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T16:43:00Z",
+          "data": {
+            "description": "S21 internal note 3317",
+            "due_at": "2026-11-03T13:29:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3317",
+            "state": "resolved"
+          },
+          "id": "d7281b53-ae2c-5c22-ae10-d0a186f22dd0",
+          "number": "INC0003317",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-29T16:43:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T16:33:00Z",
+          "data": {
+            "description": "S21 internal note 3327",
+            "due_at": "2026-12-08T23:15:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3327",
+            "state": "closed"
+          },
+          "id": "05f37705-04d7-6f0d-ebb8-e95d1774aad8",
+          "number": "INC0003327",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T16:33:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T14:23:00Z",
+          "data": {
+            "description": "S21 internal note 3457",
+            "due_at": "2026-05-20T21:25:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3457",
+            "state": "closed"
+          },
+          "id": "db0efff9-e718-4a7a-fa2d-551f8edcefac",
+          "number": "INC0003457",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T14:23:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T12:25:00Z",
+          "data": {
+            "description": "S21 internal note 3575",
+            "due_at": "2026-02-01T07:45:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3575",
+            "state": "new"
+          },
+          "id": "af0df8e8-7941-e8e6-ecc3-48e60ecb122f",
+          "number": "INC0003575",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-29T12:25:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T12:21:00Z",
+          "data": {
+            "description": "S21 internal note 3579",
+            "due_at": "2026-12-24T05:21:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3579",
+            "state": "resolved"
+          },
+          "id": "09cd9f69-933d-56c0-af54-558598f6a459",
+          "number": "INC0003579",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-29T12:21:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T10:30:00Z",
+          "data": {
+            "description": "S21 internal note 3690",
+            "due_at": "2026-09-10T03:11:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3690",
+            "state": "resolved"
+          },
+          "id": "9b041187-6ee1-691c-df7c-a5ba5254936e",
+          "number": "INC0003690",
+          "schema_version": 2,
+          "state": "resolved",
+          "updated_at": "2026-10-29T10:30:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T08:44:00Z",
+          "data": {
+            "description": "S21 internal note 3796",
+            "due_at": "2026-04-30T20:26:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3796",
+            "state": "closed"
+          },
+          "id": "1285ba40-2dc5-97ea-5fba-4619708a8f0d",
+          "number": "INC0003796",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T08:44:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T08:20:00Z",
+          "data": {
+            "description": "S21 internal note 3820",
+            "due_at": "2026-07-28T04:47:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3820",
+            "state": "new"
+          },
+          "id": "a9f9f0a0-ce1a-a61e-6bce-e3fee2f24253",
+          "number": "INC0003820",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-29T08:20:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T07:51:00Z",
+          "data": {
+            "description": "S21 internal note 3849",
+            "due_at": "2026-03-30T19:09:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3849",
+            "state": "closed"
+          },
+          "id": "abfcb727-3bfb-e48b-f73a-7b06d98851b0",
+          "number": "INC0003849",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T07:51:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T07:24:00Z",
+          "data": {
+            "description": "S21 internal note 3876",
+            "due_at": "2026-07-11T03:28:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3876",
+            "state": "in_progress"
+          },
+          "id": "c0e5bca9-8289-9281-623c-c10091195a3c",
+          "number": "INC0003876",
+          "schema_version": 2,
+          "state": "in_progress",
+          "updated_at": "2026-10-29T07:24:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T06:19:00Z",
+          "data": {
+            "description": "S21 internal note 3941",
+            "due_at": "2026-07-06T04:22:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 3941",
+            "state": "closed"
+          },
+          "id": "38baa591-65a0-23db-338f-afb068962fac",
+          "number": "INC0003941",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T06:19:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T02:47:00Z",
+          "data": {
+            "description": "S21 internal note 4153",
+            "due_at": "2026-12-04T04:20:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 4153",
+            "state": "new"
+          },
+          "id": "5dd98566-0ffe-75fb-971d-3cfffbaa8ea0",
+          "number": "INC0004153",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-10-29T02:47:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-28T01:53:00Z",
+          "data": {
+            "description": "S21 internal note 4207",
+            "due_at": "2026-04-23T23:46:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 4207",
+            "state": "closed"
+          },
+          "id": "24d56ea4-52f6-e902-a095-4a6ce103c832",
+          "number": "INC0004207",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-29T01:53:00Z",
+          "version": 1
+        },
+        {
+          "created_at": "2026-10-27T22:57:00Z",
+          "data": {
+            "description": "S21 internal note 4383",
+            "due_at": "2026-03-04T12:47:00Z",
+            "priority": 1,
+            "requester": "01a200e8-b6e5-7a1a-b2b0-0fe90a83b001",
+            "short_description": "S21 seed 4383",
+            "state": "closed"
+          },
+          "id": "9d755f29-bc2a-9331-26f6-e711d4776c39",
+          "number": "INC0004383",
+          "schema_version": 2,
+          "state": "closed",
+          "updated_at": "2026-10-28T22:57:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTEwLTI4IDIyOjU3OjAwKzAwIiwiaSI6IjlkNzU1ZjI5LWJjMmEtOTMzMS0yNmY2LWU3MTFkNDc3NmMzOSJ9.iWwIjq8jrkfaJM3A-m4tDIYUU9iLPJYcoxz9FuOxzH4",
+      "total": 1000,
+      "total_capped": true,
+      "total_state": "capped"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "admin: 3955 records over 20 pages; the JSON scan has 3955",
+      "status": "pass"
+    },
+    {
+      "test": "the same records as the JSON scan (md5 of the sorted ids)",
+      "status": "pass"
+    },
+    {
+      "test": "no record listed twice",
+      "status": "pass"
+    },
+    {
+      "test": "every page meets the total contract (A2-1): this page capped, the limit-200 pages [\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\"]",
+      "status": "pass"
+    },
+    {
+      "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+      "status": "pass"
+    },
+    {
+      "test": "every listed record matches the filter",
+      "status": "pass"
+    }
+  ]
+}

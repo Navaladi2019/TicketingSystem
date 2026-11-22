@@ -2,7 +2,18 @@
 
 Kit task TICK-749 (PLAN-007 P7-09). Story branch `TICK-739/filterable-fields` at `7284e2f2` (every task merged: TICK-741 to TICK-748, the P7-07 fixes TICK-989 to TICK-992, and the ADR-006-A1 budget row, TICK-1001). Design: ADR-006 D1 to D10, D12, D13 as amended by ADR-006-A1, D14. Budget row: `docs/budgets.md`, "Filtering on a flagged data field (S21)".
 
-**Current result (re-verified after TICK-1023 merged `main` into the story branch): criteria 1, 3, 4 and 5 PASS; criterion 2's p95 FAILS on this host.** Fresh stack built from `24bdd9b4` (this kit merged with the story branch after PR #799), project `nava-s21`, `docker compose down -v`, run 2026-11-20 18:00Z to 18:30Z. `evidence/` is this run. The Bruno folder ran 19 requests and 99 tests: 94 passed, and the 5 that failed are all p95 cells of S21.19. Every row check passed, including criterion 2's range filter. `verify.sql` found both index tables equal to a JSON scan of all 400,006 tenant A incidents (0 missing, 0 surplus, 0 wrong), and tenant B has 0 index rows. The seed took 25 s. The default ACL from `seed.sh` and the kit's mask publish both pass the ACL check that changed with TICK-940.
+**ADR-006-A2 result (TICK-1049, 2026-11-22): A2-8 (7) NOT MET. 0 of the 2 consecutive green fresh stacks it needs.** Every stack was built from `TICK-1046/count-budget` plus this kit: 1 green at `000420bc`, not counted (its script exited 1 on a kit cleanup bug, fixed in `4626a2dc`), then 3 red at `4626a2dc`. The `total_state` contract held on every response of every run. In S21.19's ≥ 40% ACL cell, no response was `unknown`: on these stacks the count takes about 5 ms. **The cell now misses on the page statement, not the count.** Its plan reads all ~20k service-desk records through `records_list_group` and sorts them, because the ACL branch compiles to `assignment_group_id = ANY($3::uuid[])`. With the single group as a scalar `=`, the same statement walks the index in order: **0.99 ms instead of 61 ms** (`evidence/a2-red-3/page-plan-*.txt`). Fix routed through the Technical Lead on TICK-1049.
+
+| Run (evidence) | SHA | Result | ≥ 40% ACL p95 (350) | its `unknown` | `rfv_num` all-visible at the cell | admin no-filter control p95 | other jobs on the Docker VM |
+|---|---|---|---|---|---|---|---|
+| `a2-pre-trap-fix/` | `000420bc` | every check green; exit 1 (trap bug); not counted | 115 | 0% | 100% | 33 | none |
+| `a2-red-1/` | `4626a2dc` | red: ACL cell, admin two-filter 431 (150) | **429** | 0% | 84% | 52 | TICK-1071 integration tests |
+| `a2-red-2/` | `4626a2dc` | red: admin `priority=1` 618 (350), admin `priority=3` 344 (150) | 277 | 0% | 100% | 50 | TICK-1071 integration tests, whole run |
+| `a2-red-3/` | `4626a2dc` | red: ACL cell only | **361** | 0% | 100% | 28 | none during the cells |
+
+On stack `a2-red-3`, after the run: Alice's `priority=3` took 72 ms single-client and 227 ms p50 with 8 clients. With `limit=1` it took 20 ms, count included (`probe-after-run.txt`). Server statement times: page 49-62 ms, count 4.5-5.3 ms (`statement-times-single-client.txt`). A2-2 assumed the page's worst case was 20.6 ms.
+
+**Before ADR-006-A2 (re-verified after TICK-1023 merged `main` into the story branch): criteria 1, 3, 4 and 5 PASS; criterion 2's p95 FAILS on this host.** Fresh stack built from `24bdd9b4` (this kit merged with the story branch after PR #799), project `nava-s21`, `docker compose down -v`, run 2026-11-20 18:00Z to 18:30Z. `evidence/` is this run. The Bruno folder ran 19 requests and 99 tests: 94 passed, and the 5 that failed are all p95 cells of S21.19. Every row check passed, including criterion 2's range filter. `verify.sql` found both index tables equal to a JSON scan of all 400,006 tenant A incidents (0 missing, 0 surplus, 0 wrong), and tenant B has 0 index rows. The seed took 25 s. The default ACL from `seed.sh` and the kit's mask publish both pass the ACL check that changed with TICK-940.
 
 **p95 across the three fresh stacks so far:** D13 held on 1 of 3. The two that missed both ran next to another stack on the same Docker VM, and the misses are not explained by load alone (single-client numbers below). Fix task: **TICK-1022**. The story should not be accepted on criterion 2 until it is resolved or the budget owner rules on it.
 
@@ -93,7 +104,21 @@ Stack 2's run (before the merge; stack 3's are in the table at the top), 8 clien
 | admin | no filter (control) | — | reported | 26 | 47 | — |
 | Alice | no filter (control) | — | reported | 76 | 265 | — |
 
-### Plan-dependent p95 (found by this kit, not resolved)
+### Plan-dependent p95: the count is budgeted now (ADR-006-A2)
+
+Since ADR-006-A2 (TICK-1046 to TICK-1049), every list with a data filter runs its count under a 200 ms `statement_timeout` (`CountBudget`, A2-2). It runs after the page, inside `SAVEPOINT list_count`. When the count runs out of budget, the list still answers 200 with the full page, `total: null` and `total_state: unknown`. So the ≥ 40% ACL cell no longer depends on which plan the planner picks for the count. Its worst case is the page plus 200 ms, whatever the statistics or the visibility map. What used to be a 0.6-1 s list after a backfill is now an `unknown` total. **`unknown` is expected after a backfill.** Until autovacuum has marked `rfv_num`'s pages all-visible, a broad ACL count reads the heap and can run past the budget. A2-7's alert on more than 5% `unknown` fires in that window, and that is the signal working, not an outage.
+
+What the kit asserts since TICK-1049:
+
+- Every list response it reads (S21.12 to S21.19, each page of S21.13 to S21.16, and every 200 of every p95 cell) meets the A2-1 contract. `total_state` is `exact`, `capped` or `unknown`. `total` is an integer for `exact` (0 to 1,000) and `capped` (1,000), and `null` for `unknown`, never 0. `total_capped` is true exactly when the state is `capped`.
+- A result shorter than the page answers `exact` with no count (A2-4): S21.12 (10), S21.16 (25), S21.17 (0, the hidden value and the value that exists nowhere), S21.18 (Bob's 50).
+- S21.13 to S21.16 accept `unknown` on a page with more than a page of matches. Otherwise `total` is still the scan's count up to 1,000.
+- S21.19's ≥ 40% ACL cell (Alice, `priority=3`): p95 ≤ 350 ms, and every response is `capped` or `unknown`. Every cell prints its `total_state` counts and its share of `unknown`. The other D13 lines are unchanged.
+- `tools/kit.mjs report` re-checks the same rules on the evidence files, so a run by hand and `run-kit.sh` agree. It writes `p95.txt`: every cell, the ACL cell's `unknown` share, `rfv_num`'s all-visible share just before that cell (from `visibility.txt`, sampled every 10 s while the folder runs), and the no-filter controls. `verify.sql` adds `relpages` / `relallvisible` for both side tables at the end.
+
+The history below is from before the budget. It is kept because it is why A2 exists (TICK-1022).
+
+#### Before ADR-006-A2 (TICK-1022's findings)
 
 Stack 3 (after the TICK-1023 merge) missed again, and its single-client times are high for both values, not just one. That weakens the statistics explanation below: on stacks 2 and 3, `rfv_num` was last autoanalyzed 34 s and 53 s before priority flipped to `ready`, yet one was fast and one slow. TICK-1022 needs the plans, not just the analyze times.
 
