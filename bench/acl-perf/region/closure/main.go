@@ -36,7 +36,7 @@ const cols = `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_ver
   r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
   r.data, r.causation_origin_id, r.causation_depth, r.updated_at AS sort_key`
 
-var base = []string{
+var base = []string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	`(true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[])))`,
 	`((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid))`,
 	`((r.assignee_id IS NOT NULL AND r.assignee_id = $5::uuid))`,
@@ -45,7 +45,7 @@ var base = []string{
 
 const closureSub = `SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou WHERE acl_ou.tenant_id = $1 AND acl_ou.ancestor_id = ANY($9::uuid[])`
 
-var leaves = map[string]string{
+var leaves = map[string]string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	"C1": `(true AND (r.org_unit_id IS NOT NULL AND r.org_unit_id IN (` + closureSub + `)))`,
 	"C2": `(true AND (r.org_unit_id IS NOT NULL AND r.org_unit_id = ANY(ARRAY(` + closureSub + `))))`,
 	"B1": `(true AND (r.org_unit_id IS NOT NULL AND r.org_unit_id = ANY((SELECT $9::uuid[])::uuid[])))`,
@@ -261,7 +261,7 @@ func (e *env) floor(ctx context.Context, clients int) (float64, float64) {
 }
 
 func foreign() string {
-	b, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+	b, _ := exec.CommandContext(context.Background(), "docker", "ps", "--format", "{{.Names}}").Output()
 	allowed := map[string]bool{"buildx_buildkit_nava-ci0": true, "multica-backend-1": true, "multica-frontend-1": true, "multica-postgres-1": true, os.Getenv("SP1B_PG"): true}
 	var f []string
 	for _, n := range strings.Fields(string(b)) {
@@ -432,7 +432,7 @@ func main() {
 	app, err := pgxpool.NewWithConfig(ctx, pc)
 	must(err)
 	defer app.Close()
-	out, err := os.OpenFile(os.Getenv("SP1B_OUT"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	out, err := os.OpenFile(os.Getenv("SP1B_OUT"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // bench output path is operator-supplied
 	must(err)
 	defer out.Close()
 	e := &env{super: super, app: app, out: out}

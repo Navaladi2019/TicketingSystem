@@ -217,6 +217,8 @@ func signal(record uuid.UUID, dedupe string) outbox.Entry {
 // to its caller, with the update's audit entry the pipeline writes in the
 // same transaction (P5-13c). Test files are outside the single-writer check
 // (internal/records/arch_test.go).
+//
+//nolint:gochecknoglobals // read-only SQL fixture
 var bumpSQL = `WITH r AS (UPDATE records SET version = version + 1 WHERE id = $1 RETURNING tenant_id, id, version),
 	a AS (` + recordEntrySQL("update") + `)
 	SELECT version FROM r`

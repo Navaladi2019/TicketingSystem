@@ -142,7 +142,7 @@ func TestE5GroupsyncCannotRekeyGroups(t *testing.T) {
 }
 
 // pointerTables are the two D5 pointer tables.
-var pointerTables = []string{"tenant_admin_group", "tenant_auditor_group"}
+var pointerTables = []string{"tenant_admin_group", "tenant_auditor_group"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // CI-E5-5b, I1: in one transaction, as nava_groupsync, sync removes the
 // recorded group's members, tombstones it, reads the pointer and deletes it.
