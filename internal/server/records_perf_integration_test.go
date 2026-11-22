@@ -872,6 +872,12 @@ type perfResult struct {
 	// pairLat are the paired base requests' latencies (TICK-1037): the
 	// same client, interleaved with the scored requests in lat.
 	pairLat []time.Duration
+	// floorStart and floorEnd are the 1-client transport floor p50 in ms,
+	// measured just before and just after a region row attempt (TICK-1037,
+	// A2-11; Technical Architect, TICK-1087 item 1). The run-level floor is
+	// taken once before every row, ~17 min before the region rows start,
+	// so it cannot refuse a region attempt; these can. 0 when not measured.
+	floorStart, floorEnd float64
 	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
 	open *perfOpen
 }
@@ -938,6 +944,9 @@ func (r *perfResult) gateReason() string {
 	}
 	if len(r.intruders) > 0 {
 		why = append(why, "other containers during the attempt: "+strings.Join(r.intruders, " "))
+	}
+	if r.floorStart > perfFloorGateMS || r.floorEnd > perfFloorGateMS {
+		why = append(why, fmt.Sprintf("floor p50 %.2f / %.2f > %.0f ms", r.floorStart, r.floorEnd, perfFloorGateMS))
 	}
 	return strings.Join(why, ", ")
 }
@@ -1403,6 +1412,12 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			} else if sc.watched() {
 				st.isolationWait = isolate(t)
 			}
+			// Region rows: the floor gate per attempt, at its start and its
+			// end, as the crossover cells gated each chunk (TICK-1087 item 1).
+			floorStart := 0.0
+			if isRegionRow(sc.name) {
+				floorStart = pct(e.transportFloor(t, 1), .50)
+			}
 			if sc.watched() {
 				watch = watchContainers(t.Context(), stop)
 			}
@@ -1410,6 +1425,10 @@ func TestRecordsACLPerf800k(t *testing.T) {
 			close(stop)
 			if watch != nil {
 				r.intruders = <-watch
+			}
+			if isRegionRow(sc.name) {
+				r.floorStart, r.floorEnd = floorStart, pct(e.transportFloor(t, 1), .50)
+				t.Logf("FLOOR %s attempt %d: 1-client SELECT 1 p50 %.2f ms before, %.2f ms after (gate %.0f ms)", sc.name, a, r.floorStart, r.floorEnd, perfFloorGateMS)
 			}
 			r.attempt, r.probe, r.setup, r.storage = a, probe, st, storage
 			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms storage probe=%6.2f in-trace commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",

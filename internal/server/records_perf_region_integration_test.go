@@ -457,7 +457,7 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 	var b strings.Builder
 	b.WriteString("# TICK-1037 region rows (A2-11)\n\n## Sets (as each row ran)\n\n| Set | Type | \\|S\\| | m | N̂_e | K* | Shape (A2-5) |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	b.WriteString(e.region.report.String())
-	b.WriteString("\n## Rows: handler p95 against 150 ms, paired base beside it (1 client)\n\n| Row | Attempt | n | p50 | **p95** | Base n | Base p50 | Base p95 | Δp95 vs base | Gate | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\n## Rows: handler p95 against 150 ms, paired base beside it (1 client)\n\n| Row | Attempt | n | p50 | **p95** | Base n | Base p50 | Base p95 | Δp95 vs base | Floor p50 before / after | Gate | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		if !isRegionRow(r.sc.name) {
 			continue
@@ -470,8 +470,8 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 		case p95 > perfListTargetMS:
 			v = "**FAIL**"
 		}
-		fmt.Fprintf(&b, "| %s | %d | %d | %.2f | **%.2f** | %d | %.2f | %.2f | %+.2f | %s | %s |\n", mdCell(r.sc.name), r.attempt, len(r.lat), pct(r.lat, .5), p95,
-			len(r.pairLat), pct(r.pairLat, .5), b95, p95-b95, r.gateReason(), v)
+		fmt.Fprintf(&b, "| %s | %d | %d | %.2f | **%.2f** | %d | %.2f | %.2f | %+.2f | %.2f / %.2f | %s | %s |\n", mdCell(r.sc.name), r.attempt, len(r.lat), pct(r.lat, .5), p95,
+			len(r.pairLat), pct(r.pairLat, .5), b95, p95-b95, r.floorStart, r.floorEnd, r.gateReason(), v)
 	}
 	path := strings.TrimSuffix(out, filepath.Ext(out)) + "-region.md"
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {

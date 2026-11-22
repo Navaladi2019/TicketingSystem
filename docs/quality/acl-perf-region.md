@@ -86,8 +86,13 @@ every other row, so the Step 0 baseline row is untouched.
 - **Paired, 1 client.** Each scored request alternates with its base: the
   same P3-36 agent and path without the regional group, so `regional` folds
   away (no `under` leaf, no probe). The base p95 is reported beside the row,
-  for information only. The floor gate and the TICK-1040 container watch are
-  P3-36's.
+  for information only. The TICK-1040 container watch is P3-36's. The floor
+  gate is P3-36's 3 ms p50, but measured per region attempt: a 1-client
+  `SELECT 1` floor just before and just after each attempt (as the crossover
+  cells gated each chunk at its start and end). Either p50 over 3 ms voids
+  the attempt, which reruns under the 3-attempt rule. Both values are in the
+  region report's Floor column (TICK-1087 item 1). The run-level 8-client
+  floor still runs once before every row.
 - **Pass:** every row, both personas, p95 ≤ 150 ms. Verdict on the worst
   persona.
 
