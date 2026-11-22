@@ -917,6 +917,11 @@ func lastCommit(ss []perfStmt) (time.Duration, bool) {
 // starts later contended a list window without voiding it (QA, 2026-11-21
 // 07:23, P3-36 baseline runs 1 and 2b).
 func (sc perfScenario) watched() bool {
+	// TICK-1037: a region information row is unscored but keeps every
+	// gate (container watch, floor, base tail) and their re-runs.
+	if isRegionRow(sc.name) {
+		return true
+	}
 	return sc.unscored == "" && (sc.kind == "create" || sc.kind == "list" || sc.kind == "get")
 }
 

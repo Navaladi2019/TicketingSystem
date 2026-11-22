@@ -39,7 +39,28 @@ The rules below are fixed before the rerun, so before any number exists:
     availability goes to the CTO, and the row is not scored.
 - **Command:**
   `NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^region: bench_conc' sh bench/acl-perf/run.sh`.
-  It also runs `bench_conc` at root (10,111 units), for information only.
+  The same selector runs the information-only rows below.
+- **Information-only rows** (Technical Lead, 2026-11-22). They are
+  unscored and change neither R1 nor the rules above. They keep every gate
+  and its re-runs. Both personas run each one, and the raw report EXPLAINs
+  each row's statements.
+  - `bench_conc` at root (10,111 units), unfiltered (TICK-1091 optional
+    item).
+  - `bench_conc` with `filter[state]=new`, at 9,099 and at 10,111 units:
+    the usual open-ticket list. `state` is a fixed column, so the filter
+    lands in the count and the page.
+- **Known, from the code** (`authz.ProbeStatement`, `internal/authz/shape.go`):
+  the probe takes no request filter, by design (A2-6 requirement 1). With a
+  filter present, it still visits the units of S. The count and the page
+  get the filter in their `WHERE` (`records_list.go`, `pl.where`). Whether
+  CC still visits every unit with the filter is for the plans to show.
+- **Not built: the state + branch filter rows.** A branch filter needs
+  ADR-006's `x-nava-filterable` field indexes, which are on that story's
+  branches (TICK-739, TICK-743, TICK-1022) but not on `main` or
+  `TICK-946/in-my-region`. `records.org_unit_id` is not a list filter
+  (`metadata.ColumnOrgUnitID` maps to no property). The only branch filter
+  possible here would be a `data` filter, which is not the path the
+  question is about.
 
 **Step 0: three clean passes (55.48, 128.25, 175.47 ms p95). No two agree
 within 5 ms.** The median is 128.25 ms, used for the information-only

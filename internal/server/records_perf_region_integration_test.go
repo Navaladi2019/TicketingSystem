@@ -78,6 +78,9 @@ type perfRegionSet struct {
 	// info is set on a row reported for information, not scored (TICK-1091,
 	// optional item: bench_conc at the certified 10,111 units).
 	info string
+	// query is the list's extra query string, such as a filter (TICK-1037
+	// information rows: the usual filtered list, not only the worst case).
+	query string
 }
 
 // perfRegionSets are TICK-1037's sets, in the order the rows run.
@@ -87,19 +90,25 @@ func perfRegionSets() []perfRegionSet {
 		regions08 = append(regions08, 1+r*1011)
 	}
 	return []perfRegionSet{
-		{"area (|S| 10)", []int{3}, "ticket", ""},
-		{"district (|S| 101)", []int{2}, "ticket", ""},
-		{"region (|S| 1,011)", []int{1}, "ticket", ""},
-		{"root (|S| 10,111)", []int{0}, "ticket", ""},
-		{"district hot", []int{2327}, "ticket", ""},
-		{"district thin", []int{2428}, "ticket", ""},
-		{"uniform m=1001", []int{3035}, "ticket", ""},
-		{"uniform m=3000", []int{3136}, "ticket", ""},
-		{"uniform m=4500", []int{3338}, "ticket", ""},
-		{"uniform m=10000", []int{3237}, "ticket", ""},
-		{"bench_rare at root", []int{0}, "bench_rare", ""},
-		{"bench_conc, regions 0-8 (|S| 9,099)", regions08, "bench_conc", ""},
-		{"bench_conc at root (|S| 10,111, info)", []int{0}, "bench_conc", "information only (TICK-1091 optional item): bench_conc at the certified 10,111 units"},
+		{"area (|S| 10)", []int{3}, "ticket", "", ""},
+		{"district (|S| 101)", []int{2}, "ticket", "", ""},
+		{"region (|S| 1,011)", []int{1}, "ticket", "", ""},
+		{"root (|S| 10,111)", []int{0}, "ticket", "", ""},
+		{"district hot", []int{2327}, "ticket", "", ""},
+		{"district thin", []int{2428}, "ticket", "", ""},
+		{"uniform m=1001", []int{3035}, "ticket", "", ""},
+		{"uniform m=3000", []int{3136}, "ticket", "", ""},
+		{"uniform m=4500", []int{3338}, "ticket", "", ""},
+		{"uniform m=10000", []int{3237}, "ticket", "", ""},
+		{"bench_rare at root", []int{0}, "bench_rare", "", ""},
+		{"bench_conc, regions 0-8 (|S| 9,099)", regions08, "bench_conc", "", ""},
+		{"bench_conc at root (|S| 10,111, info)", []int{0}, "bench_conc", "information only (TICK-1091 optional item): bench_conc at the certified 10,111 units", ""},
+		// Technical Lead, 2026-11-22: real lists are filtered by state. state
+		// is a fixed column (records.state), filterable today. A branch
+		// filter needs ADR-006's x-nava-filterable, which is not on this
+		// branch, so it is not built.
+		{"bench_conc, regions 0-8 (|S| 9,099), state=new (info)", regions08, "bench_conc", "information only: state-filtered list", "filter%5Bstate%5D=new"},
+		{"bench_conc at root (|S| 10,111), state=new (info)", []int{0}, "bench_conc", "information only: state-filtered list", "filter%5Bstate%5D=new"},
 	}
 }
 
@@ -152,10 +161,10 @@ func (e *perfEnv) regionActors(t *testing.T) {
 
 // regionReqs interleaves each scored request with its base: the scored one
 // first, so the warm-up and the captured plan are the region request's.
-func (e *perfEnv) regionReqs(t *testing.T, key, persona string) []perfReq {
+func (e *perfEnv) regionReqs(t *testing.T, key, query, persona string) []perfReq {
 	t.Helper()
 	e.regionActors(t)
-	path := "/api/v1/records/" + key + "?sort=-updated_at"
+	path := "/api/v1/records/" + key + "?" + joinQuery(query, "sort=-updated_at")
 	out := make([]perfReq, 0, 2*len(e.agents))
 	for _, tok := range e.agents {
 		scored := "r" + tok
@@ -174,7 +183,7 @@ func (e *perfEnv) regionDefs(t *testing.T) []perfDef {
 	var out []perfDef
 	for _, s := range perfRegionSets() {
 		for _, persona := range []string{"agents", "count-only"} {
-			out = append(out, perfDef{perfRegionName(s, persona), "list", "large", func() []perfReq { return e.regionReqs(t, s.key, persona) }, 1})
+			out = append(out, perfDef{perfRegionName(s, persona), "list", "large", func() []perfReq { return e.regionReqs(t, s.key, s.query, persona) }, 1})
 		}
 	}
 	return out
@@ -469,10 +478,10 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 		p95, b95 := pct(r.lat, .95), pct(r.pairLat, .95)
 		v := "pass"
 		switch {
-		case r.sc.unscored != "":
-			v = "info (not scored)"
 		case r.gated():
 			v = "void"
+		case r.sc.unscored != "":
+			v = "info (not scored)"
 		case p95 > perfListTargetMS:
 			v = "**FAIL**"
 		}
