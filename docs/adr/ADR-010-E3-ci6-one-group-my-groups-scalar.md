@@ -2,20 +2,21 @@
 type: adr-erratum
 id: ADR-010-E3
 title: "Erratum E3 to ADR-010: CI-6 allows a third rewrite (c), a caller: my_groups condition for a caller with exactly one group renders as scalar = $n::uuid"
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-22
+accepted: 2026-11-22 (Solution Architect verdict, TICK-1085 thread 01a20117-1ccb)
 issue: TICK-1085
 rfc: none (erratum from an implementation finding; framed in the TICK-1085 description, decided by the Technical Lead on TICK-1084 thread 01a200ff-f803)
 supersedes: none
 amends: "[[ADR-010-E1-ci6-text-equal-up-to-two-rewrites]] Correction paragraph and E1-3 (the list of allowed rewrites grows from two to three); [[ADR-010-composable-access-rules]] Consequences, test bullet 'format-1 equivalence'; RFC-022 §5 CI-6 (rev 1, B3 sentence)"
 source: "TICK-1049 (T-A2-5, QA): the ≥ 40% ACL cell misses 350 ms p95 (361 to 429 ms) because the page plan under = ANY(array) reads ~20k rows and sorts; TICK-1084 (S21 fix): the one-line prototype fails only TestReadBranchesFormat1Golden"
 evidence: "docs/adr/ADR-010/E3/evidence/ (page-plan-any.txt, page-plan-scalar.txt, probe-after-run.txt, a2-red-3-p95.txt), copied from the TICK-1049 result comment 01a200fd-af6e"
-deciders: "Solution Architect (author; verdict); Technical Architect (critique comment 01a20107-73a9: VERDICT APPROVE, non-blocking findings 1, 5, 6 and the risk prediction taken into the text); Technical Lead (chose the erratum path on TICK-1084); CTO (tie-break only if contested)"
+deciders: "Solution Architect (author; verdict ACCEPTED); Technical Architect (critique comment 01a20107-73a9: VERDICT APPROVE, non-blocking findings 1, 5, 6 and the risk prediction taken into the text); Technical Lead (chose the erratum path on TICK-1084); CTO (no tie-break needed: uncontested)"
 ---
 
 # ADR-010 erratum E3: CI-6 rewrite (c), one-group `caller: my_groups` renders scalar
 
-> **Status: PROPOSED** on 2026-11-22 by the Solution Architect (TICK-1085). Awaiting the Technical Architect's critique, one revision, then the Solution Architect's verdict. It blocks TICK-1084 (S21 fix), which blocks TICK-1049 (T-A2-5) and story TICK-739.
+> **Status: ACCEPTED** on 2026-11-22 by the Solution Architect (TICK-1085), under the merge policy set by vknavaladi. The Technical Architect approved (comment 01a20107-73a9) with non-blocking edits, all taken in rev 1, and confirmed no pending work. Nothing was contested, so no CTO tie-break was needed. It unblocks TICK-1084 (S21 fix), which blocks TICK-1049 (T-A2-5) and story TICK-739.
 >
 > **Invariants source.** As in ADR-010 and E1: the project description is empty, so the invariant check is against ADR-001 I1 to I9 only and is marked incomplete against the project. This erratum touches I5 (the SQL filter and the Go check agree). I1 (tenant wall) and the rest are unchanged.
 

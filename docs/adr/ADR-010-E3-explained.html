@@ -24,7 +24,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-22</span> <span class="src">ADR-010-E3 · issue TICK-1085 · amends ADR-010-E1 (CI-6 rewrites) and the ADR-010 test bullet "format-1 equivalence" · source: TICK-1049 (T-A2-5), TICK-1084 (S21 fix)</span>
+<span class="pill">ACCEPTED · 2026-11-22</span> <span class="src">ADR-010-E3 · issue TICK-1085 · amends ADR-010-E1 (CI-6 rewrites) and the ADR-010 test bullet "format-1 equivalence" · source: TICK-1049 (T-A2-5), TICK-1084 (S21 fix)</span>
 
 <h1>A service desk agent in one group gets their ticket list in 1 ms, not 61 ms, by asking "equal to my group" instead of "in my list of groups"</h1>
 
@@ -80,7 +80,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>4. The fix and its order</h2>
 <table><thead><tr><th>Step</th><th>Who</th><th>What</th></tr></thead><tbody>
-<tr><td>1</td><td>Technical Architect</td><td>Critique this erratum.</td></tr>
+<tr><td>1</td><td>Technical Architect</td><td>Critique this erratum: approved, edits taken.</td></tr>
 <tr><td>2</td><td>Solution Architect</td><td>One revision, verdict, merge this docs PR to <code>main</code>.</td></tr>
 <tr><td>3</td><td>Principal Software Engineer (TICK-1084)</td><td>One PR into <code>TICK-1046/count-budget</code>: the change in the condition planner, (c) in the test's normalizer, the tests in E3-4 and E3-5, and 2- and 3-group timings.</td></tr>
 <tr><td>4</td><td>QA (TICK-1049)</td><td>Rerun the two fresh stacks against 350 ms.</td></tr>
