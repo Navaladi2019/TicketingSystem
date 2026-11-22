@@ -8,6 +8,55 @@ when the read predicate gains D7's leaf
 `org_unit_id IS NOT NULL AND org_unit_id = ANY($S)`, for |S| = 10, 100, 1,000
 and 10,000?
 
+## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
+
+**Status: Step 0 open. One clean baseline pass of two; no row scored.**
+R1's baseline stays 146.2 ms until a second clean pass exists. Nothing below
+is a verdict.
+
+### Step 0: baseline passes (agent list, `sort=-updated_at`, no `under` leaf)
+
+The CTO granted an idle-host window: 2026-11-22, 02:40 to 04:10 UTC
+(TICK-1037). Each pass is the unchanged P3-36 handler row: a fresh 800k seed,
+8 clients, 20 s, behind the transport floor gate and the TICK-1040 container
+watch.
+
+```
+NAVA_PERF_ONLY='^agent list, sort=-updated_at$' sh bench/acl-perf/run.sh
+```
+
+| Pass | Start (UTC) | Floor p50 / p95 | n | p50 | **p95** | Host during the pass | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 02:41:28 | 1.05 / 1.64 | 3,451 | 44.88 | **55.48** | Only the allowed containers: `buildx_buildkit_nava-ci0` (idle), `multica-*` | **clean** |
+| 2 | 02:44:54 | 1.64 / 2.27 | 2,956 / 3,963 | 51.34 / 43.25 | 76.17 / 65.74 | `nava-it-pg-68222908` (02:46), `nava-it-pg-118522456` (02:51), each with `-pgb-pooled` / `-pgb-noprep` sidecars, from another task's `scripts/ci/test-integration.sh` | **void** (CTO terms: a new `nava-*` container during a pass voids it) |
+
+- **Pass 2 is not scored**, its second attempt included. The harness gated
+  attempt 1 and waited for the containers before attempt 2. The CTO's terms
+  void the whole pass, so the 65.74 ms is not patched in.
+- **Pass 1 is far under 146.2 ms.** The host was idle (floor 1.05 ms against
+  the 3 ms gate). The 146.2 ms (2026-11-09) and 131.96 ms passes ran on a busier
+  host. One pass does not replace the baseline. The second clean pass decides,
+  and a third runs if the two differ by more than 5 ms.
+- Code: `TICK-946/in-my-region` at `7e1055ca` (TICK-1036 and TICK-1071 merged).
+- Raw: `acl-perf-region/tick1037-baseline-pass1.md`, `-pass2.md` (header,
+  plans, container samples).
+
+### Harness gap before scoring (Known)
+
+A2-11 scores the **handler** p95 with a region policy, so the probe round
+trip counts. No handler scenario for that exists yet:
+
+- `TestRecordsACLPerf800k` has no org tree, no `records.org_unit_id`, no
+  closure and no `under` policy.
+- `bench/acl-perf/region/main.go` is database-only, and it calls
+  `authz.ExpandUnder`, which TICK-1034 deleted.
+- The crossover cells' `sp1x` is the probe harness, also not the handler.
+
+QA adds region scenarios to the P3-36 handler test: the bench tree (10,111
+units), the closure, `org_unit_id`, the TICK-1071 refresh after the seed, the
+ten sets plus `bench_rare` / `bench_conc`, and both personas. The scored
+rerun runs in the next window with Step 0's remaining pass.
+
 ## S31 rerun on the real schema (TICK-951 P11-18, 2026-11-21)
 
 **R1: FAIL, confirmed on the real migration, index and expansion.** On S31's
