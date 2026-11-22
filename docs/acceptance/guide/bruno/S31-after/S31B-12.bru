@@ -1,0 +1,21 @@
+meta {
+  name: S31B.12 AC3: the Germany requester sees nothing now (no unit, no region)
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_de_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+}

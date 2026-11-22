@@ -1,0 +1,26 @@
+meta {
+  name: S31.12 The APAC requester's principal id
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_apac_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s31_req_apac', N.json().user_id);
+  test('in no /ou/ group and not in /service-desk or /admins', () => {
+    expect(N.paths().filter(p => p.startsWith('/ou/'))).to.eql([]);
+    expect(N.paths()).to.not.include('/service-desk');
+    expect(N.paths()).to.not.include('/admins');
+  });
+}

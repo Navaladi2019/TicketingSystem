@@ -1,0 +1,21 @@
+meta {
+  name: S31B.5 The Germany requester's principal id
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_de_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s31_req_de', N.json().user_id);
+}
