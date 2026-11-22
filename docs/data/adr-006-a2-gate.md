@@ -132,13 +132,18 @@ the larger one applies.
 | spill, worst of runs 5 and 6 | +45.9 ms | +40 ms | 175 | 170 ms |
 | parallel, run 6 (gate-flagged) | +71.2 ms | +66 ms | 149 | 140 ms |
 
-Both shapes need settings forced on this seed. The spill needs `work_mem =
-64kB`, no parallel, and nested loops and merge joins off. The parallel pick
-needs nested loops off. Under the server's settings no count both runs past
-200 ms and has either shape here. The release trigger (a production count
-with a `Gather` or a hash spill in the R-a track) decides which row applies.
-If the 140 ms row is to be relied on, a parallel-only rerun with clean gates
-(about 10 minutes: `NAVA_PERF_SPIKE_CELLS=parallel`) would settle the
+The spill shape needs settings forced on this seed: `work_mem = 64kB`, no
+parallel, and nested loops and merge joins off. At 64 kB its hash has 512
+batches, far more than a 4 MB spill of the same hash, so the spill rows are
+an upper bound for that shape. The parallel shape needs no forcing. Under
+the server's settings, run 6's `a6, three broad fields` count (plain median
+208.6 ms) has a launched `Gather` in branch 1 that is still running at
+1.25 × the budget (`run-6/raw.md`, cell parallel). The measured pick forced
+only `enable_nestloop = off`, and its shared Parallel Hash spilled at the
+server's `work_mem` (4 MB). So the parallel row is the one that applies, and
+the release trigger's "production count with a `Gather`" holds on the bench
+seed. Before the 140 ms row is adopted, a parallel-only rerun with clean
+gates (`NAVA_PERF_SPIKE_CELLS=parallel`, about 10 minutes) settles the
 8-client figure.
 
 ### Run 5 verdict: spill FAIL (one run, measured); parallel INCONCLUSIVE (not validly measured)
