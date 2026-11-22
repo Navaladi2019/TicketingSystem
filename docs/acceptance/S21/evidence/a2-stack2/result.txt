@@ -1,0 +1,1 @@
+s21: PASS at 49c3ab50491296e903fad1f1034c3cc1a2c2af24; evidence in docs/acceptance/S21/evidence/a2-stack2 (2026-11-22T09:39:50Z)

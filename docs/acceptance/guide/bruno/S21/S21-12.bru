@@ -30,7 +30,7 @@ script:pre-request {
     out.edits.push({ status: r.status, id });
   }
   const vd = await T.list('admin_a_token', 'filter[due_at]=2026-12-30T12:00:18Z');
-  out.vd = { status: vd.status, ids: vd.data.items.map(i => i.id), total: vd.data.total };
+  out.vd = { status: vd.status, ids: vd.data.items.map(i => i.id), total: vd.data.total, total_state: vd.data.total_state };
   bru.setVar('s21_after', JSON.stringify(out));
 }
 
@@ -45,9 +45,9 @@ tests {
   const want = [...d.creates, ...d.edits, ...a.creates, ...a.edits].map(x => x.id).sort();
   const got = N.json().items.map(i => i.id).sort();
   test('exactly the 10 records written on the value, none missed across the flip', () => expect(got).to.eql(want));
-  test('total 10', () => expect(N.json().total).to.eql(10));
+  test('total 10, exact: a short first page (A2-4)', () => { expect(N.json().total).to.eql(10); expect(N.json().total_state).to.eql('exact'); expect(N.json()).to.not.have.property('total_capped'); });
   test('the record moved off the value while indexing is not listed', () => expect(got).to.not.include(d.moved.id));
-  test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eql(200); expect(a.vd.ids).to.eql([d.moved.id]); expect(a.vd.total).to.eql(1); });
+  test('the value it moved to lists exactly it', () => { expect(a.vd.status).to.eql(200); expect(a.vd.ids).to.eql([d.moved.id]); expect(a.vd.total).to.eql(1); expect(a.vd.total_state).to.eql('exact'); });
 }
 
 docs {

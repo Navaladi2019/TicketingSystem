@@ -62,3 +62,13 @@ SELECT i.data->>'due_at' AS due_at, count(*) AS records, min(r.updated_at) AS fi
 -- missed the >= 40% ACL cell by 2x, the next passed it; see the README).
 SELECT relname, n_live_tup, last_analyze, last_autoanalyze, autoanalyze_count
   FROM pg_stat_all_tables WHERE relname IN ('records', 'rfv_num', 'rfv_ts') ORDER BY relname;
+
+-- The visibility map of the side tables when the folder ended, right after
+-- S21.19's cells (ADR-006-A2 A2-7: a broad ACL count reads the heap until
+-- autovacuum marks pages all-visible, so a low share predicts `unknown`).
+-- run-kit.sh's visibility.txt has the same columns sampled every 10 s.
+SELECT c.relname, c.relpages, c.relallvisible,
+       round(100.0 * c.relallvisible / nullif(c.relpages, 0), 1) AS all_visible_pct,
+       s.n_live_tup, s.last_autovacuum, s.autovacuum_count
+  FROM pg_class c JOIN pg_stat_all_tables s ON s.relid = c.oid
+ WHERE c.relname IN ('rfv_num', 'rfv_ts') ORDER BY 1;

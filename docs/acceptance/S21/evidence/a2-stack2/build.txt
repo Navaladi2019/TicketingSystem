@@ -1,0 +1,3 @@
+49c3ab50491296e903fad1f1034c3cc1a2c2af24
+docker: 16 CPUs, 26260877312 bytes, 29.9.2
+other containers: nava-aclperf-pg-1860 multica-backend-1 multica-frontend-1 multica-postgres-1 

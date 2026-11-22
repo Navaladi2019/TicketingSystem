@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "{{core_url}}/api/v1/records/incident?limit=1",
+    "headers": {
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": "error",
+    "body": null
+  },
+  "tests": []
+}
