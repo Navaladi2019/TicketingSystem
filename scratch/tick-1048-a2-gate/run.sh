@@ -7,7 +7,9 @@
 # docs/data/adr-006-a2-gate.md. Needs Docker and Go. Not part of CI. About
 # 30 minutes. Env: NAVA_PERF_LIST_SECONDS (15), NAVA_PERF_CLIENTS (8),
 # NAVA_PERF_GATE_ATTEMPTS (2), NAVA_PERF_SPIKE_PER_CLIENT (25),
-# NAVA_PERF_OUT; BENCH_KEEP=1 keeps the container.
+# NAVA_PERF_SPIKE_CELLS (base,spill,parallel: TICK-1083's spill-then-cancel
+# and parallel-plan cells beside TICK-1048's), NAVA_PERF_OUT; BENCH_KEEP=1
+# keeps the container.
 #   sh scratch/tick-1048-a2-gate/run.sh
 set -eu
 cd "$(dirname "$0")/../.."
@@ -35,6 +37,8 @@ docker run -d --name "$pg" --shm-size=3g -p 127.0.0.1::5432 \
     -c track_io_timing=on >/dev/null
 until docker exec "$pg" pg_isready -h 127.0.0.1 -U pgadmin -d postgres >/dev/null 2>&1; do sleep 1; done
 port=$(docker port "$pg" 5432/tcp | head -n 1 | sed 's/.*://')
+NAVA_PERF_PG_CONTAINER=$pg
+export NAVA_PERF_PG_CONTAINER
 NAVA_TEST_PG_URL="postgres://pgadmin:bench@127.0.0.1:$port/postgres"
 export NAVA_TEST_PG_URL
 mkdir -p "$(dirname "$NAVA_PERF_OUT")"
@@ -44,11 +48,13 @@ mkdir -p "$(dirname "$NAVA_PERF_OUT")"
     docker info --format '### docker VM: {{.NCPU}} CPUs, {{.MemTotal}} bytes, kernel {{.KernelVersion}}'
     echo "### other containers at start: $(docker ps --format '{{.Names}}' | grep -v "^$pg\$" | tr '\n' ' ')"
 } | tee "$NAVA_PERF_OUT.host"
-# Every 10 s, the other containers on the Docker VM and their CPU: a phase
-# that ran beside a busy one is contended.
+# Every 10 s, the Docker VM's load average (not namespaced, so it also shows
+# buildx builds, which docker stats does not list; TICK-1083 run 5) and the
+# other containers and their CPU: a phase that ran beside a busy one is
+# contended.
 (
     while :; do
-        echo "$(date -u +%H:%M:%S) $(docker stats --no-stream --format '{{.Name}}={{.CPUPerc}}' | grep -v "^$pg=" | tr '\n' ' ')"
+        echo "$(date -u +%H:%M:%S) load $(docker exec "$pg" cut -d' ' -f1-3 /proc/loadavg 2>/dev/null) $(docker stats --no-stream --format '{{.Name}}={{.CPUPerc}}' | grep -v "^$pg=" | tr '\n' ' ')"
         sleep 10
     done
 ) > "$NAVA_PERF_OUT.contention" 2>/dev/null &
