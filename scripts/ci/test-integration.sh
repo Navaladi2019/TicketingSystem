@@ -162,6 +162,8 @@ pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal too
     # The isolation suite needs its own cluster and PgBouncer: make isolation.
     grep -v '^\./internal/tenancy/isolation$')
 echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
+# The limit in force, so a timeout can be read against it (TICK-1100).
+echo "integration: go test -timeout $timeout"
 # Compile every test binary, and the log printer, while the clusters start;
 # -run '^$' runs nothing.
 # shellcheck disable=SC2086
