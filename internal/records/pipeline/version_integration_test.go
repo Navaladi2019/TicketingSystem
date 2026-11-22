@@ -43,7 +43,7 @@ func TestRefusedWriteReportsTheVersionItUsed(t *testing.T) {
 	unknownRequester := map[string]any{"title": "x", "requester": uuid.NewString()}
 
 	_, err := write(ctx, e, p, f.id, createCmd(f, invalid))
-	atVersion(t, err, 1)
+	_ = atVersion(t, err, 1)
 	var ve *pipeline.ErrValidation
 	if !errors.As(err, &ve) {
 		t.Errorf("err = %v, want it to still unwrap to *ErrValidation", err)
@@ -53,10 +53,10 @@ func TestRefusedWriteReportsTheVersionItUsed(t *testing.T) {
 	publishV2(t, e, f)
 
 	_, err = write(ctx, e, p, f.id, createCmd(f, invalid))
-	atVersion(t, err, 2)
+	_ = atVersion(t, err, 2)
 
 	_, err = write(ctx, e, p, f.id, createCmd(f, unknownRequester))
-	atVersion(t, err, 2)
+	_ = atVersion(t, err, 2)
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) || pg.Code != "23503" {
 		t.Errorf("err = %v, want it to still unwrap to the 23503", err)
@@ -64,7 +64,7 @@ func TestRefusedWriteReportsTheVersionItUsed(t *testing.T) {
 
 	// An update of a v1 record validates against the current version, v2.
 	_, err = write(ctx, e, p, f.id, updateCmd(f, res.RecordID, 1, map[string]any{"title": ""}))
-	atVersion(t, err, 2)
+	_ = atVersion(t, err, 2)
 }
 
 // A write refused before the definition is read names no version.

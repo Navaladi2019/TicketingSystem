@@ -54,7 +54,7 @@ const (
 // route rows' handlers: they send thousands of requests as one tenant, and a
 // fast runner hit 429 rate_limited and broke the run (TICK-912 CI). The rows
 // test filter agreement, not the limiter.
-var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 << 20})
+var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 << 20}) //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // i5FilterMutants are broken data-filter compilers for the list route
 // (server.WithListDataTerm). arg is the bound JSON document {prop: value}.
@@ -290,7 +290,7 @@ func i5rList(ctx context.Context, h *etIso, token, query string) (ci8Resp, i5rLi
 	dec := json.NewDecoder(strings.NewReader(r.body))
 	dec.UseNumber()
 	if err := dec.Decode(&p); err != nil || p.Total == nil {
-		return r, p, fmt.Errorf("?%s: not a page: %v: %s", query, err, r.body)
+		return r, p, fmt.Errorf("?%s: not a page: %w: %s", query, err, r.body)
 	}
 	return r, p, nil
 }

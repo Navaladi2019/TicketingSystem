@@ -39,13 +39,13 @@ const (
 )
 
 // postM3Indexes is counterIndexes after M3: one unique index, the key.
-var postM3Indexes = strings.Join([]string{
+var postM3Indexes = strings.Join([]string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	"record_counters_period_end valid=true btree (period_end) WHERE (period_end IS NOT NULL)",
 	"record_counters_pkey valid=true btree (tenant_id, entity_definition_id, scope_key)",
 }, "\n")
 
 // preM3Indexes is counterIndexes before M3 (and after its Down).
-var preM3Indexes = strings.Join([]string{
+var preM3Indexes = strings.Join([]string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	"record_counters_period_end valid=true btree (period_end) WHERE (period_end IS NOT NULL)",
 	"record_counters_pkey valid=true btree (tenant_id, entity_definition_id)",
 	"record_counters_scoped_key valid=true btree (tenant_id, entity_definition_id, scope_key)",

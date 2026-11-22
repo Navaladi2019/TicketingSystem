@@ -65,7 +65,7 @@ supersedes: none
   - order independence;
   - the save-time rejection table at both layers;
   - propagation of a condition change;
-  - format-1 equivalence, with the same branch count and SQL as today up to the SP-2 threshold;
+  - format-1 equivalence, with the same branch count and SQL as today up to the SP-2 threshold *(text and arguments compared up to the rewrites named in [ADR-010-E1](ADR-010-E1-ci6-text-equal-up-to-two-rewrites.md) and [ADR-010-E3](ADR-010-E3-ci6-one-group-my-groups-scalar.md))*;
   - the 800k benchmark;
   - sync resilience when a unit is deleted;
   - the registry check.

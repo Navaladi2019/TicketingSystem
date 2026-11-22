@@ -26,7 +26,7 @@ import (
 const insertACLShape = `WITH r AS (INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks, published_by)
 	VALUES ($1, $1, $2, $3::text::jsonb, $4::text::jsonb, $1) RETURNING tenant_id, entity_definition_id, version) ` + aclEntry
 
-var aclShapeFunctions = []string{
+var aclShapeFunctions = []string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	"acl_uuids_valid(jsonb)", "acl_subject_valid(jsonb)", "acl_cond_valid(jsonb)",
 	"acl_rules_valid(jsonb)", "acl_masks_valid(jsonb)",
 }
@@ -37,7 +37,7 @@ const (
 )
 
 // aclRuleShapes are rule lists the CHECK accepts (ok) or refuses.
-var aclRuleShapes = []struct {
+var aclRuleShapes = []struct { //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	name  string
 	rules string
 	ok    bool
@@ -105,7 +105,7 @@ var aclRuleShapes = []struct {
 }
 
 // aclMaskShapes are mask lists the CHECK accepts (ok) or refuses.
-var aclMaskShapes = []struct {
+var aclMaskShapes = []struct { //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	name  string
 	masks string
 	ok    bool

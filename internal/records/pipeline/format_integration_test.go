@@ -174,7 +174,7 @@ func seedFor(t *testing.T, e env, mode string) tenantFixture {
 }
 
 // modes are the two numbering paths.
-var modes = []string{"gaps", "gapless"}
+var modes = []string{"gaps", "gapless"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // AC (midnight): tenant zone Asia/Kolkata, a create at 23:59:59.9 local and
 // one at 00:00:00.1 the next local day. Each number's date is created_at's

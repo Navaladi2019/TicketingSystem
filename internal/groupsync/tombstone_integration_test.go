@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
-	"go.opentelemetry.io/otel/metric/noop"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/metric/noop"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

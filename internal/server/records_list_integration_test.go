@@ -760,7 +760,7 @@ func TestListDataFilterOnDefaultMatchesAbsentField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(t.Context()) //nolint:errcheck
+	defer tx.Rollback(t.Context()) //nolint:errcheck // rollback after a read-only check; the error adds nothing
 	for _, q := range []string{"SET LOCAL session_replication_role = replica"} {
 		if _, err := tx.Exec(t.Context(), q); err != nil {
 			t.Fatal(err)

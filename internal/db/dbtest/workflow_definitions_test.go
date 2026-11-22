@@ -80,7 +80,7 @@ const (
 )
 
 // workflowTables are the tables workflowTablesMigration creates.
-var workflowTables = []string{"workflow_definitions", "workflow_definition_versions", "workflow_cause"}
+var workflowTables = []string{"workflow_definitions", "workflow_definition_versions", "workflow_cause"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // beforeWorkflowTables is m and a as a run of fsys sees them when fsys stops
 // before P3-40: without the three tables when fsys lacks
