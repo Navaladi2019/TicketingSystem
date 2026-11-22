@@ -1,0 +1,1042 @@
+s21: 1. fresh stack from fadf9f60b3688920f1c71bb10b165f196baf0500 (2026-11-22T04:38:17Z)
+deploy/compose/certs already holds a dev CA (FORCE=1 to reissue)
+ Image nava/nava-relay:s21 Building 
+ Image nava/nava-db:s21 Building 
+ Image nava/keycloak:s21 Building 
+ Image nava/nava-groupsync:s21 Building 
+ Image nava/nava-onboard:s21 Building 
+ Image nava/nava-db:s21 Building 
+ Image nava/otel-collector:s21 Building 
+ Image nava/nava-core:s21 Building 
+ Image nava/nava-purge:s21 Building 
+ Image nava/temporal-server:s21 Building 
+ Image nava/nava-worker:s21 Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 7.05kB 0.0s done
+#1 DONE 0.0s
+
+#2 [db-roles internal] load build definition from Dockerfile
+#2 transferring dockerfile: 30B 0.0s
+#2 ...
+
+#3 [nava-purge internal] load build definition from Dockerfile
+#3 transferring dockerfile: 470B 0.2s done
+#3 DONE 0.4s
+
+#2 [db-roles internal] load build definition from Dockerfile
+#2 transferring dockerfile: 551B 0.1s done
+#2 ...
+
+#4 [temporal-server internal] load build definition from Dockerfile
+#4 transferring dockerfile: 1.89kB 0.2s done
+#4 DONE 0.4s
+
+#5 [nava-worker internal] load build definition from Dockerfile
+#5 transferring dockerfile: 765B 0.1s done
+#5 DONE 0.4s
+
+#6 [nava-onboard internal] load build definition from Dockerfile
+#6 transferring dockerfile: 492B 0.1s done
+#6 DONE 0.5s
+
+#7 [otel-collector internal] load build definition from Dockerfile
+#7 transferring dockerfile: 463B 0.2s done
+#7 DONE 0.5s
+
+#8 [nava-relay internal] load build definition from Dockerfile
+#8 transferring dockerfile: 470B 0.2s done
+#8 DONE 0.5s
+
+#9 [temporal-server internal] load metadata for docker.io/library/golang:1.27.4-bookworm
+#9 DONE 0.0s
+
+#10 [temporal-server internal] load metadata for docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#10 DONE 0.0s
+
+#11 [otel-collector internal] load metadata for docker.io/library/alpine:3.22.1
+#11 DONE 0.0s
+
+#12 [otel-collector internal] load metadata for docker.io/otel/opentelemetry-collector-contrib:0.139.0
+#12 DONE 0.0s
+
+#13 [nava-purge internal] load .dockerignore
+#13 DONE 0.0s
+
+#14 [nava-purge internal] load metadata for docker.io/library/golang:1.27.4-alpine
+#14 DONE 0.0s
+
+#15 [temporal-server internal] load .dockerignore
+#15 DONE 0.0s
+
+#16 [nava-groupsync internal] load build definition from Dockerfile
+#16 transferring dockerfile: 490B 0.1s done
+#16 DONE 0.6s
+
+#17 [nava-core internal] load build definition from Dockerfile
+#17 transferring dockerfile: 477B 0.1s done
+#17 DONE 0.6s
+
+#18 [keycloak internal] load build definition from Dockerfile
+#18 transferring dockerfile: 659B 0.1s done
+#18 DONE 0.7s
+
+#2 [migrate internal] load build definition from Dockerfile
+#2 DONE 0.6s
+
+#11 [migrate internal] load metadata for docker.io/library/alpine:3.22.1
+#11 DONE 0.0s
+
+#14 [migrate internal] load metadata for docker.io/library/golang:1.27.4-alpine
+#14 DONE 0.0s
+
+#19 [keycloak internal] load metadata for quay.io/keycloak/keycloak:26.8.1
+#19 DONE 0.0s
+
+#20 [otel-collector internal] load .dockerignore
+#20 transferring context: 2B 0.0s done
+#20 DONE 0.1s
+
+#13 [nava-onboard internal] load .dockerignore
+#13 transferring context: 101B 0.1s done
+#13 DONE 0.2s
+
+#21 [otel-collector stage-1 1/3] FROM docker.io/library/alpine:3.22.1
+#21 DONE 0.0s
+
+#22 [otel-collector collector 1/1] FROM docker.io/otel/opentelemetry-collector-contrib:0.139.0
+#22 DONE 0.0s
+
+#15 [temporal-server internal] load .dockerignore
+#15 transferring context: 88B 0.1s done
+#15 DONE 0.2s
+
+#23 [otel-collector internal] load build context
+#23 transferring context: 33B 0.0s done
+#23 DONE 0.1s
+
+#21 [nava-worker stage-1 1/3] FROM docker.io/library/alpine:3.22.1
+#21 DONE 0.0s
+
+#24 [nava-worker build 1/8] FROM docker.io/library/golang:1.27.4-alpine
+#24 DONE 0.0s
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#26 [keycloak 1/3] FROM quay.io/keycloak/keycloak:26.8.1
+#26 DONE 0.0s
+
+#27 [otel-collector stage-1 2/3] COPY --from=collector /otelcol-contrib /otelcol-contrib
+#27 CACHED
+
+#28 [otel-collector stage-1 3/3] COPY config.yaml /etc/otelcol/config.yaml
+#28 CACHED
+
+#29 [temporal-server build 1/7] FROM docker.io/library/golang:1.27.4-bookworm
+#29 DONE 0.0s
+
+#30 [temporal-server stage-1 1/7] FROM docker.io/library/debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+#30 DONE 0.0s
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#31 [otel-collector] exporting to image
+#31 exporting layers done
+#31 writing image sha256:d31868ae211af62b2037d976b82a15622cdc6038ffc823116c5ecde73035a375 0.0s done
+#31 naming to docker.io/nava/otel-collector:s21 0.0s done
+#31 DONE 0.1s
+
+#32 [temporal-server internal] load build context
+#32 transferring context: 2.18kB 0.1s done
+#32 DONE 0.2s
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#33 [temporal-server build 5/7] RUN go build -trimpath       go.temporal.io/server/temporal       go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql       go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite       go.temporal.io/server/cmd/tools/sql
+#33 CACHED
+
+#34 [temporal-server stage-1 4/7] COPY --from=build /out/temporal-sql-tool /usr/local/bin/temporal-sql-tool
+#34 CACHED
+
+#35 [temporal-server stage-1 6/7] COPY scripts/setup-schema.sh /usr/local/bin/setup-schema.sh
+#35 CACHED
+
+#36 [temporal-server stage-1 5/7] COPY --from=build /out/schema /etc/temporal/schema
+#36 CACHED
+
+#37 [temporal-server build 4/7] RUN go mod download
+#37 CACHED
+
+#38 [temporal-server build 6/7] COPY . .
+#38 CACHED
+
+#39 [temporal-server stage-1 3/7] COPY --from=build /out/temporal-server /usr/local/bin/temporal-server
+#39 CACHED
+
+#40 [temporal-server build 2/7] WORKDIR /src
+#40 CACHED
+
+#41 [temporal-server build 3/7] COPY go.mod go.sum ./
+#41 CACHED
+
+#42 [temporal-server build 7/7] RUN go build -trimpath -o /out/temporal-server ./cmd/server  && go build -trimpath -o /out/temporal-sql-tool go.temporal.io/server/cmd/tools/sql  && cp -r "$(go list -m -f '{{.Dir}}' go.temporal.io/server)/schema/postgresql/v12" /out/schema  && chmod -R a+rX /out/schema
+#42 CACHED
+
+#43 [temporal-server stage-1 2/7] RUN useradd --system --uid 10001 --no-create-home temporal
+#43 CACHED
+
+#44 [temporal-server stage-1 7/7] COPY config /etc/temporal/config
+#44 CACHED
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#45 [temporal-server] exporting to image
+#45 exporting layers done
+#45 writing image sha256:708be09a702008493c171804f2d82b22ce0cdb707a16b4841b8ca93811d4ac88 0.0s done
+#45 naming to docker.io/nava/temporal-server:s21 0.0s done
+#45 DONE 0.1s
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#46 [temporal-server] resolving provenance for metadata file
+#46 DONE 0.1s
+
+#25 [nava-worker internal] load build context
+#25 ...
+
+#47 [otel-collector] resolving provenance for metadata file
+#47 DONE 0.2s
+
+#48 [keycloak internal] load build context
+#48 transferring context: 866B 1.2s done
+#48 DONE 1.2s
+
+#25 [nava-worker internal] load build context
+#25 transferring context: 679.67kB 1.2s done
+#25 DONE 1.3s
+
+#49 [keycloak 2/3] COPY deploy/compose/keycloak/quarkus.properties /opt/keycloak/conf/quarkus.properties
+#49 CACHED
+
+#50 [keycloak 3/3] RUN /opt/keycloak/bin/kc.sh build
+#50 CACHED
+
+#51 [nava-relay build 2/8] WORKDIR /src
+#51 CACHED
+
+#52 [nava-relay build 3/8] COPY go.mod go.sum ./
+#52 CACHED
+
+#53 [nava-relay build 4/8] RUN go mod download
+#53 CACHED
+
+#54 [nava-relay build 5/8] COPY cmd ./cmd
+#54 CACHED
+
+#55 [nava-relay build 6/8] COPY internal ./internal
+#55 ...
+
+#52 [nava-core build 3/8] COPY go.mod go.sum ./
+#52 CACHED
+
+#53 [nava-core build 4/8] RUN go mod download
+#53 CACHED
+
+#51 [nava-core build 2/8] WORKDIR /src
+#51 CACHED
+
+#54 [nava-core build 5/8] COPY cmd ./cmd
+#54 CACHED
+
+#56 [keycloak] exporting to image
+#56 exporting layers done
+#56 writing image sha256:84261fa119423173d2c26c79f4e68c347817bb8c5eadc72a2a0e514422711611 0.0s done
+#56 naming to docker.io/nava/keycloak:s21 0.0s done
+#56 DONE 0.1s
+
+#55 [nava-core build 6/8] COPY internal ./internal
+#55 ...
+
+#57 [keycloak] resolving provenance for metadata file
+#57 DONE 0.0s
+
+#58 [db-roles internal] load build context
+#58 ...
+
+#55 [nava-purge build 6/8] COPY internal ./internal
+#55 DONE 3.0s
+
+#58 [db-roles internal] load build context
+#58 ...
+
+#59 [nava-relay build 7/8] COPY api ./api
+#59 DONE 0.3s
+
+#58 [db-roles internal] load build context
+#58 transferring context: 2.11MB 6.2s
+#58 transferring context: 4.37MB 11.2s
+#58 ...
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 ...
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 ...
+
+#62 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#62 ...
+
+#63 [nava-purge build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-purge ./cmd/nava-purge
+#63 ...
+
+#64 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#64 ...
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 ...
+
+#58 [db-roles internal] load build context
+#58 transferring context: 6.52MB 16.5s
+#58 transferring context: 9.06MB 21.5s
+#58 transferring context: 9.33MB 22.0s done
+#58 DONE 22.1s
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 ...
+
+#54 [db-roles build 5/8] COPY cmd ./cmd
+#54 CACHED
+
+#58 [migrate internal] load build context
+#58 DONE 22.1s
+
+#66 [db-roles build 3/8] COPY go.mod go.sum ./
+#66 CACHED
+
+#67 [db-roles build 4/8] RUN go mod download
+#67 CACHED
+
+#68 [db-roles build 5/8] COPY cmd ./cmd
+#68 CACHED
+
+#51 [db-roles build 2/8] WORKDIR /src
+#51 CACHED
+
+#69 [db-roles build 6/8] COPY db ./db
+#69 CACHED
+
+#70 [db-roles build 7/8] COPY internal ./internal
+#70 DONE 3.7s
+
+#62 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#62 ...
+
+#70 [migrate build 7/8] COPY internal ./internal
+#70 DONE 3.7s
+
+#71 [db-roles build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#71 DONE 231.2s
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 ...
+
+#71 [migrate build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-db ./cmd/nava-db
+#71 DONE 231.2s
+
+#72 [migrate stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#73 [migrate stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#73 CACHED
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 ...
+
+#72 [db-roles stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#73 [db-roles stage-1 3/3] COPY --from=build /out/nava-db /usr/local/bin/nava-db
+#73 CACHED
+
+#74 [migrate] exporting to image
+#74 exporting layers done
+#74 writing image sha256:f8012a1c1ece55783574867f55b063999a071a01cc83b97cdbe4e03d8e527b41 0.0s done
+#74 naming to docker.io/nava/nava-db:s21 0.1s done
+#74 DONE 0.2s
+
+#75 [db-roles] exporting to image
+#75 exporting layers done
+#75 writing image sha256:f73d72dcd8164cae44357286a5727371b691198b841f56b7466254bdf59b14ee 0.0s done
+#75 naming to docker.io/nava/nava-db:s21 0.1s done
+#75 DONE 0.1s
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 ...
+
+#76 [db-roles] resolving provenance for metadata file
+#76 DONE 0.2s
+
+#77 [migrate] resolving provenance for metadata file
+#77 DONE 0.1s
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 ...
+
+#63 [nava-purge build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-purge ./cmd/nava-purge
+#63 DONE 437.9s
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 ...
+
+#72 [nava-purge stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#78 [nava-purge stage-1 3/3] COPY --from=build /out/nava-purge /usr/local/bin/nava-purge
+#78 CACHED
+
+#61 [nava-worker build 8/8] RUN CGO_ENABLED=0 go build -trimpath -tags "" -o /out/nava-worker ./cmd/nava-worker
+#61 DONE 438.1s
+
+#79 [nava-purge] exporting to image
+#79 exporting layers done
+#79 writing image sha256:1d6193331872afda133f15d20a49458f4f5200215c00f595b7ae0f9395ff0e8d 0.1s done
+#79 naming to docker.io/nava/nava-purge:s21
+#79 naming to docker.io/nava/nava-purge:s21 0.0s done
+#79 DONE 0.1s
+
+#72 [nava-core stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 ...
+
+#72 [nava-groupsync stage-1 2/3] RUN adduser -D -u 10001 nava
+#72 CACHED
+
+#80 [nava-worker stage-1 3/3] COPY --from=build /out/nava-worker /usr/local/bin/nava-worker
+#80 ...
+
+#81 [nava-purge] resolving provenance for metadata file
+#81 DONE 0.1s
+
+#80 [nava-worker stage-1 3/3] COPY --from=build /out/nava-worker /usr/local/bin/nava-worker
+#80 DONE 0.5s
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 ...
+
+#82 [nava-worker] exporting to image
+#82 exporting layers 0.5s done
+#82 writing image sha256:bf3c5e8fc8590dfba6785d008a16d19754ef77ac5d6d85e96851e738d74df0c2 0.0s done
+#82 naming to docker.io/nava/nava-worker:s21 0.0s done
+#82 DONE 0.6s
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 ...
+
+#83 [nava-worker] resolving provenance for metadata file
+#83 DONE 0.1s
+
+#62 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#62 ...
+
+#64 [nava-relay build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-relay ./cmd/nava-relay
+#64 DONE 440.8s
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 ...
+
+#84 [nava-relay stage-1 3/3] COPY --from=build /out/nava-relay /usr/local/bin/nava-relay
+#84 CACHED
+
+#65 [nava-groupsync build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-groupsync ./cmd/nava-groupsync
+#65 DONE 441.1s
+
+#85 [nava-relay] exporting to image
+#85 exporting layers done
+#85 writing image sha256:e1a70969fb478df8abc57e50ac2697e8aa55ccb05a090fd18731b9afc9f66595 0.0s done
+#85 naming to docker.io/nava/nava-relay:s21 0.0s done
+#85 DONE 0.1s
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 ...
+
+#86 [nava-groupsync stage-1 3/3] COPY --from=build /out/nava-groupsync /usr/local/bin/nava-groupsync
+#86 CACHED
+
+#87 [nava-groupsync] exporting to image
+#87 exporting layers done
+#87 writing image sha256:ccdc6fc343ecebada4030023a280668007c130eeb2cb40b66d0a891bcf2e7a4f 0.0s done
+#87 naming to docker.io/nava/nava-groupsync:s21 0.0s done
+#87 DONE 0.1s
+
+#88 [nava-relay] resolving provenance for metadata file
+#88 DONE 0.0s
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 ...
+
+#89 [nava-groupsync] resolving provenance for metadata file
+#89 DONE 0.0s
+
+#60 [nava-onboard build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-onboard ./cmd/nava-onboard
+#60 DONE 450.4s
+
+#62 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#62 ...
+
+#90 [nava-onboard stage-1 3/3] COPY --from=build /out/nava-onboard /usr/local/bin/nava-onboard
+#90 ...
+
+#62 [nava-core build 8/8] RUN CGO_ENABLED=0 go build -trimpath -o /out/nava-core ./cmd/nava-core
+#62 DONE 451.3s
+
+#90 [nava-onboard stage-1 3/3] COPY --from=build /out/nava-onboard /usr/local/bin/nava-onboard
+#90 DONE 0.9s
+
+#91 [nava-onboard] exporting to image
+#91 exporting layers
+#91 exporting layers 1.3s done
+#91 writing image sha256:3446f9612bdf0b8e72fcbd07a159215556b6999586c994f40106fa7395873e0d
+#91 writing image sha256:3446f9612bdf0b8e72fcbd07a159215556b6999586c994f40106fa7395873e0d 0.8s done
+#91 naming to docker.io/nava/nava-onboard:s21
+#91 naming to docker.io/nava/nava-onboard:s21 1.5s done
+#91 DONE 5.4s
+
+#92 [nava-core stage-1 3/3] COPY --from=build /out/nava-core /usr/local/bin/nava-core
+#92 DONE 5.3s
+
+#93 [nava-core] exporting to image
+#93 exporting layers 1.5s done
+#93 writing image sha256:80dd3787433b9b12ac18414912c7aa4a55f0fc5e8d18dc0e8eec07d095969907 0.1s done
+#93 naming to docker.io/nava/nava-core:s21
+#93 naming to docker.io/nava/nava-core:s21 0.1s done
+#93 DONE 2.0s
+
+#94 [nava-onboard] resolving provenance for metadata file
+#94 DONE 0.0s
+
+#95 [nava-core] resolving provenance for metadata file
+#95 DONE 0.0s
+ Image nava/nava-db:s21 Built 
+ Image nava/nava-worker:s21 Built 
+ Image nava/nava-purge:s21 Built 
+ Image nava/nava-db:s21 Built 
+ Image nava/temporal-server:s21 Built 
+ Image nava/otel-collector:s21 Built 
+ Image nava/nava-relay:s21 Built 
+ Image nava/keycloak:s21 Built 
+ Image nava/nava-groupsync:s21 Built 
+ Image nava/nava-onboard:s21 Built 
+ Image nava/nava-core:s21 Built 
+ Network nava-s21_default Creating 
+ Network nava-s21_temporal-backplane Creating 
+ Network nava-s21_temporal-backplane Creating 
+ Network nava-s21_default Creating 
+ Volume nava-s21_pgdata Creating 
+ Volume nava-s21_pgdata Creating 
+ Network nava-s21_operator Creating 
+ Network nava-s21_internal Creating 
+ Network nava-s21_operator Creating 
+ Network nava-s21_internal Creating 
+ Volume nava-s21_pgsocket Creating 
+ Volume nava-s21_pgsocket Creating 
+ Volume nava-s21_pgdata Created 
+ Volume nava-s21_pgdata Created 
+ Network nava-s21_temporal-backplane Created 
+ Network nava-s21_temporal-backplane Created 
+ Volume nava-s21_pgsocket Created 
+ Volume nava-s21_pgsocket Created 
+ Network nava-s21_default Created 
+ Network nava-s21_default Created 
+ Network nava-s21_operator Created 
+ Network nava-s21_operator Created 
+ Network nava-s21_internal Created 
+ Network nava-s21_internal Created 
+ Container nava-s21-postgres-1 Creating 
+ Container nava-s21-otel-collector-1 Creating 
+ Container nava-s21-otel-collector-1 Created 
+ Container nava-s21-postgres-1 Created 
+ Container nava-s21-db-roles-1 Creating 
+ Container nava-s21-db-roles-1 Created 
+ Container nava-s21-temporal-schema-1 Creating 
+ Container nava-s21-migrate-1 Creating 
+ Container nava-s21-keycloak-1 Creating 
+ Container nava-s21-temporal-schema-1 Created 
+ Container nava-s21-temporal-server-1 Creating 
+ Container nava-s21-migrate-1 Created 
+ Container nava-s21-pgbouncer-1 Creating 
+ Container nava-s21-keycloak-1 Created 
+ Container nava-s21-temporal-server-1 Created 
+ Container nava-s21-temporal-1 Creating 
+ Container nava-s21-temporal-1 Created 
+ Container nava-s21-pgbouncer-1 Created 
+ Container nava-s21-nava-core-1 Creating 
+ Container nava-s21-nava-relay-1 Creating 
+ Container nava-s21-nava-purge-1 Creating 
+ Container nava-s21-nava-worker-1 Creating 
+ Container nava-s21-nava-groupsync-1 Creating 
+ Container nava-s21-nava-onboard-1 Creating 
+ Container nava-s21-nava-purge-1 Created 
+ Container nava-s21-nava-onboard-1 Created 
+ Container nava-s21-nava-groupsync-1 Created 
+ Container nava-s21-nava-core-1 Created 
+ Container nava-s21-nava-worker-1 Created 
+ Container nava-s21-nava-relay-1 Created 
+ Container nava-s21-otel-collector-1 Starting 
+ Container nava-s21-postgres-1 Starting 
+ Container nava-s21-otel-collector-1 Started 
+ Container nava-s21-postgres-1 Started 
+ Container nava-s21-postgres-1 Waiting 
+ Container nava-s21-postgres-1 Healthy 
+ Container nava-s21-db-roles-1 Starting 
+ Container nava-s21-db-roles-1 Started 
+ Container nava-s21-db-roles-1 Waiting 
+ Container nava-s21-db-roles-1 Waiting 
+ Container nava-s21-db-roles-1 Waiting 
+ Container nava-s21-db-roles-1 Exited 
+ Container nava-s21-temporal-schema-1 Starting 
+ Container nava-s21-db-roles-1 Exited 
+ Container nava-s21-keycloak-1 Starting 
+ Container nava-s21-db-roles-1 Exited 
+ Container nava-s21-migrate-1 Starting 
+ Container nava-s21-temporal-schema-1 Started 
+ Container nava-s21-temporal-schema-1 Waiting 
+ Container nava-s21-keycloak-1 Started 
+ Container nava-s21-migrate-1 Started 
+ Container nava-s21-migrate-1 Waiting 
+ Container nava-s21-temporal-schema-1 Exited 
+ Container nava-s21-temporal-server-1 Starting 
+ Container nava-s21-temporal-server-1 Started 
+ Container nava-s21-temporal-server-1 Waiting 
+ Container nava-s21-migrate-1 Exited 
+ Container nava-s21-pgbouncer-1 Starting 
+ Container nava-s21-pgbouncer-1 Started 
+ Container nava-s21-keycloak-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-keycloak-1 Waiting 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-temporal-server-1 Healthy 
+ Container nava-s21-temporal-1 Starting 
+ Container nava-s21-temporal-1 Started 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-temporal-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-temporal-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-temporal-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-nava-purge-1 Starting 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-nava-purge-1 Started 
+ Container nava-s21-temporal-1 Healthy 
+ Container nava-s21-nava-worker-1 Starting 
+ Container nava-s21-temporal-1 Healthy 
+ Container nava-s21-nava-core-1 Starting 
+ Container nava-s21-temporal-1 Healthy 
+ Container nava-s21-nava-relay-1 Starting 
+ Container nava-s21-nava-worker-1 Started 
+ Container nava-s21-nava-core-1 Started 
+ Container nava-s21-nava-relay-1 Started 
+ Container nava-s21-keycloak-1 Healthy 
+ Container nava-s21-keycloak-1 Healthy 
+ Container nava-s21-nava-groupsync-1 Starting 
+ Container nava-s21-nava-onboard-1 Starting 
+ Container nava-s21-nava-groupsync-1 Started 
+ Container nava-s21-nava-onboard-1 Started 
+ Container nava-s21-nava-worker-1 Waiting 
+ Container nava-s21-nava-core-1 Waiting 
+ Container nava-s21-nava-purge-1 Waiting 
+ Container nava-s21-postgres-1 Waiting 
+ Container nava-s21-nava-groupsync-1 Waiting 
+ Container nava-s21-db-roles-1 Waiting 
+ Container nava-s21-keycloak-1 Waiting 
+ Container nava-s21-otel-collector-1 Waiting 
+ Container nava-s21-temporal-schema-1 Waiting 
+ Container nava-s21-nava-onboard-1 Waiting 
+ Container nava-s21-temporal-1 Waiting 
+ Container nava-s21-nava-relay-1 Waiting 
+ Container nava-s21-migrate-1 Waiting 
+ Container nava-s21-temporal-server-1 Waiting 
+ Container nava-s21-pgbouncer-1 Waiting 
+ Container nava-s21-pgbouncer-1 Healthy 
+ Container nava-s21-nava-relay-1 Healthy 
+ Container nava-s21-temporal-server-1 Healthy 
+ Container nava-s21-nava-purge-1 Healthy 
+ Container nava-s21-db-roles-1 Exited 
+ Container nava-s21-migrate-1 Exited 
+ Container nava-s21-temporal-1 Healthy 
+ Container nava-s21-otel-collector-1 Healthy 
+ Container nava-s21-temporal-schema-1 Exited 
+ Container nava-s21-keycloak-1 Healthy 
+ Container nava-s21-postgres-1 Healthy 
+ Container nava-s21-nava-worker-1 Healthy 
+ Container nava-s21-nava-core-1 Healthy 
+ Container nava-s21-nava-groupsync-1 Healthy 
+ Container nava-s21-nava-onboard-1 Healthy 
+seed: tenants A and B, issuer http://localhost:18081/realms/nava
+                tenant                | state  |               issuer               
+--------------------------------------+--------+------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | active | http://localhost:18081/realms/nava
+ 00000000-0000-4000-8000-0000000000b1 | active | http://localhost:18081/realms/nava
+(2 rows)
+
+seed: audit chain head and first seal row in A and B
+NOTICE:  seed: 2 new audit chain heads, 2 first audit.seal rows
+                tenant                | head_version | sealed_seq 
+--------------------------------------+--------------+------------
+ 00000000-0000-4000-8000-0000000000a1 |            1 |          0
+ 00000000-0000-4000-8000-0000000000b1 |            1 |          0
+(2 rows)
+
+seed: admin@tenant-a.test is in /t/00000000-0000-4000-8000-0000000000a1/admins
+seed: /t/00000000-0000-4000-8000-0000000000b1/admins exists
+seed: one group sync cycle (nava-groupsync --once)
+ Container nava-s21-nava-groupsync-run-bf1ad5119ad2 Creating 
+ Container nava-s21-nava-groupsync-run-bf1ad5119ad2 Created 
+{"time":"2026-11-22T04:49:37.306499235Z","level":"INFO","msg":"group sync applied","tenant_id":"00000000-0000-4000-8000-0000000000a1","principals_written":3,"principals_tombstoned":0,"groups_written":3,"groups_deleted":0,"org_units_written":3,"org_units_deleted":0,"ignored_outside_subtree":0}
+{"time":"2026-11-22T04:49:38.696435279Z","level":"INFO","msg":"group sync applied","tenant_id":"00000000-0000-4000-8000-0000000000b1","principals_written":1,"principals_tombstoned":0,"groups_written":3,"groups_deleted":0,"org_units_written":3,"org_units_deleted":0,"ignored_outside_subtree":0}
+{"time":"2026-11-22T04:49:38.698257798Z","level":"INFO","msg":"nava-groupsync --once done","tenants":2,"failed":0}
+seed: tenant A's admin group, incident/request/change at version 1 in A and B
+                tenant                |   key    | current_version |                         v1_schema_sha256                         
+--------------------------------------+----------+-----------------+------------------------------------------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | change   |               1 | 567cd636405ff3d074fcdf4cc836c1b762826bd3ee2c780ed30439cb9ab65645
+ 00000000-0000-4000-8000-0000000000a1 | incident |               1 | 3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f
+ 00000000-0000-4000-8000-0000000000a1 | request  |               1 | 7cd7c3b885a4b0a9d0ceab2c18f9dd7fad7c588e6c867599ebe6dd1329756906
+ 00000000-0000-4000-8000-0000000000b1 | change   |               1 | 567cd636405ff3d074fcdf4cc836c1b762826bd3ee2c780ed30439cb9ab65645
+ 00000000-0000-4000-8000-0000000000b1 | incident |               1 | 3cb24cd57f4e728513c69d0a134b0e02f2e5399afdf9f2a1c48ad74ceb151c4f
+ 00000000-0000-4000-8000-0000000000b1 | request  |               1 | 7cd7c3b885a4b0a9d0ceab2c18f9dd7fad7c588e6c867599ebe6dd1329756906
+(6 rows)
+
+seed: default incident ACL in A and B (nava-onboard reconcile-default-acl)
+{"time":"2026-11-22T04:49:42.888072528Z","level":"INFO","msg":"default acl published","tenant_id":"00000000-0000-4000-8000-0000000000a1"}
+{"time":"2026-11-22T04:49:42.945228883Z","level":"INFO","msg":"default acl published","tenant_id":"00000000-0000-4000-8000-0000000000b1"}
+{"time":"2026-11-22T04:49:42.945366696Z","level":"INFO","msg":"default acl reconcile done","published":2,"unchanged":0,"failed":0}
+                tenant                | incident_acl_version | default_acl 
+--------------------------------------+----------------------+-------------
+ 00000000-0000-4000-8000-0000000000a1 |                    1 | t
+ 00000000-0000-4000-8000-0000000000b1 |                    1 | t
+(2 rows)
+
+seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
+seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
+seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
+s21: 2. due_at and the description mask (2026-11-22T04:49:45Z)
+s21 setup: incident version 2 has due_at; ACL version 2 masks description (admins only)
+s21: 3. 400k incidents in tenant A, 50 in tenant B (2026-11-22T04:49:47Z)
+Timing is on.
+SET
+Time: 0.481 ms
+SET
+Time: 0.332 ms
+SELECT 1
+Time: 9.050 ms
+DO
+Time: 5.061 ms
+INSERT 0 400000
+Time: 29741.601 ms (00:29.742)
+INSERT 0 1
+Time: 1.425 ms
+INSERT 0 50
+Time: 3.790 ms
+INSERT 0 1
+Time: 0.670 ms
+SET
+Time: 0.193 ms
+RESET
+Time: 0.346 ms
+VACUUM
+Time: 869.381 ms
+              tenant_id               | incidents | priority_1 | service_desk 
+--------------------------------------+-----------+------------+--------------
+ 00000000-0000-4000-8000-0000000000a1 |    400000 |       3955 |        20137
+ 00000000-0000-4000-8000-0000000000b1 |        50 |         50 |            0
+(2 rows)
+
+Time: 3046.542 ms (00:03.047)
+seed took 35 s
+s21_p1_admin_n=3955
+s21_p1_admin_md5=bbf52762c05d3d48ad33b4691d400320
+s21_p1_agent_n=203
+s21_p1_agent_md5=3c40f24749a65485ee061287daa94b2f
+s21_ac2_admin_n=555
+s21_ac2_admin_md5=a5e2cb961101f1a63dda4e13caef657e
+s21_ac2_agent_n=25
+s21_ac2_agent_md5=a819367a212cd7decbde533dc757f053
+s21_p3_admin_n=192270
+s21_p3_agent_n=9684
+s21_a_n=400000
+s21_agent_n=20137
+s21_hidden_admin_n=1
+s21_hidden_agent_n=0
+s21_control_agent_n=1
+s21_nowhere_n=0
+s21_b_p1_n=50
+s21_p1_all_tenants_n=4005
+s21_edit_ids=00013c09-796d-dee6-1f6f-c823a45b04f3,00050ca7-06a6-b24a-6d07-9b96e45326aa,00054be3-0776-6379-c768-eb60da80bc90,00063824-408e-8573-4062-382ac03d15a1,0007315b-eca4-abdf-7a89-443eaf3d0149,000798e1-1043-3b48-97e8-5bfc283aba91
+s21: 4. Bruno folder S21 (2026-11-22T04:50:27Z)
+S21\S21-1 (200 OK) - 272 ms
+S21 run 439651fa
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S21\S21-2 (200 OK) - 743 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S21\S21-3 (200 OK) - 806 ms
+Tests
+   ✓ HTTP 200 from Keycloak
+   ✓ access token issued
+   ✓ issuer is the pinned realm URL
+S21\S21-4 (200 OK) - 66 ms
+Tests
+   ✓ HTTP 200
+   ✓ priority is an integer, due_at a date-time string
+   ✓ no property is flagged x-nava-filterable yet (fresh stack)
+S21\S21-5 (400 Bad Request) - 81 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code masked_field
+   ✓ problem instance is this response's X-Request-Id
+   ✓ no items and no total
+S21\S21-6 (400 Bad Request) - 58 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code field_not_filterable
+   ✓ problem instance is this response's X-Request-Id
+   ✓ errors[] points at /filter/description
+S21\S21-7 (400 Bad Request) - 47 ms
+Tests
+   ✓ HTTP 400
+   ✓ problem+json, code field_not_filterable
+   ✓ problem instance is this response's X-Request-Id
+   ✓ errors[] points at /filter/due_at
+S21\S21-8 (201 Created) - 108 ms
+Tests
+   ✓ HTTP 201
+   ✓ the next version, compatible, current
+   ✓ both properties carry the flag
+S21\S21-9 (422 Unprocessable Entity) - 44 ms
+S21.9 index_progress priority 0 due_at 0
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code field_not_ready
+   ✓ problem instance is this response's X-Request-Id
+   ✓ index_progress is a whole number from 0 to 99
+   ✓ no items and no total
+   ✓ due_at too: 422 field_not_ready with a whole index_progress
+S21\S21-10 (422 Unprocessable Entity) - 38 ms
+Tests
+   ✓ HTTP 422
+   ✓ problem+json, code field_not_ready
+   ✓ problem instance is this response's X-Request-Id
+   ✓ due_at was not ready before the writes either
+   ✓ 3 creates, each 201
+   ✓ 3 edits, each 200 at version 2
+   ✓ the moved record: created 201, moved 200
+   ✓ priority still indexing after the writes
+S21\S21-11 (200 OK) - 46 ms
+S21.11 progress [{"s":1,"priority":0,"priority_status":422,"due_at":0,"due_at_status":422},{"s":16,"priority":2,"priority_status":422,"due_at":0,"due_at_status":422},{"s":32,"priority":2,"priority_status":422,"due_at":0,"due_at_status":422},{"s":47,"priority":3,"priority_status":422,"due_at":0,"due_at_status":422},{"s":62,"priority":4,"priority_status":422,"due_at":0,"due_at_status":422},{"s":77,"priority":5,"priority_status":422,"due_at":0,"due_at_status":422},{"s":92,"priority":7,"priority_status":422,"due_at":0,"due_at_status":422},{"s":107,"priority":7,"priority_status":422,"due_at":0,"due_at_status":422},{"s":122,"priority":8,"priority_status":422,"due_at":0,"due_at_status":422},{"s":137,"priority":9,"priority_status":422,"due_at":0,"due_at_status":422},{"s":152,"priority":10,"priority_status":422,"due_at":0,"due_at_status":422},{"s":167,"priority":10,"priority_status":422,"due_at":0,"due_at_status":422},{"s":183,"priority":11,"priority_status":422,"due_at":0,"due_at_status":422},{"s":198,"priority":12,"priority_status":422,"due_at":0,"due_at_status":422},{"s":213,"priority":14,"priority_status":422,"due_at":0,"due_at_status":422},{"s":228,"priority":16,"priority_status":422,"due_at":0,"due_at_status":422},{"s":243,"priority":18,"priority_status":422,"due_at":0,"due_at_status":422},{"s":258,"priority":19,"priority_status":422,"due_at":0,"due_at_status":422},{"s":273,"priority":20,"priority_status":422,"due_at":0,"due_at_status":422},{"s":288,"priority":21,"priority_status":422,"due_at":0,"due_at_status":422},{"s":303,"priority":22,"priority_status":422,"due_at":0,"due_at_status":422},{"s":318,"priority":23,"priority_status":422,"due_at":0,"due_at_status":422},{"s":334,"priority":25,"priority_status":422,"due_at":0,"due_at_status":422},{"s":349,"priority":27,"priority_status":422,"due_at":0,"due_at_status":422},{"s":364,"priority":29,"priority_status":422,"due_at":0,"due_at_status":422},{"s":379,"priority":31,"priority_status":422,"due_at":0,"due_at_status":422},{"s":394,"priority":32,"priority_status":422,"due_at":0,"due_at_status":422},{"s":409,"priority":33,"priority_status":422,"due_at":0,"due_at_status":422},{"s":424,"priority":34,"priority_status":422,"due_at":0,"due_at_status":422},{"s":440,"priority":35,"priority_status":422,"due_at":0,"due_at_status":422},{"s":455,"priority":37,"priority_status":422,"due_at":0,"due_at_status":422},{"s":470,"priority":39,"priority_status":422,"due_at":0,"due_at_status":422},{"s":485,"priority":41,"priority_status":422,"due_at":0,"due_at_status":422},{"s":500,"priority":43,"priority_status":422,"due_at":0,"due_at_status":422},{"s":515,"priority":45,"priority_status":422,"due_at":0,"due_at_status":422},{"s":530,"priority":47,"priority_status":422,"due_at":0,"due_at_status":422},{"s":545,"priority":49,"priority_status":422,"due_at":0,"due_at_status":422},{"s":560,"priority":52,"priority_status":422,"due_at":0,"due_at_status":422},{"s":575,"priority":54,"priority_status":422,"due_at":0,"due_at_status":422},{"s":590,"priority":56,"priority_status":422,"due_at":0,"due_at_status":422},{"s":606,"priority":58,"priority_status":422,"due_at":0,"due_at_status":422},{"s":621,"priority":61,"priority_status":422,"due_at":0,"due_at_status":422},{"s":636,"priority":64,"priority_status":422,"due_at":0,"due_at_status":422},{"s":651,"priority":68,"priority_status":422,"due_at":0,"due_at_status":422},{"s":666,"priority":71,"priority_status":422,"due_at":0,"due_at_status":422},{"s":681,"priority":74,"priority_status":422,"due_at":0,"due_at_status":422},{"s":696,"priority":77,"priority_status":422,"due_at":0,"due_at_status":422},{"s":711,"priority":81,"priority_status":422,"due_at":0,"due_at_status":422},{"s":726,"priority":84,"priority_status":422,"due_at":0,"due_at_status":422},{"s":741,"priority":87,"priority_status":422,"due_at":0,"due_at_status":422},{"s":756,"priority":90,"priority_status":422,"due_at":0,"due_at_status":422},{"s":771,"priority":94,"priority_status":422,"due_at":0,"due_at_status":422},{"s":786,"priority":97,"priority_status":422,"due_at":0,"due_at_status":422},{"s":801,"priority":"ready","priority_status":200,"due_at":0,"due_at_status":422},{"s":816,"priority":"ready","priority_status":200,"due_at":3,"due_at_status":422},{"s":831,"priority":"ready","priority_status":200,"due_at":7,"due_at_status":422},{"s":846,"priority":"ready","priority_status":200,"due_at":10,"due_at_status":422},{"s":861,"priority":"ready","priority_status":200,"due_at":13,"due_at_status":422},{"s":876,"priority":"ready","priority_status":200,"due_at":16,"due_at_status":422},{"s":891,"priority":"ready","priority_status":200,"due_at":19,"due_at_status":422},{"s":907,"priority":"ready","priority_status":200,"due_at":23,"due_at_status":422},{"s":922,"priority":"ready","priority_status":200,"due_at":26,"due_at_status":422},{"s":937,"priority":"ready","priority_status":200,"due_at":29,"due_at_status":422},{"s":952,"priority":"ready","priority_status":200,"due_at":32,"due_at_status":422},{"s":967,"priority":"ready","priority_status":200,"due_at":35,"due_at_status":422},{"s":982,"priority":"ready","priority_status":200,"due_at":39,"due_at_status":422},{"s":997,"priority":"ready","priority_status":200,"due_at":42,"due_at_status":422},{"s":1012,"priority":"ready","priority_status":200,"due_at":45,"due_at_status":422},{"s":1027,"priority":"ready","priority_status":200,"due_at":48,"due_at_status":422},{"s":1042,"priority":"ready","priority_status":200,"due_at":52,"due_at_status":422},{"s":1057,"priority":"ready","priority_status":200,"due_at":55,"due_at_status":422},{"s":1072,"priority":"ready","priority_status":200,"due_at":58,"due_at_status":422},{"s":1087,"priority":"ready","priority_status":200,"due_at":61,"due_at_status":422},{"s":1102,"priority":"ready","priority_status":200,"due_at":64,"due_at_status":422},{"s":1118,"priority":"ready","priority_status":200,"due_at":67,"due_at_status":422},{"s":1133,"priority":"ready","priority_status":200,"due_at":70,"due_at_status":422},{"s":1148,"priority":"ready","priority_status":200,"due_at":73,"due_at_status":422},{"s":1163,"priority":"ready","priority_status":200,"due_at":76,"due_at_status":422},{"s":1178,"priority":"ready","priority_status":200,"due_at":80,"due_at_status":422},{"s":1193,"priority":"ready","priority_status":200,"due_at":83,"due_at_status":422},{"s":1208,"priority":"ready","priority_status":200,"due_at":86,"due_at_status":422},{"s":1223,"priority":"ready","priority_status":200,"due_at":89,"due_at_status":422},{"s":1238,"priority":"ready","priority_status":200,"due_at":93,"due_at_status":422},{"s":1253,"priority":"ready","priority_status":200,"due_at":96,"due_at_status":422},{"s":1268,"priority":"ready","priority_status":200,"due_at":99,"due_at_status":422},{"s":1283,"priority":"ready","priority_status":200,"due_at":"ready","due_at_status":200}]
+Tests
+   ✓ HTTP 200
+   ✓ both fields ready after 1283 s and 86 polls
+   ✓ every answer while indexing was 422 with a whole index_progress from 0 to 99
+   ✓ index_progress never goes back, and once ready a field stays ready
+S21\S21-12 (200 OK) - 12 ms
+Tests
+   ✓ HTTP 200
+   ✓ after the flip: 2 creates 201, 2 edits 200
+   ✓ exactly the 10 records written on the value, none missed across the flip
+   ✓ total 10, exact: a short first page (A2-4)
+   ✓ the record moved off the value while indexing is not listed
+   ✓ the value it moved to lists exactly it
+S21\S21-13 (200 OK) - 78 ms
+Tests
+   ✓ HTTP 200
+   ✓ admin: 3955 records over 20 pages; the JSON scan has 3955
+   ✓ the same records as the JSON scan (md5 of the sorted ids)
+   ✓ no record listed twice
+   ✓ every page meets the total contract (A2-1): this page capped, the limit-200 pages ["capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped","capped"]
+   ✓ total: exact up to 1,000, capped at 1,000 past it, or null when unknown
+   ✓ every listed record matches the filter
+S21\S21-14 (200 OK) - 51 ms
+Tests
+   ✓ HTTP 200
+   ✓ Alice: 203 records over 2 pages; the JSON scan has 203
+   ✓ the same records as the JSON scan (md5 of the sorted ids)
+   ✓ no record listed twice
+   ✓ every page meets the total contract (A2-1): this page exact, the limit-200 pages ["exact","exact"]
+   ✓ total: exact up to 1,000, capped at 1,000 past it, or null when unknown
+   ✓ every listed record matches the filter
+S21\S21-15 (200 OK) - 27 ms
+Tests
+   ✓ HTTP 200
+   ✓ admin: 555 records over 3 pages; the JSON scan has 555
+   ✓ the same records as the JSON scan (md5 of the sorted ids)
+   ✓ no record listed twice
+   ✓ every page meets the total contract (A2-1): this page exact, the limit-200 pages ["exact","exact","exact"]
+   ✓ total: exact up to 1,000, capped at 1,000 past it, or null when unknown
+   ✓ every listed record matches the filter
+S21\S21-16 (200 OK) - 32 ms
+Tests
+   ✓ HTTP 200
+   ✓ Alice: 25 records over 1 pages; the JSON scan has 25
+   ✓ the same records as the JSON scan (md5 of the sorted ids)
+   ✓ no record listed twice
+   ✓ every page meets the total contract (A2-1): this page exact, the limit-200 pages ["exact"]
+   ✓ total: exact up to 1,000, capped at 1,000 past it, or null when unknown
+   ✓ a short result (25 < 50 matches): exact on the first page (A2-4)
+   ✓ every listed record matches the filter
+S21\S21-17 (200 OK) - 13 ms
+Tests
+   ✓ HTTP 200
+   ✓ the admin finds the hidden value: total 1
+   ✓ Alice: no items, total 0, exact (never unknown: A2-4)
+   ✓ the same status and body as a value that exists nowhere
+   ✓ the control value she may read: total 1, exact
+S21\S21-18 (200 OK) - 25 ms
+Tests
+   ✓ HTTP 200
+   ✓ Bob lists tenant B's 50 priority-1 incidents
+   ✓ none of them is in tenant A's priority-1 list
+   ✓ tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records
+S21.19 admin filter[priority]=1: p50 163 p95 251 max 317 ms, 568 requests (37.9/s), {"200":568}, total_state {"capped":568}, unknown 0%
+S21.19 admin filter[priority]=3: p50 34 p95 47 max 74 ms, 576 requests (38.4/s), {"200":576}, total_state {"capped":576}, unknown 0%
+S21.19 admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p50 40 p95 55 max 82 ms, 576 requests (38.4/s), {"200":576}, total_state {"exact":576}, unknown 0%
+S21.19 Alice filter[priority]=1: p50 125 p95 283 max 473 ms, 551 requests (36.7/s), {"200":551}, total_state {"exact":551}, unknown 0%
+S21.19 Alice filter[priority]=3: p50 46 p95 132 max 237 ms, 576 requests (38.4/s), {"200":576}, total_state {"capped":576}, unknown 0%
+S21.19 Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p50 50 p95 71 max 95 ms, 584 requests (38.9/s), {"200":584}, total_state {"exact":584}, unknown 0%
+S21.19 admin (none): p50 26 p95 62 max 141 ms, 581 requests (38.7/s), {"200":581}, total_state {"capped":581}, unknown 0%
+S21.19 Alice (none): p50 27 p95 40 max 53 ms, 584 requests (38.9/s), {"200":584}, total_state {"capped":584}, unknown 0%
+S21\S21-19 (200 OK) - 151 ms
+Tests
+   ✓ HTTP 200
+   ✓ admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 568 requests, p50 163 p95 251 max 317 ms, from 2026-11-22T05:12:58.353Z
+   ✓ admin filter[priority]=1: p95 251 ms <= 350 ms (p50 163, max 317)
+   ✓ admin filter[priority]=1: every 200 meets the total contract; total_state {"capped":568}, unknown 0%
+   ✓ admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 576 requests, p50 34 p95 47 max 74 ms, from 2026-11-22T05:13:15.535Z
+   ✓ admin filter[priority]=3: p95 47 ms <= 150 ms (p50 34, max 74)
+   ✓ admin filter[priority]=3: every 200 meets the total contract; total_state {"capped":576}, unknown 0%
+   ✓ admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 576 requests, p50 40 p95 55 max 82 ms, from 2026-11-22T05:13:32.572Z
+   ✓ admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 55 ms <= 150 ms (p50 40, max 82)
+   ✓ admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {"exact":576}, unknown 0%
+   ✓ Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 551 requests, p50 125 p95 283 max 473 ms, from 2026-11-22T05:13:49.637Z
+   ✓ Alice filter[priority]=1: p95 283 ms <= 350 ms (p50 125, max 473)
+   ✓ Alice filter[priority]=1: every 200 meets the total contract; total_state {"exact":551}, unknown 0%
+   ✓ Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 576 requests, p50 46 p95 132 max 237 ms, from 2026-11-22T05:14:06.798Z
+   ✓ Alice filter[priority]=3: p95 132 ms <= 350 ms (p50 46, max 237)
+   ✓ Alice filter[priority]=3: every 200 meets the total contract; total_state {"capped":576}, unknown 0%
+   ✓ Alice filter[priority]=3: every total_state in ["capped","unknown"] (unknown 0%)
+   ✓ Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 584 requests, p50 50 p95 71 max 95 ms, from 2026-11-22T05:14:23.874Z
+   ✓ Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 71 ms <= 150 ms (p50 50, max 95)
+   ✓ Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {"exact":584}, unknown 0%
+   ✓ admin (none) (no filter (control, reported only)): only 200s, 581 requests, p50 26 p95 62 max 141 ms, from 2026-11-22T05:14:41.059Z
+   ✓ admin (none): every 200 meets the total contract; total_state {"capped":581}, unknown 0%
+   ✓ Alice (none) (no filter (control, reported only)): only 200s, 584 requests, p50 27 p95 40 max 53 ms, from 2026-11-22T05:14:58.246Z
+   ✓ Alice (none): every 200 meets the total contract; total_state {"capped":584}, unknown 0%
+
+📊 Execution Summary
+┌───────────────┬────────────────┐
+│ Metric        │     Result     │
+├───────────────┼────────────────┤
+│ Status        │     ✓ PASS     │
+├───────────────┼────────────────┤
+│ Requests      │ 19 (19 Passed) │
+├───────────────┼────────────────┤
+│ Tests         │    113/113     │
+├───────────────┼────────────────┤
+│ Assertions    │      0/0       │
+├───────────────┼────────────────┤
+│ Duration (ms) │    1435215     │
+└───────────────┴────────────────┘
+Wrote html results to C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1049-a0e3473d89dd/workdir/TicketingSystem/docs/acceptance/guide/reports/S21.html
+Wrote json results to C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1049-a0e3473d89dd/workdir/TicketingSystem/docs/acceptance/guide/reports/S21.json
+Wrote junit results to C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1049-a0e3473d89dd/workdir/TicketingSystem/docs/acceptance/guide/reports/S21.junit.xml
+api-test: reports in /c/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1049-a0e3473d89dd/workdir/TicketingSystem/docs/acceptance/guide/reports/S21.{junit.xml,html,json}
+api-test: PASS
+s21: 5. side tables against a JSON scan (2026-11-22T05:15:23Z)
+              tenant_id               | field_key | value_type | state | progress | requested_version |          updated_at           
+--------------------------------------+-----------+------------+-------+----------+-------------------+-------------------------------
+ 00000000-0000-4000-8000-0000000000a1 | due_at    | ts         | ready |      100 |                 3 | 2026-11-22 05:12:40.215652+00
+ 00000000-0000-4000-8000-0000000000a1 | priority  | num        | ready |      100 |                 3 | 2026-11-22 05:04:48.297998+00
+
+SELECT 400006
+SELECT 2
+  field   | scan_rows | side_rows | missing | surplus | wrong 
+----------+-----------+-----------+---------+---------+-------
+ priority |    400006 |    400006 |       0 |       0 |     0
+ due_at   |    400006 |    400006 |       0 |       0 |     0
+
+       check        | rows 
+--------------------+------
+ tenant B side rows |    0
+
+        due_at        | records |          first_write          |          last_write           
+----------------------+---------+-------------------------------+-------------------------------
+ 2026-12-30T12:00:17Z |      10 | 2026-11-22 04:51:30.791115+00 | 2026-11-22 05:12:53.913793+00
+ 2026-12-30T12:00:18Z |       1 | 2026-11-22 04:51:31.544838+00 | 2026-11-22 04:51:31.544838+00
+
+ relname | n_live_tup |         last_analyze          |       last_autoanalyze        | autoanalyze_count 
+---------+------------+-------------------------------+-------------------------------+-------------------
+ records |     400106 | 2026-11-22 04:50:18.992647+00 |                               |                 0
+ rfv_num |     400006 |                               | 2026-11-22 05:04:33.114249+00 |                14
+ rfv_ts  |     400006 |                               | 2026-11-22 05:12:33.106289+00 |                 8
+
+ relname | relpages | relallvisible | all_visible_pct | n_live_tup |        last_autovacuum        | autovacuum_count 
+---------+----------+---------------+-----------------+------------+-------------------------------+------------------
+ rfv_num |     4398 |          4397 |           100.0 |     400006 | 2026-11-22 05:04:32.961345+00 |               10
+ rfv_ts  |     4478 |          3874 |            86.5 |     400006 | 2026-11-22 05:11:33.109078+00 |                6
+
+evidence: 19 requests, 0 failed tests
+s21: 6. ADR-006-A2 report: total_state, the >= 40% ACL cell, controls (2026-11-22T05:15:32Z)
+S21-12: 10 items, total 10, total_state exact (short result)
+S21-13: 50 items, total 1000, total_state capped
+S21-14: 50 items, total 203, total_state exact
+S21-15: 50 items, total 555, total_state exact
+S21-16: 25 items, total 25, total_state exact (short result)
+S21-17: 0 items, total 0, total_state exact (short result)
+S21-18: 50 items, total 50, total_state exact (short result)
+
+S21.19 cells (client latency, 8 clients, ms):
+who    filter                                                          p50   p95   max     n  total_state                          unknown
+admin  filter[priority]=1                                               163   251   317   568  {"capped":568}                       0%
+admin  filter[priority]=3                                                34    47    74   576  {"capped":576}                       0%
+admin  filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z   40    55    82   576  {"exact":576}                        0%
+Alice  filter[priority]=1                                               125   283   473   551  {"exact":551}                        0%
+Alice  filter[priority]=3                                                46   132   237   576  {"capped":576}                       0%
+Alice  filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z   50    71    95   584  {"exact":584}                        0%
+admin  (none)                                                            26    62   141   581  {"capped":581}                       0%
+Alice  (none)                                                            27    40    53   584  {"capped":584}                       0%
+
+>= 40% ACL cell (Alice filter[priority]=3): p95 132 ms (limit 350), unknown 0% of 576, total_state {"capped":576}, from 2026-11-22T05:14:06.798Z
+rfv_num at 2026-11-22T05:14:06Z: relpages 4398, relallvisible 4397 (100.0% all-visible), last autovacuum 2026-11-22 05:04:32.961345+00, last autoanalyze 2026-11-22 05:04:33.114249+00
+no-filter control (admin): p50 26 p95 62 ms (P3-36's idle host: 73 ms; 1.1x is 80 ms)
+no-filter control (Alice): p50 27 p95 40 ms
+
+kit report: PASS
+s21: PASS at fadf9f60b3688920f1c71bb10b165f196baf0500; evidence in docs/acceptance/S21/evidence/a2-stack1 (2026-11-22T05:15:35Z)
+RUNKIT EXIT 0

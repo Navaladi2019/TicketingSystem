@@ -1,0 +1,9 @@
+single-client Alice filter[priority]=3: p50 92 p95 211 ms, {"capped":40}
+single-client Alice filter[priority]=4: p50 85 p95 125 ms, {"capped":40}
+single-client Alice (none): p50 55 p95 71 ms, {"capped":40}
+single-client admin filter[priority]=3: p50 71 p95 93 ms, {"capped":40}
+single-client Alice filter[priority]=3&limit=1: p50 120 p95 199 ms, {"capped":40}
+1-client paced Alice filter[priority]=3: p50 69 p95 149 ms, 116 req, {"capped":116}
+2-client paced Alice filter[priority]=3: p50 97 p95 170 ms, 182 req, {"capped":182}
+4-client paced Alice filter[priority]=3: p50 134 p95 229 ms, 272 req, {"capped":272}
+8-client paced Alice filter[priority]=3: p50 217 p95 365 ms, 348 req, {"capped":348}
