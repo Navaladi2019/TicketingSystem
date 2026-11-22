@@ -10,19 +10,63 @@ and 10,000?
 
 ## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
 
-**R1: unconfirmed.** One row, `bench_conc` agents, missed at 161.57 ms in an
-attempt whose paired base tail was 3.2× its median (other attempts ≤ 1.65×).
-The attempt is void under TICK-1091's base-tail gate, and a rerun decides R1.
-Every other row passes.
+**R1: PASS.** Every row passes for both personas under the rules fixed
+before the `bench_conc` rerun (TICK-1091 item 1). The rerun's clean attempts
+are 70.08 ms (agents) and 82.69 ms (count-only) p95, against 150 ms. The
+earlier 161.57 ms attempt (paired base tail 3.2× its median) is void under
+the base-tail gate and stays on record below.
 
 The other rows pass for both personas, at most 87.29 ms p95 (the
 region-only caller at region size). The A2-R1 cells (m ≈ K\*: uniform
 m = 3,000 / 4,500) pass at 79.92 / 86.83 and 65.65 / 76.71 ms. Their
 verdicts stand (Technical Architect, TICK-1091).
 
-### `bench_conc` rerun (pending: bench slot 4, TICK-1091 item 1)
+### `bench_conc` rerun (bench slot 4, 2026-11-22, PR #846 at `7b9f587c`)
 
-The rules below are fixed before the rerun, so before any number exists:
+- **Start.** The first start, at 12:30:40Z, was **refused** by the
+  run-level floor gate: p50 4.15 ms > 3 ms. Another task was running the
+  full `go test -race ./...` suite on the host, with no container. No
+  numbers were taken. I reran it at 12:45:54Z, once that suite had finished
+  and CPU was at 4%. Pre-flight `docker ps` both times showed `multica-*`
+  only.
+- **Clean on the first attempt, every row.** Floor p50 0.54 to 0.93 ms,
+  base p95/p50 1.31 to 1.39 (gate 2.0), and no foreign container.
+  Setup took 11 min 1 s.
+
+| Row (p95, ms) | Agents | Count-only | Agents base p95 / Δ | Count-only base p95 / Δ | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| **`bench_conc`, regions 0–8 (9,099)** | **70.08** | **82.69** | 22.51 / +47.57 | 20.46 / +62.23 | **pass** |
+| `bench_conc` at root (10,111), info | 33.14 | 41.40 | 21.48 / +11.65 | 25.12 / +16.28 | info |
+| `bench_conc`, regions 0–8, `state=new`, info | 101.09 | 92.91 | 23.09 / +78.00 | 22.01 / +70.90 | info |
+| `bench_conc` at root, `state=new`, info | 88.84 | 86.74 | 21.63 / +67.21 | 22.19 / +64.55 | info |
+
+- **Do the probe and CC still visit every unit of S with a filter?** Known,
+  from the captured plans (`acl-perf-region/tick1037-region-run2-bench-conc.md`
+  for the times; the raw report, attached to TICK-1037, for the plans):
+  - **Probe (P3):** it takes no filter, so its cost doesn't change
+    (19.7 → 20.0 ms p50 at 9,099 units).
+    - At regions 0–8 it visits every unit: closure `loops=9`, 1,011 rows
+      each; `records_org_unit` `loops=9099`.
+    - At root it stops after 97 units, because it reaches its K\* + 1
+      cap in district pre 9101.
+  - **CC count: yes, it walks every unit, and the filter does not shorten
+    the walk.**
+    - At regions 0–8 the region branch runs `records_org_unit`
+      `loops=9099`.
+    - At root it is `loops=10111`, with the state test applied to each
+      record found. Its time goes from 21.6 to 43.0 ms p50.
+  - **The page:** its region term is the C3 walk at 9,099 units
+    (18.6 ms p50) and the W0 `EXISTS` at root (10.8 ms p50).
+  - **Inferred:** a selective filter makes the region-only count do more
+    work at a large S, not less: +67 ms Δp95 at root with `state=new`,
+    against +12 ms without it. Every such row stays under 150 ms here, with
+    49 ms margin or more. This is A2-R6's shape: the cost follows the units
+    of S, not the records that match.
+- **What the earlier attempt was:** the same row now passes at 70.08 ms on a
+  quiet host. That fits TICK-1091's reading that the 161.57 ms attempt was
+  host noise.
+
+The rules below were fixed before the rerun, so before any number existed:
 
 - **Gate added** (`perfBaseTailGate = 2.0`, `gateReason`): a region attempt is
   void if its paired base p95/p50 > 2.0. The floor gate only sees an
@@ -116,7 +160,8 @@ and the verdict does not depend on either baseline.
 | uniform m = 4,500 | 65.65 | 76.71 | 47.82 / +17.83 | 47.89 / +28.82 | −51.5 | pass |
 | uniform m = 10,000 | 64.51 | 63.48 | 46.91 / +17.60 | 40.57 / +22.91 | −63.7 | pass |
 | `bench_rare` at root | 44.98 | 40.84 | 29.84 / +15.14 | 27.26 / +13.58 | −83.3 | pass |
-| `bench_conc`, regions 0–8 (9,099) | ~~161.57~~ void (base p95/p50 3.20 > 2.0, TICK-1091) | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | n/a | **pending rerun** |
+| `bench_conc`, regions 0–8 (9,099), run 1 | ~~161.57~~ void (base p95/p50 3.20 > 2.0, TICK-1091) | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | n/a | void; see rerun |
+| **`bench_conc`, regions 0–8 (9,099), rerun** | **70.08** | **82.69** | 22.51 / +47.57 | 20.46 / +62.23 | −45.6 | **pass** |
 
 The 161.57 ms attempt stays in the record, void under TICK-1091's base-tail
 gate (Technical Architect, 2026-11-22 08:46Z). It is neither deleted nor
@@ -148,12 +193,14 @@ line is in `acl-perf-region/tick1037-region-run1.md`. The full raw report
   for a cost that grows at about 10 µs per unit of S.
 - **Not tested here:** `bench_conc` at the certified 10,111 units (root).
 
-**Routing:** the R1 trigger and the A2-R6 escalation on S31 (TICK-946) read
-"R1 fail unconfirmed (host-contaminated attempt)" until the rerun. A2-R6 as
-a **cost** stands either way: +40.9 / +68.3 ms median at 9,099 units, and
-the clean count-only attempt is 26.5 ms under budget. It goes to the CTO as a
-margin risk, not as a measured R1 fail. This is not a groupsync refusal
-(A2-7).
+**Routing:** R1 passes, so the R1 trigger on S31 (TICK-946) is withdrawn.
+A2-R6 stands as a **cost**:
+- +47.6 / +62.2 ms Δp95 at 9,099 units;
+- up to +78 ms with a state filter;
+- the closest clean row is 49 ms under budget.
+
+It goes to the CTO as a margin risk, not as a measured R1 fail. This is not
+a groupsync refusal (A2-7).
 
 ### Step 0: baseline passes (agent list, `sort=-updated_at`, no `under` leaf)
 
