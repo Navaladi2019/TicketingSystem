@@ -91,7 +91,7 @@ echo "sampled_at|relname|relpages|relallvisible|n_live_tup|last_autovacuum|last_
     sleep 10
   done ) &
 SAMPLER=$!
-trap 'kill "$SAMPLER" 2>/dev/null; rm -f "$EV"/.bruno-*.json' EXIT
+trap 'kill "$SAMPLER" 2>/dev/null || true; rm -f "$EV"/.bruno-*.json' EXIT
 # Bruno (Node on Windows) needs Git Bash to convert its report paths.
 # shellcheck disable=SC2086 # envs is a list of words, none with spaces
 env -u MSYS_NO_PATHCONV sh docs/acceptance/guide/tools/api-test.sh S21 \

@@ -1,0 +1,25 @@
+S21-12: 10 items, total 10, total_state exact (short result)
+S21-13: 50 items, total 1000, total_state capped
+S21-14: 50 items, total 203, total_state exact
+S21-15: 50 items, total 555, total_state exact
+S21-16: 25 items, total 25, total_state exact (short result)
+S21-17: 0 items, total 0, total_state exact (short result)
+S21-18: 50 items, total 50, total_state exact (short result)
+
+S21.19 cells (client latency, 8 clients, ms):
+who    filter                                                          p50   p95   max     n  total_state                          unknown
+admin  filter[priority]=1                                               119   166   221   586  {"capped":586}                       0%
+admin  filter[priority]=3                                                25    55   102   592  {"capped":592}                       0%
+admin  filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z   34    53   103   585  {"exact":585}                        0%
+Alice  filter[priority]=1                                                87   125   173   584  {"exact":584}                        0%
+Alice  filter[priority]=3                                                70   115   171   584  {"capped":584}                       0%
+Alice  filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z   79   110   181   584  {"exact":584}                        0%
+admin  (none)                                                            22    33    39   592  {"capped":592}                       0%
+Alice  (none)                                                            71   100   112   584  {"capped":584}                       0%
+
+>= 40% ACL cell (Alice filter[priority]=3): p95 115 ms (limit 350), unknown 0% of 584, total_state {"capped":584}, from 2026-11-22T00:31:03.630Z
+rfv_num at 2026-11-22T00:30:59Z: relpages 4228, relallvisible 4228 (100.0% all-visible), last autovacuum 2026-11-22 00:21:36.786295+00, last autoanalyze 2026-11-22 00:21:36.925239+00
+no-filter control (admin): p50 22 p95 33 ms (P3-36's idle host: 73 ms; 1.1x is 80 ms)
+no-filter control (Alice): p50 71 p95 100 ms
+
+kit report: PASS
