@@ -2,11 +2,11 @@
 title: "9. ACL and field masks on the read side"
 section: security
 status: delivered
-sources: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md, internal/authz, internal/tenancy/isolation/acl_attack_paths.go, docs/security/accepted-risks.md]
+sources: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md, docs/security/s31-org-unit-isolation.md, internal/authz, internal/tenancy/isolation/acl_attack_paths.go, docs/security/accepted-risks.md]
 evidence: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md]
 adrs: [ADR-001, ADR-010, ADR-010-A1]
 invariants: [I5, I1]
-stories: [S10, S30]
+stories: [S31, S10, S30]
 tables: [records, record_shares, acl_versions]
 packages: [internal/authz, internal/tenancy/isolation]
 tests: [TestRegisteredPaths, TestShapeDropsMaskedFieldsAndNeverMutates, TestCheckMaskFields, TestEveryMaskOnAFieldMustAdmit, TestRowDependentMaskSubjectsNeverMatch, TestExplainNeverListsAFieldTheAdminCannotRead, TestExplainMatchesTheEnforcementOnState, TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead, TestRequireTenantAdminTxNeverReadsGroupsOrPaths, TestMaskedFieldInFilterIsRefusedBeforeSQL, TestMaskedFieldInSortIsRefusedBeforeSQL, TestMaskedFieldInDefaultSortIsRefusedBeforeSQL, TestListRecordsMaskedSortKeyInCursor, TestListRecordsItemsAreShaped, TestHistoryOfAMaskedOnlyChange, TestPatchIsNoOracleForAMaskedField, TestUnreadableRecordIsTheMissingRecord, TestListRecordsHidesUnreadableFromPageAndTotal, TestUniqueViolationDoesNotIdentifyAnUnreadableRecord, TestNotFoundBodyIsIdenticalAndHasNoInstance, TestListRecordsCrossTenant, TestListRecordsFilterOnAnotherTenantsGroup, TestAuditEntriesMaskFieldsHiddenFromTheReader, TestPutAccessFormat2ForeignIDsAreForeignID, TestTICK940ForeignIDs, TestS30RefNeverResolvesAcrossTenantsOrVersions, TestS30VoidedPolicyGrantsNothingAnywhere, TestS30Format2DenyTraceHasAFalseStep, TestS30ExplainerStaysInItsTenantUnderFormat2, TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut, TestS30MasksBehaveTheSameUnderEitherFormat, TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree, TestRuntimeRolesCannotSkipTheTenantIDTrigger, TestTICK940WorkerCannotPublish]
@@ -106,6 +106,35 @@ The S30 rows are in
 | `under` with tenant B's org unit | 422 `foreign_id` at the id's pointer from the route (TICK-950), the same body as a tombstoned or unknown unit; a direct insert gets 23514 `foreign_id` from the trigger (TICK-947, which closed `AR-S30-01`) | `TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree` |
 | A runtime role skips the tenant-id trigger, or `nava_worker` publishes | 42501 for every runtime role; the worker's insert fails | `TestRuntimeRolesCannotSkipTheTenantIDTrigger`, `TestTICK940WorkerCannotPublish` |
 
+## Region access (S31)
+
+The full review is [s31-org-unit-isolation.md](../../../security/s31-org-unit-isolation.md)
+(TICK-952): **no exploitable isolation gap**. Every guard holds at the
+database: FORCE RLS on `org_units`, `org_unit_members` and
+`org_unit_closure`, grants, and foreign keys that carry `tenant_id`. The
+`under` leaf and the primary-unit lookup also filter by tenant on top of RLS.
+
+| Attack | Result | Test |
+|---|---|---|
+| Read or write tenant B's `org_unit_members` as any runtime role | Only A's rows are read; every write is refused (42501 or 23503) or reaches 0 rows | the `org_unit_members:` paths in `internal/tenancy/isolation/registry.go` |
+| Give a record of A a unit of B, through the body or a forged primary membership | The body is `422 field_not_writable` for every source; the forged lookup fails closed on `records_org_unit_fkey` | `TestRecordNeverGetsAnotherTenantsOrgUnit`, `TestCreateRefusesOrgUnitInBody`, `TestTICK947RecordOrgUnitIsTenantScoped` |
+| A tombstoned unit, or a forged member of one, grants through `under` | Refused by the live FK; a forged row adds nothing to U, nor does its live subtree | `TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows`, `TestTICK947MembershipConstraints` |
+| U holds a unit of B, or a binding made in A is evaluated for B | Never; a binding for another tenant voids the policy, `not under` included | `TestUnderSetBoundInOneTenantGrantsNothingToAnother` |
+| A crafted directory payload un-tombstones, renames or reparents B's unit | Nothing of B changes; group sync has no `DELETE` | `TestDirectoryPayloadNeverUntombstonesAnotherTenantsUnit`, `TestTICK947GroupsyncCannotDeleteOrgUnits` |
+| `nava_primary_org_unit` names a path that exists only in B | No primary is set, so a new ticket's unit stays NULL | `TestPrimaryOrgUnitPathOnlyInAnotherTenantSetsNoPrimary`, `TestCreateAfterSyncWithForeignPrimaryPathLeavesOrgUnitNull` |
+
+An orphaned unit (its parent missing, which only a forged row can produce)
+has no closure row, so `under` is false and `not under` is true for it. The
+count of such units is the metric `groupsync_org_closure_unrooted_units`.
+
+**Within one tenant.** The list shape the probe picks can show in latency
+whether more than K\* records sit under a policy's units: one coarse bit,
+inherent to ADR-010-A2, accepted as `AR-TICK-1040-01`. A slow probe's SQL
+text includes `LIMIT K*+1`, so keep `log_min_duration_statement` and
+`auto_explain` off for the app role and never ship the PostgreSQL server log
+anywhere a tenant can read it. A user moved out of a unit keeps `under`
+access until the next sync (`AR-TICK-901-01`, ADR-010 R3).
+
 ## Fixture that turns it red
 
 Each S10 row was shown red by a named mutation: `checkPlan` returning nil
@@ -126,7 +155,7 @@ at the default byte limit, about 340 ms at the 128 KiB ceiling), on the
 [ADR-010-A1 page](../adr/adr-010-a1.md#residuals) and in
 [accepted-risks.md](../../../security/accepted-risks.md).
 
-<!-- gen:accepted-risks ids=AR-006,AR-010,AR-TICK-653-01,AR-TICK-653-02 -->
+<!-- gen:accepted-risks ids=AR-006,AR-010,AR-TICK-653-01,AR-TICK-653-02,AR-TICK-1040-01,AR-S31-01 -->
 
 ## Related
 

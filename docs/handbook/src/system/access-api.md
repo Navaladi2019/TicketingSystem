@@ -5,8 +5,8 @@ status: delivered
 normative: docs/architecture/access-document-format2.md
 sources: [internal/server/access.go, internal/authz/document.go, internal/authz/check.go, internal/authz/policycheck.go, internal/authz/explain.go, internal/platform/config/acl.go, api/openapi.bundled.yaml, docs/architecture/access-document-format2.md, docs/adr/ADR-010-A1-sp2-caps-size-cap-app-only-publish.md]
 packages: [internal/server, internal/authz]
-adrs: [ADR-010, ADR-010-A1, ADR-001]
-stories: [S30, S10]
+adrs: [ADR-010, ADR-010-A1, ADR-010-A2, ADR-001]
+stories: [S30, S10, S31]
 invariants: [I5, I8, I1]
 operations: [getEntityTypeAccess, putEntityTypeAccess, explainAccess]
 tables: [acl_versions]
@@ -43,7 +43,10 @@ the normative [access-document-format2.md](../../../architecture/access-document
 ```
 
 - Node kinds: `all`, `any`, `not`, `ref`, `member_of`, `cmp`, `shared`,
-  `under`. `under` is refused as `not_available` until S31.
+  `under`. Since S31 `under` is available: `{"under": {"of": "caller"}}`
+  (the caller's own units) or `{"under": {"of": ["<unit id>", ...]}}`; a
+  record matches when its org unit is at or below one of them
+  ([the under leaf](core-acl.md#the-under-leaf-s31)).
 - Names match `^[a-z][a-z0-9_]{0,62}$` and are unique among conditions and
   among policies.
 - Allow-only: an operation is granted when any policy listing it matches.
@@ -84,6 +87,9 @@ Every 422 is `invalid_access_policy`. Each entry in `errors` has a JSON
   (strict JSON, TICK-964). A body that repeats a key
   is refused there with a pointer prefixed `/body`, for
   example `/body/rules/format` with rule `duplicate`. Nothing is stored.
+- **An unknown top-level key** in a format-2 body points at the body root,
+  for example `/extra` with rule `unknown_key` (TICK-1017), never under
+  `/rules` or `/masks`.
 
 | Rule | Meaning |
 |---|---|
@@ -97,8 +103,11 @@ Every 422 is `invalid_access_policy`. Each entry in `errors` has a JSON
 | `policy_leaves_exceeded` | A policy has more than 128 leaves after `ref` expands |
 | `policies_exceeded` | More than 64 policies |
 | `document_leaves_exceeded` | More than 128 leaves across every policy |
-| `foreign_id` | A group or user id that is not a live id of the caller's tenant. Another tenant's id and an unknown id answer the same, and the id is not echoed |
-| `not_available` | A node kind that is not available yet (`under`) |
+| `foreign_id` | A group, user or org-unit id that is not a live id of the caller's tenant. Another tenant's id, a tombstoned unit and an unknown id answer the same, and the id is not echoed |
+| `under_sets_exceeded` | A policy names more than 4 distinct `under` start sets after `ref` expands (`{"of": "caller"}` is one; the same ids in any order are one), at `/rules/policies/<i>` |
+| `under_duplicate_id` | One `under` `of` lists the same unit twice, at each repeat's `.../under/of/<i>` (ADR-010-A2 A2-8) |
+| `under_nested` | One `under` `of` lists a unit and one of its ancestors, at that leaf's `.../under/of` |
+| `not_available` | A node kind that is not available. Since S31 every kind is available, so no current document gets it |
 | `document_too_large` | `rules` or `masks` is over the byte limit, measured as the stored `jsonb` text |
 
 **The byte limit appears only here.** The `detail` of a
@@ -148,4 +157,4 @@ in the caller's tenant.
 - Evaluation, planner and the list read path: [Core: record ACL](core-acl.md).
 - The table and its constraints: [Access control and masks](../database/acl.md).
 - Operator setting: [Access document size limit](../operations/acl-document-limit.md).
-- Story: [S30](../stories/s30.md); decisions: [ADR-010](../adr/adr-010.md), [ADR-010-A1](../adr/adr-010-a1.md).
+- Stories: [S30](../stories/s30.md), [S31](../stories/s31.md); decisions: [ADR-010](../adr/adr-010.md), [ADR-010-A1](../adr/adr-010-a1.md), [ADR-010-A2](../adr/adr-010-a2.md).

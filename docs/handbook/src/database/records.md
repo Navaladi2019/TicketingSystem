@@ -3,8 +3,9 @@ title: "Records"
 section: database
 status: delivered
 tables: [records, record_write_keys]
-adrs: [ADR-001, ADR-004]
-sources: [docs/data/records-list-indexes.md, docs/data/records-list-bench.md, docs/data/record-write-keys-per-principal.md]
+adrs: [ADR-001, ADR-004, ADR-010]
+stories: [S31]
+sources: [docs/data/org-units.md, docs/data/org-unit-closure.md, docs/data/records-list-indexes.md, docs/data/records-list-bench.md, docs/data/record-write-keys-per-principal.md]
 ---
 
 `records` holds every tenant's tickets and other entities in one table.
@@ -19,6 +20,20 @@ Attributes are split two ways:
   The service validates it against the schema version in `schema_version`.
   The diagram shows it as one attribute. Nothing indexes `data`, and there
   are no expression indexes (PLAN-003 D25). Filterable fields, which would add typed side tables, are accepted in [ADR-006](../adr/adr-006.md) but not on `main`.
+
+**`org_unit_id` (S31, ADR-010 D8).** The org unit a record belongs to, for
+the `under` access leaf ("tickets in my region"). The write pipeline sets it
+once, on create, from the requester's primary unit, and records it in the
+create audit entry. It is never recomputed: moving a person to another unit
+leaves their old tickets where they were. NULL means no unit; such a record
+is in nobody's region. A request body cannot set it (the schema compiler
+refuses a property named `org_unit_id`), and it is not in a record's API body.
+The foreign key `records_org_unit_fkey` carries `tenant_id`, so a record
+cannot name another tenant's unit, and units are tombstoned, never deleted
+([Org units](org-units.md)). A write that changes it cannot commit without
+the record's audit entry. Its index, `records_org_unit`, is
+`(tenant_id, org_unit_id, entity_definition_id) WHERE org_unit_id IS NOT NULL`
+(TICK-1032): tenants with no regions add nothing to it.
 
 The list indexes all start with `(tenant_id, entity_definition_id)` and end
 with the sort key and `id`, so every allowed sort is an ordered index scan

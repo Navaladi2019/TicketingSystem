@@ -86,6 +86,11 @@ The mapping is in `internal/server/entitytypes.go`; codes and statuses are in
 
 ## Notes
 
+- `org_unit_id` is a reserved property name (S31): the compiler refuses a
+  schema that declares it, because the write pipeline owns
+  `records.org_unit_id` and puts it in the audit payload under that name
+  (ADR-010 D8).
+
 - Seed definitions `incident`, `request` and `change` live in
   `internal/metadata/templates/` (`metadata.Template`) and are seeded at
   onboarding by `entitytypes.Store.Seed`.
