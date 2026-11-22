@@ -639,7 +639,7 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 		t.Errorf("requester: total %d capped %v; want exact 3, absent", req.Total, req.Capped)
 	}
 	// A data-filter list is capped the same way, but over HTTP its count runs
-	// under CountBudget (140 ms, ADR-006-A2 A2-2): capping 1,005 rows under the
+	// under CountBudget (170 ms, ADR-006-A2 A2-2): capping 1,005 rows under the
 	// ACL can miss it on a loaded runner (TICK-1107), and then the total is
 	// "unknown" with "total": null (A2-5). Accept exactly those two answers,
 	// each with a full page; the cap itself is proven below without a budget.
