@@ -21,6 +21,8 @@ deciders: "Solution Architect (author; verdict); Technical Architect (critique r
 > - **One departure from the Technical Architect's recommendation**, stated in A2-7: the subtree bound is an alert, not a groupsync refusal, because refusing a sync would delay revocation.
 > - No dissent is outstanding, and no CTO tie-break was needed.
 >
+> **Amended by [[ADR-010-A3-records-driven-region-shape]]** (ACCEPTED 2026-11-22): A2-5, A2-6, A2-7, A2-10 and A2-R6. A concentrated type under a large subtree renders shape R, chosen by a bounded closure count folded into P3.
+>
 > A2 decides the **mechanism** of the `under` leaf. It does **not** certify the list budget, which stays gated by TICK-1037 under R1 as rescored in A2-11. Changing a rule here needs a further amendment.
 >
 > **Invariants source.** As in ADR-010: ADR-001 I1 to I9. The project description is empty, so the checks below are against ADR-001's list. A2 touches I1 (tenant wall), I3 (database roles), I5 (the SQL list filter and the Go single-record check agree), I8 (configuration over code), and the Epic 06 150 ms list AC. It does not touch Temporal determinism, the sandbox or Mastra.
