@@ -4,7 +4,8 @@
 // nava-worker, connected as nava_worker, runs one cycle per interval.
 //
 // A cycle lists the tenants, then refreshes each in its own transaction under
-// that tenant's app.tenant_id, so RLS scopes every read and write. The listing
+// that tenant's app.tenant_id (tenancy.InTenantTx, the repo's one scoping
+// path), so RLS scopes every read and write. The listing
 // is the only statement that runs before a tenant is set, by design. A missing
 // or stale estimate costs time, never rows (A2-6), so the job fails soft: a
 // failed tenant is counted and retried next cycle. The job is never called
@@ -26,9 +27,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // The metrics (A2-10). Neither carries a tenant, user or entity attribute.
@@ -46,12 +49,12 @@ const IntervalEnv = "NAVA_ESTIMATES_REFRESH_INTERVAL"
 // DefaultInterval is the cycle interval when IntervalEnv is unset.
 const DefaultInterval = time.Hour
 
-// The statements. listSQL runs before any tenant is set; the others run in a
-// tenant's transaction after setTenantSQL, with the same $1.
+// The statements. listSQL runs before any tenant is set; the other two run
+// inside tenancy.InTenantTx, which sets app.tenant_id for the transaction,
+// with the same $1.
 const (
-	listSQL      = `SELECT DISTINCT tenant_id FROM tenant_identity_binding`
-	setTenantSQL = `SELECT set_config('app.tenant_id', $1, true)`
-	refreshSQL   = `INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at)
+	listSQL    = `SELECT DISTINCT tenant_id FROM tenant_identity_binding`
+	refreshSQL = `INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at)
 		SELECT $1::uuid, entity_definition_id, count(*), now() FROM records WHERE tenant_id = $1::uuid AND entity_definition_id IS NOT NULL GROUP BY entity_definition_id
 		ON CONFLICT (tenant_id, entity_definition_id)
 		DO UPDATE SET live_records = EXCLUDED.live_records, refreshed_at = EXCLUDED.refreshed_at`
@@ -60,9 +63,32 @@ const (
 		    SELECT 1 FROM records r WHERE r.tenant_id = $1::uuid AND r.entity_definition_id = e.entity_definition_id)`
 )
 
-// Beginner starts a transaction. *pgxpool.Pool satisfies it.
-type Beginner interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
+// Store is the job's database seam: the tenant listing, and one tenant's
+// transaction.
+type Store interface {
+	// Tenants lists the tenants, before any is set.
+	Tenants(ctx context.Context) ([]uuid.UUID, error)
+	// InTenant runs fn in a transaction scoped to tenant, committing if fn
+	// returns nil.
+	InTenant(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error
+}
+
+// PoolStore is the Store over a pool connected as nava_worker.
+type PoolStore struct{ Pool *pgxpool.Pool }
+
+// Tenants lists the tenants: the one statement that runs before a tenant is
+// set. DISTINCT, since a tenant can have several bindings.
+func (s PoolStore) Tenants(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := s.Pool.Query(ctx, listSQL)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+}
+
+// InTenant is tenancy.InTenantTx, the one path that sets a tenant.
+func (s PoolStore) InTenant(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
+	return tenancy.InTenantTx(ctx, s.Pool, tenant, fn)
 }
 
 // Options tune a Refresher.
@@ -73,7 +99,7 @@ type Options struct {
 
 // Refresher runs the refresh cycles. Build it with New.
 type Refresher struct {
-	db       Beginner
+	db       Store
 	log      *slog.Logger
 	interval time.Duration
 	now      func() time.Time
@@ -89,7 +115,7 @@ type Refresher struct {
 }
 
 // New registers the two metrics on mp.
-func New(db Beginner, mp metric.MeterProvider, log *slog.Logger, opts Options) (*Refresher, error) {
+func New(db Store, mp metric.MeterProvider, log *slog.Logger, opts Options) (*Refresher, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -155,7 +181,7 @@ func (r *Refresher) Run(ctx context.Context) {
 // Cycle refreshes every tenant and returns how many tenants failed. A failure
 // is counted and logged by tenant id; the others are still refreshed.
 func (r *Refresher) Cycle(ctx context.Context) int {
-	tenants, err := r.tenants(ctx)
+	tenants, err := r.db.Tenants(ctx)
 	if err != nil {
 		r.log.WarnContext(ctx, "estimates: cannot list tenants", slog.Any("error", err))
 		return 0
@@ -200,43 +226,17 @@ func (r *Refresher) Cycle(ctx context.Context) int {
 	return failed
 }
 
-// tenants lists the tenants: the one statement that runs before a tenant is
-// set. DISTINCT, since a tenant can have several bindings.
-func (r *Refresher) tenants(ctx context.Context) (_ []uuid.UUID, err error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, rollback(ctx, tx)) }()
-	rows, err := tx.Query(ctx, listSQL)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-}
-
-// refresh runs one tenant's transaction: set the tenant, then upsert.
-func (r *Refresher) refresh(ctx context.Context, tenant uuid.UUID) (err error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, rollback(ctx, tx)) }()
+// refresh runs one tenant's transaction: upsert, then zero.
+func (r *Refresher) refresh(ctx context.Context, tenant uuid.UUID) error {
 	id := tenant.String()
-	for _, sql := range []string{setTenantSQL, refreshSQL, zeroSQL} {
-		if _, err := tx.Exec(ctx, sql, id); err != nil {
-			return err
+	return r.db.InTenant(ctx, tenant, func(tx pgx.Tx) error {
+		for _, sql := range []string{refreshSQL, zeroSQL} {
+			if _, err := tx.Exec(ctx, sql, id); err != nil {
+				return err
+			}
 		}
-	}
-	return tx.Commit(ctx)
-}
-
-// rollback ends tx unless it committed.
-func rollback(ctx context.Context, tx pgx.Tx) error {
-	if err := tx.Rollback(context.WithoutCancel(ctx)); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-		return err
-	}
-	return nil
+		return nil
+	})
 }
 
 // IntervalFromEnv reads IntervalEnv through lookup: unset is DefaultInterval,

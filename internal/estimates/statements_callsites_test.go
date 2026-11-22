@@ -11,12 +11,12 @@ import (
 )
 
 // TICK-1071 adversarial (Security & Multi-Tenancy Reviewer), hardening
-// acceptance 5. TestEveryStatementButTheListingFollowsSetConfig checks the
+// acceptance 5. TestEveryStatementButTheListingRunsInATenantTx checks the
 // order inside refresh; this checks that refresh and tenants are the only
 // places the package talks to the database at all, so a new helper that runs
 // SQL without set_config, or SQL built inline, fails here:
 //
-//   - tenants issues exactly one statement, listSQL;
+//   - Tenants issues exactly one statement, listSQL;
 //   - refresh never issues the listing (the order inside it is the other
 //     test's job);
 //   - no other function, in any non-test file of the package, calls a
@@ -63,9 +63,9 @@ func TestOnlyTenantsAndRefreshIssueStatements(t *testing.T) {
 
 	for fn, cs := range calls {
 		switch fn {
-		case "tenants":
+		case "Tenants":
 			if len(cs) != 1 || !argIs(cs[0], 1, "listSQL") {
-				t.Errorf("tenants issues %d statements; want exactly one, listSQL", len(cs))
+				t.Errorf("Tenants issues %d statements; want exactly one, listSQL", len(cs))
 			}
 		case "refresh":
 			for _, c := range cs {
@@ -74,11 +74,11 @@ func TestOnlyTenantsAndRefreshIssueStatements(t *testing.T) {
 				}
 			}
 		default:
-			t.Errorf("%s calls a database method; only tenants and refresh may", fn)
+			t.Errorf("%s calls a database method; only Tenants and refresh may", fn)
 		}
 	}
-	if len(calls["tenants"]) == 0 || len(calls["refresh"]) == 0 {
-		t.Errorf("database calls = %v; want them in tenants and refresh", calls)
+	if len(calls["Tenants"]) == 0 || len(calls["refresh"]) == 0 {
+		t.Errorf("database calls = %v; want them in Tenants and refresh", calls)
 	}
 }
 

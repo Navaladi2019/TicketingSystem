@@ -245,7 +245,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		closeAll()
 		return nil, nil, nil, nil, err
 	}
-	refresher, err := estimates.New(pool, tel.MeterProvider, log, estimates.Options{Interval: interval})
+	refresher, err := estimates.New(estimates.PoolStore{Pool: pool}, tel.MeterProvider, log, estimates.Options{Interval: interval})
 	if err != nil {
 		closeAll()
 		return nil, nil, nil, nil, err

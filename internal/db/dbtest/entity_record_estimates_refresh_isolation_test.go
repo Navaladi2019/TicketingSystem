@@ -4,11 +4,10 @@ package dbtest
 
 import (
 	"context"
-	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/estimates"
 )
@@ -24,38 +23,27 @@ import (
 // sets `from`, the session gets `to` instead, while the job's own statements
 // still bind `from`. This simulates a regression that sets the wrong tenant.
 type desyncTenant struct {
-	estimates.Beginner
+	estimates.Store
 	from, to string
 }
 
-type desyncTx struct {
-	pgx.Tx
-	from, to string
-}
-
-func (b desyncTenant) Begin(ctx context.Context) (pgx.Tx, error) {
-	tx, err := b.Beginner.Begin(ctx)
-	if err != nil {
-		return nil, err
+// InTenant scopes the transaction to `to` when the job asks for `from`; fn
+// still binds `from`.
+func (b desyncTenant) InTenant(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
+	if tenant.String() == b.from {
+		tenant = uuid.MustParse(b.to)
 	}
-	return desyncTx{tx, b.from, b.to}, nil
+	return b.Store.InTenant(ctx, tenant, fn)
 }
 
-func (tx desyncTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	if strings.Contains(sql, "set_config('app.tenant_id'") && len(args) == 1 && args[0] == tx.from {
-		args = []any{tx.to}
-	}
-	return tx.Tx.Exec(ctx, sql, args...)
-}
-
-// Tenant B's refresh runs under tenant A's app.tenant_id (or none): B's
+// Tenant B's refresh runs under tenant A's app.tenant_id (or a tenant with no data): B's
 // records are invisible, so the upsert selects nothing; B's existing row is
 // invisible to the zero UPDATE, so it is not set to 0 even though, under A, no
 // record of B "exists". Neither tenant's rows change.
 func TestTICK1071DesyncedTenantWritesNothingAcross(t *testing.T) {
 	for _, tc := range []struct{ name, session string }{
 		{"other tenant set", tenantA},
-		{"no tenant set", ""},
+		{"tenant with no data set", "0190a000-0000-7000-8000-0000000000ee"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			migratedPlatform(t)
@@ -63,7 +51,7 @@ func TestTICK1071DesyncedTenantWritesNothingAcross(t *testing.T) {
 			seedEstimateTypes(t, super, tenantA, tenantB)
 			addRecords(t, super, tenantA, tenantA, "TCK", 3)
 			addRecords(t, super, tenantB, tenantB, "TCK", 5)
-			worker := asRole(t, "nava_worker")
+			worker := estimates.PoolStore{Pool: workerPool(t)}
 
 			clean, _ := newJob(t, worker, nil)
 			if n := clean.Cycle(context.Background()); n != 0 {

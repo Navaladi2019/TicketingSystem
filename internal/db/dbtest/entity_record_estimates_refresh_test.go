@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -88,9 +90,25 @@ func refreshedAt(t *testing.T, super *pgx.Conn, tenant string) time.Time {
 	return at
 }
 
+// workerPool is a pool connected as nava_worker, the job's role.
+func workerPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pc, err := pgxpool.ParseConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc.ConnConfig = roleConfig(t, "nava_worker", "nava")
+	pool, err := pgxpool.NewWithConfig(context.Background(), pc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
 // failFor makes one tenant's upsert fail.
 type failFor struct {
-	estimates.Beginner
+	estimates.Store
 	tenant string
 }
 
@@ -99,12 +117,8 @@ type failTx struct {
 	tenant string
 }
 
-func (b failFor) Begin(ctx context.Context) (pgx.Tx, error) {
-	tx, err := b.Beginner.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return failTx{tx, b.tenant}, nil
+func (b failFor) InTenant(ctx context.Context, tenant uuid.UUID, fn func(pgx.Tx) error) error {
+	return b.Store.InTenant(ctx, tenant, func(tx pgx.Tx) error { return fn(failTx{tx, b.tenant}) })
 }
 
 func (tx failTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
@@ -114,7 +128,7 @@ func (tx failTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comm
 	return tx.Tx.Exec(ctx, sql, args...)
 }
 
-func newJob(t *testing.T, db estimates.Beginner, now func() time.Time) (*estimates.Refresher, *metric.ManualReader) {
+func newJob(t *testing.T, db estimates.Store, now func() time.Time) (*estimates.Refresher, *metric.ManualReader) {
 	t.Helper()
 	reader := metric.NewManualReader()
 	r, err := estimates.New(db, metric.NewMeterProvider(metric.WithReader(reader)),
@@ -165,7 +179,7 @@ func TestTICK1071RefreshScopesAndIsIdempotent(t *testing.T) {
 	addRecords(t, super, tenantB, tenantB, "TCK", 5)
 	addRecords(t, super, tenantB, b2, "REQ", 2)
 
-	job, _ := newJob(t, asRole(t, "nava_worker"), time.Now)
+	job, _ := newJob(t, estimates.PoolStore{Pool: workerPool(t)}, time.Now)
 	if n := job.Cycle(context.Background()); n != 0 {
 		t.Fatalf("failed tenants = %d, want 0", n)
 	}
@@ -194,7 +208,7 @@ func TestTICK1071EmptiedTypeIsZeroed(t *testing.T) {
 	super := superNava(t)
 	seedEstimateTypes(t, super, tenantA)
 	addRecords(t, super, tenantA, tenantA, "TCK", 2)
-	job, _ := newJob(t, asRole(t, "nava_worker"), time.Now)
+	job, _ := newJob(t, estimates.PoolStore{Pool: workerPool(t)}, time.Now)
 	job.Cycle(context.Background())
 	sameCounts(t, "before", estimatesOf(t, tenantA), map[string]int64{tenantA: 2})
 
@@ -216,7 +230,7 @@ func TestTICK1071FailSoftPerTenantAndAge(t *testing.T) {
 	seedEstimateTypes(t, super, tenantA, tenantB)
 	addRecords(t, super, tenantA, tenantA, "TCK", 1)
 	addRecords(t, super, tenantB, tenantB, "TCK", 1)
-	worker := asRole(t, "nava_worker")
+	worker := estimates.PoolStore{Pool: workerPool(t)}
 
 	clock := time.Now()
 	now := func() time.Time { return clock }
