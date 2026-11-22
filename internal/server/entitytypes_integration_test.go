@@ -670,20 +670,20 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 	if err := tenancy.InTenantTx(ctx, e.pool, e.a.id, func(tx pgx.Tx) error {
 		c, err := rd.Version(ctx, tx, "incident", 1)
 		if err != nil || c == nil {
-			return fmt.Errorf("Version = %v, %v", c, err)
+			return fmt.Errorf("Version = %v: %w", c, err)
 		}
 		cur, n, err := rd.Current(ctx, tx, "incident")
 		if err != nil || cur == nil || n != 1 {
-			return fmt.Errorf("Current = %v, %d, %v", cur, n, err)
+			return fmt.Errorf("Current = %v, %d: %w", cur, n, err)
 		}
 		if _, err := rd.Version(ctx, tx, "incident", 2); !errors.Is(err, entitytypes.ErrNotFound) {
-			return fmt.Errorf("Version 2 = %v, want ErrNotFound", err)
+			return fmt.Errorf("Version 2 = %w, want ErrNotFound", err)
 		}
 		if _, err := rd.Version(ctx, tx, "incident", 0); !errors.Is(err, entitytypes.ErrNotFound) {
-			return fmt.Errorf("Version 0 = %v, want ErrNotFound", err)
+			return fmt.Errorf("Version 0 = %w, want ErrNotFound", err)
 		}
 		if _, err := rd.Version(ctx, tx, "nope", 1); !errors.Is(err, entitytypes.ErrNotFound) {
-			return fmt.Errorf("unknown key = %v, want ErrNotFound", err)
+			return fmt.Errorf("unknown key = %w, want ErrNotFound", err)
 		}
 		return nil
 	}); err != nil {
@@ -693,10 +693,10 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 	// Tenant B's transaction cannot see tenant A's key.
 	if err := tenancy.InTenantTx(ctx, e.pool, e.b.id, func(tx pgx.Tx) error {
 		if _, err := rd.Version(ctx, tx, "incident", 1); !errors.Is(err, entitytypes.ErrNotFound) {
-			return fmt.Errorf("Version under B = %v, want ErrNotFound", err)
+			return fmt.Errorf("Version under B = %w, want ErrNotFound", err)
 		}
 		if _, _, err := rd.Current(ctx, tx, "incident"); !errors.Is(err, entitytypes.ErrNotFound) {
-			return fmt.Errorf("Current under B = %v, want ErrNotFound", err)
+			return fmt.Errorf("Current under B = %w, want ErrNotFound", err)
 		}
 		return nil
 	}); err != nil {
