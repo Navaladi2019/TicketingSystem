@@ -259,6 +259,7 @@ func TestListFilterReadyOperatorsMatchTheRecomputeOracle(t *testing.T) {
 				want = append(want, r.rec)
 			}
 		}
+		// Exact (TICK-1107): 7-row fixture at limit=200; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 		p := e.mustList(t, "admin-a", "asset", q+"&limit=200")
 		wantIDs(t, q, p.Items, want...)
 		if p.Total != len(want) {
@@ -282,6 +283,7 @@ func TestListFilterReadyOperatorsMatchTheRecomputeOracle(t *testing.T) {
 		"filter[state]=closed&filter[name]=beta":                                  nil,
 		"filter[state]=new&filter[vip]=true&filter[qty][gt]=1&filter[name]=gamma": {rows[2].rec},
 	} {
+		// Exact (TICK-1107): 7-row fixture at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 		p := e.mustList(t, "admin-a", "asset", q)
 		wantIDs(t, q, p.Items, want...)
 		if p.Total != len(want) {
@@ -368,6 +370,7 @@ func TestListFilterRefusalsFollowTheD6Order(t *testing.T) {
 		SELECT r.tenant_id, $2, r.id, c.ord, c.value_num FROM records r, LATERAL record_field_coerce(r.data -> 'qty', 'num') c WHERE r.tenant_id = $1`, e.a.id, qtyID); err != nil {
 		t.Fatal(err)
 	}
+	// Exact (TICK-1107): 7-row fixture at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	if p := e.mustList(t, "admin-a", "asset", "filter[qty]=5"); p.Total != 2 {
 		t.Errorf("ready qty=5: total %d, want 2", p.Total)
 	}
@@ -408,6 +411,7 @@ func TestListFilterValueErrorsAreValidationFailed(t *testing.T) {
 		listCode(t, rec, http.StatusBadRequest, "validation_failed")
 	}
 	// 100 values is the most.
+	// Exact (TICK-1107): no match at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	if p := e.mustList(t, "admin-a", "asset", "filter[name][in]="+vals(100)); p.Total != 0 {
 		t.Errorf("100 values: total %d, want 0", p.Total)
 	}
@@ -432,6 +436,7 @@ func TestListFilterRowACLOracle(t *testing.T) {
 		{"filter[qty]=4242", "filter[qty]=4243"},
 		{"filter[qty][gt]=100", "filter[qty][gt]=100000"},
 	} {
+		// Exact (TICK-1107): 3 records at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 		a, b := e.mustList(t, "user-a", "asset", pair[0]), e.mustList(t, "user-a", "asset", pair[1])
 		if len(a.Items) != 0 || len(b.Items) != 0 || a.Total != b.Total || a.Total != 0 {
 			t.Errorf("%v: %d items/total %d vs %d items/total %d; an ACL-denied value must look absent", pair, len(a.Items), a.Total, len(b.Items), b.Total)
@@ -441,6 +446,7 @@ func TestListFilterRowACLOracle(t *testing.T) {
 		}
 	}
 	// The requester still finds what it may read, and only that.
+	// Exact (TICK-1107): 3 records at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	p := e.mustList(t, "user-a", "asset", "filter[name]=shared")
 	wantIDs(t, "own shared", p.Items, mine)
 	if p.Total != 1 {
@@ -461,6 +467,7 @@ func TestListFilterCrossTenant(t *testing.T) {
 	a := e.mustCreateRec(t, "admin-a", "asset", "x1", `{"short_description": "a", "name": "both"}`)
 	b := e.mustCreateRec(t, "admin-b", "asset", "x2", `{"short_description": "b", "name": "both"}`)
 	e.mustCreateRec(t, "admin-b", "asset", "x3", `{"short_description": "b", "name": "only-b"}`)
+	// Exact (TICK-1107): 1-3 records per tenant at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	if p := e.mustList(t, "admin-a", "asset", "filter[name]=only-b"); p.Total != 0 || len(p.Items) != 0 {
 		t.Errorf("tenant A found tenant B's value: total %d, %d items", p.Total, len(p.Items))
 	}
@@ -514,6 +521,7 @@ func TestListFilterLegacyAllowList(t *testing.T) {
 	rec, _ := e.list(t, "admin-a", "asset", "filter[priority]=1")
 	listCode(t, rec, http.StatusBadRequest, "field_not_filterable")
 	// An unflagged seed field on the list goes through the scan.
+	// Exact (TICK-1107): 2 incidents at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	p := e.mustList(t, "admin-a", "incident", "filter[priority]=1")
 	wantIDs(t, "scan eq", p.Items, one)
 	if p.Total != 1 {
@@ -682,6 +690,7 @@ func TestListFilterRangeOnArrayFieldNeedsOneElementForEveryBound(t *testing.T) {
 	}
 	split, inside, outside := mk(0, "[1, 9]"), mk(1, "[1, 4]"), mk(2, "[7, 8]")
 	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	// Exact (TICK-1107): 3 records at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	p := e.mustList(t, "admin-a", "asset", "filter[scores][gte]=2&filter[scores][lt]=6")
 	wantIDs(t, "array range", p.Items, inside)
 	if p.Total != 1 {
@@ -699,6 +708,7 @@ func TestListFilterTwoEqualitiesOnOneFieldArePinned(t *testing.T) {
 	e := newFilterEnv(t)
 	both := e.mustCreateRec(t, "admin-a", "asset", "eq-0", `{"short_description": "s0", "scores": [1, 2]}`)
 	e.flagField(t, e.a.id, "asset", "scores", "num", "ready", 100)
+	// Exact (TICK-1107): 3 records at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	if p := e.mustList(t, "admin-a", "asset", "filter[scores]=1&filter[scores][in]=2,3"); len(p.Items) != 0 || p.Total != 0 {
 		t.Errorf("eq 1 + in (2,3) on [1,2]: %d items, total %d, want none", len(p.Items), p.Total)
 	}
