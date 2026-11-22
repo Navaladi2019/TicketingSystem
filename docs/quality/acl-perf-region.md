@@ -10,12 +10,36 @@ and 10,000?
 
 ## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
 
-**R1: FAIL on one row, `bench_conc` for the agents (residual A2-R6).** That
-row's handler p95 is **161.57 ms** against 150 ms, in a valid attempt (floor
-0.64 / 1.16 ms, no foreign container). R1 is judged on the worst persona, so
-R1 fails. Every other row passes, both personas, and at most 87.29 ms p95
-(the region-only caller at region size). The A2-R1 cells (m ≈ K\*: uniform
-m = 3,000 / 4,500) pass at 79.92 / 86.83 and 65.65 / 76.71 ms.
+**R1: unconfirmed.** One row, `bench_conc` agents, missed at 161.57 ms in an
+attempt whose paired base tail was 3.2× its median (other attempts ≤ 1.65×).
+The attempt is void under TICK-1091's base-tail gate, and a rerun decides R1.
+Every other row passes.
+
+The other rows pass for both personas, at most 87.29 ms p95 (the
+region-only caller at region size). The A2-R1 cells (m ≈ K\*: uniform
+m = 3,000 / 4,500) pass at 79.92 / 86.83 and 65.65 / 76.71 ms. Their
+verdicts stand (Technical Architect, TICK-1091).
+
+### `bench_conc` rerun (pending: bench slot 4, TICK-1091 item 1)
+
+The rules below are fixed before the rerun, so before any number exists:
+
+- **Gate added** (`perfBaseTailGate = 2.0`, `gateReason`): a region attempt is
+  void if its paired base p95/p50 > 2.0. The floor gate only sees an
+  attempt's start and end, and this gate catches host noise in between. The
+  other 26 attempts had a ratio of 1.34 to 1.65, so applied retroactively the
+  gate voids none of them.
+- **A clean attempt** has the floor gate, the base-tail gate and the
+  container watch all green. Each row gets up to 3 attempts.
+- **Outcome:**
+  - **R1 FAIL confirmed** if any clean agents or count-only attempt has a
+    p95 > 150 ms.
+  - **Pass** if every clean attempt is ≤ 150 ms.
+  - **Inconclusive** if a row has no clean attempt in 3. Then host
+    availability goes to the CTO, and the row is not scored.
+- **Command:**
+  `NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^region: bench_conc' sh bench/acl-perf/run.sh`.
+  It also runs `bench_conc` at root (10,111 units), for information only.
 
 **Step 0: three clean passes (55.48, 128.25, 175.47 ms p95). No two agree
 within 5 ms.** The median is 128.25 ms, used for the information-only
@@ -71,9 +95,11 @@ and the verdict does not depend on either baseline.
 | uniform m = 4,500 | 65.65 | 76.71 | 47.82 / +17.83 | 47.89 / +28.82 | −51.5 | pass |
 | uniform m = 10,000 | 64.51 | 63.48 | 46.91 / +17.60 | 40.57 / +22.91 | −63.7 | pass |
 | `bench_rare` at root | 44.98 | 40.84 | 29.84 / +15.14 | 27.26 / +13.58 | −83.3 | pass |
-| **`bench_conc`, regions 0–8 (9,099)** | **161.57** | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | +33.3 | **FAIL** (agents) |
+| `bench_conc`, regions 0–8 (9,099) | ~~161.57~~ void (base p95/p50 3.20 > 2.0, TICK-1091) | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | n/a | **pending rerun** |
 
-Voided attempts (the floor gate, re-run by the harness): region (agents)
+The 161.57 ms attempt stays in the record, void under TICK-1091's base-tail
+gate (Technical Architect, 2026-11-22 08:46Z). It is neither deleted nor
+patched. Voided attempts (the floor gate, re-run by the harness): region (agents)
 attempt 1, with an end floor of 6.75 ms; region (count-only) attempts 1 and
 2, with floors of 3.19 and 3.21 ms. They are not scored. Every row and gate
 line is in `acl-perf-region/tick1037-region-run1.md`. The full raw report
@@ -101,13 +127,12 @@ line is in `acl-perf-region/tick1037-region-run1.md`. The full raw report
   for a cost that grows at about 10 µs per unit of S.
 - **Not tested here:** `bench_conc` at the certified 10,111 units (root).
 
-**Routing (issue "On a fail"):**
-- The failing row goes on S31 (TICK-946) as an R1 trigger to the Solution
-  Architect.
-- A2-R6 goes to the CTO as option (iii), with A2-11's two costed options and
-  a sparse-type rendering spike.
-- A2-R1 does not trigger: the m ≈ K\* cells pass.
-- This is not a groupsync refusal (A2-7).
+**Routing:** the R1 trigger and the A2-R6 escalation on S31 (TICK-946) read
+"R1 fail unconfirmed (host-contaminated attempt)" until the rerun. A2-R6 as
+a **cost** stands either way: +40.9 / +68.3 ms median at 9,099 units, and
+the clean count-only attempt is 26.5 ms under budget. It goes to the CTO as a
+margin risk, not as a measured R1 fail. This is not a groupsync refusal
+(A2-7).
 
 ### Step 0: baseline passes (agent list, `sort=-updated_at`, no `under` leaf)
 

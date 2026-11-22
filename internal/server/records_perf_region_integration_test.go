@@ -75,6 +75,9 @@ type perfRegionSet struct {
 	name string
 	pres []int
 	key  string // entity type key
+	// info is set on a row reported for information, not scored (TICK-1091,
+	// optional item: bench_conc at the certified 10,111 units).
+	info string
 }
 
 // perfRegionSets are TICK-1037's sets, in the order the rows run.
@@ -84,18 +87,19 @@ func perfRegionSets() []perfRegionSet {
 		regions08 = append(regions08, 1+r*1011)
 	}
 	return []perfRegionSet{
-		{"area (|S| 10)", []int{3}, "ticket"},
-		{"district (|S| 101)", []int{2}, "ticket"},
-		{"region (|S| 1,011)", []int{1}, "ticket"},
-		{"root (|S| 10,111)", []int{0}, "ticket"},
-		{"district hot", []int{2327}, "ticket"},
-		{"district thin", []int{2428}, "ticket"},
-		{"uniform m=1001", []int{3035}, "ticket"},
-		{"uniform m=3000", []int{3136}, "ticket"},
-		{"uniform m=4500", []int{3338}, "ticket"},
-		{"uniform m=10000", []int{3237}, "ticket"},
-		{"bench_rare at root", []int{0}, "bench_rare"},
-		{"bench_conc, regions 0-8 (|S| 9,099)", regions08, "bench_conc"},
+		{"area (|S| 10)", []int{3}, "ticket", ""},
+		{"district (|S| 101)", []int{2}, "ticket", ""},
+		{"region (|S| 1,011)", []int{1}, "ticket", ""},
+		{"root (|S| 10,111)", []int{0}, "ticket", ""},
+		{"district hot", []int{2327}, "ticket", ""},
+		{"district thin", []int{2428}, "ticket", ""},
+		{"uniform m=1001", []int{3035}, "ticket", ""},
+		{"uniform m=3000", []int{3136}, "ticket", ""},
+		{"uniform m=4500", []int{3338}, "ticket", ""},
+		{"uniform m=10000", []int{3237}, "ticket", ""},
+		{"bench_rare at root", []int{0}, "bench_rare", ""},
+		{"bench_conc, regions 0-8 (|S| 9,099)", regions08, "bench_conc", ""},
+		{"bench_conc at root (|S| 10,111, info)", []int{0}, "bench_conc", "information only (TICK-1091 optional item): bench_conc at the certified 10,111 units"},
 	}
 }
 
@@ -181,7 +185,7 @@ func (e *perfEnv) regionExtras(t *testing.T) map[string]perfExtra {
 	m := map[string]perfExtra{}
 	for _, s := range perfRegionSets() {
 		for _, persona := range []string{"agents", "count-only"} {
-			m[perfRegionName(s, persona)] = perfExtra{before: func() { e.regionBefore(t, s) }}
+			m[perfRegionName(s, persona)] = perfExtra{before: func() { e.regionBefore(t, s) }, unscored: s.info}
 		}
 	}
 	return m
@@ -465,6 +469,8 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 		p95, b95 := pct(r.lat, .95), pct(r.pairLat, .95)
 		v := "pass"
 		switch {
+		case r.sc.unscored != "":
+			v = "info (not scored)"
 		case r.gated():
 			v = "void"
 		case p95 > perfListTargetMS:

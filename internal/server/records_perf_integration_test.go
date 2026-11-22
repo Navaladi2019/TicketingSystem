@@ -83,7 +83,13 @@ const (
 	perfHostProbeN = 200
 	// perfFloorGateMS is the transport floor gate: a busy host gives no
 	// numbers at all.
-	perfFloorGateMS  = 3.0
+	perfFloorGateMS = 3.0
+	// perfBaseTailGate is the paired-base tail gate on region rows
+	// (TICK-1091 item 1): an attempt whose paired base request has p95/p50
+	// above it had in-attempt host noise, which the floor gate (the
+	// attempt's edges only) cannot see. Set before the bench_conc rerun;
+	// the other 26 TICK-1037 attempts were 1.34 to 1.65.
+	perfBaseTailGate = 2.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
 	// perfShortTimeout is the bound check's data-filter statement timeout:
@@ -947,6 +953,13 @@ func (r *perfResult) gateReason() string {
 	}
 	if r.floorStart > perfFloorGateMS || r.floorEnd > perfFloorGateMS {
 		why = append(why, fmt.Sprintf("floor p50 %.2f / %.2f > %.0f ms", r.floorStart, r.floorEnd, perfFloorGateMS))
+	}
+	// TICK-1091: in-attempt host noise; the floor gate only sees the
+	// attempt's edges. Only region rows have pairLat.
+	if len(r.pairLat) > 0 {
+		if b50, b95 := pct(r.pairLat, .50), pct(r.pairLat, .95); b50 > 0 && b95/b50 > perfBaseTailGate {
+			why = append(why, fmt.Sprintf("paired base p95/p50 %.2f > %.1f", b95/b50, perfBaseTailGate))
+		}
 	}
 	return strings.Join(why, ", ")
 }
