@@ -350,7 +350,7 @@ func TestNoPublishedACLRefusesUserWrites(t *testing.T) {
 	inTx(t, e, f.id, func(tx pgx.Tx) error {
 		pol, err := authz.PolicyStore{}.Current(ctx, tx, "bare")
 		if err != nil || pol != nil {
-			return fmt.Errorf("Current = %+v, %v; want nil, nil", pol, err)
+			return fmt.Errorf("Current = %+v, %w; want nil, nil", pol, err)
 		}
 		rec, err := pipeline.Get(ctx, tx, f.id, res.RecordID)
 		if err != nil {
@@ -361,7 +361,7 @@ func TestNoPublishedACLRefusesUserWrites(t *testing.T) {
 			return err
 		}
 		if err := (authz.ACL{Policies: authz.PolicyStore{}}).CanRead(ctx, tx, f.principal, "bare", row); !errors.Is(err, authz.ErrNotVisible) {
-			return fmt.Errorf("CanRead with no ACL: %v, want ErrNotVisible", err)
+			return fmt.Errorf("CanRead with no ACL: %w, want ErrNotVisible", err)
 		}
 		return nil
 	})

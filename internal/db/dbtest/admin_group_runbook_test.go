@@ -40,9 +40,9 @@ type pointerGroup struct {
 }
 
 var (
-	adminsGroup   = pointerGroup{"admins", "tenant_admin_group", onboard.AdminGroupID}
-	auditorsGroup = pointerGroup{"auditors", "tenant_auditor_group", onboard.AuditorGroupID}
-	pointerGroups = []pointerGroup{adminsGroup, auditorsGroup}
+	adminsGroup   = pointerGroup{"admins", "tenant_admin_group", onboard.AdminGroupID}       //nolint:gochecknoglobals // read-only test/bench fixture, set once
+	auditorsGroup = pointerGroup{"auditors", "tenant_auditor_group", onboard.AuditorGroupID} //nolint:gochecknoglobals // read-only test/bench fixture, set once
+	pointerGroups = []pointerGroup{adminsGroup, auditorsGroup}                               //nolint:gochecknoglobals // read-only test/bench fixture, set once
 )
 
 // sectionBlocks returns the sql blocks of the runbook section that starts at
