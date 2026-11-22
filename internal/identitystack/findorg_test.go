@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -258,7 +257,7 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 	st := &resumeStore{failing: true, domains: map[string]uuid.UUID{}}
 	svc, err := onboard.New(onboard.Options{
 		Store: st, Directory: dir, Finder: dir, Domains: st, ACL: noACL{}, Specs: specs, Resolver: publicResolver{},
-		Issuer: baseURL() + "/realms/nava", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Issuer: baseURL() + "/realms/nava", Log: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatal(err)
