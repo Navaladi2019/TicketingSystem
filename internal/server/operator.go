@@ -61,6 +61,9 @@ type options struct {
 	// countDelay and skipCount: list test seams, see handlers.
 	countDelay time.Duration
 	skipCount  bool
+	// countBudgetOverride and countParallel: see handlers.
+	countBudgetOverride time.Duration
+	countParallel       bool
 	// listDataTerm replaces the list's data-filter term; only
 	// WithListDataTerm (integration builds) sets it.
 	listDataTerm func(arg string) string

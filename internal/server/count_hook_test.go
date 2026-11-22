@@ -10,6 +10,15 @@ import (
 	"testing"
 )
 
+// listQueryHooks are the ListQuery test seams.
+func listQueryHook(name string) bool {
+	switch name {
+	case "CountDelay", "SkipCount", "CountBudgetOverride", "CountParallel":
+		return true
+	}
+	return false
+}
+
 // ADR-006-A2 D-7A2-5 (3d): the count delay and skip hooks are test-only. The
 // handlers fields are set from options, which only export_test.go's
 // WithCountDelay / WithSkipCount fill, and store.ListQuery.CountDelay and
@@ -20,7 +29,7 @@ func TestCountHooksAreTestOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := map[string]bool{"countDelay": true, "skipCount": true}
+	hooks := map[string]bool{"countDelay": true, "skipCount": true, "countBudgetOverride": true, "countParallel": true}
 	sawListQuery := 0
 	for _, name := range files {
 		f, err := parser.ParseFile(fset, name, nil, 0)
@@ -42,7 +51,7 @@ func TestCountHooksAreTestOnly(t *testing.T) {
 						t.Errorf("%s: %s assigns the %s hook in non-test code", fset.Position(x.Pos()), name, field)
 					case hooks[field] && name != "export_test.go":
 						t.Errorf("%s: the %s hook is assigned outside export_test.go", fset.Position(x.Pos()), field)
-					case (field == "CountDelay" || field == "SkipCount") && !isTest:
+					case listQueryHook(field) && !isTest:
 						// lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
 						if len(x.Lhs) != len(x.Rhs) {
 							t.Errorf("%s: %s assigned from a call", fset.Position(x.Pos()), field)
@@ -77,15 +86,15 @@ func TestCountHooksAreTestOnly(t *testing.T) {
 						t.Errorf("%s: %s set from something other than opts.%s", fset.Position(x.Pos()), id.Name, id.Name)
 					}
 				}
-				if id.Name == "CountDelay" || id.Name == "SkipCount" {
+				if listQueryHook(id.Name) {
 					t.Errorf("%s: ListQuery.%s set in a literal in non-test code", fset.Position(x.Pos()), id.Name)
 				}
 			}
 			return true
 		})
 	}
-	if sawListQuery != 2 {
-		t.Errorf("found %d ListQuery hook assignments in non-test code, want 2 (the list handler)", sawListQuery)
+	if sawListQuery != 4 {
+		t.Errorf("found %d ListQuery hook assignments in non-test code, want 4 (the list handler)", sawListQuery)
 	}
 }
 
@@ -121,7 +130,7 @@ func TestListQueryCountHooksAreSetOnlyByTheListHandler(t *testing.T) {
 			case *ast.AssignStmt:
 				for i, lhs := range x.Lhs {
 					sel, ok := lhs.(*ast.SelectorExpr)
-					if !ok || (sel.Sel.Name != "CountDelay" && sel.Sel.Name != "SkipCount") {
+					if !ok || !listQueryHook(sel.Sel.Name) {
 						continue
 					}
 					want := strings.ToLower(sel.Sel.Name[:1]) + sel.Sel.Name[1:]
@@ -136,7 +145,7 @@ func TestListQueryCountHooksAreSetOnlyByTheListHandler(t *testing.T) {
 					assigned++
 				}
 			case *ast.KeyValueExpr:
-				if id, ok := x.Key.(*ast.Ident); ok && (id.Name == "CountDelay" || id.Name == "SkipCount") {
+				if id, ok := x.Key.(*ast.Ident); ok && listQueryHook(id.Name) {
 					t.Errorf("%s: %s set in a keyed literal in non-test code", fset.Position(x.Pos()), id.Name)
 				}
 			}
@@ -147,7 +156,7 @@ func TestListQueryCountHooksAreSetOnlyByTheListHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assigned != 2 {
-		t.Errorf("found %d handler copies, want 2 (CountDelay and SkipCount in records_list.go)", assigned)
+	if assigned != 4 {
+		t.Errorf("found %d handler copies, want 4 (CountDelay, SkipCount, CountBudgetOverride, CountParallel in records_list.go)", assigned)
 	}
 }

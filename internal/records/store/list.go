@@ -54,6 +54,12 @@ type ListQuery struct {
 	// internal/server/export_test.go sets.
 	CountDelay time.Duration
 	SkipCount  bool
+	// CountBudgetOverride and CountParallel are test seams too (ADR-006-E2
+	// E2-4 (3e)). CountBudgetOverride > 0 replaces CountBudget in
+	// CountBudgetFor. CountParallel leaves out the count's
+	// max_parallel_workers_per_gather = 0 (arm B, "server settings").
+	CountBudgetOverride time.Duration
+	CountParallel       bool
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -221,14 +227,18 @@ func setTotal(page *ListPage, total int64) {
 // or for a legacy-scan list min(CountBudget, its Timeout), Timeout zero
 // meaning DataFilterTimeout.
 func CountBudgetFor(q ListQuery) time.Duration {
+	budget := CountBudget
+	if q.CountBudgetOverride > 0 {
+		budget = q.CountBudgetOverride
+	}
 	if !q.DataFilter {
-		return CountBudget
+		return budget
 	}
 	d := q.Timeout
 	if d <= 0 {
 		d = DataFilterTimeout
 	}
-	return min(CountBudget, d)
+	return min(budget, d)
 }
 
 // rowWithExtra scans the record columns plus one trailing text column.
