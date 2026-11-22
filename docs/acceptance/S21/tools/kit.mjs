@@ -175,6 +175,15 @@ function report() {
   if (ctl) lines.push(`no-filter control (admin): p50 ${ctl.p50} p95 ${ctl.p95} ms (P3-36's idle host: 73 ms; 1.1x is 80 ms)`);
   const alc = cs.find((c) => c.who === 'Alice' && c.filter === '(none)');
   if (alc) lines.push(`no-filter control (Alice): p50 ${alc.p50} p95 ${alc.p95} ms`);
+  // Run validity (acceptance criterion 1): a quiet host at start and the admin
+  // no-filter control <= 80 ms p95. A void run neither counts nor resets.
+  const hf = join(dir, 'host-check.txt');
+  const host = existsSync(hf) ? (/^host_at_start: (\S+)/m.exec(readFileSync(hf, 'utf8')) || [])[1] : undefined;
+  const why = [];
+  if (host !== 'quiet') why.push(host ? `host ${host} at start (host-check.txt)` : 'no host-check.txt');
+  if (!ctl) why.push('admin no-filter control not measured');
+  else if (!(ctl.p95 <= 80)) why.push(`admin no-filter control p95 ${ctl.p95} ms > 80 ms`);
+  lines.push('', why.length ? `run validity: VOID (${why.join('; ')})` : 'run validity: VALID (quiet host at start, control <= 80 ms)');
   lines.push('', fail.length ? 'kit report: FAIL\n  ' + fail.join('\n  ') : 'kit report: PASS');
   const text = lines.join('\n') + '\n';
   writeFileSync(join(dir, 'p95.txt'), text);

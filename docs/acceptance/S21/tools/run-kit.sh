@@ -61,6 +61,22 @@ psqlf() {
     'PGPASSWORD=$(cat /run/pg_superuser_password) psql -X -U pgadmin -d nava -v ON_ERROR_STOP=1 "$@"' sh "$@"
 }
 
+# Run validity (TICK-1049 acceptance criterion 1): at start, no other
+# nava-it-* / nava-a2gate-* container and no go test / vet / list job on the
+# host. kit.mjs report reads this file and the no-filter control (<= 80 ms).
+{
+  echo "checked_at: $(stamp)"
+  echo "containers: $(docker ps --format '{{.Names}}' | grep -E '^nava-(it|a2gate)-' | tr '\n' ' ')"
+  if command -v powershell.exe >/dev/null 2>&1; then
+    jobs=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | ForEach-Object { \$_.CommandLine }" 2>/dev/null | tr -d '\r' | grep -E '(^|[\\/ "])go(\.exe)?"? +(test|vet|list)( |$)' | grep -v 'nava-a2gate-' | cut -c1-160 || true)
+  else
+    jobs=$(ps -eo args 2>/dev/null | grep -E '^(\S*/)?go (test|vet|list)( |$)' | cut -c1-160 || true)
+  fi
+  echo "go_jobs: $(printf '%s' "$jobs" | tr '\n' ';')"
+} > "$EV/host-check.txt"
+if grep -qE '^(containers|go_jobs): .*[^ ]' "$EV/host-check.txt"; then echo "host_at_start: busy" >> "$EV/host-check.txt"; else echo "host_at_start: quiet" >> "$EV/host-check.txt"; fi
+cat "$EV/host-check.txt"
+
 if [ "${S21_KEEP_STACK:-}" != 1 ]; then
   echo "s21: 1. fresh stack from $(git rev-parse HEAD) ($(stamp))"
   make dev-ca
