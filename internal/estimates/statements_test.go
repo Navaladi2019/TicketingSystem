@@ -23,6 +23,8 @@ func TestEveryStatementButTheListingRunsInATenantTx(t *testing.T) {
 	sql := map[string]string{}
 	var inTenantCalls, execs int
 	var execArgs []string
+	var closure *ast.FuncLit    // the func literal passed last to InTenant
+	var dbCalls []*ast.CallExpr // every Exec/Query/QueryRow in refresh
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.ValueSpec:
@@ -43,8 +45,17 @@ func TestEveryStatementButTheListingRunsInATenantTx(t *testing.T) {
 						switch sel.Sel.Name {
 						case "InTenant":
 							inTenantCalls++
+							if len(m.Args) > 0 {
+								if lit, ok := m.Args[len(m.Args)-1].(*ast.FuncLit); ok {
+									closure = lit
+								}
+							}
 						case "Exec":
 							execs++
+						}
+						switch sel.Sel.Name {
+						case "Exec", "Query", "QueryRow":
+							dbCalls = append(dbCalls, m)
 						}
 					}
 				case *ast.CompositeLit:
@@ -65,6 +76,16 @@ func TestEveryStatementButTheListingRunsInATenantTx(t *testing.T) {
 	if inTenantCalls != 1 || execs != 1 || strings.Join(execArgs, ",") != "refreshSQL,zeroSQL" {
 		t.Errorf("refresh: %d InTenant calls, %d Exec calls, statements %v; want its statements run inside one InTenant callback",
 			inTenantCalls, execs, execArgs)
+	}
+	// Every statement must sit lexically inside the InTenant callback, not on
+	// another connection elsewhere in refresh.
+	if closure == nil {
+		t.Fatal("refresh: no func literal passed as the last argument of InTenant")
+	}
+	for _, c := range dbCalls {
+		if c.Pos() < closure.Pos() || c.End() > closure.End() {
+			t.Errorf("refresh: database call at %s is outside the InTenant callback", fset.Position(c.Pos()))
+		}
 	}
 	for name, s := range sql {
 		if name != "listSQL" && strings.Contains(s, "tenant_identity_binding") {
