@@ -1,0 +1,53 @@
+meta {
+  name: S31.16 The admin publishes in_my_region: read a ticket whose unit is at or below one of mine
+  type: http
+  seq: 16
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick953-s31-{{s31_run}}-acc
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const ADM = bru.getVar('s31_admins');
+  const rules = {
+    format: 2,
+    conditions: [],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'in_my_region', ops: ['read'], when: { under: { of: 'caller' } } },
+    ],
+  };
+  req.setBody({ rules, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s31_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('in_my_region is under caller, read', () => {
+    const p = N.json().rules.policies.find(x => x.name === 'in_my_region');
+    expect(p.ops).to.eql(['read']);
+    expect(p.when).to.eql({ under: { of: 'caller' } });
+  });
+  if (res.getStatus() === 200) bru.setVar('s31_etag', N.header('ETag'));
+}
+
+docs {
+  Two policies: `admins` (read, write for `/admins`) and `in_my_region` (read, `{"under": {"of": "caller"}}`). Nobody else has any access to incidents, so whatever agent-emea and the requesters see below comes through `in_my_region`.
+}

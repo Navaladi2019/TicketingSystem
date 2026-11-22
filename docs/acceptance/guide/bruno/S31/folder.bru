@@ -1,0 +1,8 @@
+meta {
+  name: S31 region
+  seq: 30
+}
+
+docs {
+  Story S31, TICK-946 (kit TICK-953, PLAN-011 P11-20, ADR-010 D7, D8, ADR-010-A2). Part one of two. An access policy `in_my_region` (`{"under": {"of": "caller"}}`) grants read on incidents whose org unit is at or below one of the caller's units. AC1 S31.21 to S31.24, AC2 S31.25 to S31.30, AC5 S31.31 and S31.32 (the unit ids come from `run.sh`, see S31.14), isolation S31.33 and S31.34, then the directory changes of AC3 (S31.36) and AC4 (S31.37, S31.38). Run one group sync, then the folder `S31 region after sync`; `docs/acceptance/S31/run.sh` does all of it. Needs `tools/seed.sh` on a stack whose realm has the S31 directory (tenant A: `/ou/EMEA`, `/ou/EMEA/Germany`, `/ou/APAC`, agent-emea and four requesters). One pass per fresh stack: S31.36 deletes EMEA/Germany. Kit: `docs/acceptance/S31/`.
+}

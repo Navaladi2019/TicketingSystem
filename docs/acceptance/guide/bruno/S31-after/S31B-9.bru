@@ -1,0 +1,40 @@
+meta {
+  name: S31B.9 AC3: once the group sync has run, agent-emea's list has no Germany ticket
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.pollWait();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.poll("S31B.9 AC3: once the group sync has run, agent-emea's list has no Germany ticket", () =>N.json().items.every(i => !JSON.parse(bru.getVar('s31_de_ids')).includes(i.id)), () => {
+    N.status(200);
+    const ids = N.json().items.map(i => i.id);
+    test('none of the s31_de_ids tickets', () => JSON.parse(bru.getVar('s31_de_ids')).forEach(x => expect(ids).to.not.include(x)));
+    test('none of the s31_apac_ids tickets', () => JSON.parse(bru.getVar('s31_apac_ids')).forEach(x => expect(ids).to.not.include(x)));
+    test('total is the number of items (one page, no cursor)', () => {
+      expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+      expect(N.json().total).to.eql(N.json().items.length);
+    });
+    test('still lists at least one EMEA ticket', () => expect(N.json().items.length).to.be.above(0));
+    console.log('S31B.9 total', N.json().total);
+  });
+}
+
+docs {
+  The Germany tickets keep their unit, EMEA/Germany, which the sync tombstoned: it has no closure row, so it is outside every region. The EMEA tickets stay. Repeats until the sync has run (at most 11 minutes, like S5); `run.sh` runs one before this folder, so it passes at once.
+}

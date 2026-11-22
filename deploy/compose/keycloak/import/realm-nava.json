@@ -545,6 +545,99 @@
       ]
     },
     {
+      "username": "agent-emea@tenant-a.test",
+      "email": "agent-emea@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Agent",
+      "lastName": "EMEA",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-agent-emea",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/ou/EMEA"
+      ]
+    },
+    {
+      "username": "requester-emea@tenant-a.test",
+      "email": "requester-emea@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Requester",
+      "lastName": "EMEA",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-requester-emea",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/ou/EMEA",
+        "/t/00000000-0000-4000-8000-0000000000a1/requesters"
+      ]
+    },
+    {
+      "username": "requester-germany@tenant-a.test",
+      "email": "requester-germany@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Requester",
+      "lastName": "Germany",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-requester-germany",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/ou/EMEA/Germany",
+        "/t/00000000-0000-4000-8000-0000000000a1/requesters"
+      ]
+    },
+    {
+      "username": "requester-apac@tenant-a.test",
+      "email": "requester-apac@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Requester",
+      "lastName": "APAC",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-requester-apac",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/ou/APAC",
+        "/t/00000000-0000-4000-8000-0000000000a1/requesters"
+      ]
+    },
+    {
+      "username": "requester-none@tenant-a.test",
+      "email": "requester-none@tenant-a.test",
+      "emailVerified": true,
+      "firstName": "Requester",
+      "lastName": "None",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-requester-none",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/t/00000000-0000-4000-8000-0000000000a1/requesters"
+      ]
+    },
+    {
       "username": "bob@tenant-b.test",
       "email": "bob@tenant-b.test",
       "emailVerified": true,
@@ -598,6 +691,9 @@
               "name": "service-desk"
             },
             {
+              "name": "requesters"
+            },
+            {
               "name": "ou",
               "subGroups": [
                 {
@@ -610,6 +706,19 @@
                 },
                 {
                   "name": "support"
+                },
+                {
+                  "name": "EMEA",
+                  "subGroups": [
+                    {
+                      "name": "Germany",
+                      "subGroups": []
+                    }
+                  ]
+                },
+                {
+                  "name": "APAC",
+                  "subGroups": []
                 }
               ]
             }
@@ -674,6 +783,21 @@
         },
         {
           "username": "auditor@tenant-a.test"
+        },
+        {
+          "username": "agent-emea@tenant-a.test"
+        },
+        {
+          "username": "requester-emea@tenant-a.test"
+        },
+        {
+          "username": "requester-germany@tenant-a.test"
+        },
+        {
+          "username": "requester-apac@tenant-a.test"
+        },
+        {
+          "username": "requester-none@tenant-a.test"
         }
       ]
     },

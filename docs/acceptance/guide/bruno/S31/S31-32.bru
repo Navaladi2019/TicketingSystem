@@ -1,0 +1,56 @@
+meta {
+  name: S31.32 AC5 control: the same policy naming tenant A's EMEA is accepted, then under caller again
+  type: http
+  seq: 32
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick953-s31-{{s31_run}}-own-unit
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const ADM = bru.getVar('s31_admins');
+  const rules = {
+    format: 2,
+    conditions: [],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'in_my_region', ops: ['read'], when: { under: { of: [N.v('s31_a_unit')] } } },
+    ],
+  };
+  req.setBody({ rules, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s31_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('in_my_region lists EMEA', () => expect(N.json().rules.policies.find(x => x.name === 'in_my_region').when).to.eql({ under: { of: [N.v('s31_a_unit')] } }));
+  const back = JSON.parse(JSON.stringify(N.json().rules));
+  back.policies.find(x => x.name === 'in_my_region').when = { under: { of: 'caller' } };
+  const r = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident/access'), method: 'PUT',
+    headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token'), 'Content-Type': 'application/json', 'If-Match': N.header('ETag'),
+      'Idempotency-Key': 'tick953-s31-' + bru.getVar('s31_run') + '-caller-again' },
+    data: { rules: back, masks: [] } });
+  test('under caller republished: 200', () => expect(r.status).to.eql(200));
+  test('in_my_region is under caller again', () => expect(r.data.rules.policies.find(x => x.name === 'in_my_region').when).to.eql({ under: { of: 'caller' } }));
+}
+
+docs {
+  Only the unit's tenant differs from S31.31. The test script publishes `under caller` back at once.
+}

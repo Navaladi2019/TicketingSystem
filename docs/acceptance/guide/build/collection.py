@@ -4931,7 +4931,287 @@ test('the S32.11 masks', () => expect(N.json().masks).to.eql(was.masks));"""),
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, late]
+# --------------------------------------------------------------------------- S31
+S31_USERS = [
+    # (token var, env user var, env password var, label)
+    ("s31_agent_token", "agent_emea_username", "agent_emea_password", "agent-emea@tenant-a (in EMEA)"),
+    ("s31_emea_token", "requester_emea_username", "requester_emea_password", "the requester in EMEA"),
+    ("s31_de_token", "requester_germany_username", "requester_germany_password", "the requester in EMEA/Germany"),
+    ("s31_apac_token", "requester_apac_username", "requester_apac_password", "the requester in APAC"),
+    ("s31_none_token", "requester_none_username", "requester_none_password", "the requester in no unit"),
+]
+
+
+def _s31_common(prefix):
+    """Shared S31 pieces: the incident URL, the missing-record 404 reference
+    request (named with prefix), the byte-identical 404 check and the list
+    helpers."""
+    inc = "{{core_url}}/api/v1/records/incident"
+    missing = inc + "/00000000-0000-4000-8000-00000000dead"
+    no404 = """N.status(404);
+test('problem+json, code not_found, no instance', () => {
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});"""
+    same404 = no404 + "\ntest('body byte-identical to the missing id\\'s 404', () => expect(N.text()).to.eql(bru.getVar('s31_ref404')));"
+    ref404 = req(prefix + " Reference: a record id that does not exist is 404", "GET", missing, auth="s31_agent_token",
+                 desc="The missing-record 404, kept to compare byte for byte with the 404 of a record the caller may not read.",
+                 tests=no404 + "\nbru.setVar('s31_ref404', N.text());")
+    ids = "const ids = N.json().items.map(i => i.id);\n"
+    exact_total = """test('total is the number of items (one page, no cursor)', () => {
+  expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+  expect(N.json().total).to.eql(N.json().items.length);
+});
+"""
+    return inc, ref404, same404, ids, exact_total
+
+
+def _s31_me(name, token, var):
+    """GET /me for an S31 user: keeps the principal id. /me lists groups, not
+    org units (ADR-010 D7 keeps units in org_units), so the unit memberships
+    are shown from the database by run.sh."""
+    t = f"""N.me('{A}');
+bru.setVar('{var}', N.json().user_id);
+test('in no /ou/ group and not in /service-desk or /admins', () => {{
+  expect(N.paths().filter(p => p.startsWith('/ou/'))).to.eql([]);
+  expect(N.paths()).to.not.include('/service-desk');
+  expect(N.paths()).to.not.include('/admins');
+}});"""
+    return req(name, "GET", "{{core_url}}/api/v1/me", auth=token, tests=t)
+
+
+def s31():
+    """Story S31 (TICK-946, kit TICK-953 P11-20): a policy can say "tickets in
+    my region" (ADR-010 D7, D8 as amended by ADR-010-A2). Part one, before the
+    directory change: the region list and single reads (AC1), a ticket with
+    no unit (AC2), another tenant's unit refused (AC5), the isolation rows,
+    then the two directory changes of AC3 and AC4 in Keycloak. The group sync
+    that applies them runs between this folder and `S31 region after sync`
+    (docs/acceptance/S31/run.sh). Needs the realm's S31 directory (tenant A:
+    /ou/EMEA, /ou/EMEA/Germany, /ou/APAC, agent-emea and the four
+    requesters) and tools/seed.sh. One pass per fresh stack: the folder
+    deletes EMEA/Germany in Keycloak."""
+    inc, ref404, same404, ids, exact_total = _s31_common("S31.22")
+    acc = "{{core_url}}/api/v1/entity-types/incident/access"
+    key = lambda k: {"Idempotency-Key": "tick953-s31-{{s31_run}}-" + k}
+    placeholder = {"rules": "set by the pre-request script (built from this stack's group ids)"}
+    has = lambda var: "test('includes %s', () => expect(ids).to.include(bru.getVar('%s')));\n" % (var, var)
+    hasnt = lambda var: "test('leaves out %s', () => expect(ids).to.not.include(bru.getVar('%s')));\n" % (var, var)
+
+    def only_requesters(*vs):
+        return "test('every item was raised by %s', () => N.json().items.forEach(i => expect([%s]).to.include(i.data.requester)));\n" % (
+            " or ".join(vs), ", ".join("bru.getVar('%s')" % v for v in vs))
+
+    # Tenant A's incident access for S31: admins read and write, and
+    # in_my_region reads under `under` (caller, or a list of unit ids).
+    doc = lambda under: LOAD_PRE + """
+const ADM = bru.getVar('s31_admins');
+const rules = {
+  format: 2,
+  conditions: [],
+  policies: [
+    { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+    { name: 'in_my_region', ops: ['read'], when: { under: { of: %s } } },
+  ],
+};
+req.setBody({ rules, masks: [] });
+req.setHeader('If-Match', bru.getVar('s31_etag'));""" % under
+
+    def create(n, tag, requester, var):
+        return req(f"S31.{n} Setup: the admin creates an incident raised by {tag}", "POST", inc, auth="admin_a_token",
+                   headers=key(var), body={"data": {"short_description": "S31 {{s31_run}} raised by " + tag, "requester": "{{%s}}" % requester}},
+                   desc="The admin creates it with `requester` set. The platform stores the requester's primary unit with the ticket (ADR-010 D8); the body cannot name the unit.",
+                   tests="N.status(201);\nbru.setVar('%s', N.json().id);\ntest('requester as sent', () => expect(N.json().data.requester).to.eql(bru.getVar('%s')));" % (var, requester))
+
+    def listed(name, token, *, includes=(), excludes=(), requesters=(), empty=False, desc=""):
+        t = "N.status(200);\n" + ids + "".join(has(v) for v in includes) + "".join(hasnt(v) for v in excludes) + exact_total
+        if requesters:
+            t += only_requesters(*requesters)
+        if empty:
+            t += "test('no incident at all: total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });\n"
+        t += "console.log('%s: total', N.json().total);" % name.split(" ")[0]
+        return req(name, "GET", inc + "?limit=200", auth=token, desc=desc, tests=t)
+
+    items = [
+        token("S31.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+              extra="bru.setVar('s31_run', Math.random().toString(16).slice(2, 10));\nconsole.log('S31 run', bru.getVar('s31_run'));"),
+    ]
+    for i, (tok, u, p, label) in enumerate(S31_USERS, start=2):
+        items.append(token(f"S31.{i} Sign in as {label}", u, p, tok))
+    items += [
+        token("S31.7 Sign in as agent@tenant-b (Bob, tenant B)", "bob_username", "bob_password", "bob_token"),
+        req("S31.8 The admin's admins group", "GET", "{{core_url}}/api/v1/me", auth="admin_a_token",
+            tests=f"""N.me('{A}');
+const g = N.json().group_paths.find(x => x.path === '/admins');
+test('the admin is in /admins', () => expect(g, 'group_paths /admins').to.be.an('object'));
+bru.setVar('s31_admins', g ? g.id : '');"""),
+        _s31_me("S31.9 agent-emea's principal id: in no agent group", "s31_agent_token", "s31_agent"),
+        _s31_me("S31.10 The EMEA requester's principal id", "s31_emea_token", "s31_req_emea"),
+        _s31_me("S31.11 The Germany requester's principal id", "s31_de_token", "s31_req_de"),
+        _s31_me("S31.12 The APAC requester's principal id", "s31_apac_token", "s31_req_apac"),
+        _s31_me("S31.13 The principal id of the requester with no unit", "s31_none_token", "s31_req_none"),
+        req("S31.14 Bob: tenant B resolves", "GET", "{{core_url}}/api/v1/me", auth="bob_token",
+            desc="The org unit ids S31.31 and S31.32 use come from the environment: `run.sh` reads tenant A's `EMEA` and tenant B's `eng/platform` from `org_units` and passes them as `s31_a_unit` and `s31_b_unit` (no API lists org units). By hand, set both in the `local` environment.",
+            tests=f"""N.me('{B}');
+test('the AC5 unit ids are set', () => {{ expect(N.v('s31_a_unit'), 's31_a_unit').to.match(/^[0-9a-f-]{{36}}$/); expect(N.v('s31_b_unit'), 's31_b_unit').to.match(/^[0-9a-f-]{{36}}$/); }});"""),
+        req("S31.15 The admin reads the incident access policy", "GET", acc, auth="admin_a_token",
+            desc="Keeps the ETag for S31.16.",
+            tests="""N.status(200);
+bru.setVar('s31_etag', N.header('ETag'));"""),
+        req("S31.16 The admin publishes in_my_region: read a ticket whose unit is at or below one of mine", "PUT", acc, auth="admin_a_token",
+            headers=key("acc"), body=placeholder, pre=doc("'caller'"),
+            desc="Two policies: `admins` (read, write for `/admins`) and `in_my_region` (read, `{\"under\": {\"of\": \"caller\"}}`). Nobody else has any access to incidents, so whatever agent-emea and the requesters see below comes through `in_my_region`.",
+            tests="""N.status(200);
+test('in_my_region is under caller, read', () => {
+  const p = N.json().rules.policies.find(x => x.name === 'in_my_region');
+  expect(p.ops).to.eql(['read']);
+  expect(p.when).to.eql({ under: { of: 'caller' } });
+});
+if (res.getStatus() === 200) bru.setVar('s31_etag', N.header('ETag'));"""),
+        create(17, "the EMEA requester", "s31_req_emea", "s31_t_emea"),
+        create(18, "the Germany requester", "s31_req_de", "s31_t_de"),
+        create(19, "the APAC requester", "s31_req_apac", "s31_t_apac"),
+        create(20, "the requester with no unit", "s31_req_none", "s31_t_none"),
+        listed("S31.21 AC1: agent-emea lists exactly the EMEA and EMEA/Germany tickets", "s31_agent_token",
+               includes=("s31_t_emea", "s31_t_de"), excludes=("s31_t_apac", "s31_t_none"), requesters=("s31_req_emea", "s31_req_de"),
+               desc="The region is EMEA and every unit below it. `total` is counted under the same rule, so it is the number of listed items."),
+        ref404,
+        req("S31.23 AC1: agent-emea opens the APAC ticket by id: the missing-record 404", "GET", inc + "/{{s31_t_apac}}", auth="s31_agent_token",
+            tests=same404),
+        req("S31.24 AC1: agent-emea opens the Germany ticket by id: 200", "GET", inc + "/{{s31_t_de}}", auth="s31_agent_token",
+            desc="The single read agrees with the list (ADR-010 I5).",
+            tests="N.status(200);\ntest('the Germany ticket', () => expect(N.json().id).to.eql(bru.getVar('s31_t_de')));"),
+        req("S31.25 AC2: agent-emea opens the no-unit ticket by id: the missing-record 404", "GET", inc + "/{{s31_t_none}}", auth="s31_agent_token",
+            tests=same404),
+        listed("S31.26 AC2: the EMEA requester's region: EMEA and Germany, not the no-unit ticket", "s31_emea_token",
+               includes=("s31_t_emea", "s31_t_de"), excludes=("s31_t_apac", "s31_t_none"), requesters=("s31_req_emea", "s31_req_de")),
+        listed("S31.27 AC2: the Germany requester's region: Germany only (a region does not reach up)", "s31_de_token",
+               includes=("s31_t_de",), excludes=("s31_t_emea", "s31_t_apac", "s31_t_none"), requesters=("s31_req_de",)),
+        listed("S31.28 AC2: the APAC requester's region: APAC only", "s31_apac_token",
+               includes=("s31_t_apac",), excludes=("s31_t_emea", "s31_t_de", "s31_t_none"), requesters=("s31_req_apac",)),
+        listed("S31.29 AC2: the requester with no unit sees nothing, not even the ticket they raised", "s31_none_token",
+               excludes=("s31_t_none",), empty=True,
+               desc="A caller with no unit has no region, and a ticket with no unit is in nobody's region."),
+        req("S31.30 AC2: the requester with no unit opens their own ticket: the missing-record 404", "GET", inc + "/{{s31_t_none}}", auth="s31_none_token",
+            tests=same404),
+        req("S31.31 AC5: a policy naming tenant B's org unit is refused: 422", "PUT", acc, auth="admin_a_token",
+            headers=key("foreign"), body=placeholder, pre=doc("[N.v('s31_b_unit')]"),
+            desc="`in_my_region` lists tenant B's `eng/platform` unit. The answer is the same as for a unit id of no tenant, so it says nothing about tenant B. Nothing is published.",
+            tests="""N.problem('invalid_access_policy', 422);
+const errs = (N.json().errors || []).map(e => e.pointer + ' ' + e.rule);
+test('foreign_id at /rules/policies/1/when/under/of/0', () => expect(errs).to.include('/rules/policies/1/when/under/of/0 foreign_id'));
+N.noLeak(N.v('s31_b_unit'));"""),
+        req("S31.32 AC5 control: the same policy naming tenant A's EMEA is accepted, then under caller again", "PUT", acc, auth="admin_a_token",
+            headers=key("own-unit"), body=placeholder, pre=doc("[N.v('s31_a_unit')]"),
+            desc="Only the unit's tenant differs from S31.31. The test script publishes `under caller` back at once.",
+            tests="""N.status(200);
+test('in_my_region lists EMEA', () => expect(N.json().rules.policies.find(x => x.name === 'in_my_region').when).to.eql({ under: { of: [N.v('s31_a_unit')] } }));
+const back = JSON.parse(JSON.stringify(N.json().rules));
+back.policies.find(x => x.name === 'in_my_region').when = { under: { of: 'caller' } };
+const r = await N.send({ url: N.url('{{core_url}}/api/v1/entity-types/incident/access'), method: 'PUT',
+  headers: { Authorization: 'Bearer ' + bru.getVar('admin_a_token'), 'Content-Type': 'application/json', 'If-Match': N.header('ETag'),
+    'Idempotency-Key': 'tick953-s31-' + bru.getVar('s31_run') + '-caller-again' },
+  data: { rules: back, masks: [] } });
+test('under caller republished: 200', () => expect(r.status).to.eql(200));
+test('in_my_region is under caller again', () => expect(r.data.rules.policies.find(x => x.name === 'in_my_region').when).to.eql({ under: { of: 'caller' } }));"""),
+        req("S31.33 Isolation: Bob lists tenant B's incidents: none of tenant A's", "GET", inc + "?limit=200", auth="bob_token",
+            tests="N.status(200);\n" + ids + "".join(hasnt(v) for v in ("s31_t_emea", "s31_t_de", "s31_t_apac", "s31_t_none"))
+            + "N.noLeak(N.v('s31_a_unit'), bru.getVar('s31_run'));"),
+        req("S31.34 Isolation: Bob opens tenant A's EMEA ticket by id: the missing-record 404", "GET", inc + "/{{s31_t_emea}}", auth="bob_token",
+            tests=same404),
+        kc_admin("S31.35 Directory: look up EMEA/Germany, EMEA, APAC and the APAC requester in Keycloak", "GET",
+                 "/users?exact=true&username={{requester_apac_username}}",
+                 desc="Keeps the Keycloak ids S31.36 to S31.38 change. The groups are looked up by path in the test script.",
+                 tests="""test('HTTP 200, one user', () => { expect(res.getStatus()).to.eql(200); expect(N.json()).to.have.length(1); });
+bru.setVar('s31_kc_apac_user', N.json()[0].id);
+for (const [v, p] of [['s31_kc_de', 'ou/EMEA/Germany'], ['s31_kc_emea', 'ou/EMEA'], ['s31_kc_apac', 'ou/APAC']]) {
+  const g = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/group-by-path/t/""" + A + """/' + p),
+    method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
+  test(p + ' found', () => expect(g.status).to.eql(200));
+  bru.setVar(v, g.data.id);
+}"""),
+        kc_admin("S31.36 AC3: the directory admin deletes EMEA/Germany", "DELETE", "/groups/{{s31_kc_de}}",
+                 desc="Keycloak console: Groups › t › tenant A › ou › EMEA › Germany › Delete. The next group sync tombstones the unit.",
+                 tests="test('HTTP 204', () => expect(res.getStatus()).to.eql(204));"),
+        kc_admin("S31.37 AC4: the APAC requester leaves APAC", "DELETE", "/users/{{s31_kc_apac_user}}/groups/{{s31_kc_apac}}",
+                 desc="Keycloak console: Users › requester-apac › Groups › APAC › Leave.",
+                 tests="test('HTTP 204', () => expect(res.getStatus()).to.eql(204));"),
+        kc_admin("S31.38 AC4: the APAC requester joins EMEA", "PUT", "/users/{{s31_kc_apac_user}}/groups/{{s31_kc_emea}}",
+                 desc="Keycloak console: Users › requester-apac › Groups › Join group › EMEA. Now run one group sync (`run.sh` does), then the folder `S31 region after sync`.",
+                 tests="test('HTTP 204', () => expect(res.getStatus()).to.eql(204));\nbru.setVar('change_at', String(Date.now()));\nbru.setVar('poll_n', 0);"),
+    ]
+    return {
+        "dir": "S31", "name": "S31 region",
+        "desc": "Story S31, TICK-946 (kit TICK-953, PLAN-011 P11-20, ADR-010 D7, D8, ADR-010-A2). Part one of two. An access policy `in_my_region` (`{\"under\": {\"of\": \"caller\"}}`) grants read on incidents whose org unit is at or below one of the caller's units. AC1 S31.21 to S31.24, AC2 S31.25 to S31.30, AC5 S31.31 and S31.32 (the unit ids come from `run.sh`, see S31.14), isolation S31.33 and S31.34, then the directory changes of AC3 (S31.36) and AC4 (S31.37, S31.38). Run one group sync, then the folder `S31 region after sync`; `docs/acceptance/S31/run.sh` does all of it. Needs `tools/seed.sh` on a stack whose realm has the S31 directory (tenant A: `/ou/EMEA`, `/ou/EMEA/Germany`, `/ou/APAC`, agent-emea and four requesters). One pass per fresh stack: S31.36 deletes EMEA/Germany. Kit: `docs/acceptance/S31/`.",
+        "items": items,
+    }
+
+
+def s31_after():
+    """Story S31 part two (TICK-953): after the group sync that applied
+    S31.36 to S31.38. S31B.9 waits for that sync (it repeats until agent-emea's
+    list has no Germany ticket, at most 11 minutes, like S5), so the whole
+    collection also runs in one pass. It finds part one's tickets by
+    requester, so it needs no runtime variable from S31."""
+    inc, ref404, same404, ids, exact_total = _s31_common("S31B.10")
+    key = lambda k: {"Idempotency-Key": "tick953-s31b-{{s31b_run}}-" + k}
+    by = lambda var: inc + "?limit=200&filter[requester]={{%s}}" % var
+    keep = lambda var: """N.status(200);
+const items = N.json().items;
+test('at least one ticket', () => expect(items.length).to.be.above(0));
+bru.setVar('%s', JSON.stringify(items.map(i => i.id)));""" % var
+    none_of = lambda var: "test('none of the %s tickets', () => JSON.parse(bru.getVar('%s')).forEach(x => expect(ids).to.not.include(x)));\n" % (var, var)
+    wait = "S31B.9 AC3: once the group sync has run, agent-emea's list has no Germany ticket"
+    me = lambda name, tok, var: req(name, "GET", "{{core_url}}/api/v1/me", auth=tok,
+                                    tests=f"N.me('{A}');\nbru.setVar('{var}', N.json().user_id);")
+    items = [
+        token("S31B.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token",
+              extra="bru.setVar('s31b_run', Math.random().toString(16).slice(2, 10));"),
+        token("S31B.2 Sign in as agent-emea@tenant-a", "agent_emea_username", "agent_emea_password", "s31_agent_token"),
+        token("S31B.3 Sign in as the Germany requester", "requester_germany_username", "requester_germany_password", "s31_de_token"),
+        token("S31B.4 Sign in as the APAC requester (moved to EMEA)", "requester_apac_username", "requester_apac_password", "s31_apac_token"),
+        me("S31B.5 The Germany requester's principal id", "s31_de_token", "s31_req_de"),
+        me("S31B.6 The APAC requester's principal id", "s31_apac_token", "s31_req_apac"),
+        req("S31B.7 The admin finds the Germany requester's tickets", "GET", by("s31_req_de"), auth="admin_a_token",
+            desc="The admin reads every incident (`admins`), so this is every ticket part one raised for them.", tests=keep("s31_de_ids")),
+        req("S31B.8 The admin finds the APAC requester's tickets (raised while in APAC)", "GET", by("s31_req_apac"), auth="admin_a_token",
+            tests=keep("s31_apac_ids")),
+        req(wait, "GET", inc + "?limit=200", auth="s31_agent_token", pre=POLL_PRE,
+            desc="The Germany tickets keep their unit, EMEA/Germany, which the sync tombstoned: it has no closure row, so it is outside every region. The EMEA tickets stay. Repeats until the sync has run (at most 11 minutes, like S5); `run.sh` runs one before this folder, so it passes at once.",
+            tests=poll(wait, "N.json().items.every(i => !JSON.parse(bru.getVar('s31_de_ids')).includes(i.id))",
+                       "N.status(200);\n" + ids + none_of("s31_de_ids") + none_of("s31_apac_ids") + exact_total + """test('still lists at least one EMEA ticket', () => expect(N.json().items.length).to.be.above(0));
+console.log('S31B.9 total', N.json().total);""")),
+        ref404,
+        req("S31B.11 AC3: agent-emea opens a Germany ticket by id: the missing-record 404", "GET",
+            inc + "/{{s31_de_first}}", auth="s31_agent_token",
+            pre="bru.setVar('s31_de_first', JSON.parse(bru.getVar('s31_de_ids'))[0]);", tests=same404),
+        req("S31B.12 AC3: the Germany requester sees nothing now (no unit, no region)", "GET", inc + "?limit=200", auth="s31_de_token",
+            tests="N.status(200);\ntest('total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });"),
+        req("S31B.13 AC4: agent-emea opens the APAC requester's old ticket: still the missing-record 404", "GET",
+            inc + "/{{s31_apac_first}}", auth="s31_agent_token",
+            pre="bru.setVar('s31_apac_first', JSON.parse(bru.getVar('s31_apac_ids'))[0]);",
+            desc="The ticket kept the unit it was raised in (APAC). Moving the requester does not move it.", tests=same404),
+        req("S31B.14 AC4: the admin creates a new ticket raised by the moved requester", "POST", inc, auth="admin_a_token",
+            headers=key("moved"), body={"data": {"short_description": "S31 {{s31b_run}} raised after the move to EMEA", "requester": "{{s31_req_apac}}"}},
+            tests="N.status(201);\nbru.setVar('s31_t_moved', N.json().id);"),
+        req("S31B.15 AC4: agent-emea lists the new ticket, not the old one", "GET", inc + "?limit=200", auth="s31_agent_token",
+            desc="A new ticket takes the requester's unit at creation (now EMEA); the old one stays in APAC.",
+            tests="N.status(200);\n" + ids + "test('includes the new ticket', () => expect(ids).to.include(bru.getVar('s31_t_moved')));\n"
+            + none_of("s31_apac_ids") + exact_total),
+        req("S31B.16 AC4: the moved requester's region: the new ticket, not their old APAC one", "GET", inc + "?limit=200", auth="s31_apac_token",
+            desc="Now in EMEA, they see EMEA's tickets. Their old ticket is in APAC, outside their region.",
+            tests="N.status(200);\n" + ids + "test('includes the new ticket', () => expect(ids).to.include(bru.getVar('s31_t_moved')));\n"
+            + none_of("s31_apac_ids") + exact_total),
+    ]
+    return {
+        "dir": "S31-after", "name": "S31 region after sync",
+        "desc": "Story S31, TICK-946 (kit TICK-953). Part two of two: after the group sync that applied part one's directory changes (`S31 region` S31.36 to S31.38). AC3 S31B.9 to S31B.12: EMEA/Germany is gone from the directory, and its tickets drop out of agent-emea's list. AC4 S31B.13 to S31B.16: the requester moved from APAC to EMEA keeps their old ticket in APAC. S31B.9 waits for the sync (at most 11 minutes, like S5); `docs/acceptance/S31/run.sh` runs one first. Kit: `docs/acceptance/S31/`.",
+        "items": items,
+    }
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, s31, s31_after, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
@@ -4965,6 +5245,21 @@ ENV = [
     ("dave_password", "dev-only-dave"),
     ("carol_username", "carol@two-orgs.test"),
     ("carol_password", "dev-only-carol"),
+    # S31 kit (TICK-953): the realm's region directory in tenant A.
+    ("agent_emea_username", "agent-emea@tenant-a.test"),
+    ("agent_emea_password", "dev-only-agent-emea"),
+    ("requester_emea_username", "requester-emea@tenant-a.test"),
+    ("requester_emea_password", "dev-only-requester-emea"),
+    ("requester_germany_username", "requester-germany@tenant-a.test"),
+    ("requester_germany_password", "dev-only-requester-germany"),
+    ("requester_apac_username", "requester-apac@tenant-a.test"),
+    ("requester_apac_password", "dev-only-requester-apac"),
+    ("requester_none_username", "requester-none@tenant-a.test"),
+    ("requester_none_password", "dev-only-requester-none"),
+    # S31 AC5: org unit ids, read from org_units (no API lists them);
+    # docs/acceptance/S31/run.sh passes them with --env-var.
+    ("s31_a_unit", ""),
+    ("s31_b_unit", ""),
     ("kc_admin_user", "admin"),
     ("kc_admin_password", "dev-only-admin"),
     ("poll_interval_ms", "10000"),
