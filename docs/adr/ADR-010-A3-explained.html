@@ -8,7 +8,7 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
-.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--goodbg);color:var(--good);border:1px solid var(--good)}
 .src{color:var(--muted);font-size:13px}
 table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
 th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
@@ -25,7 +25,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · rev 1 · 2026-11-22</span> <span class="src">ADR-010-A3 · issue TICK-946 (R1 thread) · amends ADR-010-A2 A2-5, A2-6, A2-7, A2-10, A2-R6 · evidence: SP-1f (TICK-1092), TICK-1037 (PR #846)</span>
+<span class="pill">ACCEPTED · 2026-11-22</span> <span class="src">ADR-010-A3 · issue TICK-946 (R1 thread) · amends ADR-010-A2 A2-5, A2-6, A2-7, A2-10, A2-R6 · evidence: SP-1f (TICK-1092), TICK-1037 (PR #846)</span>
 
 <h1>"Tickets in my region": when a ticket type is small, read its tickets instead of visiting every unit</h1>
 
@@ -128,9 +128,9 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>6. What happens next</h2>
 <ol>
-<li>The Technical Architect's critique asked for one change, the ceiling above, which revision 1 adopts. The Security &amp; Multi-Tenancy Reviewer approved, with the risk sentence rewritten. After the Technical Architect's re-check, the Solution Architect gives the verdict; the CTO breaks any tie.</li>
+<li>The Technical Architect's critique asked for one change, the ceiling above, which revision 1 adopts. The Security &amp; Multi-Tenancy Reviewer approved, with the risk sentence rewritten. The Technical Architect then approved revision 1, and the Solution Architect accepted A3 on 2026-11-22. No tie-break was needed.</li>
 <li>On ACCEPTED, the Technical Lead opens one implementation task, starting from the spike's code, with tests that force R and pin its plan.</li>
-<li>The region benchmark (TICK-1037) re-runs with the new rows. A pass closes the open risk and lets story S31 go to acceptance.</li>
+<li>A clean re-run of the region benchmark has since passed under A2 alone (70 ms and 83 ms against 150 ms), so story S31 does not wait for A3. A3 widens the safety margin; after its task lands, the benchmark re-runs with the new rows, and a pass closes the remaining margin risk.</li>
 </ol>
 <p class="src">Glossary: <strong>N̂<sub>e</sub></strong> the tenant's estimated record count of the listed type, refreshed hourly. <strong>U</strong> the units a rule starts from. <strong>S</strong> those units and every unit below them. <strong>Closure table</strong> a table with one row per "unit A is at or above unit B" pair. <strong>Spike</strong> a short, timeboxed experiment.</p>
 
