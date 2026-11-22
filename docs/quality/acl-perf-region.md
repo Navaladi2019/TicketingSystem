@@ -10,7 +10,8 @@ and 10,000?
 
 ## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
 
-**Status: Step 0 open. One clean baseline pass of two; no row scored.**
+**Status: Step 0 open (one clean baseline pass of two). Region rows built
+and smoke-checked; no row scored.**
 R1's baseline stays 146.2 ms until a second clean pass exists. Nothing below
 is a verdict.
 
@@ -41,21 +42,78 @@ NAVA_PERF_ONLY='^agent list, sort=-updated_at$' sh bench/acl-perf/run.sh
 - Raw: `acl-perf-region/tick1037-baseline-pass1.md`, `-pass2.md` (header,
   plans, container samples).
 
-### Harness gap before scoring (Known)
+### Region rows through the handler (method, for review before scoring)
 
-A2-11 scores the **handler** p95 with a region policy, so the probe round
-trip counts. No handler scenario for that exists yet:
+A2-11 scores the **handler** p95 with a region policy. Before TICK-1037 no
+harness measured that: `TestRecordsACLPerf800k` had no org tree or `under`
+policy, `bench/acl-perf/region/main.go` is database-only (and calls the
+deleted `authz.ExpandUnder`), and the crossover `sp1x` is the probe harness.
+TICK-1037 adds the "region:" rows to the P3-36 handler test
+(`internal/server/records_perf_region_integration_test.go`). They run after
+every other row, so the Step 0 baseline row is untouched.
 
-- `TestRecordsACLPerf800k` has no org tree, no `records.org_unit_id`, no
-  closure and no `under` policy.
-- `bench/acl-perf/region/main.go` is database-only, and it calls
-  `authz.ExpandUnder`, which TICK-1034 deleted.
-- The crossover cells' `sp1x` is the probe harness, also not the handler.
+- **Timed request.** `GET /api/v1/records/<type>?sort=-updated_at` through
+  `server.NewHandler`. `ResolveUnder`, the estimate read, the P3 probe
+  (`ChooseListShapes`), the count and the page all run inside it.
+- **Data**, on the P3-36 seed, large tenant. The SQL is ported from the
+  bench harnesses, so the sets are the crossover cells':
+  - the SP-1 tree (10,111 units) in `org_units`, every live path in
+    `org_unit_closure`, and `records.org_unit_id` = the requester's primary
+    branch (5% NULL);
+  - SP-1c's district hot and thin, SP-1e's uniform m = 1,001 / 3,000 /
+    10,000 and sp1x's m = 4,500;
+  - `bench_rare` (500 records, one per random branch) and `bench_conc`
+    (20,000 in district pre 9101). Here they are real entity types made
+    through the API, not copied definitions.
+  - SP-1e's "district mixed" is not built: it isn't one of TICK-1037's sets.
+  - Then `VACUUM FULL`, `ANALYZE`, `pg_prewarm` and `CHECKPOINT`, as in
+    region.sql.
+- **N̂_e and K\*.** One cycle of the TICK-1071 refresher
+  (`estimates.Refresher`), as `nava_worker`. The job lists tenants from
+  `tenant_identity_binding`, which the P3-36 seed leaves empty, so every perf
+  tenant gets a binding first, as a live tenant has. Each row logs |S|, m,
+  N̂_e, K\* and the A2-5 shape.
+- **Policy.** The P3-36 document in format 2, plus a last policy `regional`:
+  `all[member_of regional, under {of: caller}]`, on `ticket`, `bench_rare`
+  and `bench_conc`. Last is TICK-951's worst branch position.
+  ReadBranchBound is 6.
+- **Personas.** Both are in the regional group. Each row puts them in the
+  set's units (`org_unit_members`).
+  - **agents:** the 200 P3-36 agents (desk, mine, regional); the desk branch
+    fills the page.
+  - **count-only:** a principal whose only grant is `regional`. No record
+    names it, and nothing is shared with it.
+- **Paired, 1 client.** Each scored request alternates with its base: the
+  same P3-36 agent and path without the regional group, so `regional` folds
+  away (no `under` leaf, no probe). The base p95 is reported beside the row,
+  for information only. The floor gate and the TICK-1040 container watch are
+  P3-36's.
+- **Pass:** every row, both personas, p95 ≤ 150 ms. Verdict on the worst
+  persona.
 
-QA adds region scenarios to the P3-36 handler test: the bench tree (10,111
-units), the closure, `org_unit_id`, the TICK-1071 refresh after the seed, the
-ten sets plus `bench_rare` / `bench_conc`, and both personas. The scored
-rerun runs in the next window with Step 0's remaining pass.
+**Smoke check, not scored** (2026-11-22, 03:17 to 03:40 UTC; 2 s per row;
+container watch off locally; TICK-1084's `nava-it-*` containers were up).
+Every row ran and returned 200. The sets match the crossover cells:
+
+| Set | \|S\| | m | N̂_e | K\* | Shape |
+| --- | --- | --- | --- | --- | --- |
+| area / district / region / root | 10 / 101 / 1,011 / 10,111 | 220 / 3,379 / 37,930 / 380,048 | 400,000 | 3,613 | C3 / C3 / W0 / W0 |
+| district hot / thin | 101 | 22,996 / 600 | 400,000 | 3,613 | W0 / C3 |
+| uniform m = 1,001 / 3,000 / 4,500 / 10,000 | 101 | as named | 400,000 | 3,613 | C3 / C3 / W0 / W0 |
+| `bench_rare` at root | 10,111 | 500 | 500 | 1,000 | A2-5a (rare, no probe) |
+| `bench_conc`, regions 0–8 | 9,099 | 0 | 20,000 | 1,000 | C3 |
+
+Its latencies (n ≈ 10 per row, contended host) are not recorded as results.
+The scored run is in the CTO's second window: 2026-11-22, 08:00 to 10:00
+UTC. It runs Step 0's remaining pass(es) first, on the unchanged P3-36 row,
+then:
+
+```
+NAVA_PERF_SECONDS=30 NAVA_PERF_ONLY='^region:' sh bench/acl-perf/run.sh
+```
+
+That takes about 2 min of seed, 17 min of region setup and 24 rows × ~35 s.
+The paired table goes to `bin/acl-perf-800k-raw-region.md`.
 
 ## S31 rerun on the real schema (TICK-951 P11-18, 2026-11-21)
 

@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -253,6 +254,12 @@ type perfEnv struct {
 	// composed is set once the large tenant's ACL is the S30 composed
 	// document (TICK-944, records_perf_format2_integration_test.go).
 	composed bool
+	// region is the TICK-1037 region bench state, set by its first scenario
+	// (records_perf_region_integration_test.go).
+	region *perfRegion
+	// pairBase are the tokens whose requests are a paired row's base: their
+	// latencies go to pairLat, not lat (TICK-1037).
+	pairBase map[string]bool
 }
 
 func perfEnvInt(name string, def int) int {
@@ -307,7 +314,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -762,7 +769,7 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 // and not held to 50 ms.
 func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 	t.Helper()
-	return map[string]perfExtra{
+	m := map[string]perfExtra{
 		"create, agent, gapless type": {
 			before: func() {
 				// Through the API (a mode-only publish), so the change is audited.
@@ -779,12 +786,14 @@ func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 		"composed: agent list, filter[state]=new":              {before: e.composedBefore(t)},
 		"composed: single GET, agent":                          {before: e.composedBefore(t)},
 	}
+	maps.Copy(m, e.regionExtras(t)) // TICK-1037
+	return m
 }
 
 func (e *perfEnv) defs(t *testing.T) []perfDef {
 	t.Helper()
 	admin := []string{"admin-large"}
-	return []perfDef{
+	return append([]perfDef{
 		{"agent list by group, default sort, page 1", "list", "large", func() []perfReq { return listReqs(e.agents, "") }, 0},
 		{"agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"requester list (heavy requesters), page 1", "list", "large", func() []perfReq { return listReqs(e.requesters, "") }, 0},
@@ -825,7 +834,7 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"composed: agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"composed: agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
 		{"composed: single GET, agent", "get", "large", func() []perfReq { return e.getReqs(t, e.agents, 5) }, 0},
-	}
+	}, e.regionDefs(t)...) // TICK-1037: last, it rewrites org_unit_id and the ACLs
 }
 
 // ---- measurement -----------------------------------------------------------
@@ -860,6 +869,9 @@ type perfResult struct {
 	// attempt ran; any one voids the attempt, for every scored row
 	// (watched).
 	intruders []string
+	// pairLat are the paired base requests' latencies (TICK-1037): the
+	// same client, interleaved with the scored requests in lat.
+	pairLat []time.Duration
 	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
 	open *perfOpen
 }
@@ -1190,6 +1202,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			defer wg.Done()
 			var (
 				lat     []time.Duration
+				pairLat []time.Duration
 				holds   []perfHold
 				commits []time.Duration
 			)
@@ -1215,6 +1228,12 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				if rec.Code == http.StatusUnprocessableEntity {
 					atomic.AddInt64(&res.timeouts, 1)
 				}
+				// Only a region row pairs: the base tokens are the plain
+				// agents, whose own rows keep every latency in lat.
+				if isRegionRow(sc.name) && e.pairBase[r.token] {
+					pairLat = append(pairLat, el)
+					continue
+				}
 				lat = append(lat, el)
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
 					holds = append(holds, h)
@@ -1229,6 +1248,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			}
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
+			res.pairLat = append(res.pairLat, pairLat...)
 			res.holds = append(res.holds, holds...)
 			res.commits = append(res.commits, commits...)
 			for k, v := range stmts {
@@ -1408,6 +1428,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", out)
+	e.regionReport(t, results, out) // TICK-1037
 	invalid := map[string]bool{}
 	for _, r := range results {
 		switch p95 := pct(r.lat, .95); {
