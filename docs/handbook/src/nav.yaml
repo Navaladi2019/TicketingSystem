@@ -246,6 +246,8 @@
             label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
           - page: adr/adr-010-a2.md
             label: "A2: region leaf on org_unit_closure, capped count, C3 or the walk at K*"
+          - page: adr/adr-010-a3.md
+            label: "A3: a concentrated type under a large subtree reads its own records (R)"
           - page: adr/adr-010-e1.md
             label: "E1: CI-6 SQL text equal up to two named rewrites"
           - page: adr/adr-010-e2.md
