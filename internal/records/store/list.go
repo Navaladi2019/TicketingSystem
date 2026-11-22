@@ -100,7 +100,7 @@ const TotalCap = 1000
 
 // CountBudget is the time a list's count may take before its total is reported
 // unknown instead (ADR-006-A2 A2-2). Not a setting.
-const CountBudget = 200 * time.Millisecond
+const CountBudget = 140 * time.Millisecond
 
 // DataFilterTimeout is the statement timeout of a list with a data filter (TICK-647).
 const DataFilterTimeout = 2 * time.Second

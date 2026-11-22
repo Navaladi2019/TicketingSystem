@@ -182,8 +182,8 @@ func TestBudgetedCount(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := e.log.matching("SAVEPOINT list_count; SET LOCAL statement_timeout = '200'"); n != 1 {
-			t.Errorf("budget SET LOCAL sent %d times, want once with 200 ms", n)
+		if n := e.log.matching("SAVEPOINT list_count; SET LOCAL statement_timeout = '140'"); n != 1 {
+			t.Errorf("budget SET LOCAL sent %d times, want once with 140 ms", n)
 		}
 	})
 
