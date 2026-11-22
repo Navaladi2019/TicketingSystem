@@ -280,7 +280,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	super, base := etCluster(t)
 	pc := base.Config().Copy()
 	pc.ConnConfig.Tracer = perfTracer{}
-	pc.MaxConns = int32(clients + 2) //nolint:gosec // a small env setting
+	pc.MaxConns = int32(clients + 2)
 	pool, err := pgxpool.NewWithConfig(t.Context(), pc)
 	if err != nil {
 		t.Fatal(err)

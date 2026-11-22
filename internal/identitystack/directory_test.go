@@ -28,8 +28,8 @@ import (
 )
 
 var (
-	tenantA = uuid.MustParse("00000000-0000-4000-8000-0000000000a1")
-	tenantB = uuid.MustParse("00000000-0000-4000-8000-0000000000b1")
+	tenantA = uuid.MustParse("00000000-0000-4000-8000-0000000000a1") //nolint:gochecknoglobals // read-only test fixture, set once
+	tenantB = uuid.MustParse("00000000-0000-4000-8000-0000000000b1") //nolint:gochecknoglobals // read-only test fixture, set once
 )
 
 // memRegistry is the Registry a caller would back with RLS reads.
@@ -135,9 +135,9 @@ func newOutbound(t *testing.T) *telemetry.OutboundClient {
 }
 
 var (
-	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}
-	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"}
-	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}
+	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}     //nolint:gochecknoglobals // read-only test fixture, set once
+	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"} //nolint:gochecknoglobals // read-only test fixture, set once
+	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}   //nolint:gochecknoglobals // read-only test fixture, set once
 )
 
 // recordingInvites is an InviteWriter that keeps what InviteUser wrote.

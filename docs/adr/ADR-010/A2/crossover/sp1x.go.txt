@@ -1,0 +1,260 @@
+//go:build perf
+
+// A2-12 (a) crossover cells (TICK-1040, extends SP-1e / TICK-1043), throwaway.
+//   X1: count-only caller, uniform m in {1001, 3000, 4500, 10000}: page C3
+//       forced (uncapped) vs page W0 forced, both with the CC count, no probe.
+//   X2: MC3 at K = K* (c = 1) over all eleven sets, agents and count-only.
+//   X3: R2-B1: a rare type (500 records over all leaves) and a concentrated
+//       type (20,000 records in one district of region 9), count-only, at
+//       growing |S|: MC3 at K* vs rule 1 (N^_e <= K*: W0 page + W0 count).
+package main
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"os"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+)
+
+const xSetupSQL = `
+SET session_replication_role = replica;
+UPDATE records SET org_unit_id = (SELECT id FROM bench_ou WHERE pre = 9103)
+ WHERE tenant_id = $T AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 3338 AND pre < 3439);
+WITH src AS (SELECT id, row_number() OVER () AS rn FROM (SELECT id FROM records WHERE tenant_id = $T AND entity_definition_id = $D
+        AND org_unit_id IN (SELECT id FROM bench_ou WHERE pre >= 4045 AND pre < 9100) ORDER BY md5(id::text || 'u45') LIMIT 4500) z),
+     br AS (SELECT id, row_number() OVER (ORDER BY pre) - 1 AS bn FROM bench_ou WHERE depth = 4 AND pre >= 3338 AND pre < 3439)
+UPDATE records r SET org_unit_id = br.id FROM src, br WHERE r.tenant_id = $T AND r.id = src.id AND br.bn = src.rn % 90;
+DO $$ DECLARE c text; k text; BEGIN
+  SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) INTO c FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'entity_definitions' AND is_generated = 'NEVER';
+  FOREACH k IN ARRAY ARRAY['bench_rare', 'bench_conc'] LOOP
+    DROP TABLE IF EXISTS bench_x_def;
+    CREATE TABLE bench_x_def AS SELECT * FROM entity_definitions WHERE tenant_id = $T AND id = $D;
+    UPDATE bench_x_def SET id = md5(k)::uuid, key = k, number_prefix = upper(substr(k, 7, 4));
+    EXECUTE format('INSERT INTO entity_definitions (%s) SELECT %s FROM bench_x_def ON CONFLICT DO NOTHING', c, c);
+  END LOOP;
+  DROP TABLE bench_x_def;
+END $$;
+DELETE FROM records WHERE tenant_id = $T AND entity_definition_id IN (md5('bench_rare')::uuid, md5('bench_conc')::uuid);
+DROP TABLE IF EXISTS bench_x_src;
+-- rare: 500 records, one per random leaf, random tickets' timestamps
+CREATE UNLOGGED TABLE bench_x_src AS SELECT * FROM records WHERE tenant_id = $T AND entity_definition_id = $D ORDER BY md5(id::text || 'rare') LIMIT 500;
+UPDATE bench_x_src m SET id = gen_random_uuid(), entity_definition_id = md5('bench_rare')::uuid,
+  org_unit_id = (SELECT b.id FROM bench_ou b WHERE b.leaf_no = abs(hashtext(m.id::text || 'r')) % 9000);
+-- conc: 20,000 records in district pre 9101 (region 9), its 90 leaves
+INSERT INTO bench_x_src SELECT * FROM records WHERE tenant_id = $T AND entity_definition_id = $D ORDER BY md5(id::text || 'conc') LIMIT 20000;
+UPDATE bench_x_src m SET id = gen_random_uuid(), entity_definition_id = md5('bench_conc')::uuid,
+  org_unit_id = (SELECT b.id FROM bench_ou b WHERE b.depth = 4 AND b.pre >= 9101 AND b.pre < 9202 ORDER BY b.pre OFFSET (abs(hashtext(m.id::text || 'c')) % 90) LIMIT 1)
+  WHERE m.entity_definition_id = $D;
+DO $$ DECLARE c text; BEGIN
+  SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) INTO c FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'records' AND is_generated = 'NEVER';
+  EXECUTE format('INSERT INTO records (%s) SELECT %s FROM bench_x_src', c, c);
+END $$;
+DROP TABLE bench_x_src;
+SET session_replication_role = origin;
+`
+
+type xset struct {
+	label string
+	u     []string
+	def   string
+	m     int // records of def under U
+	ne    int // records of def in the tenant
+}
+
+func (e *env) xargs(a agent, u []string, def string) []any {
+	args := e.args(a, u)
+	args[1] = def
+	return args
+}
+
+// kstar: clamp(c * sqrt(page * N_e), 1000, 20000), c = 1, page = 51.
+func kstar(ne int) int {
+	c := 1.0
+	if v := os.Getenv("SP1X_C"); v != "" {
+		fmt.Sscan(v, &c)
+	}
+	k := int(c * math.Sqrt(51*float64(ne)))
+	return min(max(k, 1000), 20000)
+}
+
+// modes: "C3" / "W0" forced page with CC count, no probe; "MC3" probe at K*
+// then C3 <= K* / W0 > K* with CC; "R1" rule 1: no probe, W0 page, W0 count;
+// "ref": today's count + C1 page; "base": no region leaf.
+func (e *env) xstmts(mode string, s xset, a agent) []stmt {
+	args := e.xargs(a, s.u, s.def)
+	switch mode {
+	case "base":
+		b := e.xargs(a, nil, s.def)
+		return []stmt{{countSQL(""), countArgs(b)}, {pageSQL("", false), b}}
+	case "ref":
+		return []stmt{{countSQL("C1"), countArgs(args)}, {pageSQL("C1", false), args}}
+	case "R1":
+		return []stmt{{countSQL("W0"), countArgs(args)}, {pageShape("W0"), args}}
+	case "C3", "W0":
+		return []stmt{{countCC(), countArgs(args)}, {pageShape(mode), args}}
+	}
+	k := kstar(s.ne)
+	shape := "W0"
+	if s.m <= k {
+		shape = "C3"
+	}
+	return []stmt{{probeP3e, []any{e.tenant, s.u, k + 1, s.def}}, {countCC(), countArgs(args)}, {pageShape(shape), args}}
+}
+
+func (e *env) xset(ctx context.Context, label string, pres []int, def string) xset {
+	s := xset{label: label, def: def}
+	for _, p := range pres {
+		var id string
+		must(e.super.QueryRow(ctx, "SELECT id::text FROM bench_ou WHERE pre = $1", p).Scan(&id))
+		s.u = append(s.u, id)
+	}
+	var units int
+	must(e.super.QueryRow(ctx, `SELECT (SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = ANY($2::uuid[])),
+		(SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $3 AND org_unit_id IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = ANY($2::uuid[]))),
+		(SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $3)`, e.tenant, s.u, def).Scan(&units, &s.m, &s.ne))
+	s.label = fmt.Sprintf("%s (|S| %d, m %d, N_e %d, K* %d)", label, units, s.m, s.ne, kstar(s.ne))
+	return s
+}
+
+func (e *env) sp1x(ctx context.Context, phase string, only *regexp.Regexp, pairs int) {
+	nobody := agent{id: md5id(ctx, e.super, "sp1e/nobody"), groups: []string{}}
+	var rare, conc string
+	if phase == "x-setup" {
+		e.exec(ctx, strings.NewReplacer("$T", "'"+e.tenant+"'", "$D", "'"+e.def+"'").Replace(xSetupSQL))
+		e.exec(ctx, "VACUUM (ANALYZE) records")
+		e.exec(ctx, "CHECKPOINT")
+		e.w("\n### A2-12 (a) setup done: uniform m = 4500 (district pre 3338), bench_rare (500 over all leaves), bench_conc (20,000 in district pre 9101).\n")
+		return
+	}
+	must(e.super.QueryRow(ctx, "SELECT md5('bench_rare')::uuid::text, md5('bench_conc')::uuid::text").Scan(&rare, &conc))
+	t := e.def
+	// ticket sets: SP-1c/SP-1e's ten plus uniform 4500
+	tk := []xset{
+		e.xset(ctx, "area", []int{3}, t), e.xset(ctx, "district", []int{2}, t), e.xset(ctx, "district thin", []int{2428}, t),
+		e.xset(ctx, "district hot", []int{2327}, t), e.xset(ctx, "region", []int{1}, t), e.xset(ctx, "root", []int{0}, t),
+		e.xset(ctx, "district mixed", []int{2529}, t), e.xset(ctx, "uniform m=1001", []int{3035}, t), e.xset(ctx, "uniform m=3000", []int{3136}, t),
+		e.xset(ctx, "uniform m=4500", []int{3338}, t), e.xset(ctx, "uniform m=10000", []int{3237}, t),
+	}
+	nine := []int{}
+	for r := 0; r < 9; r++ {
+		nine = append(nine, 1+r*1011)
+	}
+	x3 := []xset{
+		e.xset(ctx, "rare, district", []int{2}, rare), e.xset(ctx, "rare, region", []int{1}, rare), e.xset(ctx, "rare, root", []int{0}, rare),
+		e.xset(ctx, "conc, district", []int{2}, conc), e.xset(ctx, "conc, region", []int{1}, conc), e.xset(ctx, "conc, regions 0-8", nine, conc),
+	}
+	switch phase {
+	case "x-check":
+		e.w("\n### A2-12 (a) equality vs reference (today's count + C1 page): page ids in order and capped count\n\n| Set | agents: C3 / W0 / MC3 (of 20) | count-only: C3 W0 MC3 R1 |\n| --- | --- | --- |\n")
+		for _, s := range append(slices.Clone(tk), x3...) {
+			ok := make([]int, 3)
+			if s.def == t {
+				for i := 0; i < 20; i++ {
+					ref, rn := e.result(ctx, e.xstmts("ref", s, e.agents[i]))
+					for j, m := range []string{"C3", "W0", "MC3"} {
+						if got, gn := e.result(ctx, e.xstmts(m, s, e.agents[i])); got == ref && gn == rn {
+							ok[j]++
+						}
+					}
+				}
+			}
+			ref, rn := e.result(ctx, e.xstmts("ref", s, nobody))
+			co := ""
+			for _, m := range []string{"C3", "W0", "MC3", "R1"} {
+				got, gn := e.result(ctx, e.xstmts(m, s, nobody))
+				co += fmt.Sprintf("%v ", got == ref && gn == rn)
+			}
+			e.w("| %s | %d / %d / %d | %s(count %d) |\n", s.label, ok[0], ok[1], ok[2], co, rn)
+			fmt.Printf("check %s %v %s count=%d\n", s.label, ok, co, rn)
+		}
+	case "x-plans":
+		hdr := "\n| case | plan / exec ms | region branch ms | region branch (or statement) plan | records read / removed |\n| --- | --- | --- | --- | --- |\n"
+		e.w("%s", "\n### A2-12 (a) diagnostic EXPLAIN, count-only caller\n"+hdr)
+		for _, s := range x3 {
+			args := e.xargs(nobody, s.u, s.def)
+			for _, c := range []struct {
+				n, sql string
+				a      []any
+			}{
+				{"probe P3e K*", probeP3e, []any{e.tenant, s.u, kstar(s.ne) + 1, s.def}},
+				{"CC count", countCC(), countArgs(args)},
+				{"page C3", pageShape("C3"), args},
+				{"R1 W0 count", countSQL("W0"), countArgs(args)},
+				{"R1 W0 page", pageShape("W0"), args},
+			} {
+				pi := e.explain(ctx, c.n+", "+s.label, c.sql, c.a, false)
+				e.w("| %s, %s | %.2f / %.2f | %.2f | %s | %.0f / %.0f |\n", c.n, s.label, pi.planMS, pi.execMS, pi.region.branchMS, strings.Join(pi.region.shape, " > "), pi.region.read, pi.region.removed)
+			}
+		}
+	case "x-wall":
+		type cell struct {
+			s    xset
+			mode string
+			nob  bool
+		}
+		var cells []cell
+		for _, s := range tk {
+			if strings.HasPrefix(s.label, "uniform") {
+				cells = append(cells, cell{s, "C3", true}, cell{s, "W0", true})
+			}
+		}
+		for _, s := range tk {
+			cells = append(cells, cell{s, "MC3", false}, cell{s, "MC3", true})
+		}
+		for _, s := range x3 {
+			cells = append(cells, cell{s, "MC3", true})
+			if s.ne <= kstar(s.ne) {
+				cells = append(cells, cell{s, "R1", true})
+			}
+		}
+		if !e.gate(ctx, "A2-12 (a) start") {
+			e.w("\n**A2-12 (a): not scored** (floor gate refused). Stopped.\n")
+			return
+		}
+		e.w("\n### A2-12 (a) paired wall-clock, %d pairs per cell (BEGIN, set_config, statements, COMMIT from the client; baseline = same caller, same type, no region leaf)\n\n| Set | mode | caller | base p50 | base p95 | var p50 | var p95 | **median per-pair Δ** | **Δp95** | foreign containers |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n", pairs)
+		for _, c := range cells {
+			cl := "agents"
+			if c.nob {
+				cl = "count-only"
+			}
+			name := c.s.label + " " + c.mode + " " + cl
+			if !only.MatchString(name) {
+				continue
+			}
+			pick := func(i int) agent {
+				if c.nob {
+					return nobody
+				}
+				return e.agents[i%len(e.agents)]
+			}
+			for i := 0; i < 20; i++ {
+				e.wallMS(ctx, e.xstmts("base", c.s, pick(i)))
+				e.wallMS(ctx, e.xstmts(c.mode, c.s, pick(i)))
+			}
+			var bs, vv, ds []float64
+			for i := 0; i < pairs; i++ {
+				a := pick(i)
+				var b, y float64
+				if i%2 == 0 {
+					b = e.wallMS(ctx, e.xstmts("base", c.s, a))
+					y = e.wallMS(ctx, e.xstmts(c.mode, c.s, a))
+				} else {
+					y = e.wallMS(ctx, e.xstmts(c.mode, c.s, a))
+					b = e.wallMS(ctx, e.xstmts("base", c.s, a))
+				}
+				bs, vv, ds = append(bs, b), append(vv, y), append(ds, y-b)
+			}
+			b50, b95, v50, v95 := fpct(bs, .5), fpct(bs, .95), fpct(vv, .5), fpct(vv, .95)
+			f := foreign()
+			fmt.Printf("%s wall %-62s %-4s %-10s base p95=%6.2f med=%+7.2f dp95=%+8.2f\n", time.Now().UTC().Format("15:04:05"), c.s.label, c.mode, cl, b95, fpct(ds, .5), v95-b95)
+			e.w("| %s | %s | %s | %.2f | %.2f | %.2f | %.2f | **%+.2f** | **%+.2f** | `%s` |\n", c.s.label, c.mode, cl, b50, b95, v50, v95, fpct(ds, .5), v95-b95, f)
+		}
+		e.gate(ctx, "A2-12 (a) end")
+	}
+}

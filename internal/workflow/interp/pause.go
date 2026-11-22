@@ -62,14 +62,15 @@ func writeMarker(dir, key string) error {
 	if err != nil {
 		return err
 	}
+	name := tmp.Name()
 	_, werr := tmp.WriteString(key)
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr); err != nil {
-		_ = os.Remove(tmp.Name())
+		_ = os.Remove(name) //nolint:gosec,nolintlint // G703 fires only when an interptest-tagged caller feeds dir; name is the os.CreateTemp file just made in dir
 		return err
 	}
-	if err := os.Rename(tmp.Name(), PauseMarker(dir, key)); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := os.Rename(name, PauseMarker(dir, key)); err != nil { //nolint:gosec,nolintlint // G703 fires only when an interptest-tagged caller feeds dir; name is the os.CreateTemp file just made in dir
+		_ = os.Remove(name) //nolint:gosec,nolintlint // G703 fires only when an interptest-tagged caller feeds dir; name is the os.CreateTemp file just made in dir
 		return err
 	}
 	return nil

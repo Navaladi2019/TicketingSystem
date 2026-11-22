@@ -63,7 +63,7 @@ func newLinkEnv(t *testing.T) *linkEnv {
 	return le
 }
 
-var linkSeq atomic.Int64
+var linkSeq atomic.Int64 //nolint:gochecknoglobals // test-only counter for unique prefixes across tests
 
 // linkKey is a key unique within the process, for idempotency keys.
 func linkKey(prefix string) string {

@@ -17,7 +17,7 @@ import (
 // P3-06 (TICK-344): onboarding seeds incident, request and change at version 1
 // as the real nava_onboard role, through the production seeding code.
 
-var seedWant = []struct{ key, prefix, name string }{
+var seedWant = []struct{ key, prefix, name string }{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	{"change", "CHG", "Change"},
 	{"incident", "INC", "Incident"},
 	{"request", "REQ", "Request"},

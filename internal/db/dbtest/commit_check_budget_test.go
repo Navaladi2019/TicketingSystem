@@ -39,14 +39,14 @@ const (
 
 // budgetNs are the single-subject run lengths, in the order
 // commitCheckBudget's per-call arrays hold them.
-var budgetNs = [3]int{200, 1000, 5000}
+var budgetNs = [3]int{200, 1000, 5000} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // budgetArm is one trigger function on its own table, on one fixture.
 type budgetArm struct {
 	name, table, fn string
 }
 
-var budgetArms = [2]budgetArm{
+var budgetArms = [2]budgetArm{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	{"clause", "p509_clause", "audit_commit_check"},
 	{"ref", "p509_ref", budgetRefFn},
 }

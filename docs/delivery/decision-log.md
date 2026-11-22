@@ -6,8 +6,12 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-22: PLAN-011-A3 drafted: ADR-010-A3 lands after S31 as standalone task PRs into main; one core-dev task, the TICK-1037 rerun as a new issue, and its own handbook task](decisions/2026-11-22-plan-011-a3-adr-010-a3.md)
+- [2026-11-22: PLAN-007-E2 drafted: PR #827 ships at 140 ms provisional; E2 lands in S21 as three tasks; 170 ms ships only on a (3e) PASS](decisions/2026-11-22-plan-007-e2-adr-006-e2.md)
 - [2026-11-21: S32, the missing-policy audit entry stores only a hash of the name; adding the name is a product follow-up](decisions/2026-11-21-s32-policy-ref-audit-hash-only.md)
 - [2026-11-21: S32 has no stack CI case; the fresh-stack acceptance kit is the gate](decisions/2026-11-21-s32-no-stack-ci-case.md)
+- [2026-11-21: PLAN-011-A2 drafted: ADR-010-A2 lands inside S31; N-hat is a new table plus a nava-worker refresh job; groupsync alerts at 10,111 live units and never refuses](decisions/2026-11-21-plan-011-a2-adr-010-a2.md)
+- [2026-11-21: PLAN-007-A2 drafted: ADR-006-A2 lands inside S21 as eight tasks; the A2-8 gate stacks into the compiler PR's branch; PR #796 closed](decisions/2026-11-21-plan-007-a2-adr-006-a2.md)
 - [2026-11-20: S30, a format-1 rule id that is not a valid name is renamed when published; no legacy_id is stored](decisions/2026-11-20-s30-format1-rule-names-renamed-on-publish.md)
 - [2026-11-20: PLAN-007-A1 drafted: ADR-006-A1's watch and spikes land as S21b after S21 merges; A1-6 waits for the R-a trigger](decisions/2026-11-20-plan-007-a1-adr-006-a1.md)
 - [2026-11-19: PLAN-011 folds ADR-010-A1 into S30's existing tasks; no separate plan](decisions/2026-11-19-plan-011-folds-adr-010-a1.md)
@@ -22,6 +26,7 @@ Delivery decisions that change a task's contract, newest first.
 - [2026-11-14: PLAN-008 absorbs ADR-007-A1 without a new story; two new S23 tasks](decisions/2026-11-14-plan-008-adr-007-a1.md)
 - [2026-11-14: PLAN-005-E9 drafted: the number_space_exhausted audit row lands in four S18 tasks](decisions/2026-11-14-plan-005-e9.md)
 - [2026-11-13: TICK-712, the worker reads `groups` through a column grant (TICK-782), not a pipeline-side fork](decisions/2026-11-13-tick-712-worker-groups-column-grant.md)
+- [2026-11-12: PLAN-007 drafted: ADR-006 lands as S21 then S22 after S17 and S11b; S18 waits for S22](decisions/2026-11-12-plan-007-adr-006.md)
 - [2026-11-12: product handbook in docs/handbook/ (TICK-718)](decisions/2026-11-12-handbook.md)
 - [2026-11-11: D-3-29, S11b contract: causation is copied durably into workflow_cause, and the waiting state is tracked on workflow_ref](decisions/2026-11-11-d-3-29-s11b-interface-contract.md)
 - [2026-11-10: TICK-660 ships the numbering_mode API only; the type admin UI control is deferred](decisions/2026-11-10-tick-660-numbering-mode-ui-deferred.md)

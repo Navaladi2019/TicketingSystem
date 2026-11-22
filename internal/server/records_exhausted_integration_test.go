@@ -37,6 +37,7 @@ import (
 // refuse, is full after nine creates.
 const exhKey = "exh"
 
+//nolint:gochecknoglobals // read-only test table shared by the exhaustion tests
 var exhModes = []string{"gaps", "gapless"}
 
 // poolProbe traces a pool's acquires and releases while armed. onRelease,

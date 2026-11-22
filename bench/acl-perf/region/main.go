@@ -48,7 +48,7 @@ const cols = `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_ver
 
 // The disjuncts in ReadBranches order; the region leaf is pf_regional_view
 // with is_regional_mgr folded to true for the caller.
-var disjuncts = []string{
+var disjuncts = []string{ //nolint:gochecknoglobals // read-only test/bench fixture, set once
 	`(true AND (r.assignment_group_id IS NOT NULL AND r.assignment_group_id = ANY($3::uuid[])))`,
 	`((r.requester_id IS NOT NULL AND r.requester_id = $4::uuid))`,
 	`((r.assignee_id IS NOT NULL AND r.assignee_id = $5::uuid))`,
@@ -512,6 +512,6 @@ func main() {
 	fmt.Fprintf(e.out, "BEGIN + set_config + COMMIT: p50 %.2f, p95 %.2f ms\n", p50, p95)
 	fmt.Fprint(e.out, "\n## Plans (EXPLAIN (ANALYZE, BUFFERS, SETTINGS), agent-1, as nava_app in the tenant transaction)\n")
 	e.out.WriteString(plansOut.String())
-	must(os.WriteFile(os.Getenv("SP1_OUT"), []byte(e.out.String()), 0o600))
+	must(os.WriteFile(os.Getenv("SP1_OUT"), []byte(e.out.String()), 0o600)) //nolint:gosec // bench output path is operator-supplied
 	fmt.Println("wrote", os.Getenv("SP1_OUT"))
 }
