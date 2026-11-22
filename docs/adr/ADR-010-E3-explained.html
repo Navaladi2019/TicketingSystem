@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 erratum E3 explained: a one-group service desk agent's ticket list asks "equal to my group", not "in my list of groups"</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-22</span> <span class="src">ADR-010-E3 · issue TICK-1085 · amends ADR-010-E1 (CI-6 rewrites) and the ADR-010 test bullet "format-1 equivalence" · source: TICK-1049 (T-A2-5), TICK-1084 (S21 fix)</span>
+
+<h1>A service desk agent in one group gets their ticket list in 1 ms, not 61 ms, by asking "equal to my group" instead of "in my list of groups"</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) The standard access rule "agents see tickets assigned to their group" is turned into a database query that asks "is the ticket's group <em>in this list</em>?", even when the list has one group, and on PostgreSQL 16 that makes one page of the list read and sort about 20,000 tickets.
+(2) Asking "is the ticket's group <em>equal to this group</em>?" returns exactly the same tickets in about 1 ms, but a test that guards older access rules (CI-6) forbids any change to the query text except two named ones.
+(3) We name a third, narrow allowed change, (c), and keep the test strict about everything else.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>Each ticket type has <em>access rules</em>: who may see which tickets. Every new tenant gets a default rule for incidents: members of the service desk group see tickets whose <em>assignment group</em> is one of their own groups. In the rule this is written <code>caller: my_groups</code> ("the groups of whoever is asking").</p>
+<p>The platform turns each rule into a piece of SQL (the database's query language). For <code>my_groups</code> it always writes <code>assignment_group_id = ANY(list)</code>, "the group is any of these", and passes the caller's groups as a list. Most agents are in exactly one group, so the list has one element.</p>
+<p>The ticket list shows 50 tickets per page, newest first. The database has an <em>index</em> (a pre-sorted lookup table) called <code>records_list_group</code>, sorted by tenant, ticket type, group, then last-updated time. If the query says "group = G", the database can walk that index from the newest ticket of group G and stop after one page. If the query says "group is any of [G]", PostgreSQL 16 does not use the index's order for the sort: it reads all of G's tickets (about 20,000 in the test data), checks the filter on each, then sorts them to find the newest 50.</p>
+
+<figure><svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<text x="20" y="22" font-weight="700">Today: group = ANY([G])</text>
+<rect x="20" y="34" width="300" height="34" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="170" y="56" text-anchor="middle">Read all 20,137 of group G's tickets</text>
+<rect x="20" y="80" width="300" height="34" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="170" y="102" text-anchor="middle">Check priority = 3 on each (9,684 match)</text>
+<rect x="20" y="126" width="300" height="34" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="170" y="148" text-anchor="middle">Sort them, keep the newest 51</text>
+<text x="170" y="190" text-anchor="middle" font-weight="700" fill="#cf222e">61 ms per page</text>
+<text x="380" y="22" font-weight="700">With rewrite (c): group = G</text>
+<rect x="380" y="34" width="300" height="34" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="530" y="56" text-anchor="middle">Walk group G's tickets newest first</text>
+<rect x="380" y="80" width="300" height="34" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="530" y="102" text-anchor="middle">Check priority = 3 as you go (115 read)</text>
+<rect x="380" y="126" width="300" height="34" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="530" y="148" text-anchor="middle">Stop at 51: already in order</text>
+<text x="530" y="190" text-anchor="middle" font-weight="700" fill="#1a7f37">0.99 ms per page</text>
+<line x1="170" y1="68" x2="170" y2="80" stroke="#59636e"/><line x1="170" y1="114" x2="170" y2="126" stroke="#59636e"/>
+<line x1="530" y1="68" x2="530" y2="80" stroke="#59636e"/><line x1="530" y1="114" x2="530" y2="126" stroke="#59636e"/>
+<text x="350" y="230" text-anchor="middle" fill="#59636e">Same tickets, same order, in both. Measured on the TICK-1049 fresh stack, PostgreSQL 16.10.</text>
+</svg><figcaption>One page of the "priority 3" ticket list for an agent in one group.</figcaption></figure>
+
+<p><strong>Why it matters.</strong> The performance target for this list (the "≥ 40% ACL cell": a filter that matches 40% or more of the tickets, under access rules) is 350 ms at the 95th percentile (<em>p95</em>: 95 of 100 requests are at least this fast). On fresh test stacks it measured 361, 429 and 277 ms. The earlier design (ADR-006-A2) assumed one page costs at most 20.6 ms; it cost 49 to 62 ms.</p>
+
+<p><strong>Why the fix is blocked.</strong> When the access-rule format changed (ADR-010), a test called <strong>CI-6</strong> was written to prove that old-format rules still produce the same SQL as before, character for character. Erratum E1 allowed exactly two named exceptions, (a) and (b), and said explicitly that the test must not accept every one-item list turned into "=". The one-line fix fails CI-6 on exactly one case: the default incident rule for a service desk agent.</p>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>Name a third allowed rewrite (c), scoped to <code>my_groups</code> with one group</strong></td><td class="good">Chosen: fixes the cause, keeps CI-6 strict everywhere else.</td></tr>
+<tr><td>Keep "any of" and fix the plan another way (new index, hint)</td><td class="bad">Rejected: the "any of" shape is the cause on PostgreSQL 16; no index fixes it.</td></tr>
+<tr><td>Turn every one-item list into "=", including lists written by admins</td><td class="bad">Rejected: would hide real regressions, which E1 forbids.</td></tr>
+<tr><td>Rewrite the test's reference file from the new code</td><td class="bad">Rejected: the test would then prove nothing.</td></tr>
+<tr><td>Skip the failing case</td><td class="bad">Rejected: it is the one rule every tenant actually runs.</td></tr>
+<tr><td>Also fix agents in two or more groups now</td><td class="bad">Out of scope: measured first in TICK-1084 (see residual risk).</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<dl>
+<dt>E3-1. Rewrite (c) is allowed</dt><dd>A <code>caller: my_groups</code> condition, for a caller in exactly one group, is written as <code>assignment_group_id = $n::uuid</code> with that group's id, instead of <code>= ANY($n::uuid[])</code> with a one-item list. It applies wherever that condition appears: old and new rule format, the page and the count query, and the "not already matched" parts of later branches.</dd>
+<dt>E3-2. Narrow scope</dt><dd>Only <code>my_groups</code>. Only one group. A caller in <strong>no</strong> group still sees nothing through this rule (fail-closed, unchanged). Two or more groups keep "any of". Lists typed into a rule by an admin keep "any of", even with one item. Shares are untouched.</dd>
+<dt>E3-3. The test stays strict</dt><dd>The test's normalizer learns (c) only for that column, that caller and that argument. It records which rewrite applied to which case, and fails if a rewrite shows up anywhere not listed. The reference file is still the old code's output and is not regenerated.</dd>
+<dt>E3-4. Same tickets, proven</dt><dd>"group is not empty and equals G" and "group is not empty and is any of [G]" select exactly the same rows, and so do their negations. Tests: one-group, two-group and zero-group rendering; a real-database comparison that both forms return the same tickets and page cursors; the random Go-versus-SQL checker must show it ran both a one-group and a multi-group caller.</dd>
+<dt>E3-5. The plan test checks the right node</dt><dd>The fast plan still sorts the final 51 rows at the very top (0.85 ms). TICK-1084's "no Sort node" test must check that there is no sort <em>between the group index and the page limit</em>, not that the plan has no sort at all.</dd>
+</dl>
+
+<h2>4. The fix and its order</h2>
+<table><thead><tr><th>Step</th><th>Who</th><th>What</th></tr></thead><tbody>
+<tr><td>1</td><td>Technical Architect</td><td>Critique this erratum.</td></tr>
+<tr><td>2</td><td>Solution Architect</td><td>One revision, verdict, merge this docs PR to <code>main</code>.</td></tr>
+<tr><td>3</td><td>Principal Software Engineer (TICK-1084)</td><td>One PR into <code>TICK-1046/count-budget</code>: the change in the condition planner, (c) in the test's normalizer, the tests in E3-4 and E3-5, and 2- and 3-group timings.</td></tr>
+<tr><td>4</td><td>QA (TICK-1049)</td><td>Rerun the two fresh stacks against 350 ms.</td></tr>
+</tbody></table>
+
+<h2>5. What we accept (residual risk)</h2>
+<table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th><th>When we look again</th></tr></thead><tbody>
+<tr><td>AR-TICK-1085-01</td><td>Medium</td><td>Agents in two or more groups keep the slow "read all and sort" shape. Speed only; who sees what is unchanged. Not yet measured.</td><td>TICK-1084 measures a 2- or 3-group page above 20.6 ms (the Technical Lead then decides a follow-up or an in-PR fix), or a slow-query report names it.</td></tr>
+</tbody></table>
+<p>Nothing about the tenant wall changes: the tenant filter and database row security are untouched, and the change is in one comparison inside the access branch.</p>
+
+<h2>6. The evidence</h2>
+<table><thead><tr><th>What</th><th>Result</th><th>Where</th></tr></thead><tbody>
+<tr><td>Page plan, "any of [G]"</td><td>reads 20,137 rows, sorts, <span class="bad">61.3 ms</span></td><td><code>docs/adr/ADR-010/E3/evidence/page-plan-any.txt</code></td></tr>
+<tr><td>Page plan, "= G"</td><td>reads 115 rows in order, <span class="good">0.99 ms</span></td><td><code>docs/adr/ADR-010/E3/evidence/page-plan-scalar.txt</code></td></tr>
+<tr><td>Kit p95, ≥ 40% ACL cell (quiet host)</td><td><span class="bad">361 ms</span> against 350</td><td><code>docs/adr/ADR-010/E3/evidence/a2-red-3-p95.txt</code></td></tr>
+<tr><td>Single-client and paced probe</td><td>8 clients: p50 227 ms</td><td><code>docs/adr/ADR-010/E3/evidence/probe-after-run.txt</code></td></tr>
+<tr><td>Prototype test run (TICK-1084)</td><td>only CI-6's golden fails, on the one case (c) names: red, to go green with (c) in the normalizer</td><td>TICK-1084 thread</td></tr>
+</tbody></table>
+
+<h2>Glossary</h2>
+<dl>
+<dt>CI-6</dt><dd>The test that old-format access rules still produce the same SQL after conversion to the new format.</dd>
+<dt>Golden</dt><dd>A reference file holding the old code's exact output, which the test compares against.</dd>
+<dt>Rewrites (a), (b), (c)</dt><dd>The only text differences CI-6 accepts: (a) dropping a "true AND", (b) "= me" for <code>caller: self</code>, (c) "= my group" for <code>caller: my_groups</code> with one group.</dd>
+<dt>Fail-closed</dt><dd>When information is missing (here: the caller has no group), the rule grants nothing.</dd>
+<dt>I5</dt><dd>Platform invariant: the SQL filter and the Go access check always agree.</dd>
+</dl>
+
+</main></body></html>
