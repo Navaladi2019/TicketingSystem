@@ -1,0 +1,146 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?limit=1",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "created_at": "2026-08-08T23:51:00Z",
+          "data": {
+            "description": "S21 internal note 119529",
+            "due_at": "2026-12-30T12:00:17Z",
+            "priority": 4,
+            "requester": "01a201b1-4d4f-72ef-bc40-7cbb66ed2114",
+            "short_description": "S21 seed 119529",
+            "state": "in_progress"
+          },
+          "id": "0007315b-eca4-abdf-7a89-443eaf3d0149",
+          "number": "INC0119529",
+          "schema_version": 3,
+          "state": "in_progress",
+          "updated_at": "2026-11-22T05:47:05.971721Z",
+          "version": 2
+        }
+      ],
+      "next_cursor": "dev1.eyJzIjoidXBkYXRlZF9hdCIsImQiOnRydWUsInYiOiIyMDI2LTExLTIyIDA1OjQ3OjA1Ljk3MTcyMSswMCIsImkiOiIwMDA3MzE1Yi1lY2E0LWFiZGYtN2E4OS00NDNlYWYzZDAxNDkifQ.Z3ENgrdPMYQ9JoIGK3jXLZDz5egxXxn5hnnIxyHHXPI",
+      "total": 1000,
+      "total_capped": true,
+      "total_state": "capped"
+    }
+  },
+  "tests": [
+    {
+      "test": "admin filter[priority]=1: p95 580 ms <= 350 ms (p50 370, max 665)",
+      "status": "fail",
+      "error": "expected 580 to be at most 350"
+    },
+    {
+      "test": "admin filter[priority]=3: p95 217 ms <= 150 ms (p50 146, max 285)",
+      "status": "fail",
+      "error": "expected 217 to be at most 150"
+    },
+    {
+      "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 227 ms <= 150 ms (p50 144, max 338)",
+      "status": "fail",
+      "error": "expected 227 to be at most 150"
+    },
+    {
+      "test": "Alice filter[priority]=1: p95 426 ms <= 350 ms (p50 287, max 550)",
+      "status": "fail",
+      "error": "expected 426 to be at most 350"
+    },
+    {
+      "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 264 ms <= 150 ms (p50 176, max 354)",
+      "status": "fail",
+      "error": "expected 264 to be at most 150"
+    },
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 306 requests, p50 370 p95 580 max 665 ms, from 2026-11-22T05:47:16.204Z",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=1: every 200 meets the total contract; total_state {\"capped\":255,\"unknown\":51}, unknown 16.7%",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 577 requests, p50 146 p95 217 max 285 ms, from 2026-11-22T05:47:33.579Z",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":577}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 569 requests, p50 144 p95 227 max 338 ms, from 2026-11-22T05:47:50.780Z",
+      "status": "pass"
+    },
+    {
+      "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":569}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 398 requests, p50 287 p95 426 max 550 ms, from 2026-11-22T05:48:07.985Z",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=1: every 200 meets the total contract; total_state {\"exact\":398}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 561 requests, p50 161 p95 247 max 411 ms, from 2026-11-22T05:48:25.221Z",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3: p95 247 ms <= 350 ms (p50 161, max 411)",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":561}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority]=3: every total_state in [\"capped\",\"unknown\"] (unknown 0%)",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 557 requests, p50 176 p95 264 max 354 ms, from 2026-11-22T05:48:42.423Z",
+      "status": "pass"
+    },
+    {
+      "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":557}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "admin (none) (no filter (control, reported only)): only 200s, 580 requests, p50 85 p95 144 max 280 ms, from 2026-11-22T05:48:59.752Z",
+      "status": "pass"
+    },
+    {
+      "test": "admin (none): every 200 meets the total contract; total_state {\"capped\":580}, unknown 0%",
+      "status": "pass"
+    },
+    {
+      "test": "Alice (none) (no filter (control, reported only)): only 200s, 585 requests, p50 126 p95 181 max 258 ms, from 2026-11-22T05:49:16.950Z",
+      "status": "pass"
+    },
+    {
+      "test": "Alice (none): every 200 meets the total contract; total_state {\"capped\":585}, unknown 0%",
+      "status": "pass"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+Timing is on.
+SET
+Time: 0.257 ms
+SET
+Time: 0.095 ms
+SELECT 1
+Time: 3.527 ms
+DO
+Time: 2.194 ms
+INSERT 0 400000
+Time: 11787.369 ms (00:11.787)
+INSERT 0 1
+Time: 1.101 ms
+INSERT 0 50
+Time: 1.966 ms
+INSERT 0 1
+Time: 0.458 ms
+SET
+Time: 0.217 ms
+RESET
+Time: 0.123 ms
+VACUUM
+Time: 449.955 ms
+              tenant_id               | incidents | priority_1 | service_desk 
+--------------------------------------+-----------+------------+--------------
+ 00000000-0000-4000-8000-0000000000a1 |    400000 |       3955 |        20137
+ 00000000-0000-4000-8000-0000000000b1 |        50 |         50 |            0
+(2 rows)
+
+Time: 143.259 ms
+seed took 13 s

@@ -1,0 +1,578 @@
+{
+  "requests": 19,
+  "tests": 113,
+  "failed": 5,
+  "results": [
+    {
+      "request": "S21-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "priority is an integer, due_at a date-time string",
+          "status": "pass"
+        },
+        {
+          "test": "no property is flagged x-nava-filterable yet (fresh stack)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-5",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code masked_field",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "no items and no total",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-6",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_filterable",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /filter/description",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-7",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_filterable",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /filter/due_at",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-8",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "the next version, compatible, current",
+          "status": "pass"
+        },
+        {
+          "test": "both properties carry the flag",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-9",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_ready",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "index_progress is a whole number from 0 to 99",
+          "status": "pass"
+        },
+        {
+          "test": "no items and no total",
+          "status": "pass"
+        },
+        {
+          "test": "due_at too: 422 field_not_ready with a whole index_progress",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-10",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_ready",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "due_at was not ready before the writes either",
+          "status": "pass"
+        },
+        {
+          "test": "3 creates, each 201",
+          "status": "pass"
+        },
+        {
+          "test": "3 edits, each 200 at version 2",
+          "status": "pass"
+        },
+        {
+          "test": "the moved record: created 201, moved 200",
+          "status": "pass"
+        },
+        {
+          "test": "priority still indexing after the writes",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-11",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "both fields ready after 1631 s and 109 polls",
+          "status": "pass"
+        },
+        {
+          "test": "every answer while indexing was 422 with a whole index_progress from 0 to 99",
+          "status": "pass"
+        },
+        {
+          "test": "index_progress never goes back, and once ready a field stays ready",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-12",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "after the flip: 2 creates 201, 2 edits 200",
+          "status": "pass"
+        },
+        {
+          "test": "exactly the 10 records written on the value, none missed across the flip",
+          "status": "pass"
+        },
+        {
+          "test": "total 10, exact: a short first page (A2-4)",
+          "status": "pass"
+        },
+        {
+          "test": "the record moved off the value while indexing is not listed",
+          "status": "pass"
+        },
+        {
+          "test": "the value it moved to lists exactly it",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-13",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "admin: 3955 records over 20 pages; the JSON scan has 3955",
+          "status": "pass"
+        },
+        {
+          "test": "the same records as the JSON scan (md5 of the sorted ids)",
+          "status": "pass"
+        },
+        {
+          "test": "no record listed twice",
+          "status": "pass"
+        },
+        {
+          "test": "every page meets the total contract (A2-1): this page capped, the limit-200 pages [\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\",\"capped\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+          "status": "pass"
+        },
+        {
+          "test": "every listed record matches the filter",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-14",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "Alice: 203 records over 2 pages; the JSON scan has 203",
+          "status": "pass"
+        },
+        {
+          "test": "the same records as the JSON scan (md5 of the sorted ids)",
+          "status": "pass"
+        },
+        {
+          "test": "no record listed twice",
+          "status": "pass"
+        },
+        {
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\",\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+          "status": "pass"
+        },
+        {
+          "test": "every listed record matches the filter",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-15",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "admin: 555 records over 3 pages; the JSON scan has 555",
+          "status": "pass"
+        },
+        {
+          "test": "the same records as the JSON scan (md5 of the sorted ids)",
+          "status": "pass"
+        },
+        {
+          "test": "no record listed twice",
+          "status": "pass"
+        },
+        {
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\",\"exact\",\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+          "status": "pass"
+        },
+        {
+          "test": "every listed record matches the filter",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-16",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "Alice: 25 records over 1 pages; the JSON scan has 25",
+          "status": "pass"
+        },
+        {
+          "test": "the same records as the JSON scan (md5 of the sorted ids)",
+          "status": "pass"
+        },
+        {
+          "test": "no record listed twice",
+          "status": "pass"
+        },
+        {
+          "test": "every page meets the total contract (A2-1): this page exact, the limit-200 pages [\"exact\"]",
+          "status": "pass"
+        },
+        {
+          "test": "total: exact up to 1,000, capped at 1,000 past it, or null when unknown",
+          "status": "pass"
+        },
+        {
+          "test": "a short result (25 < 50 matches): exact on the first page (A2-4)",
+          "status": "pass"
+        },
+        {
+          "test": "every listed record matches the filter",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-17",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the admin finds the hidden value: total 1",
+          "status": "pass"
+        },
+        {
+          "test": "Alice: no items, total 0, exact (never unknown: A2-4)",
+          "status": "pass"
+        },
+        {
+          "test": "the same status and body as a value that exists nowhere",
+          "status": "pass"
+        },
+        {
+          "test": "the control value she may read: total 1, exact",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-18",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "Bob lists tenant B's 50 priority-1 incidents",
+          "status": "pass"
+        },
+        {
+          "test": "none of them is in tenant A's priority-1 list",
+          "status": "pass"
+        },
+        {
+          "test": "tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S21-19",
+      "status": 200,
+      "tests": [
+        {
+          "test": "admin filter[priority]=1: p95 580 ms <= 350 ms (p50 370, max 665)",
+          "status": "fail",
+          "error": "expected 580 to be at most 350"
+        },
+        {
+          "test": "admin filter[priority]=3: p95 217 ms <= 150 ms (p50 146, max 285)",
+          "status": "fail",
+          "error": "expected 217 to be at most 150"
+        },
+        {
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 227 ms <= 150 ms (p50 144, max 338)",
+          "status": "fail",
+          "error": "expected 227 to be at most 150"
+        },
+        {
+          "test": "Alice filter[priority]=1: p95 426 ms <= 350 ms (p50 287, max 550)",
+          "status": "fail",
+          "error": "expected 426 to be at most 350"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: p95 264 ms <= 150 ms (p50 176, max 354)",
+          "status": "fail",
+          "error": "expected 264 to be at most 150"
+        },
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority]=1 (0.99% of the type, 0.5-2% band, no narrowing ACL): only 200s, 306 requests, p50 370 p95 580 max 665 ms, from 2026-11-22T05:47:16.204Z",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority]=1: every 200 meets the total contract; total_state {\"capped\":255,\"unknown\":51}, unknown 16.7%",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority]=3 (48.07% of the type, >= 40% band, no narrowing ACL): only 200s, 577 requests, p50 146 p95 217 max 285 ms, from 2026-11-22T05:47:33.579Z",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":577}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, no narrowing ACL): only 200s, 569 requests, p50 144 p95 227 max 338 ms, from 2026-11-22T05:47:50.780Z",
+          "status": "pass"
+        },
+        {
+          "test": "admin filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":569}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=1 (0.99% of the type, 0.5-2% band, narrowing ACL): only 200s, 398 requests, p50 287 p95 426 max 550 ms, from 2026-11-22T05:48:07.985Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=1: every 200 meets the total contract; total_state {\"exact\":398}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3 (48.07% of the type, >= 40% band, narrowing ACL): only 200s, 561 requests, p50 161 p95 247 max 411 ms, from 2026-11-22T05:48:25.221Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: p95 247 ms <= 350 ms (p50 161, max 411)",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: every 200 meets the total contract; total_state {\"capped\":561}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority]=3: every total_state in [\"capped\",\"unknown\"] (unknown 0%)",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z (0.14% of the type, below 0.5%, narrowing ACL): only 200s, 557 requests, p50 176 p95 264 max 354 ms, from 2026-11-22T05:48:42.423Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z: every 200 meets the total contract; total_state {\"exact\":557}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "admin (none) (no filter (control, reported only)): only 200s, 580 requests, p50 85 p95 144 max 280 ms, from 2026-11-22T05:48:59.752Z",
+          "status": "pass"
+        },
+        {
+          "test": "admin (none): every 200 meets the total contract; total_state {\"capped\":580}, unknown 0%",
+          "status": "pass"
+        },
+        {
+          "test": "Alice (none) (no filter (control, reported only)): only 200s, 585 requests, p50 126 p95 181 max 258 ms, from 2026-11-22T05:49:16.950Z",
+          "status": "pass"
+        },
+        {
+          "test": "Alice (none): every 200 meets the total contract; total_state {\"capped\":585}, unknown 0%",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}

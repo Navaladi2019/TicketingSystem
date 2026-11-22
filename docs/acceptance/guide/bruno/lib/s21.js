@@ -29,19 +29,38 @@ module.exports = (N, bru) => {
       return { status: r.status, data: r.data, ms: Date.now() - t0 };
     },
     list(v, query) { return T.call(v, 'GET', '/api/v1/records/incident?' + query); },
-    // Every record a filter lists, page by page (limit 200, next_cursor).
+    // The total contract of a list body (ADR-006-A2 A2-1): null when it holds,
+    // else what is wrong. total_state is exact, capped or unknown; total is an
+    // integer for exact (0 to 1,000) and capped (1,000) and null for unknown,
+    // never 0; total_capped is true exactly when capped (absent otherwise).
+    contract(b) {
+      if (!b || typeof b !== 'object') return 'no body';
+      const s = b.total_state;
+      if (!['exact', 'capped', 'unknown'].includes(s)) return `total_state ${JSON.stringify(s)}`;
+      if (!('total' in b)) return 'no total';
+      if (s === 'unknown' && b.total !== null) return `unknown with total ${JSON.stringify(b.total)}`;
+      if (s === 'exact' && !(Number.isInteger(b.total) && b.total >= 0 && b.total <= 1000)) return `exact with total ${JSON.stringify(b.total)}`;
+      if (s === 'capped' && b.total !== 1000) return `capped with total ${JSON.stringify(b.total)}`;
+      if ((b.total_capped === true) !== (s === 'capped')) return `total_capped ${JSON.stringify(b.total_capped)} with ${s}`;
+      return null;
+    },
+    // Every record a filter lists, page by page (limit 200, next_cursor), with
+    // each page's total_state and any page that breaks the total contract.
     async all(v, query) {
-      const items = [];
+      const items = [], states = [], broken = [];
       let cursor = null, first = null, pages = 0;
       do {
         const r = await T.list(v, query + '&limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
         if (r.status !== 200) throw new Error(`list ${query} as ${v}: HTTP ${r.status} ${JSON.stringify(r.data)}`);
         if (!first) first = r.data;
+        const bad = T.contract(r.data);
+        if (bad) broken.push(`page ${pages + 1}: ${bad}`);
+        states.push(r.data.total_state);
         items.push(...r.data.items);
         cursor = r.data.next_cursor;
         pages++;
       } while (cursor);
-      return { items, ids: items.map(i => i.id), first, pages };
+      return { items, ids: items.map(i => i.id), first, pages, states, broken };
     },
     // md5 of the ids sorted as strings and joined by ',' (as tools/expect.sql).
     md5: (ids) => crypto.createHash('md5').update([...ids].sort().join(',')).digest('hex'),
@@ -54,13 +73,16 @@ module.exports = (N, bru) => {
     },
     // One p95 cell: `clients` callers list with `query` for `seconds` (after
     // 2 s of warm-up that is not counted), each paced to rate/clients
-    // requests a second so the tenant stays under its 50/s rate limit.
+    // requests a second so the tenant stays under its 50/s rate limit. Counts
+    // the total_state of every 200 (unknown_share is its percentage of them)
+    // and keeps up to 5 bodies' contract breaks.
     async cell(v, query, seconds, { clients = 8, rate = 40 } = {}) {
       const tok = await T.fresh(v);
       const url = N.url('{{core_url}}/api/v1/records/incident' + (query ? '?' + query : ''));
       const period = (clients * 1000) / rate;
-      const ms = [], statuses = {};
+      const ms = [], statuses = {}, states = {}, broken = [];
       const warm = Date.now() + 2000, end = warm + seconds * 1000;
+      const started_at = new Date(warm).toISOString();
       const client = async () => {
         while (Date.now() < end) {
           const t0 = Date.now();
@@ -69,6 +91,12 @@ module.exports = (N, bru) => {
           if (t0 >= warm) {
             ms.push(t1 - t0);
             statuses[r.status] = (statuses[r.status] || 0) + 1;
+            if (r.status === 200) {
+              const s = r.data && r.data.total_state;
+              states[s] = (states[s] || 0) + 1;
+              const bad = T.contract(r.data);
+              if (bad && broken.length < 5) broken.push(bad);
+            }
           }
           const wait = period - (t1 - t0);
           if (wait > 0) await bru.sleep(wait);
@@ -77,7 +105,10 @@ module.exports = (N, bru) => {
       await Promise.all(Array.from({ length: clients }, client));
       ms.sort((a, b) => a - b);
       const q = (p) => ms.length ? ms[Math.max(0, Math.ceil(p * ms.length) - 1)] : null;
-      return { n: ms.length, rps: Math.round((ms.length / seconds) * 10) / 10, p50: q(0.5), p95: q(0.95), max: ms[ms.length - 1], statuses };
+      const ok = statuses[200] || 0;
+      const unknown_share = ok ? Math.round(((states.unknown || 0) / ok) * 1000) / 10 : null;
+      return { started_at, n: ms.length, rps: Math.round((ms.length / seconds) * 10) / 10, p50: q(0.5), p95: q(0.95), max: ms[ms.length - 1], statuses,
+               total_states: states, unknown_share, broken };
     },
   };
   return T;

@@ -1,0 +1,1 @@
+s21: FAILED: S21 report at 4626a2dc5ca410b8e0fe4fd0189a779374fa1bed; evidence in docs/acceptance/S21/evidence/a2-stack1 (2026-11-22T01:04:47Z)

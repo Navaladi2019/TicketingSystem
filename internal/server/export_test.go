@@ -41,3 +41,9 @@ func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, va
 	}
 	return existsTerm([]listFilter{{prop: "f", op: op, values: values, idx: &pipeline.IndexField{ID: fieldID, ValueType: vt}}}, next), args
 }
+
+// WithCountDelay makes every list count statement sleep d (ADR-006-A2 D-7A2-5).
+func WithCountDelay(d time.Duration) Option { return func(o *options) { o.countDelay = d } }
+
+// WithSkipCount makes lists run no count; their total is unknown.
+func WithSkipCount() Option { return func(o *options) { o.skipCount = true } }

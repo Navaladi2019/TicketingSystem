@@ -1,0 +1,10 @@
+2026-11-22 09:10:25.216 1.576 ms SELECT x.tenant_id, x.id, x.en
+2026-11-22 09:10:25.229 8.958 ms SELECT count(*) FROM (SELECT 1
+2026-11-22 09:10:25.260 1.484 ms SELECT x.tenant_id, x.id, x.en
+2026-11-22 09:10:25.271 8.591 ms SELECT count(*) FROM (SELECT 1
+2026-11-22 09:10:25.300 1.500 ms SELECT x.tenant_id, x.id, x.en
+2026-11-22 09:10:25.312 8.750 ms SELECT count(*) FROM (SELECT 1
+2026-11-22 09:10:25.342 1.549 ms SELECT x.tenant_id, x.id, x.en
+2026-11-22 09:10:25.355 8.798 ms SELECT count(*) FROM (SELECT 1
+2026-11-22 09:10:25.382 1.473 ms SELECT x.tenant_id, x.id, x.en
+2026-11-22 09:10:25.393 8.614 ms SELECT count(*) FROM (SELECT 1

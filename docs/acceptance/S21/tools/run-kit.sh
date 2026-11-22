@@ -14,6 +14,12 @@
 #      It publishes x-nava-filterable on priority and due_at and waits for
 #      the backfill (about 8 minutes a field on the reference machine).
 #   5. tools/verify.sql: the side tables against a JSON scan, both fields.
+#   6. tools/kit.mjs report: the ADR-006-A2 checks on the evidence (total
+#      contract, short results exact, the >= 40% ACL cell's p95 and its share
+#      of `unknown`, the no-filter controls) into evidence/p95.txt. While step
+#      4 runs, rfv_num's and rfv_ts's relpages / relallvisible are sampled
+#      every 10 s into evidence/visibility.txt, so the all-visible share at the
+#      moment S21.19's cells run is on record (A2-7).
 #
 # Usage, from the repository root (Git Bash or any POSIX shell), Docker up,
 # Node.js 22:
@@ -55,8 +61,24 @@ psqlf() {
     'PGPASSWORD=$(cat /run/pg_superuser_password) psql -X -U pgadmin -d nava -v ON_ERROR_STOP=1 "$@"' sh "$@"
 }
 
+# Run validity (TICK-1049 acceptance criterion 1): at start, no other
+# nava-it-* / nava-a2gate-* container and no go test / vet / list job on the
+# host. kit.mjs report reads this file and the no-filter control (<= 80 ms).
+{
+  echo "checked_at: $(stamp)"
+  echo "containers: $(docker ps --format '{{.Names}}' | grep -E '^nava-(it|a2gate)-' | tr '\n' ' ')"
+  if command -v powershell.exe >/dev/null 2>&1; then
+    jobs=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | ForEach-Object { \$_.CommandLine }" 2>/dev/null | tr -d '\r' | grep -E '(^|[\\/ "])go(\.exe)?"? +(test|vet|list)( |$)' | grep -v 'nava-a2gate-' | cut -c1-160 || true)
+  else
+    jobs=$(ps -eo args 2>/dev/null | grep -E '^(\S*/)?go (test|vet|list)( |$)' | cut -c1-160 || true)
+  fi
+  echo "go_jobs: $(printf '%s' "$jobs" | tr '\n' ';')"
+} > "$EV/host-check.txt"
+if grep -qE '^(containers|go_jobs): .*[^ ]' "$EV/host-check.txt"; then echo "host_at_start: busy" >> "$EV/host-check.txt"; else echo "host_at_start: quiet" >> "$EV/host-check.txt"; fi
+cat "$EV/host-check.txt"
+
 if [ "${S21_KEEP_STACK:-}" != 1 ]; then
-  echo "s21: 1. fresh stack from $(git rev-parse --short HEAD) ($(stamp))"
+  echo "s21: 1. fresh stack from $(git rev-parse HEAD) ($(stamp))"
   make dev-ca
   docker compose down -v
   docker compose up -d --build --wait
@@ -77,12 +99,23 @@ while IFS='=' read -r k v; do
 done < "$EV/expect.txt"
 
 echo "s21: 4. Bruno folder S21 ($(stamp))"
+# The visibility map of the side tables while the folder runs (A2-7: broad ACL
+# counts are slow until autovacuum has marked their pages all-visible).
+echo "sampled_at|relname|relpages|relallvisible|n_live_tup|last_autovacuum|last_autoanalyze" > "$EV/visibility.txt"
+( while :; do
+    psqlf -At -c "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), c.relname, c.relpages, c.relallvisible, s.n_live_tup, s.last_autovacuum, s.last_autoanalyze FROM pg_class c JOIN pg_stat_all_tables s ON s.relid = c.oid WHERE c.relname IN ('rfv_num', 'rfv_ts') ORDER BY 2" < /dev/null >> "$EV/visibility.txt" 2>/dev/null || true
+    sleep 10
+  done ) &
+SAMPLER=$!
+trap 'kill "$SAMPLER" 2>/dev/null || true; rm -f "$EV"/.bruno-*.json' EXIT
 # Bruno (Node on Windows) needs Git Bash to convert its report paths.
 # shellcheck disable=SC2086 # envs is a list of words, none with spaces
 env -u MSYS_NO_PATHCONV sh docs/acceptance/guide/tools/api-test.sh S21 \
   --env-var "keycloak_issuer_url=${KEYCLOAK_PUBLIC_URL:-http://localhost:18081}" \
   --env-var "s21_p95_seconds=${S21_P95_SECONDS:-15}" $envs || FAILED="$FAILED S21"
 cp docs/acceptance/guide/reports/S21.json "$EV/.bruno-S21.json"
+kill "$SAMPLER" 2>/dev/null || true
+wait "$SAMPLER" 2>/dev/null || true
 
 echo "s21: 5. side tables against a JSON scan ($(stamp))"
 psqlf < "$T/verify.sql" | tee "$EV/verify.txt"
@@ -96,9 +129,11 @@ fi
 docker compose logs --no-log-prefix nava-worker 2>/dev/null | grep -iE 'fieldindex|field_index|backfill' | tail -n 200 > "$EV/worker-backfill-log.txt" || true
 
 node docs/acceptance/S15/tools/evidence.mjs "$EV" || true
+echo "s21: 6. ADR-006-A2 report: total_state, the >= 40% ACL cell, controls ($(stamp))"
+node "$T/kit.mjs" report "$EV" || FAILED="$FAILED report"
 { git rev-parse HEAD; git status --porcelain --untracked-files=no | sed 's/^/modified: /'; } > "$EV/build.txt"
 docker compose images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep '^nava/' | sort -u >> "$EV/build.txt" || true
 docker info --format 'docker: {{.NCPU}} CPUs, {{.MemTotal}} bytes, {{.ServerVersion}}' >> "$EV/build.txt"
 echo "other containers: $(docker ps --format '{{.Names}}' | grep -v "^$COMPOSE_PROJECT_NAME" | tr '\n' ' ')" >> "$EV/build.txt"
-if [ -n "$FAILED" ]; then echo "s21: FAILED:$FAILED; evidence in $EV ($(stamp))" | tee "$EV/result.txt" >&2; exit 1; fi
-echo "s21: PASS; evidence in $EV ($(stamp))" | tee "$EV/result.txt"
+if [ -n "$FAILED" ]; then echo "s21: FAILED:$FAILED at $(git rev-parse HEAD); evidence in $EV ($(stamp))" | tee "$EV/result.txt" >&2; exit 1; fi
+echo "s21: PASS at $(git rev-parse HEAD); evidence in $EV ($(stamp))" | tee "$EV/result.txt"

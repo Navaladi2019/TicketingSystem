@@ -262,6 +262,21 @@ type perfEnv struct {
 	// composed is set once the large tenant's ACL is the S30 composed
 	// document (TICK-944, records_perf_format2_integration_test.go).
 	composed bool
+	// log and opts built h; handlerWith builds another handler from them
+	// (TICK-1048: the same handler with a test-only list hook).
+	log  *slog.Logger
+	opts []server.Option
+}
+
+// handlerWith is h with extra options appended, over the same pool, tokens
+// and telemetry.
+func (e *perfEnv) handlerWith(t *testing.T, extra ...server.Option) http.Handler {
+	t.Helper()
+	h, err := server.NewHandler(e.log, e.tel, e.tokens, stubPaths{}, append(slices.Clone(e.opts), extra...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func perfEnvInt(name string, def int) int {
@@ -316,7 +331,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, log: log, opts: opts}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {

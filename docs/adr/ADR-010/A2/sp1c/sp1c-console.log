@@ -1,0 +1,106 @@
+floor p50 2.79 p95 5.27 PASS
+04:53:24 area (10 units, 220 tickets) C1                              pairs=  184 base p95= 60.94 var p95=  64.12 dp95=  +3.18
+04:53:47 area (10 units, 220 tickets) W0                              pairs=   86 base p95= 86.69 var p95= 181.09 dp95= +94.39
+04:54:10 area (10 units, 220 tickets) probe only K=250                pairs=  146 base p95= 74.86 var p95=  81.01 dp95=  +6.16
+04:54:33 area (10 units, 220 tickets) M K=250                         pairs=  154 base p95= 65.46 var p95=  85.32 dp95= +19.86
+04:54:57 area (10 units, 220 tickets) probe only K=1000               pairs=  139 base p95=116.78 var p95= 120.19 dp95=  +3.41
+04:55:20 area (10 units, 220 tickets) M K=1000                        pairs=  105 base p95=112.14 var p95= 144.63 dp95= +32.50
+04:55:43 district (101 units, 3379 tickets) C1                        pairs=  104 base p95=144.49 var p95= 146.34 dp95=  +1.85
+04:56:06 district (101 units, 3379 tickets) W0                        pairs=  145 base p95=129.15 var p95= 118.60 dp95= -10.56
+04:56:29 district (101 units, 3379 tickets) probe only K=250          pairs=  161 base p95= 89.89 var p95= 102.91 dp95= +13.02
+04:56:52 district (101 units, 3379 tickets) M K=250                   pairs=  141 base p95= 77.38 var p95= 114.81 dp95= +37.43
+04:57:16 district (101 units, 3379 tickets) probe only K=1000         pairs=  158 base p95= 65.11 var p95=  81.41 dp95= +16.30
+04:57:39 district (101 units, 3379 tickets) M K=1000                  pairs=  140 base p95= 69.08 var p95=  85.35 dp95= +16.27
+04:58:02 district thin (101 units, 600 tickets) C1                    pairs=  192 base p95= 53.27 var p95=  63.82 dp95= +10.55
+04:58:25 district thin (101 units, 600 tickets) W0                    pairs=  221 base p95= 39.27 var p95=  60.95 dp95= +21.68
+04:58:48 district thin (101 units, 600 tickets) probe only K=250      pairs=  267 base p95= 36.77 var p95=  38.15 dp95=  +1.38
+04:59:11 district thin (101 units, 600 tickets) M K=250               pairs=  270 base p95= 29.44 var p95=  50.56 dp95= +21.13
+04:59:34 district thin (101 units, 600 tickets) probe only K=1000     pairs=  310 base p95= 30.72 var p95=  35.18 dp95=  +4.46
+04:59:57 district thin (101 units, 600 tickets) M K=1000              pairs=  266 base p95= 30.38 var p95=  51.18 dp95= +20.80
+05:00:20 district hot (101 units, 22996 tickets) C1                   pairs=  290 base p95= 33.92 var p95=  36.49 dp95=  +2.58
+05:00:44 district hot (101 units, 22996 tickets) W0                   pairs=  115 base p95=129.71 var p95= 152.47 dp95= +22.75
+05:01:07 district hot (101 units, 22996 tickets) probe only K=250     pairs=  116 base p95=153.74 var p95= 192.05 dp95= +38.32
+05:01:30 district hot (101 units, 22996 tickets) M K=250              pairs=   69 base p95=175.05 var p95= 279.76 dp95=+104.71
+05:01:54 district hot (101 units, 22996 tickets) probe only K=1000    pairs=   82 base p95=203.01 var p95= 257.77 dp95= +54.77
+05:02:17 district hot (101 units, 22996 tickets) M K=1000             pairs=  159 base p95=127.72 var p95= 174.67 dp95= +46.96
+05:02:40 region (1011 units, 37930 tickets) C1                        pairs=  277 base p95= 40.85 var p95=  48.15 dp95=  +7.30
+05:03:03 region (1011 units, 37930 tickets) W0                        pairs=  182 base p95= 81.62 var p95= 102.49 dp95= +20.86
+05:03:26 region (1011 units, 37930 tickets) probe only K=250          pairs=  123 base p95=111.65 var p95= 108.95 dp95=  -2.69
+05:03:49 region (1011 units, 37930 tickets) M K=250                   pairs=  192 base p95= 61.27 var p95= 109.93 dp95= +48.67
+05:04:12 region (1011 units, 37930 tickets) probe only K=1000         pairs=  112 base p95=110.94 var p95= 154.48 dp95= +43.53
+05:04:35 region (1011 units, 37930 tickets) M K=1000                  pairs=  129 base p95= 98.74 var p95= 103.76 dp95=  +5.02
+05:04:59 root (10111 units, 380048 tickets) C1                        pairs=  220 base p95= 67.12 var p95=  68.79 dp95=  +1.67
+05:05:22 root (10111 units, 380048 tickets) W0                        pairs=  238 base p95= 47.55 var p95=  50.32 dp95=  +2.77
+05:05:45 root (10111 units, 380048 tickets) probe only K=250          pairs=  179 base p95= 75.75 var p95= 109.13 dp95= +33.38
+05:06:08 root (10111 units, 380048 tickets) M K=250                   pairs=  293 base p95= 49.32 var p95=  55.52 dp95=  +6.20
+05:06:31 root (10111 units, 380048 tickets) probe only K=1000         pairs=  110 base p95=125.06 var p95= 181.17 dp95= +56.11
+05:06:54 root (10111 units, 380048 tickets) M K=1000                  pairs=  138 base p95= 80.80 var p95=  95.21 dp95= +14.41
+EXIT 0
+05:08:03 server area (10 units, 220 tickets) C1                            base p95= 10.61 var p95=  15.33 dp95=  +4.72 med= +3.23
+05:08:42 server area (10 units, 220 tickets) W0                            base p95= 10.81 var p95=  82.29 dp95= +71.48 med=+30.56
+05:08:58 server area (10 units, 220 tickets) probe K=100                   base p95=  8.08 var p95=   8.61 dp95=  +0.53 med= +0.40
+05:09:11 server area (10 units, 220 tickets) probe K=250                   base p95=  6.85 var p95=   7.48 dp95=  +0.63 med= +0.47
+05:09:26 server area (10 units, 220 tickets) probe K=500                   base p95=  7.38 var p95=   7.95 dp95=  +0.57 med= +0.52
+05:09:40 server area (10 units, 220 tickets) probe K=1000                  base p95=  7.30 var p95=   7.86 dp95=  +0.56 med= +0.41
+05:09:54 server area (10 units, 220 tickets) M K=250                       base p95=  6.53 var p95=   9.67 dp95=  +3.14 med= +2.43
+05:10:10 server area (10 units, 220 tickets) M K=1000                      base p95=  6.69 var p95=  10.54 dp95=  +3.86 med= +2.66
+05:10:25 server district (101 units, 3379 tickets) C1                      base p95=  6.61 var p95=  12.05 dp95=  +5.45 med= +2.89
+05:10:40 server district (101 units, 3379 tickets) W0                      base p95=  6.07 var p95=  11.63 dp95=  +5.56 med= +3.50
+05:11:26 server district (101 units, 3379 tickets) probe K=100             base p95= 10.98 var p95=  12.42 dp95=  +1.44 med= +0.77
+05:12:25 server district (101 units, 3379 tickets) probe K=250             base p95= 11.54 var p95=  11.56 dp95=  +0.01 med= +0.44
+05:13:14 server district (101 units, 3379 tickets) probe K=500             base p95=  9.05 var p95=  10.01 dp95=  +0.96 med= +0.63
+05:13:39 server district (101 units, 3379 tickets) probe K=1000            base p95=  8.48 var p95=   9.34 dp95=  +0.86 med= +0.95
+05:14:07 server district (101 units, 3379 tickets) M K=250                 base p95=  9.55 var p95=  19.99 dp95= +10.43 med= +5.92
+05:14:47 server district (101 units, 3379 tickets) M K=1000                base p95= 13.24 var p95=  28.73 dp95= +15.49 med= +7.00
+05:15:23 server district thin (101 units, 600 tickets) C1                  base p95= 13.38 var p95=  41.84 dp95= +28.45 med= +8.61
+05:15:50 server district thin (101 units, 600 tickets) W0                  base p95= 10.75 var p95=  36.77 dp95= +26.02 med= +8.25
+05:16:43 server district thin (101 units, 600 tickets) probe K=100         base p95= 22.33 var p95=  24.15 dp95=  +1.82 med= +1.08
+05:17:10 server district thin (101 units, 600 tickets) probe K=250         base p95=  8.30 var p95=   8.71 dp95=  +0.41 med= +0.70
+05:17:34 server district thin (101 units, 600 tickets) probe K=500         base p95=  9.27 var p95=  10.02 dp95=  +0.74 med= +0.98
+05:17:57 server district thin (101 units, 600 tickets) probe K=1000        base p95=  8.88 var p95=  10.65 dp95=  +1.77 med= +0.83
+05:18:46 server district thin (101 units, 600 tickets) M K=250             base p95=  8.46 var p95=  26.70 dp95= +18.24 med= +7.17
+05:19:19 server district thin (101 units, 600 tickets) M K=1000            base p95= 14.30 var p95=  50.78 dp95= +36.48 med=+11.91
+05:19:43 server district hot (101 units, 22996 tickets) C1                 base p95= 11.34 var p95=  16.16 dp95=  +4.83 med= +2.71
+05:20:08 server district hot (101 units, 22996 tickets) W0                 base p95=  9.25 var p95=  12.38 dp95=  +3.12 med= +1.83
+05:20:33 server district hot (101 units, 22996 tickets) probe K=100        base p95=  8.88 var p95=   9.76 dp95=  +0.87 med= +0.59
+05:21:04 server district hot (101 units, 22996 tickets) probe K=250        base p95=  9.05 var p95=  10.00 dp95=  +0.96 med= +0.66
+05:21:33 server district hot (101 units, 22996 tickets) probe K=500        base p95= 10.49 var p95=  13.23 dp95=  +2.74 med= +0.88
+05:21:57 server district hot (101 units, 22996 tickets) probe K=1000       base p95=  8.41 var p95=   9.69 dp95=  +1.29 med= +0.95
+05:22:31 server district hot (101 units, 22996 tickets) M K=250            base p95= 11.88 var p95=  20.03 dp95=  +8.15 med= +3.30
+05:22:55 server district hot (101 units, 22996 tickets) M K=1000           base p95=  8.71 var p95=  13.32 dp95=  +4.61 med= +2.85
+05:23:15 server region (1011 units, 37930 tickets) C1                      base p95=  7.57 var p95=  10.52 dp95=  +2.94 med= +1.35
+05:23:35 server region (1011 units, 37930 tickets) W0                      base p95=  8.32 var p95=  11.08 dp95=  +2.75 med= +1.56
+05:24:08 server region (1011 units, 37930 tickets) probe K=100             base p95=  8.60 var p95=   9.78 dp95=  +1.18 med= +1.19
+05:24:38 server region (1011 units, 37930 tickets) probe K=250             base p95= 12.39 var p95=  13.91 dp95=  +1.52 med= +1.09
+05:25:01 server region (1011 units, 37930 tickets) probe K=500             base p95=  9.37 var p95=  11.51 dp95=  +2.14 med= +1.57
+05:25:26 server region (1011 units, 37930 tickets) probe K=1000            base p95=  9.60 var p95=  12.74 dp95=  +3.14 med= +2.39
+05:25:54 server region (1011 units, 37930 tickets) M K=250                 base p95=  8.40 var p95=  13.22 dp95=  +4.81 med= +3.30
+05:26:20 server region (1011 units, 37930 tickets) M K=1000                base p95=  8.57 var p95=  14.43 dp95=  +5.86 med= +3.96
+05:26:43 server root (10111 units, 380048 tickets) C1                      base p95=  9.01 var p95=   9.98 dp95=  +0.97 med= +0.39
+05:27:10 server root (10111 units, 380048 tickets) W0                      base p95=  8.56 var p95=   9.43 dp95=  +0.88 med= +0.19
+05:27:31 server root (10111 units, 380048 tickets) probe K=100             base p95=  8.50 var p95=   9.43 dp95=  +0.93 med= +0.55
+05:27:52 server root (10111 units, 380048 tickets) probe K=250             base p95=  8.66 var p95=   9.60 dp95=  +0.94 med= +0.89
+05:28:14 server root (10111 units, 380048 tickets) probe K=500             base p95=  9.24 var p95=  11.37 dp95=  +2.13 med= +1.67
+05:28:40 server root (10111 units, 380048 tickets) probe K=1000            base p95=  8.47 var p95=  14.75 dp95=  +6.28 med= +5.14
+05:29:04 server root (10111 units, 380048 tickets) M K=250                 base p95=  8.80 var p95=  10.33 dp95=  +1.53 med= +1.09
+05:29:28 server root (10111 units, 380048 tickets) M K=1000                base p95=  8.32 var p95=  15.07 dp95=  +6.75 med= +4.96
+EXIT 0
+05:31:21 server area (10 units, 220 tickets) C2                            base p95=  8.80 var p95=  11.25 dp95=  +2.45 med= +1.62
+05:31:44 server area (10 units, 220 tickets) M2 K=500                      base p95=  8.29 var p95=  11.59 dp95=  +3.30 med= +2.32
+05:32:06 server area (10 units, 220 tickets) M2 K=1000                     base p95=  8.97 var p95=  12.30 dp95=  +3.33 med= +2.29
+05:32:28 server district (101 units, 3379 tickets) C2                      base p95=  8.64 var p95=  18.15 dp95=  +9.51 med= +7.09
+05:32:51 server district (101 units, 3379 tickets) M2 K=500                base p95=  8.64 var p95=  18.13 dp95=  +9.48 med= +5.69
+05:33:13 server district (101 units, 3379 tickets) M2 K=1000               base p95=  8.11 var p95=  16.64 dp95=  +8.53 med= +5.70
+05:33:35 server district thin (101 units, 600 tickets) C2                  base p95=  8.34 var p95=  12.65 dp95=  +4.31 med= +2.94
+05:34:19 server district thin (101 units, 600 tickets) M2 K=500            base p95=  8.59 var p95=  28.16 dp95= +19.57 med= +7.81
+05:35:07 server district thin (101 units, 600 tickets) M2 K=1000           base p95= 11.07 var p95=  22.46 dp95= +11.38 med= +4.75
+05:35:50 server district hot (101 units, 22996 tickets) C2                 base p95=  8.73 var p95=  59.62 dp95= +50.89 med=+37.39
+05:36:24 server district hot (101 units, 22996 tickets) M2 K=500           base p95=  8.61 var p95=  13.17 dp95=  +4.56 med= +2.72
+05:36:50 server district hot (101 units, 22996 tickets) M2 K=1000          base p95=  8.53 var p95=  12.87 dp95=  +4.34 med= +2.72
+05:37:39 server region (1011 units, 37930 tickets) C2                      base p95=  8.95 var p95= 131.82 dp95=+122.87 med=+77.13
+05:38:04 server region (1011 units, 37930 tickets) M2 K=500                base p95=  8.18 var p95=  12.75 dp95=  +4.57 med= +3.27
+05:38:30 server region (1011 units, 37930 tickets) M2 K=1000               base p95=  8.70 var p95=  14.18 dp95=  +5.49 med= +3.88
+05:43:09 server root (10111 units, 380048 tickets) C2                      base p95=  9.82 var p95=1194.65 dp95=+1184.84 med=+760.07
+05:43:27 server root (10111 units, 380048 tickets) M2 K=500                base p95=  7.68 var p95=  10.11 dp95=  +2.43 med= +1.69
+05:43:49 server root (10111 units, 380048 tickets) M2 K=1000               base p95=  8.26 var p95=  15.00 dp95=  +6.74 med= +4.43
+EXIT 0

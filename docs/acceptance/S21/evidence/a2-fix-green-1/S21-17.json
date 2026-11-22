@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[due_at]=2026-12-31T23:59:59Z",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [],
+      "next_cursor": null,
+      "total": 0,
+      "total_state": "exact"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "the admin finds the hidden value: total 1",
+      "status": "pass"
+    },
+    {
+      "test": "Alice: no items, total 0, exact (never unknown: A2-4)",
+      "status": "pass"
+    },
+    {
+      "test": "the same status and body as a value that exists nowhere",
+      "status": "pass"
+    },
+    {
+      "test": "the control value she may read: total 1, exact",
+      "status": "pass"
+    }
+  ]
+}

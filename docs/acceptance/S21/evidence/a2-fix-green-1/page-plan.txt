@@ -1,0 +1,63 @@
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=1.540..1.578 rows=51 loops=1)
+   Sort Key: r.updated_at DESC, r.id DESC
+   Sort Method: quicksort  Memory: 43kB
+   Buffers: shared hit=523
+   ->  Nested Loop Left Join (actual time=0.246..1.517 rows=51 loops=1)
+         Buffers: shared hit=523
+         ->  Hash Join (actual time=0.217..1.408 rows=51 loops=1)
+               Hash Cond: ((r.tenant_id = d.tenant_id) AND (r.entity_definition_id = d.id))
+               Buffers: shared hit=421
+               ->  Limit (actual time=0.182..1.349 rows=51 loops=1)
+                     Buffers: shared hit=420
+                     ->  Merge Append (actual time=0.181..1.341 rows=51 loops=1)
+                           Sort Key: r.updated_at DESC, r.id DESC
+                           Buffers: shared hit=420
+                           ->  Limit (actual time=0.147..1.273 rows=51 loops=1)
+                                 Buffers: shared hit=414
+                                 ->  Nested Loop Semi Join (actual time=0.147..1.267 rows=51 loops=1)
+                                       Buffers: shared hit=414
+                                       ->  Index Scan using records_list_group on records r (actual time=0.047..0.448 rows=115 loops=1)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = '59848e89-b3d3-499b-8b1b-e6fe85538ee8'::uuid) AND (assignment_group_id IS NOT NULL) AND (assignment_group_id = '01a20196-9bf1-7396-89ae-e500b976d1c7'::uuid))
+                                             Buffers: shared hit=68
+                                       ->  Index Only Scan using rfv_num_value on rfv_num v (actual time=0.007..0.007 rows=0 loops=115)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a20198-55ea-7c2c-90d2-4ae1f4473c15'::uuid) AND (value = '3'::double precision) AND (record_id = r.id))
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=346
+                           ->  Limit (actual time=0.027..0.051 rows=0 loops=1)
+                                 Buffers: shared hit=3
+                                 ->  Nested Loop Semi Join (actual time=0.027..0.051 rows=0 loops=1)
+                                       Buffers: shared hit=3
+                                       ->  Index Scan using records_list_requester on records r_1 (actual time=0.027..0.027 rows=0 loops=1)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = '59848e89-b3d3-499b-8b1b-e6fe85538ee8'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '01a20196-9be2-7ce1-a35a-3f7bb3833f5a'::uuid))
+                                             Filter: ((assignment_group_id IS NULL) OR (assignment_group_id <> '01a20196-9bf1-7396-89ae-e500b976d1c7'::uuid))
+                                             Buffers: shared hit=3
+                                       ->  Index Only Scan using rfv_num_value on rfv_num v_1 (never executed)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a20198-55ea-7c2c-90d2-4ae1f4473c15'::uuid) AND (value = '3'::double precision) AND (record_id = r_1.id))
+                                             Heap Fetches: 0
+                           ->  Limit (actual time=0.006..0.007 rows=0 loops=1)
+                                 Buffers: shared hit=3
+                                 ->  Nested Loop Semi Join (actual time=0.006..0.007 rows=0 loops=1)
+                                       Buffers: shared hit=3
+                                       ->  Index Scan using records_list_requester on records r_2 (actual time=0.006..0.006 rows=0 loops=1)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (entity_definition_id = '59848e89-b3d3-499b-8b1b-e6fe85538ee8'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '01a20196-9be2-7ce1-a35a-3f7bb3833f5a'::uuid))
+                                             Filter: ((state = ANY ('{new}'::text[])) AND ((assignment_group_id IS NULL) OR (assignment_group_id <> '01a20196-9bf1-7396-89ae-e500b976d1c7'::uuid)) AND ((requester_id IS NULL) OR (requester_id <> '01a20196-9be2-7ce1-a35a-3f7bb3833f5a'::uuid)))
+                                             Buffers: shared hit=3
+                                       ->  Index Only Scan using rfv_num_value on rfv_num v_2 (never executed)
+                                             Index Cond: ((tenant_id = '00000000-0000-4000-8000-0000000000a1'::uuid) AND (field_id = '01a20198-55ea-7c2c-90d2-4ae1f4473c15'::uuid) AND (value = '3'::double precision) AND (record_id = r_2.id))
+                                             Heap Fetches: 0
+               ->  Hash (actual time=0.015..0.016 rows=6 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on entity_definitions d (actual time=0.008..0.009 rows=6 loops=1)
+                           Buffers: shared hit=1
+         ->  Index Scan using groups_live_key on groups g (actual time=0.001..0.001 rows=1 loops=51)
+               Index Cond: ((tenant_id = r.tenant_id) AND (id = r.assignment_group_id))
+               Buffers: shared hit=102
+ Planning:
+   Buffers: shared hit=705 read=5
+ Planning Time: 3.346 ms
+ Execution Time: 1.805 ms
+(59 rows)
+

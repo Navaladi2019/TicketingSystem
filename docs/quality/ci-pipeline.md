@@ -291,8 +291,9 @@ production files never do (TICK-153 O1).
 
 Four kinds of group run at once (TICK-153 O3, TICK-1021): dbtest's top-level
 tests, dealt round-robin over the shard clusters, one `go test -run` each; each
-`NAVA_IT_SOLO` package (default `./internal/server`) alone on a cluster of its
-own (`[solo-server]`); the other packages that use the shared cluster
+`NAVA_IT_SOLO` package (default `./internal/server`) as `NAVA_IT_SOLO_SHARDS`
+(default 2) `go test -run` shards, its top-level tests dealt round-robin, each
+shard on a cluster of its own (`[solo-server-1]`, `[solo-server-2]`); the other packages that use the shared cluster
 (`pooltest`, `tenancy`, `records/pipeline` and the rest, `-p 1`, since they
 create the same role); and the packages that use none (`health`, which starts
 its own container). A solo package must not need the PgBouncers, which front
@@ -310,6 +311,18 @@ PR #802): `[solo-server]` 293 s, the shared group 309 s, dbtest shards 87 to
 shards ran every one of them. Extra arguments (`ARGS=-run ...`) run every
 package one after another on the shared cluster, as before.
 
+**Why `internal/server` is sharded (TICK-1102).** One process of the package
+took 277 s on run 45024439126 attempt 1 and passed 480 s with 353 of 591 tests
+done on attempt 2, same head (`8dd60760`): the runner's 2x swing was larger
+than the headroom under the 8m `-timeout`, and the panic landed on whichever
+test was running. No new slow test caused it. Two shards, each with its own
+8m, halve the package time without raising any limit; the two slowest tests
+(`TestOneGroupACLOnTheTICK1049Shape`, 31 to 57 s, the CI gate for TICK-1084,
+and `TestPublishFieldIndexRefusalsWriteNothing`) fall on different shards.
+After the run the script fails unless the shards ran every top-level test
+exactly once, and logs each shard's package time against the timeout
+(`solo-server-1: package time <seconds>s of 8m`).
+
 **Integration timeout and the log (TICK-225).** Every `go test` in the script
 runs with `-timeout 8m` (6m until TICK-1021: `internal/server` took 348 s on
 run 44760743332, 12 s from the panic), against the job's `timeout-minutes: 15`;
@@ -321,7 +334,7 @@ times the need and still ends, dump printed, before GitHub cancels the step at
 cancelled first and the log was empty (PR #113, run 40276586007). A later
 `-timeout` in `ARGS` overrides it. Each group's output streams to the log as
 it arrives, every line prefixed with the group (`[dbtest-1]`, `[shared]`,
-`[own]`, `[solo-server]`, by `tools/ci/testlog`), so even a cancelled step shows it; at the end
+`[own]`, `[solo-server-1]`, by `tools/ci/testlog`), so even a cancelled step shows it; at the end
 suiteran repeats, per group, the package results and the output of every
 failed test, then the `dbtest: N of M` check and the failed-group summary.
 

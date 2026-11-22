@@ -523,6 +523,8 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
 		}
 		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
+		lq.BudgetCount = pl.hasIndexFilter() || pl.hasLegacyScan()
+		lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
 		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
 		if err == nil && pl.hasIndexFilter() {
