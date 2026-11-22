@@ -260,6 +260,7 @@ func TestCountBudgetNoCountOnRefusedRequest(t *testing.T) {
 	// Control: alpha, beta, gamma match and limit=2 leaves a next page, so the
 	// shortcut does not apply and exactly one budgeted count runs.
 	trace.reset()
+	// Exact (TICK-1107): 3 matches at limit=2; the count runs over that few rows, far inside CountBudget.
 	p := c.mustList(t, "user-a", "asset", "limit=2&filter[name][in]=alpha,beta,gamma")
 	if n, sp := trace.counts(); n != 1 || sp != 1 {
 		t.Errorf("control: %d count statements, %d savepoints; want 1 and 1 (is the trace live?)", n, sp)
@@ -417,9 +418,12 @@ func TestCountBudgetACLDeniedBroadValueLooksAbsent(t *testing.T) {
 	}
 	c, trace := e.tracedEnv(t, nil)
 
-	// Control: the records are real and readable by someone.
-	if p := c.mustList(t, "admin-a", "asset", "limit=10&filter[name]=hot"); p.State != "capped" || p.Total != totalCap {
-		t.Fatalf("control: admin sees %q total %d, want capped %d", p.State, p.Total, totalCap)
+	// Control: the records are real and readable by someone. The full page
+	// proves it; the admin's count of 20,000 matches runs under CountBudget, so
+	// a loaded runner may answer unknown instead of capped (TICK-1107).
+	c.cappedOrUnknown(t, "control: admin", "admin-a", "asset", "limit=10&filter[name]=hot", 10)
+	if t.Failed() {
+		t.FailNow()
 	}
 
 	type answer struct {

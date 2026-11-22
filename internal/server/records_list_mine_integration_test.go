@@ -407,6 +407,7 @@ func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
 		t.Fatal(err)
 	}
 	released = true
+	// Exact (TICK-1107): 1 incident at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
 	if p := e.mustList(t, "user-a", "incident", "filter[priority]=1"); p.Total != 1 {
 		t.Errorf("branched list after the timeout: total %d, want 1", p.Total)
 	}

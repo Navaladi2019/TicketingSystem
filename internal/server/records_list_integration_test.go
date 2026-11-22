@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,9 +28,11 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
@@ -65,6 +69,35 @@ func (e *etEnv) mustList(t *testing.T, token, entity, query string) listPage {
 	rec, p := e.list(t, token, entity, query)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list %s ?%s = %d: %s", token, query, rec.Code, rec.Body)
+	}
+	return p
+}
+
+// cappedOrUnknown asserts a budgeted (data-filter) list over more than
+// totalCap matches: a full page of items with a next cursor, and either the
+// capped total (1000, total_capped true, "capped") or, when the count missed
+// CountBudget on a loaded runner, "total": null with "unknown" and no
+// total_capped (ADR-006-A2 A2-5). Anything else fails, an exact total
+// included. Pair it with a budget-free check that the cap holds (TICK-1107).
+func (e *etEnv) cappedOrUnknown(t *testing.T, name, token, entity, query string, items int) listPage {
+	t.Helper()
+	rec, p := e.list(t, token, entity, query)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s = %d: %s", name, rec.Code, rec.Body)
+	}
+	var raw struct {
+		Total json.RawMessage `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case len(p.Items) != items || p.Next == nil:
+		t.Errorf("%s: %d items, next %v; want a full page of %d and a next cursor", name, len(p.Items), p.Next, items)
+	case p.State == "capped" && p.Total == totalCap && p.Capped != nil && *p.Capped:
+	case p.State == "unknown" && string(raw.Total) == "null" && p.Capped == nil:
+	default:
+		t.Errorf("%s: total %s capped %v state %q; want %d capped, or null unknown", name, raw.Total, p.Capped, p.State, totalCap)
 	}
 	return p
 }
@@ -180,6 +213,7 @@ func TestListRecordsHidesUnreadableFromPageAndTotal(t *testing.T) {
 	e.publishACL(t, e.a.id, "ticket",
 		authz.Rule{ID: "req", Ops: []string{authz.OpRead}, Who: authz.Subject{Requester: true}},
 		authz.Rule{ID: "admins", Ops: []string{authz.OpRead, authz.OpWrite}, Who: authz.Subject{Users: []uuid.UUID{e.a.admin.PrincipalID}}})
+	// Exact (TICK-1107): 2 records; only limit=1 counts, and it has no data filter; the count runs over that few rows, far inside CountBudget.
 	for _, q := range []string{"", "limit=1", "filter[state]=new", "sort=updated_at", "filter[short_description]=private"} {
 		p := e.mustList(t, "user-a", "ticket", q)
 		if ids(p.Items)[secret.ID] {
@@ -578,7 +612,7 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 	e.serviceDeskACL(t, "ticket")
 	user := e.a.user.PrincipalID
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{}, pipeline.PoolRunner{Pool: e.pool}, pipeline.SystemClock{})
-	e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
+	field := e.flagField(t, e.a.id, "ticket", "short_description", "text", "ready", 100)
 	const rows = totalCap + 5
 	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
 		for i := range rows {
@@ -604,9 +638,64 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 	if req.Total != 3 || req.Capped != nil {
 		t.Errorf("requester: total %d capped %v; want exact 3, absent", req.Total, req.Capped)
 	}
-	// A data-filter list is capped the same way.
-	if p := e.mustList(t, "admin-a", "ticket", "filter[short_description]=bulk&limit=1"); p.Total != totalCap || p.Capped == nil {
-		t.Errorf("data-filter list: total %d capped %v; want capped %d", p.Total, p.Capped, totalCap)
+	// A data-filter list is capped the same way, but over HTTP its count runs
+	// under CountBudget (140 ms, ADR-006-A2 A2-2): capping 1,005 rows under the
+	// ACL can miss it on a loaded runner (TICK-1107), and then the total is
+	// "unknown" with "total": null (A2-5). Accept exactly those two answers,
+	// each with a full page; the cap itself is proven below without a budget.
+	e.cappedOrUnknown(t, "data-filter list", "admin-a", "ticket", "filter[short_description]=bulk&limit=1", 1)
+
+	// The deterministic cap check (TICK-1107): the handler's own predicates, the
+	// published ACL (authz.ReadPredicate) and the list's EXISTS for the ready
+	// field (ExistsTermForTest), through store.List with DataFilter set and no
+	// count budget. The admin's count stops at the cap; the requester's is exact.
+	acl := authz.ACL{Policies: authz.PolicyStore{}}
+	for _, c := range []struct {
+		name   string
+		p      identity.Principal
+		total  int64
+		capped bool
+		state  store.TotalState
+	}{
+		{"admin", e.a.admin, totalCap, true, store.TotalCapped},
+		{"requester", e.a.user, 3, false, store.TotalExact},
+	} {
+		if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+			pol, err := acl.Policy(t.Context(), tx, c.p, "ticket")
+			if err != nil {
+				return err
+			}
+			var def uuid.UUID
+			if err := tx.QueryRow(t.Context(), "SELECT id FROM entity_definitions WHERE key = 'ticket'").Scan(&def); err != nil {
+				return err
+			}
+			branches, readSQL, readArgs := authz.ReadPredicate(pol, c.p, "r", 2)
+			filt, filtArgs := server.ExistsTermForTest(fieldindex.TypeText, field, "eq", "bulk")
+			base := 2 + len(readArgs)
+			filt = sgPlaceholder.ReplaceAllStringFunc(filt, func(m string) string {
+				n, _ := strconv.Atoi(m[1:])
+				return "$" + strconv.Itoa(base+n)
+			})
+			q := store.ListQuery{
+				TenantID: e.a.id, DefinitionID: def, Where: filt, Args: append(slices.Clone(readArgs), filtArgs...),
+				Branches: branches, SortColumn: "updated_at", Desc: true, Limit: 2,
+				DataFilter: true, BudgetCount: false,
+			}
+			if branches == nil {
+				q.Where = readSQL + " AND " + filt
+			}
+			page, err := store.List(t.Context(), tx, q)
+			if err != nil {
+				return err
+			}
+			if page.Total != c.total || page.TotalCapped != c.capped || page.TotalState != c.state {
+				t.Errorf("store.List %s: total %d capped %v state %q; want %d %v %q",
+					c.name, page.Total, page.TotalCapped, page.TotalState, c.total, c.capped, c.state)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("store.List %s: %v", c.name, err)
+		}
 	}
 }
 
