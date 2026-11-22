@@ -125,7 +125,7 @@ NAVA_PERF_ONLY='^agent list, sort=-updated_at$' sh bench/acl-perf/run.sh
 | 1 | 02:41:28 | 1.05 / 1.64 | 3,451 | 44.88 | **55.48** | Only the allowed containers: `buildx_buildkit_nava-ci0` (idle), `multica-*` | **clean** |
 | 2 | 02:44:54 | 1.64 / 2.27 | 2,956 / 3,963 | 51.34 / 43.25 | 76.17 / 65.74 | `nava-it-pg-68222908` (02:46), `nava-it-pg-118522456` (02:51), each with `-pgb-pooled` / `-pgb-noprep` sidecars, from another task's `scripts/ci/test-integration.sh` | **void** (CTO terms: a new `nava-*` container during a pass voids it) |
 | 3 | 07:47:59 | 1.19 / 2.37 | 1,933 | 77.22 | **128.25** | Only the allowed containers (pre-flight 07:47:54Z) | **clean** |
-| 4 | 07:52:30 | 1.67 / 2.57 | 1,921 | 70.32 | **175.47** | Only the allowed containers | **clean** |
+| 4 | 07:52:35 | 1.67 / 2.57 | 1,921 | 70.32 | **175.47** | Only the allowed containers | **clean** |
 
 - **Pass 2 is not scored**, its second attempt included. The harness gated
   attempt 1 and waited for the containers before attempt 2. The CTO's terms
