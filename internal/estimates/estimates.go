@@ -82,6 +82,10 @@ type Refresher struct {
 	mu      sync.Mutex
 	started time.Time
 	written map[uuid.UUID]time.Time // tenant -> when its rows were last refreshed
+	// cleanAt is when a cycle last listed the tenants and refreshed all of
+	// them. With no tenant listed it is what Age counts from, so an empty
+	// stack does not age.
+	cleanAt time.Time
 }
 
 // New registers the two metrics on mp.
@@ -116,6 +120,9 @@ func (r *Refresher) Age() float64 {
 	defer r.mu.Unlock()
 	now := r.now()
 	oldest := r.started
+	if len(r.written) == 0 && !r.cleanAt.IsZero() {
+		oldest = r.cleanAt
+	}
 	if len(r.written) > 0 {
 		oldest = now
 		for _, t := range r.written {
@@ -171,6 +178,10 @@ func (r *Refresher) Cycle(ctx context.Context) int {
 			break
 		}
 		if err := r.refresh(ctx, t); err != nil {
+			if ctx.Err() != nil {
+				// Shutdown aborted it: not a failure to count or log.
+				break
+			}
 			failed++
 			r.failures.Add(ctx, 1)
 			r.log.WarnContext(ctx, "estimates: tenant refresh failed, retried next cycle",
@@ -179,6 +190,11 @@ func (r *Refresher) Cycle(ctx context.Context) int {
 		}
 		r.mu.Lock()
 		r.written[t] = r.now()
+		r.mu.Unlock()
+	}
+	if failed == 0 && ctx.Err() == nil {
+		r.mu.Lock()
+		r.cleanAt = r.now()
 		r.mu.Unlock()
 	}
 	return failed

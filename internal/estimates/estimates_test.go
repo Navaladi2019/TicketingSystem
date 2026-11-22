@@ -47,6 +47,10 @@ func (t *fakeTx) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error
 
 func (t *fakeTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	t.db.log = append(t.db.log, sql)
+	if t.db.onExec != nil && sql == refreshSQL {
+		t.db.onExec()
+		return pgconn.CommandTag{}, context.Canceled
+	}
 	if t.db.failTenant != "" && sql == refreshSQL && args[0] == t.db.failTenant {
 		return pgconn.CommandTag{}, errors.New("boom")
 	}
@@ -69,6 +73,7 @@ type fakeDB struct {
 	queryErr       error
 	commitErr      error
 	failTenant     string
+	onExec         func()
 	rollbackFailAt int
 	rollbacks      int
 	begins         int
@@ -273,4 +278,44 @@ func (m failingMeter) Float64ObservableGauge(name string, o ...metric.Float64Obs
 		return nil, errors.New("refused")
 	}
 	return m.Meter.Float64ObservableGauge(name, o...)
+}
+
+// An empty stack does not age after a good cycle; a listing that keeps
+// failing does.
+func TestAgeWithNoTenants(t *testing.T) {
+	c := &clock{t: time.Unix(1000, 0)}
+	db := &fakeDB{}
+	r, _ := newRefresher(t, db, c, time.Hour)
+	c.t = c.t.Add(4 * time.Hour)
+	r.Cycle(context.Background())
+	c.t = c.t.Add(time.Minute)
+	if got := r.Age(); got != 60 {
+		t.Errorf("Age after a good cycle with no tenants = %v, want 60", got)
+	}
+	db.queryErr = errors.New("denied")
+	for range 3 {
+		c.t = c.t.Add(time.Hour)
+		r.Cycle(context.Background())
+	}
+	if got := r.Age(); got < 10800 {
+		t.Errorf("Age with the listing failing = %v, want over 10800", got)
+	}
+}
+
+// A cycle that shutdown aborts counts and logs nothing, and is not clean.
+func TestAbortedTenantIsNotAFailure(t *testing.T) {
+	c := &clock{t: time.Unix(1000, 0)}
+	db := &fakeDB{tenants: []uuid.UUID{uuid.MustParse(tenant1)}}
+	r, logs := newRefresher(t, db, c, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	db.onExec = cancel
+	if n := r.Cycle(ctx); n != 0 {
+		t.Errorf("failed = %d, want 0", n)
+	}
+	if strings.Contains(logs.String(), "refresh failed") {
+		t.Errorf("log = %s, want no failure", logs)
+	}
+	if !r.cleanAt.IsZero() {
+		t.Error("an aborted cycle was recorded as clean")
+	}
 }
