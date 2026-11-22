@@ -74,9 +74,74 @@ Scope: the Technical Architect's two non-blocking findings on TICK-1082.
 S-A2-cancel's "no extra A2-2 term" claim was checked for two more cases: a
 cancel that has already spilled to temp files, and a cancel that waits for
 parallel workers to shut down. Same harness and seed as run 4, on a fresh
-`postgres:16.10` with `NAVA_PERF_GATE_ATTEMPTS=0`. Raw output: `run-5/`.
+`postgres:16.10` with `NAVA_PERF_GATE_ATTEMPTS=0`. Raw output: `run-5/` and
+`run-6/`.
 
-### Verdict: spill FAIL (one run, measured); parallel INCONCLUSIVE (not validly measured)
+### Run 6 (2026-11-22 10:09–10:23Z): spill FAIL confirmed; parallel FAIL by a wide margin, but a host gate flagged it
+
+Fresh `postgres:16.10` (commit `7de2a4a8`), i7-1260P, WSL2 Docker VM with 16
+vCPUs and 24.5 GiB, P3-36's 800k-record seed (seeded in 2m4s), `CountBudget`
+200 ms. `NAVA_PERF_GATE_ATTEMPTS=0 NAVA_PERF_SPIKE_CELLS=spill,parallel`. Only
+`multica-*` containers ran beside the bench database (`run-6/host.txt`). The
+VM load average peaked at 6.5 of 16 CPUs, from the spike's own workers
+(`run-6/contention.txt`).
+
+| Cell | Pick (first `UNION ALL` branch) | count phase p99, 1 client (n = 100) / 8 clients (n = 200) | 200 + `unknown` + `commit` after `ROLLBACK TO` | `pgsql_tmp` after the run / 60 s later | Host gates before / after | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `spill` | a50 `pw = 1 and pk < 5`, `work_mem = 64kB`, no parallel, nested loops and merge joins off; plain median 1,318.1 ms; hash join, 512 batches | **219.0 (+19.0) / 227.8 (+27.8) ms** | 300 / 300 | empty / empty (`pg_ls_tmpdir()` 0 files, `base/pgsql_tmp` 0 entries, 0 parallel workers). It spilled: 78,537 temp files, 2.59 GB during the spike | pass (floor 0.63, control p95 72.1) / pass (1.65, 79.1) | **FAIL**, confirms run 5 |
+| `parallel` | a50 `pw = 1`, nested loops off; plain median 578.1 ms; `Gather` with 2 workers launched, running 325–407 ms under EXPLAIN, over a Parallel Hash Semi Join whose shared hash spills (8 batches) | **239.5 (+39.5) / 271.2 (+71.2) ms** | 300 / 300 | empty / empty, 0 parallel workers. 7,352 temp files, 7.95 GB during the spike | **fail** (floor 2.21, control p95 80.6 against 80.3) / **fail** (1.26, 84.3) | **FAIL, gate-flagged**: the harness scores it INCONCLUSIVE |
+
+| Cell | Run | count phase p50 / p95 / p99 / max ms | count statement p50 / p99 / max ms | two round trips p50 / p99 ms | harness `SET LOCAL` p50 / p99 ms (left out) |
+| --- | --- | --- | --- | --- | --- |
+| spill | 1 client | 210.5 / 214.9 / 219.0 / 222.9 | 207.6 / 214.1 / 214.3 | 2.8 / 8.1 | 2.27 / 3.74 (both runs) |
+| spill | 8 clients | 220.3 / 226.2 / 227.8 / 229.1 | 214.6 / 222.6 / 224.0 | 5.4 / 9.0 | |
+| parallel | 1 client | 232.6 / 238.7 / 239.5 / 261.6 | 229.1 / 236.6 / 258.1 | 3.3 / 5.1 | 2.36 / 9.41 (both runs) |
+| parallel | 8 clients | 234.6 / 252.5 / 271.2 / 274.2 | 226.9 / 260.7 / 267.5 | 6.9 / 24.7 | |
+
+What run 6 shows:
+
+- **Spill, two runs, both FAIL.** Run 5 gave +16.1 / +45.9 ms, run 6 gives
+  +19.0 / +27.8 ms. Run 6's host gates passed on both sides of the cell. The
+  extra cost is systematic, as in run 5: the single-client count statement's
+  p50 is 207.6 ms (run 5: 208.2 ms; `base`, run 5: 201.6 ms). The 8-client
+  tail varies between runs (+27.8 against +45.9 ms).
+- **Parallel: the claim fails here too, and by more.** The single-client
+  count statement's **p50** is 229.1 ms, 29 ms over the budget on every
+  cancel, not only in the tail. The pick's `Gather` runs while its workers
+  are still building a shared Parallel Hash that spills, so the cancel
+  waits for two workers to stop and drop the shared temp files. That is
+  parallel shutdown and a spill together. The host gates failed narrowly:
+  control p95 80.6 ms before (0.4% over 80.3) and 84.3 ms after (5% over).
+  A 0.3–4 ms drift in the no-filter control can't produce a 29 ms shift at
+  the median, so I read the FAIL as real. The 8-client figure (+71.2 ms) is
+  the less certain of the two.
+- **The cancel path holds in both cells.** Every request answered 200 +
+  `unknown` + `total: null` + 50 items and ran `commit` after `ROLLBACK TO`.
+  No `pgsql_tmp` file or parallel worker was left after the run or 60 s
+  later.
+
+**For the Solution Architect (the ticket's fail rule): the extra A2-2 term.**
+The term is the count phase's p99 overshoot at 8 clients, less the 6 ms of
+round trips A2-2 already budgets. A single count either spills or runs in
+parallel (or both, as the parallel pick does), so the terms don't add up:
+the larger one applies.
+
+| Basis | 8-client p99 overshoot | Extra term | A2-2: 350 − 94 − 6 − 35 − term | `CountBudget` (rounded down to 10 ms) |
+| --- | --- | --- | --- | --- |
+| spill, run 6 | +27.8 ms | +22 ms | 193 | 190 ms |
+| spill, worst of runs 5 and 6 | +45.9 ms | +40 ms | 175 | 170 ms |
+| parallel, run 6 (gate-flagged) | +71.2 ms | +66 ms | 149 | 140 ms |
+
+Both shapes need settings forced on this seed. The spill needs `work_mem =
+64kB`, no parallel, and nested loops and merge joins off. The parallel pick
+needs nested loops off. Under the server's settings no count both runs past
+200 ms and has either shape here. The release trigger (a production count
+with a `Gather` or a hash spill in the R-a track) decides which row applies.
+If the 140 ms row is to be relied on, a parallel-only rerun with clean gates
+(about 10 minutes: `NAVA_PERF_SPIKE_CELLS=parallel`) would settle the
+8-client figure.
+
+### Run 5 verdict: spill FAIL (one run, measured); parallel INCONCLUSIVE (not validly measured)
 
 | Cell | Rule | Result | Status |
 | --- | --- | --- | --- |
