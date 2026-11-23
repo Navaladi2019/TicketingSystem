@@ -21,13 +21,9 @@ import (
 
 const underSetsCapMigration = "20261121161036_acl2_under_sets_cap.sql"
 
-// underSetsCapFunctions are the functions underSetsCapMigration creates.
-var underSetsCapFunctions = []string{
-	"public.acl2_max_under_sets()", "public.acl2_under_key(jsonb)", "public.acl2_under_union(text,text)",
-}
-
-// beforeUnderSetsCap returns m without the grants on underSetsCapFunctions
-// when fsys lacks underSetsCapMigration, so a run that stops at an earlier
+// beforeUnderSetsCap returns m without the grants on the functions
+// underSetsCapMigration creates (acl2_max_under_sets, acl2_under_key,
+// acl2_under_union) when fsys lacks it, so a run that stops at an earlier
 // version grants only functions it has created.
 func beforeUnderSetsCap(fsys fs.FS, m *grants.Manifest) *grants.Manifest {
 	if _, err := fs.Stat(fsys, underSetsCapMigration); err == nil {
