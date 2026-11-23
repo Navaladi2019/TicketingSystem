@@ -252,6 +252,8 @@ func TestA2Gate(t *testing.T) {
 		w("- %d clients, blocks of %s, order A, B, B, A per cell; each cell is its own ABBA (band (ii) before the S-A2-cancel fixture, a50 after it). The (2a) host gate runs before and after each block; adjacent blocks share the reading between them. A block with a failed gate is rerun, up to 2 reruns.", clients, d)
 		w("- band (ii) is TestA2Gate's: `filter[kp]=3` (48%% of the type) round robin over P3-36's 200 agents (about 6%% of the type each). The kit's Alice sees about 5%% through one group; this ACL is the harness's documented stand-in (docs/data/adr-006-a2-gate.md).")
 		serial.cell(t, "band (ii) kp = 3, agents", listReqs(e.agents, band), true)
+		// Reported only: the throwaway result keeps it out of the verdict.
+		serial.planCheck(t, &e3CellResult{name: "band (ii) kp = 3, agent-1 (reported only)", plan: map[string]e3Plan{}}, "agent-1", band)
 	}
 
 	// ---- (3a) S-A2-cancel ----
@@ -340,7 +342,7 @@ func TestA2Gate(t *testing.T) {
 		c := serial.cell(t, "a50, pk = 3", listReqs([]string{"a50"}, "filter%5Bpk%5D=3"), false)
 		serial.planCheck(t, c, "a50", "filter%5Bpk%5D=3")
 		_ = os.WriteFile(filepath.Join(dir, "serial-samples.csv"), []byte("cell,block,try,arm,pooled,status,total_state,count_phase_ms,count_stmt_ms,latency_ms\n"+serial.csv.String()), 0o600)
-		overall := serial.report()
+		overall, kind := serial.report()
 		ta := gateTemp(t, e.super)
 		w("")
 		w("(3a) leak check after (3e) (ADR-006-E2 E2-3: the verdict reads pg_ls_tmpdir() only):")
@@ -361,6 +363,10 @@ func TestA2Gate(t *testing.T) {
 		w("**(3a) leak verdict after (3e): %s**", lv)
 		w("")
 		w("(3e) %s", overall)
+		if kind != "" {
+			w("")
+			w("%s", kind)
+		}
 	}
 
 	// TICK-1083 (T-A2-4b): the spike runs on up to three cells, each picked

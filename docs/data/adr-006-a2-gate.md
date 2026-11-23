@@ -34,11 +34,27 @@ tenant) plus the kit's `kp`.
   is rerun up to twice. `parallel worker` backends are sampled every 50 ms.
 - **Band (ii) deviates from the task's wording:** `filter[kp]=3` (48% of the
   type) over P3-36's agents (about 6% visible each), not Alice's default ACL.
-  It is the stand-in (2) uses.
-- **Verdict rule** (`e3Verdict`, tested by `TestE3Verdict`): an arm-A-only
-  failure is FAIL; else a void cell, or arm B's `a50` cell without workers, is
-  INCONCLUSIVE; else the share decides. The harness adds one rule of its own:
-  any non-200 answer makes the cell INCONCLUSIVE.
+  It is the stand-in (2) uses, and the Technical Architect accepted it for
+  (3e) on 2026-11-23. No cell has a one-group caller. Right after the cell,
+  `agent-1`'s count plan is recorded for both arms; it is reported only.
+- **Verdict rule** (`e3Verdict`, tested by `TestE3Verdict`; the Technical
+  Architect's rulings on TICK-1098, 2026-11-23). It is read in this order:
+  - **FAIL:** a `Gather` under arm A; arm A's band (ii) p95 over 350 ms; 5 or
+    more non-200 answers in arm A with none in arm B, on a cell that isn't
+    void; or an `unknown` share over the margin on a cell that has no
+    INCONCLUSIVE reason of its own, whatever the other cell says.
+  - **INCONCLUSIVE:** a void cell (host gates); an arm with no samples; any
+    other non-200 answer; no `Gather` in arm B's `a50` plan although workers
+    ran; or arm B's `a50` launching no workers (plan and peak 0). A share over
+    the margin on such a cell is noted and not scored.
+  - **PASS** otherwise.
+  - Under an INCONCLUSIVE, the report says which kind it is. "Sole reason: arm
+    B launched no workers" is the only kind E2-4's bounded-tail argument can
+    rest on, and only when both runs read so. Every other kind needs another
+    run and keeps the merge gate closed.
+  - Non-200 answers are counted per arm over the pooled blocks. `raw.md` holds
+    the status and body of the first 3 per arm and cell. E2-4 doesn't mention
+    errors: this is a harness rule.
 
 | Window (UTC) | What happened |
 | --- | --- |
