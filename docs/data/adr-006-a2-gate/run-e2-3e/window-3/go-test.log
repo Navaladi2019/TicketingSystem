@@ -1,0 +1,22 @@
+### 2026-11-23T02:47:20Z postgres:16.10, commit c14e5030
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: multica-backend-1 multica-frontend-1 multica-postgres-1 
+### NAVA_PERF_SPIKE_CELLS=serial NAVA_PERF_GATE_ATTEMPTS=0
+=== RUN   TestA2Gate
+    records_a2_gate_perf_integration_test.go:124: # TICK-1048 / TICK-1083 A2-8 (2), (2a), (3a), raw (2026-11-23T02:47:31Z)
+    records_a2_gate_perf_integration_test.go:124: 
+    records_a2_gate_perf_integration_test.go:149: perf: 400 tenants, types and ACLs created through the API
+    records_a2_gate_perf_integration_test.go:149: perf: seeded in 1m1s
+    records_a2_gate_perf_integration_test.go:124: - seed: 800k records + VACUUM (ANALYZE) + CHECKPOINT in 2m39s
+    records_a2_gate_perf_integration_test.go:124: - PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+    records_a2_gate_perf_integration_test.go:124: - settings: default_statistics_target=100, effective_cache_size=7864328kB, fsync=on, jit=off, max_parallel_workers_per_gather=2, random_page_cost=4, shared_buffers=2621448kB, synchronous_commit=on, work_mem=4096kB
+    records_a2_gate_perf_integration_test.go:124: - nava_app: plan_cache_mode=force_custom_plan
+    records_a2_gate_perf_integration_test.go:124: - CountBudget 170ms; other containers at start: []
+    records_a2_gate_perf_integration_test.go:124: - parallel settings (server): max_parallel_workers = 8, max_parallel_workers_per_gather = 2, max_worker_processes = 8
+    records_a2_gate_perf_integration_test.go:168: INSERT INTO rfv_num (tenant_id, field_id, record_id, ord, value): unexpected EOF
+--- FAIL: TestA2Gate (171.27s)
+FAIL
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/server	171.756s
+FAIL
+exit=1

@@ -28,7 +28,7 @@ sampler=""
 cleanup() {
     [ -n "$sampler" ] && kill "$sampler" 2>/dev/null || true
     if [ "${BENCH_KEEP:-0}" = 1 ]; then echo "kept: $pg"; return; fi
-    docker rm -f "$pg" >/dev/null 2>&1 || true
+    docker rm -fv "$pg" >/dev/null 2>&1 || true # -v: the data volume too
 }
 trap cleanup EXIT
 
