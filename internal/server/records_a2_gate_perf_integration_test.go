@@ -337,7 +337,6 @@ func TestA2Gate(t *testing.T) {
 			FROM pg_class WHERE relname IN ('rfv_num', 'rfv_text', 'rfv_bool')`))
 
 	if serial != nil {
-		serialBefore := gateTemp(t, e.super)
 		c := serial.cell(t, "a50, pk = 3", listReqs([]string{"a50"}, "filter%5Bpk%5D=3"), false)
 		serial.planCheck(t, c, "a50", "filter%5Bpk%5D=3")
 		_ = os.WriteFile(filepath.Join(dir, "serial-samples.csv"), []byte("cell,block,try,arm,pooled,status,total_state,count_phase_ms,count_stmt_ms,latency_ms\n"+serial.csv.String()), 0o600)
@@ -346,14 +345,13 @@ func TestA2Gate(t *testing.T) {
 		w("")
 		w("(3a) leak check after (3e) (ADR-006-E2 E2-3: the verdict reads pg_ls_tmpdir() only):")
 		w("")
-		w("- before the a50 cell: %s", serialBefore)
 		time.Sleep(60 * time.Second)
 		t60 := gateTemp(t, e.super)
 		leakOK := gateLeak(w, "(3e)", ta, t60)
-		if ta.files > serialBefore.files {
-			w("- temp_files rose by %d (%d bytes) during the a50 cell: a spill happened, so the leak reading covered a spilling cell.", ta.files-serialBefore.files, ta.bytes-serialBefore.bytes)
+		if files, bytes := serial.tempRise(); files > 0 {
+			w("- temp_files rose by %d (%d bytes) over the (3e) blocks alone (gates and fixture left out): above 0, so the leak reading covered blocks that spilled.", files, bytes)
 		} else {
-			w("- temp_files did not rise during the a50 cell (%d before and after): the (3a) leak reading did not see a spill here; D-7E2-7 relies on runs 5 and 6 for the spill reading.", ta.files)
+			w("- temp_files was 0 over the (3e) blocks: the (3a) leak reading did not see a spill; D-7E2-7 relies on runs 5 and 6 for the spill reading.")
 		}
 		lv := "FAIL"
 		if leakOK {
@@ -362,7 +360,7 @@ func TestA2Gate(t *testing.T) {
 		w("")
 		w("**(3a) leak verdict after (3e): %s**", lv)
 		w("")
-		w("**(3e) overall: (3e) %s**", overall)
+		w("(3e) %s", overall)
 	}
 
 	// TICK-1083 (T-A2-4b): the spike runs on up to three cells, each picked

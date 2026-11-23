@@ -19,6 +19,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -28,8 +29,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -61,7 +60,14 @@ type e3Block struct {
 	samples       []e3Sample
 	peakWorkers   int64
 	workerSamples int
+	// tempFiles and tempBytes are pg_stat_database's rise over this block
+	// (its warm-up included, the gates not): spill context only.
+	tempFiles, tempBytes int64
 }
+
+// e3Settle outlasts the 10 s after which an idle backend flushes its
+// pg_stat_database counters.
+const e3Settle = 11 * time.Second
 
 func (b e3Block) ok() bool { return b.before.ok() && b.after.ok() }
 
@@ -131,7 +137,7 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 			for _, x := range b.samples {
 				fmt.Fprintf(&s.csv, "%s,%d,%d,%s,%v,%d,%s,%.3f,%.3f,%.3f\n", name, i+1, try+1, arm, b.ok(), x.code, x.state, x.phase, x.countStmt, x.latency)
 			}
-			s.w("- %s: n %d, unknown %d, peak parallel workers %d (%d samples); gates %s", label, len(b.samples), unknownOf(b.samples), b.peakWorkers, b.workerSamples, okWord(b.ok()))
+			s.w("- %s: n %d, unknown %d, peak parallel workers %d (%d samples), temp_files +%d (%d bytes, spill context only); gates %s", label, len(b.samples), unknownOf(b.samples), b.peakWorkers, b.workerSamples, b.tempFiles, b.tempBytes, okWord(b.ok()))
 			if b.ok() {
 				got = &b
 				break
@@ -152,6 +158,8 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 func (s *e3Serial) block(t *testing.T, arm, label string, reqs []perfReq) e3Block {
 	t.Helper()
 	h := s.arms[arm].h
+	time.Sleep(e3Settle)
+	t0 := gateTemp(t, s.e.super)
 	for _, r := range reqs[:min(len(reqs), 2*s.clients)] {
 		_ = s.one(t, h, r)
 	}
@@ -203,6 +211,9 @@ func (s *e3Serial) block(t *testing.T, arm, label string, reqs []perfReq) e3Bloc
 	wg.Wait()
 	close(stop)
 	sw.Wait()
+	time.Sleep(e3Settle)
+	t1 := gateTemp(t, s.e.super)
+	b.tempFiles, b.tempBytes = t1.files-t0.files, t1.bytes-t0.bytes
 	return b
 }
 
@@ -375,78 +386,115 @@ func (s *e3Serial) report() string {
 		}
 	}
 	w("")
-	fail, inconclusive := false, false
-	var why []string
+	var in []e3Inputs
 	for _, c := range s.cells {
-		if c.hostBad != "" {
-			inconclusive = true
-			w("- **(3e) cell %s: INCONCLUSIVE (host): %s**", c.name, c.hostBad)
-			why = append(why, c.name+": host")
-			continue
-		}
 		a, b := e3Pool(c.blocks["A"]), e3Pool(c.blocks["B"])
-		se := math.Sqrt(a.p*(1-a.p)/float64(max(a.n, 1)) + b.p*(1-b.p)/float64(max(b.n, 1)))
-		margin := math.Max(0.01, 2*se)
-		shareOK := a.p <= b.p+margin
-		var notes []string
-		cellFail := !shareOK
-		if !shareOK {
-			notes = append(notes, "unknown share")
+		x := e3Inputs{name: c.name, band: c.band, hostBad: c.hostBad, pA: a.p, pB: b.p, nA: a.n, nB: b.n, errs: a.errs + b.errs, p95A: a.lat95, peakB: b.peak}
+		if pa, ok := c.plan["A"]; ok {
+			x.planned, x.gatherA = true, pa.gather
+			x.gatherB, x.launchedB = c.plan["B"].gather, c.plan["B"].launched
 		}
-		// Arm-A-only checks (FAIL beats INCONCLUSIVE).
-		if c.band && a.lat95 > e3BandP95MS {
-			cellFail = true
-			notes = append(notes, fmt.Sprintf("arm A band (ii) p95 %.1f > %.0f ms", a.lat95, e3BandP95MS))
-		}
-		pa, hasPlan := c.plan["A"]
-		if hasPlan && pa.gather {
-			cellFail = true
-			notes = append(notes, "Gather under arm A")
-		}
-		cellInc := false
-		if hasPlan {
-			pb := c.plan["B"]
-			if !pb.launched && b.peak == 0 {
-				cellInc = true
-				notes = append(notes, "arm B launched no workers (plan and peak 0)")
-			}
-			if !pb.gather {
-				notes = append(notes, "no Gather under arm B (reported)")
-			}
-		}
-		v := "PASS"
-		switch {
-		case cellFail:
-			v, fail = "FAIL", true
-		case cellInc:
-			v, inconclusive = "INCONCLUSIVE", true
-		}
-		line := fmt.Sprintf("pA %.4f (%d/%d), pB %.4f (%d/%d), SE %.4f, margin max(1 point, 2 x SE) = %.4f: pA %s pB + margin (%.4f)",
-			a.p, a.unknown, a.n, b.p, b.unknown, b.n, se, margin, map[bool]string{true: "<=", false: ">"}[shareOK], b.p+margin)
-		if c.band {
-			line += fmt.Sprintf("; arm A whole-request p95 %.1f ms (limit %.0f)", a.lat95, e3BandP95MS)
-		} else {
-			line += fmt.Sprintf("; arm A whole-request p95 %.1f ms (reported)", a.lat95)
-		}
-		if hasPlan {
-			line += fmt.Sprintf("; plan: arm A Gather %v, arm B Gather %v (workers launched %v), arm B peak workers %d", pa.gather, c.plan["B"].gather, c.plan["B"].launched, b.peak)
-		}
-		if len(notes) > 0 {
-			line += " (" + strings.Join(notes, "; ") + ")"
-		}
-		w("- **(3e) cell %s: %s**: %s", c.name, v, line)
-		why = append(why, c.name+": "+v)
+		in = append(in, x)
 	}
-	overall := "PASS"
-	switch {
-	case fail:
-		overall = "FAIL"
-	case inconclusive:
-		overall = "INCONCLUSIVE"
+	overall, lines := e3Verdict(in)
+	for _, l := range lines {
+		w("- %s", l)
 	}
 	w("")
-	w("**(3e) %s** (%s)", overall, strings.Join(why, "; "))
+	w("**(3e) %s**", overall)
 	return overall
+}
+
+// tempRise is the temp_files and temp_bytes rise over every block tried.
+func (s *e3Serial) tempRise() (files, bytes int64) {
+	for _, c := range s.cells {
+		for _, b := range c.tried {
+			files, bytes = files+b.tempFiles, bytes+b.tempBytes
+		}
+	}
+	return files, bytes
+}
+
+// e3Inputs is what one cell's verdict depends on.
+type e3Inputs struct {
+	name                        string
+	band                        bool   // arm A's whole-request p95 is gated
+	hostBad                     string // the cell is void: a block never passed its gates
+	pA, pB                      float64
+	nA, nB                      int
+	errs                        int // non-200 answers, either arm
+	p95A                        float64
+	planned                     bool // the plan check ran on this cell
+	gatherA, gatherB, launchedB bool
+	peakB                       int64
+}
+
+// e3Verdict is (3e)'s rule: the checks that look only at arm A decide first
+// (FAIL), then INCONCLUSIVE, then the unknown-share comparison. A non-200
+// answer is outside n, so the shares can't be trusted: INCONCLUSIVE.
+func e3Verdict(in []e3Inputs) (overall string, lines []string) {
+	armA, inconclusive, share := false, len(in) == 0, false
+	for _, x := range in {
+		var aBad, inc, notes []string
+		if x.planned && x.gatherA {
+			aBad = append(aBad, "Gather under arm A")
+		}
+		if x.band && x.hostBad == "" && x.nA > 0 && x.p95A > e3BandP95MS {
+			aBad = append(aBad, "arm A band (ii) p95 over the limit")
+		}
+		if x.hostBad != "" {
+			inc = append(inc, "host: "+x.hostBad)
+		} else if x.nA == 0 || x.nB == 0 {
+			inc = append(inc, "an arm has no samples")
+		}
+		if x.errs > 0 {
+			inc = append(inc, fmt.Sprintf("%d non-200 answers", x.errs))
+		}
+		if x.planned && !x.launchedB && x.peakB == 0 {
+			inc = append(inc, "arm B launched no workers (plan and peak 0)")
+		}
+		if x.planned && !x.gatherB {
+			notes = append(notes, "no Gather under arm B, expected one")
+		}
+		se := math.Sqrt(x.pA*(1-x.pA)/float64(max(x.nA, 1)) + x.pB*(1-x.pB)/float64(max(x.nB, 1)))
+		margin := math.Max(.01, 2*se)
+		miss := len(inc) == 0 && x.pA > x.pB+margin
+		v := "PASS"
+		switch {
+		case len(aBad) > 0:
+			v, armA = "FAIL", true
+		case len(inc) > 0:
+			v = "INCONCLUSIVE"
+		case miss:
+			v = "FAIL"
+		}
+		inconclusive = inconclusive || len(inc) > 0
+		share = share || miss
+		if miss {
+			notes = append(notes, "unknown share over the margin")
+		}
+		l := fmt.Sprintf("**(3e) cell %s: %s**: pA %.4f (n %d), pB %.4f (n %d), SE %.4f, margin %.4f, limit pB + margin %.4f; arm A whole-request p95 %.1f ms",
+			x.name, v, x.pA, x.nA, x.pB, x.nB, se, margin, x.pB+margin, x.p95A)
+		if x.band {
+			l += fmt.Sprintf(" (limit %.0f)", e3BandP95MS)
+		}
+		if x.planned {
+			l += fmt.Sprintf("; plan: Gather A %v, Gather B %v, B launched %v; arm B peak workers %d", x.gatherA, x.gatherB, x.launchedB, x.peakB)
+		}
+		if all := slices.Concat(aBad, inc, notes); len(all) > 0 {
+			l += " (" + strings.Join(all, "; ") + ")"
+		}
+		lines = append(lines, l)
+	}
+	switch {
+	case armA:
+		return "FAIL", lines
+	case inconclusive:
+		return "INCONCLUSIVE", lines
+	case share:
+		return "FAIL", lines
+	}
+	return "PASS", lines
 }
 
 // gateTempReading is TestA2Gate's temp reading: pg_ls_tmpdir() is the (3a)
