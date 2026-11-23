@@ -5,7 +5,7 @@
 # P3-01's memory settings, then TestA2Gate (internal/server, tags integration
 # perf) with NAVA_PERF_SPIKE_CELLS=serial and NAVA_PERF_GATE_ATTEMPTS=0 (the
 # (2) budget check is not rerun). Needs Docker and Go. Not part of CI. About
-# 35 min of seed plus about 10 min of blocks and gates. Report:
+# 15 min on a quiet host (estimate). Report:
 # docs/data/adr-006-a2-gate/run-e2-3e/ (raw.md, plans.md, host.txt,
 # contention.txt, serial-samples.csv). Env: NAVA_PERF_LIST_SECONDS (15),
 # NAVA_PERF_CLIENTS (8), NAVA_PERF_OUT; BENCH_KEEP=1 keeps the container.
