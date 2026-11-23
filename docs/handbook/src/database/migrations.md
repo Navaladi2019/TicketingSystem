@@ -28,7 +28,9 @@ Migrations run against a live database, so the slow parts are split off:
   `NOT VALID`, which takes a brief lock and checks only new rows. A second
   migration, whose name ends in `_validate`, runs `VALIDATE CONSTRAINT` in its
   own transaction. That scan takes `SHARE UPDATE EXCLUSIVE`, so reads and
-  writes go on while it runs. The table pairs them both ways.
+  writes go on while it runs. The exception is a migration that also creates
+  temporary policies for the scan: `20261121000300` holds `ACCESS EXCLUSIVE`
+  on `records` for it (112 ms at 1,000,000 rows, `docs/data/org-units.md`). The table pairs them both ways.
 - **`CONCURRENTLY`.** An index on a large table is built with `CREATE INDEX
   CONCURRENTLY`, alone in a `-- +goose NO TRANSACTION` file. A failed build
   leaves an invalid index, which the file drops and rebuilds when it runs

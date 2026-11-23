@@ -14,7 +14,7 @@ the tenant (A2-5, A2-5a). No per-tenant, per-type count existed before:
 
 This table holds N̂_e. The hourly refresh job (TICK-1071, `internal/estimates`
 in `nava-worker`) writes it one tenant at a time, under that tenant's
-`app.tenant_id`. The leaf reads one row by its key. A missing row means
+`app.tenant_id`. A list request with a region term reads one row by its key, once. A missing row means
 "no estimate": K\* = 1,000, and the probe runs. A stale or wrong value changes
 cost, never rows (A2-6).
 
@@ -109,7 +109,8 @@ calculated, not measured:
   An unchanged count still writes a new row version, since the upsert always
   sets `refreshed_at`. The FK check reads `entity_definitions_pkey` once per
   write.
-- **Read.** One PK lookup per `under` leaf on a list request.
+- **Read.** One PK lookup per list request that has a region term, however many
+  `under` leaves it has.
 
 TICK-1036 records the read's plan in its own benchmark. `EXPLAIN (ANALYZE,
 BUFFERS)` of the PK lookup can be added here once the hold lifts.

@@ -26,8 +26,9 @@ the `under` access leaf ("tickets in my region"). The write pipeline sets it
 once, on create, from the requester's primary unit, and records it in the
 create audit entry. It is never recomputed: moving a person to another unit
 leaves their old tickets where they were. NULL means no unit; such a record
-is in nobody's region. A request body cannot set it (the schema compiler
-refuses a property named `org_unit_id`), and it is not in a record's API body.
+is in nobody's region. A request body cannot set it: the schema compiler
+refuses a property named `org_unit_id`, and the pipeline refuses a body that
+names it with `422 field_not_writable` (`refuseOrgUnit`). It is not in a record's API body.
 The foreign key `records_org_unit_fkey` carries `tenant_id`, so a record
 cannot name another tenant's unit, and units are tombstoned, never deleted
 ([Org units](org-units.md)). A write that changes it cannot commit without

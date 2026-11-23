@@ -162,9 +162,10 @@ flowchart TD
   uses W0 for both the page and the count.
 - **Fail closed.** A probe error returns 500. There is no fallback shape.
 - **Nothing leaks.** The shape, the probe count, K\* and N̂_e reach no
-  response, header, log line or error text. Every statement binds the
+  response, header, application log line or error text. Every statement binds the
   transaction's tenant. Within one tenant, page latency can still show which
-  shape was chosen (one coarse bit, `AR-TICK-1040-01`).
+  shape was chosen: one coarse bit (`AR-TICK-1040-01`), counting records the
+  caller cannot read.
 - **Metrics** (no tenant label): `authz_under_list_shape_total{shape}`, with
   `shape` `c3` or `walk` (A2-5a counts as `walk`), and the histogram
   `authz_under_probe_seconds`.
@@ -177,7 +178,9 @@ flowchart TD
 **Operations note (TICK-1036 security review).** A slow P3 probe's SQL text
 includes `LIMIT K*+1`. Keep `log_min_duration_statement` and `auto_explain`
 off for the app role, and never ship the PostgreSQL server log anywhere a
-tenant can read it.
+tenant can read it. A cancelled or failed probe is logged whatever these
+settings are (`log_min_error_statement` defaults to `error`), so the log rule
+is the one that must hold.
 
 ### Publish checks for under
 
@@ -188,7 +191,8 @@ tenant can read it.
 | One `of` lists a unit twice | `422 under_duplicate_id` at each repeat's `.../under/of/<i>` (A2-8) |
 | One `of` lists a unit and one of its ancestors | `422 under_nested` at that leaf's `.../under/of` |
 
-The database `CHECK` repeats `foreign_id` and `under_sets_exceeded`.
+The database `CHECK` repeats `under_sets_exceeded`; the trigger
+`acl_versions_tenant_ids` repeats `foreign_id`.
 `under_nested` has no database backstop: it reads the closure, which a
 `CHECK` cannot.
 

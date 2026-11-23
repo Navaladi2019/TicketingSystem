@@ -41,7 +41,7 @@ name tenant B's unit.
 | When | What group sync does |
 |---|---|
 | A run that touched units | Replaces only the closure rows of the touched units' subtrees (TICK-1054). The first import rebuilds all of the tenant's rows |
-| A run that touched no unit | Compares the stored and the live closure as sets, and rebuilds on drift |
+| An **applied** run (the directory changed) that touched no unit | Compares the stored and the live closure as sets, and rebuilds on drift. An unchanged-snapshot cycle does not compare the closure. The cursor is in memory, so a restart makes the next cycle apply |
 | After every rebuild call, and on every unchanged-snapshot cycle | Counts the tenant's live units that have no `(u, u)` self row (TICK-1058). Such a unit is outside every region. A count above 0 adds to `groupsync_org_closure_unrooted_units` and writes a WARN line naming the tenant. The sync does not fail |
 
 Failing the sync on an unrooted unit would repair nothing, because the
@@ -56,7 +56,8 @@ affected tenant (`20261121144100_org_unit_closure_unrooted_warning.sql`).
 ## Measured cost
 
 From `docs/data/org-unit-closure.md`, PostgreSQL 16.10, 400 tenants, one
-tenant with an 11,111-unit tree:
+tenant with an 11,111-unit tree, on a Docker VM with 16 CPUs and 24 GiB shared
+with the local stack:
 
 | Measure | Result |
 |---|---|
@@ -76,7 +77,8 @@ only index. It serves the probe, the subtree read and the per-tenant delete.
 | `nava_app` | `SELECT` | `SELECT` | `SELECT` |
 | `nava_worker` | `SELECT` on `tenant_id, id, parent_id, deleted_at` | `SELECT` on `tenant_id, org_unit_id, principal_id, is_primary` | `SELECT` (for `under` in workflow policy tests) |
 
-All three tables are identity mirrors and exempt from audit. The exact
+All three tables are exempt from audit: `org_units` and `org_unit_members` are
+identity mirrors, and `org_unit_closure` is derived from `org_units`. The exact
 grants are generated on [Roles and grants](roles-and-grants.md).
 
 ## Diagram

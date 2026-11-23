@@ -39,8 +39,10 @@ tenant's sync ([Org units](../database/org-units.md)):
   ([Keycloak](keycloak.md)).
 - **`org_unit_closure`.** A run that touched units replaces only the closure
   rows of the touched subtrees (TICK-1054); the first import rebuilds the
-  tenant. A run that touched no unit compares the stored and the live closure
-  as sets and rebuilds on drift. Both run under the per-tenant advisory lock.
+  tenant. An **applied** run (the directory changed) that touched no unit compares
+  the stored and the live closure as sets and rebuilds on drift. An
+  unchanged-snapshot cycle does not compare the closure. The cursor is in
+  memory, so a restart makes the next cycle apply. Both run under the per-tenant advisory lock.
 - **Unrooted check (TICK-1058).** After every rebuild call, and on every
   unchanged-snapshot cycle, it counts the tenant's live units with no closure
   self row. Such a unit is outside every region. A count above 0 is reported

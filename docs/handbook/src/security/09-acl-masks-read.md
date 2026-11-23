@@ -3,13 +3,13 @@ title: "9. ACL and field masks on the read side"
 section: security
 status: delivered
 sources: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md, docs/security/s31-org-unit-isolation.md, internal/authz, internal/tenancy/isolation/acl_attack_paths.go, docs/security/accepted-risks.md]
-evidence: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md]
-adrs: [ADR-001, ADR-010, ADR-010-A1]
+evidence: [docs/security/s10-acl-attacks.md, docs/security/s30-composable-access-rules.md, docs/security/s31-org-unit-isolation.md]
+adrs: [ADR-001, ADR-010, ADR-010-A1, ADR-010-A2]
 invariants: [I5, I1]
 stories: [S31, S10, S30]
-tables: [records, record_shares, acl_versions]
+tables: [records, record_shares, acl_versions, org_units, org_unit_members, org_unit_closure, entity_record_estimates, tenant_identity_binding]
 packages: [internal/authz, internal/tenancy/isolation]
-tests: [TestRegisteredPaths, TestShapeDropsMaskedFieldsAndNeverMutates, TestCheckMaskFields, TestEveryMaskOnAFieldMustAdmit, TestRowDependentMaskSubjectsNeverMatch, TestExplainNeverListsAFieldTheAdminCannotRead, TestExplainMatchesTheEnforcementOnState, TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead, TestRequireTenantAdminTxNeverReadsGroupsOrPaths, TestMaskedFieldInFilterIsRefusedBeforeSQL, TestMaskedFieldInSortIsRefusedBeforeSQL, TestMaskedFieldInDefaultSortIsRefusedBeforeSQL, TestListRecordsMaskedSortKeyInCursor, TestListRecordsItemsAreShaped, TestHistoryOfAMaskedOnlyChange, TestPatchIsNoOracleForAMaskedField, TestUnreadableRecordIsTheMissingRecord, TestListRecordsHidesUnreadableFromPageAndTotal, TestUniqueViolationDoesNotIdentifyAnUnreadableRecord, TestNotFoundBodyIsIdenticalAndHasNoInstance, TestListRecordsCrossTenant, TestListRecordsFilterOnAnotherTenantsGroup, TestAuditEntriesMaskFieldsHiddenFromTheReader, TestPutAccessFormat2ForeignIDsAreForeignID, TestTICK940ForeignIDs, TestS30RefNeverResolvesAcrossTenantsOrVersions, TestS30VoidedPolicyGrantsNothingAnywhere, TestS30Format2DenyTraceHasAFalseStep, TestS30ExplainerStaysInItsTenantUnderFormat2, TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut, TestS30MasksBehaveTheSameUnderEitherFormat, TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree, TestRuntimeRolesCannotSkipTheTenantIDTrigger, TestTICK940WorkerCannotPublish]
+tests: [TestRegisteredPaths, TestShapeDropsMaskedFieldsAndNeverMutates, TestCheckMaskFields, TestEveryMaskOnAFieldMustAdmit, TestRowDependentMaskSubjectsNeverMatch, TestExplainNeverListsAFieldTheAdminCannotRead, TestExplainMatchesTheEnforcementOnState, TestExplainAccessNamesTheRuleAndHidesWhatTheAdminCannotRead, TestRequireTenantAdminTxNeverReadsGroupsOrPaths, TestMaskedFieldInFilterIsRefusedBeforeSQL, TestMaskedFieldInSortIsRefusedBeforeSQL, TestMaskedFieldInDefaultSortIsRefusedBeforeSQL, TestListRecordsMaskedSortKeyInCursor, TestListRecordsItemsAreShaped, TestHistoryOfAMaskedOnlyChange, TestPatchIsNoOracleForAMaskedField, TestUnreadableRecordIsTheMissingRecord, TestListRecordsHidesUnreadableFromPageAndTotal, TestUniqueViolationDoesNotIdentifyAnUnreadableRecord, TestNotFoundBodyIsIdenticalAndHasNoInstance, TestListRecordsCrossTenant, TestListRecordsFilterOnAnotherTenantsGroup, TestAuditEntriesMaskFieldsHiddenFromTheReader, TestPutAccessFormat2ForeignIDsAreForeignID, TestTICK940ForeignIDs, TestS30RefNeverResolvesAcrossTenantsOrVersions, TestS30VoidedPolicyGrantsNothingAnywhere, TestS30Format2DenyTraceHasAFalseStep, TestS30ExplainerStaysInItsTenantUnderFormat2, TestS30AnotherTenantsKeyIsTheUnknownKeyForGetAndPut, TestS30MasksBehaveTheSameUnderEitherFormat, TestS31UnderChecksUnitsAtTheRouteAndGrantsBySubtree, TestRuntimeRolesCannotSkipTheTenantIDTrigger, TestTICK940WorkerCannotPublish, TestRecordNeverGetsAnotherTenantsOrgUnit, TestCreateRefusesOrgUnitInBody, TestTICK947RecordOrgUnitIsTenantScoped, TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows, TestTICK947MembershipConstraints, TestUnderSetBoundInOneTenantGrantsNothingToAnother, TestDirectoryPayloadNeverUntombstonesAnotherTenantsUnit, TestTICK947GroupsyncCannotDeleteOrgUnits, TestPrimaryOrgUnitPathOnlyInAnotherTenantSetsNoPrimary, TestCreateAfterSyncWithForeignPrimaryPathLeavesOrgUnitNull, TestUnderListShapesStayInTheTenant, TestListResponseNamesNoShapeEstimateOrProbe, TestTICK1070EstimatesRegistered, TestTICK1070WorkerReadsBindingTenantOnly]
 ---
 
 ## Boundary
@@ -120,8 +120,13 @@ database: FORCE RLS on `org_units`, `org_unit_members` and
 | Give a record of A a unit of B, through the body or a forged primary membership | The body is `422 field_not_writable` for every source; the forged lookup fails closed on `records_org_unit_fkey` | `TestRecordNeverGetsAnotherTenantsOrgUnit`, `TestCreateRefusesOrgUnitInBody`, `TestTICK947RecordOrgUnitIsTenantScoped` |
 | A tombstoned unit, or a forged member of one, grants through `under` | Refused by the live FK; a forged row adds nothing to U, nor does its live subtree | `TestUnderSetIgnoresForgedCrossTenantAndTombstonedRows`, `TestTICK947MembershipConstraints` |
 | U holds a unit of B, or a binding made in A is evaluated for B | Never; a binding for another tenant voids the policy, `not under` included | `TestUnderSetBoundInOneTenantGrantsNothingToAnother` |
-| A crafted directory payload un-tombstones, renames or reparents B's unit | Nothing of B changes; group sync has no `DELETE` | `TestDirectoryPayloadNeverUntombstonesAnotherTenantsUnit`, `TestTICK947GroupsyncCannotDeleteOrgUnits` |
+| A crafted directory payload un-tombstones, renames or reparents B's unit | Nothing of B changes; group sync has no `DELETE` on `org_units` | `TestDirectoryPayloadNeverUntombstonesAnotherTenantsUnit`, `TestTICK947GroupsyncCannotDeleteOrgUnits` |
 | `nava_primary_org_unit` names a path that exists only in B | No primary is set, so a new ticket's unit stays NULL | `TestPrimaryOrgUnitPathOnlyInAnotherTenantSetsNoPrimary`, `TestCreateAfterSyncWithForeignPrimaryPathLeavesOrgUnitNull` |
+| Read or write tenant B's closure rows as any runtime role | Only A's rows are read; every write is refused or reaches 0 rows, and a row that mixes A and B fails a tenant foreign key (23503) | the `org_unit_closure:` paths in `internal/tenancy/isolation/registry.go` and `closure_paths.go` |
+| Read or write tenant B's record estimates | `nava_app` and `nava_worker` read only A's rows; the app's write and every cross-tenant worker write are refused or reach 0 rows | the `entity_record_estimates:` paths in `internal/tenancy/isolation/registry.go`, kept by `TestTICK1070EstimatesRegistered` |
+| `nava_worker` uses `binding_lookup` to read tenant B's identity binding | It reads the `tenant_id` column only; its read of B's issuer and org is denied (42501) | `TestTICK1070WorkerReadsBindingTenantOnly` |
+| Tenant B holds closure rows with A's unit ids and records under them, to move A's probe count or list | A's probe, C3, W0 and CC see none of them; the probe count does not change | `TestUnderListShapesStayInTheTenant` |
+| Read the shape, K\*, N̂_e or the probe count from a list response or an application log line | None appears under C3, W0 or the rare-type W0 | `TestListResponseNamesNoShapeEstimateOrProbe` |
 
 An orphaned unit (its parent missing, which only a forged row can produce)
 has no closure row, so `under` is false and `not under` is true for it. The
@@ -129,10 +134,12 @@ count of such units is the metric `groupsync_org_closure_unrooted_units`.
 
 **Within one tenant.** The list shape the probe picks can show in latency
 whether more than K\* records sit under a policy's units: one coarse bit,
-inherent to ADR-010-A2, accepted as `AR-TICK-1040-01`. A slow probe's SQL
+counting records the caller cannot read, inherent to ADR-010-A2 and accepted
+as `AR-TICK-1040-01`. A slow probe's SQL
 text includes `LIMIT K*+1`, so keep `log_min_duration_statement` and
 `auto_explain` off for the app role and never ship the PostgreSQL server log
-anywhere a tenant can read it. A user moved out of a unit keeps `under`
+anywhere a tenant can read it. A cancelled or failed probe is logged whatever
+these settings are, so the log rule is the one that must hold. A user moved out of a unit keeps `under`
 access until the next sync (`AR-TICK-901-01`, ADR-010 R3).
 
 ## Fixture that turns it red

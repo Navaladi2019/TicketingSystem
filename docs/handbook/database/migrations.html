@@ -39,7 +39,9 @@ than the newest one on <code>main</code>, or be re-stamped (<code>db/migrations/
 <code>NOT VALID</code>, which takes a brief lock and checks only new rows. A second
 migration, whose name ends in <code>_validate</code>, runs <code>VALIDATE CONSTRAINT</code> in its
 own transaction. That scan takes <code>SHARE UPDATE EXCLUSIVE</code>, so reads and
-writes go on while it runs. The table pairs them both ways.</li>
+writes go on while it runs. The exception is a migration that also creates
+temporary policies for the scan: <code>20261121000300</code> holds <code>ACCESS EXCLUSIVE</code>
+on <code>records</code> for it (112 ms at 1,000,000 rows, <code>docs/data/org-units.md</code>). The table pairs them both ways.</li>
 <li><strong><code>CONCURRENTLY</code>.</strong> An index on a large table is built with <code>CREATE INDEX CONCURRENTLY</code>, alone in a <code>-- +goose NO TRANSACTION</code> file. A failed build
 leaves an invalid index, which the file drops and rebuilds when it runs
 again.</li>

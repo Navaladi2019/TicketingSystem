@@ -17,10 +17,12 @@ K\* = clamp(0.8 × √(page × N̂_e), 1,000, 20,000) (ADR-010-A2 A2-9; see
 
 - **Who writes it.** Only the hourly refresh job in
   [nava-worker](../system/nava-worker.md) (TICK-1071), one tenant at a time,
-  each inside that tenant's transaction (`tenancy.InTenantTx`). The write is
-  one upsert per type. A row is overwritten, never deleted.
-- **Who reads it.** `nava_app`, one primary-key lookup per region term of a
-  list request.
+  each inside that tenant's transaction (`tenancy.InTenantTx`). It runs
+  two statements per tenant: one upsert of every type's count, then an update
+  that sets types with no records left to 0. A row is overwritten, never
+  deleted.
+- **Who reads it.** `nava_app`, one primary-key lookup per list request that
+  has a region term. The probe is what runs once per `under` leaf.
 - **A missing or stale row costs time, never rows.** No row means K\* = 1,000
   and the probe runs. Every shape computes the same predicate (A2-6), so a
   wrong estimate can only make a list slower. `EntityRecordEstimatesStale`
