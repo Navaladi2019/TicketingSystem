@@ -5,7 +5,6 @@ package dbtest
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -132,7 +131,7 @@ func newJob(t *testing.T, db estimates.Store, now func() time.Time) (*estimates.
 	t.Helper()
 	reader := metric.NewManualReader()
 	r, err := estimates.New(db, metric.NewMeterProvider(metric.WithReader(reader)),
-		slog.New(slog.NewTextHandler(io.Discard, nil)), estimates.Options{Interval: time.Hour, Now: now})
+		slog.New(slog.DiscardHandler), estimates.Options{Interval: time.Hour, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
