@@ -86,6 +86,7 @@ Window 1 did run the checks that don't depend on timing:
 
 ```sh
 sh scratch/tick-1098-e2-3e/run.sh     # about 15 min on a quiet host (estimate)
+NAVA_E3_SMOKE=1 sh scratch/tick-1098-e2-3e/run.sh   # every step, 2 s blocks, gates ignored, no verdict
 ```
 
 ## Verdict: PASS (runs 2 and 4, 2026-11-21 22:33–22:49Z, the Technical Lead's bench window)

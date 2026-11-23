@@ -20,6 +20,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -91,6 +92,14 @@ type e3Serial struct {
 	plans   *[]string
 	csv     strings.Builder
 	onPlans func()
+	// smoke (NAVA_E3_SMOKE=1): every step runs, the gates are recorded and
+	// ignored, and there is no verdict.
+	smoke bool
+}
+
+// e3SmokeLine takes the verdict words out of a smoke run's report line.
+func e3SmokeLine(l string) string {
+	return strings.NewReplacer("INCONCLUSIVE", "[smoke]", "PASS", "[smoke]", "FAIL", "[smoke]").Replace(l)
 }
 
 type e3CellResult struct {
@@ -126,7 +135,7 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 		for try := 0; try < 3; try++ {
 			label := fmt.Sprintf("%s block %d (arm %s), try %d", name, i+1, arm, try+1)
 			var before gateHost
-			if s.last != nil && s.last.ok() {
+			if s.last != nil && (s.smoke || s.last.ok()) {
 				before = *s.last
 				s.w("- %s: before-gate = the previous block's after-gate (%s)", label, before)
 			} else {
@@ -141,7 +150,7 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 				fmt.Fprintf(&s.csv, "%s,%d,%d,%s,%v,%d,%s,%.3f,%.3f,%.3f\n", name, i+1, try+1, arm, b.ok(), x.code, x.state, x.phase, x.countStmt, x.latency)
 			}
 			s.w("- %s: n %d, unknown %d, peak parallel workers %d (%d samples), temp_files +%d (%d bytes, spill context only); gates %s", label, len(b.samples), unknownOf(b.samples), b.peakWorkers, b.workerSamples, b.tempFiles, b.tempBytes, okWord(b.ok()))
-			if b.ok() {
+			if s.smoke || b.ok() {
 				got = &b
 				break
 			}
@@ -250,71 +259,103 @@ func (s *e3Serial) one(t *testing.T, h http.Handler, r perfReq) e3Sample {
 	return x
 }
 
-// planCheck captures, per arm, the savepoint Exec and the count statement of
-// one request of q as the handler sent them (the pgx tracer), replays the
-// request's SET LOCALs and the savepoint Exec on one connection in a tenant
-// transaction, and EXPLAINs the captured count statement.
+// planCheck is the scored plan check: any error ends the test.
 func (s *e3Serial) planCheck(t *testing.T, r *e3CellResult, token, q string) {
 	t.Helper()
 	for _, arm := range []string{"A", "B"} {
-		tr := newPerfTrace()
-		rec := serveOn(context.WithValue(t.Context(), perfTraceKey{}, tr), s.arms[arm].h, http.MethodGet, "/api/v1/records/ticket?"+q, token, "", "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("(3e) plan check arm %s: %d: %s", arm, rec.Code, rec.Body)
+		p, err := s.plan(t.Context(), arm, token, q)
+		if err != nil {
+			t.Fatalf("(3e) plan check arm %s: %v", arm, err)
 		}
-		var p e3Plan
-		for i, st := range tr.stmts {
-			sql := strings.TrimSpace(st.SQL)
-			if strings.HasPrefix(sql, "SAVEPOINT list_count") {
-				if i+1 < len(tr.stmts) {
-					p.savepoint, p.count = st.SQL, tr.stmts[i+1]
-				}
-				break
-			}
-			if strings.HasPrefix(strings.ToUpper(sql), "SET LOCAL") && len(st.Args) == 0 {
-				p.pre = append(p.pre, st.SQL)
-			}
-		}
-		if p.savepoint == "" {
-			t.Fatalf("(3e) plan check arm %s: no savepoint Exec in the request (A2-4 shortcut?)", arm)
-		}
-		var lines []string
-		if err := tenancy.InTenantTx(t.Context(), s.e.pool, s.tenant, func(tx pgx.Tx) error {
-			for _, sql := range append(slices.Clone(p.pre), p.savepoint) {
-				if _, err := tx.Exec(t.Context(), sql); err != nil {
-					return fmt.Errorf("%s: %w", sql, err)
-				}
-			}
-			// The one addition: EXPLAIN ANALYZE must finish to show the
-			// executed plan. statement_timeout is not a planner setting.
-			if _, err := tx.Exec(t.Context(), "SET LOCAL statement_timeout = 0"); err != nil {
-				return err
-			}
-			rows, err := tx.Query(t.Context(), "EXPLAIN (ANALYZE, BUFFERS, SETTINGS) "+p.count.SQL, p.count.Args...)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var l string
-				if err := rows.Scan(&l); err != nil {
-					return err
-				}
-				lines = append(lines, l)
-			}
-			return rows.Err()
-		}); err != nil {
-			t.Fatal(err)
-		}
-		p.text = strings.Join(lines, "\n")
-		p.gather = strings.Contains(p.text, "Gather")
-		p.launched = gateWorkersLaunched.MatchString(p.text)
 		r.plan[arm] = p
-		*s.plans = append(*s.plans, fmt.Sprintf("### (3e) %s, arm %s (%s)\n\nReplayed on one connection, in `tenancy.InTenantTx` for the large tenant:\n\n```sql\n%s\n-- harness addition, so that ANALYZE can finish (not a planner setting):\nSET LOCAL statement_timeout = 0;\nEXPLAIN (ANALYZE, BUFFERS, SETTINGS)\n%s\n```\n\nGather: %v; workers launched: %v\n\n```\n%s\n```",
-			r.name, arm, s.arms[arm].desc, strings.Join(append(slices.Clone(p.pre), p.savepoint), ";\n")+";", strings.TrimSpace(p.count.SQL), p.gather, p.launched, p.text))
-		s.onPlans()
-		s.w("- plan check, arm %s: savepoint Exec `%s`; Gather %v, workers launched %v (plans.md)", arm, p.savepoint, p.gather, p.launched)
+		s.keepPlan(r.name, arm, p)
 	}
+}
+
+// planReported records the same plans outside the verdict. An error goes into
+// plans.md as the reason and the run goes on.
+func (s *e3Serial) planReported(t *testing.T, name, token, q string) {
+	t.Helper()
+	for _, arm := range []string{"A", "B"} {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		p, err := s.plan(ctx, arm, token, q)
+		cancel()
+		if err != nil {
+			*s.plans = append(*s.plans, fmt.Sprintf("### (3e) %s, arm %s: not recorded\n\n%v", name, arm, err))
+			s.onPlans()
+			s.w("- plan (reported only), %s, arm %s: not recorded: %v", name, arm, err)
+			continue
+		}
+		s.keepPlan(name, arm, p)
+	}
+}
+
+// plan captures the savepoint Exec and the count statement of one request of
+// q as arm's handler sent them (the pgx tracer), replays the request's SET
+// LOCALs and the savepoint Exec on one connection in a tenant transaction,
+// and EXPLAINs the captured count statement.
+func (s *e3Serial) plan(ctx context.Context, arm, token, q string) (e3Plan, error) {
+	var p e3Plan
+	tr := newPerfTrace()
+	rec := serveOn(context.WithValue(ctx, perfTraceKey{}, tr), s.arms[arm].h, http.MethodGet, "/api/v1/records/ticket?"+q, token, "", "")
+	if rec.Code != http.StatusOK {
+		return p, fmt.Errorf("status %d, body %q", rec.Code, rec.Body.String())
+	}
+	for i, st := range tr.stmts {
+		sql := strings.TrimSpace(st.SQL)
+		if strings.HasPrefix(sql, "SAVEPOINT list_count") {
+			if i+1 < len(tr.stmts) {
+				p.savepoint, p.count = st.SQL, tr.stmts[i+1]
+			}
+			break
+		}
+		if strings.HasPrefix(strings.ToUpper(sql), "SET LOCAL") && len(st.Args) == 0 {
+			p.pre = append(p.pre, st.SQL)
+		}
+	}
+	if p.savepoint == "" {
+		return p, errors.New("no savepoint Exec followed by a count in the request (A2-4 shortcut?)")
+	}
+	var lines []string
+	if err := tenancy.InTenantTx(ctx, s.e.pool, s.tenant, func(tx pgx.Tx) error {
+		for _, sql := range append(slices.Clone(p.pre), p.savepoint) {
+			if _, err := tx.Exec(ctx, sql); err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+		}
+		// The one addition: EXPLAIN ANALYZE must finish to show the
+		// executed plan. statement_timeout is not a planner setting.
+		if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = 0"); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, SETTINGS) "+p.count.SQL, p.count.Args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var l string
+			if err := rows.Scan(&l); err != nil {
+				return err
+			}
+			lines = append(lines, l)
+		}
+		return rows.Err()
+	}); err != nil {
+		return p, err
+	}
+	p.text = strings.Join(lines, "\n")
+	p.gather = strings.Contains(p.text, "Gather")
+	p.launched = gateWorkersLaunched.MatchString(p.text)
+	return p, nil
+}
+
+// keepPlan writes p to plans.md and its summary line to raw.md.
+func (s *e3Serial) keepPlan(name, arm string, p e3Plan) {
+	*s.plans = append(*s.plans, fmt.Sprintf("### (3e) %s, arm %s (%s)\n\nReplayed on one connection, in `tenancy.InTenantTx` for the large tenant:\n\n```sql\n%s\n-- harness addition, so that ANALYZE can finish (not a planner setting):\nSET LOCAL statement_timeout = 0;\nEXPLAIN (ANALYZE, BUFFERS, SETTINGS)\n%s\n```\n\nGather: %v; workers launched: %v\n\n```\n%s\n```",
+		name, arm, s.arms[arm].desc, strings.Join(append(slices.Clone(p.pre), p.savepoint), ";\n")+";", strings.TrimSpace(p.count.SQL), p.gather, p.launched, p.text))
+	s.onPlans()
+	s.w("- plan check, %s, arm %s: savepoint Exec `%s`; Gather %v, workers launched %v (plans.md)", name, arm, p.savepoint, p.gather, p.launched)
 }
 
 func unknownOf(ss []e3Sample) int {
@@ -417,6 +458,10 @@ func (s *e3Serial) report() (overall, kind string) {
 		in = append(in, x)
 	}
 	overall, noWorkers, lines := e3Verdict(in)
+	if s.smoke {
+		w("SMOKE, no verdict")
+		return "SMOKE, no verdict", ""
+	}
 	for _, l := range lines {
 		w("- %s", l)
 	}

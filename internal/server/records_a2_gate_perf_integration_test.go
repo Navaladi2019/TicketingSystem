@@ -118,8 +118,12 @@ func TestA2Gate(t *testing.T) {
 	dir := filepath.Dir(out)
 	_ = os.MkdirAll(dir, 0o750)
 	var buf strings.Builder
+	smoke := os.Getenv("NAVA_E3_SMOKE") == "1"
 	w := func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
+		if smoke {
+			line = e3SmokeLine(line)
+		}
 		buf.WriteString(line + "\n")
 		t.Log(line)
 		_ = os.WriteFile(out, []byte(buf.String()), 0o600)
@@ -174,6 +178,10 @@ func TestA2Gate(t *testing.T) {
 
 	// ---- (2), (2a) ----
 	d := time.Duration(perfEnvInt("NAVA_PERF_LIST_SECONDS", 15)) * time.Second
+	if smoke {
+		w("- SMOKE, no verdict: 2 s blocks and controls, gates recorded and ignored")
+		d = 2 * time.Second
+	}
 	attempts := 2
 	if v, err := strconv.Atoi(os.Getenv("NAVA_PERF_GATE_ATTEMPTS")); err == nil && v >= 0 {
 		attempts = v
@@ -240,7 +248,7 @@ func TestA2Gate(t *testing.T) {
 	// tenant record to the fixture's groups and so empties the agents' view.
 	var serial *e3Serial
 	if want["serial"] {
-		serial = &e3Serial{e: e, tenant: large, clients: clients, d: d, host: host, w: w, plans: &plans, onPlans: writePlans,
+		serial = &e3Serial{e: e, tenant: large, clients: clients, d: d, host: host, w: w, plans: &plans, onPlans: writePlans, smoke: smoke,
 			arms: map[string]e3Arm{
 				"A": {key: "A", desc: fmt.Sprintf("shipped: CountBudget %s, workers off in the savepoint Exec", store.CountBudget), h: normal},
 				"B": {key: "B", desc: "WithCountArm(140 ms, true): server settings", h: e.handlerWith(t, server.WithCountArm(140*time.Millisecond, true))},
@@ -252,8 +260,7 @@ func TestA2Gate(t *testing.T) {
 		w("- %d clients, blocks of %s, order A, B, B, A per cell; each cell is its own ABBA (band (ii) before the S-A2-cancel fixture, a50 after it). The (2a) host gate runs before and after each block; adjacent blocks share the reading between them. A block with a failed gate is rerun, up to 2 reruns.", clients, d)
 		w("- band (ii) is TestA2Gate's: `filter[kp]=3` (48%% of the type) round robin over P3-36's 200 agents (about 6%% of the type each). The kit's Alice sees about 5%% through one group; this ACL is the harness's documented stand-in (docs/data/adr-006-a2-gate.md).")
 		serial.cell(t, "band (ii) kp = 3, agents", listReqs(e.agents, band), true)
-		// Reported only: the throwaway result keeps it out of the verdict.
-		serial.planCheck(t, &e3CellResult{name: "band (ii) kp = 3, agent-1 (reported only)", plan: map[string]e3Plan{}}, "agent-1", band)
+		serial.planReported(t, "band (ii) kp = 3, agent-1 (reported only)", "agent-1", band)
 	}
 
 	// ---- (3a) S-A2-cancel ----

@@ -10,12 +10,19 @@
 # contention.txt, serial-samples.csv). Env: NAVA_PERF_LIST_SECONDS (15),
 # NAVA_PERF_CLIENTS (8), NAVA_PERF_OUT; BENCH_KEEP=1 keeps the container.
 #   sh scratch/tick-1098-e2-3e/run.sh
+# NAVA_E3_SMOKE=1 runs the same seed and every step with 2 s blocks, records
+# the gates and ignores them, and gives no verdict. It writes to
+# bin/tick-1098-e2-3e-smoke/ and refuses run-e2-3e/.
 set -eu
 cd "$(dirname "$0")/../.."
 pgtag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)
 [ -n "$pgtag" ] || { echo "no postgres row in docs/pins.md" >&2; exit 1; }
 pg=nava-e2-3e-pg-$$
-NAVA_PERF_OUT=${NAVA_PERF_OUT:-$(pwd)/docs/data/adr-006-a2-gate/run-e2-3e/raw.md}
+smoke=${NAVA_E3_SMOKE:-0}
+def=$(pwd)/docs/data/adr-006-a2-gate/run-e2-3e/raw.md
+if [ "$smoke" = 1 ]; then def=$(pwd)/bin/tick-1098-e2-3e-smoke/raw.md; fi
+NAVA_PERF_OUT=${NAVA_PERF_OUT:-$def}
+case "$smoke $NAVA_PERF_OUT" in "1 "*run-e2-3e*) echo "a smoke run never writes to run-e2-3e/" >&2; exit 1 ;; esac
 if command -v cygpath >/dev/null 2>&1; then NAVA_PERF_OUT=$(cygpath -m "$NAVA_PERF_OUT"); fi
 out=$(dirname "$NAVA_PERF_OUT")
 NAVA_PERF_SPIKE_CELLS=${NAVA_PERF_SPIKE_CELLS:-serial}
@@ -69,4 +76,12 @@ hostprocs() {
     done
 ) > "$out/contention.txt" 2>/dev/null &
 sampler=$!
-go test -tags 'integration perf' -count=1 -timeout 120m -v -run '^TestA2Gate$' ./internal/server
+set -- go test -tags 'integration perf' -count=1 -timeout 120m -v -run '^TestA2Gate$' ./internal/server
+if [ "$smoke" != 1 ]; then "$@"; exit; fi
+# go test prints its own PASS / FAIL words: a smoke run shows none of them.
+rc=0
+"$@" > "$out/go-test.log" 2>&1 || rc=$?
+sed -i -E 's/PASS|FAIL|INCONCLUSIVE/[smoke]/g' "$out/go-test.log"
+cat "$out/go-test.log"
+echo "SMOKE, no verdict (go test exit $rc)"
+exit "$rc"
