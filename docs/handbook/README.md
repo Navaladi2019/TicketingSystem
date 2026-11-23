@@ -166,3 +166,9 @@ in `docs/pins.md`. To bump it, replace the file and the pin row together.
 
 `index.html`, `<section>/*.html`, `diagrams/`, `assets/handbook.css`,
 `assets/handbook.js` and `assets/search-index.js` are generated.
+
+`examples/` is the exception: the example record types (JSON and the seed
+script, TICK-789) are hand-authored source. The build neither writes nor
+deletes them, and `handbook:check` ignores them (`HAND_AUTHORED_DIRS` in
+`build/build.py`, with `src/` and `build/`). Any other file the build does not
+own still fails `handbook:check`.

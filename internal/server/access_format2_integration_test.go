@@ -325,7 +325,7 @@ func TestPutAccessByteLimitIsExactOnRulesAndMasks(t *testing.T) {
 		if got := pointerRules(t, rec); !containsStr(got, "/rules document_too_large") {
 			t.Errorf("32,769 bytes: errors %v", got)
 		}
-		if !strings.Contains(rec.Body.String(), "32768") {
+		if !bodyCarries(rec.Body.String(), "32768") {
 			t.Errorf("the 422 does not state the limit: %s", rec.Body)
 		}
 	}
@@ -373,7 +373,7 @@ func TestPutAccessHonoursTheConfiguredLimit(t *testing.T) {
 	}
 	rec = e.access(t, http.MethodPut, accessPath, "admin-a", "cfg-2", `W/"2"`, `{"rules": `+padded(t, 65537)+`}`)
 	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
-	if !strings.Contains(rec.Body.String(), "65536") || strings.Contains(rec.Body.String(), "32768") {
+	if !bodyCarries(rec.Body.String(), "65536") || bodyCarries(rec.Body.String(), "32768") {
 		t.Errorf("the 422 must state the configured limit: %s", rec.Body)
 	}
 }
@@ -442,14 +442,14 @@ func TestTheByteLimitSettingIsNotExposed(t *testing.T) {
 	payload := `{"rules": [], "max_document_bytes": ` + needle + `, "NAVA_ACL_MAX_DOCUMENT_BYTES": ` + needle + `}`
 	for _, o := range ops {
 		rec := e.access(t, o.method, o.path, "admin-a", "expose-"+o.method+o.path, `W/"1"`, payload)
-		if strings.Contains(rec.Body.String(), needle) {
+		if bodyCarries(rec.Body.String(), needle) {
 			t.Errorf("%s %s = %d carries the limit: %s", o.method, o.path, rec.Code, rec.Body)
 		}
 	}
 	// The only place it appears is the document_too_large detail.
 	rec := e.access(t, http.MethodPut, accessPath, "admin-a", "expose-big", `W/"1"`, `{"rules": `+padded(t, limit+1)+`}`)
 	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.InvalidAccessPolicy)
-	if !strings.Contains(rec.Body.String(), needle) {
+	if !bodyCarries(rec.Body.String(), needle) {
 		t.Errorf("the document_too_large 422 does not state the limit: %s", rec.Body)
 	}
 	// A successful read or publish never carries it.
@@ -457,7 +457,7 @@ func TestTheByteLimitSettingIsNotExposed(t *testing.T) {
 		e.access(t, http.MethodGet, accessPath, "admin-a", "", "", ""),
 		e.access(t, http.MethodPut, accessPath, "admin-a", "expose-ok", `W/"1"`, `{"rules": []}`),
 	} {
-		if strings.Contains(rec.Body.String(), needle) {
+		if bodyCarries(rec.Body.String(), needle) {
 			t.Errorf("response carries the limit: %s", rec.Body)
 		}
 	}
