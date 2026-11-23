@@ -1,13 +1,22 @@
 package server_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
 
-// bodyCarries reports whether a response body carries the number.
+// randomText is the text of a response whose digits differ from run to run: 32
+// bare hex digits (a request id, half a SHA-256), a UUID, an RFC 3339 time. The
+// lengths are exact, so a number next to an id is not taken for part of it.
+var randomText = regexp.MustCompile(`[0-9a-f]{32}` +
+	`|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
+	`|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})`)
+
+// bodyCarries reports whether a response body carries the number anywhere but
+// in randomText. The number may touch other text: "limit54321B" carries 54321.
 func bodyCarries(body, number string) bool {
-	return strings.Contains(body, number)
+	return strings.Contains(randomText.ReplaceAllString(body, "<random>"), number)
 }
 
 // TICK-1111: the byte-limit checks failed at random when a request id happened
