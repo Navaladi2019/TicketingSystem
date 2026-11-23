@@ -73,3 +73,12 @@ flowchart LR
 ```
 
 `StrictBody` (`internal/platform/apihttp`) runs before the OpenAPI validator and passes a clean body on byte for byte. The handler parsers also decode with `encoding/json/v2`, so they refuse the same bodies if ever reached without the middleware. An entity schema with invalid UTF-8 is refused too. `TestStrictBodyRefusalsCoverTheContract` fails when an operation with a body has no code in the table; `TestEveryTenantWriteRefusesNonStrictJSONAndWritesNothing` sends three bad bodies to every tenant write against real PostgreSQL and checks nothing was stored. The normative note is `docs/api/strict-json-bodies.md`.
+
+## Access-policy `under` codes (S31)
+
+`putEntityTypeAccess` answers `422 invalid_access_policy` for an `under` leaf
+that lists the same org unit twice: rule `under_duplicate_id`, with one entry
+at each repeat's pointer, for example `/rules/policies/1/when/under/of/2`
+(ADR-010-A2 A2-8). Its siblings are `under_nested` (a unit and one of its
+ancestors) and `under_sets_exceeded` (more than 4 distinct start sets in a
+policy). The full list is on the [access API page](access-api.md#problem-codes).

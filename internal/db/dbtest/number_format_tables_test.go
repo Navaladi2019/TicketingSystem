@@ -47,7 +47,7 @@ const (
 )
 
 // numberFormatTables are the three tables 20261113210100 creates.
-var numberFormatTables = []string{"number_formats", "number_format_versions", "numbering_epochs"}
+var numberFormatTables = []string{"number_formats", "number_format_versions", "numbering_epochs"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // seedNumberFormats writes, as the superuser, for each tenant: seedEntityTypes'
 // rows (a principal and a type whose id is the tenant id), a format whose id

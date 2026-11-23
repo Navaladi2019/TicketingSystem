@@ -23,7 +23,7 @@
     - page: tour/04-add-users-to-groups.md
       label: "4. Add users to groups"
     - page: tour/05-organisation-units.md
-      label: "5. Organisation units (not built)"
+      label: "5. Organisation units"
     - page: tour/06-create-an-entity-type.md
       label: "6. Create an entity type"
     - page: tour/07-access-rules-and-masks.md
@@ -44,6 +44,8 @@
       label: "Entity types"
     - page: database/records.md
       label: "Records"
+    - page: database/org-units.md
+      label: "Org units"
     - page: database/acl.md
       label: "Access rules and masks"
     - page: workflows/index.md
@@ -158,6 +160,8 @@
             label: "Roles and grants"
           - page: database/migrations.md
             label: "Migration history"
+          - page: database/record-estimates.md
+            label: "Record estimates"
           - page: database/idempotency.md
             label: "Idempotency"
           - page: database/outbox.md
@@ -228,6 +232,8 @@
             label: "A1: the D13 350 ms residual follows the fan-out, not the ACL"
           - page: adr/adr-006-a2.md
             label: "A2: the capped count runs under a 200 ms budget; total may be unknown"
+          - page: adr/adr-006-e2.md
+            label: "E2: count budget 170 ms, serial count, pg_ls_tmpdir() leak check"
       - page: adr/adr-007.md
         label: "ADR-007 Embedding widget and SDK"
         children:
@@ -242,10 +248,16 @@
         children:
           - page: adr/adr-010-a1.md
             label: "A1: SP-2 caps, a configurable byte limit, publish as nava_app only"
+          - page: adr/adr-010-a2.md
+            label: "A2: region leaf on org_unit_closure, capped count, C3 or the walk at K*"
+          - page: adr/adr-010-a3.md
+            label: "A3: a concentrated type under a large subtree reads its own records (R)"
           - page: adr/adr-010-e1.md
             label: "E1: CI-6 SQL text equal up to two named rewrites"
           - page: adr/adr-010-e2.md
             label: "E2: a stale If-Match on the access PUT is 412, not 409"
+          - page: adr/adr-010-e3.md
+            label: "E3: CI-6 rewrite (c), one-group my_groups renders scalar ="
     - page: stories/index.md
       label: "Stories"
       children:
@@ -293,6 +305,8 @@
             label: "CI checks the Competitive Gate and the configuration surface"
           - page: stories/s30.md
             label: "Compose access rules from named conditions"
+          - page: stories/s31.md
+            label: "Tickets in my region (org units)"
           - page: stories/s32.md
             label: "A workflow step checks a named policy"
           - page: stories/go127.md

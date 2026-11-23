@@ -4,7 +4,7 @@ package dbtest
 
 import (
 	"context"
-	"crypto/sha1" //nolint:gosec // FIPS test vectors for the SQL SHA-1, not a security use.
+	"crypto/sha1"
 	"encoding/hex"
 	"regexp"
 	"strconv"
@@ -53,7 +53,7 @@ func TestP515UUIDv5MatchesGo(t *testing.T) {
 		for i := range msg {
 			msg[i] = byte(i*7 + n)
 		}
-		sum := sha1.Sum(msg) //nolint:gosec // see import
+		sum := sha1.Sum(msg)
 		if got := queryString(t, super, "SELECT encode(audit_backfill_sha1($1), 'hex')", msg); got != hex.EncodeToString(sum[:]) {
 			t.Errorf("sha1 of %d bytes = %s, want %x", n, got, sum)
 		}

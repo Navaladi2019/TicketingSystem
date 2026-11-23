@@ -24,7 +24,18 @@ The identity provider. Realm `nava` is imported at first boot from `deploy/compo
 - Browsers and API clients log in on the published port.
 - **nava-core**: discovery and JWKS on `keycloak:8080`, and its health check on `:9000` and the token endpoint.
 - **nava-onboard**: creates the tenant organisation and its admin group (Admin API).
-- **nava-groupsync**: reads users, groups and memberships (Admin API).
+- **nava-groupsync**: reads users, groups and memberships (Admin API), and the org-unit groups under `/t/<tenant_id>/ou/`.
+
+## The `nava_primary_org_unit` attribute (S31)
+
+The `nava` realm user profile declares `nava_primary_org_unit`, a user's
+primary org unit when they are in more than one. It is **admin-only**, for
+view and edit, so users cannot set it themselves. Group sync reads it to pick
+the user's primary unit (D-11-6; see [nava-groupsync](nava-groupsync.md#org-units-s31)).
+Filling it from a tenant's own identity provider through a mapper is
+deferred to a follow-up issue. Since S31 the realm fixture also seeds tenant
+A's `EMEA`, `EMEA/Germany` and `APAC` units, the `/requesters` group and five
+users for the S31 kit.
 
 ## Boundary it enforces
 
