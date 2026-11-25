@@ -61,6 +61,9 @@ paths:
         `filterable_field_not_top_level` and any `x-nava-searchable` answers
         422 `searchable_not_available`; each names the path in
         `errors[].pointer` and writes nothing.
+        A definition that flags more than 5 fields on the type, or would pass
+        50 in the tenant, answers 422 `index_quota_exceeded`, with
+        `errors[].pointer` naming the properties, and writes nothing.
       parameters:
         - name: Idempotency-Key
           in: header
