@@ -24,3 +24,6 @@ func WithAuditMasker(m read.Masker) Option { return func(o *options) { o.auditMa
 func WithExportPaging(pageSize int, onPage func(time.Time, string)) Option {
 	return func(o *options) { o.exportPageSize, o.exportOnPage = pageSize, onPage }
 }
+
+// AddOrgUnitMasks is addOrgUnitMasks, so a test can call it in a transaction.
+var AddOrgUnitMasks = addOrgUnitMasks //nolint:gochecknoglobals // test-only alias of an unexported function
