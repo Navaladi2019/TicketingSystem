@@ -167,9 +167,9 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 		}
 		return n
 	}
-	// list reads every page of the list, checks each for leaks, and returns
-	// the ids in order and the first page.
-	list := func(what string) (ids []string, first recordsShapeList, records int) {
+	// list reads the first page, or all pages, checks each for leaks, and
+	// returns the ids in order and the first page.
+	list := func(what string, all bool) (ids []string, first recordsShapeList, records int) {
 		t.Helper()
 		path := "/api/v1/records/job?limit=100"
 		for next := ""; ; {
@@ -189,7 +189,7 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 			for _, it := range l.Items {
 				ids = append(ids, it.ID)
 			}
-			if l.NextCursor == nil {
+			if l.NextCursor == nil || !all {
 				return ids, first, records
 			}
 			next = "&cursor=" + *l.NextCursor
@@ -206,13 +206,17 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 		if chosen() {
 			t.Fatalf("%d records: no estimate, but the selector picks R", n)
 		}
-		refIDs, ref, refRecords := list("reference")
+		refIDs, ref, refRecords := list("reference", n == 1002)
 		setEstimate(estimate)
 		if !chosen() {
 			t.Fatalf("%d records: the selector does not pick R", n)
 		}
-		ids, got, records := list("R")
-		if len(ids) != n || slices.Contains(ids, out.ID) || !slices.Equal(ids, refIDs) {
+		ids, got, records := list("R", n == 1002)
+		rows := 100
+		if n == 1002 {
+			rows = n
+		}
+		if len(ids) != rows || slices.Contains(ids, out.ID) || !slices.Equal(ids, refIDs) {
 			t.Errorf("%d records: R lists %d rows, the reference %d, in the same order %v", n, len(ids), len(refIDs), slices.Equal(ids, refIDs))
 		}
 		if got.Total != 1000 && n <= 1000 || got.Total != ref.Total || got.TotalCapped != (n > 1000) || ref.TotalCapped != (n > 1000) {

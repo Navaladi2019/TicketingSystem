@@ -193,21 +193,17 @@ func TestUnderListChoosesRecords(t *testing.T) {
 	}
 }
 
-// The R count of the pinned PostgreSQL reads this index. It is a (tenant_id,
-// entity_definition_id, …) index, so A3-R2 is not triggered; a red test here
-// is A3-R2's trigger (Postgres & Data Modeling Specialist).
-const recordsCountIndex = "records_list_updated"
-
 // recordsFaults is what an R plan gets wrong (A3-1, A3-5): the records are
-// read from index under (hashed SubPlan 1) IS TRUE, and the closure is read
-// nowhere else than in that SubPlan, so the units drive nothing.
-func recordsFaults(plan planNode, index string) []string {
+// read once, from an index in want, under (hashed SubPlan 1) IS TRUE, and the
+// closure is read nowhere else than in that SubPlan, so the units drive
+// nothing.
+func recordsFaults(plan planNode, want []string) []string {
 	var out []string
 	var read []string
 	plan.walk(nil, func(n planNode, path []planNode) {
 		if n.Relation == "records" || strings.HasPrefix(n.Index, "records_") {
 			read = append(read, n.Type+" "+n.Index)
-			if n.Index == index && strings.Contains(n.Filter, "(hashed SubPlan 1) IS TRUE") {
+			if slices.Contains(want, n.Index) && strings.Contains(n.Filter, "(hashed SubPlan 1) IS TRUE") {
 				read[len(read)-1] = "ok"
 			}
 		}
@@ -219,16 +215,37 @@ func recordsFaults(plan planNode, index string) []string {
 		}
 	})
 	if !slices.Equal(read, []string{"ok"}) {
-		out = append(out, fmt.Sprintf("records are read by %q, want %s under (hashed SubPlan 1) IS TRUE", read, index))
+		out = append(out, fmt.Sprintf("records are read by %q, want one of %q under (hashed SubPlan 1) IS TRUE", read, want))
 	}
 	return out
 }
 
-// recordsPlanWorld is a tenant big enough for the plans R is chosen for: a
-// subtree of each size in recordsPlanSizes, 20,000 records of the world's type
-// in other units (m = 0, the bench_conc shape), and 100,000 records of
-// another type over every unit, so the tenant's unit-tagged slice is not the
-// type's. It returns the root of each subtree, and of the 2,000 units that
+// recordsIndexes are the indexes R may read: the page walks the sort index;
+// the count reads any index led by (tenant_id, entity_definition_id). Several
+// cost the planner the same there, so the count is pinned to the class: a
+// plan outside it, records_org_unit or a Seq Scan, is A3-R2's trigger
+// (Postgres & Data Modeling Specialist).
+func recordsIndexes(t *testing.T, e env) (page, counted []string) {
+	t.Helper()
+	rows, err := e.super.Query(context.Background(), `SELECT indexname FROM pg_indexes
+		WHERE tablename = 'records' AND indexdef LIKE '%(tenant_id, entity_definition_id,%' AND indexdef NOT LIKE '% WHERE %'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counted, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil || slices.Contains(counted, "records_org_unit") || !slices.Contains(counted, "records_list_updated") {
+		t.Fatalf("(tenant_id, entity_definition_id, …) indexes %q, %v", counted, err)
+	}
+	return []string{"records_list_updated"}, counted
+}
+
+// recordsPlanWorld is a records table R is chosen for: a subtree of each size
+// in recordsPlanSizes, 20,000 records of the world's type in other units
+// (m = 0, the bench_conc shape), 200,000 of another type over every unit, so
+// the tenant's unit-tagged slice is not the type's, and 200,000 in each of two
+// other tenants: the table is shared. Its size matters to the count: on a
+// table of one tenant and up to about 420,000 rows PostgreSQL 16.10 costs a Seq
+// Scan of it just below the type's index (TICK-1104's PR). It returns the root of each subtree, and of the 2,000 units that
 // hold the type's records.
 func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UUID, other uuid.UUID) {
 	t.Helper()
@@ -282,17 +299,20 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 		t.Fatal(err)
 	}
 	for _, r := range []struct {
-		def    uuid.UUID
-		like   string
-		n      int
-		number string
-	}{{w.def, "o-%", 20_000, "PC-"}, {busy, "%", 100_000, "PB-"}} {
+		tenant, def uuid.UUID
+		like        string
+		n           int
+		number      string
+	}{
+		{w.tenant, w.def, "o-%", 20_000, "PC-"}, {w.tenant, busy, "%", 200_000, "PB-"},
+		{uuid.New(), uuid.New(), "%", 200_000, "PX-"}, {uuid.New(), uuid.New(), "%", 200_000, "PY-"},
+	} {
 		if _, err := tx.Exec(ctx, `WITH u AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS i
-				FROM org_units WHERE tenant_id = $1 AND name LIKE $3)
+				FROM org_units WHERE tenant_id = $6 AND name LIKE $3)
 			INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data)
 			SELECT $1, gen_random_uuid(), $2, 1, 1, $5::text || g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, u.id,
 				now() - ((g::bigint * 7919) % 100003) * interval '1 second', now() - g * interval '1 second', '{}'
-			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % (SELECT count(*) FROM u)`, w.tenant, r.def, r.like, r.n, r.number); err != nil {
+			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % (SELECT count(*) FROM u)`, r.tenant, r.def, r.like, r.n, r.number, w.tenant); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -339,10 +359,7 @@ func TestUnderListRecordsPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("PostgreSQL %s", version)
-	if def := ""; e.super.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE indexname = $1`, recordsCountIndex).Scan(&def) != nil ||
-		!strings.Contains(def, "(tenant_id, entity_definition_id,") {
-		t.Errorf("%s is %q, not a (tenant_id, entity_definition_id, …) index (A3-R2)", recordsCountIndex, def)
-	}
+	pageIndexes, countIndexes := recordsIndexes(t, e)
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 		recordsPlanSettings(ctx, t, tx)
 		for _, n := range recordsPlanSizes() {
@@ -366,15 +383,22 @@ func TestUnderListRecordsPlans(t *testing.T) {
 			}
 			cc, cargs := pipeline.CountStatement(q), append([]any{q.TenantID, q.DefinitionID}, q.Args...)
 			for _, s := range []struct {
-				name, sql, index string
-				args             []any
-			}{{"page", page, "records_list_updated", args}, {"count", cc, recordsCountIndex, cargs}} {
+				name, sql string
+				indexes   []string
+				args      []any
+			}{{"page", page, pageIndexes, args}, {"count", cc, countIndexes, cargs}} {
 				plan, raw := explain(ctx, t, tx, s.sql, s.args)
-				if faults := recordsFaults(plan, s.index); len(faults) > 0 {
+				if faults := recordsFaults(plan, s.indexes); len(faults) > 0 {
 					t.Errorf("R %s at %d units: %v\n%s\nEXPLAIN (FORMAT JSON):\n%s", s.name, n, faults, s.sql, raw)
+				} else {
+					plan.walk(nil, func(x planNode, _ []planNode) {
+						if x.Relation == "records" {
+							t.Logf("R %s at %d units: %s using %s", s.name, n, x.Type, x.Index)
+						}
+					})
 				}
 				mut := strings.ReplaceAll(s.sql, ") IS TRUE)", "))")
-				if plan, raw := explain(ctx, t, tx, mut, s.args); mut == s.sql || len(recordsFaults(plan, s.index)) == 0 {
+				if plan, raw := explain(ctx, t, tx, mut, s.args); mut == s.sql || len(recordsFaults(plan, s.indexes)) == 0 {
 					t.Errorf("mutant r_without_is_true is not caught, %s at %d units\n%s", s.name, n, raw)
 				}
 			}
@@ -383,7 +407,7 @@ func TestUnderListRecordsPlans(t *testing.T) {
 			for _, d := range authz.ReadList(bound, w.u1, "r", 2).Drivers {
 				dq.CountDrivers = []pipeline.CountDriver{{From: d.From, Key: d.Key}}
 			}
-			if plan, raw := explain(ctx, t, tx, pipeline.CountStatement(dq), cargs); len(recordsFaults(plan, recordsCountIndex)) == 0 {
+			if plan, raw := explain(ctx, t, tx, pipeline.CountStatement(dq), cargs); len(recordsFaults(plan, countIndexes)) == 0 {
 				t.Errorf("mutant r_count_driven is not caught at %d units\n%s", n, raw)
 			}
 		}
@@ -432,6 +456,7 @@ func TestUnderListRecordsPlans(t *testing.T) {
 func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
+	pageIndexes, countIndexes := recordsIndexes(t, e)
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 		recordsPlanSettings(ctx, t, tx)
 		if _, err := tx.Exec(ctx, `SET LOCAL plan_cache_mode = force_generic_plan`); err != nil {
@@ -448,18 +473,19 @@ func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.U
 				return err
 			}
 			for _, s := range []struct {
-				name, sql, index string
-				args             []any
+				name, sql string
+				indexes   []string
+				args      []any
 			}{
-				{"page", page, "records_list_updated", args},
-				{"count", pipeline.CountStatement(q), recordsCountIndex, append([]any{q.TenantID, q.DefinitionID}, q.Args...)},
+				{"page", page, pageIndexes, args},
+				{"count", pipeline.CountStatement(q), countIndexes, append([]any{q.TenantID, q.DefinitionID}, q.Args...)},
 			} {
 				name := fmt.Sprintf("r_%s_%d", s.name, n)
 				if _, err := tx.Exec(ctx, "PREPARE "+name+" AS "+s.sql); err != nil {
 					return fmt.Errorf("prepare %s: %w", s.name, err)
 				}
 				plan, raw := explain(ctx, t, tx, "EXECUTE "+name+literals(s.args), nil)
-				if faults := recordsFaults(plan, s.index); len(faults) > 0 {
+				if faults := recordsFaults(plan, s.indexes); len(faults) > 0 {
 					t.Logf("GENERIC PLAN MISS: R %s at %d units: %v\n%s", s.name, n, faults, raw)
 				} else {
 					t.Logf("GENERIC PLAN OK: R %s at %d units", s.name, n)
