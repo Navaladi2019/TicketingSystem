@@ -42,15 +42,19 @@ groups:
         # groupsync_org_closure_drift_repairs is an OTel counter; the exporter
         # writes it with _total. New() adds 0 so the series starts at 0, and the
         # second branch fires for a series that first appears already above 0
-        # (increase() sees no change there). Accepted limit: a process that
-        # restarts at 1 and repairs again before any scrape sees 0 shows 1 -> 1
-        # and fires nothing; the WARN line (once per repair) is the only trace.
+        # (increase() sees no change there); it compares with the last value
+        # seen 15m ago, so a failed scrape does not fire it. Accepted limits: a
+        # process that restarts at 1 and repairs again before any scrape sees 0
+        # shows 1 -> 1 and fires nothing (gaps up to about 1h); a gap longer
+        # than about 1h can fire it with no repair. The WARN line (once per
+        # repair) is the trace.
         # AR-TICK-1118-01 is looked at again when any drift is found in a live
         # tenant; this alert is that trigger.
         expr: >-
           increase(groupsync_org_closure_drift_repairs_total[15m]) > 0
           or (groupsync_org_closure_drift_repairs_total > 0
-          unless groupsync_org_closure_drift_repairs_total offset 15m)
+          unless last_over_time(groupsync_org_closure_drift_repairs_total[1h] offset 15m)
+          == groupsync_org_closure_drift_repairs_total)
         labels:
           severity: warning
         annotations:

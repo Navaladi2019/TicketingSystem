@@ -141,28 +141,22 @@ func TestClosureDriftEmptyTableIsCounted(t *testing.T) {
 	super, pool := cluster(t)
 	tid, empty := uuid.New(), uuid.New()
 	seedTenant(t, super, tid, 1)
-	exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", empty)
+	seedTenant(t, super, empty, 2)
 	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
 	s, reader, wl := meteredSyncer(t, pool, dir)
 	units := []identity.DirectoryGroup{unit("r", "", path(tid, "/ou/r")), unit("a", "r", path(tid, "/ou/r/a"))}
 	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{syncUser("u1")}})
 	dir.set(empty, identity.DirectoryChanges{Users: []identity.DirectoryUser{syncUser("e1")}})
-	if r := once(t, s); r.Err != nil {
-		t.Fatal(r.Err)
-	}
+	onceBoth(t, s, 2)
 	dir.set(empty, identity.DirectoryChanges{Users: []identity.DirectoryUser{syncUser("e1"), syncUser("e2")}})
-	if r := once(t, s); r.Err != nil {
-		t.Fatal(r.Err)
-	}
+	onceBoth(t, s, 2)
 	if n := driftTotal(t, reader); n > 0 {
 		t.Errorf("first import and a tenant with no units: counter = %d, want 0", n)
 	}
 	good := closureOf(t, super, tid)
 	exec(t, super, "DELETE FROM org_unit_closure WHERE tenant_id = $1", tid)
 	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{syncUser("u1"), syncUser("u2")}})
-	if r := once(t, s); r.Err != nil {
-		t.Fatal(r.Err)
-	}
+	onceBoth(t, s, 2)
 	if n := driftTotal(t, reader); n != 1 {
 		t.Errorf("emptied closure: counter = %d, want 1", n)
 	}
@@ -196,8 +190,8 @@ func TestClosureDriftNotCountedWhenCommitFails(t *testing.T) {
 	// The repair inserts closure rows; this trigger fails the commit after them.
 	exec(t, super, `CREATE FUNCTION fail_closure_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected commit failure'; END $$`)
 	exec(t, super, `CREATE CONSTRAINT TRIGGER fail_closure_commit AFTER INSERT ON org_unit_closure DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_closure_commit()`)
-	if r := run("u1", "u2"); r.Err == nil {
-		t.Fatal("the commit was meant to fail")
+	if r := run("u1", "u2"); r.Err == nil || !strings.Contains(r.Err.Error(), "injected commit failure") {
+		t.Fatalf("the commit was meant to fail with the injected error, got %v", r.Err)
 	}
 	if n := driftTotal(t, reader); n > 0 {
 		t.Errorf("failed commit: counter = %d, want 0", n)
@@ -214,5 +208,19 @@ func TestClosureDriftNotCountedWhenCommitFails(t *testing.T) {
 	}
 	if got := wl.drift(); len(got) != 1 {
 		t.Errorf("retry: warn lines = %v, want one", got)
+	}
+}
+
+// onceBoth runs one cycle over n tenants and fails unless every one synced.
+func onceBoth(t *testing.T, s *groupsync.Syncer, n int) {
+	t.Helper()
+	rs, err := s.Once(context.Background())
+	if err != nil || len(rs) != n {
+		t.Fatalf("Once = %v, %v; want %d results", rs, err, n)
+	}
+	for _, r := range rs {
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
 	}
 }

@@ -124,3 +124,20 @@ tests:
       - eval_time: 35m
         alertname: GroupsyncOrgClosureDriftRepaired
         exp_alerts: []
+  # A failed scrape is not a repair.
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_closure_drift_repairs_total{job="nava",instance="nava-groupsync:9090"}'
+        values: '1x60 stale 1x60'
+    alert_rule_test:
+      - eval_time: 76m
+        alertname: GroupsyncOrgClosureDriftRepaired
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_closure_drift_repairs_total{job="nava",instance="nava-groupsync:9090"}'
+        values: '1x60 stale _x9 1x60'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: GroupsyncOrgClosureDriftRepaired
+        exp_alerts: []
