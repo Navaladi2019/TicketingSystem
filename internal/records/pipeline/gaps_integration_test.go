@@ -329,49 +329,72 @@ func TestAllocationTimeoutIsRetryableAndMeasured(t *testing.T) {
 // a number: the worst case for a pool both share.
 //
 // With a stagger, the i-th of a wave's n allocations starts i x stagger after
-// the barrier, so they reach their timeouts at different times (TICK-1129).
+// the barrier, and each returns to its create only after all n have returned
+// or the context ended: no create of the wave ends, and so releases its
+// connection, while another of its allocations still waits for one. Without
+// that, an allocation could get the connection of a create that timed out
+// earlier and succeed, as it may (TICK-1129).
 type barrierRunner struct {
 	pipeline.PoolRunner
 	n       int
 	stagger time.Duration
 	mu      sync.Mutex
-	waiting int
-	release chan struct{}
+	wave    *wave
+}
+
+// wave is the n allocations one barrier releases together.
+type wave struct {
+	arrived, returned int
+	release, done     chan struct{} // closed when all n arrived, returned
 }
 
 func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.UUID, format numbering.Compiled) (pipeline.Allocation, error) {
 	r.mu.Lock()
-	if r.release == nil {
-		r.release = make(chan struct{})
+	if r.wave == nil {
+		r.wave = &wave{release: make(chan struct{}), done: make(chan struct{})}
 	}
-	ch, delay := r.release, time.Duration(r.waiting)*r.stagger
-	if r.waiting++; r.waiting == r.n {
-		close(ch)
-		r.waiting, r.release = 0, nil
+	w := r.wave
+	delay := time.Duration(w.arrived) * r.stagger
+	if w.arrived++; w.arrived == r.n {
+		close(w.release)
+		r.wave = nil
 	}
 	r.mu.Unlock()
 	select {
-	case <-ch:
+	case <-w.release:
 	case <-ctx.Done():
 		return pipeline.Allocation{}, ctx.Err()
 	}
-	if delay > 0 {
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			return pipeline.Allocation{}, ctx.Err()
-		}
+	if r.stagger == 0 {
+		return r.PoolRunner.Allocate(ctx, createTx, def, format)
 	}
-	return r.PoolRunner.Allocate(ctx, createTx, def, format)
+	select {
+	case <-time.After(delay):
+	case <-ctx.Done():
+		return pipeline.Allocation{}, ctx.Err()
+	}
+	got, err := r.PoolRunner.Allocate(ctx, createTx, def, format)
+	r.mu.Lock()
+	if w.returned++; w.returned == r.n {
+		close(w.done)
+	}
+	r.mu.Unlock()
+	select {
+	case <-w.done:
+	case <-ctx.Done():
+	}
+	return got, err
 }
 
 // controlStagger puts 40 ms between the timeouts of a control's allocations:
-// time enough for one to take a connection another's create released. The
-// last of 5 starts at 160 ms, before the first gives up at 200 ms.
+// time enough for one to take a connection, were another's create to release
+// its own early. The last of 5 starts at 160 ms, before the first gives up at
+// 200 ms.
 const controlStagger = 40 * time.Millisecond
 
 // starve runs 2 x n concurrent creates whose allocations each wait until n
-// of them hold their create transactions, and returns every error.
+// of them hold their create transactions, and returns every error. The
+// controls pass controlStagger, the runs that must not starve 0.
 func starve(e env, f tenantFixture, alloc pipeline.PoolRunner, n int, stagger time.Duration) []error {
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{},
 		&barrierRunner{PoolRunner: alloc, n: n, stagger: stagger}, pipeline.SystemClock{})
