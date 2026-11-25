@@ -254,6 +254,8 @@
             label: "E2: a stale If-Match on the access PUT is 412, not 409"
           - page: adr/adr-010-e3.md
             label: "E3: CI-6 rewrite (c), one-group my_groups renders scalar ="
+          - page: adr/adr-010-e4.md
+            label: "E4: the region tree is kept current with partial writes"
     - page: stories/index.md
       label: "Stories"
       children:

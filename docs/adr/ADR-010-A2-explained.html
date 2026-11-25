@@ -52,7 +52,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>3. The decision</h2>
 <ol>
-<li><strong>Flatten the tree once.</strong> A table <code>org_unit_closure</code> (a <em>closure table</em>: one row for every "unit A is at or above unit B" pair) holds only paths through units that still exist. groupsync rebuilds a tenant's rows in the same database transaction as the tree change, one tenant at a time, so the table can never disagree with the tree.</li>
+<li><strong>Flatten the tree once.</strong> A table <code>org_unit_closure</code> (a <em>closure table</em>: one row for every "unit A is at or above unit B" pair) holds only paths through units that still exist. groupsync updates a tenant's rows in the same database transaction as the tree change, one tenant at a time, so a reader never sees a half-changed tree. <em>Corrected by <a href="ADR-010-E4-explained.html">erratum E4</a>: a change replaces only the affected rows; the full rebuild is for the first import and for repair.</em></li>
 <li><strong>Single ticket:</strong> one lookup in that table. The code that walked the tree, and the 10,000-unit limit that protected it, are deleted.</li>
 <li><strong>Tidy the start units.</strong> If an agent belongs to both "EMEA" and "EMEA / Germany", "Germany" is dropped, because it's already covered. Otherwise its tickets would be counted twice.</li>
 <li><strong>Ticket list, total count:</strong> the region part is always counted with the capped method, which stops at the list's existing 1,001 cap.</li>
@@ -133,7 +133,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <h2>7. The fix and the migration</h2>
 <table><thead><tr><th>Task</th><th>What it does</th></tr></thead><tbody>
 <tr><td>TICK-1032</td><td>The closure table and the type-aware index, tenant-walled, with a cross-tenant test.</td></tr>
-<tr><td>TICK-1033</td><td>groupsync rebuilds the closure in the same transaction, one tenant at a time.</td></tr>
+<tr><td>TICK-1033</td><td>groupsync rebuilds the closure in the same transaction, one tenant at a time (later changed to partial writes by TICK-1054, see erratum E4).</td></tr>
 <tr><td>TICK-1034</td><td>Tidy start units, single-ticket check, capped count, the 4-start-point rule, and deleting the old walk and its limit.</td></tr>
 <tr><td>New, on acceptance</td><td>The ticket-totals table and its hourly refresh job.</td></tr>
 <tr><td>TICK-1036</td><td>The probe and the C3 / walk switch at K*.</td></tr>
