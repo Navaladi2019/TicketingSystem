@@ -23,6 +23,9 @@ import (
 const (
 	orgUnitIDReservedMigration  = "20261120235900_entity_versions_org_unit_id_reserved.sql"
 	orgUnitIDReservedConstraint = "entity_definition_versions_org_unit_id_reserved"
+	// lastBeforeS31 is the newest migration before S31: what a deployed
+	// database has applied.
+	lastBeforeS31 = "20261120160200_audit_log_action_policy_ref_refused_validate.sql"
 	// leakMarker is in every refused schema; no error text may hold it.
 	leakMarker = "leak-marker-1115"
 
@@ -197,11 +200,9 @@ func TestTICK1115MigrationRefusesStoredOrgUnitID(t *testing.T) {
 // manifest, which a refused run does not reach (20261121161036 alone breaks
 // every tenant's access publish with 42501).
 func TestTICK1115RefusalAppliesNothingOfS31(t *testing.T) {
-	// The newest migration before S31: what a deployed database has applied.
-	const beforeS31 = "20261120160200_audit_log_action_policy_ref_refused_validate.sql"
 	m := freshCluster(t)
-	if err := migrateOnlyFS(t, m, migrationsThrough(t, beforeS31)); err != nil {
-		t.Fatalf("migrate through %s: %v", beforeS31, err)
+	if err := migrateOnlyFS(t, m, migrationsThrough(t, lastBeforeS31)); err != nil {
+		t.Fatalf("migrate through %s: %v", lastBeforeS31, err)
 	}
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA, tenantB}, nil)
@@ -212,7 +213,7 @@ func TestTICK1115RefusalAppliesNothingOfS31(t *testing.T) {
 	if pe := refusal(t, "upgrade", err); pe != nil && pe.ConstraintName != orgUnitIDReservedConstraint {
 		t.Errorf("refused by %q, want %s", pe.ConstraintName, orgUnitIDReservedConstraint)
 	}
-	newest, _, _ := strings.Cut(beforeS31, "_")
+	newest, _, _ := strings.Cut(lastBeforeS31, "_")
 	if got := queryString(t, super, `SELECT coalesce(string_agg(version_id::text, ',' ORDER BY version_id), '')
 		FROM goose_db_version WHERE is_applied AND version_id > $1::text::bigint`, newest); got != "" {
 		t.Errorf("the refused upgrade left %s applied, want nothing after %s", got, newest)
