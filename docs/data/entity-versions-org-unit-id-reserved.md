@@ -1,6 +1,6 @@
 # No stored entity version has a top-level `org_unit_id` property (TICK-1115)
 
-Migration: `db/migrations/20261125040000_entity_versions_org_unit_id_reserved.sql`.
+Migration: `db/migrations/20261120235900_entity_versions_org_unit_id_reserved.sql`.
 Tests: `internal/db/dbtest/entity_versions_org_unit_id_test.go` and
 `internal/server/entitytypes_org_unit_id_integration_test.go`. Benchmark:
 `scratch/tick-1115-org-unit-id-guard/` (`bench.sh`, output in `bench-out.txt`).
@@ -24,6 +24,22 @@ erDiagram
         json schema "CHECK: no properties.org_unit_id"
     }
 ```
+
+## Why it is S31's first migration
+
+`migrate.Run` returns at a refused migration, before it applies
+`db/grants.yaml`, and every earlier migration stays committed. Stamped after
+the other 11 S31 migrations, a refusal left them applied without their grants.
+`20261121161036` replaces `acl2_problem` and calls functions `nava_app` may not
+execute, so every tenant's access publish failed with `42501` until one
+tenant's row was repaired (Security review on TICK-1115, PostgreSQL 16.10).
+Stamped `20261120235900`, after `main`'s newest migration and before S31's
+first, a refusal leaves nothing of S31 applied. If `main` gets a newer
+migration before S31 ships, every S31 migration is re-stamped and this one
+stays first. `TestTICK1115RefusalAppliesNothingOfS31` fails if it does not.
+
+A long-lived database that applied this file under its old stamp
+(`20261125040000`, story branch only) must be rebuilt.
 
 ## Why the expression replaces escapes first
 
@@ -64,5 +80,6 @@ times, with a quiet host.
 ## Rollout
 
 If the migration is refused (`23514`, the constraint's name), run the query in
-the migration's header as a superuser to list the versions. No data is changed
-by Up or Down.
+the migration's header as a superuser to list the versions. Nothing of S31 is
+applied; the Security review measured access publish and record create on the
+running release as still accepted. No data is changed by Up or Down.

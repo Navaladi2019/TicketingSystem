@@ -13,6 +13,15 @@
 -- answers from. It scans every stored row whatever RLS says, so it needs no
 -- temporary policy.
 --
+-- It must stay S31's first migration. A refused run stops before the grants
+-- manifest is applied, and every migration before the refusal stays committed.
+-- Stamped last, it left 11 S31 migrations applied without their grants, and
+-- every tenant's access publish on the running release then failed with 42501
+-- (permission denied for function acl2_max_under_sets) until a superuser
+-- repaired one tenant's row. If main gets a newer migration before S31 ships,
+-- re-stamp every S31 migration and keep this one first
+-- (TestTICK1115RefusalAppliesNothingOfS31).
+--
 -- Top level only, as in Compile: a nested property of that name is legal.
 --
 -- The expression replaces escapes before it reads the key, because json ->

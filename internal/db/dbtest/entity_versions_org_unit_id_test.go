@@ -21,7 +21,7 @@ import (
 // property named org_unit_id.
 
 const (
-	orgUnitIDReservedMigration  = "20261125040000_entity_versions_org_unit_id_reserved.sql"
+	orgUnitIDReservedMigration  = "20261120235900_entity_versions_org_unit_id_reserved.sql"
 	orgUnitIDReservedConstraint = "entity_definition_versions_org_unit_id_reserved"
 	// leakMarker is in every refused schema; no error text may hold it.
 	leakMarker = "leak-marker-1115"
