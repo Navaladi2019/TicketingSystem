@@ -130,6 +130,9 @@ type reply struct {
 	header http.Header
 }
 
+// grantRoute is the route template of the token endpoint.
+const grantRoute = "/realms/{realm}/protocol/openid-connect/token"
+
 // statusError is a non-success reply. Its text never carries the body.
 type statusError struct {
 	method, route string
@@ -143,11 +146,13 @@ func (e *statusError) Error() string {
 	return fmt.Sprintf("keycloak admin: %s %s: status %d", e.method, e.route, e.status)
 }
 
-// Is maps the statuses the directory acts on to the port's sentinels.
+// Is maps the statuses the directory acts on to the port's sentinels. A 404
+// from the token endpoint says nothing about an object, so it is not
+// identity.ErrNotFound (TICK-1113): a caller would read it as "gone".
 func (e *statusError) Is(target error) bool {
 	switch target {
 	case identity.ErrNotFound:
-		return e.status == http.StatusNotFound
+		return e.status == http.StatusNotFound && e.route != grantRoute
 	case identity.ErrAlreadyExists:
 		return e.status == http.StatusConflict
 	}
@@ -167,8 +172,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		"client_id":     {acct.creds.ClientID},
 		"client_secret": {acct.creds.ClientSecret},
 	}
-	const route = "/realms/{realm}/protocol/openid-connect/token"
-	ctx = telemetry.WithRoute(ctx, route)
+	ctx = telemetry.WithRoute(ctx, grantRoute)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		a.base+"/realms/"+url.PathEscape(a.realm)+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -180,7 +184,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		return "", fmt.Errorf("keycloak admin: token: %w", err)
 	}
 	if r.status != http.StatusOK {
-		return "", &statusError{method: http.MethodPost, route: route, status: r.status}
+		return "", &statusError{method: http.MethodPost, route: grantRoute, status: r.status}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
