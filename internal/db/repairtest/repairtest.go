@@ -55,7 +55,7 @@ func WithInputs(sql string, in Inputs) (string, error) {
 		"tenant_id": in.TenantID, "type_id": in.TypeID, "new_name": in.NewName,
 		"source_ref": in.SourceRef, "record_limit": in.RecordLimit,
 	} {
-		re := regexp.MustCompile(`(?m)^(SELECT set_config\('nava_repair\.` + key + `', ')[^']*(', true\);)$`)
+		re := regexp.MustCompile(`('nava_repair\.` + key + `', ')[^']*(', true\))`)
 		if len(re.FindAllString(sql, -1)) != 1 {
 			return "", fmt.Errorf("%w: %s", errNoInput, key)
 		}

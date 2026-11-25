@@ -25,7 +25,7 @@ func TestBlock(t *testing.T) {
 func TestWithInputs(t *testing.T) {
 	var sql strings.Builder
 	for _, k := range []string{"tenant_id", "type_id", "new_name", "source_ref", "record_limit"} {
-		sql.WriteString("SELECT set_config('nava_repair." + k + "', '<" + k + ">', true);\n")
+		sql.WriteString("SELECT f('nava_repair." + k + "', '<" + k + ">', true);\n")
 	}
 	got, err := WithInputs(sql.String(), Inputs{"a", "b", "c$1", "d", "e"})
 	if err != nil || strings.Contains(got, "<") || !strings.Contains(got, "'nava_repair.new_name', 'c$1', true") {
