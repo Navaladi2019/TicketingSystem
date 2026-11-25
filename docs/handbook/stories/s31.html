@@ -22,7 +22,7 @@
 <p>Story TICK-946 (kit TICK-953, plan PLAN-011, decision <a href="../adr/adr-010.html">ADR-010</a>
 D7 and D8 as amended by <a href="../adr/adr-010-a2.html">ADR-010-A2</a> and
 <a href="../adr/adr-010-e4.html">ADR-010-E4</a>). Kit result
-<strong>READY</strong>, verified 2026-11-22 on a fresh stack, recorded in the
+<strong>READY</strong>, verified 2026-11-25 on a fresh stack, recorded in the
 <a href="../../../docs/acceptance/S31/README.md">acceptance kit</a>. Criteria 1 to 5 pass.</p>
 <h2 id="what-a-user-can-now-do">What a user can now do</h2>
 <ul>
@@ -134,7 +134,7 @@ a later workflow step (ADR-010 D8).</p>
 <li><code>sh docs/acceptance/S31/run.sh</code>. It seeds tenants A and B, prints tenant
 A's org-unit tree, runs the Bruno folder <code>S31 region</code> (38 requests), runs
 one group sync, runs <code>S31 region after sync</code> (16 requests), prints the unit
-each ticket kept, and checks that both ADR-010-A2 alerts are loaded. It
+each ticket kept, and checks that the three S31 alerts are loaded. It
 runs once per stack: it deletes <code>EMEA/Germany</code> in Keycloak.</li>
 <li>Or open <code>docs/acceptance/guide/bruno/</code> in Bruno with the <code>local</code>
 environment, fill <code>s31_a_unit</code> and <code>s31_b_unit</code> with the ids <code>run.sh</code>
@@ -235,11 +235,12 @@ prints in its step 4, run <code>S31 region</code>, then
 </table>
 <h2 id="verdict-and-evidence">Verdict and evidence</h2>
 <ul>
-<li>Kit result: READY, verified 2026-11-22 on a fresh stack at story branch
-commit <code>8528ea4f</code> plus the kit. <code>S31 region</code> 38 of 38 requests, 130 of 130
+<li>Kit result: READY, verified 2026-11-25 on a fresh stack at story branch
+commit <code>719058d4</code> plus the kit. <code>S31 region</code> 38 of 38 requests, 130 of 130
 tests; <code>S31 region after sync</code> 16 of 16 requests, 47 of 47 tests; <code>run.sh</code>
 exit 0, in <a href="../../../docs/acceptance/S31/fresh-stack-run.txt">fresh-stack-run.txt</a>.
-Not re-run for this page.</li>
+The build holds every fix below. The kit has no step of its own for them;
+the tests named in the table are their proof.</li>
 <li>AC3's sync: <code>org_units_deleted: 1</code>, <code>org_members_removed: 2</code>,
 <code>org_closure_rebuilt: true</code>, <code>org_closure_unrooted: 0</code>, <code>failed: 0</code>.</li>
 <li>AC4: the moved requester's old ticket stays <code>APAC</code>, the new one is <code>EMEA</code>.</li>
@@ -250,10 +251,10 @@ against 150 ms; every other row is at most 87.29 ms. See
 <a href="../../../docs/quality/acl-perf-region.md#s31-rerun-after-a2-tick-1037-r1-per-adr-010-a2-a2-11">acl-perf-region.md</a>.</li>
 <li>Isolation: TICK-952's attack tests, no exploitable gap; see
 <a href="../security/09-acl-masks-read.html#region-access-s31">ACL and field masks on the read side</a>.</li>
-<li>Alerts: <code>GroupsyncOrgUnitsAboveCertified</code> and <code>EntityRecordEstimatesStale</code>
-are loaded and inactive after the run
-(<a href="../operations/observability.html">Traces, logs and metrics</a>).
-<code>GroupsyncOrgUnitsUnrooted</code> was added after that run (TICK-1116).</li>
+<li>Alerts: <code>GroupsyncOrgUnitsAboveCertified</code>, <code>GroupsyncOrgUnitsUnrooted</code> and
+<code>EntityRecordEstimatesStale</code> are loaded and inactive after the run
+(<a href="../operations/observability.html">Traces, logs and metrics</a>). The run does
+not make one fire; the rule tests do.</li>
 </ul>
 <h2 id="fixes-before-acceptance">Fixes before acceptance</h2>
 <p>The Technical Lead rejected the story on 2026-11-25 at <code>57573b39</code>, after the
@@ -264,6 +265,7 @@ whole-story review. These fixes followed; the final verdict is on TICK-946.</p>
 <th>Task (PR)</th>
 <th>Before</th>
 <th>Now</th>
+<th>Proof</th>
 </tr>
 </thead>
 <tbody>
@@ -271,41 +273,55 @@ whole-story review. These fixes followed; the final verdict is on TICK-946.</p>
 <td>TICK-1114 (#871)</td>
 <td>A workflow policy test of a policy that depends on <code>under</code> answered "no"</td>
 <td>It resolves <code>under</code> as a record read does</td>
+<td><code>TestPolicyTest_UnderResolvesAsARecordReadDoes</code></td>
 </tr>
 <tr>
 <td>TICK-1115 (#869)</td>
 <td>A stored type with a property <code>org_unit_id</code> broke after the upgrade</td>
 <td>The upgrade stops first, with nothing of S31 applied</td>
+<td><code>TestTICK1115RefusalAppliesNothingOfS31</code></td>
 </tr>
 <tr>
 <td>TICK-1125 (#877)</td>
 <td>No way to find or fix such a type</td>
 <td>A check before the upgrade, and a repair (<a href="../database/migrations.html#upgrading-to-s31">Migration history</a>)</td>
+<td><code>TestTICK1125UpgradeAfterRepair</code></td>
 </tr>
 <tr>
 <td>TICK-1116 (#873)</td>
 <td>No alert on org units outside every region; a warning about a cap that no longer exists</td>
 <td><code>GroupsyncOrgUnitsUnrooted</code>; the warning is gone</td>
+<td><code>TestAlertRules</code> (<code>groupsync_test.yml</code>)</td>
 </tr>
 <tr>
 <td>TICK-1119 (#872)</td>
 <td>Any reader of a ticket saw its org unit in the history, whatever the masks</td>
 <td>Never in history; redacted in the audit list when the requester is masked</td>
+<td><code>TestRecordHistoryNeverShowsTheOrgUnit</code>, <code>TestAuditListMasksOrgUnitWithTheRequester</code></td>
 </tr>
 <tr>
 <td>TICK-1127 (#875)</td>
 <td>The audit export applied no field mask</td>
 <td>It applies the caller's masks, as the audit list does</td>
+<td><code>TestExportAppliesTheCallersFieldMasks</code></td>
 </tr>
 <tr>
 <td>TICK-1120 (#874)</td>
 <td>The app and worker roles could change a ticket's unit</td>
 <td>They cannot (42501)</td>
+<td><code>TestTICK1120NoRoleUpdatesRecordOrgUnit</code></td>
 </tr>
 <tr>
 <td>TICK-1126 (#876)</td>
 <td>After TICK-1120, no isolation path reached the tenant foreign key</td>
 <td>Two INSERT paths prove it by name</td>
+<td><code>TestOrgUnitFKRefused</code> and the two paths in the <code>isolation</code> report</td>
+</tr>
+<tr>
+<td>TICK-1133 (#883)</td>
+<td>The migration that refuses a foreign unit id told the operator to remove access documents</td>
+<td>It says not to, and where the check is</td>
+<td><code>TestTICK947MigrationRefusesStoredForeignUnder</code></td>
 </tr>
 </tbody>
 </table>
