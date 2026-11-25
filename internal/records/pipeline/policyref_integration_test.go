@@ -427,7 +427,14 @@ func TestPolicyTest_UnderResolvesAsARecordReadDoes(t *testing.T) {
 		})
 	}
 
-	for _, unit := range []string{"A1", "R", "Lx", "none"} {
+	// inside is a literal: with r.org_unit_id dropped from policyTestRecordSQL
+	// (the row's unit unset) not under is true for a record inside the unit,
+	// an over-grant a comparison with ACL.CanRead alone would not name.
+	for _, c := range []struct {
+		unit   string
+		inside bool
+	}{{"A1", true}, {"R", false}, {"Lx", false}, {"none", false}} {
+		unit := c.unit
 		t.Run("not under caller: "+unit, func(t *testing.T) {
 			publishDoc(t, e, w.f.id, onePolicy(`{"not":`+caller+`}`))
 			want := canRead(w.record[unit])
@@ -437,6 +444,9 @@ func TestPolicyTest_UnderResolvesAsARecordReadDoes(t *testing.T) {
 			}
 			if got != want {
 				t.Errorf("answer %v, ACL.CanRead says %v", got, want)
+			}
+			if c.inside && got {
+				t.Error("not under caller allowed a record inside the caller's unit")
 			}
 			if invalid != 0 {
 				t.Errorf("authz_policy_invalid_total moved by %d", invalid)
