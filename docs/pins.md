@@ -121,7 +121,9 @@ this table is documentation.
 | `golang.org/x/net` | v0.60.0 (from v0.51.0) | Reachable advisories in v0.51.0. | TICK-111 |
 | `golang.org/x/text` | v0.42.0 (from v0.34.0) | Reachable advisories in v0.34.0. | TICK-111 |
 | `github.com/jackc/pgx/v5` | v5.9.2 (from v5.7.2) | Reachable advisories in v5.7.2 (persistence driver). | TICK-111 |
-| `github.com/stretchr/testify`, `github.com/stretchr/objx` | v1.12.1, v0.5.3 (from v1.11.1, v0.5.2) | Raised by `go mod tidy` with otel v1.47.0. | TICK-1138 |
+| `github.com/stretchr/testify`, `github.com/stretchr/objx` | v1.12.1, v0.5.3 (from v1.11.1, v0.5.2) | Required by otel v1.47.0: otel, otel/log, metric, sdk, sdk/metric and trace v1.47.0 each require testify v1.12.1 (`go mod graph`); testify v1.12.1 requires objx v0.5.3. | TICK-1138 |
+| `go.yaml.in/yaml/v3` | v3.0.5 (new in `go.mod`) | Required by otel v1.47.0 (otel, log, metric, sdk, sdk/metric, trace) and testify v1.12.1 (`go mod graph`). | TICK-1138 |
+| `github.com/davecgh/go-spew`, `github.com/pmezard/go-difflib` | no longer listed in `go.mod` (pseudo-versions `v1.1.2-0.20180830191138-d8f796af33cc`, `v1.0.1-0.20181226105442-5d4384ee4fb2`) | Dropped by `go mod tidy` once testify is v1.12.1 (`go mod tidy -diff` is empty). Not removed from the module graph: operations-go `exporter/metric` v0.53.0 and others still require them. | TICK-1138 |
 | `github.com/go-jose/go-jose/v4` | v4.1.4 (from v4.1.3) | Reachable advisory in v4.1.3. | TICK-111 |
 | `go.opentelemetry.io/otel`, `/metric`, `/trace`, `/sdk`, `/sdk/metric` | v1.47.0 (from v1.40.0; v1.45.0 in TICK-111) | Reachable advisories in otel / otel/sdk v1.40.0, then GO-2026-6974 in otel/sdk v1.45.0 (fixed in v1.47.0); the API and SDK modules move together. `go.opentelemetry.io/otel/log` v1.47.0 is new (required by otel/sdk v1.47.0). | TICK-111, TICK-1138 |
 | `go.opentelemetry.io/otel/exporters/otlp/otlptrace`, `/otlptrace/otlptracegrpc` | v1.45.0 (from v1.34.0) | Reachable advisories in v1.34.0; same release as the SDK. | TICK-111 |
