@@ -1168,6 +1168,10 @@
     {
       "file": "20261121163700_binding_lookup_worker.sql",
       "on_main": false
+    },
+    {
+      "file": "20261125040000_entity_versions_org_unit_id_reserved.sql",
+      "on_main": false
     }
   ]
 }

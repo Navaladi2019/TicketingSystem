@@ -359,6 +359,10 @@ erDiagram
   the store scans them into a Go map and struct and a bad row could never be
   repaired. Decision and figures:
   [`entity-def-versions-jsonb-check.md`](entity-def-versions-jsonb-check.md).
+- **No top-level `org_unit_id` property (TICK-1115).** A CHECK refuses a
+  stored schema with one, because S31 reserves the name (ADR-010 D8) and a
+  stored version that has it can no longer be loaded. Decision and figures:
+  [`entity-versions-org-unit-id-reserved.md`](entity-versions-org-unit-id-reserved.md).
 - **Policies.** One per command, `TO` the granted roles only, each the
   canonical tenant predicate. `nava_onboard`'s two `INSERT` policies add "and
   that tenant is provisioning" and are pinned in
