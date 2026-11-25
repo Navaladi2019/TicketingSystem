@@ -427,26 +427,26 @@ func TestPolicyTest_UnderResolvesAsARecordReadDoes(t *testing.T) {
 		})
 	}
 
-	// inside is a literal: with r.org_unit_id dropped from policyTestRecordSQL
-	// (the row's unit unset) not under is true for a record inside the unit,
-	// an over-grant a comparison with ACL.CanRead alone would not name.
+	// want is a literal next to the comparison with ACL.CanRead: with
+	// r.org_unit_id dropped from policyTestRecordSQL (the row's unit unset) not
+	// under is true for A1, an over-grant, and a comparison alone also passes
+	// when both sides answer false.
 	for _, c := range []struct {
-		unit   string
-		inside bool
-	}{{"A1", true}, {"R", false}, {"Lx", false}, {"none", false}} {
+		unit string
+		want bool
+	}{{"A1", false}, {"R", true}, {"Lx", true}, {"none", true}} {
 		unit := c.unit
 		t.Run("not under caller: "+unit, func(t *testing.T) {
 			publishDoc(t, e, w.f.id, onePolicy(`{"not":`+caller+`}`))
-			want := canRead(w.record[unit])
 			got, invalid, err := testRef(t, e, w.f.id, w.record[unit], authz.OpRead)
 			if err != nil {
 				t.Fatalf("TestPolicyRef: %v", err)
 			}
-			if got != want {
-				t.Errorf("answer %v, ACL.CanRead says %v", got, want)
+			if got != c.want {
+				t.Errorf("answer %v, want %v", got, c.want)
 			}
-			if c.inside && got {
-				t.Error("not under caller allowed a record inside the caller's unit")
+			if read := canRead(w.record[unit]); got != read {
+				t.Errorf("answer %v, ACL.CanRead says %v", got, read)
 			}
 			if invalid != 0 {
 				t.Errorf("authz_policy_invalid_total moved by %d", invalid)
@@ -463,27 +463,46 @@ func TestPolicyTest_UnderResolvesAsARecordReadDoes(t *testing.T) {
 		}
 	})
 
-	t.Run("another tenant's tree and membership do not grant", func(t *testing.T) {
+	t.Run("another tenant's units with the same ids and a membership do not grant", func(t *testing.T) {
 		publishDoc(t, e, w.f.id, onePolicy(caller))
-		// u3 is a principal of tenant A with no unit; the same principal id in
-		// tenant B is a member of B's root, which has the same unit names.
-		b := seedUnderWorld(t, e)
+		// u3 is a principal of tenant A with no unit. Tenant B has units with
+		// A's own ids for R, A and A1 (same parents), and the same principal id
+		// is a member of B's R: a leaked row would name A's root, an ancestor
+		// of A1 in A's closure.
+		b := seedTenantWith(t, e, aclDefinition())
 		u3 := uuid.New()
-		for _, tenant := range []uuid.UUID{w.f.id, b.f.id} {
+		for _, tenant := range []uuid.UUID{w.f.id, b.id} {
 			mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
 				tenant, u3, "kc-"+tenant.String()+"-"+u3.String())
 		}
-		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, b.f.id, b.unit["R"], u3)
+		for _, u := range []struct{ name, parent string }{{"R", ""}, {"A", "R"}, {"A1", "A"}} {
+			var parent any
+			if u.parent != "" {
+				parent = w.unit[u.parent]
+			}
+			mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, $3, $4, $5)`,
+				b.id, w.unit[u.name], parent, "kc-b-"+w.unit[u.name].String(), u.name)
+		}
+		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, b.id, w.unit["R"], u3)
+		rebuildClosure(t, e)
 		setRequester(t, e, w.f.id, u3, w.record["A1"])
-		got, invalid, err := testRef(t, e, w.f.id, w.record["A1"], authz.OpWrite)
-		if err != nil {
-			t.Fatalf("TestPolicyRef: %v", err)
+		ask := func(want bool) {
+			t.Helper()
+			got, invalid, err := testRef(t, e, w.f.id, w.record["A1"], authz.OpWrite)
+			if err != nil {
+				t.Fatalf("TestPolicyRef: %v", err)
+			}
+			if got != want {
+				t.Errorf("answer %v, want %v", got, want)
+			}
+			if invalid != 0 {
+				t.Errorf("authz_policy_invalid_total moved by %d", invalid)
+			}
 		}
-		if got {
-			t.Error("allowed on the strength of another tenant's membership")
-		}
-		if invalid != 0 {
-			t.Errorf("authz_policy_invalid_total moved by %d", invalid)
-		}
+		ask(false) // tenant B's membership of its R grants tenant A nothing
+		// The precondition: the same answer is true once u3 is a member of A's own R,
+		// so the false above is not an unrelated refusal.
+		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.f.id, w.unit["R"], u3)
+		ask(true)
 	})
 }
