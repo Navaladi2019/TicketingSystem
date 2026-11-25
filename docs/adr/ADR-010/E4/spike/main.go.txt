@@ -1,0 +1,299 @@
+// TICK-1118 spike: is the delta closure write equal to the full rebuild?
+// closure.go is internal/groupsync/closure.go at 57573b39 with only the package
+// clause changed; this program calls its rebuildClosure and fullRebuildClosure.
+package main
+
+import (
+	"context"
+	"fmt"
+	"math/rand"
+	"os"
+	"sort"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+const ddl = `
+DROP TABLE IF EXISTS org_unit_closure, org_units;
+CREATE TABLE org_units (tenant_id uuid NOT NULL, id uuid NOT NULL, parent_id uuid, deleted_at timestamptz,
+  PRIMARY KEY (tenant_id, id), FOREIGN KEY (tenant_id, parent_id) REFERENCES org_units (tenant_id, id));
+CREATE INDEX ON org_units (tenant_id, parent_id);
+CREATE TABLE org_unit_closure (tenant_id uuid NOT NULL, ancestor_id uuid NOT NULL, descendant_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, ancestor_id, descendant_id),
+  FOREIGN KEY (tenant_id, ancestor_id) REFERENCES org_units (tenant_id, id),
+  FOREIGN KEY (tenant_id, descendant_id) REFERENCES org_units (tenant_id, id));`
+
+type unit struct {
+	parent uuid.UUID
+	dead   bool
+}
+type tree map[uuid.UUID]unit
+
+func (t tree) ids(r *rand.Rand, live bool) []uuid.UUID {
+	var out []uuid.UUID
+	for id, u := range t {
+		if u.dead != live {
+			out = append(out, id)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	r.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
+}
+
+// under reports whether x is at or below anc.
+func (t tree) under(x, anc uuid.UUID) bool {
+	for i := 0; x != uuid.Nil && i < 1000; i++ {
+		if x == anc {
+			return true
+		}
+		x = t[x].parent
+	}
+	return false
+}
+
+func nid(r *rand.Rand) uuid.UUID {
+	var b [16]byte
+	r.Read(b[:])
+	return uuid.UUID(b)
+}
+
+// mutate applies 1 to 6 random operations. valid: the result is one a
+// directory snapshot can give (no live unit under a tombstoned one, no cycle).
+// Otherwise anything goes: live units under tombstoned ones, parent cycles.
+func mutate(r *rand.Rand, t tree, valid bool) map[uuid.UUID]bool {
+	touched := map[uuid.UUID]bool{}
+	for n := 1 + r.Intn(6); n > 0; n-- {
+		live, dead := t.ids(r, true), t.ids(r, false)
+		pick := func() uuid.UUID {
+			if len(live) == 0 || r.Intn(8) == 0 {
+				return uuid.Nil
+			}
+			return live[r.Intn(len(live))]
+		}
+		switch op := r.Intn(10); {
+		case op < 3 && len(t) < 70: // add
+			id := nid(r)
+			t[id] = unit{parent: pick()}
+			touched[id] = true
+		case op < 6 && len(live) > 0: // move
+			x, p := live[0], pick()
+			if valid && t.under(p, x) || p == x {
+				continue
+			}
+			if t[x].parent != p {
+				t[x] = unit{parent: p}
+				touched[x] = true
+			}
+		case op < 8 && len(live) > 2: // tombstone (valid: with its live subtree)
+			x := live[0]
+			var gone []uuid.UUID
+			for id, u := range t {
+				if !u.dead && (id == x || (valid && t.under(id, x))) {
+					gone = append(gone, id)
+				}
+			}
+			for _, id := range gone {
+				t[id] = unit{t[id].parent, true}
+				touched[id] = true
+			}
+		case len(dead) > 0: // revive (valid: under a live parent or as a root)
+			x := dead[0]
+			p := t[x].parent
+			if valid {
+				p = pick()
+				if t.under(p, x) {
+					continue
+				}
+			}
+			t[x] = unit{parent: p}
+			touched[x] = true
+		}
+	}
+	return touched
+}
+
+func save(ctx context.Context, tx pgx.Tx, tid uuid.UUID, t tree) {
+	b := &pgx.Batch{}
+	for id, u := range t {
+		b.Queue(`INSERT INTO org_units VALUES ($1,$2,NULL,CASE WHEN $3::bool THEN now() END)
+			ON CONFLICT (tenant_id,id) DO UPDATE SET deleted_at = CASE WHEN $3::bool THEN now() END`, tid, id, u.dead)
+	}
+	for id, u := range t {
+		var p *uuid.UUID
+		if u.parent != uuid.Nil {
+			q := u.parent
+			p = &q
+		}
+		b.Queue(`UPDATE org_units SET parent_id=$3::uuid WHERE tenant_id=$1 AND id=$2 AND parent_id IS DISTINCT FROM $3::uuid`, tid, id, p)
+	}
+	if b.Len() > 0 {
+		must(tx.SendBatch(ctx, b).Close())
+	}
+}
+
+func drift(ctx context.Context, tx pgx.Tx, tid uuid.UUID) (d bool) {
+	must(tx.QueryRow(ctx, closureDriftSQL, tid.String()).Scan(&d))
+	return
+}
+
+// diffDescendants lists the descendant of every row in one set and not the other.
+func diffDescendants(ctx context.Context, tx pgx.Tx, tid uuid.UUID) (desc []uuid.UUID) {
+	rows, err := tx.Query(ctx, closureCTE+`(SELECT ancestor_id, descendant_id FROM closure EXCEPT SELECT ancestor_id, descendant_id FROM org_unit_closure WHERE tenant_id=$1::uuid)
+		UNION ALL (SELECT ancestor_id, descendant_id FROM org_unit_closure WHERE tenant_id=$1::uuid EXCEPT SELECT ancestor_id, descendant_id FROM closure)`, tid.String())
+	must(err)
+	defer rows.Close()
+	for rows.Next() {
+		var a, d uuid.UUID
+		must(rows.Scan(&a, &d))
+		desc = append(desc, d)
+	}
+	must(rows.Err())
+	return
+}
+
+func strs(m map[uuid.UUID]bool) (out []string) {
+	for id := range m {
+		out = append(out, id.String())
+	}
+	sort.Strings(out)
+	return
+}
+
+func main() {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("PGURL"))
+	must(err)
+	var v string
+	must(conn.QueryRow(ctx, "SHOW server_version").Scan(&v))
+	fmt.Println("server_version", v)
+	_, err = conn.Exec(ctx, ddl)
+	must(err)
+
+	other, btree := uuid.New(), tree{} // tenant B: must never change
+	br := rand.New(rand.NewSource(99))
+	for i := 0; i < 30; i++ {
+		mutate(br, btree, true)
+	}
+	tx, err := conn.Begin(ctx)
+	must(err)
+	save(ctx, tx, other, btree)
+	_, _, err = fullRebuildClosure(ctx, tx, other.String())
+	must(err)
+	must(tx.Commit(ctx))
+	bsum := func() (s string) {
+		must(conn.QueryRow(ctx, `SELECT count(*)||':'||coalesce(md5(string_agg(ctid::text||ancestor_id||descendant_id, ',' ORDER BY ctid)),'') FROM org_unit_closure WHERE tenant_id=$1`, other).Scan(&s))
+		return
+	}
+	b0 := bsum()
+
+	for mi, mode := range []string{"valid", "hostile", "mutant-drop-one-touched"} {
+		if os.Getenv("PHASE") == "drift" {
+			break
+		}
+		runs, deltas, bad, maxLive, maxRows := 0, 0, 0, 0, 0
+		for seed := int64(1); seed <= 40; seed++ {
+			r := rand.New(rand.NewSource(seed))
+			tid, t := uuid.New(), tree{}
+			for step := 0; step < 50; step++ {
+				touched := mutate(r, t, mi != 1)
+				if len(touched) == 0 {
+					continue
+				}
+				tx, err := conn.Begin(ctx)
+				must(err)
+				save(ctx, tx, tid, t)
+				ids := strs(touched)
+				if mi == 2 && len(ids) > 1 {
+					ids = ids[1:]
+				}
+				have, err := closureRowCount(ctx, tx, tid.String())
+				must(err)
+				n, _, err := rebuildClosure(ctx, tx, tid, ids)
+				must(err)
+				runs++
+				if have > 0 {
+					deltas++
+				}
+				maxRows, maxLive = max(maxRows, n), max(maxLive, len(t.ids(r, true)))
+				if drift(ctx, tx, tid) {
+					bad++
+					_, _, err = fullRebuildClosure(ctx, tx, tid.String())
+					must(err) // heal, so each step counts on its own
+				}
+				must(tx.Commit(ctx))
+			}
+		}
+		fmt.Printf("%-24s runs=%d deltas=%d closures_differing_from_full_rebuild=%d max_live_units=%d max_closure_rows=%d\n", mode, runs, deltas, bad, maxLive, maxRows)
+	}
+
+	// Drift that exists before the run: what a delta run repairs and what it leaves.
+	trials, inAffected, left, healed, notHealed := 0, 0, 0, 0, 0
+	for seed := int64(1); seed <= 300; seed++ {
+		r := rand.New(rand.NewSource(seed))
+		tid, t := uuid.New(), tree{}
+		for i := 0; i < 30; i++ { // 30 live units, random shape
+			p := uuid.Nil
+			if live := t.ids(r, true); len(live) > 0 && r.Intn(8) > 0 {
+				p = live[0]
+			}
+			t[nid(r)] = unit{parent: p}
+		}
+		tx, err := conn.Begin(ctx)
+		must(err)
+		save(ctx, tx, tid, t)
+		_, _, err = fullRebuildClosure(ctx, tx, tid.String())
+		must(err)
+		live := t.ids(r, true)
+		if seed%2 == 0 { // an extra row: over-grants
+			_, err = tx.Exec(ctx, `INSERT INTO org_unit_closure VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, tid, live[0], live[1])
+		} else { // a missing row
+			_, err = tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE (tenant_id, ancestor_id, descendant_id) = (SELECT tenant_id, ancestor_id, descendant_id FROM org_unit_closure WHERE tenant_id=$1 AND ancestor_id<>descendant_id LIMIT 1)`, tid)
+		}
+		must(err)
+		touched := mutate(r, t, true)
+		if !drift(ctx, tx, tid) || len(touched) == 0 {
+			must(tx.Rollback(ctx))
+			continue
+		}
+		save(ctx, tx, tid, t)
+		aff := map[uuid.UUID]bool{}
+		rows, err := tx.Query(ctx, closureAffectedSQL, tid.String(), strs(touched))
+		must(err)
+		for rows.Next() {
+			var id uuid.UUID
+			must(rows.Scan(&id))
+			aff[id] = true
+		}
+		must(rows.Err())
+		_, _, err = rebuildClosure(ctx, tx, tid, strs(touched))
+		must(err)
+		trials++
+		d := diffDescendants(ctx, tx, tid)
+		for _, x := range d {
+			if aff[x] {
+				inAffected++
+			}
+		}
+		if len(d) > 0 {
+			left++
+		}
+		_, _, err = rebuildClosure(ctx, tx, tid, nil)
+		must(err)
+		if drift(ctx, tx, tid) {
+			notHealed++
+		} else {
+			healed++
+		}
+		must(tx.Rollback(ctx))
+	}
+	fmt.Printf("pre-existing drift: trials=%d wrong_rows_on_affected_units=%d trials_with_drift_left_elsewhere=%d; then a no-touch run: healed=%d not_healed=%d\n", trials, inAffected, left, healed, notHealed)
+	fmt.Println("tenant B closure unchanged (rows and ctids):", b0 == bsum())
+}
