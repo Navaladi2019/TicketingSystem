@@ -133,7 +133,18 @@ users do, so the answer is no oracle for which ids exist. The lookup is one
 
 `20261121000100` refuses to apply while any stored `acl_versions` row names
 an `under` id that is not a live unit of its own tenant (AR-S30-01's one-off
-check). To list them by hand, as the superuser:
+check).
+
+**After a refusal, do not delete `acl_versions` rows.** The newest row is the
+access in force, so deleting it puts an older access document back in force.
+Run the AR-S30-01 query of the
+[pre-upgrade check](entity-versions-org-unit-id-reserved.md#check) and ask the
+platform operator's support before migrating again; that section also says
+what the refusal leaves applied.
+
+The refusal's own condition, as the superuser, is below. It reads
+`org_units.deleted_at`, so it runs only after `20261121000000`. After a
+refusal it also lists the tombstoned units that the pre-upgrade query does not:
 
 ```sql
 SELECT a.tenant_id, a.entity_definition_id, a.version, x #>> '{}' AS org_unit_id
