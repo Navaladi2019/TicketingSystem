@@ -308,12 +308,12 @@ services:
   # on loopback. The `-debug` image tag is used because the plain image has no
   # shell, curl or wget for a health check; the pin is in docs/pins.md. The
   # digest is written here only and changes together with the tag: Docker
-  # ignores the tag when a digest is given. CI sets OPENOBSERVE_IMAGE to the
-  # same digest from the source that served it (make openobserve-pull,
-  # TICK-1128).
+  # ignores the tag when a digest is given. OPENOBSERVE_REPO chooses the source
+  # only, never the tag or the digest; CI sets it to the repository that served
+  # (make openobserve-pull, TICK-1128, TICK-1131).
   openobserve:
     profiles: [operator]
-    image: ${OPENOBSERVE_IMAGE:-public.ecr.aws/zinclabs/openobserve:v1.1.2-debug@sha256:16d96b9b25c8610a7c3ce8decba2775e3bcaaaf638abc5b90a2f6371a8d6dcf9}
+    image: ${OPENOBSERVE_REPO:-public.ecr.aws/zinclabs/openobserve}:v1.1.2-debug@sha256:16d96b9b25c8610a7c3ce8decba2775e3bcaaaf638abc5b90a2f6371a8d6dcf9
     environment:
       ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:-dev@nava.test}
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:-Dev-Only-Openobserve-1}
