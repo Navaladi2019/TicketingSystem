@@ -136,7 +136,7 @@ BEGIN
     IF bad > 0 THEN
         RAISE EXCEPTION 'AR-S30-01: % stored under id(s) in acl_versions are not a live org unit of the row''s tenant', bad
             USING ERRCODE = 'check_violation',
-                  HINT = 'List them with the query in docs/data/org-units.md and remove the rows before re-running.';
+                  HINT = 'Do not delete acl_versions rows: the newest row is the access in force. List the ids with the AR-S30-01 query in docs/data/entity-versions-org-unit-id-reserved.md and ask the platform operator''s support before migrating again.';
     END IF;
 END
 $$;
