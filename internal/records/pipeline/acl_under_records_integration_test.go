@@ -283,12 +283,12 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 		n      int
 		number string
 	}{{w.def, "o-%", 20_000, "PC-"}, {busy, "%", 100_000, "PB-"}} {
-		if _, err := tx.Exec(ctx, `WITH u AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS i, count(*) OVER () AS c
+		if _, err := tx.Exec(ctx, `WITH u AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS i
 				FROM org_units WHERE tenant_id = $1 AND name LIKE $3)
 			INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data)
 			SELECT $1, gen_random_uuid(), $2, 1, 1, $5::text || g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, u.id,
-				now() - ((g * 7919) % 100003) * interval '1 second', now() - g * interval '1 second', '{}'
-			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % u.c`, w.tenant, r.def, r.like, r.n, r.number); err != nil {
+				now() - ((g::bigint * 7919) % 100003) * interval '1 second', now() - g * interval '1 second', '{}'
+			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % (SELECT count(*) FROM u)`, w.tenant, r.def, r.like, r.n, r.number); err != nil {
 			t.Fatal(err)
 		}
 	}
