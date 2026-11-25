@@ -228,7 +228,8 @@ func TestTICK947MembershipConstraints(t *testing.T) {
 
 // Acceptance: a record can reference only its own tenant's unit, by any
 // writer; a tombstoned unit of its own tenant stays a valid reference (units
-// are never deleted, D7).
+// are never deleted, D7). nava_app and nava_worker set it on create and
+// cannot change it afterwards (TICK-1120).
 func TestTICK947RecordOrgUnitIsTenantScoped(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -247,21 +248,86 @@ func TestTICK947RecordOrgUnitIsTenantScoped(t *testing.T) {
 	}{{"superuser", super, ""}, {"nava_app", asRole(t, "nava_app"), tenantA}, {"nava_worker", asRole(t, "nava_worker"), tenantA}} {
 		_, err := execIn(as.conn, as.tenant, insert, tenantA, uuid.NewString(), tenantB)
 		wantSQLState(t, as.name+" creates A's record in B's unit", err, "23503")
-		_, err = execIn(as.conn, as.tenant, update, tenantA, tenantB)
-		wantSQLState(t, as.name+" moves A's record to B's unit", err, "23503")
 		_, err = execIn(as.conn, as.tenant, insert, tenantA, uuid.NewString(), uuid.NewString())
 		wantSQLState(t, as.name+" creates A's record in a unit of no tenant", err, "23503")
-		for _, unit := range []any{tenantA, gone, nil} {
-			if n, err := execIn(as.conn, as.tenant, update, tenantA, unit); err != nil || n != 1 {
-				t.Errorf("%s moves A's record to %v: %d rows, %v; want 1, nil", as.name, unit, n, err)
+	}
+	_, err := execIn(super, "", update, tenantA, tenantB)
+	wantSQLState(t, "superuser moves A's record to B's unit", err, "23503")
+	for _, unit := range []any{tenantA, nil, gone} {
+		if n, err := execIn(super, "", update, tenantA, unit); err != nil || n != 1 {
+			t.Errorf("superuser moves A's record to %v: %d rows, %v; want 1, nil", unit, n, err)
+		}
+	}
+
+	// The record is now in gone, so each unit below would change it.
+	const orgUnit = "SELECT coalesce(org_unit_id::text, 'NULL') FROM records WHERE tenant_id = $1 AND id = $1"
+	for _, role := range []string{"nava_app", "nava_worker"} {
+		for priv, want := range map[string]bool{"SELECT": true, "INSERT": true, "UPDATE": false} {
+			if got := queryBool(t, super, "SELECT has_column_privilege($1, 'records', 'org_unit_id', $2)", role, priv); got != want {
+				t.Errorf("%s has %s on records.org_unit_id = %v, want %v", role, priv, got, want)
 			}
+		}
+		conn := asRole(t, role)
+		for what, unit := range map[string]any{"its own unit": tenantA, "B's unit": tenantB, "no unit": nil} {
+			var seen string
+			if err := inTenantTx(conn, tenantA, func(tx pgx.Tx) error {
+				return tx.QueryRow(context.Background(), orgUnit, tenantA).Scan(&seen)
+			}); err != nil || seen != gone {
+				t.Fatalf("%s reads A's record: unit %q, %v; want %q, nil", role, seen, err, gone)
+			}
+			_, err := execIn(conn, tenantA, update, tenantA, unit)
+			wantSQLState(t, role+" moves A's record to "+what, err, "42501")
+			if got := queryString(t, super, orgUnit, tenantA); got != gone {
+				t.Errorf("after %s moves A's record to %s: org_unit_id = %s, want %s", role, what, got, gone)
+				exec(t, super, update, tenantA, gone)
+			}
+		}
+		// Control: the same row, tenant and audit entry, another column.
+		if n, err := execIn(conn, tenantA, withRecordEntry("UPDATE records SET updated_at = now() WHERE tenant_id = $1 AND id = $1"), tenantA); err != nil || n != 1 {
+			t.Errorf("control: %s updates updated_at of A's record: %d rows, %v; want 1, nil", role, n, err)
 		}
 	}
 
 	// org_unit_id is audited: moving it without the record's audit entry
-	// cannot commit (CI-A3, the commit check's UPDATE OF list).
-	_, err := execIn(asRole(t, "nava_app"), tenantA, "UPDATE records SET org_unit_id = $1 WHERE tenant_id = $1 AND id = $1", tenantA)
-	wantSQLState(t, "nava_app moves org_unit_id with no audit entry", err, "23514")
+	// cannot commit (CI-A3, the commit check's UPDATE OF list). Only the
+	// superuser can still update it.
+	_, err = execIn(super, "", "UPDATE records SET org_unit_id = $1 WHERE tenant_id = $1 AND id = $1", tenantA)
+	wantSQLState(t, "superuser moves org_unit_id with no audit entry", err, "23514")
+}
+
+// TICK-1120: no role of db/grants.yaml but the owner may update
+// records.org_unit_id, and a deployed database that still holds the grant
+// loses it on the next migrate run, with no migration of its own.
+func TestTICK1120NoRoleUpdatesRecordOrgUnit(t *testing.T) {
+	m := migratedCluster(t)
+	super := superNava(t)
+	const updates = "SELECT has_column_privilege($1, 'records', 'org_unit_id', 'UPDATE')"
+	check := func(when string) {
+		t.Helper()
+		for role := range m.Roles {
+			if role != m.Owner() && queryBool(t, super, updates, role) {
+				t.Errorf("%s: %s may update records.org_unit_id", when, role)
+			}
+		}
+	}
+	check("fresh database")
+
+	mig := connect(t, roleConfig(t, m.Owner(), "nava"))
+	exec(t, mig, "GRANT UPDATE (org_unit_id) ON records TO nava_app, nava_worker")
+	for _, role := range []string{"nava_app", "nava_worker"} {
+		if !queryBool(t, super, updates, role) {
+			t.Fatalf("%s did not get the grant to lose", role)
+		}
+	}
+	res := migrateAll(t, m)
+	check("after the migrate run")
+	want := []string{
+		"UPDATE column (org_unit_id) ON public.records TO nava_app",
+		"UPDATE column (org_unit_id) ON public.records TO nava_worker",
+	}
+	if got := slices.Sorted(slices.Values(res.Grants.Revoked)); !slices.Equal(got, want) || len(res.Grants.Granted) != 0 {
+		t.Errorf("migrate run revoked %q and granted %q, want %q and nothing", got, res.Grants.Granted, want)
+	}
 }
 
 // Acceptance (D-11-11, AR-S30-01): an under id that is not a live org unit of
