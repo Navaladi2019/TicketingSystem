@@ -408,12 +408,30 @@ func TestTICK947MigrationRefusesStoredForeignUnder(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AR-S30-01") {
 		t.Fatalf("migrate %s over a foreign under id = %v, want the AR-S30-01 refusal", trigger, err)
 	}
+	// The HINT never sends the operator to delete access (TICK-1133).
+	if pe := refusal(t, "migrate "+trigger, err); pe != nil {
+		const want = "Do not delete acl_versions rows: the newest row is the access in force. " +
+			"List the ids with the AR-S30-01 query in docs/data/entity-versions-org-unit-id-reserved.md " +
+			"and ask the platform operator's support before migrating again."
+		if pe.Hint != want {
+			t.Errorf("HINT = %q, want %q", pe.Hint, want)
+		}
+	}
+	// What the refusal leaves (docs/data/entity-versions-org-unit-id-reserved.md):
+	// the guard and 20261121000000 applied, nothing after, the row as it was.
+	if got := queryString(t, super, "SELECT string_agg(version_id::text, ',' ORDER BY version_id) FROM goose_db_version WHERE is_applied AND version_id >= 20261120235900"); got != "20261120235900,20261121000000" {
+		t.Errorf("migrations applied from the guard on = %s, want the guard and 20261121000000", got)
+	}
+	if got := queryString(t, super, "SELECT string_agg(version::text, ',' ORDER BY version) FROM acl_versions WHERE tenant_id = $1", tenantA); got != "1,2" {
+		t.Errorf("tenant A's access versions after the refusal = %s, want 1,2", got)
+	}
 	if queryBool(t, super, "SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polname LIKE '%migrator%')") {
 		t.Error("a migrator policy outlived the failed migration")
 	}
 	if queryBool(t, super, "SELECT pg_get_functiondef('acl2_tenant_ids'::regproc) LIKE '%org_units%'") {
 		t.Error("the failed migration replaced the trigger function")
 	}
+	// Test setup only, to reach the passing case; never a repair.
 	exec(t, super, "ALTER TABLE acl_versions DISABLE TRIGGER USER")
 	exec(t, super, "DELETE FROM acl_versions WHERE tenant_id = $1 AND version = 2", tenantA)
 	exec(t, super, "ALTER TABLE acl_versions ENABLE TRIGGER USER")
