@@ -801,7 +801,7 @@ jobs:
         run: make prebuilt-pull
       # TICK-1128: a full run's OpenObserve image, by compose.yaml's digest,
       # from ECR Public or else Docker Hub; every later step uses that image
-      # (OPENOBSERVE_IMAGE). Fails when both refuse; a fast run skips it.
+      # (OPENOBSERVE_REPO). Fails when both refuse; a fast run skips it.
       - name: OpenObserve image by digest (ECR Public, then Docker Hub)
         run: make openobserve-pull
       # Once per run: every phase below uses these images.
