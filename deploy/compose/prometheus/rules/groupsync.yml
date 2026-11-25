@@ -20,8 +20,10 @@ groups:
         annotations:
           summary: A tenant has more live org units than ADR-010-A2 is certified to (10,111).
           description: >-
-            ADR-010-A2 A2-R6: lists for region-only callers may exceed 150 ms
-            above the certified tree; re-decide A2-R6 with the Solution
+            Find the tenant in the nava-groupsync log line "largest live
+            org-unit tree" (tenant_id, live_org_units). ADR-010-A2 A2-R6:
+            lists for region-only callers may exceed 150 ms above the
+            certified tree; re-decide A2-R6 with the Solution
             Architect. Never refuse the sync.
       - alert: GroupsyncOrgUnitsUnrooted
         # groupsync_org_closure_unrooted_units is an OTel counter; the exporter
