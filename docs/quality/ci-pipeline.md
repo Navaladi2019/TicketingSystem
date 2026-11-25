@@ -843,9 +843,14 @@ input; `TestFullSuite` covers the skip exception.
 **govulncheck workflow.** govulncheck is no longer a step of the `ci`
 workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
 (the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
-`root` (`make vulncheck`) and `temporal-server`
+`vulncheck-root` (`make vulncheck`) and `vulncheck-temporal-server`
 (`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
-no Actions cache (about a minute each).
+no Actions cache (about a minute each). The job ids start with `vulncheck-`
+(TICK-1145) because GitHub knows a check by its name, not by its workflow:
+while the scan's job was also called `temporal-server`, a green scan could
+stand in for the required `ci` job of that name. `TestNoTwoWorkflowsReportTheSameCheck`
+(`tools/ci/cisteps`, part of `go test ./...` in the unit job) fails on any check name
+reported by two workflows.
 
 | Event | Runs |
 | --- | --- |
@@ -855,7 +860,7 @@ no Actions cache (about a minute each).
 | manual | always |
 
 A finding fails the job. On a scheduled run on `main` the workflow's own
-`main-red` job opens or updates the P0 "main is red" issue
+`vulncheck-main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
 keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). They are
 deliberately not required checks of `main`: with the `paths:` filter, a
