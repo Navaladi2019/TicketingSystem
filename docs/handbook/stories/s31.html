@@ -285,7 +285,7 @@ whole-story review. These fixes followed; the final verdict is on TICK-946.</p>
 <td>TICK-1125 (#877)</td>
 <td>No way to find or fix such a type</td>
 <td>A check before the upgrade, and a repair (<a href="../database/migrations.html#upgrading-to-s31">Migration history</a>)</td>
-<td><code>TestTICK1125UpgradeAfterRepair</code></td>
+<td><code>TestTICK1125Checks</code> (the check), <code>TestTICK1125UpgradeAfterRepair</code> (the repair)</td>
 </tr>
 <tr>
 <td>TICK-1116 (#873)</td>
@@ -309,7 +309,7 @@ whole-story review. These fixes followed; the final verdict is on TICK-946.</p>
 <td>TICK-1120 (#874)</td>
 <td>The app and worker roles could change a ticket's unit</td>
 <td>They cannot (42501)</td>
-<td><code>TestTICK1120NoRoleUpdatesRecordOrgUnit</code></td>
+<td><code>TestTICK1120NoRoleUpdatesRecordOrgUnit</code> (no role holds the grant), <code>TestTICK947RecordOrgUnitIsTenantScoped</code> (42501)</td>
 </tr>
 <tr>
 <td>TICK-1126 (#876)</td>
