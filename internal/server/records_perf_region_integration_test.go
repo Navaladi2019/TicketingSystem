@@ -351,7 +351,7 @@ func (e *perfEnv) regionSetup(t *testing.T) {
 	ctx := t.Context()
 	start := time.Now()
 	for _, k := range []string{"bench_rare", "bench_conc"} {
-		body := strings.Replace(perfTypeBody(), `"key": "ticket", "name": "Ticket", "number_prefix": "TKT"`,
+		body := strings.Replace(perfTypeBodyWith(""), `"key": "ticket", "name": "Ticket", "number_prefix": "TKT"`,
 			fmt.Sprintf(`"key": %q, "name": %q, "number_prefix": %q`, k, k, strings.ToUpper(k[6:10])), 1)
 		if rec := e.serve(ctx, http.MethodPost, "/api/v1/entity-types", "admin-large", "perf-type-"+k, body); rec.Code != http.StatusCreated {
 			t.Fatalf("create type %s = %d: %s", k, rec.Code, rec.Body)

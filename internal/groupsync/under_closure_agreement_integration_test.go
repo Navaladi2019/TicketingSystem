@@ -36,8 +36,8 @@ import (
 //     the region count driver, the branches when the document splits), with
 //     the page shape the probe picks and with C3 and W0 forced (TICK-1036,
 //     ADR-010-A2 A2-5), the count always CC: every
-//     record on the page once, and total the readable count, capped at
-//     store.TotalCap.
+//     record on the page once, and the count statement the readable count,
+//     capped at store.TotalCap.
 //
 // The sync-resilience test (a unit is removed and the sync still succeeds,
 // S31 AC 3) is TestOrgUnitRemovalEndsUnderAccessAndSyncSucceeds.
@@ -294,9 +294,29 @@ func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UU
 			}
 			same(shape+", "+how+", the list page", pageGot)
 			n := int64(len(wantIDs))
-			if page.Total != min(n, store.TotalCap) || page.TotalCapped != (n > store.TotalCap) {
-				t.Errorf("%s: %s, %s: total = %d (capped %v), want %d of %d readable (capped %v)",
-					what, shape, how, page.Total, page.TotalCapped, min(n, store.TotalCap), n, n > store.TotalCap)
+			// This page holds every record, so List takes the total from it and
+			// runs no count (ADR-006-A2 A2-4).
+			if page.Total != n || page.TotalState != store.TotalExact {
+				t.Errorf("%s: %s, %s: total = %d %q, want %d exact from the full page", what, shape, how, page.Total, page.TotalState, n)
+			}
+			// A page that does not hold them all runs the region count.
+			var counted int64
+			if err := tx.QueryRow(ctx, pipeline.CountStatement(lq), append([]any{tid, def}, lq.Args...)...).Scan(&counted); err != nil {
+				t.Fatalf("%s: %s, %s: count: %v", what, shape, how, err)
+			}
+			if counted != min(n, store.TotalCap+1) {
+				t.Errorf("%s: %s, %s: the count reads %d, want %d of %d readable", what, shape, how, counted, min(n, store.TotalCap+1), n)
+			}
+			if n > store.TotalCap {
+				lq.Limit = 51
+				capped, err := pipeline.List(ctx, tx, lq)
+				if err != nil {
+					t.Fatalf("%s: %s, %s: capped list: %v", what, shape, how, err)
+				}
+				if capped.Total != store.TotalCap || !capped.TotalCapped || capped.TotalState != store.TotalCapped {
+					t.Errorf("%s: %s, %s: total = %d (capped %v, %q), want %d of %d readable, capped",
+						what, shape, how, capped.Total, capped.TotalCapped, capped.TotalState, store.TotalCap, n)
+				}
 			}
 		}
 	}
