@@ -1,6 +1,10 @@
 package authz
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 // NamedPolicyAllows (ADR-010 D9, TICK-957): one named policy, one principal,
 // one op; every refusal is false.
@@ -54,4 +58,18 @@ func TestNamedPolicyAllows(t *testing.T) {
 			t.Errorf("counted a policy that was not tested: %d -> %d", before, after)
 		}
 	})
+}
+
+// A named policy with an under leaf grants only once BindUnder (what
+// ResolveUnder binds) has run; unbound, planRow voids it (TICK-1114).
+func TestNamedPolicyAllows_Under(t *testing.T) {
+	pol := ptWhen(t, `{"under":{"of":"caller"}}`)
+	row := Row{State: "open", OrgUnitID: ptRef(utUnit(2))} // below the caller's unit 1
+	bound := BindUnder(pol, utMe(), []uuid.UUID{utUnit(1)}, utClosure())
+	if !NamedPolicyAllows(bound, "p", utMe(), OpRead, row) {
+		t.Error("a row below the caller's unit, bound: denied")
+	}
+	if NamedPolicyAllows(pol, "p", utMe(), OpRead, row) {
+		t.Error("an unbound under policy allowed")
+	}
 }

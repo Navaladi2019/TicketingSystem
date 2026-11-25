@@ -9,6 +9,7 @@ package pipeline_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"sync"
 	"testing"
@@ -18,10 +19,13 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
+	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/interp"
 	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 )
@@ -268,4 +272,208 @@ func TestPolicyTest_ForeignRecordAndTenantAreRefused(t *testing.T) {
 	if _, err := ghost.ask(t, tester, a.f.id, a.record, aclKey, "edit", "requester"); !errors.Is(err, interp.ErrForbidden) {
 		t.Errorf("a run with no workflow_ref: %v, want interp.ErrForbidden", err)
 	}
+}
+
+// TICK-1114 (ADR-010 D9, D7): a workflow policy test resolves an under
+// condition as a record read does. authz.TestPolicyRef runs as nava_worker
+// under RLS over a real org-unit tree; the closure and org_unit_members reads
+// are the grants db/grants.yaml gives the worker for this. An answer never
+// counts a voided policy (authz_policy_invalid_total does not move).
+
+// invalidTotal is authz_policy_invalid_total over every entity type.
+func invalidTotal(t *testing.T) int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := refMetrics().Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != authz.PolicyInvalidMetric {
+				continue
+			}
+			sum, _ := m.Data.(metricdata.Sum[int64])
+			for _, dp := range sum.DataPoints {
+				n += dp.Value
+			}
+		}
+	}
+	return n
+}
+
+// publishDoc publishes a format-2 document as the entity type's next version
+// of the tenant, with the audit entry the commit check needs.
+func publishDoc(t *testing.T, e env, tenant uuid.UUID, doc string) {
+	t.Helper()
+	inTx(t, e, tenant, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		var def uuid.UUID
+		var have int
+		if err := tx.QueryRow(ctx, `SELECT d.id, coalesce(max(a.version), 0) FROM entity_definitions d
+			LEFT JOIN acl_versions a ON a.tenant_id = d.tenant_id AND a.entity_definition_id = d.id
+			WHERE d.tenant_id = $1 AND d.key = $2 GROUP BY d.id`, tenant, aclKey).Scan(&def, &have); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO acl_versions (tenant_id, entity_definition_id, version, rules, masks)
+			VALUES ($1, $2, $3, $4::text::jsonb, '[]')`, tenant, def, have+1, doc); err != nil {
+			return err
+		}
+		sum := sha256.Sum256([]byte(doc))
+		before, after := int64(have), int64(have+1)
+		sys := "tick-1114"
+		_, err := audit.Append(ctx, tx, audit.Entry{Domain: audit.DomainConfig, Action: audit.ActionPublish,
+			SubjectType: audit.SubjectACLPolicy, SubjectID: def, VersionBefore: &before, VersionAfter: &after,
+			Source: audit.SourceSystem, Actor: audit.Actor{System: &sys}, ContentSHA256: &sum})
+		return err
+	})
+}
+
+// onePolicy is a format-2 document with the one policy "edit" (read and
+// write) under the condition when.
+func onePolicy(when string) string {
+	return `{"format":2,"conditions":[],"policies":[{"name":"edit","ops":["read","write"],"when":` + when + `}]}`
+}
+
+// setRequester makes who the requester of the records, past the audit commit
+// check (replica role), as seedUnderWorld sets org_unit_id.
+func setRequester(t *testing.T, e env, tenant, who uuid.UUID, records ...uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range records {
+		if _, err := tx.Exec(ctx, `UPDATE records SET requester_id = $3 WHERE tenant_id = $1 AND id = $2`, tenant, id, who); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// testRef is authz.TestPolicyRef as nava_worker in the tenant's transaction,
+// and how much authz_policy_invalid_total moved.
+func testRef(t *testing.T, e env, tenantTx, record uuid.UUID, op string) (got bool, invalid int64, err error) {
+	t.Helper()
+	pool := newWorker(t, e).pool
+	before := invalidTotal(t)
+	err = tenancy.InTenantTx(context.Background(), pool, tenantTx, func(tx pgx.Tx) (err error) {
+		got, err = authz.TestPolicyRef(context.Background(), tx, authz.PolicyStore{},
+			authz.PolicyTest{RecordID: record, EntityType: aclKey, Policy: "edit", Who: authz.WhoRequester, Op: op})
+		return err
+	})
+	return got, invalidTotal(t) - before, err
+}
+
+func TestPolicyTest_UnderResolvesAsARecordReadDoes(t *testing.T) {
+	e := migrated(t)
+	refMetrics()
+	w := seedUnderWorld(t, e) // u1 is a member of A and L; Lx is tombstoned below L
+	setRequester(t, e, w.f.id, w.u1, w.records...)
+	caller := `{"under":{"of":"caller"}}`
+	requester := `{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}`
+	of := func(name string) string { return `{"under":{"of":["` + w.unit[name].String() + `"]}}` }
+
+	// canRead is what ACL.CanRead says for the same record and principal under
+	// a document with only this policy.
+	canRead := func(record uuid.UUID) (ok bool) {
+		inTx(t, e, w.f.id, func(tx pgx.Tx) error {
+			row, err := pipelineGet(context.Background(), tx, w.f.id, record)
+			if err != nil {
+				return err
+			}
+			p := identity.Principal{TenantID: w.f.id, PrincipalID: w.u1}
+			err = authz.ACL{Policies: authz.PolicyStore{}}.CanRead(context.Background(), tx, p, aclKey, row)
+			ok = err == nil
+			if err != nil && !errors.Is(err, authz.ErrNotVisible) {
+				return err
+			}
+			return nil
+		})
+		return ok
+	}
+
+	for _, c := range []struct {
+		name, when, unit string
+		want             bool
+	}{
+		{"under caller: unit in the subtree", caller, "A1", true},
+		{"under caller: unit outside it", caller, "R", false},
+		{"under caller: unit tombstoned inside the subtree", caller, "Lx", false},
+		{"under caller: NULL org_unit_id", caller, "none", false},
+		{"any[is_requester, under caller]: requester, unit outside", `{"any":[` + requester + `,` + caller + `]}`, "R", true},
+		{"under of [A]: unit in the subtree", of("A"), "A1", true},
+		{"under of [A]: unit outside the subtree", of("A"), "R", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			publishDoc(t, e, w.f.id, onePolicy(c.when))
+			got, invalid, err := testRef(t, e, w.f.id, w.record[c.unit], authz.OpWrite)
+			if err != nil {
+				t.Fatalf("TestPolicyRef: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("answer %v, want %v", got, c.want)
+			}
+			if invalid != 0 {
+				t.Errorf("authz_policy_invalid_total moved by %d", invalid)
+			}
+		})
+	}
+
+	for _, unit := range []string{"A1", "R", "Lx", "none"} {
+		t.Run("not under caller: "+unit, func(t *testing.T) {
+			publishDoc(t, e, w.f.id, onePolicy(`{"not":`+caller+`}`))
+			want := canRead(w.record[unit])
+			got, invalid, err := testRef(t, e, w.f.id, w.record[unit], authz.OpRead)
+			if err != nil {
+				t.Fatalf("TestPolicyRef: %v", err)
+			}
+			if got != want {
+				t.Errorf("answer %v, ACL.CanRead says %v", got, want)
+			}
+			if invalid != 0 {
+				t.Errorf("authz_policy_invalid_total moved by %d", invalid)
+			}
+		})
+	}
+
+	t.Run("transaction of tenant B, record of tenant A", func(t *testing.T) {
+		publishDoc(t, e, w.f.id, onePolicy(caller))
+		b := seedUnderWorld(t, e)
+		_, _, err := testRef(t, e, b.f.id, w.record["A1"], authz.OpWrite)
+		if !errors.Is(err, authz.ErrPolicyTestRecord) {
+			t.Errorf("error %v, want ErrPolicyTestRecord", err)
+		}
+	})
+
+	t.Run("another tenant's tree and membership do not grant", func(t *testing.T) {
+		publishDoc(t, e, w.f.id, onePolicy(caller))
+		// u3 is a principal of tenant A with no unit; the same principal id in
+		// tenant B is a member of B's root, which has the same unit names.
+		b := seedUnderWorld(t, e)
+		u3 := uuid.New()
+		for _, tenant := range []uuid.UUID{w.f.id, b.f.id} {
+			mustExec(t, e.super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at) VALUES ($1, $2, $3, true, now())`,
+				tenant, u3, "kc-"+tenant.String()+"-"+u3.String())
+		}
+		mustExec(t, e.super, `INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, b.f.id, b.unit["R"], u3)
+		setRequester(t, e, w.f.id, u3, w.record["A1"])
+		got, invalid, err := testRef(t, e, w.f.id, w.record["A1"], authz.OpWrite)
+		if err != nil {
+			t.Fatalf("TestPolicyRef: %v", err)
+		}
+		if got {
+			t.Error("allowed on the strength of another tenant's membership")
+		}
+		if invalid != 0 {
+			t.Errorf("authz_policy_invalid_total moved by %d", invalid)
+		}
+	})
 }
