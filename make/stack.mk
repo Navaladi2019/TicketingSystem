@@ -1,4 +1,4 @@
-.PHONY: stack-mem prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
+.PHONY: stack-mem openobserve-pull prebuilt-pull prebuilt-publish ci-stack ci-stack-run stack-tests stack-main stack-internal-beside stack-internal stack-up stack-down stack-logs image image-ci ci-binaries smoke
 
 # Builds the images, brings the stack up, runs every stack test, then tears
 # it down (logs first on failure). The workflow runs `make stack-tests JOB=<job>`
@@ -104,6 +104,17 @@ prebuilt-publish:
 	@[ -n "$(SERVICE)" ] || { echo "prebuilt-publish: set SERVICE to one of $(PUBLISHED_IMAGES)" >&2; exit 2; }
 	sh scripts/ci/prebuilt-image.sh $(SERVICE) publish
 
+# TICK-1128: when the stack starts the operator profile, pull OpenObserve by
+# compose.yaml's digest, from ECR Public or else Docker Hub, and export
+# OPENOBSERVE_IMAGE for the steps that follow (GITHUB_ENV). Fails when both
+# refuse. image-ci's registry pull then leaves the service out (PULL_SERVICES:
+# compose contacts the registry for a digest ref whatever the policy), and
+# stack-up finds the image locally. OPENOBSERVE_IMAGE unset (a laptop):
+# compose pulls every service, as before.
+openobserve-pull:
+	$(if $(findstring operator,$(COMPOSE_PROFILES)),sh scripts/ci/pull-openobserve.sh,@echo "openobserve-pull: skipped, the operator profile is not started")
+PULL_SERVICES = $(if $(OPENOBSERVE_IMAGE),$$(docker compose config --services | grep -vx openobserve))
+
 # CI image build: buildx bake over compose.yaml while the registry images are
 # pulled alongside. IMAGE_CACHE=gha keeps the layer cache in the GitHub Actions
 # cache (needs a docker-container builder and the Actions runtime env), so an
@@ -164,7 +175,7 @@ BAKE_THIN := $(foreach m,$(CI_THIN_SERVICES),--set $(word 1,$(subst =, ,$(m))).d
 image-ci:
 	@echo "image-ci: COMPOSE_PROFILES=$(COMPOSE_PROFILES) (the registry images pulled follow it, TICK-696)"
 	@$(if $(filter 1,$(IMAGE_THIN)),for b in $(CI_BINARIES) nava-worker-interptest; do [ -x $(CI_BIN_DIR)/$$b ] || { echo "image-ci: IMAGE_THIN=1 needs $(CI_BIN_DIR)/$$b: run make ci-binaries first" >&2; exit 2; }; done; echo "image-ci: thin CI images from deploy/compose/Dockerfile.ci (IMAGE_THIN=1)";) \
-	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) & pull=$$!; \
+	docker compose pull --quiet --ignore-buildable --ignore-pull-failures $(PULL_POLICY) $(PULL_SERVICES) & pull=$$!; \
 	docker buildx bake -f compose.yaml --load $(BAKE_CACHE) $(if $(filter 1,$(IMAGE_THIN)),$(BAKE_THIN)) $(BAKE_ONLY); status=$$?; \
 	$(if $(filter 1,$(IMAGE_THIN)),[ $$status -ne 0 ] || docker buildx build --load -f deploy/compose/Dockerfile.ci --target nava-worker-interptest -t nava/nava-worker-interptest:$${NAVA_IMAGE_TAG:-dev} . || status=$$?;) \
 	wait $$pull; exit $$status

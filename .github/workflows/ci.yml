@@ -799,6 +799,11 @@ jobs:
       # pull fails) is not an error: image-ci builds that one, as before.
       - name: Published CI images (temporal-server, keycloak)
         run: make prebuilt-pull
+      # TICK-1128: a full run's OpenObserve image, by compose.yaml's digest,
+      # from ECR Public or else Docker Hub; every later step uses that image
+      # (OPENOBSERVE_IMAGE). Fails when both refuse; a fast run skips it.
+      - name: OpenObserve image by digest (ECR Public, then Docker Hub)
+        run: make openobserve-pull
       # Once per run: every phase below uses these images.
       - name: Build images (layer cache in gha, or nava-ci on self-hosted)
         id: images
