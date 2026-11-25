@@ -170,7 +170,7 @@ func s21Backfill3b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture) err
 		// logs its type: the coordinator's own refusal, not some other error.
 		var app *temporal.ApplicationError
 		if !errors.As(err, &app) || !app.NonRetryable() || !strings.Contains(r.log(), backfill.ErrTypeNoChild) {
-			return fmt.Errorf("case 2 (payload tenant_id is tenant B, field %s): the coordinator in tenant A = %v, worker log %s; want a non-retryable %s",
+			return fmt.Errorf("case 2 (payload tenant_id is tenant B, field %s): the coordinator in tenant A = %w, worker log %s; want a non-retryable %s",
 				s3bName(field, noteA), err, r.log(), backfill.ErrTypeNoChild)
 		}
 		if n := r.counts(); len(n) != 0 {
@@ -217,8 +217,10 @@ func s21Read3b(ctx context.Context, e *etIso, noteA, noteB uuid.UUID) (s3bState,
 
 // s21Check3b fails when tenant B's registry moved or the state is not want.
 func s21Check3b(ctx context.Context, e *etIso, noteA, noteB uuid.UUID, regB string, want s3bState) error {
-	if got, err := s21Registry(ctx, e, TenantB); err != nil || got != regB {
-		return fmt.Errorf("tenant B's registry moved (%v):\n%s\n%s", err, regB, got)
+	if got, err := s21Registry(ctx, e, TenantB); err != nil {
+		return fmt.Errorf("read tenant B's registry: %w", err)
+	} else if got != regB {
+		return fmt.Errorf("tenant B's registry moved:\n%s\n%s", regB, got)
 	}
 	got, err := s21Read3b(ctx, e, noteA, noteB)
 	if err != nil {

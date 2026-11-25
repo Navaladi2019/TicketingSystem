@@ -60,7 +60,7 @@ var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 <
 // through the JSONB scan, the compiler these rows and the mutants check
 // (ADR-006 D6 refuses them otherwise with 400 field_not_filterable; that the
 // seed types' legacy fields still take this path is TestListDataFilterOnDefault*).
-var i5rLegacyScan = server.WithLegacyScan(func(typeKey, _ string) bool { return typeKey == i5rKey })
+var i5rLegacyScan = server.WithLegacyScan(func(typeKey, _ string) bool { return typeKey == i5rKey }) //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // i5FilterMutants are broken data-filter compilers for the list route
 // (server.WithListDataTerm). arg is the bound JSON document {prop: value}.

@@ -38,9 +38,11 @@ const (
 )
 
 // fieldIndexTables are the tables fieldIndexMigration creates, registry first.
-var fieldIndexTables = []string{"record_index_fields", "rfv_text", "rfv_num", "rfv_ts", "rfv_bool"}
+var fieldIndexTables = []string{"record_index_fields", "rfv_text", "rfv_num", "rfv_ts", "rfv_bool"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // sideTables maps each value type to its side table and a literal of its type.
+//
+//nolint:gochecknoglobals // read-only test/bench fixture, set once
 var sideTables = []struct {
 	vt    fieldindex.ValueType
 	table string
