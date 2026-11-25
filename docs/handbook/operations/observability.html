@@ -139,7 +139,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>GroupsyncOrgUnitsAboveCertified</code> (warning)</td>
 <td><code>groupsync_org_units_live_max</code> above 10,111 for 10 minutes: a tenant's live org-unit tree is larger than ADR-010-A2 is certified for (A2-7, A2-R6). Region-only lists may exceed 150 ms</td>
-<td>No log line names the tenant (TICK-1132). As the database superuser: <code>SELECT tenant_id, count(*) FROM org_units WHERE deleted_at IS NULL GROUP BY 1 HAVING count(*) &gt; 10111</code>; row-level security hides other tenants from the service roles. Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
+<td>Find the tenant in the nava-groupsync log line "largest live org-unit tree" (<code>tenant_id</code>, <code>live_org_units</code>), logged at INFO when the largest tenant or its count changes (TICK-1132). Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
 </tr>
 <tr>
 <td><code>GroupsyncOrgUnitsUnrooted</code> (warning)</td>
@@ -200,7 +200,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <p>Spans carry no client values or personal data. Logs carry no raw path, query, headers, client IP or tokens. The full list of controls and known gaps is in <a href="../../../docs/architecture/observability-notes.md">observability-notes.md</a>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../operations/sdk.html">&larr; Using the TypeScript SDK</a><a class="next" href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES) &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 4a42369bd78d (2026-11-25)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 4c1deb0f4881 (2026-11-25)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>
