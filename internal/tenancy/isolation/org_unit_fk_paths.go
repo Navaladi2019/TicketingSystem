@@ -13,7 +13,7 @@ import (
 // (tenant_id, org_unit_id) can refuse it. Each path wants exactly 23503 from
 // that constraint, not Denied, which also accepts 42501 and would stay green
 // on a lost INSERT grant without reaching the FK. The UPDATE path in Paths
-// went silent that way (TICK-1120).
+// went silent that way (TICK-1120). TestOrgUnitFKRefused holds the check to that.
 //
 // The control is the same INSERT, same id included, into tenant A's own unit:
 // it writes 1 row, so no other constraint, grant or policy refuses the shape.
@@ -33,19 +33,14 @@ func orgUnitFKPaths() []Path {
 
 func orgUnitForeignInsert(ctx context.Context, c Cluster, role string) error {
 	const insert = "INSERT INTO records (tenant_id, id, org_unit_id) VALUES ($1, $2, $3)"
-	const fkey = "records_org_unit_fkey"
 	pool, err := c.Pool(role)
 	if err != nil {
 		return err
 	}
 	return inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
 		_, err := execOne(ctx, tx, insert, TenantA, NewID, OrgUnitB2)
-		switch {
-		case err == nil:
-			return fmt.Errorf("%s wrote tenant A's record in tenant B's unit", role)
-		case sqlState(err) != "23503" || constraintName(err) != fkey:
-			return fmt.Errorf("%s inserts tenant A's record in tenant B's unit: %w (constraint %q), want SQLSTATE 23503 from %s",
-				role, err, constraintName(err), fkey)
+		if err := orgUnitFKRefused(role, err); err != nil {
+			return err
 		}
 		n, err := execOne(ctx, tx, insert, TenantA, NewID, OrgUnitA1)
 		switch {
@@ -56,4 +51,17 @@ func orgUnitForeignInsert(ctx context.Context, c Cluster, role string) error {
 		}
 		return nil
 	})
+}
+
+// orgUnitFKRefused is nil only when err is 23503 from records_org_unit_fkey.
+func orgUnitFKRefused(role string, err error) error {
+	const fkey = "records_org_unit_fkey"
+	switch {
+	case err == nil:
+		return fmt.Errorf("%s wrote tenant A's record in tenant B's unit", role)
+	case sqlState(err) != "23503" || constraintName(err) != fkey:
+		return fmt.Errorf("%s inserts tenant A's record in tenant B's unit: %w (constraint %q), want SQLSTATE 23503 from %s",
+			role, err, constraintName(err), fkey)
+	}
+	return nil
 }
