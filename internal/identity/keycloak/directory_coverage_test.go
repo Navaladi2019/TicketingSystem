@@ -1,10 +1,12 @@
 package keycloak
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -23,6 +25,12 @@ type routeKC struct {
 	mu     sync.Mutex
 	routes map[string]kcAnswer
 	seen   []string
+	// tokenStatus, when not 0, is what the token endpoint answers; tokenTTL,
+	// when not 0, is its expires_in. onServe runs, under mu, after each
+	// admin route is recorded.
+	tokenStatus int
+	tokenTTL    int
+	onServe     func(key string)
 }
 
 type kcAnswer struct {
@@ -33,6 +41,18 @@ type kcAnswer struct {
 
 func ok(body string) kcAnswer { return kcAnswer{status: http.StatusOK, body: body} }
 func st(code int) kcAnswer    { return kcAnswer{status: code} }
+func (r *routeKC) count(route string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, s := range r.seen {
+		if s == route {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *routeKC) saw(route string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -44,12 +64,25 @@ func newRouteKC(t *testing.T, routes map[string]kcAnswer) (*routeKC, string) {
 	k := &routeKC{routes: routes}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/protocol/openid-connect/token") {
-			fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			k.mu.Lock()
+			status, ttl := k.tokenStatus, k.tokenTTL
+			k.mu.Unlock()
+			if status != 0 {
+				w.WriteHeader(status)
+				return
+			}
+			if ttl == 0 {
+				ttl = 300
+			}
+			fmt.Fprintf(w, `{"access_token":"tok","expires_in":%d}`, ttl)
 			return
 		}
 		key := r.Method + " " + strings.TrimPrefix(r.URL.Path, "/admin/realms/nava")
 		k.mu.Lock()
 		k.seen = append(k.seen, key)
+		if k.onServe != nil {
+			k.onServe(key)
+		}
 		a, found := k.routes[key]
 		k.mu.Unlock()
 		if !found {
@@ -341,7 +374,7 @@ func TestChangesSince(t *testing.T) {
 			"GET /groups/g-ou/children":        ok(fmt.Sprintf(`[{"id":"g-unit","name":"unit","path":%q,"subGroupCount":0}]`, ou+"/unit")),
 			"GET /groups/g-root/members":       ok(`[{"id":"u1","email":"a@x.test","enabled":true}]`),
 			"GET /groups/g-admins/members":     ok(`[{"id":"u1","email":"a@x.test","enabled":true},{"id":"u2","email":"b@x.test","enabled":false}]`),
-			"GET /groups/g-unit/members":       ok(`[]`),
+			"GET /groups/g-unit/members":       ok(`[{"id":"u2","email":"b@x.test","enabled":false}]`),
 			"GET /users/u1/federated-identity": ok(`[{"identityProvider":"z","userId":"1"},{"identityProvider":"a","userId":"2"}]`),
 			"GET /users/u2/federated-identity": ok(`[]`),
 		}
@@ -352,6 +385,152 @@ func TestChangesSince(t *testing.T) {
 		d, _ := directoryFor(t, url)
 		return d
 	}
+
+	// vanished runs ChangesSince with a capturing logger.
+	vanished := func(t *testing.T, routes map[string]kcAnswer) (*routeKC, identity.DirectoryChanges, string, string, error) {
+		t.Helper()
+		kc, url := newRouteKC(t, routes)
+		var buf bytes.Buffer
+		d, _ := directoryFor(t, url, func(c *DirectoryConfig) {
+			c.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+		})
+		snap, digest, err := d.ChangesSince(t.Context(), tA, "")
+		return kc, snap, digest, buf.String(), err
+	}
+	// without u2 in any member list, as a snapshot taken after the deletion.
+	withoutU2 := func() map[string]kcAnswer {
+		r := full()
+		r["GET /groups/g-admins/members"] = ok(`[{"id":"u1","email":"a@x.test","enabled":true}]`)
+		r["GET /groups/g-unit/members"] = ok(`[]`)
+		delete(r, "GET /users/u2/federated-identity")
+		return r
+	}
+
+	t.Run("a user deleted during the read is left out", func(t *testing.T) {
+		t.Parallel()
+		r := full()
+		r["GET /users/u2/federated-identity"] = st(404)
+		_, snap, digest, logs, err := vanished(t, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snap.Users) != 1 || snap.Users[0].KeycloakUserID != "u1" {
+			t.Fatalf("users: %+v", snap.Users)
+		}
+		for _, g := range append(append([]identity.DirectoryGroup{}, snap.Groups...), snap.OrgUnits...) {
+			if slices.Contains(g.MemberKeycloakUserIDs, "u2") {
+				t.Fatalf("u2 still in %s", g.Path)
+			}
+		}
+		_, _, want, err := func() (*routeKC, identity.DirectoryChanges, string, error) {
+			_, url := newRouteKC(t, withoutU2())
+			d, _ := directoryFor(t, url)
+			s, dg, e := d.ChangesSince(t.Context(), tA, "")
+			return nil, s, dg, e
+		}()
+		if err != nil || digest != want {
+			t.Fatalf("digest %s, want %s (%v)", digest, want, err)
+		}
+		if strings.Count(logs, "directory snapshot: users deleted while it was read were left out") != 1 ||
+			!strings.Contains(logs, "users_gone=1") || strings.Contains(logs, "u2") || strings.Contains(logs, "b@x.test") {
+			t.Fatalf("log: %s", logs)
+		}
+	})
+	t.Run("every user deleted leaves empty member lists", func(t *testing.T) {
+		t.Parallel()
+		r := full()
+		r["GET /users/u1/federated-identity"] = st(404)
+		r["GET /users/u2/federated-identity"] = st(404)
+		_, snap, _, _, err := vanished(t, r)
+		if err != nil || len(snap.Users) != 0 {
+			t.Fatalf("got %+v %v", snap.Users, err)
+		}
+		for _, g := range append(append([]identity.DirectoryGroup{}, snap.Groups...), snap.OrgUnits...) {
+			if g.MemberKeycloakUserIDs == nil || len(g.MemberKeycloakUserIDs) != 0 {
+				t.Fatalf("%s members: %#v", g.Path, g.MemberKeycloakUserIDs)
+			}
+		}
+	})
+	t.Run("a user that still exists keeps the federated-identity error", func(t *testing.T) {
+		t.Parallel()
+		r := full()
+		r["GET /users/u2/federated-identity"] = st(404)
+		r["GET /users/u2"] = ok(`{"id":"u2"}`)
+		_, _, _, _, err := vanished(t, r)
+		var se *statusError
+		if !errors.As(err, &se) || se.status != 404 || !strings.HasSuffix(se.route, "/users/{id}/federated-identity") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	for _, code := range []int{403, 500} {
+		t.Run(fmt.Sprintf("second read %d fails the tenant", code), func(t *testing.T) {
+			t.Parallel()
+			r := full()
+			r["GET /users/u2/federated-identity"] = st(404)
+			r["GET /users/u2"] = st(code)
+			_, _, _, _, err := vanished(t, r)
+			var se *statusError
+			if !errors.As(err, &se) || se.status != code || !strings.HasSuffix(se.route, "/users/{id}") || errors.Is(err, identity.ErrNotFound) {
+				t.Fatalf("got %v", err)
+			}
+		})
+		t.Run(fmt.Sprintf("federated-identity %d does not read the user", code), func(t *testing.T) {
+			t.Parallel()
+			r := full()
+			r["GET /users/u2/federated-identity"] = st(code)
+			kc, _, _, _, err := vanished(t, r)
+			if err == nil || kc.saw("GET /users/u2") {
+				t.Fatalf("err %v, saw user read %v", err, kc.saw("GET /users/u2"))
+			}
+		})
+	}
+	t.Run("a token endpoint 404 is not a gone user", func(t *testing.T) {
+		t.Parallel()
+		kc, url := newRouteKC(t, full())
+		kc.tokenTTL = 1 // inside the refresh skew: every call fetches a token
+		kc.routes["GET /users/u1"] = ok(`{}`)
+		kc.routes["GET /users/u2"] = ok(`{}`)
+		lists := 0
+		kc.onServe = func(key string) { // after the member lists are read
+			if strings.HasSuffix(key, "/members") {
+				if lists++; lists == 3 {
+					kc.tokenStatus = http.StatusNotFound
+				}
+			}
+		}
+		var buf bytes.Buffer
+		d, _ := directoryFor(t, url, func(c *DirectoryConfig) { c.Logger = slog.New(slog.NewTextHandler(&buf, nil)) })
+		snap, _, err := d.ChangesSince(t.Context(), tA, "")
+		var se *statusError
+		if !errors.As(err, &se) || se.status != http.StatusNotFound || errors.Is(err, identity.ErrNotFound) {
+			t.Fatalf("err = %v, want the token endpoint's 404 without a match for ErrNotFound", err)
+		}
+		if len(snap.Users) != 0 || buf.Len() != 0 {
+			t.Fatalf("users %+v, log %q: nobody may be left out", snap.Users, buf.String())
+		}
+	})
+	t.Run("one read of the user and a tenant id in the log", func(t *testing.T) {
+		t.Parallel()
+		r := full()
+		r["GET /users/u2/federated-identity"] = st(404)
+		kc, _, _, logs, err := vanished(t, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := kc.count("GET /users/u2"); n != 1 {
+			t.Fatalf("GET /users/u2 sent %d times, want once", n)
+		}
+		if !strings.Contains(logs, "tenant_id="+tA.String()) {
+			t.Fatalf("log without the tenant id: %s", logs)
+		}
+	})
+	t.Run("nobody gone writes no log line", func(t *testing.T) {
+		t.Parallel()
+		_, _, _, logs, err := vanished(t, full())
+		if err != nil || logs != "" {
+			t.Fatalf("err %v, log %q", err, logs)
+		}
+	})
 
 	t.Run("snapshot is sorted, split and stable", func(t *testing.T) {
 		t.Parallel()
