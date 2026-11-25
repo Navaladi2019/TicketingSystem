@@ -36,6 +36,12 @@ migrates.
   longer wait must `SET lock_timeout = '<n>s'` before the statement and
   `RESET lock_timeout` at the end of the file, and stay re-runnable
   (`DROP ... IF EXISTS` before `CREATE ... IF NOT EXISTS`).
+- A migration that refuses to run tells the operator what to do in the
+  error's `HINT`. A failed run logs one `migration failed` line with the error
+  text, `sqlstate`, `constraint` and `hint` (TICK-1135), and never the
+  `DETAIL`, context or internal query, which can hold row values. So write the
+  message and the `HINT` as fixed text, plus counts or ids of schema objects,
+  and never put row values in them.
 
 ## JIT (off on the platform database)
 
