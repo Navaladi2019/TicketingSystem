@@ -256,8 +256,8 @@ func TestOverlappingExportsKeepTheirOwnMasks(t *testing.T) {
 // transaction, so a dropped error would still end in 500 at export.Begin.
 // The other cases leave the transaction usable and fail the decode of what
 // was read: only these catch a dropped error. As the superuser in the test's
-// own database, acl_versions.masks becomes an object (a list is expected) and
-// fixed_columns gets a value that is no string; both pass their CHECKs.
+// own database, acl_versions.masks becomes an object (a list is expected, so its CHECK is dropped) and
+// fixed_columns gets a value that is no string (its CHECK allows any object).
 //
 // covers: exportAuditEntries 500
 func TestExportFailsClosedWhenAMaskReadFails(t *testing.T) {
@@ -272,6 +272,10 @@ func TestExportFailsClosedWhenAMaskReadFails(t *testing.T) {
 		"ReadMasks, select refused":       revoke("acl_versions"),
 		"addOrgUnitMasks, select refused": revoke("entity_definition_versions"),
 		"ReadMasks, masks do not decode": func(t *testing.T, x *exportEnv) {
+			// The table's CHECK refuses a masks value of the wrong shape; drop it in this database.
+			if _, err := x.super.Exec(t.Context(), `ALTER TABLE acl_versions DROP CONSTRAINT acl_versions_masks_check`); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := x.super.Exec(t.Context(), `UPDATE acl_versions SET masks = '{"not":"a list"}'::jsonb WHERE tenant_id = $1`, x.a.id); err != nil {
 				t.Fatal(err)
 			}
