@@ -958,9 +958,9 @@ in the `stack` job before `make image-ci`:
 1. It pulls that digest from `public.ecr.aws/zinclabs/openobserve` and, when
    that source fails, from `docker.io/openobserve/openobserve`. OpenObserve
    publishes the same index on both.
-2. A source fails when the pull fails, gives no answer in 180 s (one attempt
-   per source, `timeout -k 10 180`; the log then says `<source> failed: no
-   answer in 180 s`), or the image's digest is not the pinned one. The image
+2. A source fails when the pull fails, gives no answer in 480 s (one attempt
+   per source, `timeout -k 10 480`; the log then says `<source> failed: no
+   answer in 480 s`), or the image's digest is not the pinned one. The image
    runs only after its digest is checked, with no network. When both fail, the step fails and prints both errors, before any stack
    starts.
 3. The pulled binary's `--version` must be the tag's version. Docker ignores

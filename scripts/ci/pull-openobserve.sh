@@ -20,7 +20,7 @@ set -eu
 cd "$(dirname "$0")/../.."
 
 second=docker.io/openobserve/openobserve
-limit=${PULL_TIMEOUT:-180}
+limit=${PULL_TIMEOUT:-480}
 
 log() { echo "pull-openobserve: $*" >&2; }
 

@@ -112,6 +112,11 @@ func (r fakeRun) pulls() []string {
 // timeout first on PATH.
 func runFake(t *testing.T, env []string, name string, args ...string) fakeRun {
 	t.Helper()
+	// The fakes are sh scripts: without sh on PATH, as on a Windows shell, make
+	// would run the real docker.
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh on PATH")
+	}
 	bin, err := exec.LookPath(name)
 	if err != nil {
 		t.Skipf("no %s on PATH", name)
@@ -229,7 +234,7 @@ func TestOpenObservePull(t *testing.T) {
 				if r.code == 0 || r.ghEnv != "" {
 					t.Errorf("exit %d, GITHUB_ENV %q; want a failure that exports nothing", r.code, r.ghEnv)
 				}
-				r.checkOrder(t, "180", "")
+				r.checkOrder(t, "480", "")
 			} else {
 				ref := tc.using + "@" + digest
 				if r.code != 0 {
@@ -243,7 +248,7 @@ func TestOpenObservePull(t *testing.T) {
 				if !strings.Contains(r.out, "using "+ref) {
 					t.Errorf("output does not name the source and digest used, %s", ref)
 				}
-				r.checkOrder(t, "180", ref)
+				r.checkOrder(t, "480", ref)
 			}
 			if t.Failed() {
 				t.Logf("exit %d, output:\n%s", r.code, r.out)
