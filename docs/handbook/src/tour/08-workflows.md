@@ -4,7 +4,7 @@ section: tour
 status: delivered
 sources: [docs/acceptance/guide/s11b.html, docs/acceptance/s28-first-routed-record.md, docs/quality/x1a-first-routed-record.md, docs/acceptance/guide/bruno/S28/S28-13.bru, docs/acceptance/guide/bruno/S11b/S11b-18.bru, docs/acceptance/guide/bruno/S11b/S11b-24.bru, docs/acceptance/s11a-workflow-interpreter.md, docs/architecture/workflow-interpreter.md, cmd/nava-worker/interp_default.go, cmd/nava-worker/interp_ports.go, internal/workflow/def/schema.json, internal/configsurface/testdata/inventory.json, internal/configsurface/doc.go, internal/configsurface/cmd/compat/main.go, docs/acceptance/S32/README.md, internal/workflow/def/def.go, internal/workflowdefs/workflowdefs.go, internal/authz/policyref.go]
 adrs: [ADR-001, ADR-003, ADR-008, ADR-010]
-stories: [S11a, S11b, S27, S28, S32]
+stories: [S11a, S11b, S27, S28, S31, S32]
 tables: [outbox]
 packages: [internal/workflow/interp, cmd/nava-worker, internal/configsurface]
 ---
@@ -86,6 +86,7 @@ A `condition` step can test a field (`field`, `op` `eq`/`ne`/`in`, `value`) or, 
 - `who` is `assignee` or `requester`; `op` is `read` or `write`. The step has either `policy`, `who` and `op`, or `field`, `op` and `value`, never both.
 - `policy.entity_type` must be the trigger entity. Another type is refused at publish with `422 entity_type_mismatch` at `/steps/<key>/policy/entity_type`.
 - The name is not looked up at publish. It is resolved each time the step runs, against the entity type's **current** access version, so a policy narrowed while a run waits applies from its next check. The definition version stays pinned; only the policy is live.
+- A region condition (`under`, [S31](../stories/s31.md)) in the policy is answered as a record read answers it: from the person's org units and the record's org unit, read when the step runs.
 - Only that one policy is asked, not the OR of every policy. The answer is "no" when the person column is empty, the person is not a live principal of the tenant, the policy is voided, or the policy does not grant `op`.
 - A name the entity type does not have (including a policy only another tenant has) is "no" as well, and is also logged, counted in `authz_policy_ref_missing_total` and audited as `policy_ref_refused`. See [S32](../stories/s32.md#finding-the-missing-policy-entry) for how an admin finds the entry.
 

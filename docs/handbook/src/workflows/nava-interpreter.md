@@ -37,6 +37,8 @@ sources:
   - internal/workflow/recordports/policytest.go
   - internal/authz/policyref.go
 tests:
+  - TestPolicyTest_UnderResolvesAsARecordReadDoes
+  - TestNamedPolicyAllows_Under
   - TestProductionBuildWiresTheDatabasePorts
   - TestProductionBuildInterpreterNeedsAPool
   - TestProductionBuildWithWorkflowsOffRegistersNoInterpreter
@@ -159,12 +161,13 @@ sequenceDiagram
 
 A `condition` step with `policy`, `who` and `op` (S32) is evaluated inside `NextStep`, never in workflow code (I6). `NextStep` calls the `PolicyTester` port; with none wired the test is false, so it fails closed (`TestNextStepPolicyTestFailsClosed`).
 
-`recordports.PolicyTester.Test` opens one tenant transaction, first reads the calling run's `workflow_ref` row and refuses the call as forbidden unless its stored `tenant_id` is the verified tenant, then calls `authz.TestPolicyRef` in that transaction. Everything is read there: the record, the entity type's **current** `acl_versions` row, the principal and its groups, and the shares. The definition version stays pinned, but the policy does not: a policy narrowed after the run started applies at the next test (`TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest`).
+`recordports.PolicyTester.Test` opens one tenant transaction, first reads the calling run's `workflow_ref` row and refuses the call as forbidden unless its stored `tenant_id` is the verified tenant, then calls `authz.TestPolicyRef` in that transaction. Everything is read there: the record, the entity type's **current** `acl_versions` row, the principal and its groups, the shares, and, when needed, the `under` inputs (`authz.ResolveUnder`, as a record read does; S31, TICK-1114): the record's unit and its ancestors, and the principal's org units for a `caller` condition. They are read when **any** policy of the type, read or write, has an `under` condition that survives folding for this principal, so a failed read caused by another policy also fails the test. The definition version stays pinned, but the policy does not: a policy narrowed after the run started applies at the next test (`TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest`).
 
 | Case | Result | Proof |
 |---|---|---|
 | Policy grants `op` to the record's `who` (judged by that policy alone) | `then` | `TestNextStepPolicyTest`, `TestNamedPolicyAllows` |
 | Policy does not grant it, or is voided (counted by `authz_policy_invalid_total`) | `else` | `TestNamedPolicyAllows` |
+| The policy has an `under` condition | answered as a record read answers it, `not under` included; a failed read is an error that Temporal retries for about six minutes (from code: `internal/authz/policyref.go`) | `TestPolicyTest_UnderResolvesAsARecordReadDoes`, `TestNamedPolicyAllows_Under` (the answers) |
 | `who` column NULL, or not a live principal of the tenant | `else` | `TestPolicyTest_NullPrincipalIsFalse` |
 | The record's type is not `policy.entity_type`, or the type has no policy of that name | `else`; warning log, `authz_policy_ref_missing_total{entity_type}` + 1, audit `policy_ref_refused` in the same transaction | `TestPolicyTest_MissingDeniesCountsAndAudits` |
 | Same type key and name in another tenant | never seen; only the run's tenant's rows | `TestPolicyTest_SameNameInTwoTenantsSeesOnlyItsOwn` |
