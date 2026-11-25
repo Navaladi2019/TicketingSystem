@@ -83,6 +83,10 @@ type Syncer struct {
 	// liveUnits is each tenant's last counted live org units; a tenant not
 	// re-counted in a cycle (lock held elsewhere, failed apply) keeps it.
 	liveUnits map[uuid.UUID]int
+	// liveMaxTenant and liveMaxCount are the pair last logged by recordLiveMax,
+	// so an unchanged pair is not logged every cycle.
+	liveMaxTenant uuid.UUID
+	liveMaxCount  int
 	// countLive counts a tenant's live org units; a test swaps it to fail.
 	countLive func(context.Context, pgx.Tx, uuid.UUID) (int, error)
 	started   time.Time
@@ -193,17 +197,30 @@ func (s *Syncer) Once(ctx context.Context) ([]Result, error) {
 
 // recordLiveMax sets groupsync_org_units_live_max to the largest last-known
 // live org-unit count over the tenants this cycle visited, counted or not.
+// The metric carries no tenant (T01), so when the largest pair (tenant, count)
+// changes it is logged at INFO: that line names the tenant behind the
+// GroupsyncOrgUnitsAboveCertified alert. No threshold is applied here; the
+// log never fails a sync.
 func (s *Syncer) recordLiveMax(ctx context.Context, visited []uuid.UUID) {
 	s.mu.Lock()
 	m, seen := 0, false
+	var who uuid.UUID
 	for _, id := range visited {
-		if n, ok := s.liveUnits[id]; ok {
-			m, seen = max(m, n), true
+		if n, ok := s.liveUnits[id]; ok && (!seen || n > m) {
+			m, who, seen = n, id, true
 		}
+	}
+	changed := seen && (who != s.liveMaxTenant || m != s.liveMaxCount)
+	if changed {
+		s.liveMaxTenant, s.liveMaxCount = who, m
 	}
 	s.mu.Unlock()
 	if seen {
 		s.unitsLive.Record(ctx, int64(m))
+	}
+	if changed {
+		s.log.InfoContext(ctx, "largest live org-unit tree",
+			slog.String("tenant_id", who.String()), slog.Int("live_org_units", m))
 	}
 }
 

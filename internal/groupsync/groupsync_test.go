@@ -147,3 +147,40 @@ func TestPathsNeverEnterErrors(t *testing.T) {
 		}
 	}
 }
+
+// TICK-1132: the live-max gauge has no tenant (T01), so the largest tenant is
+// named in an INFO log line, once per change of the (tenant, count) pair.
+func TestRecordLiveMaxNamesLargestTenant(t *testing.T) {
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewManualReader()))
+	g, err := mp.Meter("test").Int64Gauge("groupsync_org_units_live_max")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	s := &Syncer{log: slog.New(slog.NewJSONHandler(&buf, nil)), unitsLive: g, liveUnits: map[uuid.UUID]int{}}
+	small, large := uuid.New(), uuid.New()
+	s.liveUnits[small], s.liveUnits[large] = 12, 30
+	visited := []uuid.UUID{small, large}
+	ctx := context.Background()
+
+	s.recordLiveMax(ctx, visited)
+	out := buf.String()
+	if !strings.Contains(out, large.String()) || !strings.Contains(out, `"live_org_units":30`) || strings.Contains(out, small.String()) {
+		t.Fatalf("log = %q, want the larger tenant and 30 only", out)
+	}
+	buf.Reset()
+	s.recordLiveMax(ctx, visited) // unchanged pair
+	if buf.Len() != 0 {
+		t.Errorf("unchanged pair logged again: %q", buf.String())
+	}
+	s.liveUnits[small] = 40 // the largest changes hands
+	s.recordLiveMax(ctx, visited)
+	if out := buf.String(); !strings.Contains(out, small.String()) || !strings.Contains(out, `"live_org_units":40`) {
+		t.Errorf("log = %q, want the new largest tenant", out)
+	}
+	buf.Reset()
+	s.recordLiveMax(ctx, nil) // nothing visited: nothing to log
+	if buf.Len() != 0 {
+		t.Errorf("empty cycle logged: %q", buf.String())
+	}
+}
