@@ -106,14 +106,15 @@ prebuilt-publish:
 
 # TICK-1128: when the stack starts the operator profile, pull OpenObserve by
 # compose.yaml's digest, from ECR Public or else Docker Hub, and export
-# OPENOBSERVE_IMAGE for the steps that follow (GITHUB_ENV). Fails when both
+# OPENOBSERVE_REPO for the steps that follow (GITHUB_ENV). Fails when both
 # refuse. image-ci's registry pull then leaves the service out (PULL_SERVICES:
 # compose contacts the registry for a digest ref whatever the policy), and
-# stack-up finds the image locally. OPENOBSERVE_IMAGE unset (a laptop):
-# compose pulls every service, as before.
+# stack-up finds the image locally. OPENOBSERVE_REPO unset (a laptop): compose
+# pulls every service, as before. A value set by hand skips the same pull and
+# is still held to compose.yaml's digest.
 openobserve-pull:
 	$(if $(findstring operator,$(COMPOSE_PROFILES)),sh scripts/ci/pull-openobserve.sh,@echo "openobserve-pull: skipped, the operator profile is not started")
-PULL_SERVICES = $(if $(OPENOBSERVE_IMAGE),$$(docker compose config --services | grep -vx openobserve))
+PULL_SERVICES = $(if $(OPENOBSERVE_REPO),$$(docker compose config --services | grep -vx openobserve))
 
 # CI image build: buildx bake over compose.yaml while the registry images are
 # pulled alongside. IMAGE_CACHE=gha keeps the layer cache in the GitHub Actions
