@@ -36,3 +36,19 @@ groups:
             Find the tenant in the nava-groupsync log line "live org units have
             no closure self row and are outside every region". Never refuse the
             sync.
+      - alert: GroupsyncOrgClosureDriftRepaired
+        # groupsync_org_closure_drift_repairs is an OTel counter; the exporter
+        # writes it with _total. Accepted limit: increase() misses the first
+        # sample of a series that appears already at 1. The WARN line is
+        # written for every repair and covers that case.
+        # AR-TICK-1118-01 is looked at again when any drift is found in a live
+        # tenant; this alert is that trigger.
+        expr: increase(groupsync_org_closure_drift_repairs_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Group sync found the stored org closure different from the live org tree and repaired it.
+          description: >-
+            Find the tenant in the nava-groupsync log line "the stored org
+            closure differed from the live org tree and was repaired". Re-look
+            at AR-TICK-1118-01 (docs/security/accepted-risks.md).

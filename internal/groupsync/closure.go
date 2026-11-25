@@ -127,57 +127,63 @@ func closureRowCount(ctx context.Context, tx pgx.Tx, tid string) (int, error) {
 // closure (first import) also takes the full rebuild. A run that touched units
 // does not check the rest of the closure for drift; the next run that touches
 // none does. It returns the closure's
-// row count after the call and whether it wrote any row.
-func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt bool, err error) {
+// row count after the call, whether it wrote any row, and whether it repaired
+// drift (TICK-1124): true only when the set check found the stored closure
+// different from the live one. A delta, a first import and a clean check are
+// not drift.
+func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt, repaired bool, err error) {
 	tid := tenantID.String()
 	have, err := closureRowCount(ctx, tx, tid)
 	if err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
 	if len(touched) == 0 && have == 0 {
 		// Empty stored closure: nothing to compare, rebuild without the set check.
-		return fullRebuildClosure(ctx, tx, tid)
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, false, err
 	}
 	if len(touched) == 0 {
 		var drift bool
 		if err := withHashPlan(ctx, tx, func() error {
 			return tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift)
 		}); err != nil {
-			return 0, false, fmt.Errorf("compare closure: %w", err)
+			return 0, false, false, fmt.Errorf("compare closure: %w", err)
 		}
 		if !drift {
-			return have, false, nil
+			return have, false, false, nil
 		}
-		return fullRebuildClosure(ctx, tx, tid)
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, err == nil, err
 	}
 	if have == 0 {
-		return fullRebuildClosure(ctx, tx, tid)
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, false, err
 	}
 	ar, err := tx.Query(ctx, closureAffectedSQL, tid, touched)
 	if err != nil {
-		return 0, false, fmt.Errorf("find affected units: %w", err)
+		return 0, false, false, fmt.Errorf("find affected units: %w", err)
 	}
 	var affected []string
 	for ar.Next() {
 		var id uuid.UUID
 		if err := ar.Scan(&id); err != nil {
 			ar.Close()
-			return 0, false, fmt.Errorf("find affected units: %w", err)
+			return 0, false, false, fmt.Errorf("find affected units: %w", err)
 		}
 		affected = append(affected, id.String())
 	}
 	ar.Close()
 	if err := ar.Err(); err != nil {
-		return 0, false, fmt.Errorf("find affected units: %w", err)
+		return 0, false, false, fmt.Errorf("find affected units: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid AND descendant_id = ANY($2::uuid[])`, tid, affected); err != nil {
-		return 0, false, fmt.Errorf("clear affected closure rows: %w", err)
+		return 0, false, false, fmt.Errorf("clear affected closure rows: %w", err)
 	}
 	if _, err := tx.Exec(ctx, closureDeltaInsertSQL, tid, affected); err != nil {
-		return 0, false, fmt.Errorf("write closure delta: %w", err)
+		return 0, false, false, fmt.Errorf("write closure delta: %w", err)
 	}
 	rows, err = closureRowCount(ctx, tx, tid)
-	return rows, true, err
+	return rows, true, false, err
 }
 
 // withHashPlan runs fn with nested loops off, in tx, then turns them back on.

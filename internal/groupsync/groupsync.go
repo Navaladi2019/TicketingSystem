@@ -72,6 +72,8 @@ type Syncer struct {
 	subtree metric.Int64Histogram
 	// unrooted is groupsync_org_closure_unrooted_units (TICK-1058).
 	unrooted metric.Int64Counter
+	// drift is groupsync_org_closure_drift_repairs (TICK-1124).
+	drift metric.Int64Counter
 	// unitsLive is groupsync_org_units_live_max: set once per cycle to the
 	// largest live org-unit count over the tenants the cycle visited. It never
 	// gates a sync (ADR-010-A2 A2-7); the alert is the only reaction.
@@ -133,15 +135,19 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 		"groupsync_org_closure_unrooted_units",
 		metric.WithDescription("Live org units found with no org_unit_closure self row after a tenant's closure rebuild, summed over applied tenant syncs. Such a unit is outside every region. Any increase is an alert. Never labelled by tenant; the tenant is named in a log line."),
 		metric.WithUnit("{unit}"))
+	dr, drErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Counter(
+		"groupsync_org_closure_drift_repairs",
+		metric.WithDescription("Times a tenant's org_unit_closure differed from the live org tree and was repaired, summed over applied tenant syncs. A first import and a delta are not drift. Any increase is an alert (AR-TICK-1118-01). Never labelled by tenant; the tenant is named in a log line."),
+		metric.WithUnit("{repair}"))
 	live, liveErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Gauge(
 		"groupsync_org_units_live_max",
 		metric.WithDescription("Largest live org-unit count of any tenant visited in the cycle, set once per cycle. Never labelled by tenant. Alerted above the ADR-010-A2 certified tree (rules/groupsync.yml); it never gates a sync."),
 		metric.WithUnit("{unit}"))
-	if err := errors.Join(unrErr, liveErr); err != nil {
+	if err := errors.Join(unrErr, drErr, liveErr); err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
 	return &Syncer{
-		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, unitsLive: live,
+		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, drift: dr, unitsLive: live,
 		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),
 	}, nil
 }
@@ -279,6 +285,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	var snapAt time.Time
 	subtreeMax := -1 // -1: nothing applied, nothing to record
 	unrooted := 0
+	driftRepaired := false
 	liveUnits := -1 // -1: not counted this cycle
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		var locked bool
@@ -328,6 +335,7 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		}
 		subtreeMax = st.OrgSubtreeMax
 		unrooted = st.ClosureUnrooted
+		driftRepaired = st.ClosureDriftRepaired
 		liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
@@ -352,6 +360,11 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		return res
 	}
 	// Added only after the commit: a rolled-back run reports nothing.
+	if driftRepaired {
+		s.drift.Add(ctx, 1)
+		s.log.WarnContext(ctx, "group sync: the stored org closure differed from the live org tree and was repaired",
+			slog.String("tenant_id", tenantID.String()))
+	}
 	if unrooted > 0 {
 		s.unrooted.Add(ctx, int64(unrooted))
 		s.log.WarnContext(ctx, "group sync: live org units have no closure self row and are outside every region",
