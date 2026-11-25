@@ -53,9 +53,14 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 	root, child := uuid.New(), uuid.New()
 	exec(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, NULL, 'tick1104-root', 'root'), ($1, $3, $2, 'tick1104-child', 'child')`,
 		e.a.id, root, child)
-	exec(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), $2, 'tick1104-' || g, 'u' || g FROM generate_series(1, $3::int) g`, e.a.id, child, size-2)
 	rebuildOrgUnitClosure(t, e.super)
+	// The other units and their closure rows, written directly: the rebuild
+	// is quadratic on a table with no statistics (TICK-1054).
+	exec(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
+		SELECT $1, gen_random_uuid(), $2, 'tick1104-u' || g, 'u' || g FROM generate_series(1, $3::int) g`, e.a.id, child, size-2)
+	exec(`INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id)
+		SELECT u.tenant_id, a.id, u.id FROM org_units u CROSS JOIN LATERAL (VALUES (u.id), ($2::uuid), ($3::uuid)) a (id)
+		WHERE u.tenant_id = $1 AND u.keycloak_group_id LIKE 'tick1104-u%'`, e.a.id, root, child)
 	exec(`ANALYZE org_unit_closure`)
 	doc := `{"format": 2, "conditions": [], "policies": [{"name": "unit", "ops": ["read"], "when": {"under": {"of": ["` + root.String() + `"]}}}]}`
 	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("tick1104-under"), `W/"1"`, `{"rules": `+doc+`}`); got.Code != http.StatusOK {

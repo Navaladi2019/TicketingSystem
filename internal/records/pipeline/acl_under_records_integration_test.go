@@ -234,11 +234,17 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 	t.Helper()
 	ctx := context.Background()
 	w = seedShapeWorld(t, e, 1)
+	// tree adds n units, ten children each, and their closure rows. Not by
+	// org_unit_closure_rebuild_all: on a table with no statistics it is
+	// quadratic (TICK-1054), minutes at these sizes.
 	tree := func(prefix string, n int) uuid.UUID {
 		t.Helper()
 		mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
 			SELECT $1, md5($2::text || g)::uuid, CASE WHEN g > 0 THEN md5($2::text || (g - 1) / 10)::uuid END, 'kc-' || $2::text || g, $2::text || g
 			FROM generate_series(0, $3::int - 1) g`, w.tenant, prefix, n)
+		mustExec(t, e.super, `INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id)
+			WITH RECURSIVE c (d, a) AS (SELECT g, g FROM generate_series(0, $3::int - 1) g UNION ALL SELECT d, (a - 1) / 10 FROM c WHERE a > 0)
+			SELECT $1, md5($2::text || a)::uuid, md5($2::text || d)::uuid FROM c`, w.tenant, prefix, n)
 		var root uuid.UUID
 		if err := e.super.QueryRow(ctx, `SELECT md5($1::text || 0)::uuid`, prefix).Scan(&root); err != nil {
 			t.Fatal(err)
@@ -250,7 +256,6 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 		roots[n] = tree(fmt.Sprintf("s%d-", n), n)
 	}
 	other = tree("o-", 2000)
-	rebuildClosure(t, e)
 	for n, root := range roots {
 		if got := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, w.tenant, root); got != n {
 			t.Fatalf("the subtree of %d units has %d closure rows", n, got)
@@ -414,14 +419,14 @@ func TestUnderListRecordsPlans(t *testing.T) {
 		}
 		return nil
 	})
+	reportGenericPlans(t, e, w, roots)
 }
 
-// A2-R4, extended: the same plans under plan_cache_mode = force_generic_plan.
-// The server never plans generically (QueryExecModeExec), so a miss is
-// reported in the log, not failed.
-func TestUnderListRecordsGenericPlansAreReported(t *testing.T) {
-	e := migrated(t)
-	w, roots, _ := recordsPlanWorld(t, e)
+// reportGenericPlans logs R's plans under plan_cache_mode = force_generic_plan
+// (A2-R4, extended). The server never plans generically (QueryExecModeExec),
+// so a miss is reported, not failed.
+func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.UUID) {
+	t.Helper()
 	ctx := context.Background()
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 		recordsPlanSettings(ctx, t, tx)
