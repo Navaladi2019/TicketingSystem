@@ -112,10 +112,11 @@ func TestPublishFilterableFlagIsCompatibleAndTypeChangeAndRemovalAreRefused(t *t
 	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.FilterableFieldRemovalUnavailable)
 }
 
+// covers: createEntityType 422
 func TestCreateRefusesSearchableAndWritesNothing(t *testing.T) {
 	e := newETEnv(t)
 	body := fmt.Sprintf(`{"key": "incident", "name": "Incident", "number_prefix": "INC", "definition": {"schema": %s, %s}}`,
-		etFlagged(t, `{"type": "string", "x-nava-searchable": true}`), etDefTail)
+		etFlagged(t, `{"type": "string", "x-nava-filterable": true, "x-nava-searchable": true}`), etDefTail)
 	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-sr-create", body)
 	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.SearchableNotAvailable)
 	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/x-nava-searchable"}) {
