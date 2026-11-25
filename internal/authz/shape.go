@@ -15,9 +15,10 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
-// The list page's shape for a region term (ADR-010-A2 A2-5, A2-5a, A2-9;
-// TICK-1036). A list term driven by an under leaf (RegionDriver) has its page
-// statement picked per request from a capped probe P3 of that leaf:
+// The list's shape for a region term (ADR-010-A2 A2-5, A2-5a, A2-9, TICK-1036;
+// ADR-010-A3, TICK-1104). A list term driven by an under leaf (RegionDriver)
+// has its page statement picked per request from a capped probe P3 of that
+// leaf:
 //
 //   - C3, when the probe counts m ≤ K* records under U: the term's rows are
 //     read into a MATERIALIZED CTE (the leaf as r.org_unit_id = ANY(ARRAY(
@@ -27,10 +28,16 @@ import (
 //     probe per row, EXISTS (… OFFSET 0); the OFFSET 0 keeps the probe a
 //     SubPlan, never a semi-join.
 //
-// The count is always TICK-1034's CC (the region driver, capped at
-// TotalCap+1, the leaf in its predicate form), whatever the probe says,
-// except A2-5a: a type whose estimate N̂_e is at most K* skips the probe and
-// renders W0 for the page and the count, with no driver.
+// The count is TICK-1034's CC (the region driver, capped at TotalCap+1, the
+// leaf in its predicate form), whatever P3 says, with two exceptions that have
+// no driver:
+//
+//   - A2-5a: a type whose estimate N̂_e is at most K* skips the probe and
+//     renders W0 for the page and the count.
+//   - R (A3-1, A3-2): a type that is small next to the subtree reads its own
+//     records, page and count, and keeps those whose unit is in the subtree's
+//     hashed set. A closure count n of U, folded into P3's statement, picks it:
+//     ⌈N̂_e/α⌉ ≤ n < U_hash.
 //
 // Which rows a caller sees never depends on any of this: every shape computes
 // the same predicate (A2-6), so a stale estimate or a wrong probe count costs
@@ -53,24 +60,31 @@ const (
 	ShapeWalk ListShape = iota
 	// ShapeC3 is the materialized CTE.
 	ShapeC3
-	// ShapeRecords is R (ADR-010-A3 A3-1).
+	// ShapeRecords is R, the records-driven page and count (A3-1).
 	ShapeRecords
 )
 
-// Stubs of the red commit: ADR-010-A3 is not implemented yet.
+// The bounds of R (ADR-010-A3 A3-3). Like K* they guard a budget every tenant
+// shares, so they are computed, never configured.
 const (
-	uCert = 0
-	uHash = 0
+	// alpha is where R and A2's shapes cost the same: N̂_e = α·|S| (SP-1f).
+	alpha = 3.3
+	// uCert is the unit count ADR-010-A2 is certified to (A2-7), the threshold
+	// of the alert GroupsyncOrgUnitsAboveCertified. A type above α·uCert never
+	// gets R, so it does not pay the closure count.
+	uCert = 10111
+	// uHash is the subtree size from which R never runs: its closure set must
+	// stay a hashed SubPlan.
+	uHash = 2 * uCert
+
+	// alphaTenths is α in integers, and maxRecordsEstimate the largest N̂_e
+	// with N̂_e ≤ α·uCert; comparing with it cannot overflow.
+	alphaTenths        int64 = alpha * 10
+	maxRecordsEstimate       = alphaTenths * uCert / 10
 )
 
-func recordsCap(int64) int64 { return 0 }
-
-// FoldedProbeStatement is a stub of the red commit.
-func FoldedProbeStatement(int) string { return "SELECT NULL END FROM" }
-
-func foldedProbe(context.Context, pgx.Tx, regionLeaf, uuid.UUID, int, int64, int64) (int64, *int64, error) {
-	return 0, nil, nil
-}
+// recordsCap is ⌈N̂_e/α⌉, the fewest units for which R is chosen.
+func recordsCap(estimate int64) int64 { return (10*estimate + alphaTenths - 1) / alphaTenths }
 
 // The clamp of K* (A2-9) and its coefficient c, measured by the A2-12 (a)
 // crossover cells. K* is computed, never configured.
@@ -105,27 +119,27 @@ type ListShapes struct {
 	// rare is A2-5a: W0 for the page and the count, no count driver.
 	rare bool
 	// fixed renders every region term as shape, whatever was probed.
-	fixed  bool
-	shape  ListShape
-	c3     map[string]bool
+	fixed bool
+	shape ListShape
+	// chosen is the shape of each probed leaf; a leaf not in it is W0.
 	chosen map[string]ListShape
 }
 
-// FixedListShapes renders every region term of a list as s, with the count
-// driven, as if every probe had chosen it. It is for the agreement tests and
+// FixedListShapes renders every region term of a list as s, with that shape's
+// count (driven, or R's own), as if every probe had chosen it. It is for the agreement tests and
 // the bench, which compare each shape's rows with Allows; the list route
 // uses ChooseListShapes. Like every shape, it changes SQL text, not rows.
 func FixedListShapes(s ListShape) ListShapes { return ListShapes{fixed: true, shape: s} }
 
-// c3For reports whether the region term of leaf key renders C3.
-func (s ListShapes) c3For(key string) bool {
+// of is the shape of the region term of leaf key.
+func (s ListShapes) of(key string) ListShape {
 	switch {
 	case s.rare:
-		return false
+		return ShapeWalk
 	case s.fixed:
-		return s.shape == ShapeC3
+		return s.shape
 	}
-	return s.c3[key]
+	return s.chosen[key]
 }
 
 // regionLeaf is an under leaf that drives a list term: its tenant and U.
@@ -153,13 +167,25 @@ func ProbeStatement(k int) string {
 		` AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_d.descendant_id LIMIT ` + lim + `) acl_x LIMIT ` + lim + `) acl_p`
 }
 
-// ErrProbe wraps a failed P3: the list answers 500 and never falls back to
+// FoldedProbeStatement is the folded probe (A3-2 step 4) for K* = k: the
+// closure rows n of the canonical U ($2) of tenant $1, counted up to U_hash
+// ($5), and P3 of entity definition $3, only when n picks no R. R is
+// $4 ≤ n < $5, with $4 = ⌈N̂_e/α⌉. P3 is an InitPlan that only the ELSE reads,
+// so it never executes on an R path. It is exported so the tests run and
+// EXPLAIN what ChooseListShapes runs.
+func FoldedProbeStatement(k int) string {
+	return `SELECT acl_s.n, CASE WHEN acl_s.n >= $4::bigint AND acl_s.n < $5::bigint THEN NULL ELSE (` + ProbeStatement(k) +
+		`) END FROM (SELECT count(*) AS n FROM (SELECT 1 FROM ` + regionFrom(underArgs{tenant: "$1", units: "$2"}) +
+		` LIMIT $5::bigint) acl_z) acl_s`
+}
+
+// ErrProbe wraps a failed P3 or folded probe: the list answers 500 and never falls back to
 // another shape (A2-6). Its text names no count, threshold or estimate.
 var ErrProbe = errors.New("authz: under list probe failed")
 
-// ChooseListShapes picks the page shape of each region term of pol's list
-// for p (A2-5, A2-5a): it reads N̂_e for (tenant, def), computes K* from the
-// page statement's LIMIT, and either applies A2-5a or runs P3 once per
+// ChooseListShapes picks the shape of each region term of pol's list for p
+// (A2-5, A2-5a, A3-2): it reads N̂_e for (tenant, def), computes K* from the
+// page statement's LIMIT, and either applies A2-5a or runs one probe per
 // distinct region leaf, in tx, before the page and count statements. pol is
 // the policy ResolveUnder bound. With no region term it reads nothing.
 //
@@ -196,22 +222,53 @@ func ChooseListShapes(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Pr
 		}
 		return ListShapes{rare: true}, nil
 	}
-	out := ListShapes{c3: make(map[string]bool, len(leaves))}
-	sql := ProbeStatement(k)
+	out := ListShapes{chosen: make(map[string]ListShape, len(leaves))}
 	for _, l := range leaves {
 		start := time.Now()
-		var m int64
-		err := tx.QueryRow(ctx, sql, tenant, UUIDTexts(l.units), def).Scan(&m)
+		shape, err := probeLeaf(ctx, tx, l, def, estimate, known, k)
 		observeProbe(ctx, time.Since(start))
 		if err != nil {
-			return ListShapes{}, fmt.Errorf("%w: %w", ErrProbe, err)
+			return ListShapes{}, err
 		}
-		shape := ShapeWalk
-		if m <= int64(k) {
-			shape = ShapeC3
-			out.c3[l.key] = true
-		}
+		out.chosen[l.key] = shape
 		countShape(ctx, shape)
 	}
 	return out, nil
+}
+
+// probeLeaf is A3-2 steps 2 to 4 for a leaf of a type that is not rare: the
+// folded probe when R is possible, else P3 alone, as in A2-5. l is bound for
+// the transaction's tenant (ChooseListShapes checked it).
+func probeLeaf(ctx context.Context, tx pgx.Tx, l regionLeaf, def uuid.UUID, estimate int64, known bool, k int) (ListShape, error) {
+	var m int64
+	if !known || estimate > maxRecordsEstimate {
+		if err := tx.QueryRow(ctx, ProbeStatement(k), l.tenant, UUIDTexts(l.units), def).Scan(&m); err != nil {
+			return ShapeWalk, fmt.Errorf("%w: %w", ErrProbe, err)
+		}
+	} else {
+		atLeast := recordsCap(estimate)
+		n, p3, err := foldedProbe(ctx, tx, l, def, k, atLeast, uHash)
+		switch {
+		case err != nil:
+			return ShapeWalk, err
+		case atLeast <= n && n < uHash:
+			return ShapeRecords, nil
+		case p3 == nil:
+			return ShapeWalk, fmt.Errorf("%w: the probe returned no value", ErrProbe)
+		}
+		m = *p3
+	}
+	if m <= int64(k) {
+		return ShapeC3, nil
+	}
+	return ShapeWalk, nil
+}
+
+// foldedProbe runs FoldedProbeStatement for leaf l: the closure count n,
+// stopped at below, and P3's value, nil when atLeast ≤ n < below.
+func foldedProbe(ctx context.Context, tx pgx.Tx, l regionLeaf, def uuid.UUID, k int, atLeast, below int64) (n int64, m *int64, err error) {
+	if err := tx.QueryRow(ctx, FoldedProbeStatement(k), l.tenant, UUIDTexts(l.units), def, atLeast, below).Scan(&n, &m); err != nil {
+		return 0, nil, fmt.Errorf("%w: %w", ErrProbe, err)
+	}
+	return n, m, nil
 }

@@ -241,19 +241,19 @@ func ReadPredicate(pol *Policy, p identity.Principal, alias string, argBase int)
 type ListRead struct {
 	// Branches and Where are the page's terms, split as ReadPredicate splits
 	// them: two or more branches, or none and the single predicate in Where.
-	// A region term's under leaf is in its page shape (shape.go): C3 or W0.
+	// A region term's under leaf is in its page shape (shape.go): C3, W0 or R.
 	Branches []string
 	Where    string
 	// CountBranches and CountWhere are the same terms for the count
 	// statement, the leaf in its predicate form (TICK-1034's CC, unchanged),
-	// or W0 under A2-5a. They bind the same placeholders as the page terms.
+	// W0 under A2-5a, or R as on the page (ADR-010-A3 A3-1). They bind the same placeholders as the page terms.
 	CountBranches []string
 	CountWhere    string
 	Args          []any
 	// Drivers holds one entry per branch, or one for Where when there are no
 	// branches: the closure driver of that term's count when it is a region
 	// term (an under leaf, alone or ANDed with other terms), else the zero
-	// RegionDriver. The page never uses them; A2-5a has none.
+	// RegionDriver. The page never uses them; A2-5a and R have none.
 	Drivers []RegionDriver
 	// Materialize has one entry per term, as Drivers: true when the term is
 	// a region term rendered C3, whose page statement reads the term's rows
@@ -286,7 +286,8 @@ func ReadList(pol *Policy, p identity.Principal, alias string, argBase int) List
 
 // ReadListShaped is ReadList with each region term in the page shape shapes
 // gives it (ChooseListShapes for the list route, FixedListShapes for tests).
-// The shapes change the SQL text only, never the rows (ADR-010-A2 A2-6).
+// The shapes change the SQL text only, never the rows (ADR-010-A2 A2-6,
+// ADR-010-A3 A3-4).
 func ReadListShaped(pol *Policy, p identity.Principal, alias string, argBase int, shapes ListShapes) ListRead {
 	if !identRE.MatchString(alias) {
 		panic(fmt.Sprintf("authz: ReadListShaped alias %q is not a plain identifier", alias))
@@ -341,8 +342,23 @@ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListSha
 			leaves = append(leaves, count.leaf[k])
 		}
 	}
-	c3 := func(k string) bool { return slices.Contains(keys, k) && shapes.c3For(k) }
-	page := &compiler{alias: alias, base: argBase, walk: true, c3: c3}
+	// is reports that leaf k drives a term and is in shape s; a leaf that
+	// drives none keeps A2's text.
+	is := func(s ListShape) func(string) bool {
+		return func(k string) bool { return k != "" && slices.Contains(keys, k) && shapes.of(k) == s }
+	}
+	c3, records := is(ShapeC3), is(ShapeRecords)
+	if slices.ContainsFunc(keys, records) {
+		// R is the count's text too (A3-1). Which leaves drive a term is known
+		// only now, so the count's terms are rendered again with it.
+		count = &compiler{alias: alias, base: argBase, records: records}
+		if split {
+			out.CountBranches, _ = readBranches(planned, count)
+		} else {
+			out.CountWhere = compileRead(planned, count)
+		}
+	}
+	page := &compiler{alias: alias, base: argBase, walk: true, c3: c3, records: records}
 	if split {
 		out.Branches, _ = readBranches(planned, page)
 	} else {
@@ -359,7 +375,7 @@ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListSha
 			continue
 		}
 		out.Materialize[i] = c3(k)
-		if !shapes.rare {
+		if !shapes.rare && !records(k) {
 			out.Drivers[i] = count.driverOf(k)
 		}
 	}
@@ -571,21 +587,24 @@ type compiler struct {
 	// instead (the page of a region term the probe chose C3 for).
 	walk bool
 	c3   func(key string) bool
-	// c3Neg holds, for each leaf rendered C3, its C3 text then its predicate
-	// text: a later branch negates an earlier one with the leaf in the
-	// predicate form (a hashed subplan, as before A2), so only the C3 term's
-	// own MATERIALIZED CTE reads the leaf through ARRAY(), and a C3 page
-	// holds no OFFSET 0 walk probe.
-	c3Neg []string
+	// records, when set, names the leaves rendered R, on the page and in the
+	// count (ADR-010-A3 A3-1).
+	records func(key string) bool
+	// shapeNeg holds, for each leaf rendered C3 or R, that text then its
+	// predicate text: a later branch negates an earlier one with the leaf in
+	// the predicate form (a hashed subplan, as before A2), so only the C3
+	// term's own MATERIALIZED CTE reads the leaf through ARRAY(), and a C3
+	// page holds no OFFSET 0 walk probe.
+	shapeNeg []string
 }
 
-// negated is branch text as a later branch negates it: any C3 leaf in the
-// predicate form.
+// negated is branch text as a later branch negates it: any C3 or R leaf in
+// the predicate form.
 func (c *compiler) negated(branch string) string {
-	if len(c.c3Neg) == 0 {
+	if len(c.shapeNeg) == 0 {
 		return branch
 	}
-	return strings.NewReplacer(c.c3Neg...).Replace(branch)
+	return strings.NewReplacer(c.shapeNeg...).Replace(branch)
 }
 
 // underArgs are the placeholders of an under leaf: its tenant and its U.
@@ -596,14 +615,16 @@ func underKey(tenant uuid.UUID, units []uuid.UUID) string {
 }
 
 // under is the SQL of an under leaf: the row's unit is a closure descendant
-// of one of U. It is the only place the leaf's SQL is written. It has three
-// texts of one predicate (ADR-010-A2 A2-6), all two-valued:
+// of one of U. It is the only place the leaf's SQL is written. It has four
+// texts of one predicate (ADR-010-A2 A2-6, ADR-010-A3 A3-4), all two-valued:
 //
 //   - the predicate form, IN (closure descendants of U): CompileRead,
 //     ReadBranches and the count statement (TICK-1034's CC, unchanged);
 //   - W0, EXISTS (one closure-PK probe … OFFSET 0): the list page;
 //   - C3, = ANY(ARRAY(closure descendants of U)): the list page of a region
-//     term the probe chose C3 for, inside its MATERIALIZED CTE.
+//     term the probe chose C3 for, inside its MATERIALIZED CTE;
+//   - R, (IN (closure descendants of U)) IS TRUE: the list page and count of
+//     a region term the folded probe chose R for.
 //
 // The tenant and U are each one argument, the same in every text; U is
 // sorted and non-empty.
@@ -611,16 +632,22 @@ func (c *compiler) under(tenant uuid.UUID, units []uuid.UUID) string {
 	a := c.underArgs(tenant, units)
 	col := c.col(metadata.ColumnOrgUnitID)
 	switch {
+	case c.records != nil && c.records(underKey(tenant, units)):
+		return c.shaped(recordsLeaf(col, a), col, a)
 	case c.c3 != nil && c.c3(underKey(tenant, units)):
-		text := c3Leaf(col, a)
-		if !slices.Contains(c.c3Neg, text) {
-			c.c3Neg = append(c.c3Neg, text, predicateLeaf(col, a))
-		}
-		return text
+		return c.shaped(c3Leaf(col, a), col, a)
 	case c.walk:
 		return walkLeaf(col, a)
 	}
 	return predicateLeaf(col, a)
+}
+
+// shaped is text, the leaf's C3 or R form, noted for negated.
+func (c *compiler) shaped(text, col string, a underArgs) string {
+	if !slices.Contains(c.shapeNeg, text) {
+		c.shapeNeg = append(c.shapeNeg, text, predicateLeaf(col, a))
+	}
+	return text
 }
 
 // predicateLeaf is the leaf's predicate form (TICK-1034): the row's unit IN
@@ -628,6 +655,17 @@ func (c *compiler) under(tenant uuid.UUID, units []uuid.UUID) string {
 func predicateLeaf(col string, a underArgs) string {
 	return "(" + col + " IS NOT NULL AND " + col + " IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
 		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[])))"
+}
+
+// recordsLeaf is R's leaf (ADR-010-A3 A3-1), for the page and the count. IS
+// TRUE keeps PostgreSQL from pulling the sublink up into a semi-join that the
+// units could drive: it stays a hashed SubPlan, built once, probed per record.
+// A NULL org_unit_id gives NULL IN (…), which IS TRUE makes false, so the leaf
+// is two-valued with no IS NOT NULL conjunct; with one, the count would imply
+// the partial records_org_unit and read the tenant's whole unit-tagged slice.
+func recordsLeaf(col string, a underArgs) string {
+	return "((" + col + " IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = " + a.tenant +
+		"::uuid AND ancestor_id = ANY(" + a.units + "::uuid[]))) IS TRUE)"
 }
 
 // walkLeaf is W0 (A2-5): one closure-PK probe per row, kept a SubPlan by
