@@ -68,7 +68,7 @@ pull)
         case $ref in *"$r"*) echo "refused-by-$r: Data limit exceeded" >&2; exit 1 ;; esac
     done
     for r in $FAKE_HANG; do
-        case $ref in *"$r"*) [ -z "$FAKE_STUBBORN" ] || trap '' TERM; sleep 60 ;; esac
+        case $ref in *"$r"*) [ -z "$FAKE_STUBBORN" ] || trap '' TERM; exec sleep 60 ;; esac
     done
     echo "$ref" ;;
 image)
