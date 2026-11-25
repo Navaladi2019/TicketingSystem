@@ -152,7 +152,9 @@ and 111 with one orphan added.
   the locks in the next section: every tenant's reads of `tenants`, `org_units`
   and `org_unit_closure` wait until the migration commits. `lock_timeout` is
   5 s for each lock wait. Reads wait behind the migration during such a wait
-  too.
+  too. 5 s is above `deadlock_timeout` (1 s), so a request or a group sync can
+  be the deadlock victim during the rollout (inferred from the cases in the
+  next section, not measured on the migration itself).
 - Down drops the function and the table. Group sync (TICK-1033) and the `under`
   leaf (TICK-1034) use the table, so run Down only with services older than
   both.
@@ -178,14 +180,21 @@ creates policies on `tenants`, then `org_units`, then `org_unit_closure`, before
 | Group sync has read `org_units`, then inserts a unit (foreign key check on `tenants`) | Deadlock, `40P01` on one side. |
 | A request has read the closure, then reads `tenants` | Deadlock, `40P01` on one side. |
 | Either deadlock, formed after the function has waited 1 s (`deadlock_timeout`) | The other side is rolled back: the sync's run, or the **user's request**. A session checks for a deadlock once per lock wait, 1 s into it, so the function no longer looks. |
-| Either deadlock, with the function's `lock_timeout` at 500 ms | The function fails with `55P03` and rolls back. The other side finishes. |
+| Either deadlock, `lock_timeout` 500 ms, the function waits for one table | The function fails with `55P03` and rolls back. The other side finishes. |
+| The request's deadlock, `lock_timeout` 500 ms, the function waits for all three tables | **The request is rolled back (`40P01`) and the function commits.** `lock_timeout` restarts at each wait. The request has queued on `tenants` since the first wait, and its check fires 1 s after that. |
+| Either of these, with the `LOCK TABLE … NOWAIT` of the procedure | The procedure fails at once with `55P03` (4 to 11 ms, the Technical Architect's spike on TICK-1122). The other side finishes. |
 
 Measured on PostgreSQL 16.10 with the migrations at `d0178ed5`: one tenant, one
 unit, default `deadlock_timeout`, a throwaway container in a Docker VM with
 16 CPUs and 24 GiB. The rows are lock rules, so they do not depend on the row
 count. `TestTICK1122*` in
-`internal/db/dbtest/org_unit_closure_rebuild_locks_test.go` checks each row but
-the missing default, which `TestNoRoleOrDatabaseDefaultSetsLockTimeout` checks.
+`internal/db/dbtest/org_unit_closure_rebuild_locks_test.go` checks the rows,
+with these exceptions. `TestNoRoleOrDatabaseDefaultSetsLockTimeout` checks the
+missing default. The insert row is checked only as half of group sync's
+deadlock. The three-table `40P01` is the red proof of
+`TestTICK1122ProcedureSparesARequest`: it shows when the `LOCK TABLE` line is
+removed. `NOWAIT` is tested against the request; the group-sync case is in the
+spike only.
 
 How long readers wait once the function has its locks is its run time: the
 1.1 s and 2.7 s backfills under "Evidence", for 400 tenants and 13,310 units,
@@ -195,24 +204,26 @@ before the unrooted-unit check was added.
 
 1. Open a maintenance window. Stop the services that use the three tables:
    `nava-groupsync`, `nava-core`, `nava-worker` and `nava-onboard`. Another
-   service's insert that checks a foreign key to `tenants` waits, or holds the
-   function up until `lock_timeout`.
+   service's insert that checks a foreign key to `tenants` waits, or makes
+   step 2 fail.
 2. As `nava_migrator`:
 
    ```sql
    BEGIN;
    SET LOCAL lock_timeout = '500ms';
+   LOCK TABLE tenants, org_units, org_unit_closure IN ACCESS EXCLUSIVE MODE NOWAIT;
    SELECT org_unit_closure_rebuild_all();
    COMMIT;
    ```
 
-3. On `55P03` or `40P01` everything is rolled back: the closure is as it was and
+3. On an error everything is rolled back: the closure is as it was and
    no temporary policy is left. Find what holds the tables (`pg_locks`), then
    run it again.
 
-Keep `lock_timeout` below `deadlock_timeout` (1 s). It limits each lock wait,
-not the run: the function waits for up to three tables, so readers can queue
-for about 1.5 s before it fails.
+Keep the `LOCK TABLE` line. It takes all three locks without waiting, or fails
+with `55P03` if a transaction holds a table. The function then never waits for
+these tables, so no reader queues behind a wait, and it cannot deadlock over
+them. `lock_timeout` is a backstop for other locks.
 
 ### Decision
 

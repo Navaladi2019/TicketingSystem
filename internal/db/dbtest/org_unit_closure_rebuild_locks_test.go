@@ -157,8 +157,10 @@ func TestTICK1122RebuildAllWaitsForAReader(t *testing.T) {
 // A transaction that has read org_units or the closure and then needs tenants
 // (a foreign key check, a read) deadlocks with the function. The side whose
 // deadlock_timeout (1 s) fires on the cycle is rolled back, so it can be group
-// sync or a user's request. With lock_timeout below deadlock_timeout the
-// function gives up first and the other side finishes.
+// sync or a user's request. When the function waits once, lock_timeout below
+// deadlock_timeout makes it give up first and the other side finishes. With
+// more than one wait it may not: lock_timeout restarts at each
+// (TestTICK1122ProcedureSparesARequest).
 func TestTICK1122RebuildAllDeadlocks(t *testing.T) {
 	for _, other := range []struct {
 		name, role, read, waits, then string
@@ -206,7 +208,7 @@ func TestTICK1122RebuildAllDeadlocks(t *testing.T) {
 				t.Errorf("function: %v, want success", r)
 			}
 		})
-		t.Run(other.name+", lock_timeout below deadlock_timeout spares it", func(t *testing.T) {
+		t.Run(other.name+", one wait and lock_timeout below deadlock_timeout spare it", func(t *testing.T) {
 			r, o := run(t, "1s", "500ms")
 			wantSQLState(t, "the function", r, "55P03")
 			if o != nil {
@@ -214,4 +216,92 @@ func TestTICK1122RebuildAllDeadlocks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rebuildProcedure is the SQL between BEGIN and COMMIT of the page's
+// "Procedure".
+var rebuildProcedure = []string{
+	"SET LOCAL lock_timeout = '500ms'",
+	"LOCK TABLE tenants, org_units, org_unit_closure IN ACCESS EXCLUSIVE MODE NOWAIT",
+	rebuildAll,
+}
+
+// runProcedure runs the procedure in its own transaction.
+func runProcedure(conn *pgx.Conn) error {
+	ctx := context.Background()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	for _, sql := range rebuildProcedure {
+		if _, err := tx.Exec(ctx, sql); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// The documented procedure never makes a request the deadlock victim: while a
+// request has read the closure, it fails with 55P03 and the request then reads
+// tenants. The two other readers are the case that lock_timeout alone gets
+// wrong: without the LOCK TABLE line the procedure waits for tenants, org_units
+// and the closure, each under 500 ms, and the request, queued on tenants since
+// the first wait, reaches its deadlock check first. The timers run only then;
+// with the LOCK TABLE line the procedure ends at once.
+func TestTICK1122ProcedureSparesARequest(t *testing.T) {
+	ctx := context.Background()
+	super := rebuildLocksFixture(t)
+	onTenants := beginIn(t, asRole(t, "nava_app"), "")
+	mustTx(t, onTenants, readTenant)
+	onUnits := beginIn(t, asRole(t, "nava_app"), "")
+	mustTx(t, onUnits, readUnits)
+	request := beginIn(t, asRole(t, "nava_app"), "")
+	mustTx(t, request, readTree)
+
+	mig := asRole(t, "nava_migrator")
+	pid := int64(mig.PgConn().PID())
+	var procedureErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		procedureErr = runProcedure(mig)
+	}()
+	for started := false; !started; {
+		select {
+		case <-done:
+			started = true
+		default:
+			started = queryBool(t, super, "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted)", pid)
+		}
+	}
+	requestErr := make(chan error, 1)
+	go func() {
+		_, err := request.Exec(ctx, readTenant)
+		if err == nil {
+			err = request.Commit(ctx)
+		} else {
+			_ = request.Rollback(ctx)
+		}
+		requestErr <- err
+	}()
+	for _, reader := range []pgx.Tx{onTenants, onUnits} {
+		select {
+		case <-done:
+		case <-time.After(400 * time.Millisecond):
+		}
+		_ = reader.Rollback(ctx)
+	}
+	err := <-requestErr
+	<-done
+	wantSQLState(t, "the procedure", procedureErr, "55P03")
+	if err != nil {
+		t.Errorf("the request: %v, want success", err)
+	}
+
+	// Nothing holds the tables now: the same procedure succeeds.
+	if err := runProcedure(mig); err != nil {
+		t.Errorf("the procedure on idle tables: %v", err)
+	}
+	wantNoMigratorPolicy(t, super)
 }
