@@ -89,7 +89,9 @@ func (a *stackAPI) token(user, password string) string {
 	a.t.Helper()
 	form := url.Values{"grant_type": {"password"}, "client_id": {"nava-web"}, "scope": {"openid"},
 		"username": {user}, "password": {password}}
-	req, err := http.NewRequestWithContext(a.t.Context(), http.MethodPost, a.keycloak+"/realms/nava/protocol/openid-connect/token", strings.NewReader(form.Encode()))
+	// Not t.Context(): the cleanup's retiring publish logs in after it is
+	// cancelled. The client's 30 s timeout bounds every call.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, a.keycloak+"/realms/nava/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		a.t.Fatalf("token for %s: %v", user, err)
 	}
