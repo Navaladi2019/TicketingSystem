@@ -5,6 +5,11 @@
 // step and without continue-on-error. The list's outputs pin a job output to
 // one expression (TICK-1031): the changes job's full must be the stages
 // step's, not a second copy of the full-run rule that can drift from it.
+// The list's checks pin a required status check to a job that ran
+// (TICK-1146): GitHub names a skipped job's check run after its unevaluated
+// name: expression, so a job named ${{ 'isolation' }} reports "isolation"
+// only when it ran, and a skipped run on the same commit (a label-only run, a
+// fast run, an unlabelled run) can no longer replace a red result.
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 package main
@@ -78,6 +83,14 @@ type output struct {
 	Why    string `yaml:"why"`
 }
 
+// requiredCheck is one entry of required.yaml's checks: job Job must be
+// named ${{ 'Check' }}, never the literal Check.
+type requiredCheck struct {
+	Job   string `yaml:"job"`
+	Check string `yaml:"check"`
+	Why   string `yaml:"why"`
+}
+
 type step struct {
 	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
@@ -88,6 +101,7 @@ type step struct {
 }
 
 type job struct {
+	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
 	ContinueOnError yaml.Node         `yaml:"continue-on-error"`
 	Steps           []step            `yaml:"steps"`
@@ -98,8 +112,9 @@ type job struct {
 // per pinned output it does not set as listed, and the number of both.
 func check(workflowPath, requiredPath string) ([]string, int, error) {
 	var list struct {
-		Steps   []required `yaml:"steps"`
-		Outputs []output   `yaml:"outputs"`
+		Steps   []required      `yaml:"steps"`
+		Outputs []output        `yaml:"outputs"`
+		Checks  []requiredCheck `yaml:"checks"`
 	}
 	if err := decode(requiredPath, &list); err != nil {
 		return nil, 0, err
@@ -115,6 +130,11 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 	for i, o := range list.Outputs {
 		if o.Job == "" || o.Output == "" || o.Value == "" {
 			return nil, 0, fmt.Errorf("%s: output %d: want job, output and value", requiredPath, i+1)
+		}
+	}
+	for i, c := range list.Checks {
+		if c.Job == "" || c.Check == "" {
+			return nil, 0, fmt.Errorf("%s: check %d: want job and check", requiredPath, i+1)
 		}
 	}
 	var wf struct {
@@ -135,7 +155,35 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 			problems = append(problems, fmt.Sprintf("job %s: output %q %s [%s]", o.Job, o.Output, p, o.Why))
 		}
 	}
-	return problems, len(list.Steps) + len(list.Outputs), nil
+	for _, c := range list.Checks {
+		if p := findCheck(wf.Jobs, c); p != "" {
+			problems = append(problems, fmt.Sprintf("job %s: check %q %s [%s]", c.Job, c.Check, p, c.Why))
+		}
+	}
+	return problems, len(list.Steps) + len(list.Outputs) + len(list.Checks), nil
+}
+
+// findCheck returns why c's job may report c.Check without running, or
+// never reports it, or "".
+func findCheck(jobs map[string]job, c requiredCheck) string {
+	j, ok := jobs[c.Job]
+	if !ok {
+		return "is missing: no such job"
+	}
+	want := "${{ '" + c.Check + "' }}"
+	got := squash(j.Name)
+	if inner, ok := strings.CutPrefix(got, "${{"); ok {
+		if inner, ok = strings.CutSuffix(inner, "}}"); ok {
+			got = "${{ " + strings.TrimSpace(inner) + " }}"
+		}
+	}
+	switch got {
+	case want:
+		return ""
+	case "", c.Check:
+		return fmt.Sprintf("is reported by a skipped run: name is %q, want %q", got, want)
+	}
+	return fmt.Sprintf("is never reported: name is %q, want %q", got, want)
 }
 
 // findOutput returns why o's job does not set o.Output to o.Value, or "".

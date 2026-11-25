@@ -138,3 +138,14 @@ outputs:
     output: full
     value: ${{ steps.stages.outputs.full }}
     why: the isolation job and full-suite read it; make ci-stages writes it from the stages step's CI_FULL, story-branch rule included. env.CI_FULL lacks that rule, so PRs 801 and 805 merged into a story branch with the tenant isolation suite skipped
+
+# Required status checks that only a job which ran may report (TICK-1146).
+# GitHub names a skipped job's check run after its unevaluated name:
+# expression, so a job named ${{ 'isolation' }} reports "isolation" only when
+# it ran. With a literal name, any later run on the same commit that skips the
+# job (another label, ci:run after ci:full, close and reopen) turned a red
+# isolation into a passed required check: spike PR 898, docs/quality/label-run-hides-red-check.md.
+checks:
+  - job: isolation
+    check: isolation
+    why: a run that skips the tenant isolation suite reports isolation as passed on the same commit and hides its red result (TICK-1146)
