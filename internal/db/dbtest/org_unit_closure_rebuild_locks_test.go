@@ -218,22 +218,18 @@ func TestTICK1122RebuildAllDeadlocks(t *testing.T) {
 	}
 }
 
-// rebuildProcedure is the SQL between BEGIN and COMMIT of the page's
-// "Procedure".
-var rebuildProcedure = []string{
-	"SET LOCAL lock_timeout = '500ms'",
-	"LOCK TABLE tenants, org_units, org_unit_closure IN ACCESS EXCLUSIVE MODE NOWAIT",
-	rebuildAll,
-}
-
-// runProcedure runs the procedure in its own transaction.
+// runProcedure runs the SQL of the page's "Procedure" in its own transaction.
 func runProcedure(conn *pgx.Conn) error {
 	ctx := context.Background()
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	for _, sql := range rebuildProcedure {
+	for _, sql := range []string{
+		"SET LOCAL lock_timeout = '500ms'",
+		"LOCK TABLE tenants, org_units, org_unit_closure IN ACCESS EXCLUSIVE MODE NOWAIT",
+		rebuildAll,
+	} {
 		if _, err := tx.Exec(ctx, sql); err != nil {
 			_ = tx.Rollback(ctx)
 			return err
