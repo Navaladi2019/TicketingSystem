@@ -150,7 +150,7 @@ func TestExportWithoutMasksShowsEverything(t *testing.T) {
 		t.Fatalf("export = %d: %s", exp.Code, exp.Body)
 	}
 	body := strings.ReplaceAll(strings.ReplaceAll(exp.Body.String(), `\"`, `"`), ": ", ":")
-	for name, v := range map[string]string{"cost": "48613", "org unit": unit.String(), "requester": m.a.user.PrincipalID.String()} {
+	for name, v := range map[string]string{"cost": "48613", "org unit": unit.String(), "requester": `"requester":"` + m.a.user.PrincipalID.String() + `"`} {
 		if !strings.Contains(body, v) {
 			t.Errorf("an unmasked export lacks the %s", name)
 		}
@@ -198,7 +198,7 @@ func TestExportWithMaskedFieldsStillVerifies(t *testing.T) {
 func TestOverlappingExportsKeepTheirOwnMasks(t *testing.T) {
 	x, m, rid, _ := maskedExport(t, true)
 	// More masked entries, so A has pages after the one B runs in.
-	for _, ver := range []string{"2", "3", "4"} {
+	for _, ver := range []string{"2", "3", "4", "5", "6", "7"} {
 		if rec := m.patch(t, "lookalike-a", "mjob", rid, `W/"`+ver+`"`, `{"data": {"cost": 48613}}`); rec.Code != http.StatusOK {
 			t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
 		}
@@ -220,16 +220,21 @@ func TestOverlappingExportsKeepTheirOwnMasks(t *testing.T) {
 	var bBody string
 	var bCode int
 	x.onPage = func() {
-		if pages.Add(1) != 2 {
+		// Call 1 and 2 are the header's reads; call 3 is A's first data
+		// page; 4 is the start of the second.
+		if pages.Add(1) != 4 {
 			return
 		}
-		rec := x.export(t, "admin-b", "?domain=record")
+		rec := x.export(t, "admin-b", "")
 		bCode, bBody = rec.Code, rec.Body.String()
 	}
-	a := x.export(t, "admin-a", "?domain=record")
+	a := x.export(t, "admin-a", "")
 	x.onPage = nil
-	if pages.Load() < 2 {
-		t.Fatal("control: A's export had fewer than two pages")
+	if pages.Load() < 6 {
+		t.Fatalf("control: A's export ran %d page transactions, want B in the middle of it", pages.Load())
+	}
+	if bCode == 0 {
+		t.Fatal("control: B's export did not run")
 	}
 	if a.Code != http.StatusOK || bCode != http.StatusOK {
 		t.Fatalf("A = %d, B = %d: %.300s", a.Code, bCode, bBody)
@@ -246,14 +251,36 @@ func TestOverlappingExportsKeepTheirOwnMasks(t *testing.T) {
 }
 
 // A mask read that fails ends the request before the lease and the entry.
-// Each table is the one a single call reads: acl_versions for ReadMasks,
-// entity_definition_versions for addOrgUnitMasks.
+// The REVOKE cases fail the SELECT itself (acl_versions for ReadMasks,
+// entity_definition_versions for addOrgUnitMasks); that aborts the
+// transaction, so a dropped error would still end in 500 at export.Begin.
+// The other cases leave the transaction usable and fail the decode of what
+// was read: only these catch a dropped error. As the superuser in the test's
+// own database, acl_versions.masks becomes an object (a list is expected) and
+// fixed_columns gets a value that is no string; both pass their CHECKs.
 //
 // covers: exportAuditEntries 500
 func TestExportFailsClosedWhenAMaskReadFails(t *testing.T) {
-	for name, table := range map[string]string{
-		"ReadMasks":       "acl_versions",
-		"addOrgUnitMasks": "entity_definition_versions",
+	revoke := func(table string) func(*testing.T, *exportEnv) {
+		return func(t *testing.T, x *exportEnv) {
+			if _, err := x.super.Exec(t.Context(), "REVOKE SELECT ON "+table+" FROM nava_app"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for name, breakIt := range map[string]func(*testing.T, *exportEnv){
+		"ReadMasks, select refused":       revoke("acl_versions"),
+		"addOrgUnitMasks, select refused": revoke("entity_definition_versions"),
+		"ReadMasks, masks do not decode": func(t *testing.T, x *exportEnv) {
+			if _, err := x.super.Exec(t.Context(), `UPDATE acl_versions SET masks = '{"not":"a list"}'::jsonb WHERE tenant_id = $1`, x.a.id); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"addOrgUnitMasks, fixed_columns do not decode": func(t *testing.T, x *exportEnv) {
+			if _, err := x.super.Exec(t.Context(), `UPDATE entity_definition_versions SET fixed_columns = '{"requester": 5}'::jsonb WHERE tenant_id = $1`, x.a.id); err != nil {
+				t.Fatal(err)
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x, _, rid, _ := maskedExport(t, true)
@@ -270,13 +297,11 @@ func TestExportFailsClosedWhenAMaskReadFails(t *testing.T) {
 				return n
 			}
 			before, nBefore := lease(), exports()
-			if _, err := x.super.Exec(t.Context(), "REVOKE SELECT ON "+table+" FROM nava_app"); err != nil {
-				t.Fatal(err)
-			}
+			breakIt(t, x)
 			for _, q := range []string{"", "&format=csv"} {
 				rec := x.export(t, "admin-a", "?domain=record&subject_id="+rid+q)
-				if rec.Code != http.StatusInternalServerError || patchProblemCode(t, rec) != "internal-error" {
-					t.Fatalf("export%s = %d: %.300s, want 500 internal-error", q, rec.Code, rec.Body)
+				if rec.Code != http.StatusInternalServerError || patchProblemCode(t, rec) != "internal_error" {
+					t.Fatalf("export%s = %d: %.300s, want 500 internal_error", q, rec.Code, rec.Body)
 				}
 				if strings.Contains(rec.Header().Get("Content-Type"), "ndjson") || strings.Contains(rec.Body.String(), `"kind":"header"`) {
 					t.Errorf("export%s wrote file bytes: %.300s", q, rec.Body)
