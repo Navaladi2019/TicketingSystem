@@ -943,6 +943,7 @@ func TestTICK1125Pastes(t *testing.T) {
 		if err := pasteTwo(t, conn); err == nil {
 			t.Error("paste 2 after ROLLBACK: no error")
 		}
+		unchanged(t, before)
 		f.addMasks(t, super, 1, repairOldName)
 		before = tenantState(t, super, "")
 		for _, psql := range []bool{false, true} {
