@@ -105,6 +105,20 @@ func seedMaskedExport(t *testing.T, publish bool) (*exportEnv, *maskEnv, string,
 	return x, m, r.ID, unit
 }
 
+// publishMjob publishes a new version of tenant A's mjob policy. Masks apply
+// when the log is read, so the same entries are read under whichever version
+// is current.
+func publishMjob(t *testing.T, m *maskEnv, masks []authz.Mask) {
+	t.Helper()
+	rules := acltest.AllowUsers(m.a.admin.PrincipalID, m.a.user.PrincipalID, m.a.lookalike.PrincipalID)
+	if err := tenancy.InTenantTx(t.Context(), m.pool, m.a.id, func(tx pgx.Tx) error {
+		_, err := acltest.PublishPolicy(t.Context(), tx, "mjob", []authz.Rule{rules}, masks)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type exportedEntry struct {
 	Kind         string  `json:"kind"`
 	Sealed       bool    `json:"sealed"`
@@ -172,18 +186,15 @@ func exportedEntries(t *testing.T, body string, asCSV bool) []exportedEntry {
 
 // R7: a masked entry comes out with the marker, no value and no diff salt, in
 // both formats, before the entries are sealed (recent entries are read
-// through the unsealed page) and after. A second environment whose policy
-// masks nothing is the control: the same checks find cost, org unit and
-// requester, with the salt, in its entries, so a wrong string format could
-// not let the masked export pass.
+// through the unsealed page) and after. The control is the same entries read
+// under a policy that masks nothing, published first: the same checks find
+// cost, org unit and requester in them, so a wrong string format could not
+// let the masked export pass.
 //
 // covers: exportAuditEntries 200
 func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
-	x, m, rid, unit := seedMaskedExport(t, true)
-	cx, cm, crid, cunit := seedMaskedExport(t, false)
-	needles := func(m *maskEnv, unit uuid.UUID) map[string]string {
-		return map[string]string{"cost": "48613", "org unit": unit.String(), "requester": `"requester":"` + m.a.user.PrincipalID.String() + `"`}
-	}
+	x, m, rid, unit := seedMaskedExport(t, false)
+	needles := map[string]string{"cost": "48613", "org unit": unit.String(), "requester": `"requester":"` + m.a.user.PrincipalID.String() + `"`}
 	diffs := func(entries []exportedEntry) string {
 		var b strings.Builder
 		for _, e := range entries {
@@ -194,6 +205,7 @@ func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
 	}
 	run := func(t *testing.T, sealed bool) {
 		for _, asCSV := range []bool{false, true} {
+			publishMjob(t, m, nil)
 			q, name := "", "jsonl"
 			if asCSV {
 				q, name = "&format=csv", "csv"
@@ -201,7 +213,7 @@ func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				// Control: nothing masked, so every needle is found and the
 				// diff has its salt.
-				ctl := cx.export(t, "admin-a", "?domain=record&subject_id="+crid+q)
+				ctl := x.export(t, "admin-a", "?domain=record&subject_id="+rid+q)
 				if ctl.Code != http.StatusOK {
 					t.Fatalf("control export = %d: %s", ctl.Code, ctl.Body)
 				}
@@ -216,12 +228,13 @@ func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
 						t.Errorf("control entry %d: sealed=%v redacted=%v salt=%v, want sealed=%v, clear (with its salt once sealed)", i, e.Sealed, e.DiffRedacted, e.DiffSalt, sealed)
 					}
 				}
-				for what, v := range needles(cm, cunit) {
+				for what, v := range needles {
 					if !strings.Contains(diffs(cEntries), v) {
 						t.Errorf("control: the unmasked export has no %s (%q)", what, v)
 					}
 				}
 
+				publishMjob(t, m, m.deskMasks())
 				exp := x.export(t, "admin-a", "?domain=record&subject_id="+rid+q)
 				if exp.Code != http.StatusOK {
 					t.Fatalf("export = %d: %s", exp.Code, exp.Body)
@@ -238,7 +251,7 @@ func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
 						t.Errorf("entry %d: redacted=%v salt=%v diff=%s, want redacted, no salt, the mask marker", i, e.DiffRedacted, e.DiffSalt, *e.Diff)
 					}
 				}
-				for what, v := range needles(m, unit) {
+				for what, v := range needles {
 					if strings.Contains(diffs(entries), v) {
 						t.Errorf("the masked export shows the %s (%q)", what, v)
 					}
@@ -248,7 +261,6 @@ func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
 	}
 	t.Run("unsealed", func(t *testing.T) { run(t, false) })
 	x.sealAll(t)
-	cx.sealAll(t)
 	t.Run("sealed", func(t *testing.T) { run(t, true) })
 }
 
