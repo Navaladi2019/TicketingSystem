@@ -23,7 +23,7 @@ deciders: "Solution Architect (author; verdict); Technical Architect (critique r
 >
 > **Amended by [[ADR-010-A3-records-driven-region-shape]]** (ACCEPTED 2026-11-22): A2-5, A2-6, A2-7, A2-10 and A2-R6. A concentrated type under a large subtree renders shape R, chosen by a bounded closure count folded into P3.
 >
-> **Corrected by [[ADR-010-E4-closure-delta-writes]]** (PROPOSED 2026-11-25): A2-2 is replaced, and A2-1 gains one grant. Read E4 for how the closure is kept current.
+> **Corrected by [[ADR-010-E4-closure-delta-writes]]** (ACCEPTED 2026-11-25): A2-2 is replaced, and A2-1 gains one grant. Read E4 for how the closure is kept current.
 >
 > A2 decides the **mechanism** of the `under` leaf. It does **not** certify the list budget, which stays gated by TICK-1037 under R1 as rescored in A2-11. Changing a rule here needs a further amendment.
 >

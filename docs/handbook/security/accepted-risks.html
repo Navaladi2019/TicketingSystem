@@ -1170,11 +1170,11 @@ recorded mitigation does not hold as written; re-decide).</p>
 </tr>
 <tr>
 <td>AR-TICK-1118-01 (a wrong region-tree row outside the changed units lasts until a run with no tree change)</td>
-<td>🟡 Low</td>
-<td>ADR-010-E4 E4-7. Group sync replaces only the affected units' <code>org_unit_closure</code> rows, and compares the whole table with the live tree only on an applied run that touched no unit. A wrong row elsewhere lasts until such a run. An extra row grants through <code>under</code> and hides through <code>not under</code>; a missing row does the reverse. Either can show a user tickets outside their rules, inside one tenant (FORCE RLS, FKs that carry <code>tenant_id</code>). An extra row can also make a list's count omit tickets its page shows (inferred from code). Only a group-sync bug, the migrator, a superuser or a holder of group sync's database credentials can write such a row. No metric counts drift repairs.</td>
-<td>Proposed (ADR-010-E4, 2026-11-25; severity to be rated by the Security &amp; Multi-Tenancy Reviewer)</td>
+<td>🟠 Medium</td>
+<td>ADR-010-E4 E4-7. Group sync replaces only the affected units' <code>org_unit_closure</code> rows, and compares the whole table with the live tree only on an applied run that touched no unit. A wrong row elsewhere lasts until such a run, with no time limit. An extra row grants through <code>under</code> and hides through <code>not under</code>; a missing row does the reverse. Either can let a user read <strong>or change</strong> tickets outside their rules, or refuse them tickets inside their rules, inside one tenant (FORCE RLS, FKs that carry <code>tenant_id</code>). An extra row can also make a list's count lower or higher than the tickets its pages show (inferred from code). Only a group-sync bug, the migrator, a superuser or a holder of group sync's database credentials can cause it; no user token can. No metric counts drift repairs (TICK-1124).</td>
+<td>Accepted (ADR-010-E4, 2026-11-25; rated by the Security &amp; Multi-Tenancy Reviewer)</td>
 <td>Security &amp; Multi-Tenancy Reviewer</td>
-<td>Any drift found in a live tenant, or a second writer of the closure; then compare the sets on every cycle</td>
+<td>Any drift found in a live tenant, or a second writer of the closure or of <code>org_units</code>; then compare the sets on every cycle</td>
 <td><a href="../../../docs/adr/ADR-010-E4-closure-delta-writes.md">ADR-010-E4</a></td>
 </tr>
 </tbody>
