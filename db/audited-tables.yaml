@@ -32,7 +32,9 @@ audited:
   # Attached by P5-13c (TICK-530, 20261104110000) after ADR-004-E5 step (ii):
   # the groups FK is ON DELETE RESTRICT (TICK-538, R29), so no FK action
   # rewrites records.
-  # The columns are every column a writer may UPDATE (db/grants.yaml).
+  # The columns are every column a writer may UPDATE (db/grants.yaml), and
+  # org_unit_id, which no writer may since TICK-1120: a superuser's change
+  # still needs an audit entry.
   records:
     writer_roles: [nava_app, nava_worker]
     audited_columns: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,

@@ -108,10 +108,16 @@ units are never deleted and their key is never updated.
 | Role | `org_units` | `org_unit_members` | `records.org_unit_id` |
 |---|---|---|---|
 | `nava_groupsync` | `SELECT`, `INSERT`, `UPDATE (parent_id, name, deleted_at)`; no `DELETE` | `SELECT`, `INSERT`, `UPDATE (is_primary)`, `DELETE` | none |
-| `nava_app` | `SELECT` | `SELECT` | `INSERT`, `UPDATE` (D8) |
-| `nava_worker` | `SELECT (tenant_id, id, parent_id, deleted_at)` | `SELECT (tenant_id, org_unit_id, principal_id, is_primary)` | `INSERT`, `UPDATE` (D8) |
+| `nava_app` | `SELECT` | `SELECT` | `SELECT`, `INSERT`; no `UPDATE` (TICK-1120) |
+| `nava_worker` | `SELECT (tenant_id, id, parent_id, deleted_at)` | `SELECT (tenant_id, org_unit_id, principal_id, is_primary)` | `SELECT`, `INSERT`; no `UPDATE` (TICK-1120) |
 
-`org_unit_id` is in the records commit check's `UPDATE OF` list and in
+`records.org_unit_id` is set on create; no runtime role may change it
+afterwards.
+The story that ships a "move ticket to another unit" workflow step adds the
+`UPDATE` grant back (ADR-010 D8). A database that holds the old grant loses it
+on the next migrate run, which revokes what `db/grants.yaml` does not list.
+
+`org_unit_id` stays in the records commit check's `UPDATE OF` list and in
 `db/audited-tables.yaml`, so a write that moves it cannot commit without the
 record's audit entry. `org_unit_members` is exempt from audit like the other
 identity mirrors.
