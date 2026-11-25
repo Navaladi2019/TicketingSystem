@@ -356,7 +356,7 @@ func TestChangesSince(t *testing.T) {
 	}
 
 	// vanished runs ChangesSince with a capturing logger.
-	vanished := func(t *testing.T, routes map[string]kcAnswer) (*routeKC, identity.DirectoryChanges, string, error, string) {
+	vanished := func(t *testing.T, routes map[string]kcAnswer) (*routeKC, identity.DirectoryChanges, string, string, error) {
 		t.Helper()
 		kc, url := newRouteKC(t, routes)
 		var buf bytes.Buffer
@@ -364,7 +364,7 @@ func TestChangesSince(t *testing.T) {
 			c.Logger = slog.New(slog.NewTextHandler(&buf, nil))
 		})
 		snap, digest, err := d.ChangesSince(t.Context(), tA, "")
-		return kc, snap, digest, err, buf.String()
+		return kc, snap, digest, buf.String(), err
 	}
 	// without u2 in any member list, as a snapshot taken after the deletion.
 	withoutU2 := func() map[string]kcAnswer {
@@ -379,7 +379,7 @@ func TestChangesSince(t *testing.T) {
 		t.Parallel()
 		r := full()
 		r["GET /users/u2/federated-identity"] = st(404)
-		_, snap, digest, err, logs := vanished(t, r)
+		_, snap, digest, logs, err := vanished(t, r)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,7 +410,7 @@ func TestChangesSince(t *testing.T) {
 		r := full()
 		r["GET /users/u1/federated-identity"] = st(404)
 		r["GET /users/u2/federated-identity"] = st(404)
-		_, snap, _, err, _ := vanished(t, r)
+		_, snap, _, _, err := vanished(t, r)
 		if err != nil || len(snap.Users) != 0 {
 			t.Fatalf("got %+v %v", snap.Users, err)
 		}
@@ -425,7 +425,7 @@ func TestChangesSince(t *testing.T) {
 		r := full()
 		r["GET /users/u2/federated-identity"] = st(404)
 		r["GET /users/u2"] = ok(`{"id":"u2"}`)
-		_, _, _, err, _ := vanished(t, r)
+		_, _, _, _, err := vanished(t, r)
 		var se *statusError
 		if !errors.As(err, &se) || se.status != 404 || !strings.HasSuffix(se.route, "/users/{id}/federated-identity") {
 			t.Fatalf("got %v", err)
@@ -437,7 +437,7 @@ func TestChangesSince(t *testing.T) {
 			r := full()
 			r["GET /users/u2/federated-identity"] = st(404)
 			r["GET /users/u2"] = st(code)
-			_, _, _, err, _ := vanished(t, r)
+			_, _, _, _, err := vanished(t, r)
 			var se *statusError
 			if !errors.As(err, &se) || se.status != code || !strings.HasSuffix(se.route, "/users/{id}") || errors.Is(err, identity.ErrNotFound) {
 				t.Fatalf("got %v", err)
@@ -447,7 +447,7 @@ func TestChangesSince(t *testing.T) {
 			t.Parallel()
 			r := full()
 			r["GET /users/u2/federated-identity"] = st(code)
-			kc, _, _, err, _ := vanished(t, r)
+			kc, _, _, _, err := vanished(t, r)
 			if err == nil || kc.saw("GET /users/u2") {
 				t.Fatalf("err %v, saw user read %v", err, kc.saw("GET /users/u2"))
 			}
