@@ -121,8 +121,9 @@ this table is documentation.
 | `golang.org/x/net` | v0.60.0 (from v0.51.0) | Reachable advisories in v0.51.0. | TICK-111 |
 | `golang.org/x/text` | v0.42.0 (from v0.34.0) | Reachable advisories in v0.34.0. | TICK-111 |
 | `github.com/jackc/pgx/v5` | v5.9.2 (from v5.7.2) | Reachable advisories in v5.7.2 (persistence driver). | TICK-111 |
+| `github.com/stretchr/testify`, `github.com/stretchr/objx` | v1.12.1, v0.5.3 (from v1.11.1, v0.5.2) | Raised by `go mod tidy` with otel v1.47.0. | TICK-1138 |
 | `github.com/go-jose/go-jose/v4` | v4.1.4 (from v4.1.3) | Reachable advisory in v4.1.3. | TICK-111 |
-| `go.opentelemetry.io/otel`, `/metric`, `/trace`, `/sdk`, `/sdk/metric` | v1.45.0 (from v1.40.0) | Reachable advisories in otel / otel/sdk v1.40.0; the API and SDK modules move together. | TICK-111 |
+| `go.opentelemetry.io/otel`, `/metric`, `/trace`, `/sdk`, `/sdk/metric` | v1.47.0 (from v1.40.0; v1.45.0 in TICK-111) | Reachable advisories in otel / otel/sdk v1.40.0, then GO-2026-6974 in otel/sdk v1.45.0 (fixed in v1.47.0); the API and SDK modules move together. `go.opentelemetry.io/otel/log` v1.47.0 is new (required by otel/sdk v1.47.0). | TICK-111, TICK-1138 |
 | `go.opentelemetry.io/otel/exporters/otlp/otlptrace`, `/otlptrace/otlptracegrpc` | v1.45.0 (from v1.34.0) | Reachable advisories in v1.34.0; same release as the SDK. | TICK-111 |
 | `go.opentelemetry.io/proto/otlp` | v1.11.0 (from v1.7.1) | Required by the otlptrace v1.45.0 exporters (MVS). | TICK-111 |
 | `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc`, `/net/http/otelhttp` | v0.61.0 (from v0.59.0) | Raised by MVS with otel v1.45.0. | TICK-111 |
