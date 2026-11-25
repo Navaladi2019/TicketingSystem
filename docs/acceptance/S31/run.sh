@@ -8,7 +8,7 @@
 # directory changes of AC3 and AC4 in Keycloak), runs one group sync and shows
 # its result and the org-unit tree before and after, runs `S31 region after
 # sync` (AC3, AC4), then shows from the database the unit each S31 ticket
-# kept, the metrics behind the two ADR-010-A2 alerts, and both alerts as
+# kept, the metrics behind S31's three alerts, and all three alerts as
 # Prometheus (profile operator, started by this script) has them loaded. Prints no
 # token or password. Exit status is non-zero on any failure.
 set -eu
@@ -110,17 +110,20 @@ echo "requester-apac's tickets, oldest first: $moved"
 [ "$moved" = "APAC,EMEA" ] || { echo "run.sh: AC4 FAILED: want APAC,EMEA" >&2; exit 1; }
 echo "AC4: PASS (the old ticket stays in APAC, the new one is in EMEA)"
 
-step "ADR-010-A2 metrics behind the two alerts (nava-groupsync and nava-worker admin listeners)"
+step "metrics behind the three S31 alerts (nava-groupsync and nava-worker admin listeners)"
 # nava-groupsync's own cycles (it syncs at start and every NAVA_GROUPSYNC_INTERVAL).
 MSYS_NO_PATHCONV=1 docker compose exec -T nava-groupsync wget -qO- http://127.0.0.1:9090/metrics | grep -E '^groupsync_org_units_live_max[ {]' ||
   echo "(no groupsync_org_units_live_max sample yet: the service sets it on its first cycle, NAVA_GROUPSYNC_INTERVAL after start)"
+MSYS_NO_PATHCONV=1 docker compose exec -T nava-groupsync wget -qO- http://127.0.0.1:9090/metrics | grep -E '^groupsync_org_closure_unrooted_units_total[ {]' ||
+  echo "(no groupsync_org_closure_unrooted_units_total sample: no cycle of the service has added to it)"
 MSYS_NO_PATHCONV=1 docker compose exec -T nava-worker wget -qO- http://127.0.0.1:9090/metrics | grep -E '^authz_under_estimate_age_seconds[ {]' ||
   echo "(no authz_under_estimate_age_seconds sample yet)"
 
-step "ADR-010-A2 alerts loaded in Prometheus (profile operator, started here)"
+step "S31 alerts loaded in Prometheus (profile operator, started here)"
 MSYS_NO_PATHCONV=1 docker compose --profile operator up -d --wait prometheus >/dev/null 2>&1
 MSYS_NO_PATHCONV=1 docker compose exec -T prometheus wget -qO- http://127.0.0.1:9091/api/v1/rules |
-  node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const want=['GroupsyncOrgUnitsAboveCertified','EntityRecordEstimatesStale'];
+  node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const want=['GroupsyncOrgUnitsAboveCertified','GroupsyncOrgUnitsUnrooted','EntityRecordEstimatesStale'];
 const rules=JSON.parse(s).data.groups.flatMap(g=>g.rules).filter(r=>want.includes(r.name));
 rules.forEach(r=>console.log(r.name+': '+r.query+' (for '+r.duration+'s) state '+r.state));
-if(rules.length!==2){console.error('run.sh: want both alerts loaded, got '+rules.length);process.exit(1);}})"
+const missing=want.filter(n=>!rules.some(r=>r.name===n));
+if(missing.length||rules.length!==want.length){console.error('run.sh: want each of the three alerts loaded once; missing: '+(missing.join(', ')||'none')+', loaded: '+rules.length);process.exit(1);}})"
