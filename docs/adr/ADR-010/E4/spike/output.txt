@@ -1,0 +1,10 @@
+# Run 1: the three tree phases (the run stopped at a 570 s limit before its last phase; printf suffixes removed)
+server_version 16.10 (Debian 16.10-1.pgdg13+1)
+valid                    runs=1887 deltas=1821 closures_differing_from_full_rebuild=0 max_live_units=50 max_closure_rows=225
+hostile                  runs=1916 deltas=1742 closures_differing_from_full_rebuild=0 max_live_units=67 max_closure_rows=388
+mutant-drop-one-touched  runs=1887 deltas=1821 closures_differing_from_full_rebuild=1011 max_live_units=50 max_closure_rows=222
+
+# Run 2: PHASE=drift
+server_version 16.10 (Debian 16.10-1.pgdg13+1)
+pre-existing drift: trials=275 wrong_rows_on_affected_units=0 trials_with_drift_left_elsewhere=216; then a no-touch run: healed=275 not_healed=0
+tenant B closure unchanged (rows and ctids): true
