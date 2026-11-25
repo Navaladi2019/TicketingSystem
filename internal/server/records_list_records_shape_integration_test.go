@@ -32,12 +32,12 @@ type recordsShapeList struct {
 
 // TICK-1104 (ADR-010-A3) through the route, with R chosen by the real
 // selector: the estimate 33,100 gives a cap of 10,031 units, and the policy's
-// subtree has 10,057 (five digits each, so no group of a uuid equals them). The list answers 200 with the rows, the order and the
-// capped total of the reference (the same request with no estimate, so A2's
-// shapes) at 1,000, 1,001 and 1,002 readable records; the response and the
+// subtree has 10,057 (five digits each, so no group of a uuid equals them).
+// The list answers 200 with the rows, the order and the capped total of the
+// reference (the same request with no estimate, so A2's shapes) at 1,000, 1,001 and 1,002 readable records; the response and the
 // log lines carry neither n, the cap, α, U_cert, U_hash nor the shape
 // (A3-7 item 1). A probe that fails is a 500 that carries none of them either.
-// covers: listRecords 200, listRecords 500
+// covers: listRecords 200 500
 func TestListRecordsChosenByTheSelector(t *testing.T) {
 	e := newPatchEnv(t)
 	ctx := t.Context()
