@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -149,14 +150,14 @@ func (w *shapeWorld) setEstimate(t *testing.T, e env, n int64) {
 	}
 }
 
-// probeTracer counts the P3 statements a pool runs.
+// probeTracer counts the probes a pool runs: P3 alone, or folded (ADR-010-A3).
 type probeTracer struct {
 	mu sync.Mutex
 	n  int
 }
 
 func (p *probeTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(d.SQL, ") acl_x LIMIT ") && strings.HasSuffix(d.SQL, ") acl_p") {
+	if strings.Contains(d.SQL, ") acl_x LIMIT ") && (strings.HasSuffix(d.SQL, ") acl_p") || strings.HasSuffix(d.SQL, ") acl_s")) {
 		p.mu.Lock()
 		p.n++
 		p.mu.Unlock()
@@ -201,7 +202,7 @@ type how struct {
 }
 
 func hows() []how {
-	return []how{{"probe", true, 0}, {"C3 forced", false, authz.ShapeC3}, {"W0 forced", false, authz.ShapeWalk}}
+	return []how{{"probe", true, 0}, {"C3 forced", false, authz.ShapeC3}, {"W0 forced", false, authz.ShapeWalk}, {"R forced", false, authz.ShapeRecords}}
 }
 
 // list runs the list's page (LIMIT limit) and count for pol as the list
@@ -482,7 +483,7 @@ func TestUnderListDuplicateAndNestedU(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		for _, shape := range []authz.ListShape{authz.ShapeC3, authz.ShapeWalk} {
+		for _, shape := range []authz.ListShape{authz.ShapeC3, authz.ShapeWalk, authz.ShapeRecords} {
 			read := authz.ReadListShaped(bound, w.u1, "r", 2, authz.FixedListShapes(shape))
 			one := listQuery(w.tenant, w.def, read, "updated_at", 100)
 			two := one
@@ -550,15 +551,21 @@ type planNode struct {
 	SubName  string     `json:"Subplan Name"`
 	CTE      string     `json:"CTE Name"`
 	Join     string     `json:"Join Type"`
+	Filter   string     `json:"Filter"`
+	Loops    *float64   `json:"Actual Loops"` // EXPLAIN ANALYZE only
 	Plans    []planNode `json:"Plans"`
 }
 
 // explain is sql's JSON EXPLAIN, parsed, and its raw text for a failure
-// message.
+// message. A sql that starts with "ANALYZE " is executed.
 func explain(ctx context.Context, t *testing.T, tx pgx.Tx, sql string, args []any) (planNode, string) {
 	t.Helper()
 	var raw string
-	if err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+sql, args...).Scan(&raw); err != nil {
+	opts := "FORMAT JSON"
+	if rest, ok := strings.CutPrefix(sql, "ANALYZE "); ok {
+		opts, sql = "ANALYZE, FORMAT JSON", rest
+	}
+	if err := tx.QueryRow(ctx, "EXPLAIN ("+opts+") "+sql, args...).Scan(&raw); err != nil {
 		t.Fatalf("explain %s: %v", sql, err)
 	}
 	var plans []struct {
@@ -704,25 +711,47 @@ func TestUnderListShapePlans(t *testing.T) {
 	})
 }
 
-// Acceptance test 8 (A2-6 requirement 4): tenant B holds closure rows with
-// A's unit ids and more than K* records under them. A's P3 count, C3, W0 and
-// CC see none of them, and A's probe count is what it was before B existed.
+// Acceptance test 8 (A2-6 requirement 4) and TICK-1104's criterion 5 (A3-7):
+// tenant B holds closure rows with A's unit ids, more than K* records under
+// them (its own type's and A's type id), and estimates that would flip A's
+// choice. A's P3 count, folded-probe n, shape choices, and its rows and total
+// in C3, W0, R and CC are what they were before B existed. The fifth item,
+// tenant_id = $t in the texts, is authz.TestRecordsTextsCarryTheTenant.
 func TestUnderListShapesStayInTheTenant(t *testing.T) {
 	e := migrated(t)
 	w := seedShapeWorld(t, e, 600)
+	w.addUnits(t, e, "x", "R", 400) // |S| of R is 405
+	const size = 405
 	ctx := context.Background()
 	pol := underDoc(t, w.of("R"))
+	// A's own estimates: no row; cap 425, above |S| (P3's shape); cap 394,
+	// below it (R).
+	estimates := []int64{-1, 1400, 1300}
 	type seen struct {
-		m      int64
-		rows   map[string][]uuid.UUID
-		totals map[string]int64
+		m, n, p3 int64
+		rows     map[string][]uuid.UUID
+		totals   map[string]int64
+		chosen   map[int64]authz.ListRead
 	}
 	look := func() seen {
-		s := seen{rows: map[string][]uuid.UUID{}, totals: map[string]int64{}}
+		t.Helper()
+		s := seen{rows: map[string][]uuid.UUID{}, totals: map[string]int64{}, chosen: map[int64]authz.ListRead{}}
+		u := []string{w.unit["R"].String()}
 		inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 			var err error
-			if s.m, err = probeCount(ctx, tx, authz.ProbeStatement(authz.KStarMin), w.tenant, w.def, []string{w.unit["R"].String()}); err != nil {
+			if s.m, err = probeCount(ctx, tx, authz.ProbeStatement(authz.KStarMin), w.tenant, w.def, u); err != nil {
 				return err
+			}
+			// The cap is A's |S| + 1: one closure row of B's counted would
+			// reach it, and P3 would be NULL.
+			var p3 *int64
+			if err := tx.QueryRow(ctx, authz.FoldedProbeStatement(authz.KStarMin), w.tenant, u, w.def, int64(size+1), int64(20_222)).Scan(&s.n, &p3); err != nil {
+				return err
+			}
+			if p3 == nil {
+				t.Errorf("A's folded probe reached a cap of |S| + 1 = %d (n = %d)", size+1, s.n)
+			} else {
+				s.p3 = *p3
 			}
 			for _, h := range hows() {
 				l, err := w.list(ctx, tx, pol, w.u1, h, "updated_at", 100000)
@@ -733,31 +762,88 @@ func TestUnderListShapesStayInTheTenant(t *testing.T) {
 			}
 			return nil
 		})
+		for _, n := range estimates {
+			w.setEstimate(t, e, n)
+			inTx(t, e, w.tenant, func(tx pgx.Tx) error {
+				l, err := w.list(ctx, tx, pol, w.u1, hows()[0], "updated_at", 51)
+				s.chosen[n] = l.read
+				return err
+			})
+		}
+		w.setEstimate(t, e, -1)
 		return s
 	}
+	same := func(what string, before, after seen) {
+		t.Helper()
+		if after.m != before.m || after.n != before.n || after.p3 != before.p3 {
+			t.Errorf("%s: A's P3 %d -> %d, folded n %d -> %d, folded P3 %d -> %d", what, before.m, after.m, before.n, after.n, before.p3, after.p3)
+		}
+		for _, h := range hows() {
+			if !slices.Equal(after.rows[h.name], before.rows[h.name]) || after.totals[h.name] != before.totals[h.name] {
+				t.Errorf("%s, %s: A's rows %d -> %d, total %d -> %d", what, h.name,
+					len(before.rows[h.name]), len(after.rows[h.name]), before.totals[h.name], after.totals[h.name])
+			}
+		}
+		for _, n := range estimates {
+			if !reflect.DeepEqual(after.chosen[n], before.chosen[n]) {
+				t.Errorf("%s: A's choice at estimate %d moved: %s -> %s", what, n, before.chosen[n].Where, after.chosen[n].Where)
+			}
+		}
+	}
 	before := look()
-	if before.m != 607 {
-		t.Fatalf("A's P3 under R = %d, want 607", before.m)
+	if before.m != 607 || before.n != size || before.p3 != 607 || len(before.rows["R forced"]) != 607 {
+		t.Fatalf("A's P3 under R = %d, folded n = %d, folded P3 = %d, R rows = %d; want 607, %d, 607, 607",
+			before.m, before.n, before.p3, len(before.rows["R forced"]), size)
+	}
+	if isRecords(before.chosen[-1]) || isRecords(before.chosen[1400]) || !isRecords(before.chosen[1300]) {
+		t.Fatalf("A's choices before B: R = %v, %v, %v at no estimate, 1400, 1300; want false, false, true",
+			isRecords(before.chosen[-1]), isRecords(before.chosen[1400]), isRecords(before.chosen[1300]))
 	}
 
 	other := seedTenantWith(t, e, aclDefinition())
 	w.units(t, e, other.id, w.unit) // B's units carry A's ids
+	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
+		SELECT $2, id, parent_id, 'b-' || keycloak_group_id, name FROM org_units WHERE tenant_id = $1 AND name LIKE 'x-%'`, w.tenant, other.id)
 	rebuildClosure(t, e)
 	w.add(t, e, other.id, "H", authz.KStarMin+500)
 	w.add(t, e, other.id, "N1", authz.KStarMin+500)
-	mustExec(t, e.super, `ANALYZE records`)
-	if n := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, other.id, w.unit["R"]); n < 5 {
-		t.Fatalf("B's closure holds %d rows under A's R id", n)
+	if n := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, other.id, w.unit["R"]); n != size {
+		t.Fatalf("B's closure holds %d rows under A's R id, want %d", n, size)
 	}
-
-	after := look()
-	if after.m != before.m {
-		t.Errorf("A's P3 count moved from %d to %d when B was added", before.m, after.m)
-	}
-	for _, h := range hows() {
-		if !slices.Equal(after.rows[h.name], before.rows[h.name]) || after.totals[h.name] != before.totals[h.name] {
-			t.Errorf("%s: A's rows %d -> %d, total %d -> %d when B was added", h.name,
-				len(before.rows[h.name]), len(after.rows[h.name]), before.totals[h.name], after.totals[h.name])
+	// B's records under A's unit ids with A's type id: records_entity_definition_fkey
+	// refuses them, so they go in past it (replica role).
+	asReplica := func(sql string, args ...any) {
+		t.Helper()
+		tx, err := e.super.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	asReplica(`INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data)
+		SELECT $1, gen_random_uuid(), $2, 1, 1, 'BA-' || g, 'open', $3, now(), now(), '{}' FROM generate_series(1, 1500) g`, other.id, w.def, w.unit["H"])
+	if n := count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2 AND org_unit_id = $3`, other.id, w.def, w.unit["H"]); n != 1500 {
+		t.Fatalf("B holds %d records of A's type under A's H, want 1500", n)
+	}
+	mustExec(t, e.super, `ANALYZE records`)
+	same("B added", before, look())
+
+	// B's estimates: for A's own choice at each of A's estimates, one that
+	// would flip step 4 (cap 394) and one that would flip step 3 (above
+	// α·U_cert) if A read it. The row carries A's type id, which the foreign
+	// key refuses for B, so it goes in past it.
+	for _, n := range []int64{1300, 40_000} {
+		asReplica(`INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES ($1, $2, $3, now())
+			ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET live_records = excluded.live_records`, other.id, w.def, n)
+		same(fmt.Sprintf("B's estimate of A's type is %d", n), before, look())
 	}
 }
