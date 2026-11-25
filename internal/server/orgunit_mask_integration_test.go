@@ -280,12 +280,37 @@ func TestAddOrgUnitMasks(t *testing.T) {
 		}
 	})
 	t.Run("does not append when another property is masked", func(t *testing.T) {
-		masks := map[uuid.UUID][]string{defA: {"cost"}}
+		masks := map[uuid.UUID][]string{defA: {"cost", "assignee"}}
 		if err := run(m.a.id, masks); err != nil {
 			t.Fatal(err)
 		}
-		if got := strings.Join(masks[defA], ","); got != "cost" {
+		if got := strings.Join(masks[defA], ","); got != "cost,assignee" {
 			t.Errorf("masks = %s", got)
+		}
+	})
+	t.Run("a definition with no version row is an error even beside a valid one", func(t *testing.T) {
+		masks := map[uuid.UUID][]string{defA: {"requester"}, uuid.New(): {"requester"}}
+		if err := run(m.a.id, masks); err == nil {
+			t.Error("no error when one of two definitions has no version row")
+		}
+	})
+	t.Run("appends only to the definition that masks the requester", func(t *testing.T) {
+		if rec := m.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "mk-a2", maskTypeBody("job2", "JBB")); rec.Code != http.StatusCreated {
+			t.Fatalf("seed second type = %d: %s", rec.Code, rec.Body)
+		}
+		var def2 uuid.UUID
+		if err := m.super.QueryRow(t.Context(), `SELECT id FROM entity_definitions WHERE tenant_id = $1 AND key = 'job2'`, m.a.id).Scan(&def2); err != nil {
+			t.Fatal(err)
+		}
+		masks := map[uuid.UUID][]string{defA: {"requester"}, def2: {"cost"}}
+		if err := run(m.a.id, masks); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(masks[defA], ","); got != "requester,org_unit_id" {
+			t.Errorf("masking definition: masks = %s", got)
+		}
+		if got := strings.Join(masks[def2], ","); got != "cost" {
+			t.Errorf("other definition: masks = %s, want cost only", got)
 		}
 	})
 	t.Run("a definition with no version row is an error", func(t *testing.T) {
