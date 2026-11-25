@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/api"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/export"
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
@@ -303,5 +304,30 @@ func TestCursorRoutesRefuseAPrincipalWithoutATenant(t *testing.T) {
 	}
 	if _, err := h.GetRecordHistory(ctx, api.GetRecordHistoryRequestObject{Entity: "incident", Id: uuid.NewString()}); !errors.Is(err, cursor.ErrNoPrincipal) {
 		t.Errorf("GetRecordHistory: err = %v, want cursor.ErrNoPrincipal", err)
+	}
+}
+
+// The export reads the caller's field masks, so it needs the audit reader and
+// the ACL as well as the pool and the exporter (TICK-1127).
+func TestExportAuditEntriesAnswersNotImplementedWithoutAuditOrACL(t *testing.T) {
+	t.Parallel()
+	pool, err := pgxpool.New(t.Context(), "postgres://u:pw@127.0.0.1:1/db?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	for name, set := range map[string]func(h *handlers){
+		"audit nil": func(h *handlers) { h.acl = authz.ACL{} },
+		"acl nil":   func(h *handlers) { h.audit = &read.Reader{} },
+		"both nil":  func(*handlers) {},
+	} {
+		h := testHandlers(t)
+		h.pool, h.exporter = pool, &export.Exporter{}
+		set(h)
+		_, err := h.ExportAuditEntries(principalCtx(t), api.ExportAuditEntriesRequestObject{})
+		var pe *problemError
+		if !errors.As(err, &pe) || pe.code != problem.NotImplemented || !errors.Is(err, errNotConfigured) {
+			t.Errorf("%s: err = %v, want the not_implemented problem", name, err)
+		}
 	}
 }
