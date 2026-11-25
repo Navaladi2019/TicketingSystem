@@ -54,6 +54,18 @@
 </tr>
 </tbody>
 </table>
+<h2 id="a-user-deleted-while-a-tenant-is-read-tick-1113">A user deleted while a tenant is read (TICK-1113)</h2>
+<p>The cycle leaves that user out and goes on, and writes one INFO line per tenant:
+<code>directory snapshot: users deleted while it was read were left out</code>, with
+<code>tenant_id</code> and <code>users_gone</code> (a count; no user is named). No line is written
+when nobody is gone. When the reads do not agree that the user is gone, the
+tenant fails with <code>group sync failed; tenant rolled back</code>. The rule and its
+tests: <a href="../security/07-identity-boundary.html#enforcement-point">Identity boundary</a>.</p>
+<p>A <code>users_gone</code> close to the tenant's number of users is a reason to look at
+what answers for Keycloak: a proxy that answers 404 gives the same line
+(<code>AR-TICK-1113-01</code>). A 404 on the tenant's root group writes no such line. Its
+signs are the WARN line <code>group sync: the tenant&#x27;s admins group was deleted in the directory; the tenant has no admin until one is recorded</code>, or a
+<code>principals_tombstoned</code> close to the tenant's number of users in <code>group sync applied</code>.</p>
 <h2 id="org-units-s31">Org units (S31)</h2>
 <p>Since S31 the org-unit tree drives the <code>under</code> access leaf, so group sync
 writes three tables per tenant, in the same transaction as the rest of that

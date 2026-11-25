@@ -37,6 +37,16 @@ most 300 s.</li>
 <li><strong>Group sync is per tenant.</strong> Each cycle applies one tenant's snapshot inside
 that tenant's transaction as <code>nava_groupsync</code>; a hostile snapshot that names
 another tenant's rows changes nothing there.</li>
+<li><strong>A user deleted while a tenant is read (TICK-1113).</strong> Group sync reads the
+member lists first, then each user. It leaves a user out of the snapshot, and
+so tombstones the user in that tenant, only when two reads answer 404: the
+user's federated identities, then the user (<code>GET /users/{id}</code>). Any other
+answer to these two reads fails that tenant, and the cycle changes nothing in
+it.
+A 404 from Keycloak's token endpoint is never read as "gone"
+(<code>statusError.Is</code>). The rule looks at the status only, so it cannot tell
+Keycloak's 404 from a proxy's: <code>AR-TICK-1113-01</code> below, which TICK-1141 is
+to fix.</li>
 <li><strong>Keycloak.</strong> The account console and profile cannot change any attribute
 that feeds a tenant, role or group claim; token exchange is disabled; service
 accounts carry no organization; <code>nava-operator</code> cannot be self-assigned, and
@@ -122,6 +132,38 @@ refused on <code>/api/v1/operator/*</code>; an operator token (audience
 <code>TestDisableUserInAnotherTenantsSubtreeIsRefused</code>,
 <code>TestInviteCannotEnrolAnotherTenantsUser</code>, <code>TestInviteCannotSquatAnotherTenantsEmail</code>,
 <code>TestGetMeTombstonedAndDisabledPrincipals</code>.</p>
+<p>A user deleted while a tenant is read:</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Test</th>
+<th>Runs on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Two 404s leave the user out; one 404, another status or a token-endpoint 404 fails the tenant</td>
+<td><code>TestChangesSince</code></td>
+<td>Fake Keycloak, no database</td>
+</tr>
+<tr>
+<td>The user is tombstoned in their tenant; the other user and the other tenant are unchanged</td>
+<td><code>TestUserDeletedDuringSnapshotIsTombstonedOnlyInItsTenant</code></td>
+<td>Fake Keycloak, real PostgreSQL</td>
+</tr>
+<tr>
+<td>The second read answers 200 or 500: the tenant fails and keeps its rows, the other tenant syncs</td>
+<td><code>TestUserStillThereOrUnreadableFailsOnlyItsTenant</code></td>
+<td>Fake Keycloak, real PostgreSQL</td>
+</tr>
+<tr>
+<td>Keycloak answers 404 to both reads of a deleted user</td>
+<td><code>TestDeletedUserReadsAre404</code></td>
+<td>Real Keycloak (<code>make stack-test-identity</code>)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="fixture-that-turns-it-red">Fixture that turns it red</h2>
 <p><code>TestStackPathsExist</code> fails when a stack case's named test is renamed or
 deleted, so the four Keycloak-only cases cannot silently drop out of the
@@ -204,6 +246,15 @@ succeed), so a case that never had the access cannot pass.</p>
 <td>Security reviewer</td>
 <td>A tenant reports a lockout after a Keycloak restore</td>
 <td><a href="../../../docs/adr/ADR-004-E5-no-fk-actions-no-record-secrets.md">ADR-004-E5</a> Accepted risks</td>
+</tr>
+<tr>
+<td>AR-TICK-1113-01 (a 404 that is not from Keycloak removes a tenant's users, or its users and groups, in group sync)</td>
+<td>🟠 Medium</td>
+<td>Group sync reads the status only, so a 404 from something in front of Keycloak (a proxy during a restart) counts as Keycloak's own. <strong>Users (Low):</strong> when both reads of a user answer 404, the user is tombstoned and loses access; if every read after the member lists does, all users of the tenant. The next good cycle (5 minutes or less) revives them on the same rows, with their memberships. <strong>Root group (Medium; in <code>main</code> before PR #889):</strong> a 404 on the read of <code>/t/&lt;tenant_id&gt;</code> is taken as an empty directory. The users, groups and org units are tombstoned, and the <code>tenant_admin_group</code> and <code>tenant_auditor_group</code> rows are deleted. A later cycle revives the first three. No later sync restores the two rows, so the tenant has no admin and its auditors are refused until an operator re-records them: <code>docs/operator/onboarding.md</code>, "Pointer missing after a group came back (R-E5-4)" (the state of <code>AR-TICK-529-04</code>). A 200 whose path is not <code>/t/&lt;tenant_id&gt;</code> has the same effect (from the code, not run). <strong>Onboarding (Low; from the code):</strong> when <code>FindTenantOrg</code> gets such a 404 on its read of the IdP, it deletes the Keycloak organization of a tenant that is not active yet. A tombstoned user is refused from the next request, so no lasting access is given; a request already running can match more records through a <code>not under</code> rule, inside its own tenant. One tenant's data never reaches another. No tenant token can cause it. Not known to be reachable when group sync calls Keycloak directly, as <code>compose.yaml</code> does. A 404 from the token endpoint is not part of this: since PR #889 it fails the tenant.</td>
+<td>Fix proposed (TICK-1141; rated by the Security &amp; Multi-Tenancy Reviewer on TICK-1113, 2026-11-25)</td>
+<td>Technical Lead</td>
+<td>TICK-1141 fixes it; remove this row with that fix. Before that: any installation that puts a proxy or load balancer between group sync and Keycloak</td>
+<td><a href="../../../docs/delivery/decisions/2026-11-25-tick-1113-group-sync-404.md">2026-11-25-tick-1113-group-sync-404.md</a></td>
 </tr>
 </tbody>
 </table>

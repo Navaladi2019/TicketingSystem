@@ -1231,6 +1231,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>FU1 and FU2 of E4 done: delete this row. A merge with either <code>temporal-server</code> job red: at once</td>
 <td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
 </tr>
+<tr>
+<td>AR-TICK-1113-01 (a 404 that is not from Keycloak removes a tenant's users, or its users and groups, in group sync)</td>
+<td>🟠 Medium</td>
+<td>Group sync reads the status only, so a 404 from something in front of Keycloak (a proxy during a restart) counts as Keycloak's own. <strong>Users (Low):</strong> when both reads of a user answer 404, the user is tombstoned and loses access; if every read after the member lists does, all users of the tenant. The next good cycle (5 minutes or less) revives them on the same rows, with their memberships. <strong>Root group (Medium; in <code>main</code> before PR #889):</strong> a 404 on the read of <code>/t/&lt;tenant_id&gt;</code> is taken as an empty directory. The users, groups and org units are tombstoned, and the <code>tenant_admin_group</code> and <code>tenant_auditor_group</code> rows are deleted. A later cycle revives the first three. No later sync restores the two rows, so the tenant has no admin and its auditors are refused until an operator re-records them: <code>docs/operator/onboarding.md</code>, "Pointer missing after a group came back (R-E5-4)" (the state of <code>AR-TICK-529-04</code>). A 200 whose path is not <code>/t/&lt;tenant_id&gt;</code> has the same effect (from the code, not run). <strong>Onboarding (Low; from the code):</strong> when <code>FindTenantOrg</code> gets such a 404 on its read of the IdP, it deletes the Keycloak organization of a tenant that is not active yet. A tombstoned user is refused from the next request, so no lasting access is given; a request already running can match more records through a <code>not under</code> rule, inside its own tenant. One tenant's data never reaches another. No tenant token can cause it. Not known to be reachable when group sync calls Keycloak directly, as <code>compose.yaml</code> does. A 404 from the token endpoint is not part of this: since PR #889 it fails the tenant.</td>
+<td>Fix proposed (TICK-1141; rated by the Security &amp; Multi-Tenancy Reviewer on TICK-1113, 2026-11-25)</td>
+<td>Technical Lead</td>
+<td>TICK-1141 fixes it; remove this row with that fix. Before that: any installation that puts a proxy or load balancer between group sync and Keycloak</td>
+<td><a href="../../../docs/delivery/decisions/2026-11-25-tick-1113-group-sync-404.md">2026-11-25-tick-1113-group-sync-404.md</a></td>
+</tr>
 </tbody>
 </table>
 <h2 id="adding-a-row">Adding a row</h2>
