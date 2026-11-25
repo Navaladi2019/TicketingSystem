@@ -38,3 +38,38 @@ tests:
                 ADR-010-A2 A2-R6: lists for region-only callers may exceed 150 ms
                 above the certified tree; re-decide A2-R6 with the Solution
                 Architect. Never refuse the sync.
+  # Unrooted units: fires on an increase, silent when flat above 0 or absent.
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_closure_unrooted_units_total{job="nava",instance="nava-groupsync:9090"}'
+        values: '0 0 0 1+0x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GroupsyncOrgUnitsUnrooted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: nava
+              instance: nava-groupsync:9090
+            exp_annotations:
+              summary: Live org units are outside every region (no closure self row).
+              description: >-
+                Find the tenant in the nava-groupsync log line "live org units have
+                no closure self row and are outside every region". Never refuse the
+                sync.
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_closure_unrooted_units_total{job="nava",instance="nava-groupsync:9090"}'
+        values: '3+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: GroupsyncOrgUnitsUnrooted
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_units_live_max{job="nava",instance="nava-groupsync:9090"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GroupsyncOrgUnitsUnrooted
+        exp_alerts: []

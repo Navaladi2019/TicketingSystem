@@ -133,7 +133,8 @@ stored; `CanWrite` passes both the before and the after row to
 
 ## Callers
 
-`ACL.CanRead` and `ACL.CanWrite` (with their rows), the list route (no row,
+`ACL.CanRead` and `ACL.CanWrite` (with their rows), `TestPolicyRef` (a
+workflow policy test, with its record), the list route (no row,
 before `ReadList`) and the explainer (the target and the record) call
 `ResolveUnder`. A new caller of `Allows`, `CompileRead`, `ReadList`,
 `ReadPredicate` or `ReadBranches` with a document that may hold `under` must

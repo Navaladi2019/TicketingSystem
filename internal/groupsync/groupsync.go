@@ -34,10 +34,6 @@ import (
 // LagWarnAfter is the lag past which a tenant is named in a log line (D-P9).
 const LagWarnAfter = 10 * time.Minute
 
-// SubtreeWarnAt is the groupsync_org_subtree_max value at which a tenant is
-// named in a log line: 80% of the 10,000-unit cap (TICK-950 P11-17).
-const SubtreeWarnAt = 8000
-
 // DefaultInterval is the time between cycles (D-P9).
 const DefaultInterval = 5 * time.Minute
 
@@ -124,7 +120,7 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	}
 	sub, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Histogram(
 		"groupsync_org_subtree_max",
-		metric.WithDescription("Largest number of live org units under any one unit a user belongs to, observed once per applied tenant sync. Never labelled by tenant; a tenant over SubtreeWarnAt is named in a log line."),
+		metric.WithDescription("Largest number of live org units under any one unit a user belongs to, observed once per applied tenant sync. Never labelled by tenant."),
 		metric.WithUnit("{unit}"),
 		metric.WithExplicitBucketBoundaries(10, 100, 500, 1000, 2500, 5000, 7500, 10000))
 	if err != nil {
@@ -363,10 +359,6 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	}
 	if subtreeMax >= 0 {
 		s.subtree.Record(ctx, int64(subtreeMax))
-		if subtreeMax >= SubtreeWarnAt {
-			s.log.WarnContext(ctx, "group sync: an org unit subtree nears the 10,000-unit cap",
-				slog.String("tenant_id", tenantID.String()), slog.Int("org_subtree_max", subtreeMax))
-		}
 	}
 	s.mu.Lock()
 	if liveUnits >= 0 {
