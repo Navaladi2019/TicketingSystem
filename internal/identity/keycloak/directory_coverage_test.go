@@ -25,6 +25,12 @@ type routeKC struct {
 	mu     sync.Mutex
 	routes map[string]kcAnswer
 	seen   []string
+	// tokenStatus, when not 0, is what the token endpoint answers; tokenTTL,
+	// when not 0, is its expires_in. onServe runs, under mu, after each
+	// admin route is recorded.
+	tokenStatus int
+	tokenTTL    int
+	onServe     func(key string)
 }
 
 type kcAnswer struct {
@@ -35,6 +41,18 @@ type kcAnswer struct {
 
 func ok(body string) kcAnswer { return kcAnswer{status: http.StatusOK, body: body} }
 func st(code int) kcAnswer    { return kcAnswer{status: code} }
+func (r *routeKC) count(route string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, s := range r.seen {
+		if s == route {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *routeKC) saw(route string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -46,12 +64,25 @@ func newRouteKC(t *testing.T, routes map[string]kcAnswer) (*routeKC, string) {
 	k := &routeKC{routes: routes}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/protocol/openid-connect/token") {
-			fmt.Fprint(w, `{"access_token":"tok","expires_in":300}`)
+			k.mu.Lock()
+			status, ttl := k.tokenStatus, k.tokenTTL
+			k.mu.Unlock()
+			if status != 0 {
+				w.WriteHeader(status)
+				return
+			}
+			if ttl == 0 {
+				ttl = 300
+			}
+			fmt.Fprintf(w, `{"access_token":"tok","expires_in":%d}`, ttl)
 			return
 		}
 		key := r.Method + " " + strings.TrimPrefix(r.URL.Path, "/admin/realms/nava")
 		k.mu.Lock()
 		k.seen = append(k.seen, key)
+		if k.onServe != nil {
+			k.onServe(key)
+		}
 		a, found := k.routes[key]
 		k.mu.Unlock()
 		if !found {
@@ -453,6 +484,53 @@ func TestChangesSince(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a token endpoint 404 is not a gone user", func(t *testing.T) {
+		t.Parallel()
+		kc, url := newRouteKC(t, full())
+		kc.tokenTTL = 1 // inside the refresh skew: every call fetches a token
+		kc.routes["GET /users/u1"] = ok(`{}`)
+		kc.routes["GET /users/u2"] = ok(`{}`)
+		lists := 0
+		kc.onServe = func(key string) { // after the member lists are read
+			if strings.HasSuffix(key, "/members") {
+				if lists++; lists == 3 {
+					kc.tokenStatus = http.StatusNotFound
+				}
+			}
+		}
+		var buf bytes.Buffer
+		d, _ := directoryFor(t, url, func(c *DirectoryConfig) { c.Logger = slog.New(slog.NewTextHandler(&buf, nil)) })
+		snap, _, err := d.ChangesSince(t.Context(), tA, "")
+		var se *statusError
+		if !errors.As(err, &se) || se.status != http.StatusNotFound || errors.Is(err, identity.ErrNotFound) {
+			t.Fatalf("err = %v, want the token endpoint's 404 without a match for ErrNotFound", err)
+		}
+		if len(snap.Users) != 0 || buf.Len() != 0 {
+			t.Fatalf("users %+v, log %q: nobody may be left out", snap.Users, buf.String())
+		}
+	})
+	t.Run("one read of the user and a tenant id in the log", func(t *testing.T) {
+		t.Parallel()
+		r := full()
+		r["GET /users/u2/federated-identity"] = st(404)
+		kc, _, _, logs, err := vanished(t, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := kc.count("GET /users/u2"); n != 1 {
+			t.Fatalf("GET /users/u2 sent %d times, want once", n)
+		}
+		if !strings.Contains(logs, "tenant_id="+tA.String()) {
+			t.Fatalf("log without the tenant id: %s", logs)
+		}
+	})
+	t.Run("nobody gone writes no log line", func(t *testing.T) {
+		t.Parallel()
+		_, _, _, logs, err := vanished(t, full())
+		if err != nil || logs != "" {
+			t.Fatalf("err %v, log %q", err, logs)
+		}
+	})
 
 	t.Run("snapshot is sorted, split and stable", func(t *testing.T) {
 		t.Parallel()

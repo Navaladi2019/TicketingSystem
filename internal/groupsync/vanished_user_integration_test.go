@@ -35,6 +35,15 @@ func rows(t *testing.T, super *pgx.Conn, tid uuid.UUID) string {
 	return s
 }
 
+func principalXmin(t *testing.T, super *pgx.Conn, tid uuid.UUID, kcUser string) string {
+	t.Helper()
+	var x string
+	if err := super.QueryRow(context.Background(), "SELECT xmin::text FROM principals WHERE tenant_id = $1 AND keycloak_user_id = $2", tid, kcUser).Scan(&x); err != nil {
+		t.Fatal(err)
+	}
+	return x
+}
+
 func onceAll(t *testing.T, s *groupsync.Syncer) map[uuid.UUID]groupsync.Result {
 	t.Helper()
 	rs, err := s.Once(context.Background())
@@ -75,6 +84,7 @@ func TestUserDeletedDuringSnapshotIsTombstonedOnlyInItsTenant(t *testing.T) {
 	k, s, super, a, b := vanishStart(t)
 	gone, kept := k.User(a, 2), k.User(a, 1)
 	beforeB := rows(t, super, b)
+	keptXmin := principalXmin(t, super, a, kept)
 	k.Delete(gone, http.StatusNotFound) // still in the member list: deleted after it was read
 	res := onceAll(t, s)
 	if res[a].Err != nil || res[b].Err != nil {
@@ -88,6 +98,9 @@ func TestUserDeletedDuringSnapshotIsTombstonedOnlyInItsTenant(t *testing.T) {
 	}
 	if n := count(t, super, "SELECT count(*) FROM principals p JOIN group_members m ON m.tenant_id = p.tenant_id AND m.principal_id = p.id WHERE p.tenant_id = $1 AND p.keycloak_user_id = $2 AND p.enabled AND p.deleted_at IS NULL", a, kept); n != 1 {
 		t.Errorf("A's other user changed")
+	}
+	if x := principalXmin(t, super, a, kept); x != keptXmin {
+		t.Errorf("A's other user was rewritten: xmin %s, was %s", x, keptXmin)
 	}
 	if after := rows(t, super, b); after != beforeB {
 		t.Errorf("tenant B changed:\n before %s\n after  %s", beforeB, after)
