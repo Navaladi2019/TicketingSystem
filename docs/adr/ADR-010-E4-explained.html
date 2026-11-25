@@ -31,10 +31,10 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <h2>In plain words</h2>
 <dl>
 <dt>Goal</dt><dd>Make the accepted design say how the product really keeps its list of "which office or region is below which" up to date. That list decides who sees "tickets in my region".</dd>
-<dt>Today</dt><dd>A background service reads each customer's offices and regions from the company sign-in system every 10 minutes and stores them. Next to them it stores a ready-made list: for every unit, all the units below it. The design says that when anything changes, the service throws away that customer's whole list and builds it again, and holds a special "only one at a time" marker while it does so. The engineers shipped something else, so the design is wrong for anyone who reads it later.</dd>
+<dt>Today</dt><dd>A background service reads each customer's offices and regions from the company sign-in system every 5 minutes and stores them. Next to them it stores a ready-made list: for every unit, all the units below it. The design says that when anything changes, the service throws away that customer's whole list and builds it again, and holds a special "only one at a time" marker while it does so. The engineers shipped something else, so the design is wrong for anyone who reads it later.</dd>
 <dt>What's new</dt><dd>Nothing in the product. The corrected design says three things. A change replaces only the part of the list it affects. The whole list is built only the first time, when a check finds it wrong, or when an operator asks for it. The "only one at a time" marker is the one the service already held for its whole run. We expect this to work because we compared the partial way with the full way on 3,563 random changes, and they never differed.</dd>
 <dt>Who is affected</dt><dd>Users see no difference. A customer with about 10,000 units has a moved office handled in about 0.1 seconds instead of 0.8 to 2 seconds. Engineers and reviewers get a design that matches the code.</dd>
-<dt>Risks</dt><dd>If some part of the list is wrong for another reason (a program fault, or someone editing the database by hand), a change to other offices no longer repairs it. The next 10-minute round that changes people but no office does. Until then, a person could see tickets of an office outside their region, or miss tickets inside it, but only within their own company. The design owner proposes to accept this as low.</dd>
+<dt>Risks</dt><dd>If some part of the list is wrong for another reason (a program fault, or someone editing the database by hand), a change to other offices no longer repairs it. The next round that changes people but no office does. Until then, a rule such as "tickets in my region" or "all tickets except this office's" can show a person tickets it should not, or hide some it should show, but only within their own company. The design owner proposes to accept this as low.</dd>
 <dt>How we'll know it worked</dt><dd>Already checked: the random comparison above, and tests that move, remove and bring back units and compare the list each time; they run on every code change. At the end: a reader with no background can describe from the design how the list is kept current, and that matches the code.</dd>
 </dl>
 
@@ -50,10 +50,10 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>2. Options considered</h2>
 <table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
-<tr><td><strong>Correct the design to what is built</strong></td><td class="good">Chosen: it gives the same rows, with a shorter database transaction.</td></tr>
-<tr><td>Change the code back to a full rebuild</td><td class="bad">Rejected: 0.8 to 2 s inside every tree-changing run, for the same rows.</td></tr>
+<tr><td><strong>Correct the design to what is built</strong></td><td class="good">Chosen: it gives the same rows, and is faster for a moved unit.</td></tr>
+<tr><td>Change the code back to a full rebuild</td><td class="bad">Rejected: 0.8 to 2 s inside every tree-changing run, against 0.07 to 0.47 s for one moved unit or region, for the same rows. It would be faster only for a large import into a small existing tree (4 to 9 s today, tracked as TICK-1123).</td></tr>
 <tr><td>Also add the lock the design named</td><td class="bad">Rejected: the existing lock already covers every group-sync write of this table. A second lock protects nothing and adds an order to get wrong.</td></tr>
-<tr><td>Check the whole table on every run</td><td class="bad">Not now: at most 0.13 to 0.48 s per large tenant every 10 minutes, for a fault nobody has seen. It is the fix if one appears.</td></tr>
+<tr><td>Check the whole table on every run</td><td class="bad">Not now: at most 0.13 to 0.48 s per large tenant every 5 minutes, for a fault nobody has seen. It is the fix if one appears.</td></tr>
 </tbody></table>
 
 <h2>3. The decision</h2>
@@ -79,7 +79,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 
 <h2>5. What we accept (residual risk)</h2>
 <table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th><th>When we look again</th></tr></thead><tbody>
-<tr><td>AR-TICK-1118-01</td><td>Low</td><td>A wrong row outside the changed units lasts until the next applied run with no tree change. Inside one tenant only: row-level security (the database's own tenant filter) and foreign keys that carry the tenant id are unchanged. Only a group-sync fault, the migration role or a database superuser can write such a row. No metric counts repairs.</td><td>Any such row found in a live tenant, or a second program that writes the table. Then the check runs on every cycle.</td></tr>
+<tr><td>AR-TICK-1118-01</td><td>Low</td><td>A wrong row outside the changed units lasts until the next applied run with no tree change. An extra row grants through "in my region" and hides through "not in this region"; a missing row does the reverse. A list's total can also leave out tickets its page shows. Inside one tenant only: row-level security (the database's own tenant filter) and foreign keys that carry the tenant id are unchanged. Only a group-sync fault, the migration role, a database superuser or someone holding group sync's database password can write such a row. No metric counts repairs.</td><td>Any such row found in a live tenant, or a second program that writes the table. Then the check runs on every cycle.</td></tr>
 </tbody></table>
 
 <h2>6. The evidence</h2>
@@ -90,7 +90,7 @@ dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
 <tr><td>Full rebuild on a freshly filled database (limit 5 s), red to green</td><td><span class="bad">37.1 s</span> → <span class="good">1.07 s / 2.03 s</span> on two CI runs</td></tr>
 <tr><td>Whole sync at 10,111 units, the same two CI runs</td><td>one office 70 / 144 ms; one country 95 / 216 ms; one region 224 / 468 ms; full rebuild 0.83 / 1.77 s</td></tr>
 </tbody></table>
-<p>Not covered by the random check: timing, two runs at once, and the database's tenant filter. Existing tests cover the last two. One case is reasoned, not tested: the operator's repair function racing a sync. A duplicate-key error would stop one of them and undo it; a sync tries again on its next turn, an operator runs the function again.</p>
+<p>Not covered by the random check: timing, two runs at once, and the database's tenant filter. Existing tests cover two runs at once and the tenant filter. The Technical Architect then tested the operator's repair function against a running sync: the list was right after every race. One order stops the function with a deadlock error, and it must be run again. The function also makes every customer's requests that read these tables wait until it finishes, so it belongs in a maintenance window (TICK-1122).</p>
 
 <p class="src">Source of truth: <code>docs/adr/ADR-010-E4-closure-delta-writes.md</code>. Archive: <code>docs/adr/ADR-010/E4/spike/</code>.</p>
 </main></body></html>

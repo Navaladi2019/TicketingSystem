@@ -21,7 +21,7 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-010-E4: the region tree is kept current with partial writes</h1>
-<p>Status: <strong>PROPOSED</strong>, 2026-11-25, by the Solution Architect (TICK-1118). It waits for the Technical Architect's critique. Corrects <a href="../adr/adr-010-a2.html">A2</a> A2-2 and one grant in A2-1. The code it describes (TICK-1054) is on the story branch <code>TICK-946/in-my-region</code> and reaches <code>main</code> with S31. Normative text: <a href="../../../docs/adr/ADR-010-E4-closure-delta-writes.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-010-E4-explained.html">ADR-010-E4-explained.html</a>. Evidence: <a href="../../../docs/adr/ADR-010/E4/spike">the random-tree check</a>.</p>
+<p>Status: <strong>PROPOSED</strong>, 2026-11-25, by the Solution Architect (TICK-1118). The Technical Architect's round 1 was CHANGES (3 blocking, all taken in rev 1); the re-check and the Security &amp; Multi-Tenancy Reviewer's rating of the risk are pending. Corrects <a href="../adr/adr-010-a2.html">A2</a> A2-2 and one grant in A2-1. The code it describes (TICK-1054) is on the story branch <code>TICK-946/in-my-region</code> and reaches <code>main</code> with S31. Normative text: <a href="../../../docs/adr/ADR-010-E4-closure-delta-writes.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-010-E4-explained.html">ADR-010-E4-explained.html</a>. Evidence: <a href="../../../docs/adr/ADR-010/E4/spike">the random-tree check</a> and <a href="../../../docs/adr/ADR-010/E4/critique">the critique with its spike</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
 <h2 id="problem">Problem</h2>
 <p>A2-2 said every org-tree change deletes and re-inserts the tenant's whole <code>org_unit_closure</code>, under an advisory lock of its own, with a config audit entry. What was built replaces only the affected rows, under the lock group sync already holds, with no audit entry.</p>
@@ -40,7 +40,7 @@
 </tr>
 <tr>
 <td>E4-2</td>
-<td>The full rebuild stays for an empty closure, for drift found by a set comparison, and for <code>org_unit_closure_rebuild_all()</code>.</td>
+<td>The full rebuild stays for an empty closure, for drift found by a set comparison, and for <code>org_unit_closure_rebuild_all()</code>, which blocks every tenant's reads of three tables until it commits: maintenance window only (TICK-1122).</td>
 </tr>
 <tr>
 <td>E4-3</td>
@@ -56,7 +56,7 @@
 </tr>
 <tr>
 <td>E4-6</td>
-<td>Whole sync at 10,111 units, two CI runs: leaf move 70 / 144 ms, country 95 / 216 ms, region 224 / 468 ms, full rebuild 0.83 / 1.77 s.</td>
+<td>Whole sync at 10,111 units, two CI runs: leaf move 70 / 144 ms, country 95 / 216 ms, region 224 / 468 ms, full rebuild 0.83 / 1.77 s. A large import into a closure that is not empty is slower (TICK-1123).</td>
 </tr>
 <tr>
 <td>E4-7</td>
@@ -69,7 +69,7 @@
 </tbody>
 </table>
 <h2 id="residuals">Residuals</h2>
-<p><code>AR-TICK-1118-01</code> in <a href="../security/accepted-risks.html">accepted risks</a>: a wrong row outside the touched subtrees lasts until the next applied run with no tree change. Inside one tenant only.</p>
+<p><code>AR-TICK-1118-01</code> in <a href="../security/accepted-risks.html">accepted risks</a>: a wrong row outside the touched subtrees lasts until the next applied run with no tree change. Through <code>under</code> or <code>not under</code> it can show or hide tickets, inside one tenant only.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../adr/adr-010-e3.html">&larr; ADR-010-E3: CI-6 rewrite (c), one-group caller: my_groups renders scalar</a><a class="next" href="../stories/index.html">Stories &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
