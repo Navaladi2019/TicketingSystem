@@ -327,9 +327,13 @@ func TestAllocationTimeoutIsRetryableAndMeasured(t *testing.T) {
 // barrierRunner holds each allocation until n of them are waiting, so n
 // creates hold their own transactions' connections at once when they ask for
 // a number: the worst case for a pool both share.
+//
+// With a stagger, the i-th of a wave's n allocations starts i x stagger after
+// the barrier, so they reach their timeouts at different times (TICK-1129).
 type barrierRunner struct {
 	pipeline.PoolRunner
 	n       int
+	stagger time.Duration
 	mu      sync.Mutex
 	waiting int
 	release chan struct{}
@@ -340,7 +344,7 @@ func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.
 	if r.release == nil {
 		r.release = make(chan struct{})
 	}
-	ch := r.release
+	ch, delay := r.release, time.Duration(r.waiting)*r.stagger
 	if r.waiting++; r.waiting == r.n {
 		close(ch)
 		r.waiting, r.release = 0, nil
@@ -351,14 +355,26 @@ func (r *barrierRunner) Allocate(ctx context.Context, createTx pgx.Tx, def uuid.
 	case <-ctx.Done():
 		return pipeline.Allocation{}, ctx.Err()
 	}
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return pipeline.Allocation{}, ctx.Err()
+		}
+	}
 	return r.PoolRunner.Allocate(ctx, createTx, def, format)
 }
 
+// controlStagger puts 40 ms between the timeouts of a control's allocations:
+// time enough for one to take a connection another's create released. The
+// last of 5 starts at 160 ms, before the first gives up at 200 ms.
+const controlStagger = 40 * time.Millisecond
+
 // starve runs 2 x n concurrent creates whose allocations each wait until n
 // of them hold their create transactions, and returns every error.
-func starve(e env, f tenantFixture, alloc pipeline.PoolRunner, n int) []error {
+func starve(e env, f tenantFixture, alloc pipeline.PoolRunner, n int, stagger time.Duration) []error {
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{},
-		&barrierRunner{PoolRunner: alloc, n: n}, pipeline.SystemClock{})
+		&barrierRunner{PoolRunner: alloc, n: n, stagger: stagger}, pipeline.SystemClock{})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	errs := make([]error, 2*n)
@@ -413,14 +429,14 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 	const direct = 4
 	t.Run("direct, allocator pool", func(t *testing.T) {
 		took := takenBy(t, base, f, func() {
-			noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct))
+			noErrors(t, starve(small(direct), f, pipeline.PoolRunner{Pool: allocPool(t, dsn), AllocTimeout: noLatencyBudget}, direct, 0))
 		})
 		contiguous(t, took, 2*direct)
 	})
 	t.Run("direct, control: the API pool", func(t *testing.T) {
 		e := small(direct)
 		took := takenBy(t, base, f, func() {
-			allStarved(t, starve(e, f, pipeline.PoolRunner{Pool: e.app}, direct))
+			allStarved(t, starve(e, f, pipeline.PoolRunner{Pool: e.app}, direct, controlStagger))
 		})
 		if len(took) != 0 {
 			t.Fatalf("starved control created records %v, want none", took)
@@ -431,14 +447,14 @@ func TestAllocatorPoolDoesNotStarveThePool(t *testing.T) {
 	bounced := throughBouncer(t, base, serverPool)
 	t.Run("PgBouncer, allocator through nava_alloc", func(t *testing.T) {
 		took := takenBy(t, base, f, func() {
-			noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc, AllocTimeout: noLatencyBudget}, serverPool))
+			noErrors(t, starve(bounced, f, pipeline.PoolRunner{Pool: bounced.alloc, AllocTimeout: noLatencyBudget}, serverPool, 0))
 		})
 		contiguous(t, took, 2*serverPool)
 	})
 	t.Run("PgBouncer, control: allocator through the nava entry", func(t *testing.T) {
 		shared := allocPool(t, bounced.app.Config().ConnString())
 		took := takenBy(t, base, f, func() {
-			allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool))
+			allStarved(t, starve(bounced, f, pipeline.PoolRunner{Pool: shared}, serverPool, controlStagger))
 		})
 		if len(took) != 0 {
 			t.Fatalf("starved control created records %v, want none", took)
