@@ -799,6 +799,12 @@ jobs:
       # pull fails) is not an error: image-ci builds that one, as before.
       - name: Published CI images (temporal-server, keycloak)
         run: make prebuilt-pull
+      # TICK-1128 TEMPORARY, reverted before review: ECR Public unreachable.
+      - name: TEMPORARY block public.ecr.aws
+        if: needs.runner.outputs.self_hosted != 'true'
+        run: |
+          echo "127.0.0.1 public.ecr.aws" | sudo tee -a /etc/hosts
+          ! docker pull -q public.ecr.aws/docker/library/busybox:1.37
       # TICK-1128: a full run's OpenObserve image, by compose.yaml's digest,
       # from ECR Public or else Docker Hub; every later step uses that image
       # (OPENOBSERVE_IMAGE). Fails when both refuse; a fast run skips it.
