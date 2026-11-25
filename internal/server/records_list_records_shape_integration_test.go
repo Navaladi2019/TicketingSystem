@@ -31,8 +31,8 @@ type recordsShapeList struct {
 }
 
 // TICK-1104 (ADR-010-A3) through the route, with R chosen by the real
-// selector: the estimate 31,847 gives a cap of 9,651 units, and the policy's
-// subtree has 9,712. The list answers 200 with the rows, the order and the
+// selector: the estimate 33,100 gives a cap of 10,031 units, and the policy's
+// subtree has 10,057 (five digits each, so no group of a uuid equals them). The list answers 200 with the rows, the order and the
 // capped total of the reference (the same request with no estimate, so A2's
 // shapes) at 1,000, 1,001 and 1,002 readable records; the response and the
 // log lines carry neither n, the cap, α, U_cert, U_hash nor the shape
@@ -41,7 +41,7 @@ type recordsShapeList struct {
 func TestListRecordsChosenByTheSelector(t *testing.T) {
 	e := newPatchEnv(t)
 	ctx := t.Context()
-	const estimate, capUnits, size = 31_847, 9651, 9712
+	const estimate, capUnits, size = 33_100, 10_031, 10_057
 	in := e.mustCreateRec(t, "user-a", "job", "tick1104-in", `{"short_description": "in"}`)
 	out := e.mustCreateRec(t, "user-a", "job", "tick1104-out", `{"short_description": "out"}`)
 	exec := func(sql string, args ...any) {
@@ -54,14 +54,6 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 	exec(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES ($1, $2, NULL, 'tick1104-root', 'root'), ($1, $3, $2, 'tick1104-child', 'child')`,
 		e.a.id, root, child)
 	rebuildOrgUnitClosure(t, e.super)
-	// The other units and their closure rows, written directly: the rebuild
-	// is quadratic on a table with no statistics (TICK-1054).
-	exec(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
-		SELECT $1, gen_random_uuid(), $2, 'tick1104-u' || g, 'u' || g FROM generate_series(1, $3::int) g`, e.a.id, child, size-2)
-	exec(`INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id)
-		SELECT u.tenant_id, a.id, u.id FROM org_units u CROSS JOIN LATERAL (VALUES (u.id), ($2::uuid), ($3::uuid)) a (id)
-		WHERE u.tenant_id = $1 AND u.keycloak_group_id LIKE 'tick1104-u%'`, e.a.id, root, child)
-	exec(`ANALYZE org_unit_closure`)
 	doc := `{"format": 2, "conditions": [], "policies": [{"name": "unit", "ops": ["read"], "when": {"under": {"of": ["` + root.String() + `"]}}}]}`
 	if got := e.access(t, http.MethodPut, accessPath, "admin-a", s31Key("tick1104-under"), `W/"1"`, `{"rules": `+doc+`}`); got.Code != http.StatusOK {
 		t.Fatalf("publish under of the root = %d %s", got.Code, got.Body)
@@ -88,6 +80,16 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The other units and their closure rows, written directly: the rebuild
+	// is quadratic on a table with no statistics (TICK-1054), and the foreign
+	// keys' checks keep the plan of the small tables they first ran on.
+	replica(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
+		SELECT $1, gen_random_uuid(), $2, 'tick1104-u' || g, 'u' || g FROM generate_series(1, $3::int) g`, e.a.id, child, size-2)
+	replica(`INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id)
+		SELECT u.tenant_id, a.id, u.id FROM org_units u CROSS JOIN LATERAL (VALUES (u.id), ($2::uuid), ($3::uuid)) a (id)
+		WHERE u.tenant_id = $1 AND u.keycloak_group_id LIKE 'tick1104-u%'`, e.a.id, root, child)
+	exec(`ANALYZE org_units`)
+	exec(`ANALYZE org_unit_closure`)
 	// add copies the in record n times under the child unit.
 	copies := 0
 	add := func(n int) {

@@ -235,8 +235,10 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 	ctx := context.Background()
 	w = seedShapeWorld(t, e, 1)
 	// tree adds n units, ten children each, and their closure rows. Not by
-	// org_unit_closure_rebuild_all: on a table with no statistics it is
-	// quadratic (TICK-1054), minutes at these sizes.
+	// org_unit_closure_rebuild_all, which is quadratic on a table with no
+	// statistics (TICK-1054), and past the foreign keys (replica role), whose
+	// checks keep the plan of the small tables they first ran on.
+	mustExec(t, e.super, `SET session_replication_role = replica`)
 	tree := func(prefix string, n int) uuid.UUID {
 		t.Helper()
 		mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
@@ -256,6 +258,8 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 		roots[n] = tree(fmt.Sprintf("s%d-", n), n)
 	}
 	other = tree("o-", 2000)
+	mustExec(t, e.super, `RESET session_replication_role`)
+	mustExec(t, e.super, `ANALYZE org_units`)
 	for n, root := range roots {
 		if got := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, w.tenant, root); got != n {
 			t.Fatalf("the subtree of %d units has %d closure rows", n, got)
