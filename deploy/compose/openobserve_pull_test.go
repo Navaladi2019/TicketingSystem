@@ -103,7 +103,7 @@ func runFake(t *testing.T, env []string, name string, args ...string) fakeRun {
 		t.Skipf("no %s on PATH", name)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(fakeDocker), 0o755); err != nil { //nolint:gosec // a test executable
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(fakeDocker), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	log, gh := filepath.Join(dir, "calls"), filepath.Join(dir, "github_env")
@@ -126,7 +126,7 @@ func runFake(t *testing.T, env []string, name string, args ...string) fakeRun {
 	}
 	r.out = buf.String()
 	read := func(p string) string {
-		b, err := os.ReadFile(p) //nolint:gosec // this test's own files
+		b, err := os.ReadFile(p)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			t.Fatal(err)
 		}
@@ -224,7 +224,7 @@ func TestOpenObserveVersionMatchesCompose(t *testing.T) {
 			t.Fatalf("%s: %v, %d files", glob, err, len(files))
 		}
 		for _, f := range files {
-			b, err := os.ReadFile(f) //nolint:gosec // a repo file
+			b, err := os.ReadFile(f)
 			if err != nil {
 				t.Fatal(err)
 			}

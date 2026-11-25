@@ -948,6 +948,41 @@ TICK-693's merge changes the workflow file, so it publishes the first
 keycloak tag (or run the workflow by hand on `main`). After that, a run whose
 key inputs are unchanged from `main` pulls it.
 
+### OpenObserve image (TICK-1128)
+
+A full run starts the operator profile, which includes OpenObserve.
+`compose.yaml` pins it by tag and index digest, and the digest is written
+nowhere else. `make openobserve-pull` (`scripts/ci/pull-openobserve.sh`) runs
+in the `stack` job before `make image-ci`:
+
+1. It pulls that digest from `public.ecr.aws/zinclabs/openobserve` and, when
+   that source fails, from `docker.io/openobserve/openobserve`. OpenObserve
+   publishes the same index on both.
+2. A source fails when the pull fails or the image's digest is not the pinned
+   one. When both fail, the step fails and prints both errors, before any stack
+   starts.
+3. The pulled binary's `--version` must be the tag's version. Docker ignores
+   the tag of a `tag@digest` ref, so without this a tag bumped without its
+   digest would run the old version unnoticed.
+4. It exports `OPENOBSERVE_IMAGE=<source>@<digest>`. `image-ci` then leaves the
+   service out of its registry pull, and `stack-up` finds the image locally, so
+   nothing contacts a registry for it again. The log line is
+   `pull-openobserve: using <source>@<digest> (<version>)`.
+
+A fast run prints `openobserve-pull: skipped`. A local `docker compose up`
+pulls the same digest from ECR Public, with no login and no extra step.
+Nothing is published and the job holds no registry credential. The tests
+(`deploy/compose/openobserve_pull_test.go`, run by `task test`) run the script
+and the make targets against a fake `docker`.
+
+**Remaining limit.** A full run still fails when both registries refuse. Docker
+Hub limits unauthenticated pulls, and the stack's other images already come
+from it. We keep no copy of our own: the image is AGPL-3.0, and a public copy
+on ghcr.io cannot be made private again and carries source-availability duties.
+Trigger to revisit: one full run red because both refused, or Docker Hub limits
+turn a full run red on any image. Publishing a copy then needs the human's
+approval first (TICK-1128).
+
 ### Story branches (TICK-322)
 
 The `story-branches` job runs `make check-story-branches` on every event, and
