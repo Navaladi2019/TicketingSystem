@@ -88,6 +88,9 @@ steps:
   # Stack suites and their reports. The cases are the files in deploy/compose/test/cases/
   # (TICK-296); each job runs the ones whose header names it, so a new case needs no entry here.
   - job: stack
+    run: make openobserve-pull
+    why: a full run pulls OpenObserve from ECR Public alone again, unverified, and is red whenever that registry refuses (TICK-1128)
+  - job: stack
     run: make stack-tests JOB=stack
     why: every stack case with job=stack, among them the CI-6 and CI-7 SDK suite, realm nava and the CI-5 adversarial identity suite (T19), each under suiteran; a fast run keeps the tier=smoke cases only, and full runs (the daily run on main, ci:full, a manual run) run every case (STACK_TIER, TICK-652)
   # stack-db and stack-internal were jobs of their own until TICK-563; their
