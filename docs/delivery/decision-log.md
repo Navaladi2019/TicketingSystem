@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-25: TICK-1128, CI pulls OpenObserve by one digest from ECR Public, then Docker Hub; our own copy is deferred (`AR-TICK-1128-01`)](decisions/2026-11-25-tick-1128-openobserve-two-registries.md)
 - [2026-11-25: S31, the probe load of one list is deferred with a trigger (`AR-S31-05`)](decisions/2026-11-25-s31-probe-load-deferred.md)
 - [2026-11-22: S31, `groupsync_org_subtree_max` has no tenant label; the tenant is named in the 8,000+ warning log line](decisions/2026-11-22-s31-subtree-metric-no-tenant-label.md)
 - [2026-11-22: S31, region-list latency inside one tenant shows the page shape (accepted, `AR-TICK-1040-01`)](decisions/2026-11-22-s31-region-list-latency-bit.md)
