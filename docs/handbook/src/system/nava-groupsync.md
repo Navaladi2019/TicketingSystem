@@ -60,8 +60,9 @@ tenant's sync ([Org units](../database/org-units.md)):
 | `groupsync_org_units_live_max` | Gauge, set once per cycle: the largest live-unit count of any tenant visited | `GroupsyncOrgUnitsAboveCertified`: above 10,111 for 10 minutes, the tree ADR-010-A2 is certified to (A2-7) |
 | `groupsync_org_closure_unrooted_units` | Counter: live units found with no closure self row; a unit that stays unrooted adds to it again every cycle, so its value is not a number of units | `GroupsyncOrgUnitsUnrooted`: any increase in 15 minutes (TICK-1116). It can miss the first sample of a series that starts at 1; the WARN line, which repeats every cycle, covers that case |
 
-No metric names a tenant. The unrooted WARN line does; nothing names the tenant
-above 10,111 (TICK-1132). A
+No metric names a tenant. The unrooted WARN line does, and so does the INFO
+line "largest live org-unit tree" (`tenant_id`, `live_org_units`), logged when
+the largest tenant or its count changes (TICK-1132). A
 `--once` run exits with its own metrics, so `groupsync_org_units_live_max`
 has no sample until the long-running service's first cycle; the cycle's log
 line carries `org_subtree_max` and `org_closure_rows`.

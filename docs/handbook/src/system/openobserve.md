@@ -2,15 +2,15 @@
 title: "openobserve"
 section: system
 status: delivered
-sources: [compose.yaml, docs/pins.md]
-tests: [TestComposePublishesOnlyAllowedUIs, TestOperatorServicesNeedTheProfile]
+sources: [compose.yaml, docs/pins.md, scripts/ci/pull-openobserve.sh]
+tests: [TestComposePublishesOnlyAllowedUIs, TestOperatorServicesNeedTheProfile, TestOpenObservePull]
 ---
 
 Local trace and log search: shows what the Collector forwards. Local development only, in the `operator` profile.
 
 | | |
 |---|---|
-| Image | `public.ecr.aws/zinclabs/openobserve:v1.1.2-debug` (pin in `docs/pins.md`) |
+| Image | `public.ecr.aws/zinclabs/openobserve:v1.1.2-debug`, pinned by digest in `compose.yaml` (tag in `docs/pins.md`). A full CI run pulls that digest from ECR Public or, when that fails, from Docker Hub; it fails if both refuse (`AR-TICK-1128-01` in [accepted risks](../security/accepted-risks.md)) |
 | Networks | `internal` (so the Collector reaches it), `operator` |
 | Listener | `:5080` (UI and OTLP/HTTP ingest) |
 | Host port | `127.0.0.1:5080` (`OPENOBSERVE_PORT`) |
