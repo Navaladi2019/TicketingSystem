@@ -5,8 +5,8 @@ ok
 
 == seed tenants A and B (and one group sync)
 NOTICE:  seed: 2 new audit chain heads, 2 first audit.seal rows
- Container nava-nava-groupsync-run-225f80b8ea59 Creating 
- Container nava-nava-groupsync-run-225f80b8ea59 Created 
+ Container nava-nava-groupsync-run-3b402cf9f1c8 Creating 
+ Container nava-nava-groupsync-run-3b402cf9f1c8 Created 
 seed: done. alice@tenant-a.test, admin@tenant-a.test and bob@tenant-b.test now resolve in GET /api/v1/me;
 seed: admin@tenant-a.test is tenant A's admin; both tenants have incident, request and change.
 seed: the incident type of each tenant has the default ACL; request and change have none (fail closed) until an admin publishes one.
@@ -27,83 +27,83 @@ live Germany units|S31 tickets: 1|0
 
 
 == AC5's unit ids: tenant A's EMEA and tenant B's eng/platform (no API lists org units)
-tenant A EMEA: 01a2038e-90a9-779c-865e-daff48d316fd
-tenant B eng/platform: 01a2038e-91f4-701b-9042-9b39269a277d
+tenant A EMEA: 01a21320-6489-759d-92b2-509f967578e8
+tenant B eng/platform: 01a21320-660f-7123-af9e-724e9a471a6b
 
 == Bruno folder S31 region (AC1, AC2, AC5, isolation, directory changes)
-S31\S31-1 (200 OK) - 151 ms
-S31 run cc29cbaf
+S31\S31-1 (200 OK) - 240 ms
+S31 run 94b9c26b
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-2 (200 OK) - 70 ms
+S31\S31-2 (200 OK) - 103 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-3 (200 OK) - 70 ms
+S31\S31-3 (200 OK) - 112 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-4 (200 OK) - 89 ms
+S31\S31-4 (200 OK) - 99 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-5 (200 OK) - 69 ms
+S31\S31-5 (200 OK) - 85 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-6 (200 OK) - 86 ms
+S31\S31-6 (200 OK) - 109 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-7 (200 OK) - 74 ms
+S31\S31-7 (200 OK) - 116 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31\S31-8 (200 OK) - 59 ms
+S31\S31-8 (200 OK) - 100 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ the admin is in /admins
-S31\S31-9 (200 OK) - 13 ms
+S31\S31-9 (200 OK) - 19 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ in no /ou/ group and not in /service-desk or /admins
-S31\S31-10 (200 OK) - 10 ms
+S31\S31-10 (200 OK) - 18 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ in no /ou/ group and not in /service-desk or /admins
-S31\S31-11 (200 OK) - 15 ms
+S31\S31-11 (200 OK) - 23 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ in no /ou/ group and not in /service-desk or /admins
-S31\S31-12 (200 OK) - 10 ms
+S31\S31-12 (200 OK) - 13 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ in no /ou/ group and not in /service-desk or /admins
-S31\S31-13 (200 OK) - 14 ms
+S31\S31-13 (200 OK) - 10 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
    ✓ in no /ou/ group and not in /service-desk or /admins
-S31\S31-14 (200 OK) - 14 ms
+S31\S31-14 (200 OK) - 9 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000b1
@@ -112,27 +112,27 @@ Tests
 S31\S31-15 (200 OK) - 13 ms
 Tests
    ✓ HTTP 200
-S31\S31-16 (200 OK) - 22 ms
+S31\S31-16 (200 OK) - 26 ms
 Tests
    ✓ HTTP 200
    ✓ in_my_region is under caller, read
-S31\S31-17 (201 Created) - 24 ms
+S31\S31-17 (201 Created) - 33 ms
 Tests
    ✓ HTTP 201
    ✓ requester as sent
-S31\S31-18 (201 Created) - 17 ms
+S31\S31-18 (201 Created) - 29 ms
 Tests
    ✓ HTTP 201
    ✓ requester as sent
-S31\S31-19 (201 Created) - 17 ms
+S31\S31-19 (201 Created) - 38 ms
 Tests
    ✓ HTTP 201
    ✓ requester as sent
-S31\S31-20 (201 Created) - 23 ms
+S31\S31-20 (201 Created) - 21 ms
 Tests
    ✓ HTTP 201
    ✓ requester as sent
-S31\S31-21 (200 OK) - 17 ms
+S31\S31-21 (200 OK) - 18 ms
 S31.21: total 2
 Tests
    ✓ HTTP 200
@@ -142,16 +142,16 @@ Tests
    ✓ leaves out s31_t_none
    ✓ total is the number of items (one page, no cursor)
    ✓ every item was raised by s31_req_emea or s31_req_de
-S31\S31-22 (404 Not Found) - 12 ms
+S31\S31-22 (404 Not Found) - 16 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
-S31\S31-23 (404 Not Found) - 16 ms
+S31\S31-23 (404 Not Found) - 15 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31\S31-24 (200 OK) - 11 ms
+S31\S31-24 (200 OK) - 19 ms
 Tests
    ✓ HTTP 200
    ✓ the Germany ticket
@@ -160,7 +160,7 @@ Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31\S31-26 (200 OK) - 19 ms
+S31\S31-26 (200 OK) - 20 ms
 S31.26: total 2
 Tests
    ✓ HTTP 200
@@ -170,7 +170,7 @@ Tests
    ✓ leaves out s31_t_none
    ✓ total is the number of items (one page, no cursor)
    ✓ every item was raised by s31_req_emea or s31_req_de
-S31\S31-27 (200 OK) - 17 ms
+S31\S31-27 (200 OK) - 18 ms
 S31.27: total 1
 Tests
    ✓ HTTP 200
@@ -180,7 +180,7 @@ Tests
    ✓ leaves out s31_t_none
    ✓ total is the number of items (one page, no cursor)
    ✓ every item was raised by s31_req_de
-S31\S31-28 (200 OK) - 20 ms
+S31\S31-28 (200 OK) - 19 ms
 S31.28: total 1
 Tests
    ✓ HTTP 200
@@ -190,32 +190,32 @@ Tests
    ✓ leaves out s31_t_none
    ✓ total is the number of items (one page, no cursor)
    ✓ every item was raised by s31_req_apac
-S31\S31-29 (200 OK) - 19 ms
+S31\S31-29 (200 OK) - 16 ms
 S31.29: total 0
 Tests
    ✓ HTTP 200
    ✓ leaves out s31_t_none
    ✓ total is the number of items (one page, no cursor)
    ✓ no incident at all: total 0
-S31\S31-30 (404 Not Found) - 12 ms
+S31\S31-30 (404 Not Found) - 14 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31\S31-31 (422 Unprocessable Entity) - 17 ms
+S31\S31-31 (422 Unprocessable Entity) - 20 ms
 Tests
    ✓ HTTP 422
    ✓ problem+json, code invalid_access_policy
    ✓ problem instance is this response's X-Request-Id
    ✓ foreign_id at /rules/policies/1/when/under/of/0
    ✓ response names nothing of the other tenant
-S31\S31-32 (200 OK) - 20 ms
+S31\S31-32 (200 OK) - 25 ms
 Tests
    ✓ HTTP 200
    ✓ in_my_region lists EMEA
    ✓ under caller republished: 200
    ✓ in_my_region is under caller again
-S31\S31-33 (200 OK) - 18 ms
+S31\S31-33 (200 OK) - 20 ms
 Tests
    ✓ HTTP 200
    ✓ leaves out s31_t_emea
@@ -223,24 +223,24 @@ Tests
    ✓ leaves out s31_t_apac
    ✓ leaves out s31_t_none
    ✓ response names nothing of the other tenant
-S31\S31-34 (404 Not Found) - 10 ms
+S31\S31-34 (404 Not Found) - 19 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31\S31-35 (200 OK) - 13 ms
+S31\S31-35 (200 OK) - 24 ms
 Tests
    ✓ HTTP 200, one user
    ✓ ou/EMEA/Germany found
    ✓ ou/EMEA found
    ✓ ou/APAC found
-S31\S31-36 (204 No Content) - 68 ms
+S31\S31-36 (204 No Content) - 99 ms
 Tests
    ✓ HTTP 204
-S31\S31-37 (204 No Content) - 65 ms
+S31\S31-37 (204 No Content) - 93 ms
 Tests
    ✓ HTTP 204
-S31\S31-38 (204 No Content) - 37 ms
+S31\S31-38 (204 No Content) - 34 ms
 Tests
    ✓ HTTP 204
 
@@ -256,7 +256,7 @@ Tests
 ├───────────────┼────────────────┤
 │ Assertions    │      0/0       │
 ├───────────────┼────────────────┤
-│ Duration (ms) │      2159      │
+│ Duration (ms) │      3741      │
 └───────────────┴────────────────┘
 Wrote html results to docs/acceptance/guide/reports/S31.html
 Wrote json results to docs/acceptance/guide/reports/S31.json
@@ -282,45 +282,45 @@ group sync: exit 0, failed 0
 
 
 == Bruno folder S31 region after sync (AC3, AC4)
-S31-after\S31B-1 (200 OK) - 77 ms
+S31-after\S31B-1 (200 OK) - 107 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31-after\S31B-2 (200 OK) - 78 ms
+S31-after\S31B-2 (200 OK) - 88 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31-after\S31B-3 (200 OK) - 75 ms
+S31-after\S31B-3 (200 OK) - 76 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31-after\S31B-4 (200 OK) - 76 ms
+S31-after\S31B-4 (200 OK) - 131 ms
 Tests
    ✓ HTTP 200 from Keycloak
    ✓ access token issued
    ✓ issuer is the pinned realm URL
-S31-after\S31B-5 (200 OK) - 11 ms
+S31-after\S31B-5 (200 OK) - 26 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
-S31-after\S31B-6 (200 OK) - 13 ms
+S31-after\S31B-6 (200 OK) - 14 ms
 Tests
    ✓ HTTP 200
    ✓ tenant_id is 00000000-0000-4000-8000-0000000000a1
    ✓ Me has the contract fields
-S31-after\S31B-7 (200 OK) - 14 ms
+S31-after\S31B-7 (200 OK) - 31 ms
 Tests
    ✓ HTTP 200
    ✓ at least one ticket
-S31-after\S31B-8 (200 OK) - 15 ms
+S31-after\S31B-8 (200 OK) - 23 ms
 Tests
    ✓ HTTP 200
    ✓ at least one ticket
-S31-after\S31B-9 (200 OK) - 25 ms
+S31-after\S31B-9 (200 OK) - 24 ms
 S31B.9 total 1
 Tests
    ✓ took 0 s, within the 10-minute bound
@@ -329,34 +329,34 @@ Tests
    ✓ none of the s31_apac_ids tickets
    ✓ total is the number of items (one page, no cursor)
    ✓ still lists at least one EMEA ticket
-S31-after\S31B-10 (404 Not Found) - 16 ms
+S31-after\S31B-10 (404 Not Found) - 15 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
-S31-after\S31B-11 (404 Not Found) - 15 ms
+S31-after\S31B-11 (404 Not Found) - 17 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31-after\S31B-12 (200 OK) - 16 ms
+S31-after\S31B-12 (200 OK) - 11 ms
 Tests
    ✓ HTTP 200
    ✓ total 0
-S31-after\S31B-13 (404 Not Found) - 13 ms
+S31-after\S31B-13 (404 Not Found) - 14 ms
 Tests
    ✓ HTTP 404
    ✓ problem+json, code not_found, no instance
    ✓ body byte-identical to the missing id's 404
-S31-after\S31B-14 (201 Created) - 24 ms
+S31-after\S31B-14 (201 Created) - 22 ms
 Tests
    ✓ HTTP 201
-S31-after\S31B-15 (200 OK) - 21 ms
+S31-after\S31B-15 (200 OK) - 18 ms
 Tests
    ✓ HTTP 200
    ✓ includes the new ticket
    ✓ none of the s31_apac_ids tickets
    ✓ total is the number of items (one page, no cursor)
-S31-after\S31B-16 (200 OK) - 25 ms
+S31-after\S31B-16 (200 OK) - 18 ms
 Tests
    ✓ HTTP 200
    ✓ includes the new ticket
@@ -375,7 +375,7 @@ Tests
 ├───────────────┼────────────────┤
 │ Assertions    │      0/0       │
 ├───────────────┼────────────────┤
-│ Duration (ms) │      834       │
+│ Duration (ms) │      1358      │
 └───────────────┴────────────────┘
 Wrote html results to docs/acceptance/guide/reports/S31-after.html
 Wrote json results to docs/acceptance/guide/reports/S31-after.json
@@ -386,20 +386,22 @@ api-test: PASS
 == AC4 and AC3 from the database: the unit each S31 ticket kept
    number   |     requester     | ticket_unit | unit_state | requester_unit_now |                 short_description                 
 ------------+-------------------+-------------+------------+--------------------+---------------------------------------------------
- INC0000001 | requester-emea    | EMEA        | live       | EMEA               | S31 cc29cbaf raised by the EMEA requester
- INC0000002 | requester-germany | Germany     | tombstoned | (none)             | S31 cc29cbaf raised by the Germany requester
- INC0000003 | requester-apac    | APAC        | live       | EMEA               | S31 cc29cbaf raised by the APAC requester
- INC0000004 | requester-none    | (none)      |            | (none)             | S31 cc29cbaf raised by the requester with no unit
- INC0000005 | requester-apac    | EMEA        | live       | EMEA               | S31 b334fa9c raised after the move to EMEA
+ INC0000001 | requester-emea    | EMEA        | live       | EMEA               | S31 94b9c26b raised by the EMEA requester
+ INC0000002 | requester-germany | Germany     | tombstoned | (none)             | S31 94b9c26b raised by the Germany requester
+ INC0000003 | requester-apac    | APAC        | live       | EMEA               | S31 94b9c26b raised by the APAC requester
+ INC0000004 | requester-none    | (none)      |            | (none)             | S31 94b9c26b raised by the requester with no unit
+ INC0000005 | requester-apac    | EMEA        | live       | EMEA               | S31 410f42f4 raised after the move to EMEA
 (5 rows)
 
 requester-apac's tickets, oldest first: APAC,EMEA
 AC4: PASS (the old ticket stays in APAC, the new one is in EMEA)
 
-== ADR-010-A2 metrics behind the two alerts (nava-groupsync and nava-worker admin listeners)
+== metrics behind the three S31 alerts (nava-groupsync and nava-worker admin listeners)
 (no groupsync_org_units_live_max sample yet: the service sets it on its first cycle, NAVA_GROUPSYNC_INTERVAL after start)
-authz_under_estimate_age_seconds{otel_scope_name="github.com/Navaladi2019/TicketingSystem/internal/estimates",otel_scope_schema_url="",otel_scope_version=""} 68.125514724
+(no groupsync_org_closure_unrooted_units_total sample: no cycle of the service has added to it)
+authz_under_estimate_age_seconds{otel_scope_name="github.com/Navaladi2019/TicketingSystem/internal/estimates",otel_scope_schema_url="",otel_scope_version=""} 251.281484703
 
-== ADR-010-A2 alerts loaded in Prometheus (profile operator, started here)
+== S31 alerts loaded in Prometheus (profile operator, started here)
 EntityRecordEstimatesStale: authz_under_estimate_age_seconds > 10800 (for 900s) state inactive
 GroupsyncOrgUnitsAboveCertified: groupsync_org_units_live_max > 10111 (for 600s) state inactive
+GroupsyncOrgUnitsUnrooted: increase(groupsync_org_closure_unrooted_units_total[15m]) > 0 (for 0s) state inactive

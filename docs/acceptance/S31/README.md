@@ -1,6 +1,6 @@
 # S31 acceptance kit: a policy can say "tickets in my region"
 
-Story TICK-946 · kit task TICK-953 (PLAN-011 P11-20) · ADR-010 D7, D8 as amended by ADR-010-A2 (closure design, C3/W0 list shape) · verified 2026-11-22 on a fresh stack, story branch `TICK-946/in-my-region` at `8528ea4f` plus this kit.
+Story TICK-946 · kit task TICK-953 (PLAN-011 P11-20) · ADR-010 D7, D8 as amended by ADR-010-A2 (closure design, C3/W0 list shape) · verified 2026-11-25 on a fresh stack from a new clone, story branch `TICK-946/in-my-region` at `719058d4` (all eight S31 fixes and TICK-1133) plus this kit. First verified 2026-11-22 at `8528ea4f`, before the fixes; every request and test of the two runs has the same name and result.
 
 ## What you can now do
 
@@ -29,9 +29,9 @@ If another stack holds the default ports, put other ones in `.env` (`NAVA_CORE_P
 6. Runs one group sync (`nava-groupsync --once`). It prints tenant A's `group sync applied` line and the cycle result, and fails unless the run exits 0 with `failed: 0`. Then it prints the tree again.
 7. Runs the Bruno folder **`S31 region after sync`** (16 requests): AC3 and AC4.
 8. Prints, from the database, the unit each S31 ticket kept. It fails unless the APAC requester's tickets are `APAC` (old) and `EMEA` (new).
-9. Prints the metrics behind the two ADR-010-A2 alerts, starts Prometheus (profile `operator`), and checks that both alerts are loaded.
+9. Prints the metrics behind the three S31 alerts, starts Prometheus (profile `operator`), and fails unless each of the three alerts is loaded once.
 
-The output of the verified run is `fresh-stack-run.txt`. It holds no tokens or passwords.
+The output of the verified run is `fresh-stack-run.txt`. It holds no tokens or passwords. Two things were removed from it: the local directory before `docs/` in the report paths, and the `npm ci` lines of the Bruno CLI's first install.
 
 To click through by hand, open the collection `docs/acceptance/guide/bruno/` in Bruno and select the `local` environment. Fill `s31_a_unit` and `s31_b_unit` with the ids from step 4. Run `S31 region`, then `docker compose run --rm --no-deps nava-groupsync --once`, then `S31 region after sync`. Without the manual sync, S31B.9 waits for the service's next cycle (up to `NAVA_GROUPSYNC_INTERVAL`, 5 minutes by default). Each request's Docs tab says what it shows.
 
@@ -84,15 +84,17 @@ S31 has no UI. Every criterion is an API call, so the evidence is the recorded B
 
 The adversarial isolation tests (tenant B's units and closure rows under RLS, a foreign unit in `under`, a forged `org_unit_id`) are TICK-952's.
 
-## Alerts after ADR-010-A2
+## Alerts
 
-Two alerts watch the region design. Step 9 shows both loaded and `inactive`:
+Three alerts watch the region design. Step 9 shows all three loaded and `inactive`:
 
 - `GroupsyncOrgUnitsAboveCertified`: `groupsync_org_units_live_max > 10111` for 10 minutes (TICK-1072, `deploy/compose/prometheus/rules/groupsync.yml`). The tree is larger than ADR-010-A2 is certified for. It never stops a sync.
+- `GroupsyncOrgUnitsUnrooted`: `increase(groupsync_org_closure_unrooted_units_total[15m]) > 0` (TICK-1116, `deploy/compose/prometheus/rules/groupsync.yml`). A live unit has no closure self row, so it is in nobody's region. It never stops a sync. The walk shows only that it is loaded: the counter has no sample until a cycle adds to it, and no step makes an unrooted unit. `deploy/compose/prometheus/tests/groupsync_test.yml` covers when it fires.
 - `EntityRecordEstimatesStale`: `authz_under_estimate_age_seconds > 10800` for 15 minutes (TICK-1071, `deploy/compose/prometheus/rules/authz.yml`). Stale estimates change the list's cost, never its rows.
 
 ## Not included
 
+- **The eight S31 fixes are in the verified build, but the kit has no step of its own for them** (for example a workflow policy test with `under`, or the masked unit in history and the audit export). Their tests are in their PRs: #869, #871 to #877.
 - No UI to pick or show org units. An admin writes the policy JSON through `PUT /api/v1/entity-types/incident/access`.
 - No API lists org units or shows a ticket's unit: `GET /me` lists groups, and a record's body has no `org_unit_id`. The kit reads both from the database (`run.sh` steps 3, 4 and 8).
 - A requester who raises their own ticket is not walked. The admin creates every ticket with `requester` set, which takes the "another requester" path of `resolveUnit`. The pipeline's own tests cover the unit on create (`internal/records/pipeline/org_unit_integration_test.go`, for example `TestCreateSetsOrgUnitFromRequestersPrimaryUnit` and `TestOrgUnitOnEveryInsertPath`).
