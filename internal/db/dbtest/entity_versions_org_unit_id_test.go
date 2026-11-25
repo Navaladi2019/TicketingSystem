@@ -192,6 +192,36 @@ func TestTICK1115MigrationRefusesStoredOrgUnitID(t *testing.T) {
 	migrateAll(t, m)
 }
 
+// A refused upgrade applies nothing of S31: the guard is S31's first
+// migration. One applied before it would be committed without the grants
+// manifest, which a refused run does not reach (20261121161036 alone breaks
+// every tenant's access publish with 42501).
+func TestTICK1115RefusalAppliesNothingOfS31(t *testing.T) {
+	// The newest migration before S31: what a deployed database has applied.
+	const beforeS31 = "20261120160200_audit_log_action_policy_ref_refused_validate.sql"
+	m := freshCluster(t)
+	if err := migrateOnlyFS(t, m, migrationsThrough(t, beforeS31)); err != nil {
+		t.Fatalf("migrate through %s: %v", beforeS31, err)
+	}
+	super := superNava(t)
+	seedTenants(t, super, []string{tenantA, tenantB}, nil)
+	seedEntityTypes(t, super, tenantA, tenantB)
+	storeVersions(t, super, oneVersion("refused", reservedSchema, ""))
+
+	_, err := migrateFS(t, m, db.Migrations())
+	if pe := refusal(t, "upgrade", err); pe != nil && pe.ConstraintName != orgUnitIDReservedConstraint {
+		t.Errorf("refused by %q, want %s", pe.ConstraintName, orgUnitIDReservedConstraint)
+	}
+	newest, _, _ := strings.Cut(beforeS31, "_")
+	if got := queryString(t, super, `SELECT coalesce(string_agg(version_id::text, ',' ORDER BY version_id), '')
+		FROM goose_db_version WHERE is_applied AND version_id > $1::text::bigint`, newest); got != "" {
+		t.Errorf("the refused upgrade left %s applied, want nothing after %s", got, newest)
+	}
+	// Once the row is gone the same upgrade applies.
+	storeVersions(t, super, oneVersion("clean", cleanSchema, ""))
+	migrateAll(t, m)
+}
+
 // undoOrgUnitIDReserved runs the migration's Down section as nava_migrator and
 // forgets its version, so the next case upgrades again.
 func undoOrgUnitIDReserved(t *testing.T, m *grants.Manifest, super *pgx.Conn) {
@@ -245,6 +275,12 @@ func TestTICK1115InsertRefusesOrgUnitID(t *testing.T) {
 				var pe *pgconn.PgError
 				if !errors.As(err, &pe) || pe.Code != "23514" || pe.ConstraintName != orgUnitIDReservedConstraint {
 					t.Errorf("%s: %s inserts: %v; want 23514 on %s", c.name, as.name, err, orgUnitIDReservedConstraint)
+					continue
+				}
+				// RLS keeps the row out of nava_app's error. The superuser sees
+				// its own statement's row, so the empty DETAIL is not a default.
+				if empty := pe.Detail == ""; empty != (as.name == "nava_app") {
+					t.Errorf("%s: %s inserts: DETAIL %q", c.name, as.name, pe.Detail)
 				}
 			}
 		}
