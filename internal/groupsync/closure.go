@@ -139,8 +139,11 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 	}
 	if len(touched) == 0 && have == 0 {
 		// Empty stored closure: nothing to compare, rebuild without the set check.
+		// A run that touched no unit is not a first import (a first import adds
+		// units), so a closure that is empty while the tenant has live units is
+		// drift. A tenant with no live units writes no row and reports none.
 		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
-		return rows, rebuilt, false, err
+		return rows, rebuilt, err == nil && rows > 0, err
 	}
 	if len(touched) == 0 {
 		var drift bool
@@ -156,6 +159,8 @@ func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched 
 		return rows, rebuilt, err == nil, err
 	}
 	if have == 0 {
+		// Not counted: a first import and a closure wiped in the same run as a
+		// unit change look the same here. Accepted limit (TICK-1124).
 		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
 		return rows, rebuilt, false, err
 	}

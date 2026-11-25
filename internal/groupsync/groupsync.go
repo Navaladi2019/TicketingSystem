@@ -150,6 +150,9 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	if err := errors.Join(unrErr, drErr, liveErr); err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
+	// A series that exists at 0 from the start lets the alert see the first
+	// repair as an increase (TICK-1124).
+	dr.Add(context.Background(), 0)
 	return &Syncer{
 		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, drift: dr, unitsLive: live,
 		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),

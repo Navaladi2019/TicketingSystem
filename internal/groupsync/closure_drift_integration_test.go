@@ -11,6 +11,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/groupsync"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 )
 
@@ -131,5 +132,87 @@ func TestClosureDriftRepairIsCounted(t *testing.T) {
 				t.Errorf("after repair: counter = %d, want still 1", n)
 			}
 		})
+	}
+}
+
+// An emptied closure on a tenant with live units, found by a run that touches
+// no unit, is drift. A tenant with no units reports nothing.
+func TestClosureDriftEmptyTableIsCounted(t *testing.T) {
+	super, pool := cluster(t)
+	tid, empty := uuid.New(), uuid.New()
+	seedTenant(t, super, tid, 1)
+	exec(t, super, "INSERT INTO tenants (id, state) VALUES ($1, 'active')", empty)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s, reader, wl := meteredSyncer(t, pool, dir)
+	units := []identity.DirectoryGroup{unit("r", "", path(tid, "/ou/r")), unit("a", "r", path(tid, "/ou/r/a"))}
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{syncUser("u1")}})
+	dir.set(empty, identity.DirectoryChanges{Users: []identity.DirectoryUser{syncUser("e1")}})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	dir.set(empty, identity.DirectoryChanges{Users: []identity.DirectoryUser{syncUser("e1"), syncUser("e2")}})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if n := driftTotal(t, reader); n > 0 {
+		t.Errorf("first import and a tenant with no units: counter = %d, want 0", n)
+	}
+	good := closureOf(t, super, tid)
+	exec(t, super, "DELETE FROM org_unit_closure WHERE tenant_id = $1", tid)
+	dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: []identity.DirectoryUser{syncUser("u1"), syncUser("u2")}})
+	if r := once(t, s); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if n := driftTotal(t, reader); n != 1 {
+		t.Errorf("emptied closure: counter = %d, want 1", n)
+	}
+	if got := wl.drift(); len(got) != 1 || !strings.HasPrefix(got[0], tid.String()+": ") {
+		t.Errorf("emptied closure: warn lines = %v, want one naming tenant %s", got, tid)
+	}
+	sameRows(t, "after repair", closureOf(t, super, tid), good)
+}
+
+// The count and the WARN come after the commit: a repair whose transaction
+// fails at commit adds 0 and logs nothing; the retry repairs and counts once.
+func TestClosureDriftNotCountedWhenCommitFails(t *testing.T) {
+	super, pool := cluster(t)
+	tid := uuid.New()
+	seedTenant(t, super, tid, 1)
+	dir := &fakeDir{snaps: map[uuid.UUID]identity.DirectoryChanges{}}
+	s, reader, wl := meteredSyncer(t, pool, dir)
+	units := []identity.DirectoryGroup{unit("r", "", path(tid, "/ou/r")), unit("a", "r", path(tid, "/ou/r/a"))}
+	run := func(users ...string) groupsync.Result {
+		var us []identity.DirectoryUser
+		for _, u := range users {
+			us = append(us, syncUser(u))
+		}
+		dir.set(tid, identity.DirectoryChanges{OrgUnits: units, Users: us})
+		return once(t, s)
+	}
+	if r := run("u1"); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	exec(t, super, "DELETE FROM org_unit_closure WHERE tenant_id = $1", tid)
+	// The repair inserts closure rows; this trigger fails the commit after them.
+	exec(t, super, `CREATE FUNCTION fail_closure_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected commit failure'; END $$`)
+	exec(t, super, `CREATE CONSTRAINT TRIGGER fail_closure_commit AFTER INSERT ON org_unit_closure DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_closure_commit()`)
+	if r := run("u1", "u2"); r.Err == nil {
+		t.Fatal("the commit was meant to fail")
+	}
+	if n := driftTotal(t, reader); n > 0 {
+		t.Errorf("failed commit: counter = %d, want 0", n)
+	}
+	if got := wl.drift(); len(got) != 0 {
+		t.Errorf("failed commit logged %v", got)
+	}
+	exec(t, super, "DROP TRIGGER fail_closure_commit ON org_unit_closure")
+	if r := run("u1", "u2"); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if n := driftTotal(t, reader); n != 1 {
+		t.Errorf("retry: counter = %d, want 1", n)
+	}
+	if got := wl.drift(); len(got) != 1 {
+		t.Errorf("retry: warn lines = %v, want one", got)
 	}
 }

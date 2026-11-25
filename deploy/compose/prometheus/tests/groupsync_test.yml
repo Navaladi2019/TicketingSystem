@@ -102,3 +102,25 @@ tests:
       - eval_time: 30m
         alertname: GroupsyncOrgClosureDriftRepaired
         exp_alerts: []
+  # A series that first appears already at 1 (first repair after a restart).
+  - interval: 1m
+    input_series:
+      - series: 'groupsync_org_closure_drift_repairs_total{job="nava",instance="nava-groupsync:9090"}'
+        values: '_x5 1x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GroupsyncOrgClosureDriftRepaired
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: nava
+              instance: nava-groupsync:9090
+            exp_annotations:
+              summary: Group sync found the stored org closure different from the live org tree and repaired it.
+              description: >-
+                Find the tenant in the nava-groupsync log line "the stored org
+                closure differed from the live org tree and was repaired". Re-look
+                at AR-TICK-1118-01 (docs/security/accepted-risks.md).
+      - eval_time: 35m
+        alertname: GroupsyncOrgClosureDriftRepaired
+        exp_alerts: []
