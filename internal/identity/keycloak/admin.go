@@ -130,8 +130,8 @@ type reply struct {
 	header http.Header
 }
 
-// tokenRoute is the route template of the token endpoint.
-const tokenRoute = "/realms/{realm}/protocol/openid-connect/token"
+// grantRoute is the route template of the token endpoint.
+const grantRoute = "/realms/{realm}/protocol/openid-connect/token"
 
 // statusError is a non-success reply. Its text never carries the body.
 type statusError struct {
@@ -152,7 +152,7 @@ func (e *statusError) Error() string {
 func (e *statusError) Is(target error) bool {
 	switch target {
 	case identity.ErrNotFound:
-		return e.status == http.StatusNotFound && e.route != tokenRoute
+		return e.status == http.StatusNotFound && e.route != grantRoute
 	case identity.ErrAlreadyExists:
 		return e.status == http.StatusConflict
 	}
@@ -172,7 +172,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		"client_id":     {acct.creds.ClientID},
 		"client_secret": {acct.creds.ClientSecret},
 	}
-	ctx = telemetry.WithRoute(ctx, tokenRoute)
+	ctx = telemetry.WithRoute(ctx, grantRoute)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		a.base+"/realms/"+url.PathEscape(a.realm)+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -184,7 +184,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		return "", fmt.Errorf("keycloak admin: token: %w", err)
 	}
 	if r.status != http.StatusOK {
-		return "", &statusError{method: http.MethodPost, route: tokenRoute, status: r.status}
+		return "", &statusError{method: http.MethodPost, route: grantRoute, status: r.status}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
