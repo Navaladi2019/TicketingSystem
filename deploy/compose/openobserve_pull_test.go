@@ -60,7 +60,7 @@ func openobservePin(t *testing.T) (repo, tag, digest string) {
 // set, for the refs that contain $FAKE_DIGEST_FOR, and otherwise the digest
 // pulled; `run` prints $FAKE_VERSION; `compose config` prints three services.
 const fakeDocker = `#!/bin/sh
-echo "$*" >>"$FAKE_LOG"
+printf '%s\n' "$*" >>"$FAKE_LOG"
 for ref; do :; done
 case $1 in
 pull)
@@ -86,7 +86,7 @@ esac
 // next one on PATH.
 const fakeTimeout = `#!/bin/sh
 echo "timeout $1 $2 $3" >>"$FAKE_LOG"
-real=$(PATH=${PATH#*:} command -v timeout) || exit 127
+real=$(PATH=${PATH#*:}; command -v timeout) || exit 127
 exec "$real" "$@"
 `
 
