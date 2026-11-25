@@ -64,7 +64,12 @@ flowchart TB
   entry's diff is masked for the reader's field masks exactly as secrets are
   (`{"redacted":"mask"}`, no salt). The masks are read on `nava_app`, where
   `acl_versions` is readable, and passed to the reader's masker
-  (`read.FieldMasks`); the reader role gets no new grant.
+  (`read.FieldMasks`); the reader role gets no new grant. The audit export
+  applies the same masks (TICK-1127).
+- **The org unit (S31).** `org_unit_id` is in the audit payload and is no schema
+  property, so no mask can name it. History never returns it. The audit list and
+  export redact it when the property mapped to the requester is masked
+  (`addOrgUnitMasks`, TICK-1119), and fail closed.
 
 ## Unique values (PR #523 finding 1)
 

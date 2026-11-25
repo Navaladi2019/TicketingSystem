@@ -141,6 +141,11 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <td><code>groupsync_org_units_live_max</code> above 10,111 for 10 minutes: a tenant's live org-unit tree is larger than ADR-010-A2 is certified for (A2-7, A2-R6). Region-only lists may exceed 150 ms</td>
 <td>The nava-groupsync log names the tenant. Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
 </tr>
+<tr>
+<td><code>GroupsyncOrgUnitsUnrooted</code> (warning)</td>
+<td><code>groupsync_org_closure_unrooted_units_total</code> grew in the last 15 minutes: some live org units have no closure self row, so no region rule sees their tickets (S31, TICK-1116). It can miss the first sample of a series that starts at 1; the WARN line repeats every cycle and covers that case</td>
+<td>The nava-groupsync WARN line <code>live org units have no closure self row and are outside every region</code> names the tenant. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
+</tr>
 </tbody>
 </table>
 <p><code>authz_policy_ref_missing_total{entity_type}</code> (nava-worker, S32) counts workflow named-policy tests that named no policy, so denied. It has no alert and should stay at zero; a rise means a workflow names a removed or misspelt policy (ADR-010 R5). The nava-worker warning <code>authz: workflow policy reference names no policy, it denies</code> gives <code>entity_type</code>, <code>ref_entity_type</code> and <code>policy</code>, and each one has a <code>policy_ref_refused</code> audit entry (<a href="../stories/s32.html#finding-the-missing-policy-entry">S32</a>).</p>
@@ -162,7 +167,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>authz_under_probe_seconds</code></td>
 <td>nava-core</td>
-<td>Duration of each P3 probe</td>
+<td>Duration of each P3 probe. No alert. One list runs at most 16 probes of at most 20,001 records each; a p95 above 25 ms for 15 minutes reopens that bound (<a href="../../../docs/delivery/decisions/2026-11-25-s31-probe-load-deferred.md">decision</a>, <code>AR-S31-05</code>)</td>
 </tr>
 <tr>
 <td><code>authz_under_estimate_age_seconds</code></td>
@@ -177,7 +182,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>groupsync_org_subtree_max</code></td>
 <td>nava-groupsync</td>
-<td>Most live units under any one unit a user belongs to; a tenant at 8,000+ is named in a WARN line</td>
+<td>Most live units under any one unit a user belongs to. No alert and no log line of its own</td>
 </tr>
 <tr>
 <td><code>groupsync_org_units_live_max</code></td>
@@ -187,7 +192,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>groupsync_org_closure_unrooted_units</code></td>
 <td>nava-groupsync</td>
-<td>Live units with no closure self row, so outside every region. Treat any increase as an alert; alert on this counter, not on its WARN line, which repeats every cycle</td>
+<td>Live units with no closure self row, so outside every region. Alert: <code>GroupsyncOrgUnitsUnrooted</code>, on the counter. The WARN line repeats every cycle</td>
 </tr>
 </tbody>
 </table>

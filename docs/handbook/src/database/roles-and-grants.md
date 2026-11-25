@@ -23,6 +23,12 @@ once at insert, so a record's number or a group's identity provider id cannot
 be rewritten. Only `nava_audit_reader` may read `audit_log.diff` and
 `diff_salt` (ADR-004-A1).
 
+`records.org_unit_id` is one of those set-once columns (S31). `nava_app` and
+`nava_worker` may insert and select it; no role but the owner may update it
+(TICK-1120). On a database that held the grant, the migrate job's grant step
+revokes it. `TestTICK1120NoRoleUpdatesRecordOrgUnit` proves both. A story that
+ships a "move ticket" workflow step (ADR-010 D8) must add it back.
+
 Only `nava_app` inserts into `acl_versions` (ADR-010-A1 A1-3, TICK-940).
 `nava_worker` keeps `SELECT` on `acl_versions` but has no `INSERT`, is not in
 the `acl_versions_insert` policy, and has no `EXECUTE` on any `acl%` check

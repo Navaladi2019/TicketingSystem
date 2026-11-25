@@ -28,7 +28,11 @@ create audit entry. It is never recomputed: moving a person to another unit
 leaves their old tickets where they were. NULL means no unit; such a record
 is in nobody's region. A request body cannot set it: the schema compiler
 refuses a property named `org_unit_id`, and the pipeline refuses a body that
-names it with `422 field_not_writable` (`refuseOrgUnit`). It is not in a record's API body.
+names it with `422 field_not_writable` (`refuseOrgUnit`). It is not in a record's API body
+or in its history (TICK-1119).
+`nava_app` and `nava_worker` have no `UPDATE` on the column (TICK-1120): an
+injection or a code bug in either service cannot move a ticket, not even inside
+its own tenant (`TestTICK947RecordOrgUnitIsTenantScoped`).
 The foreign key `records_org_unit_fkey` carries `tenant_id`, so a record
 cannot name another tenant's unit, and units are tombstoned, never deleted
 ([Org units](org-units.md)). A write that changes it cannot commit without

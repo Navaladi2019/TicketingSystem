@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-25: S31, the probe load of one list is deferred with a trigger (`AR-S31-05`)](decisions/2026-11-25-s31-probe-load-deferred.md)
 - [2026-11-22: S31, `groupsync_org_subtree_max` has no tenant label; the tenant is named in the 8,000+ warning log line](decisions/2026-11-22-s31-subtree-metric-no-tenant-label.md)
 - [2026-11-22: S31, region-list latency inside one tenant shows the page shape (accepted, `AR-TICK-1040-01`)](decisions/2026-11-22-s31-region-list-latency-bit.md)
 - [2026-11-22: PLAN-011-A3 drafted: ADR-010-A3 lands after S31 as standalone task PRs into main; one core-dev task, the TICK-1037 rerun as a new issue, and its own handbook task](decisions/2026-11-22-plan-011-a3-adr-010-a3.md)

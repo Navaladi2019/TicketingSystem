@@ -114,8 +114,8 @@ Go never builds the subtree, and no request walks the tree. Normative note:
 `docs/architecture/access-under-leaf.md`; decision: ADR-010 D7 as amended by
 [ADR-010-A2](../adr/adr-010-a2.md).
 
-- **Resolve first.** `authz.ResolveUnder` runs before `Allows`, `CompileRead`
-  or `ReadList`, in one statement: the caller's units, and for a single read
+- **Resolve first.** `authz.ResolveUnder` runs before `Allows`, `CompileRead`,
+  `ReadList` or a workflow policy test (`TestPolicyRef`, TICK-1114), in one statement: the caller's units, and for a single read
   the rows' ancestors in U. A policy whose `under` was not resolved for the
   principal is voided as `under_unresolved` (fails closed, counted in
   `authz_policy_invalid_total`). U is made `DISTINCT` and canonical on every
@@ -160,6 +160,10 @@ flowchart TD
   K\* = 1,000 and the probe runs.
 - **Rare-type shortcut (A2-5a).** A type with N̂_e ≤ K\* skips the probe and
   uses W0 for both the page and the count.
+- **Bounded probes.** One P3 per distinct region leaf of the plan, so at most
+  16 (`ReadBranchThreshold`) per list, each of at most 20,001 records. Security's
+  finding on that load is deferred with a trigger (`AR-S31-05`,
+  [decision](../../../delivery/decisions/2026-11-25-s31-probe-load-deferred.md)).
 - **Fail closed.** A probe error returns 500. There is no fallback shape.
 - **Nothing leaks.** The shape, the probe count, K\* and N̂_e reach no
   response, header, application log line or error text. Every statement binds the

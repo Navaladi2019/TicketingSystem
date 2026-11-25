@@ -3,7 +3,7 @@ title: "nava-groupsync"
 section: system
 status: delivered
 sources: [compose.yaml, cmd/nava-groupsync/main.go, db/grants.yaml, internal/groupsync/apply.go, internal/groupsync/closure.go, internal/groupsync/groupsync.go, deploy/compose/prometheus/rules/groupsync.yml, docs/data/org-units.md, docs/data/org-unit-closure.md]
-adrs: [ADR-001, ADR-002, ADR-010, ADR-010-A2]
+adrs: [ADR-001, ADR-002, ADR-010, ADR-010-A2, ADR-010-E4]
 stories: [S31]
 tables: [org_units, org_unit_members, org_unit_closure]
 packages: [cmd/nava-groupsync, internal/groupsync]
@@ -43,6 +43,8 @@ tenant's sync ([Org units](../database/org-units.md)):
   the stored and the live closure as sets and rebuilds on drift. An
   unchanged-snapshot cycle does not compare the closure. The cursor is in
   memory, so a restart makes the next cycle apply. Both run under the per-tenant advisory lock.
+  [ADR-010-E4](../adr/adr-010-e4.md) records this; a wrong row outside the touched
+  subtrees lasts until a run with no tree change (`AR-TICK-1118-01`).
 - **Unrooted check (TICK-1058).** After every rebuild call, and on every
   unchanged-snapshot cycle, it counts the tenant's live units with no closure
   self row. Such a unit is outside every region. A count above 0 is reported
@@ -53,9 +55,9 @@ tenant's sync ([Org units](../database/org-units.md)):
 
 | Metric (no tenant label, T01) | What it is | Alert |
 |---|---|---|
-| `groupsync_org_subtree_max` | Histogram, once per applied tenant sync: the most live units under any one unit a user belongs to | None. A tenant at 8,000 or more is named in a WARN log line |
+| `groupsync_org_subtree_max` | Histogram, once per applied tenant sync: the most live units under any one unit a user belongs to | None |
 | `groupsync_org_units_live_max` | Gauge, set once per cycle: the largest live-unit count of any tenant visited | `GroupsyncOrgUnitsAboveCertified`: above 10,111 for 10 minutes, the tree ADR-010-A2 is certified to (A2-7) |
-| `groupsync_org_closure_unrooted_units` | Counter: live units found with no closure self row | Alert on any increase of the counter, not on the WARN line, which repeats every cycle |
+| `groupsync_org_closure_unrooted_units` | Counter: live units found with no closure self row | `GroupsyncOrgUnitsUnrooted`: any increase in 15 minutes (TICK-1116). It can miss the first sample of a series that starts at 1; the WARN line, which repeats every cycle, covers that case |
 
 The tenant over a threshold is named in the log line, never in a metric. A
 `--once` run exits with its own metrics, so `groupsync_org_units_live_max`

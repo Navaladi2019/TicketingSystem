@@ -1187,6 +1187,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td><a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#what-the-audit-trail-shows">entity-versions-org-unit-id-reserved.md</a></td>
 </tr>
 <tr>
+<td>AR-S31-05 (probe load of one list)</td>
+<td>🟡 Low</td>
+<td>One list runs at most 16 P3 probes (<code>ReadBranchThreshold</code>), each reading at most 20,001 records, on the shared database. A tenant whose policies use many <code>under</code> branches can make each of its lists cost that much. No tenant data is at risk.</td>
+<td>Accepted (deferred; Security's finding 3 on TICK-946, 2026-11-25)</td>
+<td>Technical Lead</td>
+<td><code>authz_under_probe_seconds</code> p95 above 25 ms for 15 minutes, or a slow-list report from a tenant whose policies use more than 4 <code>under</code> branches. No alert watches it</td>
+<td><a href="../../../docs/delivery/decisions/2026-11-25-s31-probe-load-deferred.md">2026-11-25-s31-probe-load-deferred.md</a></td>
+</tr>
+<tr>
 <td>AR-TICK-1118-01 (a wrong region-tree row outside the changed units lasts until a run with no tree change)</td>
 <td>🟠 Medium</td>
 <td>ADR-010-E4 E4-7. Group sync replaces only the affected units' <code>org_unit_closure</code> rows, and compares the whole table with the live tree only on an applied run that touched no unit. A wrong row elsewhere lasts until such a run, with no time limit. An extra row grants through <code>under</code> and hides through <code>not under</code>; a missing row does the reverse. Either can let a user read <strong>or change</strong> tickets outside their rules, or refuse them tickets inside their rules, inside one tenant (FORCE RLS, FKs that carry <code>tenant_id</code>). An extra row can also make a list's count lower or higher than the tickets its pages show (inferred from code). Only a group-sync bug, the migrator, a superuser or a holder of group sync's database credentials can cause it; no user token can. No metric counts drift repairs (TICK-1124).</td>

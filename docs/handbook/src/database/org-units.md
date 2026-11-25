@@ -3,9 +3,9 @@ title: "Org units, membership and the closure"
 section: database
 status: delivered
 tables: [org_units, org_unit_members, org_unit_closure]
-adrs: [ADR-010, ADR-010-A2, ADR-004-E5]
+adrs: [ADR-010, ADR-010-A2, ADR-010-E4, ADR-004-E5]
 stories: [S31]
-sources: [docs/data/org-units.md, docs/data/org-unit-closure.md, db/migrations/20261121000000_org_unit_members.sql, db/migrations/20261121050000_org_unit_closure.sql, db/migrations/20261121144100_org_unit_closure_unrooted_warning.sql, db/grants.yaml]
+sources: [docs/data/org-units.md, docs/data/org-unit-closure.md, docs/data/entity-versions-org-unit-id-reserved.md, db/migrations/20261121000000_org_unit_members.sql, db/migrations/20261121050000_org_unit_closure.sql, db/migrations/20261121144100_org_unit_closure_unrooted_warning.sql, db/grants.yaml]
 ---
 
 Org units are a tenant's company tree (regions, countries, teams), mirrored
@@ -34,7 +34,13 @@ access leaf ("tickets in my region", ADR-010 D7 as amended by
 
 `records.org_unit_id` points at `org_units` ([Records](records.md)). Every key
 carries `tenant_id`, so tenant A's membership, closure row or record cannot
-name tenant B's unit.
+name tenant B's unit. The isolation suite proves it for `records` by INSERT, as
+`nava_app` and as `nava_worker`, with the same INSERT into A's own unit as the
+control (TICK-1126).
+
+The column name is reserved: no stored entity-type version may have a top-level
+property named `org_unit_id`, and the S31 upgrade stops if one does
+([Migration history](migrations.md#upgrading-to-s31)).
 
 ## How the closure is kept right
 
@@ -46,8 +52,13 @@ name tenant B's unit.
 
 Failing the sync on an unrooted unit would repair nothing, because the
 rollback keeps the stored closure. It would also hold back that tenant's
-user tombstones and group removals, so deprovisioning would wait. Alert on
-the counter, not on the WARN line, which repeats every cycle.
+user tombstones and group removals, so deprovisioning would wait. The alert
+`GroupsyncOrgUnitsUnrooted` fires on the counter; the WARN line repeats every
+cycle ([Traces, logs and metrics](../operations/observability.md)).
+
+[ADR-010-E4](../adr/adr-010-e4.md) is the decision behind this table. A wrong
+row outside the touched subtrees lasts until an applied run that touched no unit
+(`AR-TICK-1118-01`, Medium).
 
 `org_unit_closure_rebuild_all()` (the migration backfill, run as
 `nava_migrator`) does the same self-row check and raises a `WARNING` per
@@ -78,7 +89,9 @@ only index. It serves the probe, the subtree read and the per-tenant delete.
 | `nava_worker` | `SELECT` on `tenant_id, id, parent_id, deleted_at` | `SELECT` on `tenant_id, org_unit_id, principal_id, is_primary` | `SELECT` (for `under` in workflow policy tests) |
 
 All three tables are exempt from audit: `org_units` and `org_unit_members` are
-identity mirrors, and `org_unit_closure` is derived from `org_units`. The exact
+identity mirrors, and `org_unit_closure` is derived from `org_units`.
+`records.org_unit_id` can be inserted and read by `nava_app` and `nava_worker`,
+and updated by neither ([Records](records.md)). The exact
 grants are generated on [Roles and grants](roles-and-grants.md).
 
 ## Diagram

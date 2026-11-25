@@ -138,7 +138,8 @@ state test) and requires its path to fail.</p>
 <p>AR-001 and AR-002 are the two High and Medium residuals of ADR-001 that touch
 this layer: a stolen <code>nava-worker</code> certificate can set any <code>app.tenant_id</code>, so
 RLS cannot stop it, and Temporal histories in the shared cluster are not
-encrypted.</p>
+encrypted. AR-S31-02 and AR-S31-03 are about the S31 upgrade
+(<a href="../database/migrations.html#upgrading-to-s31">Migration history</a>).</p>
 <table>
 <thead>
 <tr>
@@ -214,6 +215,24 @@ encrypted.</p>
 <td>Security &amp; Multi-Tenancy Reviewer</td>
 <td>A new production outbox kind: add its keys to <code>kindPayloadKeys</code> (<code>internal/outbox/outbox.go</code>) in the same change. Any new interpreter signal channel: add a signal-name allow-list to <code>EnqueueAtVersion</code> first</td>
 <td><a href="../../../docs/data/outbox-payload-check.md#why-keys-use-the-fallback-pattern-not-a-per-kind-allow-list">outbox-payload-check.md</a>, TICK-240</td>
+</tr>
+<tr>
+<td>AR-S31-02 (one tenant can stop the S31 upgrade)</td>
+<td>🟡 Low</td>
+<td>By design the upgrade stops when any tenant has a stored entity-type version with a top-level <code>org_unit_id</code>, and a tenant of the release before S31 can publish one on purpose. It can also shape the type so that the documented repair refuses it.</td>
+<td>Accepted</td>
+<td>Technical Lead</td>
+<td>Control: the pre-upgrade check and the repair. Revisit if an upgrade is refused</td>
+<td><a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#pre-upgrade-check-and-repair-tick-1125">entity-versions-org-unit-id-reserved.md</a></td>
+</tr>
+<tr>
+<td>AR-S31-03 (a stop late in the S31 upgrade blocks access publishing)</td>
+<td>🟡 Low</td>
+<td>If <code>migrate</code> stops after <code>20261121161036</code>, every tenant's access publish fails with <code>42501</code> until it is run again, because the grants are applied at the end of the run. A successful run has the same gap for about a second.</td>
+<td>Accepted</td>
+<td>Technical Lead</td>
+<td>Control: rerun <code>migrate</code>. Revisit if an S31 upgrade stops there</td>
+<td><a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#if-the-upgrade-stops-later">entity-versions-org-unit-id-reserved.md</a></td>
 </tr>
 </tbody>
 </table>
