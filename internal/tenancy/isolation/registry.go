@@ -379,6 +379,7 @@ func Paths() []Path {
 			"SELECT tenant_id, id, parent_id, deleted_at FROM org_units WHERE id = $1 OR parent_id = $1", OrgUnitB1),
 		sql("org_units: group sync tombstones tenant B's units", "nava_groupsync", Denied,
 			"UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1", TenantB),
+		// Since TICK-1120 the missing UPDATE grant refuses it (42501), and it reaches the FK again when a "move ticket to another unit" step restores the grant (ADR-010 D8).
 		sql("records: put tenant A's record in tenant B's unit", "nava_app", Denied,
 			"UPDATE records SET org_unit_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB2, RecordA2),
 		sql("records: the worker reads tenant B's records by unit", "nava_worker", OwnRowsOnly,
@@ -658,5 +659,6 @@ func Paths() []Path {
 	paths = append(paths, aclAttackPaths()...)
 	paths = append(paths, numberFormatPaths()...)
 	paths = append(paths, closurePaths()...)
+	paths = append(paths, orgUnitFKPaths()...)
 	return append(paths, boundaryPaths()...)
 }
