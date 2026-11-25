@@ -37,9 +37,7 @@ what answers for Keycloak: a proxy that answers 404 gives the same line
 signs are the WARN line `group sync: the tenant's admins group was deleted in
 the directory; the tenant has no admin until one is recorded`, or a
 `principals_tombstoned` close to the tenant's number of users in `group sync
-applied`. The repair of the admins and auditors pointers is in
-`docs/operator/onboarding.md`, "Pointer missing after a group came back
-(R-E5-4)".
+applied`.
 
 ## Org units (S31)
 
