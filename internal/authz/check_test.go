@@ -63,18 +63,6 @@ func TestPrepareAcceptsTheValidFixtures(t *testing.T) {
 		t.Run(f.Name, func(t *testing.T) {
 			t.Parallel()
 			p, ps := authz.Prepare(body(string(f.Doc)), authz.DefaultMaxDocumentBytes)
-			if strings.Contains(string(f.Doc), `"under"`) {
-				// Decodes, but under is not available before S31.
-				for _, pr := range ps {
-					if pr.Rule != authz.RuleNotAvailable {
-						t.Errorf("problem %s %s", pr.Pointer, pr.Rule)
-					}
-				}
-				if len(ps) == 0 {
-					t.Error("under was accepted")
-				}
-				return
-			}
 			if len(ps) > 0 {
 				t.Fatalf("problems = %q", pointersOf(ps))
 			}
@@ -341,9 +329,6 @@ func TestPrepareOutputRoundTrips(t *testing.T) {
 	t.Parallel()
 	for _, f := range load[validFixture](t, "testdata/format2_valid.json") {
 		p, ps := authz.Prepare(body(string(f.Doc)), authz.DefaultMaxDocumentBytes)
-		if strings.Contains(string(f.Doc), `"under"`) {
-			continue
-		}
 		if len(ps) > 0 {
 			t.Fatalf("%s: %q", f.Name, pointersOf(ps))
 		}

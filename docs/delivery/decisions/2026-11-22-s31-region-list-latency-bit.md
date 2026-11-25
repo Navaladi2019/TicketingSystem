@@ -1,0 +1,7 @@
+## 2026-11-22: S31, region-list latency inside one tenant shows the page shape (accepted, `AR-TICK-1040-01`)
+
+- **Decided by:** the Security & Multi-Tenancy Reviewer, in the TICK-1036 security review (PR #841); accepted under ADR-010-A2 A2-6 (TICK-1040 comment 01a1fcad, 2026-11-21). Recorded by the Technical Lead on TICK-954 (S31 handbook). Story S31 (TICK-946).
+- **Decision:** page latency within one tenant can show which page shape the probe chose: roughly whether m ≤ K\*, or under A2-5a whether N̂_e ≤ K\*. It is one coarse bit, inherent to ADR-010-A2, counting records the caller cannot read; K\* also hints at the type's rough record volume. Rows returned never change, the count never leaves the server, and the bit stays inside the caller's tenant. The risk row is `AR-TICK-1040-01` in `docs/security/accepted-risks.md`.
+- **Operations rule that goes with it:** a slow P3 probe's SQL text includes `LIMIT K*+1`. Keep `log_min_duration_statement` and `auto_explain` off for the app role, and never ship the PostgreSQL server log anywhere a tenant can read it. A cancelled or failed probe is logged whatever these settings are, so the log rule is the one that must hold. Written on the handbook pages Core: record ACL and ACL and field masks on the read side.
+- **Trigger to revisit:** a tenant-facing timing guarantee is required, or record volume per org unit must be confidential from users whose policy names that unit, or any client-supplied filter would run the probe.
+- **Dissent:** none.

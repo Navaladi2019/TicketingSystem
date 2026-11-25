@@ -1,4 +1,4 @@
-# Region access at 800k: `org_unit_id = ANY(S)` (SP-1)
+# Region access at 800k: `org_unit_id = ANY(S)` (SP-1, S31 rerun)
 
 Scope: TICK-932, PLAN-011 P11-01, ADR-010 D7 and R1. The question: on the
 P3-36 800k bench, does the support-agent incident list (`sort=-updated_at`,
@@ -8,7 +8,418 @@ when the read predicate gains D7's leaf
 `org_unit_id IS NOT NULL AND org_unit_id = ANY($S)`, for |S| = 10, 100, 1,000
 and 10,000?
 
-## Verdict
+## S31 rerun after A2 (TICK-1037, R1 per ADR-010-A2 A2-11)
+
+**R1: PASS.** Every row passes for both personas under the rules fixed
+before the `bench_conc` rerun (TICK-1091 item 1). The rerun's clean attempts
+are 70.08 ms (agents) and 82.69 ms (count-only) p95, against 150 ms. The
+earlier 161.57 ms attempt (paired base tail 3.2× its median) is void under
+the base-tail gate and stays on record below.
+
+The other rows pass for both personas, at most 87.29 ms p95 (the
+region-only caller at region size). The A2-R1 cells (m ≈ K\*: uniform
+m = 3,000 / 4,500) pass at 79.92 / 86.83 and 65.65 / 76.71 ms. Their
+verdicts stand (Technical Architect, TICK-1091).
+
+### `bench_conc` rerun (bench slot 4, 2026-11-22, PR #846 at `7b9f587c`)
+
+- **Start.** The first start, at 12:30:40Z, was **refused** by the
+  run-level floor gate: p50 4.15 ms > 3 ms. Another task was running the
+  full `go test -race ./...` suite on the host, with no container. No
+  numbers were taken. I reran it at 12:45:54Z, once that suite had finished
+  and CPU was at 4%. Pre-flight `docker ps` both times showed `multica-*`
+  only.
+- **Clean on the first attempt, every row.** Floor p50 0.54 to 0.93 ms,
+  base p95/p50 1.31 to 1.39 (gate 2.0), and no foreign container.
+  Setup took 11 min 1 s.
+
+| Row (p95, ms) | Agents | Count-only | Agents base p95 / Δ | Count-only base p95 / Δ | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| **`bench_conc`, regions 0–8 (9,099)** | **70.08** | **82.69** | 22.51 / +47.57 | 20.46 / +62.23 | **pass** |
+| `bench_conc` at root (10,111), info | 33.14 | 41.40 | 21.48 / +11.65 | 25.12 / +16.28 | info |
+| `bench_conc`, regions 0–8, `state=new`, info | 101.09 | 92.91 | 23.09 / +78.00 | 22.01 / +70.90 | info |
+| `bench_conc` at root, `state=new`, info | 88.84 | 86.74 | 21.63 / +67.21 | 22.19 / +64.55 | info |
+
+- **Do the probe and CC still visit every unit of S with a filter?** Known,
+  from the captured plans (`acl-perf-region/tick1037-region-run2-bench-conc.md`
+  for the times; the raw report, attached to TICK-1037, for the plans):
+  - **Probe (P3):** it takes no filter, so its cost doesn't change
+    (19.7 → 20.0 ms p50 at 9,099 units).
+    - At regions 0–8 it visits every unit: closure `loops=9`, 1,011 rows
+      each; `records_org_unit` `loops=9099`.
+    - At root it stops after 97 units, because it reaches its K\* + 1
+      cap in district pre 9101.
+  - **CC count: yes, it walks every unit, and the filter does not shorten
+    the walk.**
+    - At regions 0–8 the region branch runs `records_org_unit`
+      `loops=9099`.
+    - At root it is `loops=10111`, with the state test applied to each
+      record found. Its time goes from 21.6 to 43.0 ms p50.
+  - **The page:** its region term is the C3 walk at 9,099 units
+    (18.6 ms p50) and the W0 `EXISTS` at root (10.8 ms p50).
+  - **Inferred:** a selective filter makes the region-only count do more
+    work at a large S, not less: +67 ms Δp95 at root with `state=new`,
+    against +12 ms without it. Every such row stays under 150 ms here, with
+    49 ms margin or more. This is A2-R6's shape: the cost follows the units
+    of S, not the records that match.
+- **What the earlier attempt was:** the same row now passes at 70.08 ms on a
+  quiet host. That fits TICK-1091's reading that the 161.57 ms attempt was
+  host noise.
+
+The rules below were fixed before the rerun, so before any number existed:
+
+- **Gate added** (`perfBaseTailGate = 2.0`, `gateReason`): a region attempt is
+  void if its paired base p95/p50 > 2.0. The floor gate only sees an
+  attempt's start and end, and this gate catches host noise in between. The
+  other 26 attempts had a ratio of 1.34 to 1.65, so applied retroactively the
+  gate voids none of them.
+- **A clean attempt** has the floor gate, the base-tail gate and the
+  container watch all green. Each row gets up to 3 attempts.
+- **Outcome:**
+  - **R1 FAIL confirmed** if any clean agents or count-only attempt has a
+    p95 > 150 ms.
+  - **Pass** if every clean attempt is ≤ 150 ms.
+  - **Inconclusive** if a row has no clean attempt in 3. Then host
+    availability goes to the CTO, and the row is not scored.
+- **Command:**
+  `NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^region: bench_conc' sh bench/acl-perf/run.sh`.
+  The same selector runs the information-only rows below.
+- **Information-only rows** (Technical Lead, 2026-11-22). They are
+  unscored and change neither R1 nor the rules above. They keep every gate
+  and its re-runs. Both personas run each one, and the raw report EXPLAINs
+  each row's statements.
+  - `bench_conc` at root (10,111 units), unfiltered (TICK-1091 optional
+    item).
+  - `bench_conc` with `filter[state]=new`, at 9,099 and at 10,111 units:
+    the usual open-ticket list. `state` is a fixed column, so the filter
+    lands in the count and the page.
+- **Known, from the code** (`authz.ProbeStatement`, `internal/authz/shape.go`):
+  the probe takes no request filter, by design (A2-6 requirement 1). With a
+  filter present, it still visits the units of S. The count and the page
+  get the filter in their `WHERE` (`records_list.go`, `pl.where`). Whether
+  CC still visits every unit with the filter is for the plans to show.
+- **Not built: the state + branch filter rows.** A branch filter needs
+  ADR-006's `x-nava-filterable` field indexes, which are on that story's
+  branches (TICK-739, TICK-743, TICK-1022) but not on `main` or
+  `TICK-946/in-my-region`. `records.org_unit_id` is not a list filter
+  (`metadata.ColumnOrgUnitID` maps to no property). The only branch filter
+  possible here would be a `data` filter, which is not the path the
+  question is about.
+
+**Step 0: three clean passes (55.48, 128.25, 175.47 ms p95). No two agree
+within 5 ms.** The median is 128.25 ms, used for the information-only
+Δ below.
+
+**Known:** on this host the 8-client P3-36 row moves by 120 ms between
+passes, and every gate passes on all three: floor ≤ 1.67 ms, no foreign
+container. It is not a stable baseline here.
+
+**Inferred:** the load is outside Docker. Windows Defender (`MsMpEng`)
+had the most CPU time on the host. This is not profiled. The paired 1-client
+base inside each region row (27 to 63 ms p95) is the comparable reference,
+and the verdict does not depend on either baseline.
+
+### Scored run (2026-11-22, 07:56 to 08:39 UTC, PR #846 at `c5483ec1`)
+
+- **Host.** The P3-36 reference host, freed by the human (Technical Lead,
+  07:47Z). Pre-flight `docker ps` at 07:47:54Z: `buildx_buildkit_nava-ci0`
+  (idle) and `multica-*` only. The run started its own database alone, and
+  the 10 s container sampler saw no `nava-it-` / `nava-ci-` /
+  `nava-aclperf-` container in 246 samples.
+- **Method:** as reviewed in TICK-1087 (METHOD: OK at `c5483ec1`).
+  `NAVA_PERF_SECONDS=60 NAVA_PERF_ONLY='^region:' sh bench/acl-perf/run.sh`.
+  Each row is 1 client, paired, with a floor gate at the start and end of
+  every attempt. Region setup took 10 min 59 s.
+- **K\* per set** (A2-9, from the refresher's N̂_e, page 51). The shape is
+  **predicted** from m and K\*, not read from the probe:
+
+| Set | Type | \|S\| | m | N̂_e | K\* | Predicted shape |
+| --- | --- | --- | --- | --- | --- | --- |
+| area / district | ticket | 10 / 101 | 220 / 3,379 | 400,000 | 3,613 | C3 |
+| region / root | ticket | 1,011 / 10,111 | 37,930 / 380,048 | 400,000 | 3,613 | W0 |
+| district hot / thin | ticket | 101 | 22,996 / 600 | 400,000 | 3,613 | W0 / C3 |
+| uniform m = 1,001 / 3,000 | ticket | 101 | as named | 400,000 | 3,613 | C3 |
+| uniform m = 4,500 / 10,000 | ticket | 101 | as named | 400,000 | 3,613 | W0 |
+| `bench_rare` at root | bench_rare | 10,111 | 500 | 500 | 1,000 | A2-5a (rare: W0, no probe) |
+| `bench_conc`, regions 0–8 | bench_conc | 9,099 | 0 | 20,000 | 1,000 | C3 |
+
+- **Rows**: handler p95 in ms, scored against 150 ms. "Base" is the paired
+  plain agent request from the same client. "Δ vs Step 0" is the worst
+  persona's p95 minus 128.25 ms. Both deltas are for information only.
+
+| Set | Agents p95 | Count-only p95 | Agents base p95 / Δ | Count-only base p95 / Δ | Δ vs Step 0 | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| area (10) | 68.26 | 72.32 | 51.12 / +17.14 | 52.83 / +19.49 | −55.9 | pass |
+| district (101) | 85.94 | 86.62 | 52.02 / +33.91 | 52.86 / +33.76 | −41.6 | pass |
+| region (1,011) | 67.56 (attempt 2) | 81.90 (attempt 3) | 50.73 / +16.83 | 59.41 / +22.49 | −46.4 | pass |
+| root (10,111) | 79.54 | 68.62 | 57.83 / +21.71 | 49.98 / +18.63 | −48.7 | pass |
+| district hot | 65.21 | 64.46 | 48.68 / +16.54 | 47.98 / +16.48 | −63.0 | pass |
+| district thin | 64.68 | 65.49 | 46.65 / +18.04 | 47.05 / +18.45 | −62.8 | pass |
+| uniform m = 1,001 | 66.44 | 67.76 | 44.94 / +21.50 | 47.31 / +20.44 | −60.5 | pass |
+| uniform m = 3,000 | 79.92 | 86.83 | 47.61 / +32.31 | 52.57 / +34.27 | −41.4 | pass |
+| uniform m = 4,500 | 65.65 | 76.71 | 47.82 / +17.83 | 47.89 / +28.82 | −51.5 | pass |
+| uniform m = 10,000 | 64.51 | 63.48 | 46.91 / +17.60 | 40.57 / +22.91 | −63.7 | pass |
+| `bench_rare` at root | 44.98 | 40.84 | 29.84 / +15.14 | 27.26 / +13.58 | −83.3 | pass |
+| `bench_conc`, regions 0–8 (9,099), run 1 | ~~161.57~~ void (base p95/p50 3.20 > 2.0, TICK-1091) | 123.53 | 87.33 / +74.24 | 44.65 / +78.87 | n/a | void; see rerun |
+| **`bench_conc`, regions 0–8 (9,099), rerun** | **70.08** | **82.69** | 22.51 / +47.57 | 20.46 / +62.23 | −45.6 | **pass** |
+
+The 161.57 ms attempt stays in the record, void under TICK-1091's base-tail
+gate (Technical Architect, 2026-11-22 08:46Z). It is neither deleted nor
+patched. Voided attempts (the floor gate, re-run by the harness): region (agents)
+attempt 1, with an end floor of 6.75 ms; region (count-only) attempts 1 and
+2, with floors of 3.19 and 3.21 ms. They are not scored. Every row and gate
+line is in `acl-perf-region/tick1037-region-run1.md`. The full raw report
+(1.4 MB, every plan) is attached to TICK-1037.
+
+**What `bench_conc` shows.** Diagnostic only: the score above stands.
+
+- **Known: the cost is A2-R6's.** All of it is in the region statements.
+  - The probe takes 20.4 / 39.2 ms (p50 / p95) and the page 20.8 / 44.0 ms
+    for the agents.
+  - The region-only caller also pays the CC count: 28.3 / 37.4 ms.
+  - Each of these visits all 9,099 units of S for a type with no record
+    there.
+  - The median cost is +40.9 ms for the agents and +68.3 ms for the
+    region-only caller. That is the same order as X3's +93.9 ms on the probe
+    harness.
+- **Known: the agents attempt was also noisier than the count-only one.**
+  - Even `BEGIN` and `commit` ran at an 8 to 9 ms p95, against about 4 ms in
+    the count-only row, and the paired base's p95 was 87.33 ms against
+    40 to 60 ms elsewhere.
+  - The gate passed, so the attempt is scored as it is (A2-11: no other
+    basis).
+- **Inferred:** without that noise, the agents row would sit near the
+  count-only row's 123.53 ms. That is still a small margin at 9,099 units,
+  for a cost that grows at about 10 µs per unit of S.
+- **Not tested here:** `bench_conc` at the certified 10,111 units (root).
+
+**Routing:** R1 passes, so the R1 trigger on S31 (TICK-946) is withdrawn.
+A2-R6 stands as a **cost**:
+- +47.6 / +62.2 ms Δp95 at 9,099 units;
+- up to +78 ms with a state filter;
+- the closest clean row is 49 ms under budget.
+
+It goes to the CTO as a margin risk, not as a measured R1 fail. This is not
+a groupsync refusal (A2-7).
+
+### Step 0: baseline passes (agent list, `sort=-updated_at`, no `under` leaf)
+
+Windows from the CTO: 2026-11-22, 02:40 to 04:10 UTC (passes 1 and 2) and
+the second one, opened early at 07:47 UTC (passes 3 and 4) (TICK-1037). Each pass is the unchanged P3-36 handler row: a fresh 800k seed,
+8 clients, 20 s, behind the transport floor gate and the TICK-1040 container
+watch.
+
+```
+NAVA_PERF_ONLY='^agent list, sort=-updated_at$' sh bench/acl-perf/run.sh
+```
+
+| Pass | Start (UTC) | Floor p50 / p95 | n | p50 | **p95** | Host during the pass | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 02:41:28 | 1.05 / 1.64 | 3,451 | 44.88 | **55.48** | Only the allowed containers: `buildx_buildkit_nava-ci0` (idle), `multica-*` | **clean** |
+| 2 | 02:44:54 | 1.64 / 2.27 | 2,956 / 3,963 | 51.34 / 43.25 | 76.17 / 65.74 | `nava-it-pg-68222908` (02:46), `nava-it-pg-118522456` (02:51), each with `-pgb-pooled` / `-pgb-noprep` sidecars, from another task's `scripts/ci/test-integration.sh` | **void** (CTO terms: a new `nava-*` container during a pass voids it) |
+| 3 | 07:47:59 | 1.19 / 2.37 | 1,933 | 77.22 | **128.25** | Only the allowed containers (pre-flight 07:47:54Z) | **clean** |
+| 4 | 07:52:35 | 1.67 / 2.57 | 1,921 | 70.32 | **175.47** | Only the allowed containers | **clean** |
+
+- **Pass 2 is not scored**, its second attempt included. The harness gated
+  attempt 1 and waited for the containers before attempt 2. The CTO's terms
+  void the whole pass, so the 65.74 ms is not patched in.
+- Passes 1 and 3 differ by more than 5 ms, so pass 4 ran. All three clean
+  passes stand, and none is dropped.
+- Code: `TICK-946/in-my-region` at `7e1055ca` (TICK-1036 and TICK-1071 merged).
+- Raw: `acl-perf-region/tick1037-baseline-pass1.md` to `-pass4.md` (header,
+  plans, container samples). Passes 3 and 4 ran at `c5483ec1`, where the
+  P3-36 row is unchanged.
+
+### Region rows through the handler (method, for review before scoring)
+
+A2-11 scores the **handler** p95 with a region policy. Before TICK-1037 no
+harness measured that: `TestRecordsACLPerf800k` had no org tree or `under`
+policy, `bench/acl-perf/region/main.go` is database-only (and calls the
+deleted `authz.ExpandUnder`), and the crossover `sp1x` is the probe harness.
+TICK-1037 adds the "region:" rows to the P3-36 handler test
+(`internal/server/records_perf_region_integration_test.go`). They run after
+every other row, so the Step 0 baseline row is untouched.
+
+- **Timed request.** `GET /api/v1/records/<type>?sort=-updated_at` through
+  `server.NewHandler`. `ResolveUnder`, the estimate read, the P3 probe
+  (`ChooseListShapes`), the count and the page all run inside it.
+- **Data**, on the P3-36 seed, large tenant. The SQL is ported from the
+  bench harnesses, so the sets are the crossover cells':
+  - the SP-1 tree (10,111 units) in `org_units`, every live path in
+    `org_unit_closure`, and `records.org_unit_id` = the requester's primary
+    branch (5% NULL);
+  - SP-1c's district hot and thin, SP-1e's uniform m = 1,001 / 3,000 /
+    10,000 and sp1x's m = 4,500;
+  - `bench_rare` (500 records, one per random branch) and `bench_conc`
+    (20,000 in district pre 9101). Here they are real entity types made
+    through the API, not copied definitions.
+  - SP-1e's "district mixed" is not built: it isn't one of TICK-1037's sets.
+  - Then `VACUUM FULL`, `ANALYZE`, `pg_prewarm` and `CHECKPOINT`, as in
+    region.sql.
+- **N̂_e and K\*.** One cycle of the TICK-1071 refresher
+  (`estimates.Refresher`), as `nava_worker`. The job lists tenants from
+  `tenant_identity_binding`, which the P3-36 seed leaves empty, so every perf
+  tenant gets a binding first, as a live tenant has. Each row logs |S|, m,
+  N̂_e, K\* and the A2-5 shape.
+- **Policy.** The P3-36 document in format 2, plus a last policy `regional`:
+  `all[member_of regional, under {of: caller}]`, on `ticket`, `bench_rare`
+  and `bench_conc`. Last is TICK-951's worst branch position.
+  ReadBranchBound is 6.
+- **Personas.** Both are in the regional group. Each row puts them in the
+  set's units (`org_unit_members`).
+  - **agents:** the 200 P3-36 agents (desk, mine, regional); the desk branch
+    fills the page.
+  - **count-only:** a principal whose only grant is `regional`. No record
+    names it, and nothing is shared with it.
+- **Paired, 1 client.** Each scored request alternates with its base: the
+  same P3-36 agent and path without the regional group, so `regional` folds
+  away (no `under` leaf, no probe). The base p95 is reported beside the row,
+  for information only. The TICK-1040 container watch is P3-36's. The floor
+  gate is P3-36's 3 ms p50, but measured per region attempt: a 1-client
+  `SELECT 1` floor just before and just after each attempt (as the crossover
+  cells gated each chunk at its start and end). Either p50 over 3 ms voids
+  the attempt, which reruns under the 3-attempt rule. Both values are in the
+  region report's Floor column (TICK-1087 item 1). The run-level 8-client
+  floor still runs once before every row.
+- **Pass:** every row, both personas, p95 ≤ 150 ms. Verdict on the worst
+  persona.
+
+**Smoke check, not scored** (2026-11-22, 03:17 to 03:40 UTC; 2 s per row;
+container watch off locally; TICK-1084's `nava-it-*` containers were up).
+Every row ran and returned 200. The sets match the crossover cells:
+
+| Set | \|S\| | m | N̂_e | K\* | Shape |
+| --- | --- | --- | --- | --- | --- |
+| area / district / region / root | 10 / 101 / 1,011 / 10,111 | 220 / 3,379 / 37,930 / 380,048 | 400,000 | 3,613 | C3 / C3 / W0 / W0 |
+| district hot / thin | 101 | 22,996 / 600 | 400,000 | 3,613 | W0 / C3 |
+| uniform m = 1,001 / 3,000 / 4,500 / 10,000 | 101 | as named | 400,000 | 3,613 | C3 / C3 / W0 / W0 |
+| `bench_rare` at root | 10,111 | 500 | 500 | 1,000 | A2-5a (rare, no probe) |
+| `bench_conc`, regions 0–8 | 9,099 | 0 | 20,000 | 1,000 | C3 |
+
+Its latencies (n ≈ 10 per row, contended host) are not recorded as results.
+The scored run is in the CTO's second window: 2026-11-22, 08:00 to 10:00
+UTC. It runs Step 0's remaining pass(es) first, on the unchanged P3-36 row,
+then:
+
+```
+NAVA_PERF_SECONDS=30 NAVA_PERF_ONLY='^region:' sh bench/acl-perf/run.sh
+```
+
+That takes about 2 min of seed, 17 min of region setup and 24 rows × ~35 s.
+The paired table goes to `bin/acl-perf-800k-raw-region.md`.
+
+## S31 rerun on the real schema (TICK-951 P11-18, 2026-11-21)
+
+**R1: FAIL, confirmed on the real migration, index and expansion.** On S31's
+story branch, the region leaf costs **+94.4 ms p95 for a 1,011-unit region**
+when set S comes from the runtime's own `authz.ExpandUnder` in the request.
+At |S| = 10,000 it costs **+199.9 ms p95**. These are 1-client deltas against
+a baseline measured in the same run. Projected onto the 146.2 ms handler p95,
+that is about 241 ms and 346 ms. Even the database work alone is over the
+150 ms budget: 156.9 ms and 262.4 ms p95. Under ADR-010 R1 this is the
+trigger, and it goes on S31 (TICK-946). The fallback decision is still open:
+SP-1b (TICK-969) tested the closure table, and the Solution Architect's
+option (i), SP-1c, has not run.
+
+What changed from SP-1:
+
+- **Schema.** `records.org_unit_id`, its FK and the partial index
+  `records_org_unit (tenant_id, org_unit_id) WHERE org_unit_id IS NOT NULL`
+  now come from S31's migrations (TICK-947), not from `region.sql`. The bench
+  indexes are dropped. There is no R1-index phase, since SP-1 and SP-1b showed
+  the planner does not use that index where it would matter.
+- **Leaf.** The region branch is the same text `authz.CompileRead` renders,
+  `(r.org_unit_id IS NOT NULL AND r.org_unit_id = ANY($n::uuid[]))`. The
+  harness checks this on every expanded request.
+- **Expansion.** The new "ExpandUnder + list" rows run `authz.ExpandUnder` for
+  `{"under": {"of": [root]}}` inside the request transaction, then the count
+  and page with the S it returns. That is the list handler's order of work.
+  The "|S| = k" rows bind the first k units, as SP-1 did, so the two runs
+  compare.
+
+### 1 client, 10 s per row (scored by delta)
+
+ms per request. Baseline is the 4-branch list with no region leaf, from the
+same run: p50 37.5, p95 62.4.
+
+| Row | Units in S | n | p50 | **p95** | Δp50 / **Δp95** | SP-1 Δp95 (plain) |
+| --- | --- | --- | --- | --- | --- | --- |
+| \|S\| = 10, bound | 10 | 316 | 30.5 | 48.6 | −7.0 / −13.9 | +2.7 |
+| \|S\| = 100, bound | 100 | 234 | 38.0 | 75.3 | +0.6 / +12.9 | +0.8 |
+| \|S\| = 1,000, bound | 1,000 | 185 | 51.2 | 91.4 | +13.7 / **+29.0** | +7.7 |
+| \|S\| = 10,000, bound | 10,000 | 53 | 193.0 | **262.4** | +155.5 / **+199.9** | +157.6 |
+| ExpandUnder + list, area 0/0/0 | 10 | 243 | 38.0 | 62.2 | +0.5 / −0.3 | n/a |
+| ExpandUnder + list, district 0/0 | 101 | 180 | 53.8 | 84.3 | +16.3 / **+21.8** | n/a |
+| ExpandUnder + list, region 0 | 1,011 | 108 | 83.5 | **156.9** | +46.0 / **+94.4** | n/a |
+| ExpandUnder + list, root | 10,111: refused | 51 | 179.4 | **304.8** | +141.9 / **+242.3** | n/a |
+
+ExpandUnder alone (BEGIN, set_config, ExpandUnder, COMMIT; floor 13.4 p50,
+25.9 p95):
+
+| Subtree | Units | p50 | p95 |
+| --- | --- | --- | --- |
+| area 0/0/0 | 10 | 12.9 | 24.9 |
+| district 0/0 | 101 | 19.8 | 41.3 |
+| region 0 | 1,011 | 41.4 | 120.0 |
+| root | 10,111: refused | 222.3 | 321.7 |
+
+### 8 clients, 20 s per row (not scored)
+
+The floor was 5.9 ms p50 and 14.3 ms p95, against P3-36's 3 ms gate. The
+P3-36 handler run refused to measure (`host busy: transport floor p50 5.29 ms
+> 3 ms gate`). The |S| = 100 row is an outlier: 831 ms p95 with n = 451,
+while its plan executes in 3.3 ms. That points to a contention spike during
+that row, not a plan change.
+
+| Row | n | p50 | p95 |
+| --- | --- | --- | --- |
+| baseline | 4,095 | 35.6 | 63.6 |
+| \|S\| = 10 / 100 / 1,000 / 10,000, bound | 2,303 / 451 / 1,472 / 372 | 61.0 / 312.0 / 98.5 / 365.3 | 132.8 / 831.2 / 196.0 / 1,171.5 |
+| ExpandUnder + list, area / district / region / root | 2,790 / 2,363 / 1,333 / 241 | 53.4 / 63.4 / 110.7 / 615.8 | 83.4 / 102.0 / 197.4 / 967.2 |
+| ExpandUnder alone, area / district / region / root | 5,809 / 3,785 / 1,432 / 346 | 19.4 / 31.9 / 86.6 / 432.9 | 42.7 / 60.2 / 189.7 / 624.1 |
+
+### What the rerun adds to SP-1 and SP-1b
+
+1. **Plans: no change.** In every bound row (EXPLAIN of agent 1) each of the five branches keeps its own
+   index scan under the `Merge Append`. The region branch walks
+   `records_list_updated` with a filter, and the page executes in 3 to 4 ms
+   at every |S|. As in SP-1, the time goes to planning and binding S, not to
+   reading rows. The partial index changes nothing here.
+2. **The real expansion is the larger cost below 10,000 units.** At region
+   size, ExpandUnder alone is 120 ms p95 against SP-1's 28.9 ms for D7's
+   bare walk. The real query also walks each seed's ancestors to drop
+   tombstoned branches, and it returns `(caller, root, id)` rows instead of
+   a count. (Known: these numbers. Inferred, not profiled: the extra cost is
+   the walk up and shipping 1,011 rows to Go.) After subtracting the floor,
+   H1 (≤ 5 ms p95) holds only at area size: about +15 ms at district size and
+   +94 ms at region size.
+3. **A refusal is not cheap (Breaks under load).** A caller whose subtree is
+   over `authz.MaxUnderSet` is refused only after the whole walk: 10,111 rows
+   reach Go, then `ExpandUnder` counts them. That costs 304.8 ms p95 for a 500
+   response. A walk capped at `MaxUnderSet + 1` rows would refuse at once.
+   This is routed to the `under` leaf's owner (TICK-950) as a finding. It
+   does not change R1.
+
+### Known gaps
+
+- **The host was busier than in SP-1.** Its transport floor was 13.4 ms p50
+  in the 1-client pass, against SP-1's 5.8 ms. The `nava` dev stack (13
+  containers), another task's integration container (`nava-t1022-it-1108`),
+  `buildx_buildkit_nava-ci0` and `multica-*` were up. That is outside P3-36's
+  allow-list. They are not this run's containers, so they were not stopped.
+  Absolute values are not scored. The verdict uses deltas, and the rows that
+  decide it (+94 ms and +200 ms p95) are far above the noise.
+  The negative deltas at 10 units are that noise.
+- **One pass per row, not paired.** SP-1b's paired method would tighten the
+  small deltas. It cannot change the verdict.
+- **Database work only.** The handler measurement was refused by its floor
+  gate, so the projection adds deltas to P3-36's 146.2 ms.
+
+Raw reports (every plan): `bin/acl-perf-region-real-raw.md` (8 clients) and
+`bin/acl-perf-region-real-1c-raw.md` (1 client). Both are attached to
+TICK-951, not committed.
+
+## SP-1 verdict (2026-11-15, bench schema)
 
 **R1: FAIL at |S| = 10,000 with both indexes.** The region leaf adds about
 136 ms p50 and 158 ms p95 per list request, even with one client. Projected
@@ -181,6 +592,8 @@ query: one branch, `ORDER BY updated_at DESC, id DESC LIMIT 51`.
 sh bench/acl-perf/region/run.sh          # about 20 minutes: seed, region.sql, the 8-client pass
 SP1_PG=<kept container> SP1_CLIENTS=1 SP1_SECONDS=10 sh bench/acl-perf/region/run.sh   # the 1-client pass
 ```
+
+S31 rerun on the real schema (TICK-951): the same commands with `SP1_INDEX=real`, for example `SP1_INDEX=real sh bench/acl-perf/region/run.sh`, then `SP1_PG=<kept container> SP1_INDEX=real SP1_CLIENTS=1 SP1_SECONDS=10 sh bench/acl-perf/region/run.sh`. Run them from the story branch, so the seed carries S31's migrations.
 
 It needs Docker and Go. It is not in CI. The raw reports, with every plan,
 go to `bin/acl-perf-region-raw.md`. The container is kept. Remove it with

@@ -14,7 +14,9 @@
 # `composed:` rows always publish format 2, TICK-944), BENCH_KEEP=1 keeps the container. The
 # test quiesces the seed (VACUUM (ANALYZE), CHECKPOINT) and, before each
 # create attempt, waits for other nava-it-pg-*/nava-aclperf-* containers to
-# stop and for autovacuum to finish in the bench database.
+# stop and for autovacuum to finish in the bench database. Every scored row,
+# list and get rows too (TICK-1040), waits for other containers before each
+# attempt and is re-run (at most 3 attempts) when one runs during it.
 set -eu
 cd "$(dirname "$0")/../.."
 pgtag=$(sed -n 's/^| `postgres` | \([^ |]*\) |.*/\1/p' docs/pins.md)

@@ -353,6 +353,11 @@ func (h *handlers) GetRecordHistory(ctx context.Context, req api.GetRecordHistor
 		// A masked field is absent from before, after and changed[]; an entry
 		// that changed only masked fields stays, with an empty changed[].
 		before, after := authz.Shape(pol, p, c.Before), authz.Shape(pol, p, c.After)
+		// The org unit is never a schema property, so no mask can name it;
+		// no reader of a record sees it, and history is no exception. Shape
+		// returns copies, so the delete does not touch the replayed diffs.
+		delete(before, metadata.ColumnOrgUnitID)
+		delete(after, metadata.ColumnOrgUnitID)
 		if after == nil {
 			after = map[string]any{}
 		}

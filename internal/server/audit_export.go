@@ -29,7 +29,7 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 	if !ok || p.PrincipalID == uuid.Nil {
 		return nil, errNoPrincipal
 	}
-	if h.pool == nil || h.exporter == nil {
+	if h.pool == nil || h.exporter == nil || h.audit == nil || h.acl == nil {
 		return nil, notImplemented()
 	}
 	prm := req.Params
@@ -51,7 +51,10 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 		f.SubjectType = &s
 	}
 
-	var s export.Session
+	var (
+		s     export.Session
+		masks map[uuid.UUID][]string
+	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) error {
 		// The gate is first, so a caller without audit.export learns nothing,
 		// not even whether its filter was well formed.
@@ -61,7 +64,15 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 		if f.From != nil && f.To != nil && !f.From.Before(*f.To) {
 			return &problemError{problem.ValidationFailed, []problem.FieldError{{Pointer: "/query/to", Rule: "range"}}, errors.New("from is not before to")}
 		}
+		// The caller's field masks (ADR-004 R7, CI-A12), read before Begin so
+		// a failure leaves no lease and no audit/export entry.
 		var err error
+		if masks, err = h.acl.ReadMasks(ctx, tx, p); err != nil {
+			return err
+		}
+		if err := addOrgUnitMasks(ctx, tx, p.TenantID, masks); err != nil {
+			return err
+		}
 		s, err = export.Begin(ctx, tx, p.TenantID, p.PrincipalID, r, h.exporter.Deadline())
 		return err
 	})
@@ -76,7 +87,10 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 	case err != nil:
 		return nil, err
 	}
-	return &exportResponse{ctx: ctx, h: h, s: s}, nil
+	// This request's own exporter: h.exporter is shared by concurrent requests.
+	ex := *h.exporter
+	ex.Source = h.audit.WithFieldMasks(masks)
+	return &exportResponse{ctx: ctx, h: h, ex: &ex, s: s}, nil
 }
 
 // exportResponse streams the export. The lease and the audit entry are
@@ -84,6 +98,7 @@ func (h *handlers) ExportAuditEntries(ctx context.Context, req api.ExportAuditEn
 type exportResponse struct {
 	ctx context.Context //nolint:containedctx // the request's context, carried to the streaming Visit
 	h   *handlers
+	ex  *export.Exporter // a per-request copy carrying the caller's field masks
 	s   export.Session
 }
 
@@ -98,10 +113,10 @@ func (e *exportResponse) VisitExportAuditEntriesResponse(w http.ResponseWriter) 
 	}()
 	rc := http.NewResponseController(w)
 	// The server's WriteTimeout would cut a long export; R21 caps it instead.
-	_ = rc.SetWriteDeadline(time.Now().Add(e.h.exporter.Deadline() + time.Minute))
-	ctype, ext, write := "application/x-ndjson", "jsonl", e.h.exporter.Write
+	_ = rc.SetWriteDeadline(time.Now().Add(e.ex.Deadline() + time.Minute))
+	ctype, ext, write := "application/x-ndjson", "jsonl", e.ex.Write
 	if e.s.Request.CSV {
-		ctype, ext, write = "text/csv; charset=utf-8", "csv", e.h.exporter.WriteCSV
+		ctype, ext, write = "text/csv; charset=utf-8", "csv", e.ex.WriteCSV
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")

@@ -1,0 +1,31 @@
+meta {
+  name: S31B.15 AC4: agent-emea lists the new ticket, not the old one
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes the new ticket', () => expect(ids).to.include(bru.getVar('s31_t_moved')));
+  test('none of the s31_apac_ids tickets', () => JSON.parse(bru.getVar('s31_apac_ids')).forEach(x => expect(ids).to.not.include(x)));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+}
+
+docs {
+  A new ticket takes the requester's unit at creation (now EMEA); the old one stays in APAC.
+}

@@ -1,0 +1,119 @@
+host: MINGW64_NT-10.0-26300 naval 3.3.6-bec3d608-341.x86_64 2023-02-22 08:29 UTC x86_64 Msys
+docker VM: 16 CPUs, 26260877312 bytes
+containers running: nava-tick1115-bench-5103 nava-tick1118-pg nava-nava-worker-1 nava-nava-relay-1 nava-nava-core-1 nava-nava-onboard-1 nava-nava-purge-1 nava-nava-groupsync-1 nava-temporal-1 nava-temporal-server-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-otel-collector-1 multica-backend-1 multica-frontend-1 multica-postgres-1 
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+CREATE FUNCTION
+CREATE TABLE
+INSERT 0 10000
+CREATE TABLE
+INSERT 0 10000
+   t   | count | avg_bytes | max_bytes | rows_with_escape 
+-------+-------+-----------+-----------+------------------
+ plain | 10000 |      2403 |      2403 |                0
+ dense | 10000 |     28096 |    121840 |            10000
+(2 rows)
+
+Timing is on.
+plain, plain arrow x3
+ALTER TABLE
+Time: 1383.112 ms (00:01.383)
+ALTER TABLE
+Time: 5.160 ms
+ALTER TABLE
+Time: 1412.547 ms (00:01.413)
+ALTER TABLE
+Time: 4.435 ms
+ALTER TABLE
+Time: 1944.100 ms (00:01.944)
+ALTER TABLE
+Time: 5.588 ms
+plain, chosen x3
+ALTER TABLE
+Time: 2883.699 ms (00:02.884)
+ALTER TABLE
+Time: 9.787 ms
+ALTER TABLE
+Time: 2628.123 ms (00:02.628)
+ALTER TABLE
+Time: 14.463 ms
+ALTER TABLE
+Time: 4175.605 ms (00:04.176)
+ALTER TABLE
+Time: 13.135 ms
+dense, plain arrow x3
+ALTER TABLE
+Time: 9994.238 ms (00:09.994)
+ALTER TABLE
+Time: 5.206 ms
+ALTER TABLE
+Time: 7132.185 ms (00:07.132)
+ALTER TABLE
+Time: 5.333 ms
+ALTER TABLE
+Time: 7789.248 ms (00:07.789)
+ALTER TABLE
+Time: 2.998 ms
+dense, chosen x3
+ALTER TABLE
+Time: 20436.195 ms (00:20.436)
+ALTER TABLE
+Time: 3.248 ms
+ALTER TABLE
+Time: 14088.617 ms (00:14.089)
+ALTER TABLE
+Time: 3.579 ms
+ALTER TABLE
+Time: 12294.199 ms (00:12.294)
+ALTER TABLE
+Time: 3.247 ms
+insert 10,000 plain rows, no CHECK x3, then with the CHECK x3
+CREATE TABLE
+Time: 13.047 ms
+INSERT 0 10000
+Time: 72.385 ms
+TRUNCATE TABLE
+Time: 20.123 ms
+INSERT 0 10000
+Time: 50.154 ms
+TRUNCATE TABLE
+Time: 11.922 ms
+INSERT 0 10000
+Time: 111.293 ms
+TRUNCATE TABLE
+Time: 24.832 ms
+ALTER TABLE
+Time: 9.550 ms
+INSERT 0 10000
+Time: 1630.443 ms (00:01.630)
+TRUNCATE TABLE
+Time: 15.108 ms
+INSERT 0 10000
+Time: 1650.144 ms (00:01.650)
+TRUNCATE TABLE
+Time: 17.006 ms
+INSERT 0 10000
+Time: 2383.392 ms (00:02.383)
+TRUNCATE TABLE
+Time: 15.994 ms
+Timing is off.
+Output format is aligned.
+          name           | want | got | ok 
+-------------------------+------+-----+----
+ plain spelling          | t    | t   | t
+ NUL escape beside it    | t    | t   | t
+ o escaped               | t    | t   | t
+ p escaped               | t    | t   | t
+ NUL escape              | f    | f   | t
+ lone high               | f    | f   | t
+ lone high, upper case   | f    | f   | t
+ lone low                | f    | f   | t
+ escaped pair            | f    | f   | t
+ escaped backslash u0000 | f    | f   | t
+ key plus NUL escape     | f    | f   | t
+ nested                  | f    | f   | t
+(12 rows)
+

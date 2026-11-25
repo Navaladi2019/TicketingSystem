@@ -46,6 +46,12 @@ type prefetched struct {
 	// entity type (NoopSink, or CreateTriggerQueuer said so). False, so the
 	// sink runs, whenever that is not known.
 	createQuiet bool
+	// actorUnit is the actor's primary org unit (ADR-010 D8), read for a
+	// checked create by an actor with an id (actorUnitRead): the record's
+	// unit when the requester defaults to the actor, resolved before the
+	// write check in no extra round trip (TICK-950).
+	actorUnit     *uuid.UUID
+	actorUnitRead bool
 }
 
 // prefetchKey is the tx memo key of a prefetch: one per entity type, actor,
@@ -97,7 +103,26 @@ func (p *Pipeline) queuePrefetch(ctx context.Context, tx pgx.Tx, b *pgx.Batch, t
 	}
 	// A create asks the sink, in the same read, whether it fires anything.
 	trigger, asks := p.sink.(CreateTriggerQueuer)
+	// A checked create by an actor with an id also reads the actor's
+	// primary unit in the same statement (TICK-950).
+	withUnit := cmd.Op == OpCreate && !cmd.Source.system() && cmd.Actor.PrincipalID != uuid.Nil
 	switch {
+	case withUnit:
+		flagSQL, fires := "", false
+		if asks {
+			flagSQL = trigger.CreateTriggeredSQL()
+		}
+		store.QueueDefinitionIDAndUnit(b, tenant, cmd.EntityKey, flagSQL, cmd.Actor.PrincipalID, &pre.defID, &fires, &pre.actorUnit)
+		afterLast(b, func() {
+			pre.actorUnitRead = true
+			if asks {
+				pre.createQuiet = !fires
+			}
+		})
+		if !asks {
+			_, noop := p.sink.(NoopSink)
+			pre.createQuiet = noop
+		}
 	case cmd.Op == OpCreate && asks:
 		var fires bool
 		store.QueueDefinitionIDAndFlag(b, tenant, cmd.EntityKey, trigger.CreateTriggeredSQL(), &pre.defID, &fires)
@@ -184,7 +209,7 @@ func (w *write) checkCreate(ctx context.Context, rec *store.Record, after map[st
 		store.QueueGroupLive(b, w.tenant, *rec.AssignmentGroupID, &c.groupLive)
 	}
 	var preview json.RawMessage
-	if err := store.QueuePayloadPreview(b, rec, fixed, &preview); err != nil {
+	if err := store.QueuePayloadPreview(b, rec, fixed, w.unitResolved, &preview); err != nil {
 		return nil, fmt.Errorf("pipeline: %w", err)
 	}
 	if err := w.tx.SendBatch(ctx, b).Close(); err != nil {

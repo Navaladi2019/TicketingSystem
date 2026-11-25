@@ -14,7 +14,7 @@ import (
 func generatedKinds() map[string]bool {
 	return map[string]bool{
 		NodeAll: true, NodeAny: true, NodeNot: true, NodeRef: true,
-		NodeMemberOf: true, NodeCmp: true, NodeShared: true,
+		NodeMemberOf: true, NodeCmp: true, NodeShared: true, NodeUnder: true,
 	}
 }
 
@@ -84,8 +84,8 @@ func TestRegistryCheckFailsAKindWithoutRenderers(t *testing.T) {
 }
 
 // Every kind the decoder knows is in the registry, once, and the registry
-// holds nothing the decoder does not know; under is SQLSafe but not
-// Available until S31 (PLAN-011 D-11-5).
+// holds nothing the decoder does not know; every kind is SQLSafe and, since
+// S31 made under available (TICK-950), Available.
 func TestRegistryMatchesTheGrammar(t *testing.T) {
 	t.Parallel()
 	grammar := []string{NodeAll, NodeAny, NodeNot, NodeRef, NodeMemberOf, NodeCmp, NodeShared, NodeUnder}
@@ -95,14 +95,14 @@ func TestRegistryMatchesTheGrammar(t *testing.T) {
 		if !k.SQLSafe {
 			t.Errorf("kind %q is not SQLSafe; every D3 kind is", k.Name)
 		}
-		if k.Available == (k.Name == NodeUnder) {
+		if !k.Available {
 			t.Errorf("kind %q: Available = %v", k.Name, k.Available)
 		}
 	}
 	if !slices.Equal(names, grammar) {
 		t.Fatalf("registry = %v, want %v", names, grammar)
 	}
-	if k, ok := LookupKind(NodeUnder); !ok || k.Available {
+	if k, ok := LookupKind(NodeUnder); !ok || !k.Available {
 		t.Errorf("LookupKind(under) = %+v, %v", k, ok)
 	}
 	if _, ok := LookupKind("fn"); ok {

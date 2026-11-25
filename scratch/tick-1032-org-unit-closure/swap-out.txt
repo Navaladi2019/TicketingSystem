@@ -1,0 +1,59 @@
+host: MINGW64_NT-10.0-26300 naval 3.3.6-bec3d608-341.x86_64 2023-02-22 08:29 UTC x86_64 Msys
+docker VM: 16 CPUs, 26260877312 bytes
+containers running: nava-tick1032-swap-2940 nava-aclperf-pg-2176 nava-aclperf-pg-2151 nava-nava-relay-1 nava-nava-worker-1 nava-nava-core-1 nava-temporal-1 nava-temporal-server-1 nava-nava-purge-1 nava-nava-onboard-1 nava-nava-groupsync-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-otel-collector-1 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 
+Timing is on.
+SET
+Time: 0.407 ms
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+Time: 0.846 ms
+CREATE TABLE
+Time: 29.491 ms
+INSERT 0 1000000
+Time: 46294.033 ms (00:46.294)
+CREATE INDEX
+Time: 647.611 ms
+VACUUM
+Time: 776.159 ms
+  heap  | old_index 
+--------+-----------
+ 420 MB | 2896 kB
+(1 row)
+
+Time: 16.981 ms
+== step 1: drop an INVALID leftover (none here)
+DO
+Time: 11.341 ms
+== step 2: CREATE INDEX CONCURRENTLY
+CREATE INDEX
+Time: 802.590 ms
+== step 3: the swap (one transaction)
+DO
+Time: 14.581 ms
+                                                              pg_get_indexdef                                                               | new_index 
+--------------------------------------------------------------------------------------------------------------------------------------------+-----------
+ CREATE INDEX records_org_unit ON public.records USING btree (tenant_id, org_unit_id, entity_definition_id) WHERE (org_unit_id IS NOT NULL) | 3056 kB
+(1 row)
+
+Time: 0.727 ms
+== the under leaf with an entity type, 20-unit set: new key
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=2.861..2.864 rows=1 loops=1)
+   Buffers: shared hit=72
+   InitPlan 1 (returns $0)
+     ->  Function Scan on generate_series u (actual time=0.019..0.046 rows=20 loops=1)
+   ->  Index Only Scan using records_org_unit on records (actual time=0.126..1.692 rows=9998 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (org_unit_id = ANY ($0)) AND (entity_definition_id = '00000000-0000-4000-8000-0000000000e1'::uuid))
+         Heap Fetches: 0
+         Buffers: shared hit=72
+ Planning:
+   Buffers: shared hit=33 read=2
+ Planning Time: 1.243 ms
+ Execution Time: 2.926 ms
+(12 rows)
+
+Time: 8.997 ms

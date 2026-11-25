@@ -43,7 +43,7 @@ type PolicyTest struct {
 // ErrPolicyTestRecord is a record the transaction's tenant does not have.
 var ErrPolicyTestRecord = errors.New("authz: policy test: no such record")
 
-const policyTestRecordSQL = `SELECT d.id, d.key, r.state, r.requester_id, r.assignee_id, r.assignment_group_id
+const policyTestRecordSQL = `SELECT d.id, d.key, r.state, r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id
 FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
 WHERE r.tenant_id = $1 AND r.id = $2`
@@ -65,7 +65,10 @@ WHERE r.tenant_id = $1 AND r.id = $2`
 //   - the policy is voided (D5b): false, counted by PolicyInvalidMetric;
 //   - the policy does not grant Op to the principal on the record.
 //
-// An error is a store failure (retry), or ErrPolicyTestRecord for a record
+// An under condition is resolved in tx as a record read resolves it
+// (ResolveUnder, with the record's org_unit_id).
+//
+// An error is a store failure (retry, a failed under read included), or ErrPolicyTestRecord for a record
 // the tenant does not have.
 func TestPolicyRef(ctx context.Context, tx pgx.Tx, store PolicyReader, in PolicyTest) (bool, error) {
 	tenant, err := tenancy.TenantOf(ctx, tx)
@@ -73,12 +76,12 @@ func TestPolicyRef(ctx context.Context, tx pgx.Tx, store PolicyReader, in Policy
 		return false, fmt.Errorf("authz: %w", err)
 	}
 	var (
-		defID                         uuid.UUID
-		recType, state                string
-		requester, assignee, groupRef *uuid.UUID
+		defID                                  uuid.UUID
+		recType, state                         string
+		requester, assignee, groupRef, unitRef *uuid.UUID
 	)
 	switch err := tx.QueryRow(ctx, policyTestRecordSQL, tenant, in.RecordID).
-		Scan(&defID, &recType, &state, &requester, &assignee, &groupRef); {
+		Scan(&defID, &recType, &state, &requester, &assignee, &groupRef, &unitRef); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return false, ErrPolicyTestRecord
 	case err != nil:
@@ -117,7 +120,12 @@ func TestPolicyRef(ctx context.Context, tx pgx.Tx, store PolicyReader, in Policy
 	if err != nil {
 		return false, err
 	}
-	row := Row{ID: in.RecordID, State: state, RequesterID: requester, AssigneeID: assignee, AssignmentGroupID: groupRef, SharedWith: shared}
+	row := Row{ID: in.RecordID, State: state, RequesterID: requester, AssigneeID: assignee, AssignmentGroupID: groupRef, OrgUnitID: unitRef, SharedWith: shared}
+	// An under leaf reads the caller's units and the record's unit, as a record
+	// read does; without it planRow voids the policy (under_unresolved).
+	if pol, err = ResolveUnder(ctx, tx, pol, p, row); err != nil {
+		return false, err
+	}
 	return NamedPolicyAllows(pol, in.Policy, p, in.Op, row), nil
 }
 
@@ -126,7 +134,7 @@ func TestPolicyRef(ctx context.Context, tx pgx.Tx, store PolicyReader, in Policy
 // that does not grant op, and a voided policy, which is counted
 // (PolicyInvalidMetric, D5b). It is the pure part of TestPolicyRef.
 func NamedPolicyAllows(pol *Policy, name string, p identity.Principal, op string, r Row) bool {
-	for _, pp := range plan(pol, p, op) {
+	for _, pp := range planRow(pol, p, op, r) {
 		if pp.name != name {
 			continue
 		}

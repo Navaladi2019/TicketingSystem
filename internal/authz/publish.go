@@ -175,10 +175,14 @@ func (PolicyStore) PublishIfNone(ctx context.Context, tx pgx.Tx, entityKey strin
 	if err != nil {
 		return false, err
 	}
-	if len(scope) > 0 {
-		for i := range scope {
-			scope[i].Rule = RuleForeignID
-		}
+	for i := range scope {
+		scope[i].Rule = RuleForeignID
+	}
+	nested, err := NestedUnderUnits(ctx, tx, prep.Refs)
+	if err != nil {
+		return false, err
+	}
+	if scope = append(scope, nested...); len(scope) > 0 {
 		return false, &InvalidPolicyError{Problems: sortProblems(scope)}
 	}
 	_, err = PublishPrepared(ctx, tx, entityKey, 0, by, prep)

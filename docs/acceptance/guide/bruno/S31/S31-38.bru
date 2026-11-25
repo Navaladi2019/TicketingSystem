@@ -1,0 +1,31 @@
+meta {
+  name: S31.38 AC4: the APAC requester joins EMEA
+  type: http
+  seq: 38
+}
+
+put {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{s31_kc_apac_user}}/groups/{{s31_kc_emea}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+  bru.setVar('change_at', String(Date.now()));
+  bru.setVar('poll_n', 0);
+}
+
+docs {
+  Keycloak console: Users › requester-apac › Groups › Join group › EMEA. Now run one group sync (`run.sh` does), then the folder `S31 region after sync`.
+}

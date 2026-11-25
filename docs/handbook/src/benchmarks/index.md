@@ -2,7 +2,7 @@
 title: "Benchmarks and budgets"
 section: benchmarks
 status: delivered
-sources: [docs/budgets.md, docs/quality/acl-perf-800k.md, docs/quality/pgbouncer-load.md, docs/data/audit-migration-b-bench/RESULT.md, scratch/audit-backfill-s8/RESULT.md, bench/acl-perf/run.sh, Taskfile.yml, docs/handbook/src/benchmarks/benchmarks.yaml]
+sources: [docs/budgets.md, docs/quality/acl-perf-800k.md, docs/quality/acl-perf-region.md, docs/quality/pgbouncer-load.md, docs/data/audit-migration-b-bench/RESULT.md, scratch/audit-backfill-s8/RESULT.md, bench/acl-perf/run.sh, Taskfile.yml, docs/handbook/src/benchmarks/benchmarks.yaml]
 adrs: [ADR-004-E3, ADR-004-E4, ADR-004-E6, ADR-005]
 tests: [TestCommitCheckBudget, TestConnectionBudgetFits, TestAllocatorPoolSizing, TestPatchHistoryIsCapped]
 ---
@@ -29,6 +29,7 @@ A budget is a cost the platform keeps in bounds. [docs/budgets.md](../../../budg
 | Lists, single reads and creates at 800k records (P3-36) | `task bench:acl-perf` (`bench/acl-perf/run.sh`), about 32 minutes | Manually, on the reference host; not in CI. Each create attempt counts only when it passes the transport, host-speed, storage and container gates |
 | Migration lock holds | `scratch/audit-backfill-s8/run.sh`, `docs/data/audit-migration-b-bench/run.sh` | Manually, on a developer host, against `postgres:16.10` in Docker |
 | Connection sizing | `TestConnectionBudgetFits`, `TestAllocatorPoolSizing` in `task test` | Every test run: a static sum, nothing is timed |
+| Region lists at 800k (S31, ADR-010-A2 R1) | `bench/acl-perf/region/run.sh` over the P3-36 seed | Manually, on the reference host, in a booked bench slot; the floor and base-tail gates must pass. See [acl-perf-region.md](../../../quality/acl-perf-region.md#s31-rerun-after-a2-tick-1037-r1-per-adr-010-a2-a2-11) |
 | Relay claim latency (T33) | `task bench:relay` (`BenchmarkClaim`) | Report-only; no result is committed |
 
 ## Not on this page

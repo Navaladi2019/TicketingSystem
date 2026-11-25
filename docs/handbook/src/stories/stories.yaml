@@ -267,6 +267,17 @@ stories:
     evidence:
       - docs/acceptance/S30/README.md
       - docs/acceptance/S30/fresh-stack-run.txt
+  - id: S31
+    issue: TICK-946
+    title: A policy can say "tickets in my region"
+    status: delivered
+    verdict: READY
+    date: 2026-11-25
+    verdict_comment: "Acceptance kit S31/README.md (TICK-953), verified on a fresh stack"
+    bruno: [S31, S31-after]
+    evidence:
+      - docs/acceptance/S31/README.md
+      - docs/acceptance/S31/fresh-stack-run.txt
   - id: S32
     issue: TICK-955
     title: A workflow step can check a named access policy

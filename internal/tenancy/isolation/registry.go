@@ -50,6 +50,8 @@ const (
 	RecordB2 = "0b000000-0000-4000-8000-0000000000b2"
 	// PrincipalB1 is a tenant B principal who is a member of a group.
 	PrincipalB1 = "0b000000-0000-4000-8000-0000000003b1"
+	// PrincipalB2 is a tenant B principal, primary member of OrgUnitB2 (TICK-952).
+	PrincipalB2 = "0b000000-0000-4000-8000-0000000003b2"
 	// SharedDedupeKey and SharedIdempotencyKey exist in both tenants, so a
 	// lookup by them alone would return both rows without isolation.
 	SharedDedupeKey      = "shared-dedupe-key"
@@ -61,6 +63,18 @@ const (
 	EntityDefinitionB1 = "0b000000-0000-4000-8000-0000000006b1"
 	// GroupB1 is a tenant B group that is not its admins group.
 	GroupB1 = "0b000000-0000-4000-8000-0000000004b1"
+	// PrincipalA1 is a tenant A principal, primary member of tenant A's root unit.
+	PrincipalA1 = "0a000000-0000-4000-8000-0000000003a1"
+	// OrgUnitB1 is tenant B's root org unit; OrgUnitB2 its child, which holds
+	// tenant B's record b2 (TICK-947).
+	OrgUnitB1 = "0b000000-0000-4000-8000-0000000005b1"
+	OrgUnitB2 = "0b000000-0000-4000-8000-0000000005b2"
+	// OrgUnitA1 is tenant A's root org unit (TICK-952).
+	OrgUnitA1 = "0a000000-0000-4000-8000-0000000005a1"
+	// OrgUnitA2 is a leaf unit of tenant A that no membership and no record
+	// references, so a DELETE of it can only be stopped by a grant or a
+	// policy, never by a foreign key (TICK-952 QA review item 1).
+	OrgUnitA2 = "0a000000-0000-4000-8000-0000000005a2"
 	// NewID is an id no seeded row uses, for inserts.
 	NewID = "0c000000-0000-4000-8000-0000000000c1"
 )
@@ -240,7 +254,7 @@ func Coverage() map[string]string {
 		caseReaderScoped: "full (ADR-004-A1, TICK-558): nava_audit_reader through read.Reader and as raw SQL reads only the set tenant's rows, none with no tenant, and never txid",
 		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
 		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
-		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); format-2 documents (random trees of depth 4 over every S30 node kind, the SP-2 cap cases and format-1 equivalence, D12) agree through CompileRead, ReadBranches and a reference evaluator, with five format-2 mutants caught (P11-10, TestI5Format2Agreement); data filters and the list route wait for P3-34",
+		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); format-2 documents (random trees of depth 4 over every node kind, under included, read from org_unit_closure with authz.ResolveUnder checked against the reference tree (TICK-950, TICK-1034), the SP-2 cap cases and format-1 equivalence, D12) agree through CompileRead, ReadBranches and a reference evaluator, with five format-2 mutants caught (P11-10, TestI5Format2Agreement); data filters and the list route wait for P3-34",
 		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
@@ -269,6 +283,9 @@ func Exemptions() []Exemption {
 		{"nava_relay", "public.outbox", "UPDATE", "outbox_relay_update"},
 		{"nava_app", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 		{"nava_groupsync", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
+		// TICK-1070 (D-11A2-2): the N-hat_e refresh job lists tenants; its
+		// grant is tenant_id only.
+		{"nava_worker", "public.tenant_identity_binding", "SELECT", "binding_lookup"},
 	}
 }
 
@@ -345,6 +362,117 @@ func Paths() []Path {
 			"UPDATE groups SET deleted_at = now() WHERE tenant_id = $1 AND id = $2", TenantB, GroupB1),
 		sql("groups: the worker reads tenant B's group paths", "nava_worker", Denied,
 			"SELECT tenant_id, path FROM groups WHERE tenant_id = $1", TenantB),
+		// TICK-947 (ADR-010 D7): org-unit membership and records.org_unit_id.
+		// Both tenants hold kc-ou-shared, so a lookup by it alone would find
+		// tenant B's unit; principal b1 is in two of tenant B's units.
+		sql("org_unit_members: list tenant B principal's units with tenant B's predicate", "nava_app", Denied,
+			"SELECT org_unit_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2", TenantB, PrincipalB1),
+		sql("org_unit_members: the worker reads tenant B's primary units", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, org_unit_id FROM org_unit_members WHERE is_primary"),
+		sql("org_unit_members: group sync adds tenant A's principal to tenant B's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitB2, PrincipalA1),
+		sql("org_unit_members: group sync moves tenant B's primary units", "nava_groupsync", Denied,
+			"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND is_primary", TenantB),
+		sql("org_unit_members: group sync drops tenant B's memberships", "nava_groupsync", Denied,
+			"DELETE FROM org_unit_members WHERE tenant_id = $1", TenantB),
+		sql("org_units: the worker reads tenant B's unit tree", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, id, parent_id, deleted_at FROM org_units WHERE id = $1 OR parent_id = $1", OrgUnitB1),
+		sql("org_units: group sync tombstones tenant B's units", "nava_groupsync", Denied,
+			"UPDATE org_units SET deleted_at = now() WHERE tenant_id = $1", TenantB),
+		// Since TICK-1120 the missing UPDATE grant refuses it (42501), and it reaches the FK again when a "move ticket to another unit" step restores the grant (ADR-010 D8).
+		sql("records: put tenant A's record in tenant B's unit", "nava_app", Denied,
+			"UPDATE records SET org_unit_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB2, RecordA2),
+		sql("records: the worker reads tenant B's records by unit", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM records WHERE org_unit_id = $1", OrgUnitB2),
+		// TICK-952 (S31 P11-19, attacks 1 and 5): every role that can see
+		// org_unit_members, with no predicate or another tenant's, sees only
+		// its own; no role writes tenant B's memberships or units; group sync
+		// can neither delete a unit nor un-tombstone, rename or reparent one
+		// across the wall.
+		sql("org_unit_members: the app reads every membership", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, principal_id FROM org_unit_members"),
+		sql("org_unit_members: the worker reads tenant B principal's units", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id FROM org_unit_members WHERE tenant_id = $1 AND principal_id = $2", TenantB, PrincipalB1),
+		sql("org_unit_members: group sync reads tenant B principal's units", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, org_unit_id FROM org_unit_members WHERE principal_id = $1", PrincipalB1),
+		sql("org_unit_members: the worker adds tenant B's principal to tenant B's unit", "nava_worker", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB1, PrincipalB2),
+		sql("org_unit_members: the app moves tenant B's primary units", "nava_app", Denied,
+			"UPDATE org_unit_members SET is_primary = false WHERE tenant_id = $1 AND is_primary", TenantB),
+		// Valid keys of tenant B, so only org_unit_members_insert's WITH
+		// CHECK (tenant A's app.tenant_id) can refuse it (QA review item 2).
+		sql("org_unit_members: group sync adds tenant B's principal to tenant B's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB1, PrincipalB2),
+		sql("org_unit_members: group sync adds tenant B's principal to tenant A's unit", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA1, PrincipalB1),
+		sql("org_units: group sync finds a unit by a Keycloak id both tenants hold", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, id FROM org_units WHERE keycloak_group_id = 'kc-ou-shared'"),
+		sql("org_units: group sync deletes its own units", "nava_groupsync", Denied,
+			"DELETE FROM org_units WHERE tenant_id = $1 AND id = $2", TenantA, OrgUnitA2),
+		sql("org_units: group sync un-tombstones tenant B's units", "nava_groupsync", Denied,
+			"UPDATE org_units SET deleted_at = NULL WHERE tenant_id = $1", TenantB),
+		sql("org_units: group sync renames tenant B's unit by its shared Keycloak id", "nava_groupsync", Denied,
+			"UPDATE org_units SET name = 'pwned' WHERE keycloak_group_id = 'kc-ou-shared' AND tenant_id <> $1", TenantA),
+		sql("org_units: group sync hangs tenant A's unit under tenant B's", "nava_groupsync", Denied,
+			"UPDATE org_units SET parent_id = $2 WHERE tenant_id = $1 AND id = $3", TenantA, OrgUnitB1, OrgUnitA1),
+		sql("org_units: group sync creates a unit for tenant B", "nava_groupsync", Denied,
+			"INSERT INTO org_units (tenant_id, id, keycloak_group_id, name) VALUES ($1, $2, 'kc-ou-new', 'x')", TenantB, NewID),
+		// TICK-1032 (ADR-010-A2): org_unit_closure. Every reader, with no
+		// predicate or another tenant's, sees only its own rows; only group
+		// sync writes it, never across the wall, and the FKs refuse a row
+		// that joins one tenant's ancestor to another's descendant.
+		sql("org_unit_closure: the app reads every closure row", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, ancestor_id, descendant_id FROM org_unit_closure"),
+		sql("org_unit_closure: the app lists tenant B's subtree with tenant B's predicate", "nava_app", Denied,
+			"SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2", TenantB, OrgUnitB1),
+		sql("org_unit_closure: the worker reads tenant B's subtree", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, descendant_id FROM org_unit_closure WHERE ancestor_id = $1", OrgUnitB1),
+		sql("org_unit_closure: group sync reads tenant B's closure", "nava_groupsync", OwnRowsOnly,
+			"SELECT tenant_id, ancestor_id FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// Valid keys of tenant A and no such row, so only the grant refuses it.
+		sql("org_unit_closure: the app adds a row to its own closure", "nava_app", Denied,
+			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantA, OrgUnitA2, OrgUnitA1),
+		sql("org_unit_closure: the app drops tenant B's closure", "nava_app", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		sql("org_unit_closure: the worker drops tenant B's closure", "nava_worker", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// Valid keys of tenant B, so only org_unit_closure_insert's WITH
+		// CHECK (tenant A's app.tenant_id) can refuse it.
+		sql("org_unit_closure: group sync adds a row to tenant B's closure", "nava_groupsync", Denied,
+			"INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)", TenantB, OrgUnitB2, OrgUnitB1),
+		// group sync hanging tenant B's unit under tenant A's (A, A1, B2) is
+		// in closurePaths: it must fail on the descendant FK exactly.
+		sql("org_unit_closure: group sync drops tenant B's closure", "nava_groupsync", Denied,
+			"DELETE FROM org_unit_closure WHERE tenant_id = $1", TenantB),
+		// TICK-1070 (ADR-010-A2 A2-9): entity_record_estimates. Both readers
+		// see only their own tenant's N-hat_e, by key or with no predicate;
+		// only the worker writes it, never across the wall, and nobody
+		// deletes a row. The FK refuses a row naming another tenant's type.
+		sql("entity_record_estimates: the app reads every estimate", "nava_app", OwnRowsOnly,
+			"SELECT tenant_id, entity_definition_id, live_records FROM entity_record_estimates"),
+		sql("entity_record_estimates: the app reads tenant B's estimate by its key", "nava_app", Denied,
+			"SELECT live_records FROM entity_record_estimates WHERE tenant_id = $1 AND entity_definition_id = $2", TenantB, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker reads tenant B's estimates", "nava_worker", OwnRowsOnly,
+			"SELECT tenant_id, live_records FROM entity_record_estimates WHERE tenant_id = $1", TenantB),
+		sql("entity_record_estimates: the app writes its own estimate", "nava_app", Denied,
+			"UPDATE entity_record_estimates SET live_records = 0 WHERE tenant_id = $1", TenantA),
+		// Valid keys of tenant B, so only entity_record_estimates_insert's
+		// WITH CHECK (tenant A's app.tenant_id) can refuse it.
+		sql("entity_record_estimates: the worker upserts tenant B's estimate", "nava_worker", Denied,
+			"INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES ($1, $2, 0, now()) "+
+				"ON CONFLICT (tenant_id, entity_definition_id) DO UPDATE SET live_records = EXCLUDED.live_records, refreshed_at = EXCLUDED.refreshed_at",
+			TenantB, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker zeroes tenant B's estimates", "nava_worker", Denied,
+			"UPDATE entity_record_estimates SET live_records = 0 WHERE tenant_id = $1", TenantB),
+		sql("entity_record_estimates: the worker counts tenant B's type under tenant A", "nava_worker", Denied,
+			"INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES ($1, $2, 0, now())",
+			TenantA, EntityDefinitionB1),
+		sql("entity_record_estimates: the worker drops tenant B's estimates", "nava_worker", Denied,
+			"DELETE FROM entity_record_estimates WHERE tenant_id = $1", TenantB),
+		// TICK-1070 (D-11A2-2): binding_lookup lists every tenant, but the
+		// worker's grant stops at tenant_id.
+		sql("tenant_identity_binding: the worker reads tenant B's issuer and org", "nava_worker", Denied,
+			"SELECT issuer, org_id FROM tenant_identity_binding WHERE tenant_id = $1", TenantB),
 		sql("tenants: read tenant B", "nava_app", OwnRowsOnly,
 			"SELECT id FROM tenants WHERE id = $1", TenantB),
 		sql("tenants: onboarding creates a tenant other than its own", "nava_onboard", Denied,
@@ -530,5 +658,7 @@ func Paths() []Path {
 	paths = append(paths, aclPaths()...)
 	paths = append(paths, aclAttackPaths()...)
 	paths = append(paths, numberFormatPaths()...)
+	paths = append(paths, closurePaths()...)
+	paths = append(paths, orgUnitFKPaths()...)
 	return append(paths, boundaryPaths()...)
 }

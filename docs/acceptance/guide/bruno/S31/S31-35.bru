@@ -1,0 +1,36 @@
+meta {
+  name: S31.35 Directory: look up EMEA/Germany, EMEA, APAC and the APAC requester in Keycloak
+  type: http
+  seq: 35
+}
+
+get {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users?exact=true&username={{requester_apac_username}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 200, one user', () => { expect(res.getStatus()).to.eql(200); expect(N.json()).to.have.length(1); });
+  bru.setVar('s31_kc_apac_user', N.json()[0].id);
+  for (const [v, p] of [['s31_kc_de', 'ou/EMEA/Germany'], ['s31_kc_emea', 'ou/EMEA'], ['s31_kc_apac', 'ou/APAC']]) {
+    const g = await N.send({ url: N.url('{{keycloak_url}}/admin/realms/{{realm}}/group-by-path/t/00000000-0000-4000-8000-0000000000a1/' + p),
+      method: 'GET', headers: { Authorization: 'Bearer ' + bru.getVar('kc_admin_token') } });
+    test(p + ' found', () => expect(g.status).to.eql(200));
+    bru.setVar(v, g.data.id);
+  }
+}
+
+docs {
+  Keeps the Keycloak ids S31.36 to S31.38 change. The groups are looked up by path in the test script.
+}

@@ -2,7 +2,7 @@
 title: "10. Audit"
 section: tour
 status: delivered
-sources: [docs/api/audit-export-v1.md, docs/acceptance/guide/tools/seed.sh, docs/acceptance/S14/README.md, docs/acceptance/guide/bruno/S14/S14-3.bru, internal/onboard/store.go]
+sources: [docs/api/audit-export-v1.md, docs/acceptance/guide/tools/seed.sh, docs/acceptance/S14/README.md, docs/acceptance/guide/bruno/S14/S14-3.bru, internal/onboard/store.go, internal/server/audit.go, internal/server/audit_export.go]
 adrs: [ADR-001, ADR-004]
 operations: [listAuditEntries, exportAuditEntries, reseedAuditChain]
 tables: [audit_log, audit_chain_head]
@@ -11,7 +11,7 @@ packages: [internal/audit]
 
 ## In plain words
 
-Every change to a record, a record type or an access policy is written to an audit log: who did it, when and what changed. The entries are chained: each one carries a fingerprint of the one before, so removing or editing an entry breaks the chain. An auditor can download the log and check it on their own computer with a standalone tool, without trusting the platform. Only administrators and the auditors group can read it, and fields hidden by a mask stay hidden in the log too.
+Every change to a record, a record type or an access policy is written to an audit log: who did it, when and what changed. The entries are chained: each one carries a fingerprint of the one before, so removing or editing an entry breaks the chain. An auditor can download the log and check it on their own computer with a standalone tool, without trusting the platform. Only administrators and the auditors group can read it, and fields hidden by a mask stay hidden in the log and in the download too.
 
 ## What you do
 
@@ -41,7 +41,7 @@ The list, newest first, one entry per change:
   "occurred_at":"2026-11-13T06:13:45.543671Z","seq":7,"version_before":1,"version_after":2, …}, …]}
 ```
 
-Read by the auditor instead, the `diff` of a record with a masked field reads `{"redacted":"mask"}` for that field. Alice, in neither group, gets `403 forbidden`.
+Read by the auditor instead, the `diff` of a record with a masked field reads `{"redacted":"mask"}` for that field. If the masked field is the requester, the record's org unit is redacted as well. Alice, in neither group, gets `403 forbidden`.
 
 The export is a JSON Lines file: a header, an anchor, one line per sealed entry, and a trailer:
 
@@ -56,6 +56,8 @@ Content-Disposition: attachment; filename="audit-export-01a1d38c-….jsonl"
   … 
 {"kind":"trailer","anchor_seq":0,"last_seq":7,"head_hash":"c876d3e5…","count":7,"unsealed_count":1,"verifiable":true}
 ```
+
+The export hides the same masked fields as the list (since S31). A masked entry has `diff_redacted: true` and no `diff_salt`; the chain still verifies, but that entry's diff hash cannot be checked from the file. If the caller's masks cannot be read, the answer is a 500 with no file.
 
 Verifying it:
 

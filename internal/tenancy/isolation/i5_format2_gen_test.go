@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -60,6 +61,150 @@ type i5F2Case struct {
 	Policy     *authz.Policy
 	Prev       []authz.Condition
 	Principals []identity.Principal
+	// World is the world the case was drawn in; bound reads its org tree.
+	World *i5World `json:"-"`
+	// boundMemo caches bound per policy and principal; nil caches nothing.
+	// The checks call bound once per row, and a fresh binding copies the
+	// world's closure.
+	boundMemo *sync.Map `json:"-"`
+}
+
+// bound is the case's policy bound for p (authz.BindUnder) from the world's
+// org tree as the reference computes it (i5Subtree): the caller's units and
+// the closure of every world unit. The planner and both renderings are under
+// test here; the database half checks separately that authz.ResolveUnder's
+// query over the seeded org_unit_closure gives the same answers
+// (i5F2ExpandMatches). A case with no world (the fixed cases) is returned as
+// it is.
+func (c *i5F2Case) bound(p identity.Principal) *authz.Policy {
+	if c.Policy == nil || c.World == nil {
+		return c.Policy
+	}
+	if c.boundMemo == nil {
+		return i5Bind(c.Policy, p, c.Prev)
+	}
+	groups := slices.Clone(p.Groups)
+	slices.SortFunc(groups, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	key := fmt.Sprintf("%p/%s/%s/%v", c.Policy, p.TenantID, p.PrincipalID, groups)
+	if v, ok := c.boundMemo.Load(key); ok {
+		return v.(*authz.Policy) //nolint:forcetypeassert // only bound stores
+	}
+	v, _ := c.boundMemo.LoadOrStore(key, i5Bind(c.Policy, p, c.Prev))
+	return v.(*authz.Policy) //nolint:forcetypeassert // only bound stores
+}
+
+// i5Bind binds pol for p from the reference's tree.
+func i5Bind(pol *authz.Policy, p identity.Principal, prev []authz.Condition) *authz.Policy {
+	return i5BindWith(pol, p, prev, i5Subtree)
+}
+
+// i5BindWith is i5Bind with the closure computed by subtree: the reference's
+// i5Subtree, or an under mutant's broken walk (i5F2Mutants). U of a caller
+// leaf is p's member units; each world unit d is under every unit a (of the
+// world, or listed in pol's document or prev) with d in subtree(a), as
+// org_unit_closure holds it.
+func i5BindWith(pol *authz.Policy, p identity.Principal, prev []authz.Condition, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
+	if pol == nil {
+		return nil
+	}
+	return authz.BindUnder(pol, p, i5CallerUnits(p), i5Closure(p.TenantID, i5UnderRoots(pol.Document, prev), subtree))
+}
+
+// i5CallerUnits is p's member units in its world; none for a caller with no
+// id.
+func i5CallerUnits(p identity.Principal) []uuid.UUID {
+	if p.PrincipalID == uuid.Nil {
+		return nil
+	}
+	v, ok := i5Trees.Load(p.TenantID)
+	if !ok {
+		return nil
+	}
+	return slices.Clone(v.(*i5World).Members[p.PrincipalID]) //nolint:forcetypeassert // only orgTree stores
+}
+
+// i5Closure maps every unit of the tenant's world to its ancestors by
+// subtree: the units a, of the world or in extra, whose subtree holds it.
+// The world's part is computed once per tenant and subtree function
+// (i5ClosureMemo): a run binds about 15,000 times, and each fresh build walks
+// every unit's subtree. The map returned is shared; BindUnder copies it.
+func i5Closure(tenant uuid.UUID, extra []uuid.UUID, subtree func(tenant, root uuid.UUID) []uuid.UUID) map[uuid.UUID][]uuid.UUID {
+	key := i5ClosureKey{tenant, reflect.ValueOf(subtree).Pointer()}
+	base, ok := i5ClosureMemo.Load(key)
+	if !ok {
+		base, _ = i5ClosureMemo.LoadOrStore(key, i5ClosureOf(tenant, nil, subtree))
+	}
+	out := base.(map[uuid.UUID][]uuid.UUID) //nolint:forcetypeassert // only i5Closure stores
+	var more []uuid.UUID
+	for _, a := range extra {
+		if _, inWorld := out[a]; !inWorld && !slices.Contains(more, a) {
+			more = append(more, a)
+		}
+	}
+	if len(more) == 0 {
+		return out
+	}
+	// A listed id that is no unit of the world: its subtree, if any, on a copy.
+	cp := make(map[uuid.UUID][]uuid.UUID, len(out))
+	for k, v := range out {
+		cp[k] = slices.Clone(v)
+	}
+	for _, a := range more {
+		for _, d := range subtree(tenant, a) {
+			cp[d] = append(cp[d], a)
+		}
+	}
+	return cp
+}
+
+// i5ClosureKey identifies one memoized world closure.
+type i5ClosureKey struct {
+	tenant  uuid.UUID
+	subtree uintptr
+}
+
+// i5ClosureMemo holds i5ClosureOf per i5ClosureKey.
+//
+//nolint:gochecknoglobals // test-only memo of a pure function of the generated worlds
+var i5ClosureMemo sync.Map
+
+// i5ClosureOf is i5Closure computed afresh.
+func i5ClosureOf(tenant uuid.UUID, extra []uuid.UUID, subtree func(tenant, root uuid.UUID) []uuid.UUID) map[uuid.UUID][]uuid.UUID {
+	out := map[uuid.UUID][]uuid.UUID{}
+	v, ok := i5Trees.Load(tenant)
+	if !ok {
+		return out
+	}
+	w := v.(*i5World) //nolint:forcetypeassert // only orgTree stores
+	roots := slices.Clone(extra)
+	for _, u := range w.Units {
+		out[u.ID] = nil
+		roots = append(roots, u.ID)
+	}
+	slices.SortFunc(roots, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	for _, a := range slices.Compact(roots) {
+		for _, d := range subtree(tenant, a) {
+			out[d] = append(out[d], a)
+		}
+	}
+	return out
+}
+
+// i5UnderRoots is every unit an under leaf of d (or of prev) lists.
+func i5UnderRoots(d authz.Document, prev []authz.Condition) []uuid.UUID {
+	var out []uuid.UUID
+	visit := func(n authz.Node, _ string) {
+		if n.Under != nil {
+			out = append(out, n.Under.Units...)
+		}
+	}
+	for _, c := range append(slices.Clone(d.Conditions), prev...) {
+		i5Walk(c.Expr, visit)
+	}
+	for _, np := range d.Policies {
+		i5Walk(np.When, visit)
+	}
+	return out
 }
 
 // i5False is a leaf that is valid and false for every caller and row: an in
@@ -79,6 +224,8 @@ func i5F2Generate(seed uint64) (*i5World, []i5F2Case) {
 	cases := make([]i5F2Case, i5F2Docs)
 	for i := range cases {
 		cases[i].Policy, cases[i].Prev = w.f2Policy(r)
+		cases[i].World = w
+		cases[i].boundMemo = &sync.Map{}
 		for range i5Principals {
 			cases[i].Principals = append(cases[i].Principals, w.principal(r))
 		}
@@ -157,7 +304,7 @@ func (w *i5World) f2Leaf(r *rand.Rand, names []string) authz.Node {
 		return authz.Node{MemberOf: w.f2MemberOf(r)}
 	case n < 64:
 		return authz.Node{Shared: true}
-	case n < 92:
+	case n < 88:
 		if len(names) == 0 {
 			c := w.cond(r)
 			return authz.Node{Cmp: &c}
@@ -166,12 +313,29 @@ func (w *i5World) f2Leaf(r *rand.Rand, names []string) authz.Node {
 			return authz.Node{Ref: "missing"}
 		}
 		return authz.Node{Ref: i5Pick(r, names)}
-	case n < 95:
+	case n < 91:
 		return authz.Node{} // no kind: does not decode, voids the policy
 	case n < 97:
-		return authz.Node{Under: &authz.Under{Caller: true}} // not available until S31
+		return authz.Node{Under: w.f2Under(r)}
 	}
 	return authz.Node{All: []authz.Node{}} // an empty all: invalid
+}
+
+// f2Under is the caller's units or one or two of the tenant's units (live,
+// tombstoned, below a tombstoned one), now and then an id that is no unit.
+func (w *i5World) f2Under(r *rand.Rand) *authz.Under {
+	if i5Chance(r, 40) {
+		return &authz.Under{Caller: true}
+	}
+	u := &authz.Under{}
+	for range 1 + r.IntN(2) {
+		id := i5Pick(r, w.Units).ID
+		if i5Chance(r, 10) {
+			id = i5UUID(r)
+		}
+		u.Units = append(u.Units, id)
+	}
+	return u
 }
 
 // f2MemberOf names some of the tenant's groups and principals, a group the
@@ -413,6 +577,14 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 			has["caller with no id"] = has["caller with no id"] || p.PrincipalID == uuid.Nil
 			has["caller with no id, in a group"] = has["caller with no id, in a group"] || (p.PrincipalID == uuid.Nil && len(p.Groups) > 0)
 			has["caller in no group"] = has["caller in no group"] || len(p.Groups) == 0
+			if p.PrincipalID != uuid.Nil {
+				has[fmt.Sprintf("caller in %d org units", len(w.Members[p.PrincipalID]))] = true
+				for _, u := range w.Members[p.PrincipalID] {
+					if _, deadAbove := i5UnitDepth(w.Units, u); deadAbove {
+						has["caller in a live unit below a tombstoned one"] = true
+					}
+				}
+			}
 		}
 		if c.Policy == nil {
 			has["nil policy"] = true
@@ -454,6 +626,24 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 				if n.Ref == "missing" {
 					has["unresolved ref"] = true
 				}
+				if n.Under != nil {
+					if n.Under.Caller {
+						has["under caller"] = true
+					}
+					for _, id := range n.Under.Units {
+						switch i := slices.IndexFunc(w.Units, func(u i5Unit) bool { return u.ID == id }); {
+						case i < 0:
+							has["under a unit that does not exist"] = true
+						case w.Units[i].Dead:
+							has["under a tombstoned unit"] = true
+						case len(i5Subtree(w.Tenant, id)) > 1:
+							has["under a unit with live descendants"] = true
+						}
+					}
+					if parent == authz.NodeNot {
+						has["not over under"] = true
+					}
+				}
 			})
 			for name := range refs {
 				reach[name]++
@@ -493,6 +683,20 @@ func i5F2Shapes(w *i5World, cases []i5F2Case) map[string]bool {
 		has["nil requester"] = has["nil requester"] || rec.Row.RequesterID == nil
 		has["nil assignee"] = has["nil assignee"] || rec.Row.AssigneeID == nil
 		has["nil group"] = has["nil group"] || rec.Row.AssignmentGroupID == nil
+		has["nil org unit"] = has["nil org unit"] || rec.Row.OrgUnitID == nil
+		if rec.Row.OrgUnitID != nil {
+			for _, u := range w.Units {
+				if u.ID == *rec.Row.OrgUnitID && u.Dead {
+					has["record in a tombstoned unit"] = true
+				}
+			}
+			switch depth, deadAbove := i5UnitDepth(w.Units, *rec.Row.OrgUnitID); {
+			case deadAbove && !slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == *rec.Row.OrgUnitID && u.Dead }):
+				has["record in a live unit below a tombstoned one"] = true
+			case depth >= 3 && !deadAbove:
+				has["record in a live unit at depth 3 or more"] = true
+			}
+		}
 	}
 	return has
 }
@@ -544,7 +748,11 @@ func TestI5Format2GeneratorCoversTheRiskyShapes(t *testing.T) {
 		"policy tree of depth 4", "node with no kind", "kind under", "empty all", "empty any",
 		"not over a uuid cmp (NULL column)", "not over member_of", "malformed cmp", "member_of naming nobody",
 		"unresolved ref", "voided policy", "ref shared between policies", "duplicate condition name",
-		"self-referencing condition (cycle)", "previous conditions differ", "nil requester", "nil assignee", "nil group"} {
+		"self-referencing condition (cycle)", "previous conditions differ", "nil requester", "nil assignee", "nil group",
+		"under caller", "under a tombstoned unit", "under a unit with live descendants", "under a unit that does not exist",
+		"not over under", "nil org unit", "record in a tombstoned unit", "record in a live unit below a tombstoned one",
+		"record in a live unit at depth 3 or more", "caller in 0 org units", "caller in 1 org units",
+		"caller in 2 org units", "caller in 3 org units", "caller in a live unit below a tombstoned one"} {
 		if !has[want] {
 			t.Errorf("the default seed's format-2 run has no %s", want)
 		}
@@ -571,7 +779,7 @@ func i5F2Agree(w *i5World, cases []i5F2Case, n int) (proper, total int, err erro
 				if p.PrincipalID == uuid.Nil {
 					row.SharedWith = rec.groupShares(p)
 				}
-				_, _, got := authz.Allows(c.Policy, p, authz.OpRead, row)
+				_, _, got := authz.Allows(c.bound(p), p, authz.OpRead, row)
 				if want := i5Reference(c.Policy, p, authz.OpRead, row); got != want {
 					j, _ := json.Marshal(c.Policy)
 					return proper, total, fmt.Errorf("doc #%d principal #%d record %s: Allows %v, reference %v; principal %+v; row %+v; policy %s",
@@ -641,7 +849,9 @@ func TestI5Format2AllowsMatchesTheReference(t *testing.T) {
 func TestI5Format2CapCasesPlanAsTheCapsSay(t *testing.T) {
 	i5Quiet(t)
 	w, cases := i5F2Generate(i5DefaultSeed)
-	principals := cases[0].Principals[:8]
+	// Eight drawn callers and one in no group with no id, so a valid policy
+	// cannot grant every row through member_of whatever the seed draws.
+	principals := append(slices.Clone(cases[0].Principals[:8]), identity.Principal{TenantID: w.Tenant})
 	for _, cc := range w.i5CapCases() {
 		for _, np := range cc.Policy.Document.Policies {
 			want, listed := cc.Valid[np.Name]
@@ -769,12 +979,16 @@ func TestI5ReferenceKnowsD5(t *testing.T) {
 		{"not over member_of folds the other way", doc(notOf(authz.Node{MemberOf: &authz.MemberOf{Groups: []uuid.UUID{g}}})), noID, nilRow, false},
 		{"an empty any is false", doc(notOf(authz.Node{Any: []authz.Node{}})), caller, nilRow, true},
 		{"an empty all voids", doc(notOf(authz.Node{All: []authz.Node{}})), caller, nilRow, false},
-		{"under is not available", doc(notOf(authz.Node{Under: &authz.Under{Caller: true}})), caller, nilRow, false},
+		{"under for a caller with no units is false", doc(notOf(authz.Node{Under: &authz.Under{Caller: true}})), caller, nilRow, true},
+		{"under a unit no world has is false", doc(authz.Node{Under: &authz.Under{Units: []uuid.UUID{g}}}), caller, mine, false},
 	} {
 		if got := i5Reference(tc.pol, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: reference %v, want %v", tc.name, got, tc.want)
 		}
-		if _, _, got := authz.Allows(tc.pol, tc.p, authz.OpRead, tc.row); got != tc.want {
+		// No world: U is empty and the closure holds nothing, as the
+		// reference reads it.
+		bound := authz.BindUnder(tc.pol, tc.p, nil, map[uuid.UUID][]uuid.UUID{g: nil})
+		if _, _, got := authz.Allows(bound, tc.p, authz.OpRead, tc.row); got != tc.want {
 			t.Errorf("%s: Allows %v, want %v", tc.name, got, tc.want)
 		}
 	}

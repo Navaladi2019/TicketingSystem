@@ -23,7 +23,7 @@
     - page: tour/04-add-users-to-groups.md
       label: "4. Add users to groups"
     - page: tour/05-organisation-units.md
-      label: "5. Organisation units (not built)"
+      label: "5. Organisation units"
     - page: tour/06-create-an-entity-type.md
       label: "6. Create an entity type"
     - page: tour/07-access-rules-and-masks.md
@@ -44,6 +44,8 @@
       label: "Entity types"
     - page: database/records.md
       label: "Records"
+    - page: database/org-units.md
+      label: "Org units"
     - page: database/acl.md
       label: "Access rules and masks"
     - page: workflows/index.md
@@ -158,6 +160,8 @@
             label: "Roles and grants"
           - page: database/migrations.md
             label: "Migration history"
+          - page: database/record-estimates.md
+            label: "Record estimates"
           - page: database/idempotency.md
             label: "Idempotency"
           - page: database/outbox.md
@@ -303,6 +307,8 @@
             label: "CI checks the Competitive Gate and the configuration surface"
           - page: stories/s30.md
             label: "Compose access rules from named conditions"
+          - page: stories/s31.md
+            label: "Tickets in my region (org units)"
           - page: stories/s32.md
             label: "A workflow step checks a named policy"
           - page: stories/go127.md

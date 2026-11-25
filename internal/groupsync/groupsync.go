@@ -68,14 +68,28 @@ type Syncer struct {
 	log  *slog.Logger
 	opts Options
 	lag  metric.Float64Histogram
+	// subtree is groupsync_org_subtree_max, one observation per applied tenant.
+	subtree metric.Int64Histogram
+	// unrooted is groupsync_org_closure_unrooted_units (TICK-1058).
+	unrooted metric.Int64Counter
+	// unitsLive is groupsync_org_units_live_max: set once per cycle to the
+	// largest live org-unit count over the tenants the cycle visited. It never
+	// gates a sync (ADR-010-A2 A2-7); the alert is the only reaction.
+	unitsLive metric.Int64Gauge
 
 	mu      sync.Mutex
 	cursors map[uuid.UUID]string
 	lastOK  map[uuid.UUID]time.Time
-	started time.Time
+	// liveUnits is each tenant's last counted live org units; a tenant not
+	// re-counted in a cycle (lock held elsewhere, failed apply) keeps it.
+	liveUnits map[uuid.UUID]int
+	// countLive counts a tenant's live org units; a test swaps it to fail.
+	countLive func(context.Context, pgx.Tx, uuid.UUID) (int, error)
+	started   time.Time
 }
 
-// New registers groupsync_lag_seconds on mp. pool must log in as
+// New registers groupsync_lag_seconds, groupsync_org_subtree_max and
+// groupsync_org_closure_unrooted_units on mp. pool must log in as
 // nava_groupsync.
 func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvider, log *slog.Logger, opts Options) (*Syncer, error) {
 	if pool == nil || dir == nil {
@@ -104,9 +118,31 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	if err != nil {
 		return nil, fmt.Errorf("groupsync: %w", err)
 	}
+	sub, err := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Histogram(
+		"groupsync_org_subtree_max",
+		metric.WithDescription("Largest number of live org units under any one unit a user belongs to, observed once per applied tenant sync. Never labelled by tenant."),
+		metric.WithUnit("{unit}"),
+		metric.WithExplicitBucketBoundaries(10, 100, 500, 1000, 2500, 5000, 7500, 10000))
+	if err != nil {
+		return nil, fmt.Errorf("groupsync: %w", err)
+	}
+	// TICK-1058: reported, not failed. Failing the sync would not repair the
+	// closure (the rollback keeps the stored one, still without the self row)
+	// and would stop the tenant's principal tombstones and group removals.
+	unr, unrErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Counter(
+		"groupsync_org_closure_unrooted_units",
+		metric.WithDescription("Live org units found with no org_unit_closure self row after a tenant's closure rebuild, summed over applied tenant syncs. Such a unit is outside every region. Any increase is an alert. Never labelled by tenant; the tenant is named in a log line."),
+		metric.WithUnit("{unit}"))
+	live, liveErr := mp.Meter("github.com/Navaladi2019/TicketingSystem/internal/groupsync").Int64Gauge(
+		"groupsync_org_units_live_max",
+		metric.WithDescription("Largest live org-unit count of any tenant visited in the cycle, set once per cycle. Never labelled by tenant. Alerted above the ADR-010-A2 certified tree (rules/groupsync.yml); it never gates a sync."),
+		metric.WithUnit("{unit}"))
+	if err := errors.Join(unrErr, liveErr); err != nil {
+		return nil, fmt.Errorf("groupsync: %w", err)
+	}
 	return &Syncer{
-		pool: pool, dir: dir, log: log, opts: opts, lag: h,
-		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, started: opts.Now(),
+		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, unitsLive: live,
+		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),
 	}, nil
 }
 
@@ -151,7 +187,24 @@ func (s *Syncer) Once(ctx context.Context) ([]Result, error) {
 		s.observe(ctx, r)
 		out = append(out, r)
 	}
+	s.recordLiveMax(ctx, tenants)
 	return out, nil
+}
+
+// recordLiveMax sets groupsync_org_units_live_max to the largest last-known
+// live org-unit count over the tenants this cycle visited, counted or not.
+func (s *Syncer) recordLiveMax(ctx context.Context, visited []uuid.UUID) {
+	s.mu.Lock()
+	m, seen := 0, false
+	for _, id := range visited {
+		if n, ok := s.liveUnits[id]; ok {
+			m, seen = max(m, n), true
+		}
+	}
+	s.mu.Unlock()
+	if seen {
+		s.unitsLive.Record(ctx, int64(m))
+	}
 }
 
 // Run syncs once at once, then every Interval, until ctx is cancelled. A
@@ -169,6 +222,36 @@ func (s *Syncer) Run(ctx context.Context) error {
 		case <-t.C:
 		}
 	}
+}
+
+// countLiveOrgUnits counts the tenant's live org units inside its apply
+// transaction, so no extra cross-tenant read is made.
+func countLiveOrgUnits(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (int, error) {
+	var n int
+	err := tx.QueryRow(ctx, `SELECT count(*) FROM org_units WHERE tenant_id = $1::uuid AND deleted_at IS NULL`, tenantID.String()).Scan(&n)
+	return n, err // the caller logs it; the count never fails a sync
+}
+
+// liveUnitsBestEffort counts in a savepoint. The count is a metric: if it
+// fails, the savepoint is rolled back (so the tenant's transaction is not
+// aborted and still commits its tombstones and removals), a warning names the
+// tenant, and -1 is returned so the tenant keeps its last known count
+// (ADR-010-A2 A2-7: nothing refuses a sync on this value).
+func (s *Syncer) liveUnitsBestEffort(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) int {
+	sp, err := tx.Begin(ctx)
+	if err == nil {
+		var n int
+		if n, err = s.countLive(ctx, sp, tenantID); err == nil {
+			if err = sp.Commit(ctx); err == nil {
+				return n
+			}
+		} else {
+			_ = sp.Rollback(ctx)
+		}
+	}
+	s.log.WarnContext(ctx, "group sync: counting live org units failed; the tenant keeps its last known count",
+		slog.String("tenant_id", tenantID.String()), slog.Any("error", err))
+	return -1
 }
 
 // lockSQL is transaction-scoped, so it is released with the transaction and
@@ -194,6 +277,9 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 
 	var digest string
 	var snapAt time.Time
+	subtreeMax := -1 // -1: nothing applied, nothing to record
+	unrooted := 0
+	liveUnits := -1 // -1: not counted this cycle
 	err := tenancy.InTenantTx(ctx, s.pool, tenantID, func(tx pgx.Tx) error {
 		var locked bool
 		if err := tx.QueryRow(ctx, lockSQL, LockName(tenantID)).Scan(&locked); err != nil {
@@ -220,12 +306,29 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		digest = d
 		if changes.Unchanged {
 			res.Unchanged = true
+			// Nothing to apply, but the tenant's tree size is still reported.
+			n, err := storedOrgSubtreeMax(ctx, tx, tenantID, s.opts.MaxOrgUnitDepth)
+			if err != nil {
+				return err
+			}
+			subtreeMax = n
+			// The closure is not rebuilt, but a hand edit since the last
+			// apply can still have left a live unit without its self row
+			// (TICK-1058). An apply heals an orphan that is not in the
+			// snapshot by tombstoning it, so this path is where one lasts.
+			if unrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
+				return err
+			}
+			liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
 			return nil
 		}
 		st, err := apply(ctx, tx, tenantID, changes, s.opts.Now(), s.opts.MaxOrgUnitDepth)
 		if err != nil {
 			return err
 		}
+		subtreeMax = st.OrgSubtreeMax
+		unrooted = st.ClosureUnrooted
+		liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
 				slog.String("tenant_id", tenantID.String()))
@@ -234,6 +337,10 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 			slog.Int("principals_written", st.PrincipalsWritten), slog.Int("principals_tombstoned", st.PrincipalsTombstoned),
 			slog.Int("groups_written", st.GroupsWritten), slog.Int("groups_deleted", st.GroupsDeleted),
 			slog.Int("org_units_written", st.OrgUnitsWritten), slog.Int("org_units_deleted", st.OrgUnitsDeleted),
+			slog.Int("org_members_written", st.OrgMembersWritten), slog.Int("org_members_removed", st.OrgMembersRemoved),
+			slog.Int("org_subtree_max", st.OrgSubtreeMax),
+			slog.Int("org_closure_rows", st.ClosureRows), slog.Bool("org_closure_rebuilt", st.ClosureRebuilt),
+			slog.Int("org_closure_unrooted", st.ClosureUnrooted),
 			slog.Int("ignored_outside_subtree", st.Ignored))
 		return nil
 	})
@@ -244,7 +351,19 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	if res.Skipped {
 		return res
 	}
+	// Added only after the commit: a rolled-back run reports nothing.
+	if unrooted > 0 {
+		s.unrooted.Add(ctx, int64(unrooted))
+		s.log.WarnContext(ctx, "group sync: live org units have no closure self row and are outside every region",
+			slog.String("tenant_id", tenantID.String()), slog.Int("org_closure_unrooted", unrooted))
+	}
+	if subtreeMax >= 0 {
+		s.subtree.Record(ctx, int64(subtreeMax))
+	}
 	s.mu.Lock()
+	if liveUnits >= 0 {
+		s.liveUnits[tenantID] = liveUnits
+	}
 	s.cursors[tenantID] = digest
 	s.lastOK[tenantID] = snapAt
 	s.mu.Unlock()

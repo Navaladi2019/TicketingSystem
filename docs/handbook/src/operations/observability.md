@@ -2,7 +2,7 @@
 title: "Traces, logs and metrics"
 section: operations
 status: delivered
-sources: [compose.yaml, deploy/compose/README.md, deploy/compose/otel-collector/config.yaml, internal/platform/telemetry/telemetry.go, deploy/compose/prometheus/prometheus.yml, deploy/compose/prometheus/rules/audit.yml, deploy/compose/prometheus/rules/authz.yml, docs/architecture/observability-notes.md, docs/architecture/nava-core-skeleton.md, .env.example]
+sources: [compose.yaml, deploy/compose/README.md, deploy/compose/otel-collector/config.yaml, internal/platform/telemetry/telemetry.go, deploy/compose/prometheus/prometheus.yml, deploy/compose/prometheus/rules/audit.yml, deploy/compose/prometheus/rules/authz.yml, deploy/compose/prometheus/rules/groupsync.yml, docs/architecture/observability-notes.md, docs/architecture/nava-core-skeleton.md, .env.example]
 ---
 
 Every nava service emits three signals. Locally, all of them land in two browser UIs that `task stack:up` starts (profile `operator`).
@@ -64,8 +64,23 @@ If OpenObserve is not running (a stack without the `operator` profile), the Coll
 | `AuditDeadLineage` (critical) | A seal lineage is more than 10 minutes overdue | The nava-purge `audit seal lineage dead` log line. Recovery is `POST /api/v1/audit/chain:reseed` |
 | `AuditDeadLineageCheckDown` (warning) | The dead-lineage check has reported nothing for 5 minutes | The nava-purge `audit dead lineage check failed` log line: a lost grant, a dropped policy or a renamed column |
 | `AuthzPolicyInvalid` (warning) | `authz_policy_invalid_total` grew in the last 10 minutes for an entity type: a stored access policy was voided and grants nothing (ADR-010 R7, S30) | The nava-core log line `authz: access policy voided, it grants nothing` names the entity type and ACL version; the explainer's `invalid` list gives the policy and pointer. Republish a valid document and file a bug on the check that let it through. Its sibling `authz_read_branches_fallback_total` has no alert; see [Core: record ACL](../system/core-acl.md#the-sp-2-branch-threshold-adr-010-d6) |
+| `EntityRecordEstimatesStale` (warning) | `authz_under_estimate_age_seconds` above 10,800 s (3 hours) for 15 minutes: the nava-worker estimates job has not refreshed some tenant (S31, ADR-010-A2 A2-R3). Cost only, never rows | `entity_record_estimates_refresh_failures_total` and the nava-worker log, which names the failing tenant. With `NAVA_ESTIMATES_REFRESH_INTERVAL=0` it fires by design. See [nava-worker](../system/nava-worker.md#the-estimates-refresh-job-s31) |
+| `GroupsyncOrgUnitsAboveCertified` (warning) | `groupsync_org_units_live_max` above 10,111 for 10 minutes: a tenant's live org-unit tree is larger than ADR-010-A2 is certified for (A2-7, A2-R6). Region-only lists may exceed 150 ms | No log line names the tenant (TICK-1132). As the database superuser: `SELECT tenant_id, count(*) FROM org_units WHERE deleted_at IS NULL GROUP BY 1 HAVING count(*) > 10111`; row-level security hides other tenants from the service roles. Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See [nava-groupsync](../system/nava-groupsync.md#org-units-s31) |
+| `GroupsyncOrgUnitsUnrooted` (warning) | `groupsync_org_closure_unrooted_units_total` grew in the last 15 minutes: some live org units have no closure self row, so no region rule sees their tickets (S31, TICK-1116). It can miss the first sample of a series that starts at 1; the WARN line repeats every cycle and covers that case | The nava-groupsync WARN line `live org units have no closure self row and are outside every region` names the tenant. Never refuse the sync. See [nava-groupsync](../system/nava-groupsync.md#org-units-s31) |
 
 `authz_policy_ref_missing_total{entity_type}` (nava-worker, S32) counts workflow named-policy tests that named no policy, so denied. It has no alert and should stay at zero; a rise means a workflow names a removed or misspelt policy (ADR-010 R5). The nava-worker warning `authz: workflow policy reference names no policy, it denies` gives `entity_type`, `ref_entity_type` and `policy`, and each one has a `policy_ref_refused` audit entry ([S32](../stories/s32.md#finding-the-missing-policy-entry)).
+
+**Region access metrics (S31).** None carries a tenant label.
+
+| Metric | Service | What it is |
+|---|---|---|
+| `authz_under_list_shape_total{shape}` | nava-core | Region terms of list requests by page shape, `c3` or `walk` (the rare-type shortcut counts as `walk`) |
+| `authz_under_probe_seconds` | nava-core | Duration of each P3 probe. No alert. One list runs at most 16 probes of at most 20,001 records each, plus one lookup per live unit under U when the type has few records there (about 10 µs per unit, A2-7); a p95 above 25 ms for 15 minutes reopens that load ([decision](../../../delivery/decisions/2026-11-25-s31-probe-load-deferred.md), `AR-S31-05`) |
+| `authz_under_estimate_age_seconds` | nava-worker | Age of the oldest per-tenant estimate refresh |
+| `entity_record_estimates_refresh_failures_total` | nava-worker | Tenants whose estimate refresh failed |
+| `groupsync_org_subtree_max` | nava-groupsync | Most live units under any one unit a user belongs to. No alert and no log line of its own |
+| `groupsync_org_units_live_max` | nava-groupsync | Largest live-unit count of any tenant in the cycle |
+| `groupsync_org_closure_unrooted_units` | nava-groupsync | Live units with no closure self row, so outside every region. Alert: `GroupsyncOrgUnitsUnrooted`, on the counter. The WARN line repeats every cycle |
 
 ## What is never in telemetry
 
