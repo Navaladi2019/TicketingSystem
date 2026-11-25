@@ -1,0 +1,9 @@
+host: Windows-11-10.0.26300-SP0 | Intel64 Family 6 Model 154 Stepping 3, GenuineIntel
+docker VM: 16 CPUs, 26260877312 bytes
+other containers running: 15
+server: 16.10 (Debian 16.10-1.pgdg13+1) | default settings: shared_buffers=128MB work_mem=4MB fsync=on synchronous_commit=on max_wal_size=1GB
+10000 records, run 1: paste 1 0.5 s, paste 2 1.1 s, COMMIT 2.0 s, total 3.6 s | 0 old names left, 10002 entries written | 293 bytes of data
+10000 records, run 2: paste 1 0.4 s, paste 2 1.5 s, COMMIT 1.9 s, total 3.7 s | 0 old names left, 10002 entries written | 293 bytes of data
+10000 records, run 3: paste 1 0.3 s, paste 2 0.9 s, COMMIT 2.1 s, total 3.4 s | 0 old names left, 10002 entries written | 293 bytes of data
+100000 records, run 1: paste 1 2.3 s, paste 2 15.9 s, COMMIT 25.5 s, total 43.7 s | 0 old names left, 100002 entries written | 294 bytes of data
+100000 records, run 2: paste 1 2.6 s, paste 2 16.9 s, COMMIT 28.0 s, total 47.5 s | 0 old names left, 100002 entries written | 294 bytes of data
