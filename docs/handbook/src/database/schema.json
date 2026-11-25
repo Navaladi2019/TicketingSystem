@@ -107,8 +107,7 @@
           "name": "acl_versions_insert",
           "command": "INSERT",
           "roles": [
-            "nava_app",
-            "nava_worker"
+            "nava_app"
           ],
           "permissive": true,
           "using": "",
@@ -1506,6 +1505,108 @@
       ]
     },
     {
+      "name": "entity_record_estimates",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "live_records",
+          "type": "bigint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "refreshed_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "entity_definition_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "entity_record_estimates_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "entity_record_estimates_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "entity_record_estimates_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "entity_record_estimates_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "entity_record_estimates_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
       "name": "group_members",
       "kind": "table",
       "partition_of": "",
@@ -1640,7 +1741,8 @@
           "command": "SELECT",
           "roles": [
             "nava_app",
-            "nava_groupsync"
+            "nava_groupsync",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
@@ -2358,6 +2460,277 @@
       ]
     },
     {
+      "name": "org_unit_closure",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ancestor_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "descendant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "ancestor_id",
+        "descendant_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "org_unit_closure_ancestor_fkey",
+          "columns": [
+            "tenant_id",
+            "ancestor_id"
+          ],
+          "ref_table": "org_units",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "org_unit_closure_descendant_fkey",
+          "columns": [
+            "tenant_id",
+            "descendant_id"
+          ],
+          "ref_table": "org_units",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "org_unit_closure_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "ancestor_id",
+            "descendant_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "org_unit_closure_delete",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "org_unit_closure_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "org_unit_closure_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "org_unit_members",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "org_unit_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "principal_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "is_primary",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "live",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "org_unit_id",
+        "principal_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "org_unit_members_principal_fkey",
+          "columns": [
+            "tenant_id",
+            "principal_id"
+          ],
+          "ref_table": "principals",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "CASCADE"
+        },
+        {
+          "name": "org_unit_members_unit_live_fkey",
+          "columns": [
+            "tenant_id",
+            "org_unit_id",
+            "live"
+          ],
+          "ref_table": "org_units",
+          "ref_columns": [
+            "tenant_id",
+            "id",
+            "live"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "org_unit_members_one_primary",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "principal_id"
+          ],
+          "include": [],
+          "predicate": "is_primary"
+        },
+        {
+          "name": "org_unit_members_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "org_unit_id",
+            "principal_id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "org_unit_members_principal",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "principal_id",
+            "org_unit_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "org_unit_members_delete",
+          "command": "DELETE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "org_unit_members_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "org_unit_members_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_app",
+            "nava_groupsync",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "org_unit_members_update",
+          "command": "UPDATE",
+          "roles": [
+            "nava_groupsync"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
       "name": "org_units",
       "kind": "table",
       "partition_of": "",
@@ -2397,6 +2770,18 @@
           "type": "text",
           "nullable": false,
           "default": ""
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "live",
+          "type": "boolean",
+          "nullable": true,
+          "default": "(deleted_at IS NULL)"
         }
       ],
       "primary_key": [
@@ -2442,6 +2827,18 @@
           "predicate": ""
         },
         {
+          "name": "org_units_live_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "id",
+            "live"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
           "name": "org_units_parent",
           "method": "btree",
           "unique": false,
@@ -2466,16 +2863,6 @@
       ],
       "policies": [
         {
-          "name": "org_units_delete",
-          "command": "DELETE",
-          "roles": [
-            "nava_groupsync"
-          ],
-          "permissive": true,
-          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
-          "check": ""
-        },
-        {
           "name": "org_units_insert",
           "command": "INSERT",
           "roles": [
@@ -2490,7 +2877,8 @@
           "command": "SELECT",
           "roles": [
             "nava_app",
-            "nava_groupsync"
+            "nava_groupsync",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
@@ -3002,7 +3390,8 @@
           "command": "SELECT",
           "roles": [
             "nava_app",
-            "nava_groupsync"
+            "nava_groupsync",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
@@ -3590,6 +3979,12 @@
           "type": "smallint",
           "nullable": true,
           "default": ""
+        },
+        {
+          "name": "org_unit_id",
+          "type": "uuid",
+          "nullable": true,
+          "default": ""
         }
       ],
       "primary_key": [
@@ -3643,6 +4038,19 @@
             "entity_definition_id"
           ],
           "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "records_org_unit_fkey",
+          "columns": [
+            "tenant_id",
+            "org_unit_id"
+          ],
+          "ref_table": "org_units",
           "ref_columns": [
             "tenant_id",
             "id"
@@ -3772,6 +4180,18 @@
           ],
           "include": [],
           "predicate": ""
+        },
+        {
+          "name": "records_org_unit",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "org_unit_id",
+            "entity_definition_id"
+          ],
+          "include": [],
+          "predicate": "org_unit_id IS NOT NULL"
         },
         {
           "name": "records_pkey",
@@ -4217,7 +4637,8 @@
           "command": "SELECT",
           "roles": [
             "nava_app",
-            "nava_groupsync"
+            "nava_groupsync",
+            "nava_worker"
           ],
           "permissive": true,
           "using": "true",

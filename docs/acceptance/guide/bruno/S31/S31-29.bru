@@ -1,0 +1,32 @@
+meta {
+  name: S31.29 AC2: the requester with no unit sees nothing, not even the ticket they raised
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_none_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('leaves out s31_t_none', () => expect(ids).to.not.include(bru.getVar('s31_t_none')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+  test('no incident at all: total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+  console.log('S31.29: total', N.json().total);
+}
+
+docs {
+  A caller with no unit has no region, and a ticket with no unit is in nobody's region.
+}

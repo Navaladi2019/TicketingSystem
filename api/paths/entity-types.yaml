@@ -337,10 +337,16 @@ paths:
         policy (`policy_leaves_exceeded`); at most 64 policies
         (`policies_exceeded`); at most 128 leaves in all policies of a
         document (`document_leaves_exceeded`); every group and user id belongs
-        to the tenant (`foreign_id`, for format 1 `not_in_tenant`); an unknown
-        node kind (`unknown_key`); a name that is not `^[a-z][a-z0-9_]{0,62}$`
-        or repeats (`invalid_name`, `duplicate_name`); `under` is not available
-        yet (`not_available`). `rules` and `masks` are each limited to the
+        to the tenant, and every org unit an `under` lists is a live unit of
+        the tenant (`foreign_id` at the id's pointer, for format 1
+        `not_in_tenant`); at most 4 distinct `under` start sets in a policy
+        after references expand, where `{"of": "caller"}` is one and the same
+        ids in any order are one (`under_sets_exceeded` at the policy's
+        pointer); no `under` that lists a unit and one of its ancestors
+        (`under_nested` at that `under`'s `of`); no `under` that lists the same
+        unit twice (`under_duplicate_id` at the second occurrence); an unknown node kind (`unknown_key`); a name that is
+        not `^[a-z][a-z0-9_]{0,62}$` or repeats (`invalid_name`,
+        `duplicate_name`). `rules` and `masks` are each limited to the
         platform's configured limit, 32 KiB by default, measured on the stored
         form; above it the 422 is `document_too_large` at `/rules` or
         `/masks`, and the limit is in that error's `detail`. The accepted

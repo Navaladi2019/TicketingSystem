@@ -1,0 +1,37 @@
+meta {
+  name: S31.17 Setup: the admin creates an incident raised by the EMEA requester
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{core_url}}/api/v1/records/incident
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick953-s31-{{s31_run}}-s31_t_emea
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {
+      "short_description": "S31 {{s31_run}} raised by the EMEA requester",
+      "requester": "{{s31_req_emea}}"
+    }
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  bru.setVar('s31_t_emea', N.json().id);
+  test('requester as sent', () => expect(N.json().data.requester).to.eql(bru.getVar('s31_req_emea')));
+}
+
+docs {
+  The admin creates it with `requester` set. The platform stores the requester's primary unit with the ticket (ADR-010 D8); the body cannot name the unit.
+}

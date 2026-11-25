@@ -1,0 +1,25 @@
+meta {
+  name: S31.15 The admin reads the incident access policy
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  bru.setVar('s31_etag', N.header('ETag'));
+}
+
+docs {
+  Keeps the ETag for S31.16.
+}

@@ -2,14 +2,15 @@
 title: "8. Audit export and erasure"
 section: security
 status: delivered
-sources: [docs/security/audit-erasure-export-isolation.md, internal/server/audit_erasure_isolation_integration_test.go, internal/audit, docs/adr/ADR-004-audit-log.md, docs/adr/ADR-004-A1-diff-read-role.md, docs/security/accepted-risks.md]
+sources: [docs/security/audit-erasure-export-isolation.md, internal/server/audit_erasure_isolation_integration_test.go, internal/server/audit_export.go, internal/server/audit_export_fieldmask_integration_test.go, internal/audit, docs/adr/ADR-004-audit-log.md, docs/adr/ADR-004-A1-diff-read-role.md, docs/security/accepted-risks.md]
 evidence: [docs/security/audit-erasure-export-isolation.md]
 adrs: [ADR-004, ADR-004-A1, ADR-004-E1]
 invariants: [I1, I3]
-stories: [S13, S16]
+stories: [S13, S16, S31]
+operations: [exportAuditEntries]
 tables: [audit_log, audit_chain_head]
 packages: [internal/audit, internal/server]
-tests: [TestCIA4EraseNeverCrossesTenants, TestCIA4NoTenantContextReachesNothing, TestCIA4ExportAndStubsNeverCrossTenants, TestCIA4ExportLeaseIsPerTenant, TestCIA4ReseedReadsOnlyItsOwnHead, TestCIA5ExportBytesCarryNoCanary, TestCIA7AppAndWorkerCannotErase, TestCIA7SecondEraseIsRejected, TestCIA7ErasureCannotReadDiff, TestCIA7NulledDiffWithoutEraseEntryIsTampered, TestCIA7EraseVerifiesPendingThenPass, TestNoBinaryLinksTheEraseHelper, TestP510bErasureCannotReadDiff, TestReseedGateIsTenantScoped]
+tests: [TestCIA4EraseNeverCrossesTenants, TestCIA4NoTenantContextReachesNothing, TestCIA4ExportAndStubsNeverCrossTenants, TestCIA4ExportLeaseIsPerTenant, TestCIA4ReseedReadsOnlyItsOwnHead, TestCIA5ExportBytesCarryNoCanary, TestCIA7AppAndWorkerCannotErase, TestCIA7SecondEraseIsRejected, TestCIA7ErasureCannotReadDiff, TestCIA7NulledDiffWithoutEraseEntryIsTampered, TestCIA7EraseVerifiesPendingThenPass, TestNoBinaryLinksTheEraseHelper, TestP510bErasureCannotReadDiff, TestReseedGateIsTenantScoped, TestExportAppliesTheCallersFieldMasks, TestExportMaskedEntriesCarryTheMarkerAndNoSalt, TestExportWithMaskedFieldsStillVerifies, TestOverlappingExportsKeepTheirOwnMasks, TestExportFailsClosedWhenAMaskReadFails, TestExportGateComesBeforeTheMaskRead]
 ---
 
 ## Boundary
@@ -17,7 +18,8 @@ tests: [TestCIA4EraseNeverCrossesTenants, TestCIA4NoTenantContextReachesNothing,
 Tenant B, holding a valid token or a database login bound to tenant B, must
 not export, erase, hide or learn the existence of tenant A's audit entries.
 Only the `nava_erasure` role can erase, it cannot read what it erases, and
-every erasure must be visible to the offline verifier.
+every erasure must be visible to the offline verifier. Inside one tenant, an
+export must not show a value that the caller's access policy masks.
 
 ## Enforcement point
 
@@ -35,6 +37,17 @@ Lowest layer first (ADR-004 R11, R17, R19 to R24, ADR-004-A1):
   another's.
 - **Write-time and read-time secret checks.** Secret values are refused at
   write (R6) and masked at read (R7), so they never reach export bytes.
+- **Read-time field masks (TICK-1127, S31).** The export applies the caller's
+  field masks as the audit list does, in JSON Lines and CSV, sealed and
+  unsealed, and masks `org_unit_id` when the requester is masked. In a masked
+  entry the value reads `{"redacted":"mask"}`, `diff_redacted` is true and
+  there is no `diff_salt`; the chain still verifies, but that diff's own hash
+  cannot be checked from the file. Masks are read after the permission gate and
+  before the lease: a failed read is a 500 with no file bytes, no lease and no
+  `audit/export` entry. Each request has its own copy of the exporter. Before
+  TICK-1127 the export applied no field mask (`TODO-S10-01` in
+  `docs/delivery/todo.md`), so a file downloaded earlier can hold values that
+  were masked for its reader.
 - **The erase helper is test-only.** No `cmd/*` binary links
   `internal/audit/erasetest`.
 - **Offline verifier, step 7.** A diff nulled without a sealed erase entry
@@ -71,6 +84,10 @@ sequenceDiagram
 | Export lease | `TestCIA4ExportLeaseIsPerTenant` |
 | Reseed gate | `TestCIA4ReseedReadsOnlyItsOwnHead`, `TestReseedGateIsTenantScoped` |
 | No secret in export bytes | `TestCIA5ExportBytesCarryNoCanary` |
+| Caller's field masks on the export | `TestExportAppliesTheCallersFieldMasks`, `TestExportMaskedEntriesCarryTheMarkerAndNoSalt` (both formats, with a no-mask control) |
+| A masked export still verifies | `TestExportWithMaskedFieldsStillVerifies` |
+| Overlapping exports keep their own masks | `TestOverlappingExportsKeepTheirOwnMasks` |
+| A failed mask read fails closed; the permission gate comes first | `TestExportFailsClosedWhenAMaskReadFails`, `TestExportGateComesBeforeTheMaskRead` |
 | Erase helper not shipped | `TestNoBinaryLinksTheEraseHelper` |
 
 The CI-A4 and CI-A5 tests run through the real handler, sealer and offline

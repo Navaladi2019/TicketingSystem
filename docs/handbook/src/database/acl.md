@@ -3,10 +3,10 @@ title: "Access control and masks"
 section: database
 status: delivered
 tables: [acl_versions, record_shares]
-adrs: [ADR-001, ADR-010, ADR-010-A1]
-stories: [S10, S30]
-sources: [docs/data/acl-tables.md, docs/data/acl-versions-shape-check.md, db/migrations/20261119100000_acl_rules_valid_format2.sql, db/migrations/20261119100100_acl_versions_bytes_validate.sql, db/grants.yaml]
-tests: [TestTICK940Format2Fixtures, TestTICK940Caps, TestTICK940ForeignIDs, TestTICK940ByteCeilings, TestTICK940WorkerCannotPublish, TestTICK940MigrationOverFormat1Rows]
+adrs: [ADR-001, ADR-010, ADR-010-A1, ADR-010-A2]
+stories: [S10, S30, S31]
+sources: [docs/data/acl-tables.md, docs/data/acl-versions-shape-check.md, db/migrations/20261119100000_acl_rules_valid_format2.sql, db/migrations/20261119100100_acl_versions_bytes_validate.sql, db/migrations/20261121000100_acl_tenant_ids_org_units.sql, db/migrations/20261121161036_acl2_under_sets_cap.sql, db/grants.yaml]
+tests: [TestTICK940Format2Fixtures, TestTICK940Caps, TestTICK940ForeignIDs, TestTICK940ByteCeilings, TestTICK940WorkerCannotPublish, TestTICK940MigrationOverFormat1Rows, TestTICK1059UnderSetsCap]
 ---
 
 Authorization runs inside the query (ADR-001 I5), from two insert-only
@@ -24,7 +24,7 @@ tables:
 Neither table is updated or deleted; a new ACL is a new version. Publishing
 an ACL is audited under its own subject type, `acl_policy`.
 
-## What the database checks on an `acl_versions` insert (S30)
+## What the database checks on an `acl_versions` insert (S30, S31)
 
 Since S30 (TICK-940, ADR-010 D4 and ADR-010-A1) `rules` holds either an S10
 format-1 array or a format-2 document (`{"format": 2, "conditions": [...],
@@ -37,8 +37,8 @@ store a broken or oversized document:
 |---|---|---|
 | Byte ceiling on `rules` | `acl_versions_bytes_rules_check`: `NOT (rules ? 'format') OR octet_length(rules::text) <= 131072` | a format-2 `rules` over 128 KiB |
 | Byte ceiling on `masks` | `acl_versions_bytes_masks_check`: `octet_length(masks::text) <= 131072` | `masks` over 128 KiB |
-| Format-2 grammar and caps | `acl_versions_rules_check`, through the `acl2_*` functions | unknown node kinds, bad names, unresolved refs, cycles, depth over 8, more than 16 children, 64 policies or 128 leaves |
-| Ids belong to the tenant | trigger `acl_versions_tenant_ids` (`AFTER INSERT`, `SECURITY INVOKER`) | a group or user id that is not the row's tenant's |
+| Format-2 grammar and caps | `acl_versions_rules_check`, through the `acl2_*` functions | unknown node kinds, bad names, unresolved refs, cycles, depth over 8, more than 16 children, 64 policies or 128 leaves; since S31, more than 4 distinct `under` start sets in one policy, refs expanded (`under_sets_exceeded`, TICK-1059) |
+| Ids belong to the tenant | trigger `acl_versions_tenant_ids` (`AFTER INSERT`, `SECURITY INVOKER`) | a group or user id that is not the row's tenant's, or (since S31, TICK-947) an `under` id that is not a **live** org unit of the row's tenant |
 
 The two `bytes_` constraints are named so that PostgreSQL, which runs
 `CHECK`s in name order, refuses an oversized row before any walk of it.

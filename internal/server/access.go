@@ -283,6 +283,12 @@ func (h *handlers) PutEntityTypeAccess(ctx context.Context, req api.PutEntityTyp
 			for i := range scope {
 				scope[i].Rule = authz.RuleForeignID
 			}
+			// SP-1e: no under leaf lists a unit and its ancestor.
+			nested, err := authz.NestedUnderUnits(ctx, tx, prep.Refs)
+			if err != nil {
+				return err
+			}
+			scope = append(scope, nested...)
 		}
 		if all := append(fieldProblems, scope...); len(all) > 0 {
 			return &accessPolicyError{all}
@@ -391,6 +397,11 @@ func (h *handlers) ExplainAccess(ctx context.Context, req api.ExplainAccessReque
 		}
 		row, err := pipeline.RowOf(ctx, tx, target, rec)
 		if err != nil {
+			return err
+		}
+		// The target's units and the record's closure answer, as its own
+		// read would bind them (TICK-1034).
+		if pol, err = authz.ResolveUnder(ctx, tx, pol, target, row); err != nil {
 			return err
 		}
 		ex = authz.Explain(pol, p, target, row)

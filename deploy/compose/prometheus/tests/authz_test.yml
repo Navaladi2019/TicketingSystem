@@ -36,3 +36,32 @@ tests:
       - eval_time: 16m
         alertname: AuthzPolicyInvalid
         exp_alerts: []
+
+  # EntityRecordEstimatesStale (TICK-1071): the age grows one second per
+  # second with the job off, crosses 10800 s at minute 180, and fires after
+  # 15 minutes above it; a refresh at minute 200 drops it to 0 and it resolves.
+  - interval: 1m
+    input_series:
+      - series: 'authz_under_estimate_age_seconds{job="nava-worker",instance="nava-worker:9090"}'
+        values: '0+60x199 0 0 0'
+    alert_rule_test:
+      - eval_time: 170m
+        alertname: EntityRecordEstimatesStale
+        exp_alerts: []
+      - eval_time: 198m
+        alertname: EntityRecordEstimatesStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: nava-worker
+              instance: nava-worker:9090
+            exp_annotations:
+              summary: entity_record_estimates has not been refreshed for over 3 hours (ADR-010-A2 A2-R3).
+              description: >-
+                Cost only, never rows; check nava-worker logs for the failing
+                tenant (entity_record_estimates_refresh_failures_total counts
+                them). With the job disabled (NAVA_ESTIMATES_REFRESH_INTERVAL=0)
+                this fires by design.
+      - eval_time: 202m
+        alertname: EntityRecordEstimatesStale
+        exp_alerts: []

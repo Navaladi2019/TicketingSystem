@@ -254,6 +254,10 @@ const (
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
 	m = beforeFormat2Checks(fsys, m)
+	m = beforeUnderSetsCap(fsys, m)
+	m, a = beforeOrgUnits(fsys, m, a)
+	m, a = beforeOrgUnitClosure(fsys, m, a)
+	m, a = beforeEntityRecordEstimates(fsys, m, a)
 	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)

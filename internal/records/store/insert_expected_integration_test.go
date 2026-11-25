@@ -57,7 +57,7 @@ func TestInsertRecordAsExpected(t *testing.T) {
 			}
 			var preview json.RawMessage
 			b := &pgx.Batch{}
-			if err := store.QueuePayloadPreview(b, rec, fixed, &preview); err != nil {
+			if err := store.QueuePayloadPreview(b, rec, fixed, false, &preview); err != nil {
 				return err
 			}
 			if err := tx.SendBatch(ctx, b).Close(); err != nil {

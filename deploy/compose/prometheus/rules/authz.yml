@@ -25,3 +25,22 @@ groups:
             drift between them: read the policy and its pointer in the
             explainer's invalid list, republish a valid document, and file a
             bug on the check that let it through.
+
+      # TICK-1071 (ADR-010-A2 A2-10, A2-R3): the hourly refresh of
+      # entity_record_estimates in nava-worker has not written a tenant's
+      # estimates for 3 h. authz_under_estimate_age_seconds is now minus the
+      # oldest per-tenant refresh time (a tenant whose transaction fails keeps
+      # its old time). No tenant label (TICK-93). A stale or missing estimate
+      # changes K* and so cost, never rows (A2-6). Test: ../tests/authz_test.yml.
+      - alert: EntityRecordEstimatesStale
+        expr: authz_under_estimate_age_seconds > 10800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: entity_record_estimates has not been refreshed for over 3 hours (ADR-010-A2 A2-R3).
+          description: >-
+            Cost only, never rows; check nava-worker logs for the failing
+            tenant (entity_record_estimates_refresh_failures_total counts
+            them). With the job disabled (NAVA_ESTIMATES_REFRESH_INTERVAL=0)
+            this fires by design.

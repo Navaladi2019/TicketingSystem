@@ -538,6 +538,19 @@ func checkDocument(d Document) *docCheck {
 			k.problems = append(k.problems, Problem{"/policies", RuleDocLeavesExceeded})
 		}
 	}
+	// At most MaxUnderSets distinct under U per policy, refs expanded. The
+	// database CHECK (acl2_problem, TICK-1059) refuses the same documents.
+	condExprs := make(map[string]*Node, len(d.Conditions))
+	for i := range d.Conditions {
+		if _, dup := condExprs[d.Conditions[i].Name]; !dup {
+			condExprs[d.Conditions[i].Name] = &d.Conditions[i].Expr
+		}
+	}
+	for i, p := range d.Policies {
+		if underSets(p.When, condExprs) > MaxUnderSets {
+			k.problems = append(k.problems, Problem{"/policies/" + strconv.Itoa(i), RuleUnderSetsExceeded})
+		}
+	}
 	k.lintNots(d, idx)
 	return k
 }
@@ -602,6 +615,16 @@ func (k *docCheck) scan(n Node, ptr string, d int, in *exprInfo, outer int) {
 		}
 	case NodeUnder:
 		leaf()
+		// Each listed unit must be a live org unit of the publishing tenant,
+		// at the same pointer the database's acl2_id_pointers reports.
+		// A unit listed twice in one leaf is refused at every repeat
+		// (A2-8, R2-N1); a repeat is still checked as a tenant ref.
+		for i, id := range n.Under.Units {
+			k.refs = append(k.refs, TenantRef{kp + "/of/" + strconv.Itoa(i), KindOrgUnit, id})
+			if slices.Contains(n.Under.Units[:i], id) {
+				k.problems = append(k.problems, Problem{kp + "/of/" + strconv.Itoa(i), RuleUnderDuplicateID})
+			}
+		}
 	}
 }
 

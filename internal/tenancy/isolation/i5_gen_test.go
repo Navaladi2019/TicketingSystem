@@ -9,6 +9,7 @@ package isolation
 // has no build tag, so task test checks the generator itself.
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -80,6 +82,18 @@ type i5World struct {
 	DecoyPrincipal     uuid.UUID // a principal with Groups[0]'s id
 	DecoyGroup         uuid.UUID // a group with Users[0]'s id
 	Records            []i5Record
+	// Units is the org tree (ADR-010 D7, TICK-950), parents first; Members
+	// maps a principal to the live units it belongs to (org_unit_members).
+	// Every record's OrgUnitID is one of Units or nil.
+	Units   []i5Unit
+	Members map[uuid.UUID][]uuid.UUID
+}
+
+// i5Unit is one org_units row: Parent is uuid.Nil for a root; Dead is a
+// tombstoned unit (deleted_at set).
+type i5Unit struct {
+	ID, Parent uuid.UUID
+	Dead       bool
 }
 
 // i5States are the states records take; "pending" is never named by a
@@ -152,7 +166,245 @@ func newI5World(r *rand.Rand) *i5World {
 		}
 		w.Records = append(w.Records, rec)
 	}
+	w.orgTree()
 	return w
+}
+
+// The random org tree (TICK-951 P11-18, ADR-010 D7): 1 to 3 roots, each
+// unit 0 to 3 children down to depth i5TreeMaxDepth (a root is depth 1), a
+// non-root unit tombstoned at i5TombstonePct percent, at most i5MaxUnits
+// units. A draw that lacks a risky shape (i5TreeRisky) is drawn again from the
+// same stream, so a seed still replays one tree.
+const (
+	i5TreeMaxDepth = 4
+	i5TombstonePct = 15
+	i5MaxUnits     = 40
+)
+
+// drawTree draws one org tree, parents first.
+func drawTree(r *rand.Rand) []i5Unit {
+	var units []i5Unit
+	var grow func(parent uuid.UUID, depth int)
+	grow = func(parent uuid.UUID, depth int) {
+		if len(units) >= i5MaxUnits {
+			return
+		}
+		u := i5Unit{ID: i5UUID(r), Parent: parent, Dead: parent != uuid.Nil && i5Chance(r, i5TombstonePct)}
+		units = append(units, u)
+		if depth == i5TreeMaxDepth {
+			return
+		}
+		// A root and depth 2 always branch, so trees reach depth 4 often.
+		kids := r.IntN(4)
+		if depth <= 2 {
+			kids = 1 + r.IntN(3)
+		}
+		for range kids {
+			grow(u.ID, depth+1)
+		}
+	}
+	for range 1 + r.IntN(3) {
+		grow(uuid.Nil, 1)
+	}
+	return units
+}
+
+// i5TreeRisky reports whether units hold every shape the under mutants and
+// D7's tombstone rule need: a chain of depth 4, a live unit with no tombstoned
+// ancestor and a live child (direct-only S differs from the subtree), and a tombstoned unit with a live
+// descendant (a tombstone-blind S differs).
+func i5TreeRisky(units []i5Unit) bool {
+	var deep, liveParent, deadAbove bool
+	for _, u := range units {
+		depth, dead := i5UnitDepth(units, u.ID)
+		deep = deep || depth >= i5TreeMaxDepth
+		deadAbove = deadAbove || (!u.Dead && dead)
+	}
+	_, child := i5LiveParentChild(units)
+	liveParent = child != uuid.Nil
+	return deep && liveParent && deadAbove
+}
+
+// i5LiveParentChild is the first live unit with no tombstoned ancestor and a
+// live child, and that child; uuid.Nil twice when units has none.
+func i5LiveParentChild(units []i5Unit) (uuid.UUID, uuid.UUID) {
+	for _, u := range units {
+		if u.Dead || u.Parent == uuid.Nil {
+			continue
+		}
+		if _, deadAbove := i5UnitDepth(units, u.ID); !deadAbove {
+			return u.Parent, u.ID
+		}
+	}
+	return uuid.Nil, uuid.Nil
+}
+
+// i5UnitDepth is id's depth in units (a root is 1, 0 when id is no unit) and
+// whether a strict ancestor of id is tombstoned.
+func i5UnitDepth(units []i5Unit, id uuid.UUID) (int, bool) {
+	depth, deadAbove := 0, false
+	for at, first := id, true; at != uuid.Nil; first = false {
+		i := slices.IndexFunc(units, func(u i5Unit) bool { return u.ID == at })
+		if i < 0 {
+			return depth, deadAbove
+		}
+		if !first && units[i].Dead {
+			deadAbove = true
+		}
+		depth++
+		at = units[i].Parent
+	}
+	return depth, deadAbove
+}
+
+// orgTree draws the world's org units, memberships and each record's unit
+// from a stream of its own, seeded from the tenant id, so the S10 draws (and
+// every earlier seed's world) are unchanged. A caller is in 0 to 3 live units
+// (org_unit_members references live units only), a live unit below a
+// tombstoned one included; a record is in no unit at 20 percent.
+func (w *i5World) orgTree() {
+	r := rand.New(rand.NewPCG(binary.LittleEndian.Uint64(w.Tenant[:8]), binary.LittleEndian.Uint64(w.Tenant[8:])))
+	for w.Units = drawTree(r); !i5TreeRisky(w.Units); w.Units = drawTree(r) {
+	}
+	var live []uuid.UUID
+	for _, u := range w.Units {
+		if !u.Dead {
+			live = append(live, u.ID)
+		}
+	}
+	// Users[i] is in i mod 4 distinct units, so every seed has callers in 0,
+	// 1, 2 and 3 units; which units is drawn. The decoy principal draws its
+	// count too.
+	w.Members = map[uuid.UUID][]uuid.UUID{}
+	for i, id := range append(slices.Clone(w.Users), w.DecoyPrincipal) {
+		k := i % 4
+		if id == w.DecoyPrincipal {
+			k = r.IntN(4)
+		}
+		for _, j := range r.Perm(len(live))[:min(k, len(live))] {
+			w.Members[id] = append(w.Members[id], live[j])
+		}
+	}
+	for i := range w.Records {
+		if !i5Chance(r, 20) {
+			id := i5Pick(r, w.Units).ID
+			w.Records[i].Row.OrgUnitID = &id
+		}
+	}
+	// Forced shapes, so no seed can lose them (TestI5OrgTreeIsRandomAndRisky
+	// asserts both on every seed):
+	//   - the case under_direct_only breaks: Users[1], in one unit, is in P
+	//     (live, no tombstoned ancestor), and records 0 to 7 are in its live
+	//     child C. The drawn tree alone may already hold it (the TICK-951
+	//     review caught the mutant on 8 and on 40 seeds without the force);
+	//     the force makes it hold on every seed, not on most.
+	//   - nested U (SP-1e decision, TICK-1035): Users[2], in two units, is in
+	//     P and in C below it, so C's records are reached from both start
+	//     units and must be admitted once.
+	parent, child := i5LiveParentChild(w.Units)
+	w.Members[w.Users[1]] = []uuid.UUID{parent}
+	w.Members[w.Users[2]] = []uuid.UUID{parent, child}
+	for i := range 8 {
+		w.Records[i].Row.OrgUnitID = &child
+	}
+	i5Trees.Store(w.Tenant, w)
+}
+
+// i5Trees maps a world's tenant to the world, so the reference evaluator
+// finds the org tree of a principal's tenant (i5Subtree).
+//
+//nolint:gochecknoglobals // test-only registry of generated worlds
+var i5Trees sync.Map
+
+// i5Subtree is set S of root in the tenant's world, from ADR-010 D7 alone: the
+// root and every unit below it, walking live units only, so a tombstoned unit
+// ends its branch. A root that is not a live unit of the world, or that has a
+// tombstoned ancestor (it dropped out with that unit's subtree), gives
+// nothing.
+func i5Subtree(tenant, root uuid.UUID) []uuid.UUID {
+	v, ok := i5Trees.Load(tenant)
+	if !ok {
+		return nil
+	}
+	w := v.(*i5World) //nolint:forcetypeassert // only orgTree stores
+	live := func(id uuid.UUID) bool {
+		return slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == id && !u.Dead })
+	}
+	if !live(root) {
+		return nil
+	}
+	for at := root; ; {
+		i := slices.IndexFunc(w.Units, func(u i5Unit) bool { return u.ID == at })
+		if i < 0 || w.Units[i].Dead {
+			return nil
+		}
+		if at = w.Units[i].Parent; at == uuid.Nil {
+			break
+		}
+	}
+	out := []uuid.UUID{root}
+	for i := 0; i < len(out); i++ {
+		for _, u := range w.Units {
+			if u.Parent == out[i] && !u.Dead && !slices.Contains(out, u.ID) {
+				out = append(out, u.ID)
+			}
+		}
+	}
+	return out
+}
+
+// i5CallerSet is set S of under {"of": "caller"} for p: the subtrees of its
+// units; none for a caller with no id.
+func i5CallerSet(p identity.Principal) []uuid.UUID {
+	return i5CallerSetWith(p, i5Subtree)
+}
+
+// i5CallerSetWith is i5CallerSet with each unit's S computed by subtree.
+func i5CallerSetWith(p identity.Principal, subtree func(tenant, root uuid.UUID) []uuid.UUID) []uuid.UUID {
+	if p.PrincipalID == uuid.Nil {
+		return nil
+	}
+	v, ok := i5Trees.Load(p.TenantID)
+	if !ok {
+		return nil
+	}
+	var out []uuid.UUID
+	for _, u := range v.(*i5World).Members[p.PrincipalID] { //nolint:forcetypeassert // only orgTree stores
+		out = append(out, subtree(p.TenantID, u)...)
+	}
+	return out
+}
+
+// i5SubtreeDirectOnly is the under_direct_only mutant's S of root: the root
+// alone, without its descendants, where the reference keeps the root.
+func i5SubtreeDirectOnly(tenant, root uuid.UUID) []uuid.UUID {
+	if len(i5Subtree(tenant, root)) == 0 {
+		return nil
+	}
+	return []uuid.UUID{root}
+}
+
+// i5SubtreeIgnoresTombstone is the under_ignores_tombstone mutant's S of
+// root: the root and every unit below it, tombstoned ones kept, and a
+// tombstoned root or ancestor not dropping it.
+func i5SubtreeIgnoresTombstone(tenant, root uuid.UUID) []uuid.UUID {
+	v, ok := i5Trees.Load(tenant)
+	if !ok {
+		return nil
+	}
+	w := v.(*i5World) //nolint:forcetypeassert // only orgTree stores
+	if !slices.ContainsFunc(w.Units, func(u i5Unit) bool { return u.ID == root }) {
+		return nil
+	}
+	out := []uuid.UUID{root}
+	for i := 0; i < len(out); i++ {
+		for _, u := range w.Units {
+			if u.Parent == out[i] && !slices.Contains(out, u.ID) {
+				out = append(out, u.ID)
+			}
+		}
+	}
+	return out
 }
 
 // principal draws a caller of the tenant: usually one of Users, sometimes the

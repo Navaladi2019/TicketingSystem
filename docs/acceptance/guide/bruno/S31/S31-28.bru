@@ -1,0 +1,31 @@
+meta {
+  name: S31.28 AC2: the APAC requester's region: APAC only
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_apac_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('includes s31_t_apac', () => expect(ids).to.include(bru.getVar('s31_t_apac')));
+  test('leaves out s31_t_emea', () => expect(ids).to.not.include(bru.getVar('s31_t_emea')));
+  test('leaves out s31_t_de', () => expect(ids).to.not.include(bru.getVar('s31_t_de')));
+  test('leaves out s31_t_none', () => expect(ids).to.not.include(bru.getVar('s31_t_none')));
+  test('total is the number of items (one page, no cursor)', () => {
+    expect(N.json().next_cursor, 'one page on a fresh stack').to.eql(null);
+    expect(N.json().total).to.eql(N.json().items.length);
+  });
+  test('every item was raised by s31_req_apac', () => N.json().items.forEach(i => expect([bru.getVar('s31_req_apac')]).to.include(i.data.requester)));
+  console.log('S31.28: total', N.json().total);
+}

@@ -62,6 +62,8 @@ type Kind int
 const (
 	KindGroup Kind = iota + 1
 	KindUser
+	// KindOrgUnit is a unit an under {"of": [ids]} lists (TICK-950).
+	KindOrgUnit
 )
 
 // TenantRef is an id of a policy, with the pointer it was read at, that must

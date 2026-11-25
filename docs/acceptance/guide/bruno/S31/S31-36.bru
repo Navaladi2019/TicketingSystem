@@ -1,0 +1,29 @@
+meta {
+  name: S31.36 AC3: the directory admin deletes EMEA/Germany
+  type: http
+  seq: 36
+}
+
+delete {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/groups/{{s31_kc_de}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+}
+
+docs {
+  Keycloak console: Groups › t › tenant A › ou › EMEA › Germany › Delete. The next group sync tombstones the unit.
+}

@@ -1,0 +1,8 @@
+meta {
+  name: S31 region after sync
+  seq: 31
+}
+
+docs {
+  Story S31, TICK-946 (kit TICK-953). Part two of two: after the group sync that applied part one's directory changes (`S31 region` S31.36 to S31.38). AC3 S31B.9 to S31B.12: EMEA/Germany is gone from the directory, and its tickets drop out of agent-emea's list. AC4 S31B.13 to S31B.16: the requester moved from APAC to EMEA keeps their old ticket in APAC. S31B.9 waits for the sync (at most 11 minutes, like S5); `docs/acceptance/S31/run.sh` runs one first. Kit: `docs/acceptance/S31/`.
+}
