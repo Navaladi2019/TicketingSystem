@@ -111,8 +111,9 @@ nothing else, so deprovisioning is never held back.</li>
 </tr>
 </tbody>
 </table>
-<p>No metric names a tenant. The unrooted WARN line does; nothing names the tenant
-above 10,111 (TICK-1132). A
+<p>No metric names a tenant. The unrooted WARN line does, and so does the INFO
+line "largest live org-unit tree" (<code>tenant_id</code>, <code>live_org_units</code>), logged when
+the largest tenant or its count changes (TICK-1132). A
 <code>--once</code> run exits with its own metrics, so <code>groupsync_org_units_live_max</code>
 has no sample until the long-running service's first cycle; the cycle's log
 line carries <code>org_subtree_max</code> and <code>org_closure_rows</code>.</p>
@@ -133,7 +134,7 @@ line carries <code>org_subtree_max</code> and <code>org_closure_rows</code>.</p>
 <h3>ADR ADR-010-E4</h3><ul><li><a href="../adr/adr-010-e4.html">ADR-010-E4: the region tree is kept current with partial writes</a></li><li><a href="../database/org-units.html">Org units, membership and the closure</a></li><li><a href="../security/09-acl-masks-read.html">9. ACL and field masks on the read side</a></li><li><a href="../stories/s31.html">S31: A policy can say &quot;tickets in my region&quot;</a></li></ul>
 <h3>Invariant I3</h3><ul><li><a href="../security/04-database.html">4. Database: RLS, owner and roles</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/core-tenancy.html">Core: tenant transactions (InTenantTx, batching, allocator pool)</a></li><li><a href="../system/nava-db.html">nava-db (db-roles, migrate: one-shot)</a></li><li><a href="../system/nava-purge.html">nava-purge</a></li><li><a href="../system/pgbouncer.html">pgbouncer</a></li><li><a href="../vision/least-privilege-roles.html">I3: Least-privilege database roles</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 4a42369bd78d (2026-11-25)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 4c1deb0f4881 (2026-11-25)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
