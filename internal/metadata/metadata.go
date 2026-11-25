@@ -42,6 +42,14 @@ const (
 	ColumnAssignmentGroupID = "assignment_group_id"
 )
 
+// ColumnOrgUnitID is the record's org unit (records.org_unit_id, ADR-010 D7,
+// D8; TICK-947). It is a fixed column but not a Definition.FixedColumns
+// target: no schema property maps to it. The write pipeline sets it on create
+// from the requester's primary unit (TICK-949); after that it is a stored
+// field, field-masked on write and audited like the columns above, and never
+// recomputed on read.
+const ColumnOrgUnitID = "org_unit_id"
+
 // UniqueKeyword marks a top-level property whose value must be unique within
 // the entity type (P3-11). Its value is a boolean.
 const UniqueKeyword = "x-nava-unique"

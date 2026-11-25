@@ -1,0 +1,26 @@
+meta {
+  name: S31.9 agent-emea's principal id: in no agent group
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000a1');
+  bru.setVar('s31_agent', N.json().user_id);
+  test('in no /ou/ group and not in /service-desk or /admins', () => {
+    expect(N.paths().filter(p => p.startsWith('/ou/'))).to.eql([]);
+    expect(N.paths()).to.not.include('/service-desk');
+    expect(N.paths()).to.not.include('/admins');
+  });
+}

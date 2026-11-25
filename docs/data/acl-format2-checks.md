@@ -123,6 +123,37 @@ emit the same ones:
 - **Under:** `under` is accepted by shape. Its org-unit ids join the trigger
   in TICK-947, when `under` ships. Until then the route refuses `under` with
   `not_available`.
+- **Under sets (TICK-1059, SP-1d change 5):** a policy names at most 4
+  distinct `under` start sets U after its refs expand, refused as
+  `under_sets_exceeded` at `/policies/<i>`, the same code and pointer as
+  Prepare. `{"of": "caller"}` is one U; a listed `{"of": [ids]}` is one U per
+  set of ids, so order, repeats and letter case do not count again. Sets are
+  memoized per condition in the same Kahn order and saturate at 5 keys. The
+  cap lives once, in `acl2_max_under_sets()`, and
+  `TestTICK1059UnderSetsCap` pins it to `authz.MaxUnderSets`. `under_nested`
+  has no database backstop: it reads `org_unit_closure`, which a CHECK
+  cannot.
+
+### Evidence: the under-set cap
+
+`scratch/acl2-under-sets-cap/bench.sql`, `acl2_problem` per call, 400 calls
+per shape, TICK-940 function then TICK-1059 function in one rolled-back
+transaction, two alternating rounds. PostgreSQL 16.10 in Docker
+(`fsync=off`) on a Windows 11 laptop shared with other agents' test runs, so
+the round-to-round spread (up to 1.7x on the same function) is larger than
+the change.
+
+| Shape | Bytes | Before, round 1 / 2 (µs) | After, round 1 / 2 (µs) |
+| --- | ---: | ---: | ---: |
+| A: 64 policies, 128 `member_of` leaves, no `under` | 12,260 | 4,240 / 2,516 | 2,822 / 2,972 |
+| B: 64 policies x 2 `under` of one id (accepted) | 11,236 | 5,988 / 2,604 | 3,101 / 2,967 |
+| C: one condition of 120 `under`, reffed (refused after) | 7,539 | 2,726 / 2,299 | 2,430 / 2,031 |
+
+No added cost is measurable above that spread. A first version built the key
+in a SQL function and cost about 1 ms more on C (2,112 to 3,199 µs, 50
+calls); the shipped PL/pgSQL key with a one-id fast path removed it. No
+index, column or stored byte changes, so there is no write amplification
+beyond the CHECK's CPU.
 
 ## Evidence: insert cost with the shipped code
 

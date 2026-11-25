@@ -1,0 +1,29 @@
+meta {
+  name: S31.37 AC4: the APAC requester leaves APAC
+  type: http
+  seq: 37
+}
+
+delete {
+  url: {{keycloak_url}}/admin/realms/{{realm}}/users/{{s31_kc_apac_user}}/groups/{{s31_kc_apac}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{kc_admin_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  await N.kcAdmin();
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  test('HTTP 204', () => expect(res.getStatus()).to.eql(204));
+}
+
+docs {
+  Keycloak console: Users › requester-apac › Groups › APAC › Leave.
+}

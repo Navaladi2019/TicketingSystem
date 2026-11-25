@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
+	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/cursor"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -95,6 +99,9 @@ func (h *handlers) ListAuditEntries(ctx context.Context, req api.ListAuditEntrie
 		if masks, err = h.acl.ReadMasks(ctx, tx, p); err != nil {
 			return err
 		}
+		if err := addOrgUnitMasks(ctx, tx, p.TenantID, masks); err != nil {
+			return err
+		}
 		if prm.PageToken != nil {
 			pos, err := h.cursors.Decode(claims, *prm.PageToken)
 			if err != nil {
@@ -173,4 +180,65 @@ func hexOf(b []byte) *string {
 // the salt.
 func (h *handlers) maskerFailed(_ context.Context, err error) error {
 	return &problemError{problem.InternalError, nil, err}
+}
+
+const fixedColumnsSQL = `
+SELECT definition_id, fixed_columns
+FROM entity_definition_versions
+WHERE tenant_id = $1 AND definition_id = ANY($2::uuid[])`
+
+// addOrgUnitMasks appends the org unit column to the masks of every
+// definition that masks a property mapped to the requester column. The org
+// unit is no schema property, so no mask names it, but it derives from the
+// requester and must not outlive a requester mask in an audit diff. It reads
+// fixed_columns on nava_app, which the audit reader cannot. It fails closed:
+// a query or decode error, or a definition with no version row, is an error.
+func addOrgUnitMasks(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, masks map[uuid.UUID][]string) error {
+	if len(masks) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(masks))
+	idText := make([]string, 0, len(masks))
+	for id := range masks {
+		ids = append(ids, id)
+		idText = append(idText, id.String())
+	}
+	rows, err := tx.Query(ctx, fixedColumnsSQL, tenant, idText)
+	if err != nil {
+		return fmt.Errorf("audit: read fixed columns: %w", err)
+	}
+	defer rows.Close()
+	seen := make(map[uuid.UUID]bool, len(ids))
+	hide := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var (
+			id  uuid.UUID
+			raw []byte
+		)
+		if err := rows.Scan(&id, &raw); err != nil {
+			return fmt.Errorf("audit: scan fixed columns: %w", err)
+		}
+		var fixed map[string]string
+		if err := json.Unmarshal(raw, &fixed); err != nil {
+			return fmt.Errorf("audit: decode fixed columns of %s: %w", id, err)
+		}
+		seen[id] = true
+		for prop, col := range fixed {
+			if col == metadata.ColumnRequesterID && slices.Contains(masks[id], prop) {
+				hide[id] = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("audit: read fixed columns: %w", err)
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			return fmt.Errorf("audit: definition %s has no version row", id)
+		}
+	}
+	for id := range hide {
+		masks[id] = append(masks[id], metadata.ColumnOrgUnitID)
+	}
+	return nil
 }

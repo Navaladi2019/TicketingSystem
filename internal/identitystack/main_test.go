@@ -4,6 +4,7 @@ package identitystack
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,7 +22,7 @@ import (
 // there lengthens Keycloak's start); the tests that need them create them
 // here, through the admin API, fresh on every run: delete (204, or 404 when
 // absent), then create (201 required). `make stack-idp-realms` runs the same code.
-var testRealms = []string{"idp-tenant-a", "idp-tenant-b"}
+var testRealms = []string{"idp-tenant-a", "idp-tenant-b"} //nolint:gochecknoglobals // read-only test fixture, set once
 
 func TestMain(m *testing.M) {
 	// make identity-attacks-fixture runs only the CI-5.06 negative fixture,
@@ -45,9 +46,10 @@ func importTestRealms() error {
 	if pass == "" {
 		pass = "dev-only-admin"
 	}
-	resp, err := c.PostForm(baseURL()+"/realms/master/protocol/openid-connect/token", url.Values{
-		"grant_type": {"password"}, "client_id": {"admin-cli"}, "username": {user}, "password": {pass},
-	})
+	form := url.Values{"grant_type": {"password"}, "client_id": {"admin-cli"}, "username": {user}, "password": {pass}}
+	tokReq, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, baseURL()+"/realms/master/protocol/openid-connect/token", strings.NewReader(form.Encode()))
+	tokReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.Do(tokReq)
 	if err != nil {
 		return fmt.Errorf("master admin token: %w", err)
 	}
@@ -64,13 +66,13 @@ func importTestRealms() error {
 		if err != nil {
 			return err
 		}
-		del, _ := http.NewRequest(http.MethodDelete, baseURL()+"/admin/realms/"+realm, nil)
+		del, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, baseURL()+"/admin/realms/"+realm, nil)
 		del.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		dr, err := c.Do(del)
 		if err != nil {
 			return fmt.Errorf("delete %s: %w", realm, err)
 		}
-		io.Copy(io.Discard, dr.Body)
+		_, _ = io.Copy(io.Discard, dr.Body)
 		dr.Body.Close()
 		if dr.StatusCode != http.StatusNoContent && dr.StatusCode != http.StatusNotFound {
 			return fmt.Errorf("delete %s: %d", realm, dr.StatusCode)
@@ -78,7 +80,7 @@ func importTestRealms() error {
 		if err := dropLinkedUsers(c, tok.AccessToken, realm); err != nil {
 			return err
 		}
-		req, _ := http.NewRequest(http.MethodPost, baseURL()+"/admin/realms", bytes.NewReader(raw))
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, baseURL()+"/admin/realms", bytes.NewReader(raw))
 		req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		req.Header.Set("Content-Type", "application/json")
 		r, err := c.Do(req)
@@ -102,7 +104,7 @@ func importTestRealms() error {
 // less than 10 seconds before leaves the stale keys in place, and the
 // callback fails with "token signature validation failed" (a 502).
 func clearBrokerKeys(c *http.Client, token string) error {
-	req, _ := http.NewRequest(http.MethodPost, baseURL()+"/admin/realms/nava/clear-keys-cache", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, baseURL()+"/admin/realms/nava/clear-keys-cache", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	r, err := c.Do(req)
 	if err != nil {
@@ -120,7 +122,11 @@ func clearBrokerKeys(c *http.Client, token string) error {
 // created the realms, this checks that each one answers.
 func TestIdPRealmsExist(t *testing.T) {
 	for _, realm := range testRealms {
-		resp, err := http.Get(baseURL() + "/realms/" + realm + "/.well-known/openid-configuration")
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL()+"/realms/"+realm+"/.well-known/openid-configuration", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,7 +143,7 @@ func TestIdPRealmsExist(t *testing.T) {
 // otherwise meet the old linked user and fail with a conflict.
 func dropLinkedUsers(c *http.Client, token, idpAlias string) error {
 	do := func(method, path string) (int, []byte, error) {
-		req, _ := http.NewRequest(method, baseURL()+"/admin/realms/nava"+path, nil)
+		req, _ := http.NewRequestWithContext(context.Background(), method, baseURL()+"/admin/realms/nava"+path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		r, err := c.Do(req)
 		if err != nil {
@@ -148,16 +154,23 @@ func dropLinkedUsers(c *http.Client, token, idpAlias string) error {
 		return r.StatusCode, b, nil
 	}
 	code, b, err := do(http.MethodGet, "/users?max=1000&idpAlias="+url.QueryEscape(idpAlias))
-	if err != nil || code != http.StatusOK {
-		return fmt.Errorf("list nava users linked to %s: %d %s %v", idpAlias, code, b, err)
+	if err != nil {
+		return fmt.Errorf("list nava users linked to %s: %w", idpAlias, err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("list nava users linked to %s: %d %s", idpAlias, code, b)
 	}
 	var us []struct{ ID string }
 	if err := json.Unmarshal(b, &us); err != nil {
 		return err
 	}
 	for _, u := range us {
-		if code, b, err := do(http.MethodDelete, "/users/"+u.ID); err != nil || code != http.StatusNoContent {
-			return fmt.Errorf("delete nava user %s: %d %s %v", u.ID, code, b, err)
+		code, b, err := do(http.MethodDelete, "/users/"+u.ID)
+		if err != nil {
+			return fmt.Errorf("delete nava user %s: %w", u.ID, err)
+		}
+		if code != http.StatusNoContent {
+			return fmt.Errorf("delete nava user %s: %d %s", u.ID, code, b)
 		}
 	}
 	return nil

@@ -1,0 +1,30 @@
+meta {
+  name: S31B.11 AC3: agent-emea opens a Germany ticket by id: the missing-record 404
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s31_de_first}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+script:pre-request {
+  bru.setVar('s31_de_first', JSON.parse(bru.getVar('s31_de_ids'))[0]);
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  test('body byte-identical to the missing id\'s 404', () => expect(N.text()).to.eql(bru.getVar('s31_ref404')));
+}

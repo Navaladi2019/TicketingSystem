@@ -30,6 +30,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/seal"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/estimates"
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex/backfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/config"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/db"
@@ -110,7 +111,7 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	}
 
 	fatal := make(chan error, 1)
-	w, mon, closeDeps, err := newWorker(ctx, log, tel, cfg, lookup, fatal)
+	w, mon, refresher, closeDeps, err := newWorker(ctx, log, tel, cfg, lookup, fatal)
 	if err != nil {
 		return errors.Join(err, flush())
 	}
@@ -130,9 +131,12 @@ func run(ctx context.Context, lookup config.LookupFunc, stdout io.Writer) error 
 	monCtx, stopMon := context.WithCancel(ctx)
 	monDone := make(chan struct{})
 	go func() { defer close(monDone); mon.Run(monCtx) }()
+	estDone := make(chan struct{})
+	go func() { defer close(estDone); refresher.Run(monCtx) }()
 	serveErr := serve(ctx, log, admin, w, fatal, cfg)
 	stopMon()
 	<-monDone
+	<-estDone
 	return errors.Join(serveErr, flush())
 }
 
@@ -149,46 +153,46 @@ func exportLogs(log *slog.Logger, tel *telemetry.Telemetry, level slog.Leveler) 
 // fixtures in an interptest build), and nothing with workflows off (an
 // interptest build refuses that combination below). The returned func closes the client and the pools; call it after the worker has
 // stopped.
-func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, lookup config.LookupFunc, fatal chan<- error) (worker.Worker, *health.Monitor, func(), error) {
+func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg config.Config, lookup config.LookupFunc, fatal chan<- error) (worker.Worker, *health.Monitor, *estimates.Refresher, func(), error) {
 	tlsConfig, err := temporaltls.Load(cfg.Deps.TemporalTLS)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	workflows, err := workflowsMode(lookup)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	tt, err := tel.NewTemporal(log)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	c, err := client.NewLazyClient(clientOptions(log, cfg.Deps.TemporalAddress, tlsConfig, tt))
 	if err != nil {
-		return nil, nil, nil, errors.New("temporal: cannot create the client")
+		return nil, nil, nil, nil, errors.New("temporal: cannot create the client")
 	}
 	g, err := workerguard.New(log, tel.MeterProvider)
 	if err != nil {
 		c.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.Deps.DatabaseURL)
 	if err != nil {
 		c.Close()
 		// The error quotes the connection string, which is a credential.
-		return nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
+		return nil, nil, nil, nil, errors.New("config: NAVA_DATABASE_URL is not a valid PostgreSQL connection string")
 	}
 	poolCfg.MaxConns = workerMaxConns
 	pool, err := db.NewPool(ctx, poolCfg, tel)
 	if err != nil {
 		c.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	pg, closePG, err := health.Postgres(ctx, cfg.Deps.DatabaseURL)
 	if err != nil {
 		c.Close()
 		pool.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The record pipeline's own pool (see interpreterActivities).
 	pipeCfg := poolCfg.Copy()
@@ -198,18 +202,18 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 		closePG()
 		pool.Close()
 		c.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	closeAll := func() { closePG(); pipePool.Close(); pool.Close(); c.Close() }
 
 	acts, err := interpreterActivities(lookup, pool, pipePool, workflows, tel.MeterProvider)
 	if err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if acts != nil && !workflows {
 		closeAll()
-		return nil, nil, nil, errors.New("config: " + WorkflowsEnv + "=off cannot run the interpreter")
+		return nil, nil, nil, nil, errors.New("config: " + WorkflowsEnv + "=off cannot run the interpreter")
 	}
 
 	// Temporal gates readiness here: a worker that cannot reach the frontend
@@ -221,18 +225,18 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	mon, err := health.NewMonitor(log, tel.MeterProvider, []health.Check{pg, tc}, health.Options{})
 	if err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	sm, err := seal.NewMetrics(tel.MeterProvider)
 	if err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	fm, err := backfill.NewMetrics(tel.MeterProvider)
 	if err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The backfill's uncoerced values go to the counter the records
 	// trigger's do (nava_field_index_uncoerced_total, ADR-006 R5, TICK-974):
@@ -240,12 +244,25 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	um, err := uncoercedCounter(acts, tel.MeterProvider)
 	if err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The record activities evaluate access policies (recordports).
 	if err := authz.RegisterMetrics(tel.MeterProvider); err != nil {
 		closeAll()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+
+	// The hourly entity_record_estimates refresh (TICK-1071, D-11A2-2). Off at
+	// interval 0: it then reports an age from start, and the alert says so.
+	interval, err := estimates.IntervalFromEnv(lookup)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
+	}
+	refresher, err := estimates.New(estimates.PoolStore{Pool: pool}, tel.MeterProvider, log, estimates.Options{Interval: interval})
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
 	}
 
 	// The sealer is registered unless WorkflowsEnv is off (a stack-only
@@ -255,7 +272,7 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log}, workflows)
 	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Uncoerced: um, Log: log}, workflows)
 	registerInterpreter(w, acts)
-	return w, mon, closeAll, nil
+	return w, mon, refresher, closeAll, nil
 }
 
 // clientOptions is the worker's Temporal client: namespace nava over mTLS,

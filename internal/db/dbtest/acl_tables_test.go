@@ -42,7 +42,7 @@ const aclEntry = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_
 	SELECT tenant_id, gen_random_uuid(), 'config', 'publish', 'acl_policy', entity_definition_id, entity_definition_id,
 		version, 'system', 'system', sha256('acl') FROM r`
 
-var aclTables = []string{"acl_versions", "record_shares"}
+var aclTables = []string{"acl_versions", "record_shares"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // seedACL writes, as the superuser, for each tenant: seedPipeline's rows
 // (among them a principal and a group whose id is the tenant id), ACL version
@@ -254,6 +254,10 @@ const (
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
 	m = beforeFormat2Checks(fsys, m)
+	m = beforeUnderSetsCap(fsys, m)
+	m, a = beforeOrgUnits(fsys, m, a)
+	m, a = beforeOrgUnitClosure(fsys, m, a)
+	m, a = beforeEntityRecordEstimates(fsys, m, a)
 	m, a = beforeNumberFormats(fsys, m, a)
 	m, a = beforeNumberingMode(fsys, m, a)
 	_, errTables := fs.Stat(fsys, aclTablesMigration)

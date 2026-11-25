@@ -1,0 +1,25 @@
+meta {
+  name: S31.24 AC1: agent-emea opens the Germany ticket by id: 200
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/{{s31_t_de}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the Germany ticket', () => expect(N.json().id).to.eql(bru.getVar('s31_t_de')));
+}
+
+docs {
+  The single read agrees with the list (ADR-010 I5).
+}

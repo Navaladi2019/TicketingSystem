@@ -583,7 +583,7 @@ func (p *Pipeline) perform(ctx context.Context, tx pgx.Tx, cmd Command) (Result,
 		return Result{}, mapNotFound(err)
 	}
 	w := write{p: p, tx: tx, tenant: tenant, cmd: cmd, defID: defID, def: def, defVersion: defVersion,
-		sinkQuiet: cmd.Op == OpCreate && pre.createQuiet}
+		sinkQuiet: cmd.Op == OpCreate && pre.createQuiet, actorUnit: pre.actorUnit, actorUnitRead: pre.actorUnitRead}
 	if cmd.Op == OpCreate {
 		if w.format, err = p.defs.NumberFormat(ctx, tx, cmd.EntityKey, defVersion); err != nil {
 			return Result{}, fmt.Errorf("pipeline: read number format: %w", err)
@@ -715,6 +715,12 @@ type write struct {
 	// sinkQuiet: a create the EventSink said, in the prefetch, it has
 	// nothing to do for (CreateTriggerQueuer). RecordChanged is not called.
 	sinkQuiet bool
+	// actorUnit and actorUnitRead are the prefetch's read of the actor's
+	// primary unit; unitResolved: rec.OrgUnitID was set before the write
+	// check, and the preview keeps it (resolveUnit).
+	actorUnit     *uuid.UUID
+	actorUnitRead bool
+	unitResolved  bool
 }
 
 // do performs the write under w.def.
@@ -730,6 +736,9 @@ func (w *write) do(ctx context.Context) (Result, error) {
 }
 
 func (w *write) create(ctx context.Context, after map[string]any) (Result, error) {
+	if err := refuseOrgUnit(after); err != nil {
+		return Result{}, err
+	}
 	// The mask write check runs first, on the caller's own data: the defaults
 	// applied below are not its writes, and no other error (validation,
 	// state, row scope, unique) can come back for a masked field (P3-33).
@@ -764,6 +773,11 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 		return Result{}, fmt.Errorf("pipeline: %w", err)
 	}
 	w.defaultRequester(rec, after, fixed)
+	// The record's unit is resolved before the write check, so an access
+	// rule over org units (under) judges the row as it will be stored.
+	if err := w.resolveUnit(ctx, rec); err != nil {
+		return Result{}, err
+	}
 	// A new record has no shares. The check runs before the unique and
 	// group lookups, so a refused writer learns nothing from them.
 	if err := w.canWrite(ctx, nil, rowOf(rec, nil)); err != nil {
@@ -806,6 +820,41 @@ func (w *write) create(ctx context.Context, after map[string]any) (Result, error
 	return w.writeCreate(ctx, rec, preview)
 }
 
+// resolveUnit sets rec.OrgUnitID before a checked create's write check
+// (ADR-010 D7, D8; TICK-950): the requester's primary unit, nil with no
+// requester or no primary unit. When the requester is the actor, the
+// prefetch already read it; another requester costs one read. A system
+// source skips the write check, and its unit is read with the payload
+// preview as before.
+func (w *write) resolveUnit(ctx context.Context, rec *store.Record) error {
+	if w.cmd.Source.system() {
+		return nil
+	}
+	switch {
+	case rec.RequesterID == nil:
+		rec.OrgUnitID = nil
+	case w.actorUnitRead && *rec.RequesterID == w.cmd.Actor.PrincipalID:
+		rec.OrgUnitID = w.actorUnit
+	default:
+		unit, err := store.PrimaryUnit(ctx, w.tx, w.tenant, *rec.RequesterID)
+		if err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		rec.OrgUnitID = unit
+	}
+	w.unitResolved = true
+	return nil
+}
+
+// refuseOrgUnit refuses a body that names org_unit_id: the column is the
+// pipeline's (ADR-010 D8), never a client's property. Nothing is written.
+func refuseOrgUnit(data map[string]any) error {
+	if _, ok := data[metadata.ColumnOrgUnitID]; ok {
+		return &authz.ErrFieldNotWritable{Fields: []string{metadata.ColumnOrgUnitID}}
+	}
+	return nil
+}
+
 // defaultRequester sets requester_id to the caller when a user or AI create
 // leaves the requester property out (contract amendment A4), before the write
 // check, so the check sees the row that would be stored. An explicit value,
@@ -829,6 +878,9 @@ func (w *write) defaultRequester(rec *store.Record, after map[string]any, fixed 
 }
 
 func (w *write) update(ctx context.Context, patch map[string]any) (Result, error) {
+	if err := refuseOrgUnit(patch); err != nil {
+		return Result{}, err
+	}
 	rec, err := store.Get(ctx, w.tx, w.tenant, w.cmd.RecordID)
 	if err != nil {
 		return Result{}, mapNotFound(err)
@@ -1056,7 +1108,7 @@ func (w *write) canWriteFields(ctx context.Context, before, after, patch map[str
 func rowOf(rec *store.Record, shares []uuid.UUID) *authz.Row {
 	return &authz.Row{
 		ID: rec.ID, State: rec.State, RequesterID: rec.RequesterID, AssigneeID: rec.AssigneeID,
-		AssignmentGroupID: rec.AssignmentGroupID, SharedWith: shares,
+		AssignmentGroupID: rec.AssignmentGroupID, OrgUnitID: rec.OrgUnitID, SharedWith: shares,
 	}
 }
 

@@ -29,6 +29,8 @@ import (
 // maskSchema is recSchema plus a data property (cost), a data property with
 // a default (triage, so a create stores it without the caller sending it)
 // and a unique one (serial).
+//
+//nolint:gochecknoglobals // read-only schema fixture built once
 var maskSchema = strings.Replace(recSchema, `"requester": {"type": "string", "format": "uuid"}`,
 	`"requester": {"type": "string", "format": "uuid"},
     "cost": {"type": "number"},

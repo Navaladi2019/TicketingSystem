@@ -150,6 +150,7 @@ func TestInvalidFixtureCodesAreDeclared(t *testing.T) {
 		authz.RuleInvalidName, authz.RuleDuplicateName, authz.RuleUnresolvedRef, authz.RuleRefCycle, authz.RuleChildCount,
 		authz.RuleDepthExceeded, authz.RulePolicyLeavesExceeded, authz.RulePoliciesExceeded, authz.RuleDocLeavesExceeded,
 		authz.RuleForeignID, authz.RuleNotAvailable, authz.RuleDocumentTooLarge, authz.RuleDuplicate,
+		authz.RuleUnderSetsExceeded, authz.RuleUnderDuplicateID,
 	}
 	for _, f := range load[invalidFixture](t, "testdata/format2_invalid.json") {
 		for _, p := range f.Problems {

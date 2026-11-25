@@ -171,7 +171,7 @@ func TestInsertWriteKeyMapsTheDuplicateKey(t *testing.T) {
 // A stored data column that is not a JSON object fails the read.
 func TestGetRefusesUndecodableData(t *testing.T) {
 	tx := &fakeTx{row: func(dest ...any) error {
-		*dest[14].(*[]byte) = []byte(`[1,2]`)
+		*dest[15].(*[]byte) = []byte(`[1,2]`)
 		return nil
 	}}
 	_, err := store.Get(context.Background(), tx, uuid.New(), uuid.New())

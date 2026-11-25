@@ -20,6 +20,7 @@ import (
 // depend on the caller.
 func ReadBranchBound(d Document) int {
 	pl := newPlanner(d, identity.Principal{})
+	pl.probe = true // validity without set S: an under leaf is a placeholder
 	memo := map[string]shape{}
 	total := 0
 	for _, np := range d.Policies {
@@ -86,6 +87,8 @@ func boundShape(n Node, d Document, memo map[string]shape) shape {
 		return shape{t: true, f: true}
 	case NodeShared:
 		return shape{f: true, term: true} // false for a caller with no id
+	case NodeUnder:
+		return shape{f: true, term: true} // false when set S is empty
 	case NodeCmp:
 		if n.Cmp.Caller != "" {
 			return shape{f: true, term: true} // false with no id or no groups

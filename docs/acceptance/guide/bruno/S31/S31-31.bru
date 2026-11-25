@@ -1,0 +1,50 @@
+meta {
+  name: S31.31 AC5: a policy naming tenant B's org unit is refused: 422
+  type: http
+  seq: 31
+}
+
+put {
+  url: {{core_url}}/api/v1/entity-types/incident/access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: tick953-s31-{{s31_run}}-foreign
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "rules": "set by the pre-request script (built from this stack's group ids)"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const ADM = bru.getVar('s31_admins');
+  const rules = {
+    format: 2,
+    conditions: [],
+    policies: [
+      { name: 'admins', ops: ['read', 'write'], when: { member_of: { groups: [ADM] } } },
+      { name: 'in_my_region', ops: ['read'], when: { under: { of: [N.v('s31_b_unit')] } } },
+    ],
+  };
+  req.setBody({ rules, masks: [] });
+  req.setHeader('If-Match', bru.getVar('s31_etag'));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_access_policy', 422);
+  const errs = (N.json().errors || []).map(e => e.pointer + ' ' + e.rule);
+  test('foreign_id at /rules/policies/1/when/under/of/0', () => expect(errs).to.include('/rules/policies/1/when/under/of/0 foreign_id'));
+  N.noLeak(N.v('s31_b_unit'));
+}
+
+docs {
+  `in_my_region` lists tenant B's `eng/platform` unit. The answer is the same as for a unit id of no tenant, so it says nothing about tenant B. Nothing is published.
+}

@@ -1,0 +1,30 @@
+meta {
+  name: S31.22 Reference: a record id that does not exist is 404
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident/00000000-0000-4000-8000-00000000dead
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{s31_agent_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+  bru.setVar('s31_ref404', N.text());
+}
+
+docs {
+  The missing-record 404, kept to compare byte for byte with the 404 of a record the caller may not read.
+}

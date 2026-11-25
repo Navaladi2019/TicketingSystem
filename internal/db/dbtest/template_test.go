@@ -89,7 +89,7 @@ func migratedCluster(t *testing.T) *grants.Manifest {
 
 // tpl is what migratedCluster took its templates from; nil when there are
 // none. The tests in this package do not run in parallel.
-var tpl *template
+var tpl *template //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 type template struct {
 	roles, databases string

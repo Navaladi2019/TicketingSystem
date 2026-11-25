@@ -28,8 +28,8 @@ import (
 )
 
 var (
-	tenantA = uuid.MustParse("00000000-0000-4000-8000-0000000000a1")
-	tenantB = uuid.MustParse("00000000-0000-4000-8000-0000000000b1")
+	tenantA = uuid.MustParse("00000000-0000-4000-8000-0000000000a1") //nolint:gochecknoglobals // read-only test fixture, set once
+	tenantB = uuid.MustParse("00000000-0000-4000-8000-0000000000b1") //nolint:gochecknoglobals // read-only test fixture, set once
 )
 
 // memRegistry is the Registry a caller would back with RLS reads.
@@ -135,9 +135,9 @@ func newOutbound(t *testing.T) *telemetry.OutboundClient {
 }
 
 var (
-	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}
-	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"}
-	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}
+	runtimeCreds    = keycloak.ClientCredentials{ClientID: "nava-platform", ClientSecret: "dev-only-platform-secret"}     //nolint:gochecknoglobals // read-only test fixture, set once
+	onboardingCreds = keycloak.ClientCredentials{ClientID: "nava-onboarding", ClientSecret: "dev-only-onboarding-secret"} //nolint:gochecknoglobals // read-only test fixture, set once
+	groupsyncCreds  = keycloak.ClientCredentials{ClientID: "nava-groupsync", ClientSecret: "dev-only-groupsync-secret"}   //nolint:gochecknoglobals // read-only test fixture, set once
 )
 
 // recordingInvites is an InviteWriter that keeps what InviteUser wrote.
@@ -278,8 +278,17 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 	for _, u := range snap.Users {
 		emails[u.Email] = true
 	}
-	if !emails["alice@tenant-a.test"] || !emails["admin@tenant-a.test"] || !emails["auditor@tenant-a.test"] || len(emails) != 3 {
-		t.Errorf("tenant A users = %v, want alice, admin and auditor only", emails)
+	// The realm's tenant A users: alice, admin and auditor, and S31's region
+	// directory (TICK-953): agent-emea and one requester per unit plus one in
+	// no unit.
+	wantUsers := []string{"alice", "admin", "auditor", "agent-emea", "requester-emea", "requester-germany", "requester-apac", "requester-none"}
+	for _, u := range wantUsers {
+		if !emails[u+"@tenant-a.test"] {
+			t.Errorf("tenant A users = %v, missing %s", emails, u)
+		}
+	}
+	if len(emails) != len(wantUsers) {
+		t.Errorf("tenant A users = %v, want %v only", emails, wantUsers)
 	}
 	var units []string
 	for _, g := range snap.OrgUnits {
@@ -288,8 +297,8 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 			t.Errorf("org unit outside /ou/: %s", g.Path)
 		}
 	}
-	if len(units) != 3 {
-		t.Errorf("org units = %v, want eng, eng/platform and support", units)
+	if len(units) != 6 {
+		t.Errorf("org units = %v, want eng, eng/platform, support, EMEA, EMEA/Germany and APAC", units)
 	}
 	for _, g := range snap.Groups {
 		if strings.HasPrefix(g.Path, "/t/"+tenantA.String()+"/ou") {
@@ -324,6 +333,42 @@ func TestChangesSinceSnapshotAndCursor(t *testing.T) {
 }
 
 // ---- InviteUser / DisableUser / SetGroupMembers ----------------------------
+
+// TICK-948 (D-11-6): the nava_primary_org_unit attribute, set through the
+// admin API on a real Keycloak user, comes back in ChangesSince as
+// PrimaryOrgUnitPath. The realm's user profile must declare it, or Keycloak
+// drops the attribute (unmanaged attributes are off).
+func TestChangesSinceCarriesPrimaryOrgUnit(t *testing.T) {
+	d := newDirectory(t, newRegistry(), false, nil)
+	email := "primary-unit-" + uuid.NewString() + "@tenant-a.test"
+	uid := seedTenantUser(t, tenantA, email)
+	primary := "/t/" + tenantA.String() + "/ou/eng"
+	pathOf := func() (string, bool) {
+		t.Helper()
+		snap, _, err := d.ChangesSince(t.Context(), tenantA, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range snap.Users {
+			if u.KeycloakUserID == uid {
+				return u.PrimaryOrgUnitPath, true
+			}
+		}
+		return "", false
+	}
+	if got, ok := pathOf(); !ok || got != "" {
+		t.Fatalf("before the attribute: PrimaryOrgUnitPath = %q (in snapshot: %v), want empty", got, ok)
+	}
+	if code, b := adminRealm(t, "nava", http.MethodPut, "/users/"+uid, map[string]any{
+		"username": email, "email": email, "enabled": true,
+		"attributes": map[string][]string{keycloak.PrimaryOrgUnitAttribute: {primary}},
+	}); code != http.StatusNoContent {
+		t.Fatalf("set %s: %d %s", keycloak.PrimaryOrgUnitAttribute, code, b)
+	}
+	if got, ok := pathOf(); !ok || got != primary {
+		t.Errorf("PrimaryOrgUnitPath = %q (in snapshot: %v), want %q", got, ok, primary)
+	}
+}
 
 func TestInviteAndDisableUser(t *testing.T) {
 	reg := newRegistry()

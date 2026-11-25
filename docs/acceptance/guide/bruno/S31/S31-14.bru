@@ -1,0 +1,25 @@
+meta {
+  name: S31.14 Bob: tenant B resolves
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.me('00000000-0000-4000-8000-0000000000b1');
+  test('the AC5 unit ids are set', () => { expect(N.v('s31_a_unit'), 's31_a_unit').to.match(/^[0-9a-f-]{36}$/); expect(N.v('s31_b_unit'), 's31_b_unit').to.match(/^[0-9a-f-]{36}$/); });
+}
+
+docs {
+  The org unit ids S31.31 and S31.32 use come from the environment: `run.sh` reads tenant A's `EMEA` and tenant B's `eng/platform` from `org_units` and passes them as `s31_a_unit` and `s31_b_unit` (no API lists org units). By hand, set both in the `local` environment.
+}

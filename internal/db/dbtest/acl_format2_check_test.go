@@ -88,8 +88,9 @@ func readFormat2Fixtures(t *testing.T, name string) []format2Fixture {
 	return out
 }
 
-// seedACLIDs makes every group and user id in rules and masks a live group or
-// principal of tenant, so a valid document passes the tenant-id trigger.
+// seedACLIDs makes every group, user and org-unit id in rules and masks a live
+// group, principal or org unit of tenant, so a valid document passes the
+// tenant-id trigger.
 func seedACLIDs(t *testing.T, super *pgx.Conn, tenant string, values ...string) {
 	t.Helper()
 	for _, v := range values {
@@ -99,6 +100,10 @@ func seedACLIDs(t *testing.T, super *pgx.Conn, tenant string, values ...string) 
 		exec(t, super, `INSERT INTO principals (tenant_id, id, keycloak_user_id, enabled, synced_at)
 			SELECT DISTINCT $1::uuid, id::uuid, 'kc-' || id, true, now()
 			FROM acl2_id_pointers($2::text::jsonb) WHERE kind = 'user' ON CONFLICT DO NOTHING`, tenant, v)
+		// TICK-947: under ids are live org units of the tenant.
+		exec(t, super, `INSERT INTO org_units (tenant_id, id, keycloak_group_id, name)
+			SELECT DISTINCT $1::uuid, id::uuid, 'kc-' || id, 'u'
+			FROM acl2_id_pointers($2::text::jsonb) WHERE kind = 'org_unit' ON CONFLICT DO NOTHING`, tenant, v)
 	}
 }
 

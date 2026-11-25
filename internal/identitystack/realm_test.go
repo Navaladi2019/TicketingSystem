@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/identity/keycloak"
 )
 
 // TestRealmFile asserts the ADR-001 A.1 settings on the import file itself, so
@@ -458,13 +460,22 @@ func TestRealmFileEmailVerifiedMapper(t *testing.T) {
 	if prof.UnmanagedAttributePolicy == "ENABLED" {
 		t.Error("unmanagedAttributePolicy is ENABLED")
 	}
-	found := false
+	found, foundPrimary := false, false
 	for _, a := range prof.Attributes {
 		// A tenant user's email comes from their IdP and nowhere else: a user
 		// who could rename it could take a pending admin invite (TICK-252).
 		if a.Name == "email" {
 			if strings.Join(a.Permissions.View, ",") != "admin,user" || strings.Join(a.Permissions.Edit, ",") != "admin" {
 				t.Errorf("email permissions = view %v edit %v, want view admin,user and edit admin only", a.Permissions.View, a.Permissions.Edit)
+			}
+		}
+		// The primary org unit is set by a tenant admin through the admin API
+		// only: a user who could edit it could pick their own primary unit
+		// (ADR-010 D-11-6; TICK-948).
+		if a.Name == keycloak.PrimaryOrgUnitAttribute {
+			foundPrimary = true
+			if strings.Join(a.Permissions.View, ",") != "admin" || strings.Join(a.Permissions.Edit, ",") != "admin" {
+				t.Errorf("%s permissions = view %v edit %v, want admin only", a.Name, a.Permissions.View, a.Permissions.Edit)
 			}
 		}
 		if a.Name == "nava_idp_email_verified" {
@@ -476,5 +487,8 @@ func TestRealmFileEmailVerifiedMapper(t *testing.T) {
 	}
 	if !found {
 		t.Error("nava_idp_email_verified is not declared in the user profile")
+	}
+	if !foundPrimary {
+		t.Errorf("%s is not declared in the user profile", keycloak.PrimaryOrgUnitAttribute)
 	}
 }

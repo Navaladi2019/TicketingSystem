@@ -76,7 +76,7 @@ With no tenant set, or an empty one, they match no row.
 | Table | Tenant policies | Allow-listed (do not test `app.tenant_id`) |
 | --- | --- | --- |
 | `tenants` | `tenants_tenant` (SELECT, app), `tenants_onboard_select`, `tenants_onboard_insert` (provisioning only), `tenants_activate` (UPDATE provisioning → active, own tenant) (onboard) | none |
-| `tenant_identity_binding` | none | `binding_lookup` (SELECT TO nava_app, nava_groupsync), `binding_onboard` (INSERT TO nava_onboard, provisioning tenants visible to it) |
+| `tenant_identity_binding` | none | `binding_lookup` (SELECT TO nava_app, nava_groupsync, nava_worker; the worker holds `SELECT (tenant_id)` only, TICK-1070), `binding_onboard` (INSERT TO nava_onboard, provisioning tenants visible to it) |
 | `records` | `records_select`, `records_insert`, `records_update` (app, worker) | none |
 | `outbox` | `outbox_select`, `outbox_insert` (app, worker) | `outbox_relay_select`, `outbox_relay_update` (pending rows only), `outbox_purge_select`, `outbox_purge` |
 | `workflow_ref` | `workflow_ref_select`, `workflow_ref_insert` (app, worker), `workflow_ref_update` (worker) | `workflow_ref_purge_select`, `workflow_ref_purge` |
@@ -359,6 +359,10 @@ erDiagram
   the store scans them into a Go map and struct and a bad row could never be
   repaired. Decision and figures:
   [`entity-def-versions-jsonb-check.md`](entity-def-versions-jsonb-check.md).
+- **No top-level `org_unit_id` property (TICK-1115).** A CHECK refuses a
+  stored schema with one, because S31 reserves the name (ADR-010 D8) and a
+  stored version that has it can no longer be loaded. Decision and figures:
+  [`entity-versions-org-unit-id-reserved.md`](entity-versions-org-unit-id-reserved.md).
 - **Policies.** One per command, `TO` the granted roles only, each the
   canonical tenant predicate. `nava_onboard`'s two `INSERT` policies add "and
   that tenant is provisioning" and are pinned in

@@ -44,6 +44,23 @@ type ListQuery struct {
 	// the tenant does not walk the whole sort index (TICK-644). Their rows and
 	// order are those of Where AND (OR of Branches).
 	Branches []string
+	// CountDrivers, when set, has one entry per branch (or one for Where when
+	// there are no branches): a CountDriver with a From drives that term's
+	// count from the closure (authz.RegionDriver), so the count reads at most
+	// TotalCap+1 records for it whatever the size of the region. The page
+	// never uses them.
+	CountDrivers []CountDriver
+	// CountWhere, when set, replaces Where in the count statement, and
+	// CountBranches, when set, replaces Branches (one per branch): the same
+	// terms with a region leaf in its count form (authz.ListRead), binding
+	// the same placeholders as the page's.
+	CountWhere    string
+	CountBranches []string
+	// Materialize, when set, has one entry per page term (per branch, or one
+	// for Where): true renders that term C3 (ADR-010-A2 A2-5), its rows read
+	// into a MATERIALIZED CTE and then sorted, instead of walked in index
+	// order. The rows are the same either way.
+	Materialize []bool
 
 	// BudgetCount is set for a list with any data filter (indexed or legacy
 	// scan): its count runs under CountBudget in SAVEPOINT list_count.
@@ -54,6 +71,13 @@ type ListQuery struct {
 	// internal/server/export_test.go sets.
 	CountDelay time.Duration
 	SkipCount  bool
+}
+
+// CountDriver drives one count term (authz.RegionDriver): From is a FROM
+// item, Key the column of it that each driven record's org_unit_id equals.
+// Its placeholders are among the term's own, so it binds nothing.
+type CountDriver struct {
+	From, Key string
 }
 
 // TieBreaksOnUpdatedAt reports whether a list sorted by col orders by
@@ -265,8 +289,21 @@ func PageStatement(q ListQuery) (string, []any, error) {
 	if branched(q) {
 		return branchedPage(q, args, keyset, order), args, nil
 	}
+	if q.materialize(0) {
+		// C3: the term's rows, then sorted; acl_m keeps the alias r so the
+		// select list and the ORDER BY read as the walked form's.
+		return `WITH acl_m AS MATERIALIZED (SELECT r.* FROM records r
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + keyset + `)
+SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
+       r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
+       r.` + q.SortColumn + `::text FROM acl_m r
+JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
+LEFT JOIN groups g ON g.tenant_id = r.tenant_id AND g.id = r.assignment_group_id
+ORDER BY r.` + q.SortColumn + ` ` + order + ` LIMIT $` + fmt.Sprint(len(args)), args, nil
+	}
 	return `SELECT r.tenant_id, r.id, r.entity_definition_id, d.key, r.version, r.schema_version, r.number, r.state,
-       r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+       r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
        r.data, r.causation_origin_id, coalesce(r.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
        r.` + q.SortColumn + `::text FROM records r
 JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
@@ -325,19 +362,54 @@ func branched(q ListQuery) bool { return len(q.Branches) > 1 }
 
 // CountStatement counts the rows of q (the tenant, definition, Where and ACL
 // predicate), up to TotalCap+1; the tests and the bench EXPLAIN it. With Branches each branch counts apart,
-// capped by itself, and the exclusive branches add up.
+// capped by itself, and the exclusive branches add up. A term with a
+// CountDriver (the region branch) is counted from its driver
+// (countArm), always, so it reads at most TotalCap+1 records (SP-1d decision
+// 1 on TICK-946: K = 1,000 = TotalCap).
 func CountStatement(q ListQuery) string {
-	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where
+	w := q.Where
+	if q.CountWhere != "" {
+		w = q.CountWhere
+	}
+	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + w
 	cap1 := fmt.Sprint(TotalCap + 1)
 	if !branched(q) {
-		return `SELECT count(*) FROM (SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `) c`
+		return `SELECT count(*) FROM ` + countArm(q.driver(0), where, cap1) + ` c`
 	}
-	arms := make([]string, len(q.Branches))
-	for i, b := range q.Branches {
-		arms[i] = `(SELECT 1 FROM records r` + where + ` AND ` + b + ` LIMIT ` + cap1 + `)`
+	branches := q.Branches
+	if len(q.CountBranches) == len(q.Branches) {
+		branches = q.CountBranches
+	}
+	arms := make([]string, len(branches))
+	for i, b := range branches {
+		arms[i] = countArm(q.driver(i), where+` AND `+b, cap1)
 	}
 	return `SELECT count(*) FROM (SELECT 1 FROM (` + strings.Join(arms, ` UNION ALL `) + `) u LIMIT ` + cap1 + `) c`
 }
+
+// countArm is one capped count term over records filtered by where. Driven,
+// it is P3: the driver's units and closure, then for each closure descendant
+// a LATERAL read of that unit's records (records_org_unit), every one also
+// meeting where, so the term's rows are exactly where's and the cap stops
+// the read early.
+func countArm(d CountDriver, where, cap1 string) string {
+	if d.From == "" {
+		return `(SELECT 1 FROM records r` + where + ` LIMIT ` + cap1 + `)`
+	}
+	return `(SELECT 1 FROM ` + d.From + ` CROSS JOIN LATERAL (SELECT 1 FROM records r` + where +
+		` AND r.org_unit_id = ` + d.Key + ` LIMIT ` + cap1 + `) acl_x LIMIT ` + cap1 + `)`
+}
+
+// driver is the count driver of term i, or none.
+func (q ListQuery) driver(i int) CountDriver {
+	if i < len(q.CountDrivers) {
+		return q.CountDrivers[i]
+	}
+	return CountDriver{}
+}
+
+// materialize reports whether page term i renders C3.
+func (q ListQuery) materialize(i int) bool { return i < len(q.Materialize) && q.Materialize[i] }
 
 // branchedPage is the page statement of a branched q: one arm per branch, each
 // ordered and limited by the index it can use, merged by the outer ORDER BY
@@ -345,18 +417,23 @@ func CountStatement(q ListQuery) string {
 func branchedPage(q ListQuery, args []any, keyset, order string) string {
 	limit := `LIMIT $` + fmt.Sprint(len(args))
 	cols := `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
-  r.requester_id, r.assignee_id, r.assignment_group_id, r.created_by, r.created_at, r.updated_at,
+  r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
   r.data, r.causation_origin_id, r.causation_depth, r.` + q.SortColumn + ` AS sort_key`
 	arms := make([]string, len(q.Branches))
 	for i, b := range q.Branches {
-		arms[i] = `(SELECT ` + cols + ` FROM records r
-WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND ` + b + keyset +
-			` ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
+		term := `SELECT ` + cols + ` FROM records r
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND ` + b + keyset
+		if q.materialize(i) {
+			// C3: the branch's rows, then sorted, never walked.
+			arms[i] = `(WITH acl_m AS MATERIALIZED (` + term + `) SELECT * FROM acl_m r ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
+			continue
+		}
+		arms[i] = `(` + term + ` ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
 	}
 	outer := strings.NewReplacer("r.updated_at", "updated_at", "r.id", "id").Replace(order)
 	// The sort column's ORDER BY term leads; order starts with its direction.
 	return `SELECT x.tenant_id, x.id, x.entity_definition_id, d.key, x.version, x.schema_version, x.number, x.state,
-       x.requester_id, x.assignee_id, x.assignment_group_id, x.created_by, x.created_at, x.updated_at,
+       x.requester_id, x.assignee_id, x.assignment_group_id, x.org_unit_id, x.created_by, x.created_at, x.updated_at,
        x.data, x.causation_origin_id, coalesce(x.causation_depth, 0), coalesce(g.deleted_at IS NOT NULL, false),
        x.sort_key::text FROM (
 ` + strings.Join(arms, "\nUNION ALL\n") + `

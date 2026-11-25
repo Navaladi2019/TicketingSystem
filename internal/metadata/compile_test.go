@@ -158,6 +158,13 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/schema/properties/state/type",
 		},
 		{
+			name: "(e) a property named org_unit_id, the pipeline's column",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				props(s)["org_unit_id"] = map[string]any{"type": "string"}
+			},
+			want: "/schema/properties/org_unit_id",
+		},
+		{
 			name: "(d) schema over MaxSchemaBytes",
 			mutate: func(_ *metadata.Definition, s map[string]any) {
 				prop(s, "title")["description"] = strings.Repeat("x", metadata.MaxSchemaBytes)
@@ -317,6 +324,13 @@ func TestCompileRefuses(t *testing.T) {
 			name:   "unknown fixed column",
 			mutate: func(d *metadata.Definition, _ map[string]any) { d.FixedColumns["title"] = "tenant_id" },
 			want:   "/fixed_columns/title",
+		},
+		{
+			// ADR-010 D8 (TICK-947): the pipeline sets org_unit_id; no
+			// property of the payload may write it.
+			name:   "org unit column is not a mapping target",
+			mutate: func(d *metadata.Definition, _ map[string]any) { d.FixedColumns["requester"] = metadata.ColumnOrgUnitID },
+			want:   "/fixed_columns/requester",
 		},
 		{
 			name:   "fixed column on a missing property",

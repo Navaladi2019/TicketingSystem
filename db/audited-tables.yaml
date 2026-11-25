@@ -32,11 +32,13 @@ audited:
   # Attached by P5-13c (TICK-530, 20261104110000) after ADR-004-E5 step (ii):
   # the groups FK is ON DELETE RESTRICT (TICK-538, R29), so no FK action
   # rewrites records.
-  # The columns are every column a writer may UPDATE (db/grants.yaml).
+  # The columns are every column a writer may UPDATE (db/grants.yaml), and
+  # org_unit_id, which no writer may since TICK-1120: a superuser's change
+  # still needs an audit entry.
   records:
     writer_roles: [nava_app, nava_worker]
     audited_columns: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                      updated_at, data, causation_origin_id, causation_depth]
+                      org_unit_id, updated_at, data, causation_origin_id, causation_depth]
     subject_type: record
     subject_id_column: id
     attached: true
@@ -174,3 +176,9 @@ exempt:
     reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
   org_units:
     reason: "Mirror of the identity provider written by group sync (T16). R2 has no subject type for it (I8)."
+  org_unit_members:
+    reason: "Mirror of the identity provider written by group sync (TICK-947, ADR-010 D7). R2 has no subject type for it (I8)."
+  org_unit_closure:
+    reason: "Derived from org_units by group sync's rebuild (TICK-1032, ADR-010-A2); holds no fact of its own. R2 has no subject type for it (I8)."
+  entity_record_estimates:
+    reason: "Derived data: the refresh job's count of each entity type's records (TICK-1070, ADR-010-A2 A2-9); holds no fact of its own and is not configuration. R2 has no subject type for it (I8)."

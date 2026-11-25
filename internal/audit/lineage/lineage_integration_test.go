@@ -363,7 +363,7 @@ func TestAlertRules(t *testing.T) {
 	assertRuleFilesLoaded(t, root, dir, "records.yml")
 	cmd := exec.CommandContext(context.Background(), "docker", "run", "--rm", "--network", "none",
 		"--entrypoint", "promtool", "-v", dir+":/p:ro", "-w", "/p/tests",
-		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml", "numbering_test.yml", "authz_test.yml", "records_test.yml")
+		"prom/prometheus:"+string(tag[1]), "test", "rules", "audit_test.yml", "numbering_test.yml", "authz_test.yml", "records_test.yml", "groupsync_test.yml")
 	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -2,50 +2,82 @@
 title: "5. Organisation units"
 section: tour
 status: delivered
-sources: [db/migrations/00003_identity_tables.sql, internal/groupsync/apply.go, deploy/compose/keycloak/import/realm-nava.json]
-adrs: [ADR-001]
-tables: [org_units]
+sources: [internal/groupsync/apply.go, internal/groupsync/closure.go, deploy/compose/keycloak/import/realm-nava.json, docs/acceptance/S31/README.md, docs/data/org-units.md, docs/data/org-unit-closure.md]
+adrs: [ADR-010, ADR-010-A2]
+stories: [S31]
+tables: [org_units, org_unit_members, org_unit_closure, records]
 packages: [internal/groupsync]
 ---
 
 ## In plain words
 
-An organisation unit is a department or team in a company's chart, such as "Engineering" with "Platform" inside it. **This is not a feature yet.** The platform copies the department tree from the customer's identity system, but nothing in the product shows it, searches it or uses it to decide who sees what. Today the groups from step 3 do that job.
+An organisation unit is a part of a company's chart, such as "EMEA" with
+"Germany" inside it. The platform copies the tree, and who belongs where,
+from the customer's identity system. Since S31 an access rule can use it:
+"agents see the tickets of their region", meaning their unit and every unit
+below it. A ticket remembers the unit of the person who raised it.
 
 ## What you do
 
-Nothing. There is no step to follow: no API, no screen and no access rule uses organisation units.
+1. In Keycloak, put each user in a group under `/t/<tenant id>/ou/`, for
+   example `/ou/EMEA` or `/ou/EMEA/Germany`. A user with several units gets
+   a primary one from the user attribute `nava_primary_org_unit`, which only
+   an admin can set; a user with one unit has it as their primary.
+2. Wait for group sync (at most `NAVA_GROUPSYNC_INTERVAL`, 5 minutes by
+   default), or run `docker compose run --rm --no-deps nava-groupsync --once`.
+3. Publish an access rule with the `under` test ([step 7](07-access-rules-and-masks.md)):
+
+   ```json
+   {"name": "in_my_region", "ops": ["read"], "when": {"under": {"of": "caller"}}}
+   ```
+
+   `{"of": ["<unit id>", ...]}` names units instead of the caller's own.
 
 ## Try it
 
-There is no request. The only way to see them is the database. On the local stack, after `seed.sh`:
+The S31 kit walks the whole story on a fresh stack:
+`sh docs/acceptance/S31/run.sh` ([S31](../stories/s31.md)). No API lists
+units yet, so the kit reads the tree from the database. It prints:
 
-```sh
-docker compose exec -T postgres sh -c \
-  'PGPASSWORD=$(cat /run/pg_superuser_password) psql -U pgadmin -d nava -c \
-   "select o.name, coalesce(p.name,'"'"'(root)'"'"') as parent from org_units o
-    left join org_units p on p.tenant_id=o.tenant_id and p.id=o.parent_id
-    where o.tenant_id='"'"'00000000-0000-4000-8000-0000000000a1'"'"' order by 1"'
 ```
+     path     | state | closure_rows |           members
+--------------+-------+--------------+------------------------------
+ APAC         | live  |            1 | requester-apac*
+ EMEA         | live  |            2 | agent-emea*, requester-emea*
+ EMEA/Germany | live  |            1 | requester-germany*
+ eng          | live  |            2 |
+ eng/platform | live  |            1 | alice*
+ support      | live  |            1 |
+```
+
+`*` marks the primary unit. `closure_rows` is how many live units are at or
+below the unit, itself included.
 
 ## What you see
 
-```
-eng       (root)
-platform  eng
-support   (root)
-```
-
-These come from Keycloak groups under `/t/<tenant id>/ou/` in the demo realm (`/ou/eng`, `/ou/eng/platform`, `/ou/support`).
+With `in_my_region` published, `agent-emea` lists the tickets raised by the
+EMEA and Germany requesters and gets the missing-record 404 on an APAC one.
+A ticket raised by someone with no unit is in nobody's region.
 
 ## What happens behind it
 
-Group sync (step 3) also reads the groups below `ou/` and writes them to the `org_units` table as a tree. It rejects a change that would make a unit its own ancestor and stops at a depth of 64. After that, no code reads the table: no endpoint in the API names organisation units, and no access rule or mask can refer to one. The table was added with the identity tables (ADR-001) so the tree is ready when a feature needs it.
+- Group sync writes `org_units` (the tree), `org_unit_members` (who is in
+  which unit, and the primary) and `org_unit_closure` (for each live unit,
+  every live unit at or below it) in one transaction per tenant. It refuses a
+  change that would make a unit its own ancestor and stops at a depth of 64.
+- A unit removed in Keycloak is tombstoned, never deleted. It and its whole
+  subtree drop out of every region at that sync; the tickets keep their unit.
+- On create, the write pipeline stores the requester's primary unit in
+  `records.org_unit_id`. It is never recomputed: moving a person to another
+  unit leaves their old tickets in the old unit.
+- The `under` test reads the closure in SQL for lists and in Go for a single
+  record, and both give the same answer (I5). See
+  [Core: record ACL](../system/core-acl.md#the-under-leaf-s31) and
+  [Org units (tables)](../database/org-units.md).
 
 ## Not built yet
 
-All of it, as a feature:
-
-- No API to list or change units, and no screen.
-- No access rule such as "everyone under Engineering". Rules name groups and users only (step 7).
-- No ADR describes how units would be used. Until one does, this page does not describe behaviour beyond the table above.
+- No API or screen to list units, show a ticket's unit, or move tickets
+  between units. Moving tickets is planned as a workflow step (ADR-010 D8).
+- The tenant identity provider's mapper does not fill
+  `nava_primary_org_unit` yet; an admin sets it in Keycloak.

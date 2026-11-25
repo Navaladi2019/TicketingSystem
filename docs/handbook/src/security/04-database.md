@@ -129,9 +129,10 @@ state test) and requires its path to fail.
 AR-001 and AR-002 are the two High and Medium residuals of ADR-001 that touch
 this layer: a stolen `nava-worker` certificate can set any `app.tenant_id`, so
 RLS cannot stop it, and Temporal histories in the shared cluster are not
-encrypted.
+encrypted. AR-S31-02 and AR-S31-03 are about the S31 upgrade
+([Migration history](../database/migrations.md#upgrading-to-s31)).
 
-<!-- gen:accepted-risks ids=AR-001,AR-002,AR-003,AR-029,AR-031,AR-032,AR-041 -->
+<!-- gen:accepted-risks ids=AR-001,AR-002,AR-003,AR-029,AR-031,AR-032,AR-041,AR-S31-02,AR-S31-03 -->
 
 ## Related
 
