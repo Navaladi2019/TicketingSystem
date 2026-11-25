@@ -948,7 +948,7 @@ TICK-693's merge changes the workflow file, so it publishes the first
 keycloak tag (or run the workflow by hand on `main`). After that, a run whose
 key inputs are unchanged from `main` pulls it.
 
-### OpenObserve image (TICK-1128)
+### OpenObserve image (TICK-1128, TICK-1131)
 
 A full run starts the operator profile, which includes OpenObserve.
 `compose.yaml` pins it by tag and index digest, and the digest is written
@@ -958,22 +958,33 @@ in the `stack` job before `make image-ci`:
 1. It pulls that digest from `public.ecr.aws/zinclabs/openobserve` and, when
    that source fails, from `docker.io/openobserve/openobserve`. OpenObserve
    publishes the same index on both.
-2. A source fails when the pull fails or the image's digest is not the pinned
-   one. When both fail, the step fails and prints both errors, before any stack
+2. A source fails when the pull fails, gives no answer in 480 s (one attempt
+   per source, `timeout -k 10 480`; the log then says `<source> failed: no
+   answer in 480 s`), or the image's digest is not the pinned one. The image
+   runs only after its digest is checked, with no network. When both fail, the step fails and prints both errors, before any stack
    starts.
 3. The pulled binary's `--version` must be the tag's version. Docker ignores
    the tag of a `tag@digest` ref, so without this a tag bumped without its
    digest would run the old version unnoticed.
-4. It exports `OPENOBSERVE_IMAGE=<source>@<digest>`. `image-ci` then leaves the
-   service out of its registry pull, and `stack-up` finds the image locally, so
-   nothing contacts a registry for it again. The log line is
+4. It exports `OPENOBSERVE_REPO=<source>`, the repository without tag or
+   digest. `image-ci` then leaves the service out of its registry pull, and
+   `stack-up` finds the image locally, so nothing contacts a registry for it
+   again. The log line is
    `pull-openobserve: using <source>@<digest> (<version>)`.
+
+`OPENOBSERVE_REPO` chooses the source only: `compose.yaml` adds the tag and the
+digest after it, so a value set by hand is held to the pinned digest too
+(TICK-1131). A value that carries its own tag or digest makes a reference that
+Docker refuses (`invalid reference format`).
 
 A fast run prints `openobserve-pull: skipped`. A local `docker compose up`
 pulls the same digest from ECR Public, with no login and no extra step.
 Nothing is published and the job holds no registry credential. The tests
 (`deploy/compose/openobserve_pull_test.go`, run by `task test`) run the script
-and the make targets against a fake `docker`.
+and the make targets against a fake `docker`. One of them asks the real
+`docker compose` what the variable changes; it skips where that is missing and
+fails there when `CI` is set. The tests set `PULL_TIMEOUT` (seconds) to shorten
+the limit; nothing else does.
 
 **Remaining limit.** A full run still fails when both registries refuse. Docker
 Hub limits unauthenticated pulls, and the stack's other images already come
