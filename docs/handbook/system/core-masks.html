@@ -117,7 +117,7 @@ the caller's masks from <code>ACL.ReadMasks</code> and <code>addOrgUnitMasks</co
 <td>Where the caller may not read the property mapped to the requester, redact <code>org_unit_id</code> too: the unit derives from the requester (TICK-1119)</td>
 <td><code>addOrgUnitMasks</code> (<code>audit.go</code>), as <code>nava_app</code>, tenant-filtered</td>
 <td>Fails closed: a query or decode error, or a type with no version row, is a 500</td>
-<td><code>TestAuditListMasksOrgUnitWithTheRequester</code>, <code>TestAuditListOrgUnitMaskIsPerTenant</code>, <code>TestAddOrgUnitMasks</code></td>
+<td><code>TestAuditListMasksOrgUnitWithTheRequester</code>, <code>TestAuditListOrgUnitMaskIsPerTenant</code>, <code>TestAddOrgUnitMasks</code>, <code>TestExportFailsClosedWhenAMaskReadFails</code> (the decode error)</td>
 </tr>
 <tr>
 <td>5b</td>
@@ -129,7 +129,7 @@ the caller's masks from <code>ACL.ReadMasks</code> and <code>addOrgUnitMasks</co
 </tbody>
 </table>
 <p>A caller who may read the requester still sees <code>org_unit_id</code> in the diffs of the
-audit list and export; the <code>audit.read</code> and <code>audit.export</code> permissions gate both.</p>
+audit list (permission <code>audit.read</code>) and the audit export (<code>audit.export</code>).</p>
 <h2 id="errors">Errors</h2>
 <table>
 <thead>

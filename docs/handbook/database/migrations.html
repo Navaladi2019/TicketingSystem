@@ -66,14 +66,14 @@ one file, which the tests run:
 <tr>
 <td><code>20261120235900</code>, S31's first</td>
 <td>A stored entity-type version has a top-level property <code>org_unit_id</code> (23514)</td>
-<td>Run the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#check">check</a>. A row: follow the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#order-of-work">order of work</a>, which stops <code>nava-core</code> and <code>nava-worker</code>, then the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#repair">repair</a>. 10,000 versions or more, or 256 MiB or more: stop and ask the Technical Lead</td>
-<td>Nothing of S31 is applied, and the old release keeps working. The same check and repair</td>
+<td>Run the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#check">check</a>. A row: follow the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#order-of-work">order of work</a>, which stops <code>nava-core</code> and <code>nava-worker</code>; the <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#repair">repair</a> is its step 3. 10,000 versions or more, or 256 MiB or more: stop and ask the Technical Lead</td>
+<td>Nothing of S31 is applied, and the old release keeps working. The same order of work</td>
 </tr>
 <tr>
 <td><code>20261121000100</code></td>
 <td>A stored access document names, under <code>under</code>, an id that is not a live org unit of its tenant (<code>AR-S30-01</code>)</td>
 <td>Run the AR-S30-01 query of the same <a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#check">check</a>. A row: do not migrate, ask the Technical Lead</td>
-<td><code>20261120235900</code> and <code>20261121000000</code> stay applied. Access publishing works; the old group sync deletes no removed org unit until the upgrade finishes</td>
+<td><code>20261120235900</code> and <code>20261121000000</code> stay applied. Access publishing works; the old group sync deletes no removed org unit until the upgrade finishes. Run the AR-S30-01 query again and ask the Technical Lead. Do not delete <code>acl_versions</code> rows, whatever the error's HINT says: the newest row is the access in force</td>
 </tr>
 </tbody>
 </table>
@@ -86,7 +86,7 @@ drop the mask, because that shows the value to everyone it was hidden from.</li>
 with <code>42501</code>. Run <code>migrate</code> again
 (<a href="../../../docs/data/entity-versions-org-unit-id-reserved.md#if-the-upgrade-stops-later">if the upgrade stops later</a>).
 A successful upgrade has the same gap for about a second (0.7 to 1.0 s in
-three runs).</li>
+three runs, PostgreSQL 16.10, 100,000 records).</li>
 <li><strong>Accepted risks:</strong> <code>AR-S31-02</code> (one tenant can stop the upgrade),
 <code>AR-S31-03</code> (the publishing gap) and <code>AR-S31-04</code> (no mask for the old name
 after a repair), in the <a href="../security/accepted-risks.html">register</a>.</li>

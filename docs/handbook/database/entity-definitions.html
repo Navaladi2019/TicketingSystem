@@ -51,7 +51,8 @@ a top-level property of that name. Two layers refuse it:</p>
 </tbody>
 </table>
 <p>The CHECK finds an escaped spelling such as <code>\u006frg_unit_id</code>, and adds 0.16
-to 0.23 ms to a publish of a 2.4 kB schema (PostgreSQL 16.10, loaded host).</p>
+to 0.23 ms to a publish of a 2.4 kB schema (10,000 inserts, three runs,
+PostgreSQL 16.10, loaded host).</p>
 <p>The API cannot repair a stored version that has the property, so an operator
 does: <a href="../database/migrations.html#upgrading-to-s31">Migration history</a>. That repair is the one
 case where a stored version's schema changes. Decision and figures:

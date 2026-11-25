@@ -189,8 +189,8 @@ Go never builds the subtree, and no request walks the tree. Normative note:
 <code>docs/architecture/access-under-leaf.md</code>; decision: ADR-010 D7 as amended by
 <a href="../adr/adr-010-a2.html">ADR-010-A2</a>.</p>
 <ul>
-<li><strong>Resolve first.</strong> <code>authz.ResolveUnder</code> runs before <code>Allows</code>, <code>CompileRead</code>,
-<code>ReadList</code> or a workflow policy test (<code>TestPolicyRef</code>, TICK-1114), in one statement: the caller's units, and for a single read
+<li><strong>Resolve first.</strong> <code>authz.ResolveUnder</code> runs before <code>Allows</code>, <code>CompileRead</code>
+or <code>ReadList</code>, and inside <code>TestPolicyRef</code> (a workflow policy test, TICK-1114), in one statement: the caller's units, and for one record
 the rows' ancestors in U. A policy whose <code>under</code> was not resolved for the
 principal is voided as <code>under_unresolved</code> (fails closed, counted in
 <code>authz_policy_invalid_total</code>). U is made <code>DISTINCT</code> and canonical on every
@@ -252,7 +252,8 @@ K* = 1,000 and the probe runs.</li>
 <li><strong>Rare-type shortcut (A2-5a).</strong> A type with N̂_e ≤ K* skips the probe and
 uses W0 for both the page and the count.</li>
 <li><strong>Bounded probes.</strong> One P3 per distinct region leaf of the plan, so at most
-16 (<code>ReadBranchThreshold</code>) per list, each of at most 20,001 records. Security's
+16 (<code>ReadBranchThreshold</code>) per list, each of at most 20,001 records, plus one
+lookup per live unit under U (about 10 µs each, no cap). Security's
 finding on that load is deferred with a trigger (<code>AR-S31-05</code>,
 <a href="../../../docs/delivery/decisions/2026-11-25-s31-probe-load-deferred.md">decision</a>).</li>
 <li><strong>Fail closed.</strong> A probe error returns 500. There is no fallback shape.</li>

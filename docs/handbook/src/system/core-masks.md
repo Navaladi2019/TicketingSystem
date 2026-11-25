@@ -59,11 +59,11 @@ flowchart TB
 | 3a | Drop `org_unit_id` from history `before` and `after`, after shaping and before `changed` is computed, for every reader (TICK-1119) | `GetRecordHistory` (`records_patch.go`) | The org unit is no schema property, so no mask can name it | `TestRecordHistoryNeverShowsTheOrgUnit` |
 | 4 | Refuse a list filter or sort on a field the caller cannot read, before any SQL | `authz.CheckQueryFields` | A hidden field cannot be filtered, sorted or counted | `TestCheckQueryFields` |
 | 5 | Redact masked fields in the diffs of the audit list and of the audit export (TICK-1127) | `ACL.ReadMasks` -> `read.FieldMasks` | The reader role needs no new grant | `TestExportAppliesTheCallersFieldMasks`; the list in `internal/audit/read` |
-| 5a | Where the caller may not read the property mapped to the requester, redact `org_unit_id` too: the unit derives from the requester (TICK-1119) | `addOrgUnitMasks` (`audit.go`), as `nava_app`, tenant-filtered | Fails closed: a query or decode error, or a type with no version row, is a 500 | `TestAuditListMasksOrgUnitWithTheRequester`, `TestAuditListOrgUnitMaskIsPerTenant`, `TestAddOrgUnitMasks` |
+| 5a | Where the caller may not read the property mapped to the requester, redact `org_unit_id` too: the unit derives from the requester (TICK-1119) | `addOrgUnitMasks` (`audit.go`), as `nava_app`, tenant-filtered | Fails closed: a query or decode error, or a type with no version row, is a 500 | `TestAuditListMasksOrgUnitWithTheRequester`, `TestAuditListOrgUnitMaskIsPerTenant`, `TestAddOrgUnitMasks`, `TestExportFailsClosedWhenAMaskReadFails` (the decode error) |
 | 5b | Give each export request its own copy of the exporter with its masks, read before the lease | `ExportAuditEntries` (`audit_export.go`) | Two overlapping exports never share masks; a failed mask read leaves no file bytes, lease or `audit/export` entry | `TestOverlappingExportsKeepTheirOwnMasks`, `TestExportFailsClosedWhenAMaskReadFails` |
 
 A caller who may read the requester still sees `org_unit_id` in the diffs of the
-audit list and export; the `audit.read` and `audit.export` permissions gate both.
+audit list (permission `audit.read`) and the audit export (`audit.export`).
 
 ## Errors
 

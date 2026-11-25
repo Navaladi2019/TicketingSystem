@@ -397,7 +397,7 @@ at the default byte limit, about 340 ms at the 128 KiB ceiling), on the
 <tr>
 <td>AR-S31-05 (probe load of one list)</td>
 <td>🟡 Low</td>
-<td>One list runs at most 16 P3 probes (<code>ReadBranchThreshold</code>), each reading at most 20,001 records, on the shared database. A tenant whose policies use many <code>under</code> branches can make each of its lists cost that much. No tenant data is at risk.</td>
+<td>One list runs at most 16 P3 probes (<code>ReadBranchThreshold</code>), one after the other, on the database all tenants share. Each reads at most 20,001 records, but looks up every live unit under its U when the type has few records there: about 10 µs per unit, with no cap on tree size (ADR-010-A2 A2-7, A2-R6; 24.30 ms p95 for one probe at 9,099 units, TICK-1037). A tenant whose policies use many <code>under</code> branches can make each of its lists cost that much and slow other tenants. No tenant data is at risk.</td>
 <td>Accepted (deferred; Security's finding 3 on TICK-946, 2026-11-25)</td>
 <td>Technical Lead</td>
 <td><code>authz_under_probe_seconds</code> p95 above 25 ms for 15 minutes, or a slow-list report from a tenant whose policies use more than 4 <code>under</code> branches. No alert watches it</td>

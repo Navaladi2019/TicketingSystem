@@ -69,13 +69,14 @@ user's only unit, else none. The attribute is declared in the <code>nava</code> 
 user profile with admin-only view and edit, so users cannot set it
 (<a href="../system/keycloak.html">Keycloak</a>).</li>
 <li><strong><code>org_unit_closure</code>.</strong> A run that touched units replaces only the closure
-rows of the touched subtrees (TICK-1054); the first import rebuilds the
-tenant. An <strong>applied</strong> run (the directory changed) that touched no unit compares
+rows of the touched subtrees (TICK-1054); an empty stored closure (the first
+import included) takes the full rebuild. An <strong>applied</strong> run (the directory changed) that touched no unit compares
 the stored and the live closure as sets and rebuilds on drift. An
 unchanged-snapshot cycle does not compare the closure. The cursor is in
 memory, so a restart makes the next cycle apply. Both run under the per-tenant advisory lock.
 <a href="../adr/adr-010-e4.html">ADR-010-E4</a> records this; a wrong row outside the touched
-subtrees lasts until a run with no tree change (<code>AR-TICK-1118-01</code>).</li>
+subtrees lasts until an <strong>applied</strong> run that touched no unit, with no time
+limit (<code>AR-TICK-1118-01</code>).</li>
 <li><strong>Unrooted check (TICK-1058).</strong> After every rebuild call, and on every
 unchanged-snapshot cycle, it counts the tenant's live units with no closure
 self row. Such a unit is outside every region. A count above 0 is reported
@@ -95,7 +96,7 @@ nothing else, so deprovisioning is never held back.</li>
 <tbody>
 <tr>
 <td><code>groupsync_org_subtree_max</code></td>
-<td>Histogram, once per applied tenant sync: the most live units under any one unit a user belongs to</td>
+<td>Histogram, once per tenant in every cycle that gets the lock and succeeds: the most live units under any one unit a user belongs to</td>
 <td>None</td>
 </tr>
 <tr>
@@ -105,12 +106,13 @@ nothing else, so deprovisioning is never held back.</li>
 </tr>
 <tr>
 <td><code>groupsync_org_closure_unrooted_units</code></td>
-<td>Counter: live units found with no closure self row</td>
+<td>Counter: live units found with no closure self row; a unit that stays unrooted adds to it again every cycle, so its value is not a number of units</td>
 <td><code>GroupsyncOrgUnitsUnrooted</code>: any increase in 15 minutes (TICK-1116). It can miss the first sample of a series that starts at 1; the WARN line, which repeats every cycle, covers that case</td>
 </tr>
 </tbody>
 </table>
-<p>The tenant over a threshold is named in the log line, never in a metric. A
+<p>No metric names a tenant. The unrooted WARN line does; nothing names the tenant
+above 10,111 (TICK-1132). A
 <code>--once</code> run exits with its own metrics, so <code>groupsync_org_units_live_max</code>
 has no sample until the long-running service's first cycle; the cycle's log
 line carries <code>org_subtree_max</code> and <code>org_closure_rows</code>.</p>

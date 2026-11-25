@@ -3,7 +3,7 @@ title: "Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/Can
 section: system
 status: delivered
 normative: docs/architecture/record-acl.md
-sources: [docs/architecture/record-acl.md, docs/architecture/access-document-format2.md, internal/authz/acl.go, internal/authz/under.go, internal/authz/shape.go, docs/architecture/access-under-leaf.md, internal/authz/aclstore.go, internal/authz/plan.go, internal/authz/branchbound.go, internal/authz/check.go, internal/authz/document.go, internal/authz/convert.go, internal/authz/registry.go, internal/authz/metrics.go, internal/authz/policycheck.go, internal/authz/publish.go, internal/authz/explain.go, internal/server/access.go, internal/onboard/acl.go, tools/acceptance/acld6/main.go, docs/data/acl-format2-caps.md]
+sources: [docs/architecture/record-acl.md, docs/architecture/access-document-format2.md, internal/authz/acl.go, internal/authz/under.go, internal/authz/policyref.go, internal/authz/shape.go, docs/architecture/access-under-leaf.md, internal/authz/aclstore.go, internal/authz/plan.go, internal/authz/branchbound.go, internal/authz/check.go, internal/authz/document.go, internal/authz/convert.go, internal/authz/registry.go, internal/authz/metrics.go, internal/authz/policycheck.go, internal/authz/publish.go, internal/authz/explain.go, internal/server/access.go, internal/onboard/acl.go, tools/acceptance/acld6/main.go, docs/data/acl-format2-caps.md]
 packages: [internal/authz, internal/server, internal/onboard]
 adrs: [ADR-001, ADR-010, ADR-010-A1, ADR-010-A2]
 stories: [S10, S30, S31]
@@ -114,8 +114,8 @@ Go never builds the subtree, and no request walks the tree. Normative note:
 `docs/architecture/access-under-leaf.md`; decision: ADR-010 D7 as amended by
 [ADR-010-A2](../adr/adr-010-a2.md).
 
-- **Resolve first.** `authz.ResolveUnder` runs before `Allows`, `CompileRead`,
-  `ReadList` or a workflow policy test (`TestPolicyRef`, TICK-1114), in one statement: the caller's units, and for a single read
+- **Resolve first.** `authz.ResolveUnder` runs before `Allows`, `CompileRead`
+  or `ReadList`, and inside `TestPolicyRef` (a workflow policy test, TICK-1114), in one statement: the caller's units, and for one record
   the rows' ancestors in U. A policy whose `under` was not resolved for the
   principal is voided as `under_unresolved` (fails closed, counted in
   `authz_policy_invalid_total`). U is made `DISTINCT` and canonical on every
@@ -161,7 +161,8 @@ flowchart TD
 - **Rare-type shortcut (A2-5a).** A type with N̂_e ≤ K\* skips the probe and
   uses W0 for both the page and the count.
 - **Bounded probes.** One P3 per distinct region leaf of the plan, so at most
-  16 (`ReadBranchThreshold`) per list, each of at most 20,001 records. Security's
+  16 (`ReadBranchThreshold`) per list, each of at most 20,001 records, plus one
+  lookup per live unit under U (about 10 µs each, no cap). Security's
   finding on that load is deferred with a trigger (`AR-S31-05`,
   [decision](../../../delivery/decisions/2026-11-25-s31-probe-load-deferred.md)).
 - **Fail closed.** A probe error returns 500. There is no fallback shape.

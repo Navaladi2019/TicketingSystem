@@ -106,7 +106,7 @@
 <p><code>NextStep</code> is the one activity whose result the guard lets carry a <code>workerguard.Directive</code>, and <code>nava.interpreter</code> the one workflow that may receive one (<code>directive.go:41,49</code>).</p>
 <h2 id="named-policy-tests">Named-policy tests</h2>
 <p>A <code>condition</code> step with <code>policy</code>, <code>who</code> and <code>op</code> (S32) is evaluated inside <code>NextStep</code>, never in workflow code (I6). <code>NextStep</code> calls the <code>PolicyTester</code> port; with none wired the test is false, so it fails closed (<code>TestNextStepPolicyTestFailsClosed</code>).</p>
-<p><code>recordports.PolicyTester.Test</code> opens one tenant transaction, first reads the calling run's <code>workflow_ref</code> row and refuses the call as forbidden unless its stored <code>tenant_id</code> is the verified tenant, then calls <code>authz.TestPolicyRef</code> in that transaction. Everything is read there: the record, the entity type's <strong>current</strong> <code>acl_versions</code> row, the principal and its groups, the shares, and, when the policy has an <code>under</code> condition, the principal's org units and the record's unit and its ancestors (<code>authz.ResolveUnder</code>, as a record read does; S31, TICK-1114). The definition version stays pinned, but the policy does not: a policy narrowed after the run started applies at the next test (<code>TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest</code>).</p>
+<p><code>recordports.PolicyTester.Test</code> opens one tenant transaction, first reads the calling run's <code>workflow_ref</code> row and refuses the call as forbidden unless its stored <code>tenant_id</code> is the verified tenant, then calls <code>authz.TestPolicyRef</code> in that transaction. Everything is read there: the record, the entity type's <strong>current</strong> <code>acl_versions</code> row, the principal and its groups, the shares, and, when needed, the <code>under</code> inputs (<code>authz.ResolveUnder</code>, as a record read does; S31, TICK-1114): the record's unit and its ancestors, and the principal's org units for a <code>caller</code> condition. They are read when <strong>any</strong> policy of the type, read or write, has an <code>under</code> condition that survives folding for this principal, so a failed read caused by another policy also fails the test. The definition version stays pinned, but the policy does not: a policy narrowed after the run started applies at the next test (<code>TestPolicyTest_NarrowedPolicyAppliesAtTheNextTest</code>).</p>
 <table>
 <thead>
 <tr>
@@ -128,8 +128,8 @@
 </tr>
 <tr>
 <td>The policy has an <code>under</code> condition</td>
-<td>answered as a record read answers it, <code>not under</code> included; a failed read is an error, so Temporal retries</td>
-<td><code>TestPolicyTest_UnderResolvesAsARecordReadDoes</code>, <code>TestNamedPolicyAllows_Under</code></td>
+<td>answered as a record read answers it, <code>not under</code> included; a failed read is an error that Temporal retries for about six minutes (from code: <code>internal/authz/policyref.go</code>)</td>
+<td><code>TestPolicyTest_UnderResolvesAsARecordReadDoes</code>, <code>TestNamedPolicyAllows_Under</code> (the answers)</td>
 </tr>
 <tr>
 <td><code>who</code> column NULL, or not a live principal of the tenant</td>

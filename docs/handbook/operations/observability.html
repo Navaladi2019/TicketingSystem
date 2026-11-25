@@ -139,7 +139,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>GroupsyncOrgUnitsAboveCertified</code> (warning)</td>
 <td><code>groupsync_org_units_live_max</code> above 10,111 for 10 minutes: a tenant's live org-unit tree is larger than ADR-010-A2 is certified for (A2-7, A2-R6). Region-only lists may exceed 150 ms</td>
-<td>The nava-groupsync log names the tenant. Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
+<td>No log line names the tenant (TICK-1132). As the database superuser: <code>SELECT tenant_id, count(*) FROM org_units WHERE deleted_at IS NULL GROUP BY 1 HAVING count(*) &gt; 10111</code>; row-level security hides other tenants from the service roles. Re-decide A2-R6 with the Solution Architect. Never refuse the sync. See <a href="../system/nava-groupsync.html#org-units-s31">nava-groupsync</a></td>
 </tr>
 <tr>
 <td><code>GroupsyncOrgUnitsUnrooted</code> (warning)</td>
@@ -167,7 +167,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <tr>
 <td><code>authz_under_probe_seconds</code></td>
 <td>nava-core</td>
-<td>Duration of each P3 probe. No alert. One list runs at most 16 probes of at most 20,001 records each; a p95 above 25 ms for 15 minutes reopens that bound (<a href="../../../docs/delivery/decisions/2026-11-25-s31-probe-load-deferred.md">decision</a>, <code>AR-S31-05</code>)</td>
+<td>Duration of each P3 probe. No alert. One list runs at most 16 probes of at most 20,001 records each, plus one lookup per live unit under U when the type has few records there (about 10 µs per unit, A2-7); a p95 above 25 ms for 15 minutes reopens that load (<a href="../../../docs/delivery/decisions/2026-11-25-s31-probe-load-deferred.md">decision</a>, <code>AR-S31-05</code>)</td>
 </tr>
 <tr>
 <td><code>authz_under_estimate_age_seconds</code></td>

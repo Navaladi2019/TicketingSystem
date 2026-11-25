@@ -39,7 +39,7 @@ unit's memberships before it tombstones the unit.</li>
 <li><strong><code>org_unit_closure</code></strong>: for each live unit, every live unit at or below it,
 itself included. A row exists only if every unit from the root down to the
 descendant is live, so a tombstoned unit and its whole subtree have no
-rows, live descendants included. Group sync is the only writer and keeps it
+rows, live descendants included. Group sync is the only service that writes it, and keeps it
 current in the same transaction as the tree change. Access reads it; no
 request walks the tree.</li>
 </ul>
@@ -62,7 +62,7 @@ property named <code>org_unit_id</code>, and the S31 upgrade stops if one does
 <tbody>
 <tr>
 <td>A run that touched units</td>
-<td>Replaces only the closure rows of the touched units' subtrees (TICK-1054). The first import rebuilds all of the tenant's rows</td>
+<td>Replaces only the closure rows of the touched units' subtrees (TICK-1054). An empty stored closure, the first import included, takes the full rebuild</td>
 </tr>
 <tr>
 <td>An <strong>applied</strong> run (the directory changed) that touched no unit</td>
@@ -84,7 +84,10 @@ row outside the touched subtrees lasts until an applied run that touched no unit
 (<code>AR-TICK-1118-01</code>, Medium).</p>
 <p><code>org_unit_closure_rebuild_all()</code> (the migration backfill, run as
 <code>nava_migrator</code>) does the same self-row check and raises a <code>WARNING</code> per
-affected tenant (<code>20261121144100_org_unit_closure_unrooted_warning.sql</code>).</p>
+affected tenant (<code>20261121144100_org_unit_closure_unrooted_warning.sql</code>). It
+blocks every tenant's reads of <code>tenants</code>, <code>org_units</code> and <code>org_unit_closure</code>
+until it commits: run it only in a maintenance window, with <code>lock_timeout</code> set
+(TICK-1122).</p>
 <h2 id="measured-cost">Measured cost</h2>
 <p>From <code>docs/data/org-unit-closure.md</code>, PostgreSQL 16.10, 400 tenants, one
 tenant with an 11,111-unit tree, on a Docker VM with 16 CPUs and 24 GiB shared
@@ -132,7 +135,7 @@ only index. It serves the probe, the subtree read and the per-tenant delete.</p>
 <td><code>nava_groupsync</code></td>
 <td><code>SELECT</code>, <code>INSERT</code>, <code>UPDATE (parent_id, name, deleted_at)</code>; no <code>DELETE</code></td>
 <td><code>SELECT</code>, <code>INSERT</code>, <code>UPDATE (is_primary)</code>, <code>DELETE</code></td>
-<td><code>SELECT</code>, <code>INSERT</code>, <code>DELETE</code>; no <code>UPDATE</code> (the only writer)</td>
+<td><code>SELECT</code>, <code>INSERT</code>, <code>DELETE</code>; no <code>UPDATE</code> (the only service that writes it)</td>
 </tr>
 <tr>
 <td><code>nava_app</code></td>

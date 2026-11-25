@@ -32,7 +32,8 @@ a top-level property of that name. Two layers refuse it:
 | CHECK `entity_definition_versions_org_unit_id_reserved` (TICK-1115) | Any insert, from any role, with 23514. It also stops the S31 upgrade when a stored version has the property, and refuses a publish by an old replica during the rollout |
 
 The CHECK finds an escaped spelling such as `\u006frg_unit_id`, and adds 0.16
-to 0.23 ms to a publish of a 2.4 kB schema (PostgreSQL 16.10, loaded host).
+to 0.23 ms to a publish of a 2.4 kB schema (10,000 inserts, three runs,
+PostgreSQL 16.10, loaded host).
 
 The API cannot repair a stored version that has the property, so an operator
 does: [Migration history](migrations.md#upgrading-to-s31). That repair is the one

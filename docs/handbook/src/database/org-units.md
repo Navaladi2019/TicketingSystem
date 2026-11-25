@@ -28,7 +28,7 @@ access leaf ("tickets in my region", ADR-010 D7 as amended by
 - **`org_unit_closure`**: for each live unit, every live unit at or below it,
   itself included. A row exists only if every unit from the root down to the
   descendant is live, so a tombstoned unit and its whole subtree have no
-  rows, live descendants included. Group sync is the only writer and keeps it
+  rows, live descendants included. Group sync is the only service that writes it, and keeps it
   current in the same transaction as the tree change. Access reads it; no
   request walks the tree.
 
@@ -46,7 +46,7 @@ property named `org_unit_id`, and the S31 upgrade stops if one does
 
 | When | What group sync does |
 |---|---|
-| A run that touched units | Replaces only the closure rows of the touched units' subtrees (TICK-1054). The first import rebuilds all of the tenant's rows |
+| A run that touched units | Replaces only the closure rows of the touched units' subtrees (TICK-1054). An empty stored closure, the first import included, takes the full rebuild |
 | An **applied** run (the directory changed) that touched no unit | Compares the stored and the live closure as sets, and rebuilds on drift. An unchanged-snapshot cycle does not compare the closure. The cursor is in memory, so a restart makes the next cycle apply |
 | After every rebuild call, and on every unchanged-snapshot cycle | Counts the tenant's live units that have no `(u, u)` self row (TICK-1058). Such a unit is outside every region. A count above 0 adds to `groupsync_org_closure_unrooted_units` and writes a WARN line naming the tenant. The sync does not fail |
 
@@ -62,7 +62,10 @@ row outside the touched subtrees lasts until an applied run that touched no unit
 
 `org_unit_closure_rebuild_all()` (the migration backfill, run as
 `nava_migrator`) does the same self-row check and raises a `WARNING` per
-affected tenant (`20261121144100_org_unit_closure_unrooted_warning.sql`).
+affected tenant (`20261121144100_org_unit_closure_unrooted_warning.sql`). It
+blocks every tenant's reads of `tenants`, `org_units` and `org_unit_closure`
+until it commits: run it only in a maintenance window, with `lock_timeout` set
+(TICK-1122).
 
 ## Measured cost
 
@@ -84,7 +87,7 @@ only index. It serves the probe, the subtree read and the per-tenant delete.
 
 | Role | `org_units` | `org_unit_members` | `org_unit_closure` |
 |---|---|---|---|
-| `nava_groupsync` | `SELECT`, `INSERT`, `UPDATE (parent_id, name, deleted_at)`; no `DELETE` | `SELECT`, `INSERT`, `UPDATE (is_primary)`, `DELETE` | `SELECT`, `INSERT`, `DELETE`; no `UPDATE` (the only writer) |
+| `nava_groupsync` | `SELECT`, `INSERT`, `UPDATE (parent_id, name, deleted_at)`; no `DELETE` | `SELECT`, `INSERT`, `UPDATE (is_primary)`, `DELETE` | `SELECT`, `INSERT`, `DELETE`; no `UPDATE` (the only service that writes it) |
 | `nava_app` | `SELECT` | `SELECT` | `SELECT` |
 | `nava_worker` | `SELECT` on `tenant_id, id, parent_id, deleted_at` | `SELECT` on `tenant_id, org_unit_id, principal_id, is_primary` | `SELECT` (for `under` in workflow policy tests) |
 

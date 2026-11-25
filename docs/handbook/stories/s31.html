@@ -375,10 +375,10 @@ a user moved out of a unit keeps region access until then.</li>
 <li><strong>Latency shows the page shape</strong> inside one tenant (<code>AR-TICK-1040-01</code>).</li>
 <li><strong>One tenant can stop the upgrade</strong> with a stored <code>org_unit_id</code> property
 (<code>AR-S31-02</code>); the pre-upgrade check and the repair are the control.</li>
-<li><strong>One list can run up to 16 probes</strong> of up to 20,001 records each
-(<code>AR-S31-05</code>, deferred with a trigger).</li>
-<li><strong>A wrong closure row</strong> outside the touched subtrees lasts until a sync run
-with no tree change (<code>AR-TICK-1118-01</code>).</li>
+<li><strong>One list can run up to 16 probes</strong> of up to 20,001 records each,
+plus one lookup per live unit under U (<code>AR-S31-05</code>, deferred with a trigger).</li>
+<li><strong>A wrong closure row</strong> outside the touched subtrees lasts until an applied
+sync run that touched no unit (<code>AR-TICK-1118-01</code>).</li>
 <li><strong>ADR-010-A3</strong> (shape R for a type concentrated under a large subtree) is
 accepted but not built; it does not gate S31 and has its own follow-up.</li>
 </ul>
