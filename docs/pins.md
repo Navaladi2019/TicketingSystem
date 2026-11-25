@@ -126,7 +126,7 @@ this table is documentation.
 | `github.com/davecgh/go-spew`, `github.com/pmezard/go-difflib` | no longer listed in `go.mod` (pseudo-versions `v1.1.2-0.20180830191138-d8f796af33cc`, `v1.0.1-0.20181226105442-5d4384ee4fb2`) | Dropped by `go mod tidy` once testify is v1.12.1 (`go mod tidy -diff` is empty). Not removed from the module graph: operations-go `exporter/metric` v0.53.0 and others still require them. | TICK-1138 |
 | `github.com/go-jose/go-jose/v4` | v4.1.4 (from v4.1.3) | Reachable advisory in v4.1.3. | TICK-111 |
 | `go.opentelemetry.io/otel`, `/metric`, `/trace`, `/sdk`, `/sdk/metric` | v1.47.0 (from v1.40.0; v1.45.0 in TICK-111) | Reachable advisories in otel / otel/sdk v1.40.0, then GO-2026-6974 in otel/sdk v1.45.0 (fixed in v1.47.0); the API and SDK modules move together. `go.opentelemetry.io/otel/log` v1.47.0 is new (required by otel/sdk v1.47.0). | TICK-111, TICK-1138 |
-| `go.opentelemetry.io/otel/exporters/otlp/otlptrace`, `/otlptrace/otlptracegrpc` | v1.45.0 (from v1.34.0) | Reachable advisories in v1.34.0; same release as the SDK. | TICK-111 |
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace`, `/otlptrace/otlptracegrpc` | v1.45.0 (from v1.34.0) | Reachable advisories in v1.34.0. Stays at v1.45.0 while the SDK is at v1.47.0 (TICK-1138): `go mod tidy` does not require a move and no known advisory affects v1.45.0. | TICK-111, TICK-1138 |
 | `go.opentelemetry.io/proto/otlp` | v1.11.0 (from v1.7.1) | Required by the otlptrace v1.45.0 exporters (MVS). | TICK-111 |
 | `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc`, `/net/http/otelhttp` | v0.61.0 (from v0.59.0) | Raised by MVS with otel v1.45.0. | TICK-111 |
 | `go.opentelemetry.io/contrib/detectors/gcp` | v1.44.0 (from v1.39.0) | Raised by MVS with otel v1.45.0. | TICK-111 |
@@ -138,8 +138,8 @@ this table is documentation.
 | `github.com/grpc-ecosystem/grpc-gateway/v2`, `github.com/envoyproxy/go-control-plane/envoy`, `github.com/envoyproxy/protoc-gen-validate`, `github.com/cncf/xds/go`, `github.com/spiffe/go-spiffe/v2`, `cel.dev/expr`, `github.com/go-logr/logr` | v2.29.0, v1.37.0, v1.3.3, v0.0.0-20260202195803-dba9d589def2, v2.7.0, v0.25.2, v1.4.4 | Raised by MVS with grpc v1.83.1. `github.com/cenkalti/backoff/v5` v5.0.3 is new (otlptrace v1.45.0). | TICK-111 |
 
 `make vulncheck-temporal-server` reports zero findings on server v1.29.7 and
-is a required step of the `temporal-server` CI job (ADR-001 A1 Decision 3).
-There is no exception and no allowlist: a new finding fails CI and is a new
+runs in the separate `govulncheck` workflow, every second day and on pull requests that change `go.mod` or `go.sum`; it is not a required check of `main` (TICK-641, TICK-694).
+There is no exception and no allowlist: a new finding fails that workflow and is a new
 decision, not a pin bump.
 
 ## Forbidden
