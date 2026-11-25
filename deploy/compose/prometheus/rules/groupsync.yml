@@ -22,3 +22,17 @@ groups:
             ADR-010-A2 A2-R6: lists for region-only callers may exceed 150 ms
             above the certified tree; re-decide A2-R6 with the Solution
             Architect. Never refuse the sync.
+      - alert: GroupsyncOrgUnitsUnrooted
+        # groupsync_org_closure_unrooted_units is an OTel counter; the exporter
+        # writes it with _total. Accepted limit: increase() misses the first
+        # sample of a series that appears already at 1. The WARN line repeats
+        # every cycle and covers that case.
+        expr: increase(groupsync_org_closure_unrooted_units_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Live org units are outside every region (no closure self row).
+          description: >-
+            Find the tenant in the nava-groupsync log line "live org units have
+            no closure self row and are outside every region". Never refuse the
+            sync.
