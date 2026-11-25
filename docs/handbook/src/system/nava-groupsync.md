@@ -2,13 +2,13 @@
 title: "nava-groupsync"
 section: system
 status: delivered
-sources: [compose.yaml, cmd/nava-groupsync/main.go, db/grants.yaml, internal/groupsync/apply.go, internal/groupsync/closure.go, internal/groupsync/groupsync.go, deploy/compose/prometheus/rules/groupsync.yml, docs/data/org-units.md, docs/data/org-unit-closure.md]
+sources: [compose.yaml, cmd/nava-groupsync/main.go, db/grants.yaml, internal/groupsync/apply.go, internal/groupsync/closure.go, internal/groupsync/groupsync.go, internal/identity/keycloak/directory.go, deploy/compose/prometheus/rules/groupsync.yml, docs/data/org-units.md, docs/data/org-unit-closure.md]
 adrs: [ADR-001, ADR-002, ADR-010, ADR-010-A2, ADR-010-E4]
 stories: [S31]
 tables: [org_units, org_unit_members, org_unit_closure]
 packages: [cmd/nava-groupsync, internal/groupsync]
 invariants: [I3]
-tests: [TestE5GroupsyncCannotRekeyGroups, TestTwoSyncersNeverSyncOneTenantConcurrently, TestGroupsyncAccountFloor, TestOrgMembersAndPrimaryWritten, TestOrgUnitWithMembersRemovedAndRevived, TestOrgSubtreeMaxReported, TestClosureFollowsTheTree, TestClosureDriftCheckComparesSetsNotCounts, TestClosureUnrootedUnitIsReported, TestUnderClosureAgreementNestedMovedAndTombstoned]
+tests: [TestE5GroupsyncCannotRekeyGroups, TestTwoSyncersNeverSyncOneTenantConcurrently, TestGroupsyncAccountFloor, TestOrgMembersAndPrimaryWritten, TestOrgUnitWithMembersRemovedAndRevived, TestOrgSubtreeMaxReported, TestClosureFollowsTheTree, TestClosureDriftCheckComparesSetsNotCounts, TestClosureUnrootedUnitIsReported, TestUnderClosureAgreementNestedMovedAndTombstoned, TestChangesSince]
 ---
 
 Mirrors each tenant's users, groups, memberships and org units under `/t/<tenant_id>/` from Keycloak into the identity tables, every `NAVA_GROUPSYNC_INTERVAL` (default 5m, at most 5m). A principal resolves (`GET /api/v1/me`) only after a cycle has synced it. `--once` runs one cycle and exits.
@@ -21,6 +21,19 @@ Mirrors each tenant's users, groups, memberships and org units under `/t/<tenant
 | DB role | `nava_groupsync` through PgBouncer |
 | Talks to | keycloak (Admin API read, client `nava-groupsync`); pgbouncer; otel-collector |
 | Introduced by | PLAN-001 T21b (TICK-234) |
+
+## A user deleted while a tenant is read (TICK-1113)
+
+The cycle leaves that user out and goes on, and writes one INFO line per tenant:
+`directory snapshot: users deleted while it was read were left out`, with
+`tenant_id` and `users_gone` (a count; no user is named). No line is written
+when nobody is gone. When the reads do not agree that the user is gone, the
+tenant fails with `group sync failed; tenant rolled back`. The rule and its
+tests: [Identity boundary](../security/07-identity-boundary.md#enforcement-point).
+
+A `users_gone` close to the tenant's number of users is a reason to look at
+what answers for Keycloak: a proxy that answers 404 gives the same line
+(`AR-TICK-1113-01`).
 
 ## Org units (S31)
 
