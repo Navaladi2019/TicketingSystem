@@ -33,7 +33,13 @@ tests: [Identity boundary](../security/07-identity-boundary.md#enforcement-point
 
 A `users_gone` close to the tenant's number of users is a reason to look at
 what answers for Keycloak: a proxy that answers 404 gives the same line
-(`AR-TICK-1113-01`).
+(`AR-TICK-1113-01`). A 404 on the tenant's root group writes no such line. Its
+signs are the WARN line `group sync: the tenant's admins group was deleted in
+the directory; the tenant has no admin until one is recorded`, or a
+`principals_tombstoned` close to the tenant's number of users in `group sync
+applied`. The repair of the admins and auditors pointers is in
+`docs/operator/onboarding.md`, "Pointer missing after a group came back
+(R-E5-4)".
 
 ## Org units (S31)
 

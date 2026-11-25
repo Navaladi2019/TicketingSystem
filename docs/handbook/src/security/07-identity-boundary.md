@@ -36,7 +36,8 @@ inside one tenant.
   member lists first, then each user. It leaves a user out of the snapshot, and
   so tombstones the user in that tenant, only when two reads answer 404: the
   user's federated identities, then the user (`GET /users/{id}`). Any other
-  failure fails that tenant, and the cycle changes nothing in it.
+  answer to these two reads fails that tenant, and the cycle changes nothing in
+  it.
   A 404 from Keycloak's token endpoint is never read as "gone"
   (`statusError.Is`). The rule looks at the status only, so it cannot tell
   Keycloak's 404 from a proxy's: `AR-TICK-1113-01` below, which TICK-1141 is

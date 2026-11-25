@@ -63,7 +63,11 @@ tenant fails with <code>group sync failed; tenant rolled back</code>. The rule a
 tests: <a href="../security/07-identity-boundary.html#enforcement-point">Identity boundary</a>.</p>
 <p>A <code>users_gone</code> close to the tenant's number of users is a reason to look at
 what answers for Keycloak: a proxy that answers 404 gives the same line
-(<code>AR-TICK-1113-01</code>).</p>
+(<code>AR-TICK-1113-01</code>). A 404 on the tenant's root group writes no such line. Its
+signs are the WARN line <code>group sync: the tenant&#x27;s admins group was deleted in the directory; the tenant has no admin until one is recorded</code>, or a
+<code>principals_tombstoned</code> close to the tenant's number of users in <code>group sync applied</code>. The repair of the admins and auditors pointers is in
+<code>docs/operator/onboarding.md</code>, "Pointer missing after a group came back
+(R-E5-4)".</p>
 <h2 id="org-units-s31">Org units (S31)</h2>
 <p>Since S31 the org-unit tree drives the <code>under</code> access leaf, so group sync
 writes three tables per tenant, in the same transaction as the rest of that
