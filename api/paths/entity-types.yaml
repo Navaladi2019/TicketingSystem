@@ -57,6 +57,10 @@ paths:
         subschema that applies there) answers 422 `definition_secret_required`,
         with `errors[].pointer` naming the offending entry; the marker itself
         is legal.
+        A misplaced `x-nava-filterable` answers 422
+        `filterable_field_not_top_level` and any `x-nava-searchable` answers
+        422 `searchable_not_available`; each names the path in
+        `errors[].pointer` and writes nothing.
       parameters:
         - name: Idempotency-Key
           in: header
