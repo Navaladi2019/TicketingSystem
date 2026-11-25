@@ -53,7 +53,24 @@ const (
 	ShapeWalk ListShape = iota
 	// ShapeC3 is the materialized CTE.
 	ShapeC3
+	// ShapeRecords is R (ADR-010-A3 A3-1).
+	ShapeRecords
 )
+
+// Stubs of the red commit: ADR-010-A3 is not implemented yet.
+const (
+	uCert = 0
+	uHash = 0
+)
+
+func recordsCap(int64) int64 { return 0 }
+
+// FoldedProbeStatement is a stub of the red commit.
+func FoldedProbeStatement(int) string { return "SELECT NULL END FROM" }
+
+func foldedProbe(context.Context, pgx.Tx, regionLeaf, uuid.UUID, int, int64, int64) (int64, *int64, error) {
+	return 0, nil, nil
+}
 
 // The clamp of K* (A2-9) and its coefficient c, measured by the A2-12 (a)
 // crossover cells. K* is computed, never configured.
@@ -88,9 +105,10 @@ type ListShapes struct {
 	// rare is A2-5a: W0 for the page and the count, no count driver.
 	rare bool
 	// fixed renders every region term as shape, whatever was probed.
-	fixed bool
-	shape ListShape
-	c3    map[string]bool
+	fixed  bool
+	shape  ListShape
+	c3     map[string]bool
+	chosen map[string]ListShape
 }
 
 // FixedListShapes renders every region term of a list as s, with the count

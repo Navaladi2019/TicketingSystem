@@ -247,6 +247,7 @@ func TestShapeMetricsCarryOnlyTheShape(t *testing.T) {
 	ctx := context.Background()
 	countShape(ctx, ShapeC3)
 	countShape(ctx, ShapeWalk)
+	countShape(ctx, ShapeRecords)
 	observeProbe(ctx, 3*time.Millisecond)
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -268,8 +269,8 @@ func TestShapeMetricsCarryOnlyTheShape(t *testing.T) {
 					shapes = append(shapes, v.AsString())
 				}
 				slices.Sort(shapes)
-				if !slices.Equal(shapes, []string{"c3", "walk"}) {
-					t.Errorf("%s shapes %v, want [c3 walk]", m.Name, shapes)
+				if !slices.Equal(shapes, []string{"c3", "records", "walk"}) {
+					t.Errorf("%s shapes %v, want [c3 records walk]", m.Name, shapes)
 				}
 			case UnderProbeMetric:
 				seen[m.Name] = true
@@ -309,7 +310,7 @@ func TestShapeCodeLogsNothingAndFormatsNoValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"slog.", "log.", "trace.", "Span", "%d", "%v", "%s", "Sprint", "Itoa(m", "Itoa(k)"} {
+	for _, bad := range []string{"slog.", "log.", "trace.", "Span", "%d", "%v", "%s", "Sprint", "Itoa(m", "Itoa(k)", "Itoa(n", "FormatInt"} {
 		if strings.Contains(string(src), bad) {
 			t.Errorf("shape.go uses %q", bad)
 		}
@@ -319,8 +320,9 @@ func TestShapeCodeLogsNothingAndFormatsNoValue(t *testing.T) {
 	}
 }
 
-// shapeTx is a pgx.Tx whose QueryRow answers the three statements
-// ChooseListShapes runs: the tenant, N̂_e and P3. It records each P3.
+// shapeTx is a pgx.Tx whose QueryRow answers the statements ChooseListShapes
+// runs: the tenant, N̂_e, and P3 or the folded probe. It records each P3, and
+// each folded probe with its arguments.
 type shapeTx struct {
 	pgx.Tx
 	tenant   string
@@ -330,13 +332,19 @@ type shapeTx struct {
 	m        int64
 	probeE   error
 	probes   []string
+	// The folded probe (ADR-010-A3): units is |S|, the closure count before
+	// the statement's LIMIT, and p3 the CASE's value (nil: NULL).
+	units      int64
+	p3         *int64
+	folded     []string
+	foldedArgs [][]any
 }
 
 type shapeRow func(dest ...any) error
 
 func (r shapeRow) Scan(dest ...any) error { return r(dest...) }
 
-func (tx *shapeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+func (tx *shapeTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	switch {
 	case strings.Contains(sql, "entity_record_estimates"):
 		return shapeRow(func(dest ...any) error {
@@ -347,6 +355,17 @@ func (tx *shapeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 				return pgx.ErrNoRows
 			}
 			*dest[0].(*int64) = *tx.estimate
+			return nil
+		})
+	case strings.HasSuffix(sql, ") acl_z) acl_s"):
+		tx.folded = append(tx.folded, sql)
+		tx.foldedArgs = append(tx.foldedArgs, args)
+		return shapeRow(func(dest ...any) error {
+			if tx.probeE != nil {
+				return tx.probeE
+			}
+			*dest[0].(*int64) = min(tx.units, args[4].(int64)) // LIMIT $5
+			*dest[1].(**int64) = tx.p3
 			return nil
 		})
 	case strings.HasSuffix(sql, ") acl_p"):
@@ -504,12 +523,12 @@ func TestReadPredicateMatchesReadBranchesWithUnderSeed20261109(t *testing.T) {
 	}
 }
 
-// Every placeholder P3 and each leaf text binds carries its cast, ::uuid or
-// ::uuid[], as W0's do: the server's pools run in QueryExecModeExec, where an
+// Every placeholder P3, the folded probe and each leaf text binds carries its
+// cast, ::uuid, ::uuid[] or ::bigint: the server's pools run in QueryExecModeExec, where an
 // uncast placeholder has no type (42P18 when nothing else types it).
 func TestShapeTextsCastEveryPlaceholder(t *testing.T) {
 	t.Parallel()
-	ph := regexp.MustCompile(`\$[0-9]+(::uuid(\[\])?)?`)
+	ph := regexp.MustCompile(`\$[0-9]+(::uuid(\[\])?|::bigint)?`)
 	check := func(name, sql string) {
 		t.Helper()
 		found := ph.FindAllStringSubmatch(sql, -1)
@@ -523,11 +542,12 @@ func TestShapeTextsCastEveryPlaceholder(t *testing.T) {
 		}
 	}
 	check("P3", ProbeStatement(KStarMin))
+	check("folded probe", FoldedProbeStatement(KStarMin))
 	for _, tc := range shapeCases() {
 		if strings.Contains(tc.when, "cmp") {
 			continue // a cmp's state values are text[], cast as such
 		}
-		for _, sh := range []ListShapes{FixedListShapes(ShapeC3), FixedListShapes(ShapeWalk), {rare: true}} {
+		for _, sh := range []ListShapes{FixedListShapes(ShapeC3), FixedListShapes(ShapeWalk), FixedListShapes(ShapeRecords), {rare: true}} {
 			lr := ReadListShaped(utBound(t, tc.when), utMe(), "r", 2, sh)
 			check(tc.name+" page", pageText(lr))
 			check(tc.name+" count", countText(lr))
