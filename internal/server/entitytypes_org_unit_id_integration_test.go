@@ -22,15 +22,17 @@ func TestTICK1115OrgUnitIDPropertyIsInvalidDefinition(t *testing.T) {
 	etCreateIncident(t, e)
 	const pointer = "/definition/schema/properties/org_unit_id"
 	reserved := strings.Replace(etSchema, `"properties": {`, `"properties": {"org_unit_id": {"type": "string"},`, 1)
-	for name, c := range map[string]struct{ path, body string }{
-		"publish": {etVersionsPath, fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, reserved, etDefTail)},
-		"create": {"/api/v1/entity-types", fmt.Sprintf(`{"key": "request", "name": "Request", "number_prefix": "REQ", "definition": {"schema": %s, %s}}`,
+	for _, c := range []struct{ name, path, body string }{
+		{"publish", etVersionsPath, fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, reserved, etDefTail)},
+		{"create", "/api/v1/entity-types", fmt.Sprintf(`{"key": "request", "name": "Request", "number_prefix": "REQ", "definition": {"schema": %s, %s}}`,
 			reserved, etDefTail)},
 	} {
-		p := wantProblem(t, e.do(t, http.MethodPost, c.path, "admin-a", "k-"+name, c.body), http.StatusUnprocessableEntity, problem.InvalidDefinition)
-		if got := pointers(p); len(got) != 1 || got[0] != pointer {
-			t.Errorf("%s: pointers = %v, want [%s]", name, got, pointer)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			p := wantProblem(t, e.do(t, http.MethodPost, c.path, "admin-a", "k-1115-"+c.name, c.body), http.StatusUnprocessableEntity, problem.InvalidDefinition)
+			if got := pointers(p); len(got) != 1 || got[0] != pointer {
+				t.Errorf("pointers = %v, want [%s]", got, pointer)
+			}
+		})
 	}
 	if n := etVersionCount(t, e); n != 1 {
 		t.Errorf("%d versions after the refusals, want 1", n)
