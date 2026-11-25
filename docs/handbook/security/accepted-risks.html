@@ -1207,7 +1207,7 @@ recorded mitigation does not hold as written; re-decide).</p>
 <tr>
 <td>AR-TICK-1128-01 (a full CI run needs one of two public registries for OpenObserve)</td>
 <td>🟡 Low</td>
-<td>A full run pulls OpenObserve from ECR Public and, when that fails, from Docker Hub, which limits pulls without a login. It fails if both refuse. We keep no copy of our own: the image is AGPL-3.0, and a public copy cannot be made private again. The digest in <code>compose.yaml</code> fixes the bytes we pinned and does not prove who built them. Until TICK-1131 (PR #881) is merged, whoever controls a machine's environment or <code>.env</code> can also replace the whole image reference, digest included; they already control Docker there, and in CI only the pull script sets it, after its checks. No tenant data is at risk.</td>
+<td>A full run pulls OpenObserve from ECR Public and, when that fails, from Docker Hub, which limits pulls without a login. It fails if both refuse. We keep no copy of our own: the image is AGPL-3.0, and a public copy cannot be made private again. The digest in <code>compose.yaml</code> fixes the bytes we pinned and does not prove who built them. No tenant data is at risk.</td>
 <td>Accepted (TICK-1128, 2026-11-25)</td>
 <td>Technical Lead</td>
 <td>One full run red because both registries refused, or Docker Hub limits turn a full run red on any image. Publishing our own copy needs the human first</td>
@@ -1222,7 +1222,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 4c1deb0f4881 (2026-11-25)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 61ccd344e51e (2026-11-25)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
