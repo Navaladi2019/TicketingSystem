@@ -4,6 +4,7 @@ package server_test
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -128,43 +129,127 @@ func entriesWithDiff(t *testing.T, body string) []exportedEntry {
 	return out
 }
 
-// R7: a masked entry comes out with the marker, no value and no diff salt,
-// in both formats, before the entries are sealed (recent entries are read
-// through the unsealed page) and after.
+// exportedEntries reads the entry lines that carry a diff from a JSON lines
+// or a CSV export, into one shape. A CSV file is read by column name.
+func exportedEntries(t *testing.T, body string, asCSV bool) []exportedEntry {
+	t.Helper()
+	if !asCSV {
+		return entriesWithDiff(t, body)
+	}
+	cr := csv.NewReader(strings.NewReader(body))
+	cr.FieldsPerRecord = -1
+	rows, err := cr.ReadAll()
+	if err != nil {
+		t.Fatalf("csv: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("csv: no rows")
+	}
+	col := map[string]int{}
+	for i, name := range rows[0] {
+		col[name] = i
+	}
+	for _, name := range []string{"kind", "sealed", "diff", "diff_salt", "diff_redacted"} {
+		if _, ok := col[name]; !ok {
+			t.Fatalf("csv: no column %q in %v", name, rows[0])
+		}
+	}
+	var out []exportedEntry
+	for _, row := range rows[1:] {
+		if row[col["kind"]] != "entry" || row[col["diff"]] == "" {
+			continue
+		}
+		e := exportedEntry{Kind: "entry", Sealed: row[col["sealed"]] == "true", DiffRedacted: row[col["diff_redacted"]] == "true"}
+		d := row[col["diff"]]
+		e.Diff = &d
+		if sl := row[col["diff_salt"]]; sl != "" {
+			e.DiffSalt = &sl
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// R7: a masked entry comes out with the marker, no value and no diff salt, in
+// both formats, before the entries are sealed (recent entries are read
+// through the unsealed page) and after. A second environment whose policy
+// masks nothing is the control: the same checks find cost, org unit and
+// requester, with the salt, in its entries, so a wrong string format could
+// not let the masked export pass.
 //
 // covers: exportAuditEntries 200
 func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
-	x, _, rid, _ := seedMaskedExport(t, true)
-	q := "?domain=record&subject_id=" + rid
-	check := func(t *testing.T, sealed bool) {
-		exp := x.export(t, "admin-a", q)
-		if exp.Code != http.StatusOK {
-			t.Fatalf("export = %d: %s", exp.Code, exp.Body)
+	x, m, rid, unit := seedMaskedExport(t, true)
+	cx, cm, crid, cunit := seedMaskedExport(t, false)
+	needles := func(m *maskEnv, unit uuid.UUID) map[string]string {
+		return map[string]string{"cost": "48613", "org unit": unit.String(), "requester": `"requester":"` + m.a.user.PrincipalID.String() + `"`}
+	}
+	diffs := func(entries []exportedEntry) string {
+		var b strings.Builder
+		for _, e := range entries {
+			b.WriteString(strings.ReplaceAll(*e.Diff, ": ", ":"))
+			b.WriteByte('\n')
 		}
-		entries := entriesWithDiff(t, exp.Body.String())
-		if len(entries) < 2 {
-			t.Fatalf("entries with a diff = %d, want the create and the change", len(entries))
-		}
-		for i, e := range entries {
-			if e.Sealed != sealed {
-				t.Fatalf("control: entry %d sealed = %v, want %v", i, e.Sealed, sealed)
+		return b.String()
+	}
+	run := func(t *testing.T, sealed bool) {
+		for _, asCSV := range []bool{false, true} {
+			q, name := "", "jsonl"
+			if asCSV {
+				q, name = "&format=csv", "csv"
 			}
-			if !e.DiffRedacted || e.DiffSalt != nil || !strings.Contains(*e.Diff, `"redacted":"mask"`) {
-				t.Errorf("entry %d: redacted=%v salt=%v diff=%s, want redacted, no salt, the mask marker", i, e.DiffRedacted, e.DiffSalt, *e.Diff)
-			}
-		}
-		csv := x.export(t, "admin-a", q+"&format=csv")
-		if csv.Code != http.StatusOK {
-			t.Fatalf("csv export = %d: %s", csv.Code, csv.Body)
-		}
-		body := csv.Body.String()
-		if !strings.Contains(body, "redacted") || strings.Contains(body, "48613") {
-			t.Errorf("csv (sealed=%v): want the marker and no cost: %.400s", sealed, body)
+			t.Run(name, func(t *testing.T) {
+				// Control: nothing masked, so every needle is found and the
+				// diff has its salt.
+				ctl := cx.export(t, "admin-a", "?domain=record&subject_id="+crid+q)
+				if ctl.Code != http.StatusOK {
+					t.Fatalf("control export = %d: %s", ctl.Code, ctl.Body)
+				}
+				cEntries := exportedEntries(t, ctl.Body.String(), asCSV)
+				if len(cEntries) < 2 {
+					t.Fatalf("control: entries with a diff = %d, want the create and the change", len(cEntries))
+				}
+				for i, e := range cEntries {
+					// The salt is checked once sealed (TestExportWithoutMasksShowsEverything
+					// does the same); an unsealed entry's salt is not this test's subject.
+					if e.Sealed != sealed || e.DiffRedacted || (sealed && e.DiffSalt == nil) {
+						t.Errorf("control entry %d: sealed=%v redacted=%v salt=%v, want sealed=%v, clear (with its salt once sealed)", i, e.Sealed, e.DiffRedacted, e.DiffSalt, sealed)
+					}
+				}
+				for what, v := range needles(cm, cunit) {
+					if !strings.Contains(diffs(cEntries), v) {
+						t.Errorf("control: the unmasked export has no %s (%q)", what, v)
+					}
+				}
+
+				exp := x.export(t, "admin-a", "?domain=record&subject_id="+rid+q)
+				if exp.Code != http.StatusOK {
+					t.Fatalf("export = %d: %s", exp.Code, exp.Body)
+				}
+				entries := exportedEntries(t, exp.Body.String(), asCSV)
+				if len(entries) < 2 {
+					t.Fatalf("entries with a diff = %d, want the create and the change", len(entries))
+				}
+				for i, e := range entries {
+					if e.Sealed != sealed {
+						t.Fatalf("control: entry %d sealed = %v, want %v", i, e.Sealed, sealed)
+					}
+					if !e.DiffRedacted || e.DiffSalt != nil || !strings.Contains(*e.Diff, `"redacted":"mask"`) {
+						t.Errorf("entry %d: redacted=%v salt=%v diff=%s, want redacted, no salt, the mask marker", i, e.DiffRedacted, e.DiffSalt, *e.Diff)
+					}
+				}
+				for what, v := range needles(m, unit) {
+					if strings.Contains(diffs(entries), v) {
+						t.Errorf("the masked export shows the %s (%q)", what, v)
+					}
+				}
+			})
 		}
 	}
-	t.Run("unsealed", func(t *testing.T) { check(t, false) })
+	t.Run("unsealed", func(t *testing.T) { run(t, false) })
 	x.sealAll(t)
-	t.Run("sealed", func(t *testing.T) { check(t, true) })
+	cx.sealAll(t)
+	t.Run("sealed", func(t *testing.T) { run(t, true) })
 }
 
 // A caller whose policy masks nothing still gets every value and the salt.
@@ -243,22 +328,30 @@ func TestOverlappingExportsKeepTheirOwnMasks(t *testing.T) {
 	rb := m.mustCreateRec(t, "user-b", "mjob", "xb-1", `{"short_description": "b", "cost": 77123}`)
 	x.sealAll(t)
 
+	// pages counts A's page transactions only: B's own run inside the hook is
+	// not counted, so the control below can fail.
 	var pages atomic.Int32
+	var inB atomic.Bool
 	var bBody string
 	var bCode int
 	x.onPage = func() {
 		// Call 1 and 2 are the header's reads; call 3 is A's first data
 		// page; 4 is the start of the second.
+		if inB.Load() {
+			return
+		}
 		if pages.Add(1) != 4 {
 			return
 		}
+		inB.Store(true)
+		defer inB.Store(false)
 		rec := x.export(t, "admin-b", "")
 		bCode, bBody = rec.Code, rec.Body.String()
 	}
 	a := x.export(t, "admin-a", "")
 	x.onPage = nil
-	if pages.Load() < 6 {
-		t.Fatalf("control: A's export ran %d page transactions, want B in the middle of it", pages.Load())
+	if pages.Load() < 5 {
+		t.Fatalf("control: A's export ran %d page transactions, want B between two of them, with more to follow", pages.Load())
 	}
 	if bCode == 0 {
 		t.Fatal("control: B's export did not run")
