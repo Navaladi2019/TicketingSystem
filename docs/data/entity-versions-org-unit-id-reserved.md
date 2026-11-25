@@ -138,7 +138,10 @@ ORDER BY 1, 2, 3, 4;
 It lists each stored `under` id that is not an org unit of the row's tenant. It
 is written for the release before S31, where `org_units.deleted_at` does not
 exist. It compares text, so an id that is not a UUID is listed and raises
-nothing. **If it lists a row, do not migrate: ask the Technical Lead.** A
+nothing. After a refusal at `20261121000100` the column does exist, and the
+query does not read it. That matters only if S31's group sync was started
+early: a unit it tombstoned is refused by the migration and not listed here.
+**If it lists a row, do not migrate: ask the Technical Lead.** A
 refusal there leaves the guard and `20261121000000` applied. Until the upgrade
 finishes, the old group sync deletes no removed org unit and reports no error;
 access publishing still works.
@@ -167,7 +170,10 @@ records. It bypasses no trigger and no constraint. It bypasses RLS only for the
 superuser's reads in paste 1 and for one UPDATE in paste 2; versions are
 immutable only because no role has UPDATE on them.
 
-Set the five inputs at the top of paste 1:
+In psql, run `\set ON_ERROR_ROLLBACK off` first. Then set the five inputs at
+the top of paste 1. Only paste 1 reads them: the plan keeps the tenant id, type
+id, new name and `source_ref` that were checked, and paste 2 takes them from
+the plan. To change an input, type `ROLLBACK` and paste 1 again.
 
 | Input | Value |
 | --- | --- |
@@ -189,7 +195,11 @@ SELECT set_config('nava_repair.new_name', 'old_unit_id', true);
 SELECT set_config('nava_repair.source_ref', '<change ticket>/<run id>', true);
 SELECT set_config('nava_repair.record_limit', '100000', true);
 CREATE TEMP TABLE nava_repair_plan (
-    kind text NOT NULL, -- version, fixed_columns or triggers
+    kind text NOT NULL, -- inputs, version, fixed_columns or triggers
+    tenant_id uuid,
+    type_id uuid,
+    new_name text,
+    source_ref text,
     version integer,
     new_schema text,
     new_sha256 bytea,
@@ -221,6 +231,7 @@ DECLARE
     v_tenant uuid;
     v_type uuid;
     v_new text;
+    v_ref text;
     v_limit bigint;
     v_refused integer[];
     v_column text;
@@ -237,7 +248,11 @@ BEGIN
     END IF;
     LOCK TABLE public.entity_definition_versions IN ACCESS EXCLUSIVE MODE;
 
-    -- 1. The session and the inputs.
+    -- 1. The session and the inputs. A plan of an earlier paste 1 in this
+    -- transaction is never added to.
+    IF EXISTS (SELECT 1 FROM pg_temp.nava_repair_plan) OR EXISTS (SELECT 1 FROM pg_temp.nava_repair_records) THEN
+        RAISE EXCEPTION 'the plan already has rows: type ROLLBACK, then paste 1 again';
+    END IF;
     IF current_setting('session_replication_role') <> 'origin' THEN
         RAISE EXCEPTION 'session_replication_role is not origin: triggers would not fire';
     END IF;
@@ -259,6 +274,7 @@ BEGIN
     v_tenant := current_setting('nava_repair.tenant_id')::uuid;
     v_type := current_setting('nava_repair.type_id')::uuid;
     v_new := current_setting('nava_repair.new_name');
+    v_ref := current_setting('nava_repair.source_ref');
     v_limit := current_setting('nava_repair.record_limit')::bigint;
 
     -- 2. The type is the tenant's.
@@ -379,7 +395,9 @@ BEGIN
     FROM public.entity_definition_versions v
     CROSS JOIN LATERAL (SELECT v.schema::jsonb -> 'properties' -> c_old AS prop) p
     WHERE v.tenant_id = v_tenant AND v.definition_id = v_type
-      AND (coalesce(p.prop -> 'x-nava-secret', 'false') <> 'false' OR coalesce(p.prop -> 'writeOnly', 'false') <> 'false');
+      AND EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(p.prop) = 'object' THEN p.prop END) e
+                  WHERE replace(lower(e.key COLLATE "C"), 'ſ', 's') IN ('x-nava-secret', 'writeonly')
+                    AND e.value <> 'false');
     IF v_rows IS NOT NULL THEN
         RAISE EXCEPTION 'R3: the property is marked x-nava-secret or writeOnly'
             USING ERRCODE = 'P0001', DETAIL = v_rows;
@@ -461,8 +479,10 @@ BEGIN
             USING ERRCODE = 'P0001', DETAIL = v_rows;
     END IF;
 
-    -- 5. The plan. The schema text is rebuilt with json_each on json: nested
-    -- values keep their bytes.
+    -- 5. The plan, with the inputs it was checked with. The schema text is
+    -- rebuilt with json_each on json: nested values keep their bytes.
+    INSERT INTO pg_temp.nava_repair_plan (kind, tenant_id, type_id, new_name, source_ref)
+    VALUES ('inputs', v_tenant, v_type, v_new, v_ref);
     INSERT INTO pg_temp.nava_repair_plan (kind, version, new_schema, new_sha256, new_fixed_columns, entry_id,
         content_sha256, salt, diff, truncated)
     SELECT 'version', v.version, s.txt, sha256(convert_to(s.txt, 'UTF8')),
@@ -562,7 +582,8 @@ Read the four lists. **Nothing is written yet, and the transaction is open.**
 To stop, type `ROLLBACK`. The session also ends after 10 idle minutes. To go
 on, paste the second block.
 
-**Paste 2** writes, or does nothing when the plan is empty.
+**Paste 2** writes, or does nothing when the plan is empty. It reads no input:
+everything comes from the plan.
 
 ```sql tick-1125-paste-2
 DO $nava_repair$
@@ -574,15 +595,16 @@ DECLARE
     v_ref text;
     v_want bigint;
     v_got bigint;
+    v_versions bigint;
+    v_records bigint;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_temp.nava_repair_plan p WHERE p.kind = 'version') THEN
         RAISE NOTICE 'the plan is empty: nothing is written';
         RETURN;
     END IF;
-    v_tenant := current_setting('nava_repair.tenant_id')::uuid;
-    v_type := current_setting('nava_repair.type_id')::uuid;
-    v_new := current_setting('nava_repair.new_name');
-    v_ref := current_setting('nava_repair.source_ref');
+    SELECT p.tenant_id, p.type_id, p.new_name, p.source_ref INTO STRICT v_tenant, v_type, v_new, v_ref
+    FROM pg_temp.nava_repair_plan p WHERE p.kind = 'inputs';
+    PERFORM set_config('app.tenant_id', v_tenant::text, true);
 
     -- 1. Triggers fire.
     IF current_setting('session_replication_role') <> 'origin' THEN
@@ -599,6 +621,7 @@ BEGIN
     IF v_got <> v_want THEN
         RAISE EXCEPTION 'updated % versions, planned %', v_got, v_want;
     END IF;
+    v_versions := v_got;
 
     -- 3. nava_app until COMMIT, so RLS scopes the rest and the commit check
     -- runs under it.
@@ -639,6 +662,7 @@ BEGIN
     IF v_got <> v_want THEN
         RAISE EXCEPTION 'updated % records, planned %', v_got, v_want;
     END IF;
+    v_records := v_got;
 
     -- 5. The rest of the checks. Salts come from the plan: nava_app cannot
     -- read audit_log.diff_salt.
@@ -657,14 +681,18 @@ BEGIN
         IS DISTINCT FROM (SELECT p.triggers FROM pg_temp.nava_repair_plan p WHERE p.kind = 'triggers') THEN
         RAISE EXCEPTION 'a trigger is not in the mode it had before the repair';
     END IF;
+    RAISE NOTICE 'repaired: % versions, % records', v_versions, v_records;
 END
 $nava_repair$;
 COMMIT;
 ```
 
-`COMMIT` must answer `COMMIT`. `ROLLBACK` means nothing was written: read the
-error, and run both pastes again. An error ends the repair whole, because both
-pastes are one transaction.
+**The only success is the line `NOTICE:  repaired: N versions, M records` and
+then `COMMIT`**, with the counts of the lists. `COMMIT` alone is no proof: with
+`ON_ERROR_ROLLBACK=on` a failed paste 2 leaves the transaction open, and psql
+then answers `COMMIT` with nothing written. Anything else means nothing was
+written: read the error and start again from paste 1. An error ends the repair
+whole, because both pastes are one transaction.
 
 - **`55P03` (lock timeout):** another session reads or writes a version. Run it
   again.
@@ -684,7 +712,7 @@ R11, R9, R10, R1 to R5, R7, and the first one that hits ends the run.
 | --- | --- |
 | R1 | A mask in the newest access version names the old or the new name. **Stop and ask the Technical Lead and Security. Never tell the tenant's admin to drop the mask:** that shows the value to everyone it was hidden from |
 | R2 | The current version of a workflow triggered by the type names either name in `set` or `field`. Or an older version does while a run on a record of the type is open: `workflow_ref` stores no version, so the run may use it |
-| R3 | Any stored version marks the property `x-nava-secret` or `writeOnly` |
+| R3 | Any stored version marks the property `x-nava-secret` or `writeOnly`, in any letter case and with `ſ` (U+017F) for `s`, with a value other than `false`. The audit masker reads the marker that way too, and after the rename it would mask the old name no more |
 | R4 | The new name is already a property of any version, a top-level key of a record's `data`, the first segment of a record entry's `path` or `from`, or a top-level member of the value of an op at path `""` |
 | R5 | Any stored version holds either name, on decoded text, in a key or a string. Not counted: the property's own key in the root `properties`, its entry in the root `required`, and strings in `title`, `description` and `$comment`. Also any `$ref` or `$dynamicRef` with a `%`, and any `propertyNames` or `patternProperties` |
 | R6 | A version holds what `jsonb` cannot keep: a `\u0000` or lone-surrogate escape, a duplicate key, or a number out of range |
@@ -746,6 +774,9 @@ No stored entry changes. Every new entry has `actor_system = 'operator'`,
   leaves the plan empty.
 - **READ COMMITTED:** under REPEATABLE READ the checks would use a snapshot from
   before the lock and miss a mask committed while the repair waited.
+- **The plan holds its inputs.** Read again in paste 2, an input changed between
+  the pastes reached the writes unchecked; with another type's ids, one tenant's
+  schema replaced another's (Security review of PR #877).
 - **The salt** is per row and in the select list. A scalar subquery is evaluated
   once for all rows.
 - **A superuser** does one UPDATE. Every record and audit write runs as
@@ -769,11 +800,13 @@ wait:
 
 | Records | Paste 1 | Paste 2 | `COMMIT` | Total |
 | --- | --- | --- | --- | --- |
-| 10,000 (3 runs) | 0.3 to 0.5 s | 0.9 to 1.5 s | 1.9 to 2.1 s | 3.4 / 3.6 / 3.7 s |
+| 10,000 (3 runs) | 0.3 to 0.4 s | 1.2 s | 2.2 to 2.8 s | 3.8 / 4.1 / 4.4 s |
 | 100,000 (2 runs) | 2.3 / 2.6 s | 15.9 / 16.9 s | 25.5 / 28.0 s | 43.7 / 47.5 s |
 
-An earlier set of the same runs, with more load on the host, took 3.8 to 5.7 s
-and 47.1 to 56.6 s. `COMMIT` is the commit check, one per record.
+The 100,000 figures are from before the plan held its inputs; the 10,000 figure
+was then 3.4 / 3.6 / 3.7 s, 15% less on the mean. An earlier set, with more load
+on the host, took 3.8 to 5.7 s and 47.1 to 56.6 s. `COMMIT` is the commit check,
+one per record.
 
 PostgreSQL 16.10 in Docker Desktop (16 vCPUs of an Intel Core i7-1260P, 24 GB)
 with default settings (`shared_buffers` 128 MB, `work_mem` 4 MB, `fsync` on),

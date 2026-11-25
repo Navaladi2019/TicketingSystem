@@ -406,6 +406,8 @@ func repairRefusals() []repairRefusal {
 		{name: "a nested org_unit_id", prefix: "R5:", want: "version 1", versions: versionRows(withOther(`"b":{"properties":{"org_unit_id":{}}}`))},
 		{name: "a nested org_unit_id in the property", prefix: "R5:", want: "version 1", versions: versionRows(withProp(`{"properties":{"org_unit_id":{}}}`))},
 		{name: "another property with the name in its name", prefix: "R5:", want: "version 1", versions: versionRows(withOther(`"my_org_unit_id":{}`))},
+		{name: "a root key the audit masker reads as properties", prefix: "R5:", want: "version 1",
+			versions: versionRows(withRoot(`"Properties":{"org_unit_id":{"x-nava-secret":true}}`))},
 		{name: "a property named title that refers to it", prefix: "R5:", want: "version 1", versions: versionRows(withOther(`"title":{"$ref":"#/properties/org_unit_id"}`))},
 
 		{name: "a NUL escape", prefix: "R6:", want: "version 1", versions: versionRows(withRoot(esc(`"description":"x~u0000"`)))},
@@ -746,16 +748,13 @@ func TestTICK1125Repairs(t *testing.T) {
 		}
 		// 11: a second run says so and changes nothing.
 		before := tenantState(t, super, "")
-		var notices []string
-		cfg := superConfig(t).Copy()
-		cfg.Database = "nava"
-		cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) { notices = append(notices, n.Message) }
-		mustRepair(t, connect(t, cfg), f.inputs())
+		conn, notices := noticeConn(t)
+		mustRepair(t, conn, f.inputs())
 		if tenantState(t, super, "") != before {
 			t.Error("the second run wrote something")
 		}
-		if !slices.Contains(notices, "nothing to repair") {
-			t.Errorf("the second run said %q, want nothing to repair", notices)
+		if want := []string{"nothing to repair", "the plan is empty: nothing is written"}; !slices.Equal(*notices, want) {
+			t.Errorf("the second run said %q, want %q", *notices, want)
 		}
 	})
 
@@ -1054,6 +1053,77 @@ func TestTICK1125Pastes(t *testing.T) {
 		mustRepair(t, superNava(t), f.inputs())
 	})
 
+	// 24. An empty plan is in TestTICK1125Repairs/content.
+	t.Run("the success notice", func(t *testing.T) {
+		f := repairSeed(t, super, versionRows(repairType, repairType), repairRecord{data: `{"org_unit_id": "a"}`}, repairRecord{data: `{"org_unit_id": "b"}`})
+		exec(t, super, `CREATE FUNCTION t1125_skip() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NULL; END'`)
+		exec(t, super, "CREATE TRIGGER t1125_skip BEFORE UPDATE ON records FOR EACH ROW EXECUTE FUNCTION t1125_skip()")
+		conn, notices := noticeConn(t)
+		one, err := repairtest.WithInputs(repairBlock(t, repairtest.PasteOne), f.inputs())
+		if err != nil {
+			t.Fatal(err)
+		}
+		paste(t, conn, one, true)
+		out := paste(t, conn, repairBlock(t, repairtest.PasteTwo), true)
+		if out.Err == nil || len(*notices) != 0 {
+			t.Errorf("a failed paste 2 = %v, notices %q", out.Err, *notices)
+		}
+		exec(t, super, "DROP TRIGGER t1125_skip ON records")
+		exec(t, super, "DROP FUNCTION t1125_skip()")
+		mustRepair(t, conn, f.inputs())
+		if want := []string{"repaired: 2 versions, 2 records"}; !slices.Equal(*notices, want) {
+			t.Errorf("notices %q, want %q", *notices, want)
+		}
+	})
+
+	// 23: an input changed after paste 1 changes nothing that is written.
+	for _, c := range []struct{ setting, value string }{
+		{"nava_repair.tenant_id", uuid.NewString()}, {"nava_repair.type_id", uuid.NewString()}, {"nava_repair.new_name", "old_region"},
+		{"nava_repair.source_ref", "Jane Doe"}, {"app.tenant_id", uuid.NewString()},
+	} {
+		t.Run("a changed "+c.setting, func(t *testing.T) {
+			f := seed(t)
+			conn := superNava(t)
+			if out := pasteOne(t, conn, f.inputs()); out.Err != nil {
+				t.Fatal(out.Err)
+			}
+			exec(t, conn, "SELECT set_config($1, $2, true)", c.setting, c.value)
+			if err := pasteTwo(t, conn); err != nil {
+				t.Fatal(err)
+			}
+			wantNoOldName(t, super, f)
+			if got := queryString(t, super, "SELECT count(*)::text FROM records WHERE entity_definition_id = $1 AND data ? 'old_unit_id'", f.typ); got != "2" {
+				t.Errorf("%s records with the checked name, want 2", got)
+			}
+			if got := queryString(t, super, "SELECT count(*)::text FROM audit_log WHERE tenant_id = $1 AND source_ref = $2", f.tenant, repairSourceRef); got != "3" {
+				t.Errorf("%s entries with the checked source_ref, want 3", got)
+			}
+		})
+	}
+
+	t.Run("paste 1 again on an open transaction", func(t *testing.T) {
+		f := seed(t)
+		for name, second := range map[string]*repairFixture{
+			"a refused type": seed(t), "a clean type": repairSeed(t, super, versionRows(repairClean)),
+		} {
+			before := tenantState(t, super, "")
+			conn := superNava(t)
+			if out := pasteOne(t, conn, f.inputs()); out.Err != nil {
+				t.Fatal(out.Err)
+			}
+			one, err := repairtest.WithInputs(repairBlock(t, repairtest.PasteOne), second.inputs())
+			if err != nil {
+				t.Fatal(err)
+			}
+			block := one[strings.Index(one, "SELECT set_config"):strings.Index(one, "CREATE TEMP TABLE")] + one[strings.Index(one, "DO $nava_repair$"):]
+			if out := paste(t, conn, block, true); out.Err == nil || !strings.Contains(out.Err.Error(), "the plan already has rows") {
+				t.Errorf("%s: paste 1 again = %v", name, out.Err)
+			}
+			exec(t, conn, "ROLLBACK")
+			unchanged(t, before)
+		}
+	})
+
 	t.Run("records are written as nava_app until COMMIT", func(t *testing.T) {
 		f := seed(t)
 		exec(t, super, `CREATE FUNCTION t1125_role() RETURNS trigger LANGUAGE plpgsql AS
@@ -1169,6 +1239,16 @@ func TestTICK1125Pastes(t *testing.T) {
 			t.Errorf("replay = %+v", changes)
 		}
 	})
+}
+
+// noticeConn is a superuser connection and the NOTICEs it got.
+func noticeConn(t *testing.T) (*pgx.Conn, *[]string) {
+	t.Helper()
+	notices := &[]string{}
+	cfg := superConfig(t).Copy()
+	cfg.Database = "nava"
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) { *notices = append(*notices, n.Message) }
+	return connect(t, cfg), notices
 }
 
 func wantEntries(t *testing.T, super *pgx.Conn, f *repairFixture, n int) {

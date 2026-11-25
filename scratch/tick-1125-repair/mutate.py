@@ -16,12 +16,14 @@ import sys
 # MUTATE_ROOT: a copy of docs/data and of the two package directories, so that
 # shards (MUTATE_SHARD=i/n, each with its own cluster) do not share the document.
 ROOT = os.environ.get("MUTATE_ROOT") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+FROM = int(os.environ.get("MUTATE_FROM", "0"))
 SHARD, SHARDS = (int(x) for x in os.environ.get("MUTATE_SHARD", "0/1").split("/"))
 DOC = os.path.join(ROOT, "docs", "data", "entity-versions-org-unit-id-reserved.md")
 BIN = os.path.abspath(sys.argv[1])
 ONLY = sys.argv[2] if len(sys.argv) > 2 else ""
 
 REFUSES, REPAIRS, PASTES = "TestTICK1125Refuses", "TestTICK1125Repairs", "TestTICK1125Pastes"
+BOUND, R3CASE = "TestTICK1125PlanIsBoundToItsInputs", "TestTICK1125R3MatchesTheMaskersCase"
 UPGRADE, CHECKS, API = "TestTICK1125UpgradeAfterRepair", "TestTICK1125Checks", "TestTICK1125APIAfterTheRepair"
 
 SALT = "substring(sha256(uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid())) FROM 1 FOR 16)"
@@ -50,8 +52,25 @@ M = [
     (3, "R2's closed_at", REFUSES + "/repaired", "w.closed_at IS NULL AND r.entity", "r.entity"),
     (3, "R2's unreadable body", REFUSES + "/R2", "WHEN NOT pg_input_is_valid(v.body::text, 'jsonb') THEN true", "WHEN NOT pg_input_is_valid(v.body::text, 'jsonb') THEN false"),
     (3, "R3", REFUSES + "/R3", *off("R3:")),
-    (3, "R3's writeOnly", REFUSES + "/R3", " OR coalesce(p.prop -> 'writeOnly', 'false') <> 'false'", ""),
-    (3, "R3's x-nava-secret", REFUSES + "/R3", "coalesce(p.prop -> 'x-nava-secret', 'false') <> 'false' OR ", ""),
+    (3, "R3's writeOnly", REFUSES + "/R3", "IN ('x-nava-secret', 'writeonly')", "IN ('x-nava-secret')"),
+    (3, "R3's x-nava-secret", REFUSES + "/R3", "IN ('x-nava-secret', 'writeonly')", "IN ('writeonly')"),
+    (3, "R3's value", REFUSES + "/repaired", "\n                    AND e.value <> 'false');", ");"),
+    (23, "R3's letter case", R3CASE, "lower(e.key COLLATE \"C\")", "e.key"),
+    (23, "R3's long s", R3CASE, "replace(lower(e.key COLLATE \"C\"), 'ſ', 's')", "lower(e.key COLLATE \"C\")"),
+    (23, "tenant_id from the plan", PASTES + "/a_changed", None, None),
+    (23, "type_id from the plan", PASTES + "/a_changed", None, None),
+    (23, "new_name from the plan", PASTES + "/a_changed", None, None),
+    (23, "source_ref from the plan", PASTES + "/a_changed", None, None),
+    (23, "new_name from the plan (Security's test)", BOUND, None, None),
+    (23, "source_ref from the plan (Security's test)", BOUND, None, None),
+    (23, "tenant_id and type_id from the plan (Security's test)", BOUND, None, None),
+    (23, "app.tenant_id from the plan", PASTES + "/a_changed", "    PERFORM set_config('app.tenant_id', v_tenant::text, true);\n", ""),
+    (23, "the raise when the plan has rows", PASTES + "/paste_1_again", *off("the plan already has rows")),
+    (24, "the success notice", PASTES + "/the_success", "    RAISE NOTICE 'repaired: % versions, % records', v_versions, v_records;\n", ""),
+    (24, "the count of versions", PASTES + "/the_success", "    v_versions := v_got;\n", "    v_versions := 1;\n"),
+    (24, "the count of records", PASTES + "/the_success", "    v_records := v_got;\n", "    v_records := 1;\n"),
+    (24, "the notice only after the last check", PASTES + "/the_success", None, None),
+    (24, "no success notice for an empty plan", REPAIRS + "/content", "        RAISE NOTICE 'the plan is empty: nothing is written';\n", "        RAISE NOTICE 'repaired: 0 versions, 0 records';\n"),
     (3, "R4", REFUSES + "/R4", *off("R4:")),
     (3, "R4's properties", REFUSES + "/R4", "v.schema::jsonb -> 'properties' ? v_new", "false"),
     (3, "R4's records", REFUSES + "/R4", "r.data ? v_new", "false"),
@@ -170,6 +189,18 @@ def special(test, what, doc):
     if what.startswith("a salt per row, and"):
         d = sub(doc, SALT + ",\n        d.diff, d.truncated, coalesce", "(SELECT " + SALT + "),\n        d.diff, d.truncated, coalesce")
         return sub(d, "    IF v_got <> v_want THEN\n        RAISE EXCEPTION '% distinct salts", "    IF false THEN\n        RAISE EXCEPTION '% distinct salts")
+    if what.split(" from the plan")[0] in ("tenant_id", "type_id", "new_name", "source_ref", "tenant_id and type_id"):
+        d = doc
+        for name in re.findall(r"tenant_id|type_id|new_name|source_ref", what):
+            cast = "::uuid" if name.endswith("_id") else ""
+            head, two = d.split("```sql tick-1125-paste-2")
+            d = head + "```sql tick-1125-paste-2" + re.sub(r"\bp\." + name + r"\b", "current_setting('nava_repair." + name + "')" + cast, two)
+        return d
+    if what == "the notice only after the last check":
+        line = "    RAISE NOTICE 'repaired: % versions, % records', v_versions, v_records;\n"
+        return sub(sub(doc, line, ""), "    -- 2. The one superuser write.\n",
+                   "    SELECT count(*) INTO v_versions FROM pg_temp.nava_repair_plan p WHERE p.kind = 'version';\n"
+                   "    SELECT count(*) INTO v_records FROM pg_temp.nava_repair_records;\n" + line + "    -- 2. The one superuser write.\n")
     if what == "the lock inside the block":
         return sub(doc, LOCK, "").replace("DO $nava_repair$\nDECLARE\n    c_old CONSTANT text := 'org_unit_id';\n    -- audit",
                                           LOCK.strip() + "\nDO $nava_repair$\nDECLARE\n    c_old CONSTANT text := 'org_unit_id';\n    -- audit")
@@ -216,7 +247,7 @@ def main():
     survivors = 0
     try:
         for i, m in enumerate(M):
-            if i % SHARDS != SHARD:
+            if i % SHARDS != SHARD or i < FROM:
                 continue
             test, what, pattern = m[:3]
             if ONLY and not re.search(ONLY, what):
@@ -233,6 +264,8 @@ def main():
             with open(DOC, "w", encoding="utf-8", newline="") as f:
                 f.write(mutated)
             leaf, ran, out = run(pattern)
+            if ran == 0:
+                raise SystemExit(f"no test ran for {what}: {out[-400:]}")
             if not leaf:
                 survivors += 1
             first = next((l.strip() for l in out.splitlines() if re.search(r"_test\.go:\d+:", l)), "")
