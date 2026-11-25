@@ -111,3 +111,27 @@ func TestPublishFilterableFlagIsCompatibleAndTypeChangeAndRemovalAreRefused(t *t
 	rec = e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-fl-remove", etPublishSchema(etFlagged(t, `{"type": "string"}`)))
 	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.FilterableFieldRemovalUnavailable)
 }
+
+// covers: createEntityType 422
+func TestCreateRefusesSearchableAndWritesNothing(t *testing.T) {
+	e := newETEnv(t)
+	body := fmt.Sprintf(`{"key": "incident", "name": "Incident", "number_prefix": "INC", "definition": {"schema": %s, %s}}`,
+		etFlagged(t, `{"type": "string", "x-nava-filterable": true, "x-nava-searchable": true}`), etDefTail)
+	rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-sr-create", body)
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, problem.SearchableNotAvailable)
+	if got := pointers(p); !slices.Equal(got, []string{"/definition/schema/properties/note/x-nava-searchable"}) {
+		t.Errorf("pointers = %v", got)
+	}
+	for _, table := range []string{"entity_definitions", "entity_definition_versions", "record_index_fields"} {
+		var n int
+		if err := e.super.QueryRow(t.Context(), "SELECT count(*) FROM "+table+" WHERE tenant_id = $1", e.a.id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%d %s rows, want 0", n, table)
+		}
+	}
+	if rows := etBackfillRows(t, e, e.a.id); len(rows) != 0 {
+		t.Errorf("%d backfill outbox rows, want 0", len(rows))
+	}
+}

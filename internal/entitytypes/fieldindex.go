@@ -22,7 +22,7 @@ const (
 	QuotaTenant  QuotaScope = "tenant"
 )
 
-// IndexQuotaError is returned by Publish when the new version would flag more
+// IndexQuotaError is returned by Create and Publish when the new version would flag more
 // fields than the type or the tenant may index (ADR-006 D12, code
 // index_quota_exceeded). Nothing is written once it is returned.
 type IndexQuotaError struct {
