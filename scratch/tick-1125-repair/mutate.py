@@ -56,7 +56,7 @@ M = [
     (3, "R3's x-nava-secret", REFUSES + "/R3", "IN ('x-nava-secret', 'writeonly')", "IN ('writeonly')"),
     (3, "R3's value", REFUSES + "/repaired", "\n                    AND e.value <> 'false');", ");"),
     (23, "R3's letter case", R3CASE, "lower(e.key COLLATE \"C\")", "e.key"),
-    (23, "R3's long s", R3CASE, "replace(lower(e.key COLLATE \"C\"), 'ſ', 's')", "lower(e.key COLLATE \"C\")"),
+    (23, "R3's long s", R3CASE, "replace(lower(e.key COLLATE \"C\"), chr(383), 's')", "lower(e.key COLLATE \"C\")"),
     (23, "tenant_id from the plan", PASTES + "/a_changed", None, None),
     (23, "type_id from the plan", PASTES + "/a_changed", None, None),
     (23, "new_name from the plan", PASTES + "/a_changed", None, None),

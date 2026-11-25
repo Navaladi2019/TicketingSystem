@@ -396,7 +396,7 @@ BEGIN
     CROSS JOIN LATERAL (SELECT v.schema::jsonb -> 'properties' -> c_old AS prop) p
     WHERE v.tenant_id = v_tenant AND v.definition_id = v_type
       AND EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(p.prop) = 'object' THEN p.prop END) e
-                  WHERE replace(lower(e.key COLLATE "C"), 'ſ', 's') IN ('x-nava-secret', 'writeonly')
+                  WHERE replace(lower(e.key COLLATE "C"), chr(383), 's') IN ('x-nava-secret', 'writeonly')
                     AND e.value <> 'false');
     IF v_rows IS NOT NULL THEN
         RAISE EXCEPTION 'R3: the property is marked x-nava-secret or writeOnly'

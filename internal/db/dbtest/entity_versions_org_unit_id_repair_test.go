@@ -69,6 +69,18 @@ func repairBlock(t *testing.T, name string) string {
 	return sql
 }
 
+// A psql whose client_encoding is not UTF-8, as on Windows, reads any other
+// byte of a paste as another character.
+func TestTICK1125BlocksAreASCII(t *testing.T) {
+	for _, name := range []string{repairtest.Check, repairtest.ARS3001, repairtest.PasteOne, repairtest.PasteTwo} {
+		for i, r := range repairBlock(t, name) {
+			if r > 127 {
+				t.Errorf("%s holds %q at byte %d", name, r, i)
+			}
+		}
+	}
+}
+
 // repairVersion is one stored version; fixed "" maps state only.
 type repairVersion struct{ schema, fixed string }
 
