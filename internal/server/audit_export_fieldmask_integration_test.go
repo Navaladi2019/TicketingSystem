@@ -68,9 +68,17 @@ func TestExportAppliesTheCallersFieldMasks(t *testing.T) {
 	}
 }
 
-// maskedExport seeds a record (requester, org unit, one cost change) in
-// tenant A and seals. With publish false the policy masks nothing.
+// maskedExport is seedMaskedExport, then seals.
 func maskedExport(t *testing.T, publish bool) (*exportEnv, *maskEnv, string, uuid.UUID) {
+	t.Helper()
+	x, m, rid, unit := seedMaskedExport(t, publish)
+	x.sealAll(t)
+	return x, m, rid, unit
+}
+
+// seedMaskedExport seeds a record (requester, org unit, one cost change) in
+// tenant A, not yet sealed. With publish false the policy masks nothing.
+func seedMaskedExport(t *testing.T, publish bool) (*exportEnv, *maskEnv, string, uuid.UUID) {
 	t.Helper()
 	x := newExportEnv(t)
 	m := &maskEnv{etEnv: x.etEnv, desk: x.a.lookalikeGroup}
@@ -93,12 +101,12 @@ func maskedExport(t *testing.T, publish bool) (*exportEnv, *maskEnv, string, uui
 	if rec := m.patch(t, "lookalike-a", "mjob", r.ID, `W/"1"`, `{"data": {"cost": 48613}}`); rec.Code != http.StatusOK {
 		t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
 	}
-	x.sealAll(t)
 	return x, m, r.ID, unit
 }
 
 type exportedEntry struct {
 	Kind         string  `json:"kind"`
+	Sealed       bool    `json:"sealed"`
 	Diff         *string `json:"diff"`
 	DiffSalt     *string `json:"diff_salt"`
 	DiffRedacted bool    `json:"diff_redacted"`
@@ -120,24 +128,43 @@ func entriesWithDiff(t *testing.T, body string) []exportedEntry {
 	return out
 }
 
-// R7: a masked entry comes out with the marker, no value and no diff salt.
+// R7: a masked entry comes out with the marker, no value and no diff salt,
+// in both formats, before the entries are sealed (recent entries are read
+// through the unsealed page) and after.
 //
 // covers: exportAuditEntries 200
 func TestExportMaskedEntriesCarryTheMarkerAndNoSalt(t *testing.T) {
-	x, _, rid, _ := maskedExport(t, true)
-	exp := x.export(t, "admin-a", "?domain=record&subject_id="+rid)
-	if exp.Code != http.StatusOK {
-		t.Fatalf("export = %d: %s", exp.Code, exp.Body)
-	}
-	entries := entriesWithDiff(t, exp.Body.String())
-	if len(entries) < 2 {
-		t.Fatalf("entries with a diff = %d, want the create and the change", len(entries))
-	}
-	for i, e := range entries {
-		if !e.DiffRedacted || e.DiffSalt != nil || !strings.Contains(*e.Diff, `"redacted":"mask"`) {
-			t.Errorf("entry %d: redacted=%v salt=%v diff=%s, want redacted, no salt, the mask marker", i, e.DiffRedacted, e.DiffSalt, *e.Diff)
+	x, _, rid, _ := seedMaskedExport(t, true)
+	q := "?domain=record&subject_id=" + rid
+	check := func(t *testing.T, sealed bool) {
+		exp := x.export(t, "admin-a", q)
+		if exp.Code != http.StatusOK {
+			t.Fatalf("export = %d: %s", exp.Code, exp.Body)
+		}
+		entries := entriesWithDiff(t, exp.Body.String())
+		if len(entries) < 2 {
+			t.Fatalf("entries with a diff = %d, want the create and the change", len(entries))
+		}
+		for i, e := range entries {
+			if e.Sealed != sealed {
+				t.Fatalf("control: entry %d sealed = %v, want %v", i, e.Sealed, sealed)
+			}
+			if !e.DiffRedacted || e.DiffSalt != nil || !strings.Contains(*e.Diff, `"redacted":"mask"`) {
+				t.Errorf("entry %d: redacted=%v salt=%v diff=%s, want redacted, no salt, the mask marker", i, e.DiffRedacted, e.DiffSalt, *e.Diff)
+			}
+		}
+		csv := x.export(t, "admin-a", q+"&format=csv")
+		if csv.Code != http.StatusOK {
+			t.Fatalf("csv export = %d: %s", csv.Code, csv.Body)
+		}
+		body := csv.Body.String()
+		if !strings.Contains(body, "redacted") || strings.Contains(body, "48613") {
+			t.Errorf("csv (sealed=%v): want the marker and no cost: %.400s", sealed, body)
 		}
 	}
+	t.Run("unsealed", func(t *testing.T) { check(t, false) })
+	x.sealAll(t)
+	t.Run("sealed", func(t *testing.T) { check(t, true) })
 }
 
 // A caller whose policy masks nothing still gets every value and the salt.
