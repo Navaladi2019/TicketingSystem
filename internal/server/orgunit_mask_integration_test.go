@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,8 +42,9 @@ func requesterBody(requester uuid.UUID) string {
 	return `{"short_description": "s", "requester": "` + requester.String() + `"}`
 }
 
-// orgUnitOp returns the value of the /org_unit_id op of a diff, and whether
-// the diff has one.
+// orgUnitOp returns the org unit of a record entry's diff, and whether the
+// diff has one. A create is one op at the root, {"op":"add","path":"","value":
+// {..., "org_unit_id": ...}}; a later change may name /org_unit_id itself.
 func orgUnitOp(t *testing.T, diff json.RawMessage) (value string, ok bool) {
 	t.Helper()
 	var ops []struct {
@@ -53,8 +55,16 @@ func orgUnitOp(t *testing.T, diff json.RawMessage) (value string, ok bool) {
 		t.Fatalf("diff %s: %v", diff, err)
 	}
 	for _, op := range ops {
-		if op.Path == "/org_unit_id" {
+		switch op.Path {
+		case "/org_unit_id":
 			return string(op.Value), true
+		case "":
+			var obj map[string]json.RawMessage
+			if json.Unmarshal(op.Value, &obj) == nil {
+				if v, has := obj["org_unit_id"]; has {
+					return string(v), true
+				}
+			}
 		}
 	}
 	return "", false
@@ -70,7 +80,8 @@ func TestAuditListMasksOrgUnitWithTheRequester(t *testing.T) {
 	}{
 		{"masks the requester", (*maskEnv).deskMasks, false},
 		{"masks another property only", func(m *maskEnv) []authz.Mask {
-			return []authz.Mask{{Field: "cost", Read: authz.Subject{Groups: []uuid.UUID{m.desk}}}}
+			desk := authz.Subject{Groups: []uuid.UUID{m.desk}}
+			return []authz.Mask{{Field: "cost", Read: desk, Write: desk}}
 		}, true},
 		{"masks nothing", func(*maskEnv) []authz.Mask { return nil }, true},
 	} {
@@ -78,7 +89,7 @@ func TestAuditListMasksOrgUnitWithTheRequester(t *testing.T) {
 			m := newMaskEnv(t)
 			unit := m.seedUnit(t, m.a.id, m.a.user.PrincipalID)
 			m.publishMasks(t, tc.masks(m))
-			r := m.mustCreateRec(t, "lookalike-a", "job", "ou-1", requesterBody(m.a.user.PrincipalID))
+			r := m.mustCreateRec(t, "user-a", "job", "ou-1", requesterBody(m.a.user.PrincipalID))
 			if rec := m.patch(t, "lookalike-a", "job", r.ID, `W/"1"`, `{"data": {"cost": 2}}`); rec.Code != http.StatusOK {
 				t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
 			}
@@ -115,7 +126,7 @@ func TestAuditListMasksOrgUnitWithTheRequester(t *testing.T) {
 // covers: listAuditEntries 200
 func TestAuditListHasNoOrgUnitKeyForARecordWithoutAUnit(t *testing.T) {
 	m := newMaskEnv(t)
-	r := m.mustCreateRec(t, "lookalike-a", "job", "ou-none", requesterBody(m.a.user.PrincipalID))
+	r := m.mustCreateRec(t, "user-a", "job", "ou-none", requesterBody(m.a.user.PrincipalID))
 	_, page := m.auditGet(t, "admin-a", "?domain=record&subject_type=record&subject_id="+r.ID)
 	if len(page.Items) != 1 {
 		t.Fatalf("audit entries = %d, want 1", len(page.Items))
@@ -155,14 +166,21 @@ func TestAuditListOrgUnitMaskIsPerTenant(t *testing.T) {
 
 // covers: getRecordHistory 200
 func TestRecordHistoryNeverShowsTheOrgUnit(t *testing.T) {
-	for _, tc := range []struct{ name, token string }{
-		{"a reader with no masks", "lookalike-a"},
-		{"a reader whose policy masks the requester", "admin-a"},
+	for _, tc := range []struct {
+		name, token string
+		noMasks     bool
+	}{
+		{"a reader with no masks", "lookalike-a", true},
+		{"a reader whose policy masks the requester", "admin-a", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newMaskEnv(t)
 			unit := m.seedUnit(t, m.a.id, m.a.user.PrincipalID)
-			r := m.mustCreateRec(t, "lookalike-a", "job", "ou-h", requesterBody(m.a.user.PrincipalID))
+			if tc.noMasks {
+				m.publishMasks(t, nil)
+			}
+			requester := m.a.user.PrincipalID.String()
+			r := m.mustCreateRec(t, "user-a", "job", "ou-h", requesterBody(m.a.user.PrincipalID))
 			if rec := m.patch(t, "lookalike-a", "job", r.ID, `W/"1"`, `{"data": {"cost": 2}}`); rec.Code != http.StatusOK {
 				t.Fatalf("patch = %d: %s", rec.Code, rec.Body)
 			}
@@ -177,12 +195,54 @@ func TestRecordHistoryNeverShowsTheOrgUnit(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &h); err != nil || len(h.Items) != 2 {
 				t.Fatalf("history = %v, %d items: %s", err, len(h.Items), rec.Body)
 			}
+			// Newest first. Each check is its own Errorf, so a run with the
+			// deletes removed shows which of before and after leaked.
 			create, update := h.Items[1], h.Items[0]
-			if create.After["short_description"] != "s" || len(create.Changed) == 0 {
-				t.Errorf("the create lost its other fields: %+v", create)
+			if _, has := create.After["org_unit_id"]; has {
+				t.Errorf("create: after has org_unit_id: %v", create.After)
 			}
-			if update.Before == nil || (*update.Before)["short_description"] != "s" || update.After["short_description"] != "s" {
-				t.Errorf("the update lost its other fields: %+v", update)
+			if create.Before != nil {
+				t.Errorf("create: before = %v, want none", *create.Before)
+			}
+			if _, has := update.After["org_unit_id"]; has {
+				t.Errorf("update: after has org_unit_id: %v", update.After)
+			}
+			if update.Before == nil {
+				t.Fatalf("update: no before: %s", rec.Body)
+			}
+			if _, has := (*update.Before)["org_unit_id"]; has {
+				t.Errorf("update: before has org_unit_id: %v", *update.Before)
+			}
+			// Everything else is as before: the other fields, and changed[]
+			// (the keys of the create's after; cost for the update, which a
+			// reader whose policy masks cost does not see).
+			wantCreate := make([]string, 0, len(create.After))
+			for k := range create.After {
+				wantCreate = append(wantCreate, "/data/"+k)
+			}
+			slices.Sort(wantCreate)
+			if !slices.Equal(create.Changed, wantCreate) {
+				t.Errorf("create changed = %v, want %v", create.Changed, wantCreate)
+			}
+			wantUpdate := []string{}
+			if tc.noMasks {
+				wantUpdate = []string{"/data/cost"}
+			}
+			if !slices.Equal(update.Changed, wantUpdate) {
+				t.Errorf("update changed = %v, want %v", update.Changed, wantUpdate)
+			}
+			for name, data := range map[string]map[string]any{"create after": create.After, "update after": update.After, "update before": *update.Before} {
+				if data["short_description"] != "s" {
+					t.Errorf("%s short_description = %v, want s", name, data["short_description"])
+				}
+				if tc.noMasks && data["requester"] != requester {
+					t.Errorf("%s requester = %v, want %s (the reader's policy masks nothing)", name, data["requester"], requester)
+				}
+				if !tc.noMasks {
+					if _, has := data["requester"]; has {
+						t.Errorf("%s shows the masked requester: %v", name, data)
+					}
+				}
 			}
 		})
 	}
