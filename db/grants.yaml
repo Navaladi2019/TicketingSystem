@@ -69,10 +69,11 @@ roles:
       records:
         SELECT: []
         INSERT: []
-        # org_unit_id (TICK-947, ADR-010 D8): set on create, then a stored
-        # field a write (a workflow step) may move.
+        # UPDATE leaves out org_unit_id (TICK-1120): it is set on create. The
+        # story that ships a "move ticket to another unit" workflow step adds
+        # the grant back (ADR-010 D8).
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                 org_unit_id, updated_at, data, causation_origin_id, causation_depth]
+                 updated_at, data, causation_origin_id, causation_depth]
       # audit_log: as a writer of an audited table, its INSERT on the R10
       # columns and SELECT on the commit-check columns are generated from
       # db/audited-tables.yaml (R12, P5-11). The list below is every column
@@ -230,10 +231,11 @@ roles:
       records:
         SELECT: []
         INSERT: []
-        # org_unit_id (TICK-947, ADR-010 D8): set on create, then a stored
-        # field a write (a workflow step) may move.
+        # UPDATE leaves out org_unit_id (TICK-1120): it is set on create. The
+        # story that ships a "move ticket to another unit" workflow step adds
+        # the grant back (ADR-010 D8).
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
-                 org_unit_id, updated_at, data, causation_origin_id, causation_depth]
+                 updated_at, data, causation_origin_id, causation_depth]
       # ADR-004: the sealer. It reads every column but diff and diff_salt
       # (the envelope holds diff_sha256) and updates only the seal columns,
       # through the R11 seal transition. As a record writer its R10 INSERT
