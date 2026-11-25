@@ -44,12 +44,13 @@ import (
 // time, never rows. A probe error is a 500 and never falls back to another
 // shape (fails closed).
 //
-// Security (A2-6, review 01a1fcad): P3 runs only for an ACL policy's under
-// leaves, never for a request filter; the shape, the probe count, K* and N̂_e
-// never reach a response, a log line or an error text; and the tenant every
-// statement binds is the transaction's own (tenancy.TenantOf), the value set
-// in app.tenant_id. N̂_e is a per-type count of records the caller may not be
-// allowed to see: it only sets K*.
+// Security (A2-6, review 01a1fcad; A3-7): P3 and the folded probe run only for
+// an ACL policy's under leaves, never for a request filter; the shape, the
+// probe count, the closure count n, R's cap, K*, N̂_e, α and U_cert never reach
+// a response, a log line or an error text; and the tenant every statement
+// binds is the transaction's own (tenancy.TenantOf), the value set in
+// app.tenant_id. N̂_e is a per-type count of records the caller may not be
+// allowed to see: it only sets K* and R's cap.
 
 // ListShape is a region term's page shape.
 type ListShape uint8

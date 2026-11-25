@@ -4,6 +4,7 @@ package server_test
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -40,6 +41,7 @@ type recordsShapeList struct {
 // covers: listRecords 200 500
 func TestListRecordsChosenByTheSelector(t *testing.T) {
 	e := newPatchEnv(t)
+	e.level.Set(slog.LevelDebug) // every line the route could write
 	ctx := t.Context()
 	const estimate, capUnits, size = 33_100, 10_031, 10_057
 	in := e.mustCreateRec(t, "user-a", "job", "tick1104-in", `{"short_description": "in"}`)
@@ -154,7 +156,11 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 					t.Errorf("%s: the %s carry %d", what, where, v)
 				}
 			}
-			bad := []string{"alpha", "α", "ucert", "u_cert", "uhash", "u_hash", "acl_s", "acl_z", "acl_p", "kstar", "c3", "live_records", "entity_record_estimates"}
+			// leakTokens keeps ASCII only, so α is looked for in the text.
+			if strings.Contains(strings.ToLower(text), "α") {
+				t.Errorf("%s: the %s name α", what, where)
+			}
+			bad := []string{"alpha", "ucert", "u_cert", "uhash", "u_hash", "acl_s", "acl_z", "acl_p", "kstar", "c3", "live_records", "entity_record_estimates"}
 			if words {
 				bad = append(bad, leakWords()...)
 			}
@@ -219,7 +225,7 @@ func TestListRecordsChosenByTheSelector(t *testing.T) {
 		if len(ids) != rows || slices.Contains(ids, out.ID) || !slices.Equal(ids, refIDs) {
 			t.Errorf("%d records: R lists %d rows, the reference %d, in the same order %v", n, len(ids), len(refIDs), slices.Equal(ids, refIDs))
 		}
-		if got.Total != 1000 && n <= 1000 || got.Total != ref.Total || got.TotalCapped != (n > 1000) || ref.TotalCapped != (n > 1000) {
+		if got.Total != 1000 || got.Total != ref.Total || got.TotalCapped != (n > 1000) || ref.TotalCapped != (n > 1000) {
 			t.Errorf("%d records: R total %d capped %v, the reference %d capped %v", n, got.Total, got.TotalCapped, ref.Total, ref.TotalCapped)
 		}
 		if records != refRecords {

@@ -258,10 +258,11 @@ func recordsScans(t *testing.T, e env) (page, counted []string) {
 // in recordsPlanSizes, 20,000 records of the world's type in other units
 // (m = 0, the bench_conc shape), 200,000 of another type over every unit, so
 // the tenant's unit-tagged slice is not the type's, and 200,000 in each of two
-// other tenants: the table is shared. Its size matters to the count: on a
-// table of one tenant and up to about 420,000 rows PostgreSQL 16.10 costs a Seq
-// Scan of it just below the type's index (TICK-1104's PR). It returns the root of each subtree, and of the 2,000 units that
-// hold the type's records.
+// other tenants: the table is shared. That matters to the count: PostgreSQL
+// 16.10 picks a Seq Scan of records instead when the table's rows are few next
+// to N̂_e and the tenant holds a large share of them (A3-R2, not covered
+// here). It returns the root of each subtree, and of the 2,000 units that hold
+// the type's records.
 func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UUID, other uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()

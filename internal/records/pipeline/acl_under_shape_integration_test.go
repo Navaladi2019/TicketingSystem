@@ -802,13 +802,16 @@ func TestUnderListShapesStayInTheTenant(t *testing.T) {
 
 	other := seedTenantWith(t, e, aclDefinition())
 	w.units(t, e, other.id, w.unit) // B's units carry A's ids
+	// B's tree is not A's: O, outside A's R, is under B's R. R's own closure
+	// read would admit A's records in O if it read B's rows.
+	mustExec(t, e.super, `UPDATE org_units SET parent_id = $2 WHERE tenant_id = $1 AND id = $3`, other.id, w.unit["R"], w.unit["O"])
 	mustExec(t, e.super, `INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name)
 		SELECT $2, id, parent_id, 'b-' || keycloak_group_id, name FROM org_units WHERE tenant_id = $1 AND name LIKE 'x-%'`, w.tenant, other.id)
 	rebuildClosure(t, e)
 	w.add(t, e, other.id, "H", authz.KStarMin+500)
 	w.add(t, e, other.id, "N1", authz.KStarMin+500)
-	if n := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, other.id, w.unit["R"]); n != size {
-		t.Fatalf("B's closure holds %d rows under A's R id, want %d", n, size)
+	if n := count(t, e.super, `SELECT count(*) FROM org_unit_closure WHERE tenant_id = $1 AND ancestor_id = $2`, other.id, w.unit["R"]); n != size+1 {
+		t.Fatalf("B's closure holds %d rows under A's R id, want %d", n, size+1)
 	}
 	// B's records under A's unit ids with A's type id: records_entity_definition_fkey
 	// refuses them, so they go in past it (replica role).

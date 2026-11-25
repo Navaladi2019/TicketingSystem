@@ -245,7 +245,8 @@ type etEnv struct {
 	a, b   etTenant
 	super  *pgx.Conn
 	logs   *etLogBuf
-	lim    *spyLimiter // allows by default; reset(false) refuses every call
+	level  *slog.LevelVar // the handler's log level; Warn unless a test lowers it
+	lim    *spyLimiter    // allows by default; reset(false) refuses every call
 	tel    *telemetry.Telemetry
 	// noTestACL stops do from publishing the allow-all test ACL for the
 	// entity types it creates (allowTenantUsers).
@@ -275,13 +276,15 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	lim := &spyLimiter{}
 	lim.reset(true)
 	logs := &etLogBuf{}
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelWarn)
 	reader := etAuditReader(t, pool)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: level})), tel, tokens, stubPaths{},
 		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim, tel: tel}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, level: level, lim: lim, tel: tel}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
