@@ -147,7 +147,7 @@ func (s *e3Serial) cell(t *testing.T, name string, reqs []perfReq, band bool) *e
 			s.last = &b.after
 			r.tried = append(r.tried, b)
 			for _, x := range b.samples {
-				fmt.Fprintf(&s.csv, "%s,%d,%d,%s,%v,%d,%s,%.3f,%.3f,%.3f\n", name, i+1, try+1, arm, b.ok(), x.code, x.state, x.phase, x.countStmt, x.latency)
+				s.csv.WriteString(e3CSVRow(name, i+1, try+1, arm, b.ok(), x))
 			}
 			s.w("- %s: n %d, unknown %d, peak parallel workers %d (%d samples), temp_files +%d (%d bytes, spill context only); gates %s", label, len(b.samples), unknownOf(b.samples), b.peakWorkers, b.workerSamples, b.tempFiles, b.tempBytes, okWord(b.ok()))
 			if s.smoke || b.ok() {
@@ -356,6 +356,13 @@ func (s *e3Serial) keepPlan(name, arm string, p e3Plan) {
 		name, arm, s.arms[arm].desc, strings.Join(append(slices.Clone(p.pre), p.savepoint), ";\n")+";", strings.TrimSpace(p.count.SQL), p.gather, p.launched, p.text))
 	s.onPlans()
 	s.w("- plan check, %s, arm %s: savepoint Exec `%s`; Gather %v, workers launched %v (plans.md)", name, arm, p.savepoint, p.gather, p.launched)
+}
+
+// e3CSVHeader and e3CSVRow are serial-samples.csv; the cell name holds commas.
+const e3CSVHeader = "cell,block,try,arm,pooled,status,total_state,count_phase_ms,count_stmt_ms,latency_ms\n"
+
+func e3CSVRow(cell string, block, try int, arm string, pooled bool, x e3Sample) string {
+	return fmt.Sprintf("%q,%d,%d,%s,%v,%d,%s,%.3f,%.3f,%.3f\n", cell, block, try, arm, pooled, x.code, x.state, x.phase, x.countStmt, x.latency)
 }
 
 func unknownOf(ss []e3Sample) int {

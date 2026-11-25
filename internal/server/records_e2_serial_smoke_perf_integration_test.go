@@ -3,6 +3,7 @@
 package server_test
 
 import (
+	"encoding/csv"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -90,5 +91,17 @@ func TestE3SmokePrintsNoVerdict(t *testing.T) {
 		if got := e3SmokeLine(l); word.MatchString(got) {
 			t.Errorf("e3SmokeLine(%q) = %q", l, got)
 		}
+	}
+}
+
+// The cell names hold commas: a row has to keep the header's columns.
+func TestE3CSVRow(t *testing.T) {
+	row := e3CSVRow("a50, pk = 3", 2, 1, "B", true, e3Sample{code: http.StatusOK, state: "unknown", phase: 1, countStmt: 2, latency: 3})
+	rows, err := csv.NewReader(strings.NewReader(e3CSVHeader + row)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[1][0] != "a50, pk = 3" || rows[1][3] != "B" || rows[1][5] != "200" || rows[1][9] != "3.000" {
+		t.Errorf("%q", rows)
 	}
 }

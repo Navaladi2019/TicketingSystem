@@ -348,7 +348,7 @@ func TestA2Gate(t *testing.T) {
 	if serial != nil {
 		c := serial.cell(t, "a50, pk = 3", listReqs([]string{"a50"}, "filter%5Bpk%5D=3"), false)
 		serial.planCheck(t, c, "a50", "filter%5Bpk%5D=3")
-		_ = os.WriteFile(filepath.Join(dir, "serial-samples.csv"), []byte("cell,block,try,arm,pooled,status,total_state,count_phase_ms,count_stmt_ms,latency_ms\n"+serial.csv.String()), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "serial-samples.csv"), []byte(e3CSVHeader+serial.csv.String()), 0o600)
 		overall, kind := serial.report()
 		ta := gateTemp(t, e.super)
 		w("")
