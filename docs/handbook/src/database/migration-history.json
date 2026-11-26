@@ -1265,35 +1265,68 @@
       ]
     },
     {
-      "file": "20261126163000_field_index_tables.sql",
+      "file": "20261126120000_records_list_updated_covering.sql",
+      "on_main": true,
+      "commit": "bac4e595",
+      "date": "2026-11-26",
+      "pr": "930",
+      "story": "",
+      "tickets": [
+        "TICK-1158"
+      ]
+    },
+    {
+      "file": "20261126150000_audit_log_diff_nul_escaped.sql",
+      "on_main": true,
+      "commit": "5dac1859",
+      "date": "2026-11-27",
+      "pr": "936",
+      "story": "",
+      "tickets": [
+        "TICK-1170"
+      ]
+    },
+    {
+      "file": "20261127100000_audit_log_nul_escaped_gate_drop.sql",
+      "on_main": true,
+      "commit": "d310312f",
+      "date": "2026-11-27",
+      "pr": "941",
+      "story": "",
+      "tickets": [
+        "TICK-1170"
+      ]
+    },
+    {
+      "file": "20261127163000_field_index_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261126163100_field_index_trigger.sql",
+      "file": "20261127163100_field_index_trigger.sql",
       "on_main": false
     },
     {
-      "file": "20261126163200_field_index_sync_read_committed.sql",
+      "file": "20261127163200_field_index_sync_read_committed.sql",
       "on_main": false
     },
     {
-      "file": "20261126163300_schema_backfill_tables.sql",
+      "file": "20261127163300_schema_backfill_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261126163400_schema_backfill_rollout.sql",
+      "file": "20261127163400_schema_backfill_rollout.sql",
       "on_main": false
     },
     {
-      "file": "20261126163500_audit_log_subject_tenant_limits.sql",
+      "file": "20261127163500_audit_log_subject_tenant_limits.sql",
       "on_main": false
     },
     {
-      "file": "20261126163600_audit_log_subject_tenant_limits_validate.sql",
+      "file": "20261127163600_audit_log_subject_tenant_limits_validate.sql",
       "on_main": false
     },
     {
-      "file": "20261126163700_tenant_limits.sql",
+      "file": "20261127163700_tenant_limits.sql",
       "on_main": false
     }
   ]
