@@ -1,0 +1,170 @@
+{
+ "total_count": 15,
+ "check_runs": [
+  {
+   "id": 139548084390,
+   "name": "full-suite",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548084390",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083746,
+   "name": "isolation",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083746",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083727,
+   "name": "main-red",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083727",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083543,
+   "name": "unit",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083543",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083542,
+   "name": "self-hosted-cleanup",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083542",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083506,
+   "name": "sdk",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083506",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083286,
+   "name": "temporal-server",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083286",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083271,
+   "name": "coverage",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083271",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083124,
+   "name": "stack",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083124",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548083102,
+   "name": "integration",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548083102",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139548082848,
+   "name": "commit-check-budget",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-25T22:17:00Z",
+   "completed_at": "2026-11-25T22:17:00Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139548082848",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139547870947,
+   "name": "lint",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-25T22:16:36Z",
+   "completed_at": "2026-11-25T22:16:39Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139547870947",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139547870569,
+   "name": "changes",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-25T22:16:36Z",
+   "completed_at": "2026-11-25T22:16:59Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139547870569",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139547821208,
+   "name": "story-branches",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-25T22:16:30Z",
+   "completed_at": "2026-11-25T22:17:09Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139547821208",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  },
+  {
+   "id": 139547820587,
+   "name": "runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-25T22:16:29Z",
+   "completed_at": "2026-11-25T22:16:34Z",
+   "details_url": "https://github.com/Navaladi2019/TicketingSystem/actions/runs/45711804911/job/139547820587",
+   "check_suite_id": 123682218313,
+   "head_sha": "a42bc76e146c7466b44493c3d5b9ffa1cc146495"
+  }
+ ]
+}
