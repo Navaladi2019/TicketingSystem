@@ -200,6 +200,10 @@ codes:
     status: 422
     title: Invalid time zone
     detail: The time zone is not an IANA name this server knows. Nothing was changed. See errors for the field.
+  - code: invalid_tenant_limits
+    status: 422
+    title: Invalid tenant limits
+    detail: The tenant limits request is not accepted. Nothing was changed. See errors for the field.
   - code: number_format_overlap
     status: 422
     title: Number format overlaps an earlier numbering of the type

@@ -54,7 +54,7 @@ export interface paths {
         get?: never;
         /**
          * Set a tenant's limits (operator token only)
-         * @description Sets the tenant's per-type filterable-field limit, from the default 5 up to 10 (ADR-006 D12), with no per-tenant DDL (I8). Requires an operator token (realm role nava-operator, audience nava-operator-api); a tenant token is refused with 403. The change is one audited tenant_limits row (subject tenant_limits, the operator as actor, the reason in the entry); setting the value already in force writes nothing, so a retry is one audit entry. Publish enforces the limit from the next publish on. An unknown tenant is 404.
+         * @description Sets the tenant's per-type filterable-field limit, from the default 5 up to 10 (ADR-006 D12), with no per-tenant DDL (I8). Requires an operator token (realm role nava-operator, audience nava-operator-api); a tenant token is refused with 403. The change is one audited tenant_limits row (subject tenant_limits, the operator as actor, the reason in the entry); setting the value already in force writes nothing, so a retry is one audit entry. Publish enforces the limit from the next publish on. An unknown tenant is 404. A body with a duplicate member name or invalid UTF-8 is 422 invalid_tenant_limits.
          */
         put: operations["setTenantLimits"];
         post?: never;
@@ -1048,6 +1048,7 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             500: components["responses"]["Problem"];
             501: components["responses"]["Problem"];

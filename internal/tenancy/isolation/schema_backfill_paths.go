@@ -9,7 +9,7 @@ package isolation
 // refused by grant before any policy.
 func schemaBackfillPaths() []Path {
 	sql := func(name, role string, expect Expect, query string, args ...any) Path {
-		return Path{Name: name, Case: "CI-3", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
+		return Path{Name: name, Case: "CI-2", Role: role, SQL: &SQLCall{Query: query, Args: args, Expect: expect}}
 	}
 	const (
 		insertJob = `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys)

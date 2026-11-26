@@ -5269,6 +5269,20 @@ func (response SetTenantLimits404ApplicationProblemPlusJSONResponse) VisitSetTen
 	return err
 }
 
+type SetTenantLimits422ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits422ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetTenantLimits429ApplicationProblemPlusJSONResponse Problem
 
 func (response SetTenantLimits429ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {

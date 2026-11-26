@@ -19,6 +19,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenantlimits"
 )
 
@@ -114,6 +115,19 @@ func TestSetTenantLimitsRefusesBadInputAndWritesNothing(t *testing.T) {
 	}
 }
 
+// covers: setTenantLimits 422
+// A body with a duplicate member name is 422 invalid_tenant_limits (TICK-964's
+// strict JSON), and nothing is written.
+func TestSetTenantLimitsDuplicateMemberIs422(t *testing.T) {
+	v := newIDEnv(t, nil)
+	a := v.e.a.id
+	body := `{"filterable_fields_per_type": 6, "filterable_fields_per_type": 10, "reason": "dup"}`
+	wantStatus(t, v.call(t, http.MethodPut, limitsPath(a), v.operatorToken(t), "dup", body), http.StatusUnprocessableEntity, problem.InvalidTenantLimits)
+	if stored, entries := v.limitsState(t, a); stored != "none" || entries != 0 {
+		t.Errorf("tenant A = %s with %d entries, want none and 0", stored, entries)
+	}
+}
+
 // covers: setTenantLimits 401
 // covers: setTenantLimits 403
 // No token or a forged one is 401; a tenant admin's own token is 403, for its
@@ -185,7 +199,7 @@ func serveLimits(t *testing.T, h http.Handler, token, path, body string) *httpte
 // A database failure is 500 with no cause in the body.
 func TestSetTenantLimitsDatabaseDownIs500(t *testing.T) {
 	v := newIDEnv(t, nil)
-	dead := roleLoginPool(t, "nava_app", 1)
+	dead := roleLoginPool(t, "nava_onboard", 1)
 	dead.Close()
 	rec := serveLimits(t, limitsHandler(t, v, server.WithOperatorLimits(dead)), v.operatorToken(t), limitsPath(v.e.a.id), limitsBody(10, "x"))
 	wantStatus(t, rec, http.StatusInternalServerError, problem.InternalError)
@@ -205,14 +219,11 @@ func TestSetTenantLimitsNotConfiguredIs501(t *testing.T) {
 	}
 }
 
-// setLimit raises tenant's limit to n through tenantlimits as the superuser,
-// with its audit entry, as the operator route would.
+// setLimit raises tenant's limit to n through tenantlimits on a nava_onboard
+// pool, with its audit entry, as the operator route does.
 func setLimit(t *testing.T, e *etEnv, tenant uuid.UUID, n int) {
 	t.Helper()
-	err := pgx.BeginFunc(t.Context(), e.super, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(t.Context(), "SELECT set_config('app.tenant_id', $1, true)", tenant.String()); err != nil {
-			return err
-		}
+	err := tenancy.InTenantTx(t.Context(), roleLoginPool(t, "nava_onboard", 1), tenant, func(tx pgx.Tx) error {
 		_, err := tenantlimits.SetPerType(t.Context(), tx, tenant, n, "test", "op-test")
 		return err
 	})

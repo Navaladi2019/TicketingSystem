@@ -219,9 +219,10 @@ type Result struct {
 	Number        string
 	Version       int64
 	SchemaVersion int
-	// Written reports whether the write changed the record: true for a
-	// create or an update that succeeded, false for an OpMaterialize whose
-	// record already held every default (ADR-009 D3) and for a replay.
+	// Written is OpMaterialize's answer (ADR-009 D3): true when it wrote the
+	// record, false when the record already held every default. Every other
+	// op leaves it false, so a create's or an update's Result and its replay
+	// stay equal.
 	Written bool
 }
 
@@ -1159,7 +1160,7 @@ func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Res
 			return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
 		}
 	}
-	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, Written: true}, nil
+	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, Written: w.cmd.Op == OpMaterialize}, nil
 }
 
 // checkGroup refuses a write that changes assignment_group_id to a group the

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
 // P10-02 (TICK-917, ADR-009 D3–D6): OpMaterialize through the real pipeline,
@@ -222,17 +223,22 @@ func TestMaterializeLosesToALiveWrite(t *testing.T) {
 
 	res := mustCreate(t, e, p, f, map[string]any{"title": "x"})
 	publishV2(t, e, f)
-	// The live write holds the row; the materialize, in its own transaction,
-	// reads the old version and then waits on the row lock at its UPDATE.
-	live, err := e.app.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = live.Rollback(ctx) }()
-	if _, err := live.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", f.id.String()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Write(ctx, live, updateCmd(f, res.RecordID, 1, map[string]any{"summary": "live"})); err != nil {
+	// The live write holds the row until release; the materialize, in its
+	// own transaction, reads the old version and then waits on the row lock
+	// at its UPDATE.
+	updated, release, liveDone := make(chan error, 1), make(chan struct{}), make(chan error, 1)
+	go func() {
+		liveDone <- tenancy.InTenantTx(ctx, e.app, f.id, func(tx pgx.Tx) error {
+			_, err := p.Write(ctx, tx, updateCmd(f, res.RecordID, 1, map[string]any{"summary": "live"}))
+			updated <- err
+			if err != nil {
+				return err
+			}
+			<-release
+			return nil
+		})
+	}()
+	if err := <-updated; err != nil {
 		t.Fatalf("live update: %v", err)
 	}
 	done := make(chan error, 1)
@@ -241,10 +247,11 @@ func TestMaterializeLosesToALiveWrite(t *testing.T) {
 		done <- err
 	}()
 	waitForLockWait(t, e)
-	if err := live.Commit(ctx); err != nil {
-		t.Fatal(err)
+	close(release)
+	if err := <-liveDone; err != nil {
+		t.Fatalf("live commit: %v", err)
 	}
-	err = <-done
+	err := <-done
 	if !errors.Is(err, pipeline.ErrVersionConflict) || pipeline.ErrorCode(err) != pipeline.CodeVersionConflict {
 		t.Errorf("materialize behind a live write: err = %v, want ErrVersionConflict", err)
 	}
