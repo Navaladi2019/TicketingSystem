@@ -241,11 +241,16 @@ func (f fixture) publish(t testing.TB, e itEnv, schema string) uuid.UUID {
 }
 
 // queueJob writes the job row the publish (P10-04) writes, pending, with
-// keys and causation, and returns the job.
+// keys and causation, and returns the job. A publish that added a default has
+// already written the row, so it is set to these values then (the test picks
+// the keys and the causation, whatever the publish wrote).
 func (f fixture) queueJob(t testing.TB, e itEnv, version int, causation *uuid.UUID, keys ...string) schemabackfill.Job {
 	t.Helper()
 	mustExec(t, e.super, `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, causation_audit_id)
-		VALUES ($1, $2, $3, $4, $5)`, f.tenant, f.def, version, keys, causation)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (tenant_id, entity_definition_id, target_version)
+		DO UPDATE SET default_keys = EXCLUDED.default_keys, causation_audit_id = EXCLUDED.causation_audit_id`,
+		f.tenant, f.def, version, keys, causation)
 	return schemabackfill.Job{Tenant: f.tenant, Definition: f.def, Version: version}
 }
 

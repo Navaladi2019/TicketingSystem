@@ -200,6 +200,9 @@ func (e *etIso) cleanup() error {
 			SELECT tenant_id, gen_random_uuid(), 'config', 'delete', 'acl_policy', entity_definition_id, 'system', 'system'
 			FROM (SELECT DISTINCT tenant_id, entity_definition_id FROM a) d`,
 		`DELETE FROM audit_log WHERE subject_type = 'acl_policy' AND subject_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
+		// A publish that adds a default queues a schema backfill job (P10-04);
+		// its queue and failures go with it (ON DELETE CASCADE).
+		`DELETE FROM schema_backfills WHERE entity_definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')`,
 		// The entity-definition deletes write one config delete entry per
 		// type, as their commit-check triggers require (P5-32, migration B).
 		`WITH v AS (DELETE FROM entity_definition_versions WHERE definition_id IN (SELECT id FROM entity_definitions WHERE key LIKE 'iso\_et\_%')
