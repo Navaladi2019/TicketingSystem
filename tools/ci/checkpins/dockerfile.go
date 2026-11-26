@@ -36,6 +36,9 @@ func dockerLines(data string) (lines []string, starts []bool, unclosed []int) {
 	for i := range lines {
 		lines[i] = strings.TrimSuffix(lines[i], "\r")
 	}
+	// BuildKit drops a UTF-8 byte order mark before it reads directives, so
+	// "\ufeff# escape=`" sets the escape and "\ufeffFROM x" is a FROM.
+	lines[0] = strings.TrimPrefix(lines[0], "\ufeff")
 	ignore := map[int]bool{} // heredoc openers read as plain lines
 	for {
 		var open int

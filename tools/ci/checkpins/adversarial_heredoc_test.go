@@ -93,6 +93,23 @@ func TestHeredocSkipCannotHideAFrom(t *testing.T) {
 		put(t, dir, f, "# foo=bar\n# escape=`\n"+string(data)+"\nRUN echo x `\n"+evil+"\n")
 		mustSameGo(t, dir, want)
 	})
+	// BuildKit strips a UTF-8 BOM before reading directives, so the escape
+	// below is the backtick and the backslash line does not continue.
+	t.Run("BOM before escape directive", func(t *testing.T) {
+		dir := goCopy(t)
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(t, dir, f, "\ufeff# escape=`\n"+string(data)+"\nRUN echo x \\\n"+evil+"\n")
+		mustSameGo(t, dir, want)
+	})
+	t.Run("pins check reads a FROM after a BOM", func(t *testing.T) {
+		got := checkDockerfile(t, "\ufeffFROM postgres:15\n")
+		if !strings.Contains(got, "Dockerfile:1: image postgres:15") {
+			t.Fatalf("want the FROM on line 1 checked, got:\n%s", got)
+		}
+	})
 	t.Run("unclosed heredoc is named", func(t *testing.T) {
 		dir := goCopy(t)
 		appendTo(t, dir, f, "\nRUN <<EOF\nfrom os import path\n")
