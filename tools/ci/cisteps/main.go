@@ -6,6 +6,14 @@
 // one expression (TICK-1031): the changes job's full must be the stages
 // step's, not a second copy of the full-run rule that can drift from it. A job
 // that restores ~/go/pkg/mod must use setup-go v6 or later (TICK-1142).
+// The list's checks pin a required status check to a job that ran
+// (TICK-1146): GitHub names a skipped job's check run after its unevaluated
+// name: expression when it reads a context, so a job named
+// ${{ github.event_name && 'isolation' || 'isolation' }} reports "isolation"
+// only when it ran, and a skipped run on the same commit (a label-only run, a
+// fast run, an unlabelled run) can no longer replace a red result. A constant
+// ${{ 'isolation' }} does not work: GitHub folds it to the literal name even
+// on a skipped run (verification PR 904).
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 package main
@@ -17,7 +25,9 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -82,6 +92,14 @@ type output struct {
 	Why    string `yaml:"why"`
 }
 
+// requiredCheck is one entry of required.yaml's checks: job Job must be
+// named ${{ github.event_name && 'Check' || 'Check' }}.
+type requiredCheck struct {
+	Job   string `yaml:"job"`
+	Check string `yaml:"check"`
+	Why   string `yaml:"why"`
+}
+
 type step struct {
 	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
@@ -92,6 +110,7 @@ type step struct {
 }
 
 type job struct {
+	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
 	ContinueOnError yaml.Node         `yaml:"continue-on-error"`
 	Steps           []step            `yaml:"steps"`
@@ -102,8 +121,9 @@ type job struct {
 // per pinned output it does not set as listed, and the number of both.
 func check(workflowPath, requiredPath string) ([]string, int, error) {
 	var list struct {
-		Steps   []required `yaml:"steps"`
-		Outputs []output   `yaml:"outputs"`
+		Steps   []required      `yaml:"steps"`
+		Outputs []output        `yaml:"outputs"`
+		Checks  []requiredCheck `yaml:"checks"`
 	}
 	if err := decode(requiredPath, &list); err != nil {
 		return nil, 0, err
@@ -119,6 +139,11 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 	for i, o := range list.Outputs {
 		if o.Job == "" || o.Output == "" || o.Value == "" {
 			return nil, 0, fmt.Errorf("%s: output %d: want job, output and value", requiredPath, i+1)
+		}
+	}
+	for i, c := range list.Checks {
+		if c.Job == "" || c.Check == "" {
+			return nil, 0, fmt.Errorf("%s: check %d: want job and check", requiredPath, i+1)
 		}
 	}
 	var wf struct {
@@ -139,8 +164,124 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 			problems = append(problems, fmt.Sprintf("job %s: output %q %s [%s]", o.Job, o.Output, p, o.Why))
 		}
 	}
+	if len(list.Checks) > 0 {
+		others, err := fixedNames(workflowPath)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, c := range list.Checks {
+			if p := findCheck(wf.Jobs, c); p != "" {
+				problems = append(problems, fmt.Sprintf("job %s: check %q %s [%s]", c.Job, c.Check, p, c.Why))
+			}
+			problems = append(problems, otherReporters(others, workflowPath, c)...)
+		}
+	}
 	problems = append(problems, oldSetupGo(wf.Jobs)...)
-	return problems, len(list.Steps) + len(list.Outputs), nil
+	return problems, len(list.Steps) + len(list.Outputs) + len(list.Checks), nil
+}
+
+// reporter is a job of some workflow and the name its check run gets even
+// when the job is skipped: a literal name, a constant ${{ 'x' }}, or its id
+// when it has no name. A name that reads a context has none.
+type reporter struct {
+	file, job, name string
+}
+
+// fixedNames lists the fixed check names of every job in every workflow of
+// workflowPath's directory, workflowPath included, sorted by file and job.
+func fixedNames(workflowPath string) ([]reporter, error) {
+	dir := filepath.Dir(workflowPath)
+	var files []string
+	for _, pat := range []string{"*.yml", "*.yaml"} {
+		m, err := filepath.Glob(filepath.Join(dir, pat))
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, m...)
+	}
+	sort.Strings(files)
+	var out []reporter
+	for _, f := range files {
+		var wf struct {
+			Jobs map[string]job `yaml:"jobs"`
+		}
+		if err := decode(f, &wf); err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(wf.Jobs))
+		for id := range wf.Jobs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			if n, ok := fixedName(id, wf.Jobs[id].Name); ok {
+				out = append(out, reporter{file: f, job: id, name: n})
+			}
+		}
+	}
+	return out, nil
+}
+
+// fixedName is the check name a skipped run of the job gets, when that name
+// does not depend on the run.
+func fixedName(id, name string) (string, bool) {
+	n := squash(name)
+	switch {
+	case n == "":
+		return id, true
+	case !strings.Contains(n, "${{"):
+		return n, true
+	}
+	inner, ok := strings.CutPrefix(n, "${{")
+	if !ok {
+		return "", false
+	}
+	inner, ok = strings.CutSuffix(inner, "}}")
+	if !ok {
+		return "", false
+	}
+	inner = strings.TrimSpace(inner)
+	if len(inner) >= 2 && inner[0] == '\'' && inner[len(inner)-1] == '\'' && !strings.Contains(inner[1:len(inner)-1], "'") {
+		return inner[1 : len(inner)-1], true
+	}
+	return "", false
+}
+
+// otherReporters returns one problem per job other than c's pinned one that
+// reports c.Check under a fixed name.
+func otherReporters(all []reporter, workflowPath string, c requiredCheck) []string {
+	var problems []string
+	for _, r := range all {
+		if r.name != c.Check || (filepath.Clean(r.file) == filepath.Clean(workflowPath) && r.job == c.Job) {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("job %s in %s: reports check %q under a fixed name, so a skipped run of it passes the required check; only job %s in %s may report it [%s]",
+			r.job, filepath.Base(r.file), c.Check, c.Job, filepath.Base(workflowPath), c.Why))
+	}
+	return problems
+}
+
+// findCheck returns why c's job may report c.Check without running, or
+// never reports it, or "".
+func findCheck(jobs map[string]job, c requiredCheck) string {
+	j, ok := jobs[c.Job]
+	if !ok {
+		return "is missing: no such job"
+	}
+	want := "${{ github.event_name && '" + c.Check + "' || '" + c.Check + "' }}"
+	got := squash(j.Name)
+	if inner, ok := strings.CutPrefix(got, "${{"); ok {
+		if inner, ok = strings.CutSuffix(inner, "}}"); ok {
+			got = "${{ " + strings.TrimSpace(inner) + " }}"
+		}
+	}
+	switch got {
+	case want:
+		return ""
+	case "", c.Check, "${{ '" + c.Check + "' }}":
+		return fmt.Sprintf("is reported by a skipped run: name is %q, want %q", got, want)
+	}
+	return fmt.Sprintf("is never reported: name is %q, want %q", got, want)
 }
 
 const minSetupGo = 6
