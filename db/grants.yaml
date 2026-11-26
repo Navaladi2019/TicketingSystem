@@ -85,7 +85,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, seq, sealed_at, erased_at]
+                 diff_sha256, diff_truncated, diff_nul_escaped, seq, sealed_at, erased_at]
       # R14: the export lease and chain:reseed's repoint. Never seq,
       # entry_hash or version. SELECT is table-level: the R19 lease take
       # (WHERE export_lease_until IS NULL OR < now()) and its RETURNING seq,
@@ -217,7 +217,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+                 diff_sha256, diff_truncated, diff_nul_escaped, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
       # tenant_id as well as the masker's two columns: CI-2 (ADR-001) needs every
       # role that reads a tenant table's rows to read its tenant_id, so a row of
       # another tenant can be told apart.
@@ -272,7 +272,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+                 diff_sha256, diff_truncated, diff_nul_escaped, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
         UPDATE: [seq, prev_hash, entry_hash, sealed_at]
       # R14: the sealer's columns. Never export_lease_until.
       audit_chain_head:
@@ -428,7 +428,7 @@ roles:
         INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
-                 diff_truncated, diff, diff_salt]
+                 diff_truncated, diff_nul_escaped, diff, diff_salt]
         UPDATE: [diff, diff_salt, erased_at, erasure_ref]
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE

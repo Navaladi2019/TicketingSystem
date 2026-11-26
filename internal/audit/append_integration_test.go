@@ -210,6 +210,7 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 		actorSys, srcRef    *string
 		reqID               *string
 		backfilled, trunc   bool
+		nulEscaped          bool
 		depth               int16
 		txid                *string
 		seq                 *int64
@@ -219,13 +220,14 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 	err := e.super.QueryRow(context.Background(), `SELECT tenant_id, id, occurred_at, domain, action, subject_type,
 		subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source,
 		source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-		diff_sha256, diff_truncated, diff::text, diff_salt, txid::text, seq, prev_hash, entry_hash, sealed_at, erased_at
+		diff_sha256, diff_truncated, diff::text, diff_salt, txid::text, seq, prev_hash, entry_hash, sealed_at, erased_at,
+		diff_nul_escaped
 		FROM audit_log WHERE id = $1`, id).Scan(
 		&r.env.TenantID, &r.env.ID, &r.occurred, &domain, &action, &st,
 		&r.env.SubjectID, &r.env.EntityDefinitionID, &r.env.VersionBefore, &r.env.VersionAfter,
 		&r.env.ActorPrincipalID, &actorSys, &source, &srcRef, &r.env.ChangeSetID, &r.env.CausationID,
 		&depth, &reqID, &backfilled, &content, &diffSHA, &trunc, &r.diff, &r.salt,
-		&txid, &seq, &prevHash, &entryHash, &sealedAt, &erasedAt)
+		&txid, &seq, &prevHash, &entryHash, &sealedAt, &erasedAt, &nulEscaped)
 	if err != nil {
 		t.Fatalf("read entry %s: %v", id, err)
 	}
@@ -236,6 +238,7 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 	r.env.Domain, r.env.Action, r.env.SubjectType, r.env.Source = domain, action, st, source
 	r.env.ActorSystem, r.env.SourceRef, r.env.RequestID = actorSys, srcRef, reqID
 	r.env.CausationDepth, r.env.Backfilled, r.env.DiffTruncated = depth, backfilled, trunc
+	r.env.DiffNULEscaped = nulEscaped
 	if content != nil {
 		h := [32]byte(content)
 		r.env.ContentSHA256 = &h
@@ -269,7 +272,7 @@ func entryFromEnvelope(env chain.Envelope) Entry {
 		Actor:  Actor{PrincipalID: env.ActorPrincipalID, System: env.ActorSystem},
 		Source: Source(env.Source), SourceRef: env.SourceRef, ChangeSetID: env.ChangeSetID,
 		CausationID: env.CausationID, CausationDepth: env.CausationDepth, RequestID: env.RequestID,
-		ContentSHA256: env.ContentSHA256,
+		ContentSHA256: env.ContentSHA256, DiffNULEscaped: env.DiffNULEscaped,
 	}
 }
 
@@ -613,5 +616,36 @@ func TestAppendEraseCap(t *testing.T) {
 	}
 	if n := count(t, e.super, "SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND NOT diff_truncated", tenant); n != 1 {
 		t.Errorf("1,500 ids: %d untruncated entries, want 1", n)
+	}
+}
+
+// TICK-1170 step 2, ADR-004-E10: an entry written with DiffNULEscaped reads
+// back true, through nava_app's R10 INSERT grant; one written without it
+// reads back false.
+func TestAppendDiffNULEscapedStored(t *testing.T) {
+	e := migrated(t)
+	tenant := newTenant(t, e)
+	for _, want := range []bool{true, false} {
+		var id uuid.UUID
+		if err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
+			en := Entry{
+				Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord, SubjectID: uuid.New(),
+				VersionAfter: new(int64(1)), Actor: Actor{System: new("workflow")}, Source: SourceWorkflow,
+				Diff: []byte(`[{"op":"add","path":"/a","value":"x"}]`), DiffNULEscaped: want,
+			}
+			var err error
+			id, err = Append(context.Background(), tx, en)
+			return err
+		}); err != nil {
+			t.Fatalf("append (escaped %v): %v", want, err)
+		}
+		var got bool
+		if err := e.super.QueryRow(context.Background(),
+			"SELECT diff_nul_escaped FROM audit_log WHERE id = $1", id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("diff_nul_escaped = %v, want %v", got, want)
+		}
 	}
 }

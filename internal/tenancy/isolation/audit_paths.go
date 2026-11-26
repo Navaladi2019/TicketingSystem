@@ -1069,15 +1069,16 @@ func auditServicePoolMatrix(ctx context.Context, cl Cluster) error {
 		"erased_at": "now()", "erasure_ref": "gen_random_uuid()",
 	}
 	updates := map[string]string{
-		"content":    "UPDATE audit_log SET action = 'delete' WHERE tenant_id = $1 AND id = $2",
-		"tenant":     "UPDATE audit_log SET tenant_id = tenant_id WHERE tenant_id = $1 AND id = $2",
-		"seal":       "UPDATE audit_log SET seq = 1, prev_hash = sha256('p'), entry_hash = sha256('e'), sealed_at = now() WHERE tenant_id = $1 AND id = $2",
-		"seq only":   "UPDATE audit_log SET seq = 1 WHERE tenant_id = $1 AND id = $2",
-		"erase":      "UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = gen_random_uuid() WHERE tenant_id = $1 AND id = $2",
-		"diff only":  "UPDATE audit_log SET diff = NULL WHERE tenant_id = $1 AND id = $2",
-		"truncated":  "UPDATE audit_log SET diff_truncated = true WHERE tenant_id = $1 AND id = $2",
-		"occurred":   "UPDATE audit_log SET occurred_at = now() WHERE tenant_id = $1 AND id = $2",
-		"backfilled": "UPDATE audit_log SET backfilled = true WHERE tenant_id = $1 AND id = $2",
+		"content":     "UPDATE audit_log SET action = 'delete' WHERE tenant_id = $1 AND id = $2",
+		"tenant":      "UPDATE audit_log SET tenant_id = tenant_id WHERE tenant_id = $1 AND id = $2",
+		"seal":        "UPDATE audit_log SET seq = 1, prev_hash = sha256('p'), entry_hash = sha256('e'), sealed_at = now() WHERE tenant_id = $1 AND id = $2",
+		"seq only":    "UPDATE audit_log SET seq = 1 WHERE tenant_id = $1 AND id = $2",
+		"erase":       "UPDATE audit_log SET diff = NULL, diff_salt = NULL, erased_at = now(), erasure_ref = gen_random_uuid() WHERE tenant_id = $1 AND id = $2",
+		"diff only":   "UPDATE audit_log SET diff = NULL WHERE tenant_id = $1 AND id = $2",
+		"truncated":   "UPDATE audit_log SET diff_truncated = true WHERE tenant_id = $1 AND id = $2",
+		"nul escaped": "UPDATE audit_log SET diff_nul_escaped = true WHERE tenant_id = $1 AND id = $2",
+		"occurred":    "UPDATE audit_log SET occurred_at = now() WHERE tenant_id = $1 AND id = $2",
+		"backfilled":  "UPDATE audit_log SET backfilled = true WHERE tenant_id = $1 AND id = $2",
 	}
 	var bad []string
 	refused := func(what string, err error) {

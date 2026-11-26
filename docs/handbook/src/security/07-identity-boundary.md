@@ -2,14 +2,14 @@
 title: "7. Identity boundary and deprovisioning"
 section: security
 status: delivered
-sources: [docs/security/deprovisioning-identity-boundary.md, docs/security/identity-ci5.md, internal/groupsync, internal/identity/pgstore, internal/tenancy/isolation/registry.go, docs/security/accepted-risks.md]
+sources: [docs/security/deprovisioning-identity-boundary.md, docs/security/identity-ci5.md, internal/groupsync, internal/identity/keycloak/directory.go, internal/identity/keycloak/admin.go, internal/identity/pgstore, internal/tenancy/isolation/registry.go, docs/security/accepted-risks.md]
 evidence: [docs/security/deprovisioning-identity-boundary.md]
 adrs: [ADR-001]
 invariants: [I2]
 stories: [S3, S4, S5]
 tables: [principals, groups]
 packages: [internal/groupsync, internal/identitystack, internal/tenancy/isolation]
-tests: [TestRegisteredPaths, TestStackPathsExist, TestSelfServiceCannotChangeTenantRoleOrGroupAttributes, TestServiceAccountTokenCannotActInAnyTenant, TestTokenExchangeStaysDisabled, TestUserCannotSelfAssignOperatorRole, TestHostileSnapshotNeverTouchesAnotherTenant, TestTombstoneIsolatedPerTenant, TestDisableUserInAnotherTenantsSubtreeIsRefused, TestTenantACannotReachTenantBGroups, TestInviteCannotEnrolAnotherTenantsUser, TestInviteCannotSquatAnotherTenantsEmail, TestGetMeTombstonedAndDisabledPrincipals]
+tests: [TestRegisteredPaths, TestStackPathsExist, TestSelfServiceCannotChangeTenantRoleOrGroupAttributes, TestServiceAccountTokenCannotActInAnyTenant, TestTokenExchangeStaysDisabled, TestUserCannotSelfAssignOperatorRole, TestHostileSnapshotNeverTouchesAnotherTenant, TestTombstoneIsolatedPerTenant, TestDisableUserInAnotherTenantsSubtreeIsRefused, TestTenantACannotReachTenantBGroups, TestInviteCannotEnrolAnotherTenantsUser, TestInviteCannotSquatAnotherTenantsEmail, TestGetMeTombstonedAndDisabledPrincipals, TestChangesSince, TestUserDeletedDuringSnapshotIsTombstonedOnlyInItsTenant, TestUserStillThereOrUnreadableFailsOnlyItsTenant, TestDeletedUserReadsAre404]
 ---
 
 ## Boundary
@@ -32,6 +32,16 @@ inside one tenant.
 - **Group sync is per tenant.** Each cycle applies one tenant's snapshot inside
   that tenant's transaction as `nava_groupsync`; a hostile snapshot that names
   another tenant's rows changes nothing there.
+- **A user deleted while a tenant is read (TICK-1113).** Group sync reads the
+  member lists first, then each user. It leaves a user out of the snapshot, and
+  so tombstones the user in that tenant, only when two reads answer 404: the
+  user's federated identities, then the user (`GET /users/{id}`). Any other
+  answer to these two reads fails that tenant, and the cycle changes nothing in
+  it.
+  A 404 from Keycloak's token endpoint is never read as "gone"
+  (`statusError.Is`). The rule looks at the status only, so it cannot tell
+  Keycloak's 404 from a proxy's: `AR-TICK-1113-01` below, which TICK-1141 is
+  to fix.
 - **Keycloak.** The account console and profile cannot change any attribute
   that feeds a tenant, role or group claim; token exchange is disabled; service
   accounts carry no organization; `nava-operator` cannot be self-assigned, and
@@ -83,6 +93,15 @@ Group sync and invitations across tenants: `TestHostileSnapshotNeverTouchesAnoth
 `TestInviteCannotEnrolAnotherTenantsUser`, `TestInviteCannotSquatAnotherTenantsEmail`,
 `TestGetMeTombstonedAndDisabledPrincipals`.
 
+A user deleted while a tenant is read:
+
+| Case | Test | Runs on |
+|---|---|---|
+| Two 404s leave the user out; one 404, another status or a token-endpoint 404 fails the tenant | `TestChangesSince` | Fake Keycloak, no database |
+| The user is tombstoned in their tenant; the other user and the other tenant are unchanged | `TestUserDeletedDuringSnapshotIsTombstonedOnlyInItsTenant` | Fake Keycloak, real PostgreSQL |
+| The second read answers 200 or 500: the tenant fails and keeps its rows, the other tenant syncs | `TestUserStillThereOrUnreadableFailsOnlyItsTenant` | Fake Keycloak, real PostgreSQL |
+| Keycloak answers 404 to both reads of a deleted user | `TestDeletedUserReadsAre404` | Real Keycloak (`make stack-test-identity`) |
+
 ## Fixture that turns it red
 
 `TestStackPathsExist` fails when a stack case's named test is renamed or
@@ -93,7 +112,7 @@ succeed), so a case that never had the access cannot pass.
 
 ## Accepted risks
 
-<!-- gen:accepted-risks ids=AR-022,AR-030,AR-036,AR-038,AR-045,AR-S8-01,AR-TICK-529-04 -->
+<!-- gen:accepted-risks ids=AR-022,AR-030,AR-036,AR-038,AR-045,AR-S8-01,AR-TICK-529-04,AR-TICK-1113-01 -->
 
 ## Related
 

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/audit/export"
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/read"
 )
 
 func runCSV(t *testing.T, l *fakeLog, pageSize int, req export.Request) ([]byte, error) {
@@ -208,5 +210,40 @@ func TestCSVPageFailureLeavesNoTrailer(t *testing.T) {
 	}
 	if bytes.Contains(cb, []byte("\r\ntrailer,")) {
 		t.Errorf("trailer written after a failure: %q", cb)
+	}
+}
+
+// ADR-004-E10 E10-4: a row with diff_nul_escaped true carries the member in
+// its JSONL envelope and true in its CSV cell; the other rows carry neither
+// (member omitted, empty cell). Both files verify.
+func TestDiffNULEscapedExported(t *testing.T) {
+	t.Parallel()
+	l := newFakeLogWith(t, 4, func(e *read.Entry) { e.DiffNULEscaped = *e.Seq == 3 })
+	j, c := runBoth(t, l, 10, export.Request{Stubs: true})
+	mustPass(t, j)
+	mustPass(t, c)
+	if n := bytes.Count(j, []byte(`"diff_nul_escaped":true`)); n != 1 {
+		t.Errorf("JSONL has the member on %d lines, want 1", n)
+	}
+	if bytes.Contains(j, []byte(`"diff_nul_escaped":false`)) {
+		t.Error("JSONL emits the member as false")
+	}
+	rows := readCSV(t, c)
+	col := slices.Index(rows[0], "diff_nul_escaped")
+	if col < 0 || rows[0][col-1] != "diff_truncated" {
+		t.Fatalf("CSV column row %v: diff_nul_escaped is not right after diff_truncated", rows[0])
+	}
+	var trues int
+	for _, r := range rows[1:] {
+		switch r[col] {
+		case "true":
+			trues++
+		case "":
+		default:
+			t.Errorf("CSV diff_nul_escaped cell %q, want true or empty", r[col])
+		}
+	}
+	if trues != 1 {
+		t.Errorf("%d CSV rows with the flag true, want 1", trues)
 	}
 }

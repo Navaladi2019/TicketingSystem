@@ -33,8 +33,10 @@ func TestCLI(t *testing.T) {
 		wantErr []string
 	}{
 		{
-			name:   "in step",
-			args:   func(t *testing.T) []string { return []string{"-root", fixture(t, "ok"), "-pins", pins} },
+			name: "in step",
+			args: func(t *testing.T) []string {
+				return []string{"-root", fixture(t, "ok"), "-pins", pins, "-same-go=false"}
+			},
 			code:   0,
 			stdout: "check-pins: ok\n",
 		},
@@ -46,14 +48,16 @@ func TestCLI(t *testing.T) {
 					t.Fatal(err)
 				}
 				writeFile(t, dir, "docs/pins.md", string(data))
-				return []string{"-root", dir}
+				return []string{"-root", dir, "-same-go=false"}
 			},
 			code:   0,
 			stdout: "check-pins: ok\n",
 		},
 		{
 			name: "a forbidden require fails",
-			args: func(t *testing.T) []string { return []string{"-root", fixture(t, "forbidden"), "-pins", pins} },
+			args: func(t *testing.T) []string {
+				return []string{"-root", fixture(t, "forbidden"), "-pins", pins, "-same-go=false"}
+			},
 			code: 1,
 			wantErr: []string{
 				"check-pins: go.mod: requires github.com/coreos/go-oidc/v3 v3.17.0, which is forbidden (github.com/coreos/go-oidc)\n",
@@ -61,7 +65,9 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name: "drifted image tags fail, one line each",
-			args: func(t *testing.T) []string { return []string{"-root", fixture(t, "image"), "-pins", pins} },
+			args: func(t *testing.T) []string {
+				return []string{"-root", fixture(t, "image"), "-pins", pins, "-same-go=false"}
+			},
 			code: 1,
 			wantErr: []string{
 				"check-pins: compose.yaml:",
