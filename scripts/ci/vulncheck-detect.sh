@@ -33,9 +33,9 @@
 #   removed line naming govulncheck or GOVULNCHECK_VERSION in Makefile or
 #   make/lint.mk                                       -> both
 #   an added or removed FROM line naming golang (any case of FROM, flags such
-#   as --platform= allowed; wider than the contract's FROM golang:) in a file
-#   whose base name starts with Dockerfile (Dockerfile.dev counts); a path whose base name is go.work or
-#   go.work.sum                                        -> both
+#   as --platform= allowed) in any file, not only a Dockerfile (wider than the
+#   contract's "FROM golang: in any Dockerfile", failing closed); a path whose
+#   base name is go.work or go.work.sum                -> both
 #   anything else                                      -> neither
 set -eu
 
@@ -124,14 +124,15 @@ done <<END
 $pins
 END
 
+# Any file, not only a Dockerfile* name: a compose file or docker build -f
+# can name a Dockerfile anything (Dockerfilé, build.docker), so a FROM ...
+# golang line fails closed wherever it is. A quoted name here is caught too.
 while IFS= read -r f; do
-    case ${f##*/} in
-        Dockerfile*)
-            say "$f: a FROM ... golang line changed -> both"
-            root=true
-            ts=true
-            ;;
-    esac
+    [ -z "$f" ] || {
+        say "$f: a FROM ... golang line changed -> both"
+        root=true
+        ts=true
+    }
 done <<END
 $golang
 END

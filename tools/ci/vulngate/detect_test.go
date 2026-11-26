@@ -207,7 +207,11 @@ func TestDetect(t *testing.T) {
 		// the image. Each is a new file, so no FROM golang: line changes.
 		{"Dockerfile lowercase from golang", create("deploy/compose/nava-x/Dockerfile", "from golang:1.26 AS build\n"), both},
 		{"Dockerfile FROM --platform golang", create("deploy/compose/nava-y/Dockerfile", "FROM --platform=$BUILDPLATFORM golang:1.26 AS build\n"), both},
-		{"FROM golang: in a non-Dockerfile", replace("docs/notes.md", "# Notes\n", "# Notes\n\nFROM golang:1.26\n"), none},
+		// Any file can be a Dockerfile (compose dockerfile:, docker build -f),
+		// so a line-start FROM ... golang counts wherever it is; prose that
+		// only mentions it mid-line does not.
+		{"FROM golang: in a non-Dockerfile", replace("docs/notes.md", "# Notes\n", "# Notes\n\nFROM golang:1.26\n"), both},
+		{"FROM golang: mid-line in prose", replace("docs/notes.md", "# Notes\n", "# Notes\n\nBuilt FROM golang:1.26 upstream.\n"), none},
 		{"go.work added", add("go.work"), both},
 		{"go.work.sum added", add("go.work.sum"), both},
 		{"nested go.work changed", appendTo("temporal-server/go.work"), both},
