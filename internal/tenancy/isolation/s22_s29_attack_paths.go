@@ -647,8 +647,10 @@ func s29Unseed(ctx context.Context, super *pgx.Conn) error {
 // job, a pending row and a failure row. As nava_app and as nava_worker in
 // tenant A, on each table: no row of another tenant, by tenant or by tenant
 // B's definition id; tenant A's own rows are there (control); an INSERT
-// naming tenant B is refused; nava_app's INSERT, UPDATE and DELETE are
-// refused (42501) even on its own rows; nava_worker's UPDATE and DELETE of
+// naming tenant B is refused; nava_app's UPDATE and DELETE, and its INSERT
+// into the queue and failures, are
+// refused (42501) even on its own rows, and it inserts only a fresh pending
+// job of its own tenant (PLAN-010 D-10-11); nava_worker's UPDATE and DELETE of
 // tenant B's rows reach none, of its own reach them (control). With no
 // tenant set each reads zero rows. schema_backfill_failures has exactly
 // the C1 columns: no value column. Admission: tenant B's running job holds
@@ -722,9 +724,20 @@ func s29Tables(ctx context.Context, c Cluster) error {
 					}
 				}
 				if !worker {
+					// PLAN-010 D-10-11: publish inserts its own tenant's fresh
+					// pending job as nava_app (schema_backfills only); a job in
+					// any other state is refused by schema_backfills_insert_app_pending.
+					own := table == "schema_backfills"
 					n, err := execOne(ctx, tx, inserts[table], insertArgs(table, TenantA, ticketDefA, RecordA1)...)
-					if err := s21Want(role+": "+table+": INSERT its own row", false, n, err, 0); err != nil {
+					if err := s21Want(role+": "+table+": INSERT its own row", own, n, err, 1); err != nil {
 						return err
+					}
+					if own {
+						_, err := execOne(ctx, tx, `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
+							VALUES ($1, $2, 755, 'running', '{iso_s29}')`, TenantA, ticketDefA)
+						if err := refused(role+": schema_backfills: INSERT its own running job", err); err != nil {
+							return err
+						}
 					}
 					_, err = execOne(ctx, tx, `UPDATE `+table+` SET target_version = target_version WHERE tenant_id = $1`, TenantA)
 					if err := refused(role+": "+table+": UPDATE its own rows", err); err != nil {
