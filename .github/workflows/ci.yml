@@ -17,7 +17,8 @@
 #                    (make ci-temporal-server-changed, TICK-641), story-branch
 #                    pull requests included (TICK-695)
 #   integration      -tags integration against a throwaway PostgreSQL
-#   isolation        full runs only: the tenant isolation suite, the
+#   isolation        full runs and every pull request run with ci:run or
+#                    ci:full (TICK-1146): the tenant isolation suite, the
 #                    ci-isolated --down tag check and the integration cleanup
 #                    check (TICK-652); its own job since TICK-1003, in
 #                    parallel with integration, which it overran at 15 min
@@ -62,7 +63,8 @@
 #   6-hourly schedule              story-branches only           -
 #   manual run (workflow_dispatch) every job and area; CI_ALL    full
 #                                  (real images) on main
-# fast: the tier=smoke stack cases, no isolation suite, no stack-db or
+# fast: the tier=smoke stack cases, no isolation suite (but on a pull request
+# with ci:run, TICK-1146), no stack-db or
 # stack-internal phase, no CI-5, CI-6 or isolation report. full (CI_FULL):
 # everything, as every push to main ran before TICK-652. The regressions only
 # a full run catches reach main and are caught by the next daily run, about
@@ -348,90 +350,7 @@ jobs:
       # check-openapi and review-paths diff against the pull request's base.
       BASE: origin/${{ github.base_ref || 'main' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.cache/golangci-lint
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      # Self-hosted (TICK-641): ~/go/bin persists, so no Actions cache, and
-      # make tools reinstalls the pins from the warm Go cache.
-      - name: Cache pinned tools
-        id: tools
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/go/bin
-          # The Go version is in the key: a golangci-lint built with an older Go
-          # panics on a newer go.mod ("package requires newer Go version", TICK-962).
-          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}-go${{ steps.setup-go.outputs.go-version }}
-      - name: Install pinned tools
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: make tools
-      - name: Review paths (D-P10)
-        if: github.event_name == 'pull_request'
-        run: make review-paths
-      - name: Tool versions
-        run: make check-tools
-      - name: gofmt
-        run: make fmt-check
-      - name: go vet
-        run: make vet
-      # Every //go:build tag set, discovered by tools/ci/buildtags (TICK-320).
-      - name: go vet per build-tag set
-        run: make vet-tags
-      - name: golangci-lint
-        run: make lint
-      - name: Lint fixture (exact forbidigo finding count)
-        run: make lint-fixture
-      - name: Taskfile matches Makefile
-        run: make check-taskfile
-      - name: Pins and forbidden modules
-        run: make check-pins
-      - name: api.gen.go matches openapi.yaml
-        run: make check-generate
-      # TICK-391: lib/nava.js REGISTERED, the pages and the kit zip.
-      - name: Acceptance guide matches build.py
-        run: make check-guide
-      # The list is tools/ci/cisteps/required.yaml (TICK-297).
-      - name: ci.yml keeps every required step
-        run: make check-ci-steps
-      - name: OpenAPI additive-only
-        run: make check-openapi
-      # TICK-847: the handbook generator's tests.
-      - name: Handbook generator tests
-        run: make test-handbook
-      # TICK-960: the page-coverage gate (api/handbook_coverage_test.go) here
-      # too, because unit is skipped on a docs-only change, the very change
-      # that adds an ADR without its handbook page (#711, #716). lint runs on
-      # every pull request, label or not, and on every push to main.
-      - name: Handbook covers every story and ADR
-        run: make test-handbook-coverage
-      # govulncheck: the govulncheck workflow (TICK-641).
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.cache/golangci-lint
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   unit:
     needs: [runner, changes]
@@ -445,42 +364,7 @@ jobs:
       # have shipped bind deployed databases (TICK-309).
       BASE: origin/main
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      - name: go test -race
-        run: make test
-      # The unit half of the coverage gate (TICK-518).
-      - name: Unit coverage profile
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-unit
-          path: coverage.out
-          if-no-files-found: error
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   temporal-server:
     needs: [runner, changes]
@@ -492,58 +376,7 @@ jobs:
       # (TICK-584 ratchet), so the checkout needs the base's history.
       BASE: origin/${{ github.base_ref || 'main' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: temporal-server/go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.cache/golangci-lint
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      # The lint job's tools cache (same key): golangci-lint.
-      # Self-hosted (TICK-641): ~/go/bin persists, so no Actions cache, and
-      # make tools reinstalls the pins from the warm Go cache.
-      - name: Cache pinned tools
-        id: tools
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/go/bin
-          # The Go version is in the key: a golangci-lint built with an older Go
-          # panics on a newer go.mod ("package requires newer Go version", TICK-962).
-          key: tools-${{ hashFiles('Makefile', 'make/lint.mk') }}-go${{ steps.setup-go.outputs.go-version }}
-      - name: Install pinned tools
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: make tools
-      - name: temporal-server unit tests
-        run: make temporal-server-test
-      # make lint's ./... stops at this module's go.mod (TICK-584). Only
-      # findings in changed lines until the existing backlog is fixed.
-      - name: golangci-lint (temporal-server)
-        run: make lint-temporal-server
-      # govulncheck (ADR-001 A1 Decision 3): the govulncheck workflow (TICK-641).
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.cache/golangci-lint
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   integration:
     needs: [runner, changes]
@@ -559,59 +392,20 @@ jobs:
     # 44634136748, 44641187163).
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 15 }}
     steps:
-      - uses: actions/checkout@v4
-      # Self-hosted (TICK-641): this run's compose project, image tag and
-      # host ports, and the nava.ci.owner label of its clusters, which the
-      # self-hosted-cleanup job removes.
-      - name: Per-run Docker names (self-hosted)
-        if: needs.runner.outputs.self_hosted == 'true'
-        env:
-          ID: ci-${{ github.run_id }}
-        run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      - name: Integration tests (-tags integration)
-        env:
-          # Never the isolation suite here: the isolation job runs it on a
-          # full run (TICK-1003; TICK-652, AR-TICK-652-01).
-          # Here, not on the run: line: required.yaml matches that line exactly.
-          ISOLATION: "0"
-        run: make test-integration
-      # The integration half of the coverage gate (TICK-518).
-      - name: Integration coverage profile
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-integration
-          path: coverage-integration.out
-          if-no-files-found: error
-      # TICK-641: the self-hosted cleanup removes one run's Docker objects
-      # and nothing else (throwaway objects, seconds).
-      - name: Self-hosted cleanup removes only its run's objects
-        run: make test-self-hosted-cleanup
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   isolation:
+    # TICK-1146: the name is an expression on purpose. GitHub names a skipped
+    # job's check run after the unevaluated expression, so only a run that
+    # executed the suite reports the required check "isolation". With a
+    # literal name a later run on the same commit that skipped the job (any
+    # other label, ci:run after ci:full, close and reopen) replaced a red
+    # isolation and the pull request showed CLEAN (spike PR 898,
+    # docs/quality/label-run-hides-red-check.md). make check-ci-steps pins it
+    # (required.yaml checks). So every pull request run with ci:run or
+    # ci:full runs the job, whatever the diff: otherwise a ci:run pull
+    # request into main could never report isolation. About 6 min a run.
+    name: ${{ 'isolation' }}
     # TICK-1003: the tenant isolation suite (T11, ADR-001 CI-2) and the two
     # checks of CI scripts, on a full run (TICK-652, AR-TICK-652-01) and on
     # every pull request into a TICK-* story branch (TICK-1031), in
@@ -622,55 +416,11 @@ jobs:
     # build about 6 min, so 15 is a hang guard with over 100 % margin.
     # Self-hosted 30 (TICK-641).
     needs: [runner, changes]
-    if: needs.changes.outputs.integration == 'true' && needs.changes.outputs.full == 'true'
+    if: (needs.changes.outputs.integration == 'true' && needs.changes.outputs.full == 'true') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'ci:run') || contains(github.event.pull_request.labels.*.name, 'ci:full')))
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 15 }}
     steps:
-      - uses: actions/checkout@v4
-      # Self-hosted (TICK-641): as integration.
-      - name: Per-run Docker names (self-hosted)
-        if: needs.runner.outputs.self_hosted == 'true'
-        env:
-          ID: ci-${{ github.run_id }}
-        run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      # The integration job's cache: the suite builds the same -tags
-      # integration packages. Only integration saves it.
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-integration-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-integration-${{ hashFiles('**/go.sum') }}-
-            go-integration-
-      # Under suiteran (TICK-230): a registered isolation suite that runs
-      # zero tests fails the step.
-      - name: Tenant isolation suite
-        run: make isolation
-      # Its own step, not part of make test-integration (TICK-224): it tests
-      # a CI script, not the product.
-      - name: ci-isolated --down untags only its own tags
-        if: ${{ !cancelled() }}
-        run: make test-ci-isolated-down
-      # TICK-185: a run with ARGS or a TERM part way leaves no nava-it-*
-      # container or network.
-      - name: Integration script leaves nothing behind
-        if: ${{ !cancelled() }}
-        run: make test-integration-cleanup
-      - name: Isolation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: isolation-report
-          path: isolation-report.md
-          if-no-files-found: error
+      - run: exit 1 # TICK-1146 spike stub
 
   commit-check-budget:
     # ADR-004-E3's commit-check budget rows (D-E3-4, TICK-509):
@@ -689,32 +439,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      - name: Commit-check budget rows and the P511 pooled-session ratio
-        run: make test-commit-check-budget
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   stack:
     # The three stack phases share one image build (TICK-563): the images
@@ -750,208 +475,7 @@ jobs:
       # workflow's CI_FULL expression (keep the two equal).
       STACK_TIER: ${{ (github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full'))) && 'all' || 'smoke' }}
     steps:
-      - uses: actions/checkout@v4
-      # Self-hosted (TICK-641): this run's compose project, image tag and
-      # host ports, and the nava.ci.owner label of its clusters, which the
-      # self-hosted-cleanup job removes.
-      - name: Per-run Docker names (self-hosted)
-        if: needs.runner.outputs.self_hosted == 'true'
-        env:
-          ID: ci-${{ github.run_id }}
-        run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ github.job }}-
-      # GitHub-hosted: a fresh builder and the Actions runtime env for
-      # type=gha. Self-hosted: neither (setup-buildx-action's builder is
-      # throwaway, its cache gone after the job); the persistent nava-ci
-      # builder instead, selected through BUILDX_BUILDER (TICK-641).
-      - uses: docker/setup-buildx-action@v3
-        if: needs.runner.outputs.self_hosted != 'true'
-      - uses: crazy-max/ghaction-github-runtime@v3
-        if: needs.runner.outputs.self_hosted != 'true'
-      - name: Persistent buildx builder nava-ci (self-hosted)
-        if: needs.runner.outputs.self_hosted == 'true'
-        run: make ci-builder
-      # One go build of the seven service binaries for the thin images
-      # (TICK-628). Main builds them too, though its images are real, so the
-      # Go cache it saves holds this build (CGO off, -trimpath) and a pull
-      # request's build is warm.
-      - name: Build the Go service binaries
-        if: env.IMAGE_THIN == '1' || env.CACHE_WRITE == 'true'
-        run: make ci-binaries
-      # TICK-641, TICK-693: the temporal-server and keycloak images published
-      # from main for this checkout's keys, tagged as this run's
-      # nava/<service>; image-ci then leaves the hits out of the bake
-      # (PREBUILT_SERVICES). A miss (the change edits a key input, or the
-      # pull fails) is not an error: image-ci builds that one, as before.
-      - name: Published CI images (temporal-server, keycloak)
-        run: make prebuilt-pull
-      # TICK-1128: a full run's OpenObserve image, by compose.yaml's digest,
-      # from ECR Public or else Docker Hub; every later step uses that image
-      # (OPENOBSERVE_REPO). Fails when both refuse; a fast run skips it.
-      - name: OpenObserve image by digest (ECR Public, then Docker Hub)
-        run: make openobserve-pull
-      # Once per run: every phase below uses these images.
-      - name: Build images (layer cache in gha, or nava-ci on self-hosted)
-        id: images
-        run: make image-ci
-
-      # TICK-829: the sdk_ts case runs the SDK's integration tests with
-      # node --test --experimental-strip-types, so the Node of sdk/ts/.nvmrc
-      # (22), not the runner's default; same setup as the sdk job. The npm
-      # cache key covers the Bruno CLI's lockfile too (TICK-1003).
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: sdk/ts/.nvmrc
-          cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
-          cache-dependency-path: |
-            sdk/ts/package-lock.json
-            tools/bruno/package-lock.json
-      # TICK-1003: the Bruno CLI from tools/bruno/package-lock.json (npm ci),
-      # once, before any case: the cases' api-test.sh then finds it installed.
-      # No case resolves the CLI's dependency tree from the registry, which
-      # failed s8_entity_types on a tarball published 32 s earlier (run
-      # 44604840061).
-      - name: Bruno CLI from its lockfile
-        run: make bruno-cli
-
-      # Phase 1: the platform and Temporal cases.
-      - name: Start the stack
-        id: up
-        run: make stack-up
-      # Every case with job=stack in deploy/compose/test/cases/*.sh, in registry order, each in
-      # its own log group; a failure names the case. A new case file runs here without a change
-      # to this file (TICK-296). The reports below are written by the sdk and identity_attacks cases.
-      - name: Stack cases (stack)
-        id: cases-stack
-        env:
-          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
-          # Here, not on the run: line: required.yaml matches that line exactly.
-          PARALLEL: "1"
-        run: make stack-tests JOB=stack
-      # TICK-696: host and per-container memory after the cases, so a fast run
-      # (no operator profile) and a full run compare. Never fails.
-      - name: Stack memory (stack)
-        if: always() && steps.up.outcome == 'success'
-        run: make stack-mem
-      # sdk and identity_attacks write these; both are full-tier (TICK-652).
-      - name: CI-6 report
-        if: always() && env.CI_FULL == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci6-report
-          path: ci6-report.md
-          if-no-files-found: error
-      - name: CI-5 report
-        if: always() && env.CI_FULL == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci5-report
-          path: ci5-report.md
-          if-no-files-found: error
-      # Written by the s10_access case (TICK-643): the Bruno JUnit, HTML and JSON reports of
-      # folder S10. They carry the dev-only seed passwords (already in bruno/environments/local.bru)
-      # and this run's short-lived tokens of a stack torn down below; Authorization headers are
-      # left out. warn, not error: an earlier failed serial case stops the run before s10_access,
-      # and that case is the failure to read.
-      - name: S10 access report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: s10-access-report
-          path: docs/acceptance/guide/reports/S10.*
-          if-no-files-found: warn
-          retention-days: 14
-      # Written by the s11b_workflows case (TICK-713): the S11b story kit's Bruno reports, the
-      # evidence of the fresh-stack run. Same content and the same warn as the S10 report.
-      - name: S11b workflows report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: s11b-workflows-report
-          path: docs/acceptance/guide/reports/S11b.*
-          if-no-files-found: warn
-          retention-days: 14
-      # Written by the s28_first_routed_record case (TICK-884): the S28 M-X1a kit's Bruno
-      # reports, onboarding to the first workflow-routed record. Same content and warn as above.
-      - name: S28 first routed record report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: s28-first-routed-record-report
-          path: docs/acceptance/guide/reports/S28.*
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Logs on failure (stack)
-        if: always() && (steps.up.outcome == 'failure' || steps.cases-stack.outcome == 'failure')
-        run: make stack-logs
-      - name: Tear down (stack)
-        if: always()
-        run: make stack-down
-
-      # Phase 2: the database cases (job=stack-db) on a fresh stack. Full
-      # runs only (TICK-652, AR-TICK-652-01).
-      - name: Start a fresh stack (stack-db)
-        id: up-db
-        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.images.outcome == 'success' }}
-        run: make stack-up
-      - name: Stack cases (stack-db)
-        id: cases-db
-        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.up-db.outcome == 'success' }}
-        env:
-          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
-          # Here, not on the run: line: required.yaml matches that line exactly.
-          PARALLEL: "1"
-        run: make stack-tests JOB=stack-db
-      - name: Logs on failure (stack-db)
-        if: always() && (steps.up-db.outcome == 'failure' || steps.cases-db.outcome == 'failure')
-        run: make stack-logs
-      - name: Tear down (stack-db)
-        if: always()
-        run: make stack-down
-
-      # Phase 3: the internal overlay (job=stack-internal), which brings up
-      # its own stack. Full runs only (TICK-652, AR-TICK-652-01).
-      - name: Dev installation CA
-        id: ca
-        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.images.outcome == 'success' }}
-        run: make dev-ca
-      - name: Stack cases (stack-internal)
-        id: cases-internal
-        if: ${{ !cancelled() && env.CI_FULL == 'true' && steps.ca.outcome == 'success' }}
-        env:
-          # The mode=parallel cases run at once, as in make ci-stack (TICK-628).
-          # Here, not on the run: line: required.yaml matches that line exactly.
-          PARALLEL: "1"
-        run: make stack-tests JOB=stack-internal
-      - name: Logs on failure (stack-internal)
-        if: always() && steps.cases-internal.outcome == 'failure'
-        run: make stack-logs
-      - name: Tear down (stack-internal)
-        if: always()
-        run: make stack-down
-      # Only main writes the cache (TICK-400); see CACHE_WRITE above.
-      - name: Save the Go build cache
-        if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+      - run: exit 0 # TICK-1146 spike stub
 
   self-hosted-cleanup:
     # TICK-641: on the self-hosted runner, after every job that uses Docker,
@@ -994,43 +518,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore the Go build cache
-        if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-unit-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-unit-${{ hashFiles('**/go.sum') }}-
-            go-unit-
-      - name: Download the unit profile
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-unit
-      - name: Download the integration profile
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-integration
-      - name: Coverage gate (95%, TICK-518)
-        run: make check-coverage
-      - name: Coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: |
-            coverage.out
-            coverage-integration.out
-            coverage-total.out
-            coverage.html
-          if-no-files-found: error
+      - run: exit 0 # TICK-1146 spike stub
 
   sdk:
     # TICK-827 (PLAN-008 P8-22, ADR-007 D10, RFC-017 CI-E10): the TypeScript
@@ -1044,26 +532,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 10 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: sdk/ts/.nvmrc
-          cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
-          cache-dependency-path: sdk/ts/package-lock.json
-      - name: Generated client matches the bundle (CI-E10)
-        run: make check-sdk-generated
-      - name: SDK lint
-        run: make sdk-lint
-      - name: SDK tests
-        run: make sdk-test
-      - name: SDK build and npm pack
-        run: make sdk-pack
-      - name: Upload the SDK tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdk
-          path: sdk/ts/*.tgz
-          if-no-files-found: error
+      - run: exit 0 # TICK-1146 spike stub
 
   full-suite:
     # TICK-638: on a pull request into a TICK-* story branch every suite job
