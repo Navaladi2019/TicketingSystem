@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-26: S29, the backfill outbox payload holds UUIDs only, and publish inserts the job row as `nava_app` (D-10-10, D-10-11)](decisions/2026-11-26-s29-outbox-payload-and-publish-job-row.md)
 - [2026-11-26: S21 ships without the 350 ms p95 for the ≥ 40% band under a row ACL; the target moves to S21c (`AR-S21-01`)](decisions/2026-11-26-s21-40pct-acl-latency-split.md)
 - [2026-11-25: TICK-1128, CI pulls OpenObserve by one digest from ECR Public, then Docker Hub; our own copy is deferred (`AR-TICK-1128-01`)](decisions/2026-11-25-tick-1128-openobserve-two-registries.md)
 - [2026-11-25: S31, the probe load of one list is deferred with a trigger (`AR-S31-05`)](decisions/2026-11-25-s31-probe-load-deferred.md)
