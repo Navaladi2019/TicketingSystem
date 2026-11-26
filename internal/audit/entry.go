@@ -132,6 +132,13 @@ type Entry struct {
 	// Diff is the RFC 6902 patch bytes, stored as given (json, never jsonb);
 	// nil for an entry with no diff. Build it with internal/audit/jsondiff.
 	Diff []byte
+	// DiffNULEscaped records that each NUL character in the previous value
+	// the diff was built from was escaped to the text \u0000 first, because
+	// jsonb refuses NUL (TICK-1121, TICK-1170). The caller that escapes sets
+	// it, and only when it replaced at least one NUL; it is stored in
+	// audit_log.diff_nul_escaped. Whether it is an envelope member is
+	// ADR-004-E10 (TICK-1169).
+	DiffNULEscaped bool
 	// SecretPaths are the subject schema's x-nava-secret and writeOnly
 	// pointers. They match token by token (no array wildcard).
 	SecretPaths []patchwalk.Pointer
