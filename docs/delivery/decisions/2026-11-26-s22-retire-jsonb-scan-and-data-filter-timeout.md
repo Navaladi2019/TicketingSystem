@@ -1,0 +1,10 @@
+## 2026-11-26: S22 P7-12, the JSONB data-filter scan and the 2 s data-filter timeout are retired; this supersedes the data-filter half of D25
+- **Decided by:** ADR-006 D6 and PLAN-007 D-7-6, applied in TICK-752. The Technical Lead chose how the seed types get their flags (below). Dissent: none.
+- **Supersedes:** the second bullet of [2026-11-09 D25](2026-11-09-d25-list-total-cap-and-data-filter-timeout.md) (the `statement_timeout` of 2 s on a data-filter list, `store.DataFilterTimeout`, `422 filter_too_expensive`). The first bullet stays in force: the list `total` is capped at 1,000.
+- **Decision:**
+  - A filter on a data field is answered only through the field-index side tables (ADR-006 D6, D7). `fieldindex.LegacyScanFields`, the JSONB `r.data @>` filter compile, `store.DataFilterTimeout`, `boundDataFilter`, the data-filter `ErrStatementTimeout` and `server.WithDataFilterTimeout` are deleted.
+  - A data field that is not flagged `x-nava-filterable` answers `400 field_not_filterable` for every type, seed types included. A flagged field that is still backfilling answers `422 field_not_ready`.
+  - The data-filter list is bounded by the field index and by the count budget (`store.CountBudget`, 140 ms, total `unknown` past it), not by a statement timeout.
+  - The seed types flag `incident.priority`, `request.priority` and `change.risk`. Onboarding seeds version 1 unflagged and then publishes version 2 with the flags through the normal publish path as `nava_app`, which writes the registry rows. The grants and the Seed contract are unchanged (`ErrSeedFilterable` stays). Existing tenants get the flags through a normal publish and backfill; no DDL.
+- **Deferred:** removing the `filter_too_expensive` problem code and its API spec entry. It is an API change; it gets its own follow-up when the next API version opens. No route returns it any more.
+- **Reopens:** if a flagged seed field misses the list budget on a large tenant, that is tuning (`Performance pending`), not a return of the scan.
