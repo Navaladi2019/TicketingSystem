@@ -752,7 +752,7 @@ labelled `P0`, with the failing jobs and the run URL; while one such issue is
 open, a later red push comments on it instead. Close it once `main` is green. Locally, `make ci-stages`
 prints the stages for the current branch, `CI_ALL=1 make ci-stages` prints
 all four and `CI_LINT_ONLY=1 make ci-stages` prints `ci-lint`. The issue
-names the event ("a push to `main`" or "a scheduled run on `main`", `scripts/ci/main-red.sh`).
+names the event ("a push to `main`" or "a scheduled run on `main`", `scripts/ci/main-red.sh`). The `ci` workflow's issue is titled `main is red: <short sha>` and the `govulncheck` workflow's (`WORKFLOW=govulncheck`) `govulncheck is red: <short sha>`; each comments only on an open issue with its own prefix (TICK-1152).
 
 ### Thin CI images (TICK-628)
 

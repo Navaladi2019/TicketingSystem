@@ -10,8 +10,9 @@ groups:
   - name: groupsync
     rules:
       - alert: GroupsyncOrgUnitsAboveCertified
-        # 10111 is the live-unit count ADR-010-A2 is certified to (A2-7). It
-        # lives here and nowhere else.
+        # 10111 is the live-unit count ADR-010-A2 is certified to (A2-7). It is
+        # also uCert in internal/authz/shape.go (ADR-010-A3 A3-3);
+        # TestUCertIsTheAlertThreshold keeps the two equal.
         expr: groupsync_org_units_live_max > 10111
         for: 10m
         labels:
