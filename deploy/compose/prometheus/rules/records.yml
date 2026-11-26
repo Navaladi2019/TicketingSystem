@@ -8,8 +8,9 @@
 # field or value label (T01). Legacy-scan lists (fieldindex.LegacyScanFields)
 # are not in this series, so this alert does not see them (D-7A2-6).
 # RecordsListTotalUnknown fires when more than 5 % of those lists over the
-# last hour answered total_state="unknown": the count ran past its 200 ms
-# budget and the list returned total null. The page itself was complete.
+# last hour answered total_state="unknown": the count ran past its count budget
+# (CountBudget in internal/records/store/list.go)
+# and the list returned total null. The page itself was complete.
 # Zero traffic is guarded: no lists, no alert.
 # Tests: ../tests/records_test.yml (lineage.TestAlertRules).
 groups:
@@ -28,7 +29,7 @@ groups:
         annotations:
           summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
           description: >-
-            unknown means the list's count ran past its 200 ms budget; the page
+            unknown means the list's count ran past its count budget, CountBudget in internal/records/store/list.go; the page
             itself was complete, only the total is null. This is the R-a signal,
             not an outage. It is expected after a field backfill or bulk edits
             that leave a poor visibility map on the rfv_* tables, until
