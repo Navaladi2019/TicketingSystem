@@ -869,7 +869,14 @@ reported by two workflows.
 A finding fails the job. On a scheduled run on `main` the workflow's own
 `vulncheck-main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
-keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). They are
+compares the whole workflow, comment lines aside, with its checked-in copy
+`tools/ci/cisteps/govulncheck.copy.yml`, and requires `make -n` of the two
+recipes to print exactly `GOWORK=off govulncheck ./...` and
+`cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149, ADR-001-E4
+contract rule 9): an edit of only one of the two files fails `lint`; a
+deliberate edit of both passes and is the reviewer's to catch (RS3). Both
+scans run with `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
+`task vulncheck`. The two scans are
 deliberately not required checks of `main`: with the `paths:` filter, a
 required check would never report on most pull requests and block their
 merge. The trade-off (TICK-694): a code-only change that starts calling an
