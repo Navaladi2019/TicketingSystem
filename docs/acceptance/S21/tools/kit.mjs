@@ -3,7 +3,8 @@
 //   node kit.mjs setup <evidence-dir>
 //     As admin@tenant-a, on a fresh stack (incident at version 1):
 //       1. publishes the next incident version with one new optional property,
-//          `due_at` (string, format date-time), not flagged: Compatible;
+//          `due_at` (string, format date-time), not flagged, and with every
+//          seed-template flag removed (`priority` since TICK-752): Compatible;
 //       2. publishes tenant A's incident ACL with its rules unchanged and one
 //          mask: `description` is read and written by the admins group only,
 //          so it is a masked field for Alice (criterion 3).
@@ -69,9 +70,19 @@ async function setup() {
   const schema = cur.json.schema;
   must(!schema.properties.due_at, 'incident already has due_at: the kit needs a fresh stack');
   schema.properties.due_at = { type: 'string', format: 'date-time', title: 'Due at' };
+  // Since S22 (TICK-752) the seed template flags `priority`. seed.sql writes
+  // with session_replication_role = replica, which skips the field-index
+  // trigger, so a field flagged before the seed would miss 400k side rows.
+  // This publish drops every flag (an S22 removal, over 0 records), and
+  // run-kit.sh waits until the removal has deleted the registry rows. S21.4
+  // then still sees no flag, and S21.8 flags priority and due_at as before.
+  const unflagged = [];
+  for (const [k, p] of Object.entries(schema.properties)) {
+    if (p['x-nava-filterable']) { delete p['x-nava-filterable']; unflagged.push(k); }
+  }
   const pub = await call(tok, 'POST', '/api/v1/entity-types/incident/versions',
     { definition: { schema, fixed_columns: cur.json.fixed_columns, states: cur.json.states } });
-  must(pub.status === 201 && pub.json.compat === 'compatible', `publish due_at: HTTP ${pub.status}`);
+  must(pub.status === 201 && pub.json.compat === 'compatible', `publish due_at${unflagged.length ? ' and unflag ' + unflagged.join(',') : ''}: HTTP ${pub.status}`);
 
   const me = await call(tok, 'GET', '/api/v1/me');
   const admins = me.json.group_paths.find((g) => g.path === '/admins');

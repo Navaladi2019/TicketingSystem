@@ -1,5 +1,5 @@
 meta {
-  name: S22.17 AC2: the tenant admin cannot raise its own limit
+  name: S22.17 AC2: the tenant admin cannot raise its own limit: 403 forbidden
   type: http
   seq: 17
 }
@@ -25,9 +25,9 @@ body:json {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  test('refused: 401 or 403', () => expect([401, 403]).to.include(res.getStatus()));
+  N.problem('forbidden', 403);
 }
 
 docs {
-  The operator API (nava-onboard, through `tools/tunnels.sh up`) refuses a tenant token: 401 `invalid_token` (the audience is `nava-api`, not `nava-operator-api`), or 403. Nothing is written: S22.21's publish of the sixth flag would otherwise not need S22.19.
+  `setTenantLimits` takes an operator token only (TICK-751 scope 3, built in TICK-916). A tenant admin's token is 403, and nothing is written: verify.sql counts one audit entry, S22.22's.
 }

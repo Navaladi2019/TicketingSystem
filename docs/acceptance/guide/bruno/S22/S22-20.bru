@@ -1,5 +1,5 @@
 meta {
-  name: S22.20 AC2: the same raise again is a replay: 200, still 10
+  name: S22.20 AC2: the operator gives no reason: 400 validation_failed
   type: http
   seq: 20
 }
@@ -12,23 +12,21 @@ put {
 
 headers {
   Authorization: Bearer {{operator_token}}
-  Idempotency-Key: s22-{{s22_run}}-limit-10
+  Idempotency-Key: s22-{{s22_run}}-limit-noreason
   Content-Type: application/json
 }
 
 body:json {
   {
-    "filterable_fields_per_type": 10,
-    "reason": "S22 acceptance: measured cost check (TICK-754)"
+    "filterable_fields_per_type": 10
   }
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(200);
-  test('still 10', () => expect(N.json().filterable_fields_per_type).to.eql(10));
+  N.problem('validation_failed', 400);
 }
 
 docs {
-  The same `Idempotency-Key`: the stored answer, and no second audit entry (verify.sql counts exactly one).
+  `reason` is required: it goes into the audit entry (D25 governance). Refused, nothing written.
 }

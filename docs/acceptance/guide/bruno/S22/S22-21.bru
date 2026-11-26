@@ -1,40 +1,33 @@
 meta {
-  name: S22.21 AC2: after the raise, the sixth flag publishes: 201
+  name: S22.21 AC2: the operator names a tenant that does not exist: 404 not_found
   type: http
   seq: 21
 }
 
-post {
-  url: {{core_url}}/api/v1/entity-types/{{s22_qkey}}/versions
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/22222222-2222-4222-8222-222222222222/limits
   body: json
   auth: none
 }
 
 headers {
-  Authorization: Bearer {{admin_a_token}}
-  Idempotency-Key: s22-{{s22_run}}-quota-6th-after
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: s22-{{s22_run}}-limit-unknown
   Content-Type: application/json
 }
 
 body:json {
   {
-    "definition": "set by the pre-request script"
+    "filterable_fields_per_type": 10,
+    "reason": "S22 kit: unknown tenant"
   }
-}
-
-script:pre-request {
-  const N = require('./lib/nava')({ bru });
-  const d = JSON.parse(bru.getVar('s22_qdef'));
-  d.schema.properties.q6['x-nava-filterable'] = true;
-  req.setBody({ definition: d });
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(201);
-  test('version 2, q6 flagged', () => { expect(N.json().version).to.eql(2); expect(N.json().schema.properties.q6['x-nava-filterable']).to.eql(true); });
+  N.problem('not_found', 404);
 }
 
 docs {
-  The same definition S22.16 sent, with a new `Idempotency-Key`: the tenant's limit is now 10 per type, so 6 flagged fields publish.
+  An unknown tenant is 404, and nothing is written.
 }

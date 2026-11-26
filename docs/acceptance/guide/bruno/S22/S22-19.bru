@@ -1,5 +1,5 @@
 meta {
-  name: S22.19 AC2: the operator raises tenant A's per-type limit to 10, with a reason: 200
+  name: S22.19 AC2: the operator asks for 11: 400 validation_failed
   type: http
   seq: 19
 }
@@ -12,23 +12,22 @@ put {
 
 headers {
   Authorization: Bearer {{operator_token}}
-  Idempotency-Key: s22-{{s22_run}}-limit-10
+  Idempotency-Key: s22-{{s22_run}}-limit-11
   Content-Type: application/json
 }
 
 body:json {
   {
-    "filterable_fields_per_type": 10,
-    "reason": "S22 acceptance: measured cost check (TICK-754)"
+    "filterable_fields_per_type": 11,
+    "reason": "S22 kit: over the ceiling"
   }
 }
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.status(200);
-  test('the limit is 10', () => expect(N.json().filterable_fields_per_type).to.eql(10));
+  N.problem('validation_failed', 400);
 }
 
 docs {
-  Assumed route (TICK-751, folded into TICK-916): `PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API, body `filterable_fields_per_type` and a required `reason`. The change is an audited `tenant_limits` row, no DDL; verify.sql finds its audit entry with the operator as the actor and the reason.
+  11 is over the ceiling of 10. Refused, nothing written.
 }

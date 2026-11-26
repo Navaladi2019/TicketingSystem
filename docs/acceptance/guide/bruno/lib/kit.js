@@ -64,21 +64,34 @@ module.exports = (N, bru) => {
       if (b.total_state === 'unknown') return n > 0;
       return b.total === Math.min(n, 1000) && b.total_state === (n > 1000 ? 'capped' : 'exact');
     },
-    // Every record a filter lists, page by page (limit 200, next_cursor).
+    // A result over 1,000 matches (ADR-006-A2; Technical Lead ruling on S29
+    // criterion 1, TICK-754, 2026-11-26): null when the page answers capped
+    // with total 1,000 and total_capped true, or unknown with total a JSON
+    // null (the key present, not 0). exact, or a total under 1,000, fails.
+    bigTotal(b) {
+      if (!b || typeof b !== 'object') return 'no body';
+      const has = b.has_total !== undefined ? b.has_total : ('total' in b);
+      if (b.total_state === 'capped') return b.total === 1000 && b.total_capped === true ? null : `capped with total ${JSON.stringify(b.total)}, total_capped ${JSON.stringify(b.total_capped)}`;
+      if (b.total_state === 'unknown') return has && b.total === null ? null : `unknown with total ${has ? JSON.stringify(b.total) : 'missing'}`;
+      return `total_state ${JSON.stringify(b.total_state)}, total ${has ? JSON.stringify(b.total) : 'missing'}: want capped 1,000 or unknown null`;
+    },
+    // Every record a filter lists, page by page (limit 200, next_cursor), with
+    // each page's total fields (has_total: the key was there, even if null).
     async all(v, key, query) {
-      const items = [], broken = [];
+      const items = [], broken = [], totals = [];
       let cursor = null, first = null, pages = 0;
       do {
         const r = await T.list(v, key, query + '&limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
-        if (r.status !== 200) return { status: r.status, body: r.data, items, ids: items.map(i => i.id), first, pages, broken };
+        if (r.status !== 200) return { status: r.status, body: r.data, items, ids: items.map(i => i.id), first, pages, broken, totals };
         if (!first) first = r.data;
         const bad = T.contract(r.data);
         if (bad) broken.push(`page ${pages + 1}: ${bad}`);
+        totals.push({ total_state: r.data.total_state, total: r.data.total, has_total: 'total' in r.data, total_capped: r.data.total_capped });
         items.push(...r.data.items);
         cursor = r.data.next_cursor;
         pages++;
       } while (cursor);
-      return { status: 200, items, ids: items.map(i => i.id), first, pages, broken };
+      return { status: 200, items, ids: items.map(i => i.id), first, pages, broken, totals };
     },
     // The uuid Postgres gives md5(text)::uuid, as the kits' seed.sql ids are.
     md5uuid(s) {

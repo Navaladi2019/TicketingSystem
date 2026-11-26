@@ -16,8 +16,10 @@ Kit task TICK-754 (it absorbed TICK-928, PLAN-010 P10-13). Design: ADR-009 D1 to
 
 From the repository root, on the story branch, Docker running, Git Bash or any POSIX shell, Node.js 22:
 
+**In GitHub Actions:** the stack case `deploy/compose/test/cases/s22_s29_acceptance.sh` runs both kits in the `ci` workflow's stack job (see `docs/acceptance/S22/README.md`). On a laptop:
+
 ```sh
-sh docs/acceptance/S22/tools/run-s22-s29.sh    # S22 and S29 on one fresh stack (the day-2 run)
+sh docs/acceptance/S22/tools/run-s22-s29.sh    # S22 and S29 on one fresh stack
 sh docs/acceptance/S29/tools/run-kit.sh        # S29 alone on a fresh stack
 ```
 
@@ -52,9 +54,14 @@ The two jobs over about 2,050 records take about a minute. ADR-009 measured 7.3 
 | 5 | An optional field made required with a default is accepted (201) and backfilled like criterion 2; without a default it is refused as breaking | S29.6, S29.18 to S29.20; verify.sql | S29.6: required with no default, 422 `schema_breaking_change`. S29.18: required with `default: "standard"`, 201. S29.19 waits for that job. S29.20: every sampled record, the 50 included, holds `s29_tier: "standard"`, with version + 1, the same `updated_at` and one more history entry. verify.sql: only the poison record lacks `s29_tier`. | not run |
 | 6 | Tenant B sees none of tenant A's jobs, failures or tickets (404, the same as a missing type) | S29.21 to S29.24; verify.sql | S29.21: tenant B's own `incident` type has no `backfill`. S29.22: its failures route answers 404 `not_found`, the same as a type nobody has, and never names the poison id. S29.23: tenant A's poison record by id, 404. S29.24: B's `filter[priority]=3`, no items, `total` 0. verify.sql: tenant B has no `schema_backfills`, pending or failure rows, and no `schema-backfill` audit entry. | not run |
 
-## Spec question for the Technical Lead (criterion 1)
+## Criterion 1's total (Technical Lead ruling, 2026-11-26)
 
-Criterion 1 says `total` "equals that number" (2,000 + the 25 that hold 3). ADR-006-A2 caps `total` at 1,000 (`total_state: capped`), or returns `null` with `unknown` when the count runs out of budget, and ADR-009 D12 speaks of a cap of 1,001. With 2,025 matches the list can't answer `total: 2025`. **The kit asserts the A2 contract.** It checks that the number of records listed over every page is exactly 2,025, and that `total` is 1,000 `capped` (or `unknown`). If the story means otherwise, the story or A2 has to change, not the kit.
+A list can't report a `total` over 1,000 (ADR-006-A2), and TICK-915's wording now says so. The kit asserts, at once (S29.11), on every sample until the job ends (S29.12) and after it (S29.16):
+
+- paging `filter[priority]=3` to the end lists exactly the expected records (expect.sql: 2,025 on a fresh stack), with no duplicates and none missing;
+- every page answers `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON `null` (present, not missing, not 0);
+- `exact`, or a `total` under 1,000, fails, in every job state;
+- the number of `unknown` pages is logged (A2-8(7)); allowed, not expected on a 2k seed.
 
 ## Assumptions the day-2 run confirms
 
@@ -63,7 +70,8 @@ Criterion 1 says `total` "equals that number" (2,000 + the 25 that hold 3). ADR-
 | S29.13, S29.20 | a history entry written by the backfill carries the string `schema-backfill` (as `actor_system` or another field) | ADR-009 CI-2 (`actor_system='schema-backfill'`) |
 | S29.14 | each failure item has `record_id` (or `id`) and `code` | ADR-009 D10 |
 | S29.8, S29.17 | the backfill starts no `nava.interpreter` workflow in tenant A; Temporal visibility is reached at `{{temporal_ui_url}}` | ADR-009 D4, CI-2 |
-| S29.5 | `invalid_schema` is registered in `api/errors.yaml` (TICK-919 adds it; `N.problem` checks registration) | ADR-009 D13 |
+| S29.5 | `invalid_schema`, as ADR-009 D13 and criterion 4 say. TICK-919's PR #932 answers `invalid_definition` instead ("`invalid_schema` does not exist"). Spec drift, raised with the Technical Lead on TICK-754; the kit follows the ADR until they rule | ADR-009 D13 |
+| S29.11 to S29.16, S29.21, S29.22 | the `backfill` object on `GET /entity-types/{key}`, `GET .../backfill/failures`, effective values on reads and the D12 filter window. PR #932 lists these (TICK-922, 923, 924) as "still open follow-ups", but those issues were cancelled into TICK-919 | ADR-009 D10 to D12 |
 | S29.21, S29.24 | admin B reads its own `incident` type; its `priority` has no default | the seed template has `default: 3`, but tenant B never published a default-adding version, so it has no job. If the template default itself opens a window in B, S29.24 needs B records at priority 1 only (they are) and still lists 0 |
 
 ## Not included

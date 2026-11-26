@@ -84,21 +84,34 @@ module.exports = (N, bru) => {
       if (b.total_state === 'unknown') return n > 0;
       return b.total === Math.min(n, 1000) && b.total_state === (n > 1000 ? 'capped' : 'exact');
     },
-    // Every record a filter lists, page by page (limit 200, next_cursor).
+    // A result over 1,000 matches (ADR-006-A2; Technical Lead ruling on S29
+    // criterion 1, TICK-754, 2026-11-26): null when the page answers capped
+    // with total 1,000 and total_capped true, or unknown with total a JSON
+    // null (the key present, not 0). exact, or a total under 1,000, fails.
+    bigTotal(b) {
+      if (!b || typeof b !== 'object') return 'no body';
+      const has = b.has_total !== undefined ? b.has_total : ('total' in b);
+      if (b.total_state === 'capped') return b.total === 1000 && b.total_capped === true ? null : `capped with total ${JSON.stringify(b.total)}, total_capped ${JSON.stringify(b.total_capped)}`;
+      if (b.total_state === 'unknown') return has && b.total === null ? null : `unknown with total ${has ? JSON.stringify(b.total) : 'missing'}`;
+      return `total_state ${JSON.stringify(b.total_state)}, total ${has ? JSON.stringify(b.total) : 'missing'}: want capped 1,000 or unknown null`;
+    },
+    // Every record a filter lists, page by page (limit 200, next_cursor), with
+    // each page's total fields (has_total: the key was there, even if null).
     async all(v, key, query) {
-      const items = [], broken = [];
+      const items = [], broken = [], totals = [];
       let cursor = null, first = null, pages = 0;
       do {
         const r = await T.list(v, key, query + '&limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
-        if (r.status !== 200) return { status: r.status, body: r.data, items, ids: items.map(i => i.id), first, pages, broken };
+        if (r.status !== 200) return { status: r.status, body: r.data, items, ids: items.map(i => i.id), first, pages, broken, totals };
         if (!first) first = r.data;
         const bad = T.contract(r.data);
         if (bad) broken.push(`page ${pages + 1}: ${bad}`);
+        totals.push({ total_state: r.data.total_state, total: r.data.total, has_total: 'total' in r.data, total_capped: r.data.total_capped });
         items.push(...r.data.items);
         cursor = r.data.next_cursor;
         pages++;
       } while (cursor);
-      return { status: 200, items, ids: items.map(i => i.id), first, pages, broken };
+      return { status: 200, items, ids: items.map(i => i.id), first, pages, broken, totals };
     },
     // The uuid Postgres gives md5(text)::uuid, as the kits' seed.sql ids are.
     md5uuid(s) {
@@ -156,7 +169,7 @@ req.setBody({ definition: d });"""
 
     return {
         "dir": "S22", "name": "S22 unflag and quota",
-        "desc": "Story S22, TICK-740 (kit TICK-754, docs/acceptance/S22/README.md): a tenant admin removes the `x-nava-filterable` flag from a field and its index is cleaned up (ADR-006 D11); flagging it again while the removal runs answers 409 `field_index_busy` (D8); a sixth flagged field on a type answers 422 `index_quota_exceeded` until the operator raises the tenant's per-type limit to 10 (D12); the seed types' filters run through the index only (D6). Needs the stack docs/acceptance/S22/tools/run-kit.sh prepares: tenant A's type `s22_asset` with `s22_code` (string, not flagged) and 20,000 records, 1,000 per value K00..K19. Story users: `admin@tenant-a` publishes, `agent@tenant-a` is Alice, `operator` raises the limit. AC3 (S22.4-S22.6): the seed types. AC1 (S22.7-S22.14): unflag, 400 at once, 409 while removing, flag again after. AC4 (S22.11, S22.14, verify.sql): records written during the removal leave no orphan side rows. AC2 (S22.15-S22.21): the quota and the audited operator raise. Runs once per prepared stack.",
+        "desc": "Story S22, TICK-740 (kit TICK-754, docs/acceptance/S22/README.md): a tenant admin removes the `x-nava-filterable` flag from a field and its index is cleaned up (ADR-006 D11); flagging it again while the removal runs answers 409 `field_index_busy` (D8); a sixth flagged field on a type answers 422 `index_quota_exceeded` until the operator raises the tenant's per-type limit to 10 (D12); the seed types' filters run through the index only (D6). Needs the stack docs/acceptance/S22/tools/run-kit.sh prepares: tenant A's type `s22_asset` with `s22_code` (string, not flagged) and 20,000 records, 1,000 per value K00..K19. Story users: `admin@tenant-a` publishes, `agent@tenant-a` is Alice, `operator` raises the limit. AC3 (S22.4-S22.6): the seed types. AC1 (S22.7-S22.14): unflag, 400 at once, 409 while removing, flag again after. AC4 (S22.11, S22.14, verify.sql): records written during the removal leave no orphan side rows. AC2 (S22.15-S22.24): the quota, the refused limit changes and the audited operator raise. Runs once per prepared stack.",
         "items": [
             token("S22.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token", extra=_run_var("s22")),
             token("S22.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
@@ -354,28 +367,40 @@ d.schema.properties.q6['x-nava-filterable'] = true;
 req.setBody({ definition: d });""",
                         desc="Flagging `q6` makes 6 on one type, over the default limit of 5. Nothing is written; `errors[]` points at the newly flagged property.",
                         extra="N.fieldError('/schema/properties/q6');"),
-            req("S22.17 AC2: the tenant admin cannot raise its own limit", "PUT", limits, auth="admin_a_token",
-                headers={"Idempotency-Key": "s22-{{s22_run}}-limit-admin"},
-                body={"filterable_fields_per_type": 10, "reason": "S22 kit: a tenant admin tries"},
-                desc="The operator API (nava-onboard, through `tools/tunnels.sh up`) refuses a tenant token: 401 `invalid_token` (the audience is `nava-api`, not `nava-operator-api`), or 403. Nothing is written: S22.21's publish of the sixth flag would otherwise not need S22.19.",
-                tests="""test('refused: 401 or 403', () => expect([401, 403]).to.include(res.getStatus()));"""),
-            problem_req("S22.18 AC2: the operator asks for 11: 400 validation_failed", "PUT", limits, "validation_failed", 400, auth="operator_token",
+            problem_req("S22.17 AC2: the tenant admin cannot raise its own limit: 403 forbidden", "PUT", limits, "forbidden", 403, auth="admin_a_token",
+                        headers={"Idempotency-Key": "s22-{{s22_run}}-limit-admin"},
+                        body={"filterable_fields_per_type": 10, "reason": "S22 kit: a tenant admin tries"},
+                        desc="`setTenantLimits` takes an operator token only (TICK-751 scope 3, built in TICK-916). A tenant admin's token is 403, and nothing is written: verify.sql counts one audit entry, S22.22's."),
+            problem_req("S22.18 AC2: the operator asks for 4: 400 validation_failed", "PUT", limits, "validation_failed", 400, auth="operator_token",
+                        headers={"Idempotency-Key": "s22-{{s22_run}}-limit-4"},
+                        body={"filterable_fields_per_type": 4, "reason": "S22 kit: under the floor"},
+                        desc="ADR-006 D12 allows 5 to 10 per type. 4 is refused and nothing is written."),
+            problem_req("S22.19 AC2: the operator asks for 11: 400 validation_failed", "PUT", limits, "validation_failed", 400, auth="operator_token",
                         headers={"Idempotency-Key": "s22-{{s22_run}}-limit-11"},
                         body={"filterable_fields_per_type": 11, "reason": "S22 kit: over the ceiling"},
-                        desc="ADR-006 D12 allows 5 to 10 per type. 11 is refused and nothing is written."),
-            req("S22.19 AC2: the operator raises tenant A's per-type limit to 10, with a reason: 200", "PUT", limits, auth="operator_token",
+                        desc="11 is over the ceiling of 10. Refused, nothing written."),
+            problem_req("S22.20 AC2: the operator gives no reason: 400 validation_failed", "PUT", limits, "validation_failed", 400, auth="operator_token",
+                        headers={"Idempotency-Key": "s22-{{s22_run}}-limit-noreason"},
+                        body={"filterable_fields_per_type": 10},
+                        desc="`reason` is required: it goes into the audit entry (D25 governance). Refused, nothing written."),
+            problem_req("S22.21 AC2: the operator names a tenant that does not exist: 404 not_found", "PUT",
+                        "{{onboard_url}}/api/v1/operator/tenants/22222222-2222-4222-8222-222222222222/limits", "not_found", 404, auth="operator_token",
+                        headers={"Idempotency-Key": "s22-{{s22_run}}-limit-unknown"},
+                        body={"filterable_fields_per_type": 10, "reason": "S22 kit: unknown tenant"},
+                        desc="An unknown tenant is 404, and nothing is written."),
+            req("S22.22 AC2: the operator raises tenant A's per-type limit to 10, with a reason: 200", "PUT", limits, auth="operator_token",
                 headers={"Idempotency-Key": "s22-{{s22_run}}-limit-10"},
                 body={"filterable_fields_per_type": 10, "reason": "S22 acceptance: measured cost check (TICK-754)"},
-                desc="Assumed route (TICK-751, folded into TICK-916): `PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API, body `filterable_fields_per_type` and a required `reason`. The change is an audited `tenant_limits` row, no DDL; verify.sql finds its audit entry with the operator as the actor and the reason.",
+                desc="`PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API (TICK-751 scope 3, built in TICK-916, PR #921): body `filterable_fields_per_type` (5 to 10) and a required `reason`. The change is one audited `tenant_limits` row, no DDL. verify.sql finds exactly one audit entry, with the operator as the actor and this reason in it.",
                 tests="""N.status(200);
 test('the limit is 10', () => expect(N.json().filterable_fields_per_type).to.eql(10));"""),
-            req("S22.20 AC2: the same raise again is a replay: 200, still 10", "PUT", limits, auth="operator_token",
+            req("S22.23 AC2: the same raise again is a replay: 200, still 10", "PUT", limits, auth="operator_token",
                 headers={"Idempotency-Key": "s22-{{s22_run}}-limit-10"},
                 body={"filterable_fields_per_type": 10, "reason": "S22 acceptance: measured cost check (TICK-754)"},
-                desc="The same `Idempotency-Key`: the stored answer, and no second audit entry (verify.sql counts exactly one).",
+                desc="The same `Idempotency-Key` returns the stored answer. Setting the value already in force writes nothing either way, so verify.sql still counts exactly one audit entry.",
                 tests="""N.status(200);
 test('still 10', () => expect(N.json().filterable_fields_per_type).to.eql(10));"""),
-            req("S22.21 AC2: after the raise, the sixth flag publishes: 201", "POST", "{{core_url}}/api/v1/entity-types/{{s22_qkey}}/versions", auth="admin_a_token",
+            req("S22.24 AC2: after the raise, the sixth flag publishes: 201", "POST", "{{core_url}}/api/v1/entity-types/{{s22_qkey}}/versions", auth="admin_a_token",
                 headers={"Idempotency-Key": "s22-{{s22_run}}-quota-6th-after"}, body={"definition": "set by the pre-request script"},
                 pre=LOAD_PRE + """
 const d = JSON.parse(bru.getVar('s22_qdef'));
@@ -419,7 +444,8 @@ const ss = await T.until(async () => {
   const t = await T.type('admin_a_token', 'incident');
   const f = await T.list('alice_token', 'incident', 'filter[priority]=3&limit=1');
   return { state: t.data && t.data.backfill && t.data.backfill.state, backfill: t.data && t.data.backfill,
-           filter_status: f.status, total: f.data && f.data.total, total_state: f.data && f.data.total_state, total_ok: f.status === 200 && T.totalOk(f.data, want) };
+           filter_status: f.status, total: f.data && f.data.total, total_state: f.data && f.data.total_state,
+           total_bad: f.status !== 200 ? 'HTTP ' + f.status : (want > 1000 ? T.bigTotal(f.data) : (T.totalOk(f.data, want) ? null : 'total ' + JSON.stringify(f.data.total))) };
 }, s => ['done', 'failed_records', 'superseded'].includes(s.state) || !s.backfill, { every: 2000, limit: 1200000 });
 bru.setVar('""" + var + """', JSON.stringify(ss));"""
 
@@ -513,9 +539,9 @@ bru.setVar('s29_published_at', new Date().toISOString());"""),
                 pre=KIT + """
 const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
 const t = await T.type('admin_a_token', 'incident');
-bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, first: all.first, broken: all.broken, backfill: t.data.backfill,
+bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, totals: all.totals, backfill: t.data.backfill,
   stored: all.items.filter(i => i.data.priority !== undefined && i.data.priority !== 3).map(i => i.id) }));""",
-                desc="Right after S29.10, whatever the job's state: every page of `filter[priority]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `priority` stored, plus those that store 3 (D12's `OR <absent>` window). `total` is that number up to the list cap of 1,000 (ADR-006-A2: `capped` beyond it, or `unknown`).",
+                desc="Right after S29.10, whatever the job's state: every page of `filter[priority]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `priority` stored, plus those that store 3 (D12's `OR <absent>` window). A list never reports a `total` over 1,000 (ADR-006-A2; the Technical Lead corrected the story wording on TICK-915). Every page must answer either `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON null. `exact`, or a `total` under 1,000, fails. The number of `unknown` pages is logged (A2-8(7)).",
                 tests="""N.status(200);
 """ + KIT_T + """
 const o = JSON.parse(bru.getVar('s29_at_once'));
@@ -526,11 +552,16 @@ test(`job state ${o.backfill && o.backfill.state}: pending, filling or running, 
 });
 test(`${o.ids.length} records listed; the JSON scan with the default applied has ${want}`, () => expect(o.ids.length).to.eql(want));
 test('the same records (md5 of the sorted ids)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));
-test('total: the count up to the cap (A2-1)', () => { expect(T.totalOk(o.first, want), JSON.stringify(o.first && { total: o.first.total, total_state: o.first.total_state })).to.eql(true); expect(o.broken).to.eql([]); });
+test('no record listed twice', () => expect(new Set(o.ids).size).to.eql(o.ids.length));
+test(`over 1,000 matches (${want}): every page capped at 1,000 or unknown with a null total, never exact`, () => {
+  expect(want).to.be.above(1000);
+  o.totals.forEach((x, i) => expect(T.bigTotal(x), 'page ' + (i + 1)).to.eql(null));
+});
+console.log('S29.11 pages', o.totals.length, 'unknown', o.totals.filter(x => x.total_state === 'unknown').length);
 test('every listed record reads priority 3 (effective value, D11)', () => expect(o.stored).to.eql([]));"""),
             req("S29.12 AC1: until the job ends, every sample's filter total is right", "GET", et, auth="admin_a_token",
                 pre=watch("s29_watch", "s29_p3_n"),
-                desc="Samples every 2 s (at most 20 minutes) until the job is `done` or `failed_records`: the job's `state` and counts, and Alice's `filter[priority]=3&limit=1` total. Every sample must give the expected total, whatever the state (pending, filling, running). The job ends `failed_records` because of the poison record.",
+                desc="Samples every 2 s (at most 20 minutes) until the job is `done` or `failed_records`: the job's `state` and counts, and Alice's `filter[priority]=3&limit=1` total. Every sample must answer `capped` 1,000 or `unknown` with a null `total`, whatever the state (pending, filling, running). The job ends `failed_records` because of the poison record.",
                 tests="""N.status(200);
 const ss = JSON.parse(bru.getVar('s29_watch'));
 const last = ss[ss.length - 1];
@@ -539,7 +570,8 @@ test('states only move forward: pending, filling, running, then failed_records',
   const order = ['pending', 'filling', 'running', 'done', 'failed_records'];
   let prev = -1; ss.forEach(s => { const i = order.indexOf(s.state); expect(i, JSON.stringify(s)).to.be.at.least(prev); prev = i; });
 });
-test('every sample: filter[priority]=3 answers 200 with the expected total', () => ss.forEach(s => expect(s.total_ok, JSON.stringify(s)).to.eql(true)));
+test('every sample, in every state: filter[priority]=3 answers 200, capped at 1,000 or unknown with a null total', () => ss.forEach(s => expect(s.total_bad, JSON.stringify(s)).to.eql(null)));
+console.log('S29.12 samples', ss.length, 'unknown', ss.filter(s => s.total_state === 'unknown').length);
 test('the final counts: 1 failed, 0 remaining, rewritten + skipped + failed = the records that lacked priority', () => {
   const b = N.json().backfill;
   expect(b.failed).to.eql(1);
@@ -593,13 +625,14 @@ test('no field value in the body', () => {
             req("S29.16 AC3: the poison record still matches filter[priority]=3", "GET", inc + "?filter[priority]=3&limit=200", auth="alice_token",
                 pre=KIT + """
 const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
-bru.setVar('s29_p3_after', JSON.stringify({ ids: all.ids, first: all.first }));""",
+bru.setVar('s29_p3_after', JSON.stringify({ ids: all.ids, totals: all.totals }));""",
                 desc="ADR-009 D9 and D12: a `failed_records` job keeps the window open, and its failed record matches through the failures branch. The list is also still the same set as at once (S29.11).",
                 tests="""N.status(200);
 """ + KIT_T + """
 const o = JSON.parse(bru.getVar('s29_p3_after'));
 test('the poison record is listed', () => expect(o.ids).to.include(N.v('s29_poison_id')));
-test('the same records as at once (S29.11)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));"""),
+test('the same records as at once (S29.11)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));
+test('every page capped at 1,000 or unknown with a null total', () => o.totals.forEach((x, i) => expect(T.bigTotal(x), 'page ' + (i + 1)).to.eql(null)));"""),
             req("S29.17 AC2: the on-update test workflow has no new run", "GET",
                 "{{temporal_ui_url}}/api/v1/namespaces/nava/workflows?" + q, auth=None,
                 desc="The same listing as S29.8. About 2,000 records were rewritten; none of them started a workflow (ADR-009 D4: OpMaterialize writes no outbox row).",

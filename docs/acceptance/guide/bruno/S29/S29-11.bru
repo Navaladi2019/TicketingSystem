@@ -19,7 +19,7 @@ script:pre-request {
   const T = require('./lib/kit')(N, bru);
   const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
   const t = await T.type('admin_a_token', 'incident');
-  bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, first: all.first, broken: all.broken, backfill: t.data.backfill,
+  bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, totals: all.totals, backfill: t.data.backfill,
     stored: all.items.filter(i => i.data.priority !== undefined && i.data.priority !== 3).map(i => i.id) }));
 }
 
@@ -35,10 +35,15 @@ tests {
   });
   test(`${o.ids.length} records listed; the JSON scan with the default applied has ${want}`, () => expect(o.ids.length).to.eql(want));
   test('the same records (md5 of the sorted ids)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));
-  test('total: the count up to the cap (A2-1)', () => { expect(T.totalOk(o.first, want), JSON.stringify(o.first && { total: o.first.total, total_state: o.first.total_state })).to.eql(true); expect(o.broken).to.eql([]); });
+  test('no record listed twice', () => expect(new Set(o.ids).size).to.eql(o.ids.length));
+  test(`over 1,000 matches (${want}): every page capped at 1,000 or unknown with a null total, never exact`, () => {
+    expect(want).to.be.above(1000);
+    o.totals.forEach((x, i) => expect(T.bigTotal(x), 'page ' + (i + 1)).to.eql(null));
+  });
+  console.log('S29.11 pages', o.totals.length, 'unknown', o.totals.filter(x => x.total_state === 'unknown').length);
   test('every listed record reads priority 3 (effective value, D11)', () => expect(o.stored).to.eql([]));
 }
 
 docs {
-  Right after S29.10, whatever the job's state: every page of `filter[priority]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `priority` stored, plus those that store 3 (D12's `OR <absent>` window). `total` is that number up to the list cap of 1,000 (ADR-006-A2: `capped` beyond it, or `unknown`).
+  Right after S29.10, whatever the job's state: every page of `filter[priority]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `priority` stored, plus those that store 3 (D12's `OR <absent>` window). A list never reports a `total` over 1,000 (ADR-006-A2; the Technical Lead corrected the story wording on TICK-915). Every page must answer either `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON null. `exact`, or a `total` under 1,000, fails. The number of `unknown` pages is logged (A2-8(7)).
 }

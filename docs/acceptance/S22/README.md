@@ -15,8 +15,10 @@ Kit task TICK-754 (PLAN-007 P7-14), which also carries the S29 kit (`docs/accept
 
 From the repository root, on the story branch, Docker running, Git Bash or any POSIX shell, Node.js 22:
 
+**In GitHub Actions:** the stack case `deploy/compose/test/cases/s22_s29_acceptance.sh` (job `stack`, order 70, profile `operator`) runs both kits in the `ci` workflow's stack job on every pull request into the story branch. Until every S22 and S29 feature is on the branch it prints `SKIP` with what is missing. On a laptop:
+
 ```sh
-sh docs/acceptance/S22/tools/run-s22-s29.sh    # S22 and S29 on one fresh stack (the day-2 run)
+sh docs/acceptance/S22/tools/run-s22-s29.sh    # S22 and S29 on one fresh stack
 sh docs/acceptance/S22/tools/run-kit.sh        # S22 alone on a fresh stack
 ```
 
@@ -44,19 +46,16 @@ Passwords: dev-only seed users, `docs/acceptance/guide/bruno/environments/local.
 | # | Criterion | Steps | What is asserted | Result |
 |---|---|---|---|---|
 | 1 | Publishing without the flag makes filters answer 400 `field_not_filterable` at once; flagging again while the removal runs answers 409 `field_index_busy`; after removal it can be flagged again | S22.8 to S22.14; verify.sql | S22.10: the unflag publishes 201, `compatible`. S22.11: right after it, 400 `field_not_filterable` with `errors[]` at `/filter/s22_code`. S22.12: the flag again, 409 `field_index_busy`. S22.13: the flag is re-sent every 3 s with a new `Idempotency-Key`: every answer is 409 until one is 201, and the type is exactly one version past the unflag (no 409 wrote a version). S22.14: after the new backfill, K07 lists its records again. verify.sql: `s22_code` has one registry row, `ready`. | not run |
-| 2 | A sixth filterable field on one type answers 422 `index_quota_exceeded`; after the operator raises the limit to 10 (audited) it publishes | S22.15 to S22.21; verify.sql | S22.15: a new type with `q1` to `q5` flagged, 201. S22.16: flagging `q6` too, 422 `index_quota_exceeded`, `errors[]` at `/schema/properties/q6`. S22.17: the tenant admin on the operator route, 401 or 403. S22.18: the operator asks for 11, 400 `validation_failed`. S22.19: the operator sets 10 with a reason, 200. S22.20: a replay, 200. S22.21: the sixth flag publishes, 201. verify.sql: tenant A's `tenant_limits` row is 10, it has exactly one audit entry (printed with actor and reason), and tenant B has no row. | not run |
+| 2 | A sixth filterable field on one type answers 422 `index_quota_exceeded`; after the operator raises the limit to 10 (audited) it publishes | S22.15 to S22.24; verify.sql | S22.15: a new type with `q1` to `q5` flagged, 201. S22.16: flagging `q6` too, 422 `index_quota_exceeded`, `errors[]` at `/schema/properties/q6`. S22.17: the tenant admin on the operator route, 403 `forbidden`. S22.18 to S22.20: the operator asks for 4, for 11, and with no `reason`, each 400 `validation_failed`. S22.21: an unknown tenant, 404 `not_found`. S22.22: the operator sets 10 with a reason, 200. S22.23: a replay, 200. S22.24: the sixth flag publishes, 201. verify.sql: tenant A's `tenant_limits` row is 10; it has exactly one audit entry, which carries S22.22's reason and an actor (none from the refusals or the replay); tenant B has no row. | not run |
 | 3 | The seeded types' filters used by earlier kits still work through the index; `DataFilterTimeout` and the JSONB filter path are gone | S22.4 to S22.6; run-kit step 4 | S22.4: the incident type's `priority` is flagged from the seed template. S22.5: Alice's `filter[priority]=1`, `filter[priority][in]=1,2` and `filter[priority][gte]=3` each list exactly the incidents a full unfiltered read gives when filtered in the test. S22.6: an unflagged seed field (`short_description`), 400 `field_not_filterable`. Step 4: no hits. | not run |
 | 4 | Records written during removal leave no orphan side rows | S22.11, S22.14; verify.sql | S22.11, during the removal: 3 creates with K07 and 3 seeded K08 records moved to K07. S22.14: K07 lists 1,006 (1,000 + 3 + 3), K08 lists 997. verify.sql: 0 side rows in `rfv_text`, `rfv_num`, `rfv_ts` and `rfv_bool` whose field has no registry row, and `s22_code`'s rebuilt index equals the JSON of all 20,003 records (0 missing, 0 surplus). The concurrency and race suite is TICK-750 (CI-5) and TICK-753, in CI. | not run |
 
-## Assumptions the day-2 run confirms
+## Contracts confirmed since day 1
 
-The contracts leave these shapes open. Each request names the one it uses. If the code differs, the kit changes, unless the code contradicts the ADR.
-
-| Where | Assumed | From |
+| Where | Shape | Source |
 |---|---|---|
-| S22.17 to S22.20 | `PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API (nava-onboard), body `{filterable_fields_per_type, reason}`, answer `{filterable_fields_per_type, ...}`. A replay with the same `Idempotency-Key` returns the stored answer | TICK-751 scope 3 ("or the existing operator surface's convention"), now in TICK-916 |
-| verify.sql | the raise's audit entry has `limit` in its `domain`, `action` or `subject_type` | TICK-751 scope 1 (audited in `db/audited-tables.yaml`) |
-| S22.12 | the removal still runs about 1 s after the unflag: it goes through the relay and the coordinator, then deletes 20,000 side rows in batches of 1,000 | ADR-006 D11, TICK-750 scope 2 |
+| S22.17 to S22.23 | `PUT /api/v1/operator/tenants/{tenant}/limits` on the operator API, body `{filterable_fields_per_type (5-10), reason}`, both required; a tenant token is 403; an unknown tenant 404; the value already in force writes nothing; the audit entry has subject `tenant_limits`, the operator as actor and the reason | TICK-751 scope 3, built in TICK-916 (PR #921, `api/paths/operator.yaml`); Technical Lead, TICK-754, 2026-11-26 |
+| S22.12 | the removal still runs about 1 s after the unflag: it goes through the relay and the coordinator, then deletes 20,000 side rows in batches of 1,000 | ADR-006 D11, TICK-750 scope 2 (PR #933) |
 | S22.5 | the `in` syntax is `filter[f][in]=a,b`, as S10's kit uses for `assignment_group` | S10 kit |
 
 ## Isolation check
@@ -66,7 +65,7 @@ The kit stays in tenant A, except that verify.sql checks tenant B has no `tenant
 ## Not included
 
 - p95 and the removal's duration as a budget. No performance gate (owner, 2026-11-26).
-- **The S21 kit re-run.** The original task asked for it on the same stack, but it can't run there unchanged. Its seed refuses a tenant that already has incidents, and it seeds 400,000. Its S21.4 asserts that no incident field is flagged, and its S21.8 flags `priority`, which TICK-752 now flags in the seed template. Day 2: adapt S21.4 and S21.8 to a template-flagged `priority` and run S21 on its own fresh stack (`docs/acceptance/S21/tools/run-kit.sh`).
+- **The S21 kit re-run** is not on this stack: its seed refuses a tenant with incidents and writes 400,000. It runs on its own fresh stack (`docs/acceptance/S21/tools/run-kit.sh`). Since TICK-752 flags `priority` in the seed template, S21's `kit.mjs setup` removes that flag in its first publish and `run-kit.sh` waits for the removal before the bulk seed (which skips the index trigger), so S21.4 and S21.8 hold unchanged.
 
 ## Known limits
 

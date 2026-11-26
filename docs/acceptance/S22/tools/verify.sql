@@ -42,13 +42,20 @@ SELECT 'check|tenant A tenant_limits.filterable_fields_per_type|' || coalesce(ma
 SELECT 'check|tenant B tenant_limits rows|' || count(*) || '|' || CASE WHEN count(*) = 0 THEN 'ok' ELSE 'FAIL' END
   FROM tenant_limits WHERE tenant_id = '00000000-0000-4000-8000-0000000000b1';
 
--- The audit entry of the raise. Its exact domain/action names are TICK-916's;
--- the kit matches any entry whose subject is tenant A's limits row or whose
--- action names tenant_limits, and prints it so the evidence shows actor and reason.
+-- The audit entry of the raise: subject tenant_limits, the operator as the
+-- actor, the reason in the entry (TICK-916, PR #921). The refused requests
+-- (S22.17 to S22.21) and the replay (S22.23) added none, so exactly 1, and it
+-- carries S22.22's reason. Printed so the evidence shows actor and reason.
 SELECT 'check|tenant_limits audit entries for tenant A (exactly 1)|' || count(*) || '|' || CASE WHEN count(*) = 1 THEN 'ok' ELSE 'FAIL' END
   FROM audit_log a
  WHERE a.tenant_id = '00000000-0000-4000-8000-0000000000a1'
    AND (a.subject_type ILIKE '%limit%' OR a.action ILIKE '%limit%' OR a.domain ILIKE '%limit%');
+SELECT 'check|that entry carries the reason and an operator actor|' || count(*) || '|' || CASE WHEN count(*) = 1 THEN 'ok' ELSE 'FAIL' END
+  FROM audit_log a
+ WHERE a.tenant_id = '00000000-0000-4000-8000-0000000000a1'
+   AND (a.subject_type ILIKE '%limit%' OR a.action ILIKE '%limit%' OR a.domain ILIKE '%limit%')
+   AND row_to_json(a)::text LIKE '%S22 acceptance: measured cost check (TICK-754)%'
+   AND (a.actor_principal_id IS NOT NULL OR a.actor_system IS NOT NULL);
 SELECT 'audit|' || a.occurred_at || '|' || a.domain || '|' || a.action || '|' || a.subject_type || '|' || row_to_json(a)::text
   FROM audit_log a
  WHERE a.tenant_id = '00000000-0000-4000-8000-0000000000a1'
