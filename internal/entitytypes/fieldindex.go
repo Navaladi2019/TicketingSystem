@@ -11,6 +11,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
+	"github.com/Navaladi2019/TicketingSystem/internal/tenantlimits"
 )
 
 // QuotaScope says which limit an IndexQuotaError hit.
@@ -143,7 +144,7 @@ SELECT field_key, state FROM record_index_fields WHERE tenant_id = $1 AND entity
 	if len(create) == 0 {
 		return nil
 	}
-	typeLimit, err := fieldindex.PerTypeLimit(ctx, tx, tenantID)
+	typeLimit, err := tenantlimits.PerType(ctx, tx, tenantID)
 	if err != nil {
 		return fmt.Errorf("entitytypes: per-type index limit: %w", err)
 	}

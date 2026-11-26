@@ -73,6 +73,9 @@ func strictBodyRefusals(reg *problem.Registry) map[string]apihttp.BodyRefusal {
 		"POST " + baseURL + "/api/v1/number-formats":                       numberFormatInvalid,
 		"PUT " + baseURL + "/api/v1/number-formats/{id}":                   numberFormatInvalid,
 		"POST " + baseURL + "/api/v1/number-formats/{id}/republish-linked": numberFormatInvalid,
+		"PUT " + baseURL + "/api/v1/operator/tenants/{tenant}/limits": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.InvalidTenantLimits, fe)
+		},
 		"PUT " + baseURL + "/api/v1/tenant/settings/time-zone": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
 			reg.Write(w, r, problem.InvalidTimeZone, fe)
 		},
@@ -119,7 +122,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, limitsPool: opts.limitsPool, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -253,6 +256,9 @@ type handlers struct {
 	reg       *problem.Registry
 	log       *slog.Logger
 	onboarder Onboarder
+	// limitsPool (nava_app) serves the operator's tenant limits route
+	// (WithOperatorLimits); nil answers 501.
+	limitsPool *pgxpool.Pool
 	// paths is read by GetMe only (ADR-002).
 	paths identity.GroupPathReader
 	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers
@@ -392,6 +398,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.InvalidTimeZone:
 					h.reg.Write(w, r, problem.InvalidTimeZone, pe.fields...)
+					return
+				case problem.InvalidTenantLimits:
+					h.reg.Write(w, r, problem.InvalidTenantLimits, pe.fields...)
 					return
 				case problem.NumberFormatInvalid:
 					h.reg.Write(w, r, problem.NumberFormatInvalid, pe.fields...)

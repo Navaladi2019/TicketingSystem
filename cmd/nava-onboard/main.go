@@ -219,7 +219,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		b.close()
 		return nil, nil, nil, err
 	}
-	h, err := server.NewHandler(log, tel, b.adapter, nil, server.WithOperator(b.adapter, svc), server.OperatorOnly())
+	h, err := server.NewHandler(log, tel, b.adapter, nil, server.WithOperator(b.adapter, svc), server.WithOperatorLimits(b.appPool), server.OperatorOnly())
 	if err != nil {
 		b.close()
 		return nil, nil, nil, err

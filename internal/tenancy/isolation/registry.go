@@ -255,7 +255,6 @@ func Coverage() map[string]string {
 		caseReaderMasks:  "full (ADR-004-A1, TICK-558): GET /api/v1/audit/entries on the reader pool masks an x-nava-secret property for an auditor with no mask permission; red without nava_audit_reader in entity_definition_versions_select",
 		"CI-A10":         "full (ADR-004, P5-19): the nava-core and nava-worker pools from compose.yaml log in as nava_app and nava_worker and rerun the P5-10b matrix; nava_onboard and nava_groupsync are TestP510b* in internal/db/dbtest",
 		"I5":             "partial → P3-34 (S10): the record ACL's SQL list predicate (authz.CompileRead) and Go check (authz.Allows) agree for random policies, principals and records under RLS, with pair-matched shares and mutant compilers that must be caught (P3-32, TestI5Agreement); format-2 documents (random trees of depth 4 over every node kind, under included, read from org_unit_closure with authz.ResolveUnder checked against the reference tree (TICK-950, TICK-1034), the SP-2 cap cases and format-1 equivalence, D12) agree through CompileRead, ReadBranches and a reference evaluator, with five format-2 mutants caught (P11-10, TestI5Format2Agreement); data filters and the list route wait for P3-34",
-		"CI-B3":          "full (ADR-009 RFC-021 CI-3 (5) and (6), TICK-916, TICK-920): schema_backfills, schema_backfill_pending and schema_backfill_failures as nava_app and nava_worker in tenant A show no tenant B row and refuse a tenant B insert, here; (1) and (2), the relay-only start-only schema.backfill, are TestRelayStartsSchemaBackfill, TestWorkerCommandsCannotNameSchemaBackfill and the S29 suite in temporal-server/authz; (3) and (5), a tenant A job changing no tenant B row and an activity with no tenant reading none, are TestBackfillTouchesNoOtherTenant and TestBackfillReadsNothingWithoutTenant in internal/schemabackfill (make test-integration)",
 		"CI-5":           "full in make identity-attacks (real Keycloak, the CI stack job, ci5-report artifact); here every case is registered: token shapes through the API handler (401 for the stated reason), the duplicate binding on this database, Keycloak-only cases as Stack paths on TestCI5",
 	}
 }
@@ -656,6 +655,7 @@ func Paths() []Path {
 	paths = append(paths, workflowPaths()...)
 	paths = append(paths, fieldIndexPaths()...)
 	paths = append(paths, schemaBackfillPaths()...)
+	paths = append(paths, tenantLimitsPaths()...)
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)

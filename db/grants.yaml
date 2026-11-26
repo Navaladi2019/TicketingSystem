@@ -155,10 +155,16 @@ roles:
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
       # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261126100000):
-      # reads only, for D10's status and failures and D12's filter shapes.
-      schema_backfills: { SELECT: [] }
+      # reads, for D10's status and failures and D12's filter shapes, and the
+      # publish transaction's INSERT of a pending job (D1, PLAN-010 D-10-11;
+      # the pinned policy schema_backfills_insert_app_pending).
+      schema_backfills: { SELECT: [], INSERT: [] }
       schema_backfill_pending: { SELECT: [] }
       schema_backfill_failures: { SELECT: [] }
+      # Tenant limits (TICK-751, ADR-006 D12, 20261126100400): publish reads
+      # the row; the operator route on nava-onboard writes it through its
+      # nava_app pool. Never DELETE, never a tenant_id change.
+      tenant_limits: { SELECT: [], INSERT: [], UPDATE: [filterable_fields_per_type, updated_at, updated_by] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role. TICK-940: the format-2 rules CHECK calls the acl2_*
     # ones, and the tenant-id trigger (as the inserting role) acl2_id_pointers.

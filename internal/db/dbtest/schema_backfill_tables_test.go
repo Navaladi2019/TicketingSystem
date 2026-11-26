@@ -130,7 +130,10 @@ func TestP1001Shape(t *testing.T) {
 		}
 		if got := queryString(t, super, `SELECT string_agg(cmd || ':' || array_to_string(roles, ','), ' ' ORDER BY cmd, roles::text)
 			FROM pg_policies WHERE tablename = $1`, tbl); got !=
-			"DELETE:nava_worker INSERT:nava_worker SELECT:nava_app SELECT:nava_worker UPDATE:nava_worker" {
+			map[bool]string{
+				true:  "DELETE:nava_worker INSERT:nava_app INSERT:nava_worker SELECT:nava_app SELECT:nava_worker UPDATE:nava_worker",
+				false: "DELETE:nava_worker INSERT:nava_worker SELECT:nava_app SELECT:nava_worker UPDATE:nava_worker",
+			}[tbl == "schema_backfills"] {
 			t.Errorf("%s policies = %s", tbl, got)
 		}
 	}
@@ -138,8 +141,11 @@ func TestP1001Shape(t *testing.T) {
 
 // Acceptance (CI-3 (5) and (6)): as nava_app and as nava_worker in tenant A,
 // each table shows no tenant B row and an INSERT with tenant B's tenant_id is
-// refused; with no tenant each table reads zero rows; nava_app's INSERT,
-// UPDATE and DELETE are refused with 42501.
+// refused; with no tenant each table reads zero rows; nava_app's UPDATE and
+// DELETE on all three and INSERT on the queue and failures are refused with
+// 42501. nava_app inserts only a fresh pending job of its own tenant
+// (PLAN-010 D-10-11): a running row, a count, a start or finish time, or
+// tenant B's tenant_id is refused.
 func TestP1001TenantIsolation(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -183,8 +189,17 @@ func TestP1001TenantIsolation(t *testing.T) {
 	app, worker := asRole(t, "nava_app"), asRole(t, "nava_worker")
 	for _, tbl := range schemaBackfillTables {
 		q, args := inserts[tbl](tenantA)
-		_, err := execIn(app, tenantA, q, args...)
-		wantSQLState(t, "nava_app inserts tenant A's "+tbl+" row", err, "42501")
+		var err error
+		if tbl == "schema_backfills" {
+			// D-10-11: the publish transaction's pending job (another version
+			// than the worker's control row below).
+			if n, err := execIn(app, tenantA, insertBackfill, tenantA, tenantA, 30, "pending"); err != nil || n != 1 {
+				t.Errorf("nava_app inserts tenant A's pending job: %d, %v; want 1", n, err)
+			}
+		} else {
+			_, err = execIn(app, tenantA, q, args...)
+			wantSQLState(t, "nava_app inserts tenant A's "+tbl+" row", err, "42501")
+		}
 		_, err = execIn(app, tenantA, "UPDATE "+tbl+" SET target_version = target_version WHERE tenant_id = $1", tenantA)
 		wantSQLState(t, "nava_app updates "+tbl, err, "42501")
 		_, err = execIn(app, tenantA, "DELETE FROM "+tbl+" WHERE tenant_id = $1", tenantA)
@@ -204,9 +219,38 @@ func TestP1001TenantIsolation(t *testing.T) {
 		wantSQLState(t, "nava_worker moves tenant A's "+tbl+" rows to tenant B", err, "42501")
 	}
 
+	// D-10-11: nava_app's job insert is a fresh pending row or nothing.
+	for name, q := range map[string]string{
+		"a running row": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
+			VALUES ($1, $1, 31, 'running', '{priority}')`,
+		"a filling row": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
+			VALUES ($1, $1, 32, 'filling', '{priority}')`,
+		"a done row": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
+			VALUES ($1, $1, 33, 'done', '{priority}')`,
+		"rewritten 1": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, rewritten)
+			VALUES ($1, $1, 34, '{priority}', 1)`,
+		"skipped 1": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, skipped)
+			VALUES ($1, $1, 35, '{priority}', 1)`,
+		"failed 1": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, failed)
+			VALUES ($1, $1, 36, '{priority}', 1)`,
+		"a start time": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, started_at)
+			VALUES ($1, $1, 37, '{priority}', now())`,
+		"a finish time": `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, default_keys, finished_at)
+			VALUES ($1, $1, 38, '{priority}', now())`,
+	} {
+		_, err := execIn(app, tenantA, q, tenantA)
+		wantSQLState(t, "nava_app inserts "+name, err, "42501")
+	}
+	_, err := execIn(app, tenantA, insertBackfill, tenantB, tenantB, 39, "pending")
+	wantSQLState(t, "nava_app in tenant A inserts tenant B's pending job", err, "42501")
+	if got := queryString(t, super, `SELECT string_agg(target_version::text, ',' ORDER BY target_version) FROM schema_backfills
+		WHERE tenant_id = $1 AND target_version >= 30`, tenantA); got != "30" {
+		t.Errorf("tenant A's jobs from nava_app = %s, want only the pending 30", got)
+	}
+
 	// The keys hold the tenant: a job on tenant B's type, or a queued id
 	// under tenant B's job, fails its foreign key.
-	_, err := execIn(worker, tenantA, insertBackfill, tenantA, tenantB, 4, "pending")
+	_, err = execIn(worker, tenantA, insertBackfill, tenantA, tenantB, 4, "pending")
 	wantSQLState(t, "nava_worker queues tenant A's job on tenant B's type", err, "23503")
 	_, err = execIn(worker, tenantA, insertBackfillPending, tenantA, tenantA, 7, tenantA)
 	wantSQLState(t, "nava_worker queues an id under a job that does not exist", err, "23503")
@@ -342,6 +386,9 @@ func TestP1001Grants(t *testing.T) {
 		SELECT coalesce(string_agg(tbl || ':' || role || ':' || priv, ' ' ORDER BY tbl, role, priv), '') FROM g`))
 	var want []string
 	for _, tbl := range []string{"schema_backfill_failures", "schema_backfill_pending", "schema_backfills"} {
+		if tbl == "schema_backfills" {
+			want = append(want, tbl+":nava_app:INSERT")
+		}
 		want = append(want, tbl+":nava_app:SELECT")
 		for _, p := range []string{"DELETE", "INSERT", "SELECT", "UPDATE"} {
 			want = append(want, tbl+":nava_worker:"+p)
@@ -350,4 +397,29 @@ func TestP1001Grants(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("grants on the backfill tables:\n got %v\nwant %v", got, want)
 	}
+}
+
+// tenantLimitsMigration creates tenant_limits (TICK-751).
+const tenantLimitsMigration = "20261126100400_tenant_limits.sql"
+
+// beforeTenantLimits is m and a without tenant_limits when fsys stops before
+// tenantLimitsMigration. beforeNumberingMode calls it.
+func beforeTenantLimits(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, tenantLimitsMigration); err == nil {
+		return m, a
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		tables := maps.Clone(r.Tables)
+		delete(tables, "tenant_limits")
+		r.Tables = tables
+		gm.Roles[name] = r
+	}
+	am := *a
+	am.Audited = maps.Clone(a.Audited)
+	am.Exempt = maps.Clone(a.Exempt)
+	delete(am.Audited, "tenant_limits")
+	delete(am.Exempt, "tenant_limits")
+	return &gm, &am
 }

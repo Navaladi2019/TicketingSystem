@@ -24,7 +24,10 @@
 --
 -- Who may do what (db/grants.yaml, ADR-009 Grants):
 --   nava_worker  SELECT, INSERT, UPDATE, DELETE on all three (the job).
---   nava_app     SELECT only (D10 status and failures, D12 filter shapes).
+--   nava_app     SELECT on all three (D10 status and failures, D12 filter
+--                shapes) and INSERT of a pending schema_backfills row only,
+--                the publish transaction's job (D1, D-10-11). No UPDATE or
+--                DELETE anywhere, nothing else on the queue or failures.
 --
 -- Audit (db/audited-tables.yaml): all three are exempt, job state. Every
 -- record rewrite is audited by the pipeline (D4).
@@ -66,6 +69,18 @@ CREATE POLICY schema_backfills_select_app ON schema_backfills FOR SELECT TO nava
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 CREATE POLICY schema_backfills_select_worker ON schema_backfills FOR SELECT TO nava_worker
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+-- D-10-11 (PLAN-010, TICK-916): publish queues the job in its own
+-- transaction as nava_app (ADR-009 D1), and only a fresh one: pending, no
+-- counts, never started or finished. This is nava_app's only INSERT policy on
+-- the table, so the conjunction is the ruling's tenant policy plus its
+-- restrictive pending check, written as one pinned policy
+-- (catalog.PinnedTenantPolicies): the catalogue gate admits a policy that is
+-- the tenant predicate AND more only when it is pinned, and the A.3
+-- allow-list stays at 11.
+CREATE POLICY schema_backfills_insert_app_pending ON schema_backfills FOR INSERT TO nava_app
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                AND state = 'pending' AND rewritten = 0 AND skipped = 0 AND failed = 0
+                AND started_at IS NULL AND finished_at IS NULL);
 CREATE POLICY schema_backfills_insert_worker ON schema_backfills FOR INSERT TO nava_worker
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 CREATE POLICY schema_backfills_update_worker ON schema_backfills FOR UPDATE TO nava_worker

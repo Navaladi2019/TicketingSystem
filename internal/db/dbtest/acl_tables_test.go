@@ -336,6 +336,7 @@ func beforeNumberingMode(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*
 	m, a = beforeWorkflowTables(fsys, m, a)
 	m, a = beforeFieldIndexTables(fsys, m, a)
 	m, a = beforeSchemaBackfillTables(fsys, m, a)
+	m, a = beforeTenantLimits(fsys, m, a)
 	m = beforeFieldIndexTrigger(fsys, m)
 	if _, err := fs.Stat(fsys, numberingModeMigration); err == nil {
 		return m, a

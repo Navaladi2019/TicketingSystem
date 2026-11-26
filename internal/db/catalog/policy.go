@@ -81,6 +81,9 @@ func AllowList() map[string]Policy {
 // tenant_auditor_group_insert_active (P5-23, TICK-568) let onboarding's
 // upgrade reconcile write an active tenant's auditors group and pointer
 // once, and read only that group.
+// schema_backfills_insert_app_pending (PLAN-010 D-10-11, TICK-916) lets the
+// publish transaction insert its tenant's schema backfill job only as a fresh
+// pending row: no counts, never started or finished.
 func PinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
@@ -101,6 +104,10 @@ func PinnedTenantPolicies() map[string]Policy {
 		"public.groups.groups_select_onboard_auditors": {"SELECT", "nava_onboard", "(" + auditorsActive + ")", ""},
 		"public.tenant_auditor_group.tenant_auditor_group_insert_active": {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") + active +
 			" AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NULL)))))"},
+		// PLAN-010 D-10-11 (TICK-916): publish queues a fresh schema backfill
+		// job as nava_app, and only a fresh one (ADR-009 D1).
+		"public.schema_backfills.schema_backfills_insert_app_pending": {"INSERT", "nava_app", "", "(" + TenantPred("tenant_id") +
+			" AND (state = 'pending'::text) AND (rewritten = 0) AND (skipped = 0) AND (failed = 0) AND (started_at IS NULL) AND (finished_at IS NULL))"},
 		"public.tenants.tenants_onboard_insert":                                {"INSERT", "nava_onboard", "", and("provisioning")},
 		"public.tenants.tenants_activate":                                      {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
 		"public.tenant_email_domain.email_domain_onboard":                      {"INSERT", "nava_onboard", "", ownProvisioning},
@@ -205,9 +212,20 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 			problems = append(problems, fmt.Sprintf("%s is used by more than one policy, on %s", name, strings.Join(tables, ", ")))
 		}
 	}
+	// A listed policy is missing when its table has policies but not this
+	// one. A table with none is not there yet (a run that stops before the
+	// migration that creates it, TICK-916) or, under the forced RLS CI-1
+	// requires, refuses every role: neither opens a path to tenant rows.
+	withPolicies := map[string]bool{}
+	for _, tables := range tablesOf {
+		for _, tbl := range tables {
+			withPolicies[tbl] = true
+		}
+	}
 	for _, m := range []map[string]Policy{allow, pinned} {
 		for key := range m {
-			if !seen[key] {
+			parts := strings.SplitN(key, ".", 3)
+			if !seen[key] && len(parts) == 3 && withPolicies[parts[0]+"."+parts[1]] {
 				problems = append(problems, key+" is missing")
 			}
 		}
