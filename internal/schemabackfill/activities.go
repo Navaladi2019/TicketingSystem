@@ -128,6 +128,10 @@ type Activities struct {
 	// beforeAdmit, when set, runs in Admit before the pending → filling
 	// UPDATE (test-only: it lines two admissions up).
 	beforeAdmit func(ctx context.Context)
+	// beforeRewrite, when set, runs before each record's transaction and
+	// returns the context it runs in (test-only: a context cancelled
+	// mid-page, as when the worker stops).
+	beforeRewrite func(ctx context.Context, record uuid.UUID) context.Context
 }
 
 // Register adds the activities to r under their fixed names.
@@ -147,14 +151,16 @@ func noJob(msg string) error {
 }
 
 // jobOf is the calling workflow's job, from its id only (D2). The tenant must
-// also be the one the worker guard verified for the activity.
+// also be the one the worker guard verified for the activity: an activity
+// with no verified tenant is refused, not trusted (defence in depth; the
+// guard refuses a missing nava-tenant header first).
 func jobOf(ctx context.Context) (Job, error) {
 	j, err := ParseWorkflowID(activity.GetInfo(ctx).WorkflowExecution.ID)
 	if err != nil {
 		return Job{}, noJob("workflow id is not a job's")
 	}
-	if tenant, ok := workerguard.TenantFromContext(ctx); ok && tenant != j.Tenant {
-		return Job{}, noJob("activity tenant is not the workflow id's")
+	if tenant, ok := workerguard.TenantFromContext(ctx); !ok || tenant != j.Tenant {
+		return Job{}, noJob("activity tenant is missing or not the workflow id's")
 	}
 	return j, nil
 }
@@ -517,6 +523,9 @@ func (a *Activities) pendingIDs(ctx context.Context, j Job, after *uuid.UUID) ([
 // cancelled context, or a failure of that separate transaction, is an error:
 // the activity is retried and the id is still pending.
 func (a *Activities) rewrite(ctx context.Context, j Job, pc pageContext, id uuid.UUID) error {
+	if a.beforeRewrite != nil {
+		ctx = a.beforeRewrite(ctx, id)
+	}
 	var written bool
 	// synchronous_commit off (tenancy.WithSynchronousCommitOff): a commit
 	// lost in a crash leaves the id pending, and the next pass repeats it.
