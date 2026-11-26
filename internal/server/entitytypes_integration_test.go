@@ -707,6 +707,49 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 	}
 }
 
+// Two creates of one key and prefix, run in many rounds straight against the
+// store, always give one success and one ErrKeyExists, never ErrPrefixTaken
+// (TICK-1160). The loser's prefix check can run after the winner commits, so
+// without the per-tenant lock in Create the code depends on timing.
+func TestRacingCreatesReportTheKeyNeverThePrefix(t *testing.T) {
+	e := newETEnv(t)
+	const rounds = 150
+	for r := range rounds {
+		in := entitytypes.NewInput{Name: "T", PublishedBy: e.a.admin.PrincipalID,
+			Definition: etDefinition(t, fmt.Sprintf("race_%03d", r), etPrefix(r))}
+		errs := make([]error, 2)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range errs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+					_, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, in)
+					return err
+				})
+			}()
+		}
+		close(start)
+		wg.Wait()
+		ok, exists := 0, 0
+		for _, err := range errs {
+			switch {
+			case err == nil:
+				ok++
+			case errors.Is(err, entitytypes.ErrKeyExists):
+				exists++
+			default:
+				t.Fatalf("round %d: create = %v, want nil or ErrKeyExists", r, err)
+			}
+		}
+		if ok != 1 || exists != 1 {
+			t.Fatalf("round %d: %d created, %d key-exists, want one of each", r, ok, exists)
+		}
+	}
+}
+
 // Two parallel creates of one key (each with its own Idempotency-Key, so the
 // idempotency layer does not serialise them) race to the unique index. One is
 // 201; the other must be the registered 409, never a 500 (mapUnique).
