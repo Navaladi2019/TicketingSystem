@@ -4,7 +4,8 @@
 // artifact with if-no-files-found: error), without `if: false` on the job or
 // step and without continue-on-error. The list's outputs pin a job output to
 // one expression (TICK-1031): the changes job's full must be the stages
-// step's, not a second copy of the full-run rule that can drift from it.
+// step's, not a second copy of the full-run rule that can drift from it. A job
+// that restores ~/go/pkg/mod must use setup-go v6 or later (TICK-1142).
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 package main
@@ -14,7 +15,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -135,7 +139,38 @@ func check(workflowPath, requiredPath string) ([]string, int, error) {
 			problems = append(problems, fmt.Sprintf("job %s: output %q %s [%s]", o.Job, o.Output, p, o.Why))
 		}
 	}
+	problems = append(problems, oldSetupGo(wf.Jobs)...)
 	return problems, len(list.Steps) + len(list.Outputs), nil
+}
+
+const minSetupGo = 6
+
+// oldSetupGo returns one problem per setup-go step older than v6 in a job that
+// restores ~/go/pkg/mod (TICK-1142).
+func oldSetupGo(jobs map[string]job) []string {
+	var problems []string
+	for _, name := range slices.Sorted(maps.Keys(jobs)) {
+		steps := jobs[name].Steps
+		if !slices.ContainsFunc(steps, restoresModCache) {
+			continue
+		}
+		for _, s := range steps {
+			ref, ok := strings.CutPrefix(s.Uses, "actions/setup-go@")
+			if !ok {
+				continue
+			}
+			major, _, _ := strings.Cut(strings.TrimPrefix(ref, "v"), ".")
+			if n, err := strconv.Atoi(major); err != nil || n < minSetupGo {
+				problems = append(problems, fmt.Sprintf("job %s: %s must be v%d or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)", name, s.Uses, minSetupGo))
+			}
+		}
+	}
+	return problems
+}
+
+func restoresModCache(s step) bool {
+	cache := strings.HasPrefix(s.Uses, "actions/cache@") || strings.HasPrefix(s.Uses, "actions/cache/restore@")
+	return cache && strings.Contains(s.With["path"], "~/go/pkg/mod")
 }
 
 // findOutput returns why o's job does not set o.Output to o.Value, or "".
