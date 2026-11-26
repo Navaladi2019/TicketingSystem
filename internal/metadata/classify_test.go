@@ -54,6 +54,12 @@ func TestClassify(t *testing.T) {
 			prop(s, "priority")["default"] = 2
 		}, metadata.NeedsBackfill, []string{"/schema/properties/priority/default"}},
 
+		// CI-10 (ADR-009 D14): optional to required, with a default for it.
+		{"make existing property required, with a default added", func(_ *metadata.Definition, s map[string]any) {
+			prop(s, "priority")["default"] = 2
+			s["required"] = []any{"title", "state", "priority"}
+		}, metadata.NeedsBackfill, []string{"/schema/properties/priority", "/schema/properties/priority/default"}},
+
 		// Breaking
 		{"change type", func(_ *metadata.Definition, s map[string]any) {
 			prop(s, "priority")["type"] = "number"
@@ -150,6 +156,31 @@ func TestClassify(t *testing.T) {
 				t.Fatal("Breaking with no paths")
 			}
 		})
+	}
+}
+
+// TestClassifyRequiredWithExistingDefault (CI-10): a property that already has
+// a default and becomes required needs a backfill; without a default it stays
+// Breaking, and so does making a required property optional.
+func TestClassifyRequiredWithExistingDefault(t *testing.T) {
+	withDefault := baseSchema()
+	prop(withDefault, "priority")["default"] = 2
+	prev := mustCompile(t, baseDefinition(t, withDefault))
+
+	req := baseSchema()
+	prop(req, "priority")["default"] = 2
+	req["required"] = []any{"title", "state", "priority"}
+	got, paths, err := metadata.Classify(prev, mustCompile(t, rebuild(t, baseDefinition(t, req), req)))
+	if err != nil || got != metadata.NeedsBackfill || !slices.Equal(paths, []string{"/schema/properties/priority"}) {
+		t.Fatalf("with default: Classify = %v %q %v, want NeedsBackfill [/schema/properties/priority]", got, paths, err)
+	}
+
+	noDefault := baseSchema()
+	noDefault["required"] = []any{"title", "state", "priority"}
+	got, paths, err = metadata.Classify(mustCompile(t, baseDefinition(t, baseSchema())),
+		mustCompile(t, rebuild(t, baseDefinition(t, noDefault), noDefault)))
+	if err != nil || got != metadata.Breaking || !slices.Equal(paths, []string{"/schema/required"}) {
+		t.Fatalf("without default: Classify = %v %q %v, want Breaking [/schema/required]", got, paths, err)
 	}
 }
 

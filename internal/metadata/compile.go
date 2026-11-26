@@ -577,6 +577,12 @@ func checkDefaults(c *jsonschema.Compiler, props map[string]map[string]any, bad 
 		if !ok {
 			continue
 		}
+		// ADR-009 D13: a backfill would write the same default into every
+		// record that lacks the key, so two records would share a unique value.
+		if u, _ := p[UniqueKeyword].(bool); u {
+			bad.add("schema", "properties", name, "default")
+			continue
+		}
 		sub, err := c.Compile(schemaURL + "#" + fragment("properties", name))
 		if err != nil || sub.Validate(v) != nil {
 			bad.add("schema", "properties", name, "default")

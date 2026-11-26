@@ -217,6 +217,16 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/schema/default",
 		},
 		{
+			// ADR-009 D13 (CI-10): a default would give every record that
+			// lacks the key the same unique value.
+			name: "default with x-nava-unique",
+			mutate: func(_ *metadata.Definition, s map[string]any) {
+				prop(s, "code")["default"] = "X"
+				prop(s, "code")[metadata.UniqueKeyword] = true
+			},
+			want: "/schema/properties/code/default",
+		},
+		{
 			name: "nested x-nava-unique",
 			mutate: func(_ *metadata.Definition, s map[string]any) {
 				props(s)["address"] = map[string]any{"type": "object", "properties": map[string]any{

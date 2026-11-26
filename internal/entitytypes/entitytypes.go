@@ -262,7 +262,7 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 	if err := registerFilterable(ctx, tx, tenantID, defID, 1, compiled.Filterable()); err != nil {
 		return nil, err
 	}
-	if err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
+	if _, err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
 		return nil, err
 	}
 	return s.GetVersion(ctx, tx, d.Key, 1)
@@ -342,6 +342,10 @@ type PublishInput struct {
 	// publish on (its If-Match); the type's current version must be one of
 	// them, else *ConflictError.
 	ExpectedVersion []int
+	// AfterBackfillQueued is a test seam: when set and the publish queued a
+	// schema backfill job, it runs after the job row and its outbox row are
+	// written, and its error fails the publish (ADR-009 CI-1). Nil in production.
+	AfterBackfillQueued func() error
 }
 
 // Publish writes version N+1 of the entity type and makes it current, and
@@ -445,7 +449,11 @@ VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $
 UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {
 		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
 	}
-	if err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy); err != nil {
+	auditID, err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := queueBackfill(ctx, tx, tenantID, defID, number, auditID, prev, next, in.AfterBackfillQueued); err != nil {
 		return nil, err
 	}
 	return s.GetVersion(ctx, tx, in.Key, number)

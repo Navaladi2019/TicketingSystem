@@ -119,18 +119,19 @@ SELECT schema::jsonb::text FROM entity_definition_versions WHERE definition_id =
 
 // auditVersion writes the config-domain entry of a version just inserted in
 // tx: create for version 1, publish after. before is the previous version
-// number, or 0 for the first.
-func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, version int, schemaSum [sha256.Size]byte, by uuid.UUID) error {
+// number, or 0 for the first. It returns the entry's id (the causation of a
+// schema backfill job, ADR-009 D1).
+func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, version int, schemaSum [sha256.Size]byte, by uuid.UUID) (uuid.UUID, error) {
 	after, err := schemaJSONB(ctx, tx, definitionID, version)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	var before json.RawMessage
 	action := audit.ActionCreate
 	var vBefore *int64
 	if version > 1 {
 		if before, err = schemaJSONB(ctx, tx, definitionID, version-1); err != nil {
-			return err
+			return uuid.Nil, err
 		}
 		action = audit.ActionPublish
 		vb := int64(version - 1)
@@ -138,11 +139,11 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 	}
 	diff, err := jsondiff.Diff(before, after)
 	if err != nil {
-		return fmt.Errorf("entitytypes: diff schema: %w", err)
+		return uuid.Nil, fmt.Errorf("entitytypes: diff schema: %w", err)
 	}
 	paths, err := SecretPaths(after)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	va := int64(version)
 	e := audit.Entry{
@@ -161,13 +162,14 @@ func auditVersion(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, versio
 	if id := requestid.FromContext(ctx); id != "" {
 		e.RequestID = &id
 	}
-	if _, err := audit.Append(ctx, tx, e); err != nil {
+	id, err := audit.Append(ctx, tx, e)
+	if err != nil {
 		if sec, ok := errors.AsType[*secrets.ErrSecretInDiff](err); ok {
-			return &SecretInContentError{Path: string(sec.Path), Reason: string(sec.Reason)}
+			return uuid.Nil, &SecretInContentError{Path: string(sec.Path), Reason: string(sec.Reason)}
 		}
-		return fmt.Errorf("entitytypes: audit version: %w", err)
+		return uuid.Nil, fmt.Errorf("entitytypes: audit version: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 // onboardingActor is the system actor of a version onboarding seeded before
