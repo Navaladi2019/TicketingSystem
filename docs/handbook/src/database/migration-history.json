@@ -1295,6 +1295,14 @@
     {
       "file": "20261126163700_tenant_limits.sql",
       "on_main": false
+    },
+    {
+      "file": "20261127110000_entity_versions_published_by_system.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261127110100_entity_versions_published_by_system_validate.sql",
+      "on_main": false
     }
   ]
 }
