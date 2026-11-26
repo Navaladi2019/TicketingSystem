@@ -248,7 +248,7 @@ func TestP511CatalogueCIA3(t *testing.T) {
 			func() *audited.Manifest { return withTestTable(nil) }, "column note may be updated but is not in audited_columns"},
 		{"writer cannot read a probe column", []string{"REVOKE SELECT (txid) ON audit_log FROM nava_app"},
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_app cannot run the commit check or append: no SELECT (txid)"},
-		{"writer has no SELECT policy", []string{"DROP POLICY audit_log_onboard_select ON audit_log"},
+		{"writer has no SELECT policy", []string{"DROP POLICY audit_log_onboard_select ON audit_log", "DROP POLICY audit_log_limits_onboard_select ON audit_log"},
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_onboard cannot run the commit check or append: no SELECT policy"},
 		// ADR-004-E3 decision 3: the clause is in pg_proc.proconfig; a copy
 		// without it, an ALTER ... RESET, or a CREATE OR REPLACE without the

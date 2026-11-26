@@ -24,11 +24,8 @@ import (
 // (tenantlimits.SetPerType, with its audit entry), as nava_app in tenant A's
 // own transaction, aiming at tenant A's own row. Want 42501.
 //
-// Fails today (AR-TICK-916-01): nava_app holds INSERT and UPDATE on
-// tenant_limits. Remove the skip in the change that moves the write to
-// nava_onboard.
+// Fixed (AR-TICK-916-01): nava_onboard is tenant_limits' only writer.
 func TestSecTenantLimitsTenantRoleCannotRaiseItsOwnLimit(t *testing.T) {
-	t.Skip("AR-TICK-916-01: nava_app can still write tenant_limits; unskip with the fix")
 	migratedPlatform(t)
 	super := superNava(t)
 	seedTenants(t, super, []string{tenantA}, nil)

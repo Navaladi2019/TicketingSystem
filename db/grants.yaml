@@ -162,9 +162,8 @@ roles:
       schema_backfill_pending: { SELECT: [] }
       schema_backfill_failures: { SELECT: [] }
       # Tenant limits (TICK-751, ADR-006 D12, 20261126100400): publish reads
-      # the row; the operator route on nava-onboard writes it through its
-      # nava_app pool. Never DELETE, never a tenant_id change.
-      tenant_limits: { SELECT: [], INSERT: [], UPDATE: [filterable_fields_per_type, updated_at, updated_by] }
+      # the row. Only nava_onboard writes it (AR-TICK-916-01).
+      tenant_limits: { SELECT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role. TICK-940: the format-2 rules CHECK calls the acl2_*
     # ones, and the tenant-id trigger (as the inserting role) acl2_id_pointers.
@@ -378,6 +377,10 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
+      # Tenant limits (TICK-751, AR-TICK-916-01, 20261126100400): the
+      # operator route's write, in the target tenant's transaction. Never
+      # DELETE, never a tenant_id change.
+      tenant_limits: { SELECT: [], INSERT: [], UPDATE: [filterable_fields_per_type, updated_at, updated_by] }
       tenants: { SELECT: [id, state, onboarding_request_hash, created_at], INSERT: [id, state, onboarding_request_hash], UPDATE: [state] }
       tenant_identity_binding: { INSERT: [tenant_id, issuer, org_id, idp_aliases] }
       # T18a claims domains next to the binding; TICK-280 releases a

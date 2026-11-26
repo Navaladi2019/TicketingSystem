@@ -44,7 +44,7 @@ type Option func(*options)
 type options struct {
 	operators identity.OperatorResolver
 	onboarder Onboarder
-	// limitsPool is the nava_app pool of the operator's tenant limits route
+	// limitsPool is the nava_onboard pool of the operator's tenant limits route
 	// (WithOperatorLimits).
 	limitsPool *pgxpool.Pool
 	// operatorOnly makes every route but /api/v1/operator/* answer 404: the
