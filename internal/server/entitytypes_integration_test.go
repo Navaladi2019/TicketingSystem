@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -707,46 +708,45 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 	}
 }
 
-// Two creates of one key and prefix, run in many rounds straight against the
-// store, always give one success and one ErrKeyExists, never ErrPrefixTaken
-// (TICK-1160). The loser's prefix check can run after the winner commits, so
-// without the per-tenant lock in Create the code depends on timing.
-func TestRacingCreatesReportTheKeyNeverThePrefix(t *testing.T) {
+// A create that starts while another create of the same key and prefix is open
+// waits on the per-tenant advisory lock, and once that one commits it reports
+// the key, never the prefix (TICK-1160). The interleaving is made, not hoped
+// for: tx A creates and stays open; tx B is seen waiting on the advisory lock
+// in pg_locks before A commits. Without the lock in Create, B passes both
+// checks and blocks on the unique index instead, so the wait is never seen and
+// the test fails.
+func TestCreateWaitsBehindOpenCreateAndReportsTheKey(t *testing.T) {
 	e := newETEnv(t)
-	const rounds = 150
-	for r := range rounds {
-		in := entitytypes.NewInput{Name: "T", PublishedBy: e.a.admin.PrincipalID,
-			Definition: etDefinition(t, fmt.Sprintf("race_%03d", r), etPrefix(r))}
-		errs := make([]error, 2)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		for i := range errs {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				<-start
-				errs[i] = tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
-					_, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, in)
-					return err
-				})
-			}()
+	in := entitytypes.NewInput{Name: "T", PublishedBy: e.a.admin.PrincipalID, Definition: etDefinition(t, "race_key", "RAC")}
+	create := func(tx pgx.Tx) error {
+		_, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, in)
+		return err
+	}
+	second := make(chan error, 1)
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		if err := create(tx); err != nil {
+			return err
 		}
-		close(start)
-		wg.Wait()
-		ok, exists := 0, 0
-		for _, err := range errs {
-			switch {
-			case err == nil:
-				ok++
-			case errors.Is(err, entitytypes.ErrKeyExists):
-				exists++
-			default:
-				t.Fatalf("round %d: create = %v, want nil or ErrKeyExists", r, err)
+		go func() { second <- tenancy.InTenantTx(t.Context(), e.pool, e.a.id, create) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting bool
+			if err := e.super.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)").Scan(&waiting); err != nil {
+				return err
 			}
+			if waiting {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return errors.New("the second create never waited on the advisory lock")
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
-		if ok != 1 || exists != 1 {
-			t.Fatalf("round %d: %d created, %d key-exists, want one of each", r, ok, exists)
-		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; !errors.Is(err, entitytypes.ErrKeyExists) {
+		t.Fatalf("second create = %v, want ErrKeyExists", err)
 	}
 }
 
