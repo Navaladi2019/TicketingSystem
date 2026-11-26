@@ -7,6 +7,10 @@
 # Also the govulncheck workflow's vulncheck-main-red job (TICK-641, TICK-1145), on a scheduled
 # run (TICK-694: it no longer runs on a push): WORKFLOW names the workflow in
 # the body (default ci), EVENT the event (default push).
+# Titles (TICK-1152, ADR-001-E4 FU3): WORKFLOW=govulncheck opens and updates
+# "govulncheck is red: <short sha>"; any other workflow (ci, the default) uses
+# "main is red: <short sha>". Each looks up only open issues with its own
+# prefix, so a red scan never lands on the ci workflow's issue or vice versa.
 # Inputs (the job sets them): GH_TOKEN, GH_REPO (owner/repo), SHA, RUN_URL and
 # NEEDS_JSON, the workflow's toJSON(needs). Needs gh and jq.
 # Not a make target: TICK-289 forbids Makefile edits while S5 and S7 are open.
@@ -18,7 +22,11 @@ set -eu
 : "${GH_REPO:?}" "${SHA:?}" "${RUN_URL:?}" "${NEEDS_JSON:?}"
 
 short=$(printf '%s' "$SHA" | cut -c1-7)
-title="main is red: $short"
+case ${WORKFLOW:-ci} in
+    govulncheck) prefix='govulncheck is red:' ;;
+    *) prefix='main is red:' ;;
+esac
+title="$prefix $short"
 failed=$(printf '%s' "$NEEDS_JSON" | jq -r '[to_entries[] | select(.value.result == "failure") | .key] | join(", ")')
 [ -n "$failed" ] || failed="(none reported failure; see the run)"
 
@@ -32,7 +40,7 @@ body=$(printf '`%s` failed on %s at %s.\n\nFailing jobs: %s\n\nRun: %s\n' "${WOR
 gh label create P0 --color B60205 --description "Production-blocking; fix today" >/dev/null 2>&1 || true
 
 open=$(gh issue list --state open --label P0 --limit 100 --json number,title \
-    --jq '[.[] | select(.title | startswith("main is red:"))][0].number // empty')
+    --jq "[.[] | select(.title | startswith(\"$prefix\"))][0].number // empty")
 
 if [ -n "$open" ]; then
     gh issue comment "$open" --body "$body"
