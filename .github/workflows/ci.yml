@@ -17,7 +17,8 @@
 #                    (make ci-temporal-server-changed, TICK-641), story-branch
 #                    pull requests included (TICK-695)
 #   integration      -tags integration against a throwaway PostgreSQL
-#   isolation        full runs only: the tenant isolation suite, the
+#   isolation        full runs and every pull request run with ci:run or
+#                    ci:full (TICK-1146): the tenant isolation suite, the
 #                    ci-isolated --down tag check and the integration cleanup
 #                    check (TICK-652); its own job since TICK-1003, in
 #                    parallel with integration, which it overran at 15 min
@@ -62,7 +63,8 @@
 #   6-hourly schedule              story-branches only           -
 #   manual run (workflow_dispatch) every job and area; CI_ALL    full
 #                                  (real images) on main
-# fast: the tier=smoke stack cases, no isolation suite, no stack-db or
+# fast: the tier=smoke stack cases, no isolation suite (but on a pull request
+# with ci:run, TICK-1146), no stack-db or
 # stack-internal phase, no CI-5, CI-6 or isolation report. full (CI_FULL):
 # everything, as every push to main ran before TICK-652. The regressions only
 # a full run catches reach main and are caught by the next daily run, about
@@ -252,7 +254,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -352,7 +354,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -448,7 +450,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -496,7 +498,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: temporal-server/go.mod
           cache: false
@@ -568,7 +570,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -612,6 +614,19 @@ jobs:
           key: go-${{ github.job }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
 
   isolation:
+    # TICK-1146: the name is an expression that reads a context on purpose.
+    # GitHub names a skipped job's check run after the unevaluated
+    # expression (a constant ${{ 'isolation' }} is folded to the literal even
+    # when skipped, PR 904), so only a run that
+    # executed the suite reports the required check "isolation". With a
+    # literal name a later run on the same commit that skipped the job (any
+    # other label, ci:run after ci:full, close and reopen) replaced a red
+    # isolation and the pull request showed CLEAN (spike PR 898,
+    # docs/quality/label-run-hides-red-check.md). make check-ci-steps pins it
+    # (required.yaml checks). So every pull request run with ci:run or
+    # ci:full runs the job, whatever the diff: otherwise a ci:run pull
+    # request into main could never report isolation. About 6 min a run.
+    name: ${{ github.event_name && 'isolation' || 'isolation' }}
     # TICK-1003: the tenant isolation suite (T11, ADR-001 CI-2) and the two
     # checks of CI scripts, on a full run (TICK-652, AR-TICK-652-01) and on
     # every pull request into a TICK-* story branch (TICK-1031), in
@@ -622,7 +637,7 @@ jobs:
     # build about 6 min, so 15 is a hang guard with over 100 % margin.
     # Self-hosted 30 (TICK-641).
     needs: [runner, changes]
-    if: needs.changes.outputs.integration == 'true' && needs.changes.outputs.full == 'true'
+    if: (needs.changes.outputs.integration == 'true' && needs.changes.outputs.full == 'true') || (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'ci:run') || contains(github.event.pull_request.labels.*.name, 'ci:full')))
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 15 }}
     steps:
@@ -633,7 +648,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -690,7 +705,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -759,7 +774,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -995,7 +1010,7 @@ jobs:
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -1116,7 +1131,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false

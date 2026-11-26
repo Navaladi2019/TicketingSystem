@@ -45,6 +45,10 @@ func TestEditsFail(t *testing.T) {
 		// story-branch rule, is the regression that skipped isolation.
 		{"pinned output drifts", "full: ${{   steps.stages.outputs.full }}", "full: ${{ env.CI_FULL }}", `job changes: output "full" is "${{ env.CI_FULL }}", want "${{ steps.stages.outputs.full }}" [isolation gate]`},
 		{"pinned output removed", "      full: ${{   steps.stages.outputs.full }}\n", "", `job changes: output "full" is missing [isolation gate]`},
+		// TICK-1142: setup-go before v6 installs the go line, the first go command
+		// downloads the toolchain line into ~/go/pkg/mod, and the restore fails.
+		{"setup-go ignores the toolchain line", "actions/setup-go@v6", "actions/setup-go@v5", `job unit: actions/setup-go@v5 must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
+		{"setup-go pinned by another ref", "actions/setup-go@v6", "actions/setup-go@main", `job unit: actions/setup-go@main must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
 		{"pinned output's job removed", "  changes:\n", "  stages:\n", `job changes: output "full" is missing: no such job [isolation gate]`},
 	}
 	for _, c := range cases {

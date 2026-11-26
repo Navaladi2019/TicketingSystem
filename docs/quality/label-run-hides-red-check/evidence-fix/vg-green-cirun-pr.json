@@ -1,0 +1,1 @@
+{"data":{"repository":{"pullRequest":{"number":904,"isDraft":true,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"cf3969029ba80a935f98d8763019e15ce4a0bfce","baseRefOid":"a89c19f2dc66854852897628b892f6b4716dfc27","labels":{"nodes":[{"name":"ci:run"}]},"baseRef":{"target":{"oid":"a89c19f2dc66854852897628b892f6b4716dfc27"}}}}}}

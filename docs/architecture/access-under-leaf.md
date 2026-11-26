@@ -1,14 +1,18 @@
-# The `under` leaf on the closure (TICK-950, TICK-1034, TICK-1036)
+# The `under` leaf on the closure (TICK-950, TICK-1034, TICK-1036, TICK-1104)
 
 Decision: [ADR-010](../adr/ADR-010-composable-access-rules.md) D7, D5a, as
-amended by the R1 ruling on TICK-946 (formal text: ADR-010-A2); SP-1d
+amended by the R1 ruling on TICK-946 (formal text: ADR-010-A2) and by
+[ADR-010-A3](../adr/ADR-010-A3-records-driven-region-shape.md) (shape R); SP-1d
 decisions 1 and 5. Code: `internal/authz/under.go`, `plan.go` (`pUnder`),
 `acl.go` (`compiler.under`, `ReadList`, `ReadListShaped`, `RegionDriver`),
-`shape.go` (K\*, P3, `ChooseListShapes`),
+`shape.go` (K\*, P3, the folded probe, `ChooseListShapes`),
 `internal/records/store/list.go` (`PageStatement`, `CountStatement`). Tests:
 `internal/authz/under_test.go`, `internal/authz/shape_test.go`,
+`internal/authz/shape_records_test.go`,
 `internal/records/pipeline/acl_under_integration_test.go`,
-`internal/records/pipeline/acl_under_shape_integration_test.go`, the TICK-1035
+`internal/records/pipeline/acl_under_shape_integration_test.go`,
+`internal/records/pipeline/acl_under_records_integration_test.go`,
+`internal/server/records_list_records_shape_integration_test.go`, the TICK-1035
 agreement suite (`internal/groupsync/under_closure_agreement_integration_test.go`),
 the I5 format-2 agreement (`internal/tenancy/isolation/i5_format2_*`).
 
@@ -47,18 +51,18 @@ sequenceDiagram
 | --- | --- |
 | `Allows` (one record) | `ResolveUnder` reads `EXISTS (org_unit_closure WHERE ancestor_id = ANY(U) AND descendant_id = row's unit)` as a PK probe, for every row it is given, in one statement with the caller's units. |
 | `CompileRead`, `ReadBranches` | The predicate form: `r.org_unit_id IS NOT NULL AND r.org_unit_id IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $t AND ancestor_id = ANY($U))`. |
-| List page, region term | **C3** or **W0**, picked per request from the probe P3 (ADR-010-A2 A2-5; see "Page shape" below). Any other `under` in the page is W0. |
-| List count, region term | Always CC, whatever the probe says: the units of U, made `DISTINCT`, not below another unit of U, then the closure per unit, then `LATERAL (records … LIMIT 1001)` (`TotalCap` + 1), the leaf inside in the predicate form. It reads at most 1,001 records. The units kept have disjoint subtrees, so no record is counted twice. The cap does not follow K\*. The one exception is A2-5a. |
+| List page, region term | **C3**, **W0** or **R**, picked per request by the probe (ADR-010-A2 A2-5, ADR-010-A3 A3-2; see "Page shape" below). Any other `under` in the page is W0. |
+| List count, region term | CC, whatever P3 says: the units of U, made `DISTINCT`, not below another unit of U, then the closure per unit, then `LATERAL (records … LIMIT 1001)` (`TotalCap` + 1), the leaf inside in the predicate form. It reads at most 1,001 records. The units kept have disjoint subtrees, so no record is counted twice. The cap does not follow K\*. The exceptions are A2-5a and R, whose count has the same 1,001 cap and no driver. |
 
-Only `compiler.under` writes the leaf's text; its three forms (predicate, W0,
-C3) bind the same two placeholders.
+Only `compiler.under` writes the leaf's text; its four forms (predicate, W0,
+C3, R) bind the same two placeholders.
 
 A count term is a region term when it is an `under` leaf, or an `all` with one
 as a child (`RegionDriver`). Other terms, and an `under` under `not` or `any`,
 keep today's count. The driver reuses the leaf's own placeholders, so the
 count and the page bind the same arguments.
 
-## Page shape (TICK-1036, ADR-010-A2 A2-5, A2-5a, A2-9)
+## Page shape (TICK-1036, ADR-010-A2 A2-5, A2-5a, A2-9; TICK-1104, ADR-010-A3)
 
 ```mermaid
 flowchart TD
@@ -67,11 +71,16 @@ flowchart TD
     T -- yes --> E["read N̂_e = entity_record_estimates.live_records<br/>K* = clamp(0.8 × √(page × N̂_e), 1000, 20000)<br/>missing row: K* = 1000"]
     E --> R{row exists and N̂_e ≤ K*?}
     R -- "yes (A2-5a)" --> W2["page W0, count W0, no count driver"]
-    R -- "no, or no row" --> P["P3 per distinct region leaf, capped at K* + 1"]
+    R -- no --> RI{"row exists and N̂_e ≤ α·U_cert (33,366)?"}
+    RI -- no --> P["P3 per distinct region leaf, capped at K* + 1"]
+    RI -- yes --> FP["folded probe per distinct region leaf:<br/>n = closure rows of U, stopped at U_hash = 20,222"]
+    FP -- "⌈N̂_e/α⌉ ≤ n < U_hash" --> RR["page and count R, no count driver"]
+    FP -- "else: P3 in the same statement" --> M
     P --> M{m ≤ K*?}
     M -- yes --> C3["page C3: MATERIALIZED CTE, then sort<br/>count CC"]
     M -- no --> W0["page W0: index walk + OFFSET 0 closure probe<br/>count CC"]
     P -. error .-> F[500, never another shape]
+    FP -. "error, or P3 NULL without R" .-> F
 ```
 
 | Statement | SQL (alias names as `shape.go` and `acl.go` render them) |
@@ -79,17 +88,22 @@ flowchart TD
 | P3 | `SELECT count(*) FROM (SELECT 1 FROM <canonical distinct U> CROSS JOIN LATERAL (closure descendants of u) CROSS JOIN LATERAL (SELECT 1 FROM records r WHERE r.tenant_id = $t AND r.entity_definition_id = $e AND r.org_unit_id IS NOT NULL AND r.org_unit_id = descendant LIMIT K+1) LIMIT K+1)`. No request filter. |
 | C3 | `WITH acl_m AS MATERIALIZED (SELECT … FROM records r WHERE … AND r.org_unit_id = ANY(ARRAY(closure descendants of U)) AND NOT <earlier branches>) SELECT … FROM acl_m r ORDER BY <sort> LIMIT $page`. A later branch negates a C3 leaf in the predicate form, so a C3 page holds no `OFFSET 0`. |
 | W0 | `r.org_unit_id IS NOT NULL AND EXISTS (SELECT 1 FROM org_unit_closure WHERE tenant_id = $t AND ancestor_id = ANY($U) AND descendant_id = r.org_unit_id OFFSET 0)`: the sort index walk, one closure-PK SubPlan probe per row. |
+| R (page and count) | `((r.org_unit_id IN (SELECT descendant_id FROM org_unit_closure WHERE tenant_id = $t AND ancestor_id = ANY($U))) IS TRUE)`: a hashed SubPlan built once, probed per record of the type. No driver, no CTE, no `IS NOT NULL`. `IS TRUE` stops the pull-up into a semi-join and makes a NULL unit false. A later branch negates an R leaf in the predicate form. |
+| Folded probe | `SELECT s.n, CASE WHEN s.n >= ⌈N̂_e/α⌉ AND s.n < U_hash THEN NULL ELSE (P3) END FROM (SELECT count(*) AS n FROM (SELECT 1 FROM <canonical U closure> LIMIT U_hash) z) s`, the two bounds bound as `bigint`. P3 never executes on an R path. |
 
+- α = 3.3, U_cert = 10,111 and U_hash = 2·U_cert are constants in `shape.go`,
+  never settings. U_cert is the threshold of `GroupsyncOrgUnitsAboveCertified`;
+  `TestUCertIsTheAlertThreshold` keeps them equal.
 - The shape changes SQL text only. Every shape computes the predicate
   `Allows` computes (A2-6), so a wrong estimate or probe count costs time,
   never rows. The shapes live for one request; nothing is cached.
 - Only a term an `under` leaf drives (the leaf, or an `all` with one) is
   probed. P3 never runs for a request filter (A2-6 requirement 1).
-- The shape, the probe count, K\* and N̂_e reach no response, header, log line
-  or error text (requirement 2). Every statement binds the transaction's
+- The shape, the probe counts, K\*, N̂_e, R's cap, α and U_cert reach no
+  response, header, log line or error text (requirement 2, A3-7). Every statement binds the transaction's
   tenant (`tenancy.TenantOf`, the `app.tenant_id` value; requirement 3).
-- Metrics: `authz_under_list_shape_total{shape="c3"|"walk"}` (A2-5a counts as
-  `walk`) and `authz_under_probe_seconds`, with no other label.
+- Metrics: `authz_under_list_shape_total{shape="c3"|"walk"|"records"}` (A2-5a counts
+  as `walk`) and `authz_under_probe_seconds`, with no other label.
 
 ## Rules
 
@@ -110,7 +124,8 @@ flowchart TD
 There is no size cap: the 10,000-unit `MaxUnderSet`, its 500
 `access_scope_too_large` and `authz_under_set_too_large_total` are gone
 (TICK-1034). The capped count is O(K), not O(|S|), for a type dense under S,
-so nothing replaces them; a sparse type under a large S is A2-5a and A2-R6.
+so nothing replaces them; a sparse type under a large S is A2-5a, and R up to
+U_hash units (ADR-010-A3).
 
 ## Publish
 
