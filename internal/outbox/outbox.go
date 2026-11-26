@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -118,6 +119,12 @@ const SealKind = "audit.seal"
 // (ADR-006 D10, P7-04). Its starts are not tied to a record and go through
 // EnqueueFieldIndexBackfill only.
 const FieldIndexBackfillKind = "field_index.backfill"
+
+// SchemaBackfillKind is the workflow type of the schema backfill (ADR-009
+// D1, D2; contract C3). Its starts are not tied to a record and go through
+// EnqueueSchemaBackfill, or the rollout migration (D15), which writes the
+// same row.
+const SchemaBackfillKind = "schema.backfill"
 
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
@@ -295,14 +302,16 @@ func EnqueueSignal(ctx context.Context, tx pgx.Tx, ref uuid.UUID, e Entry, versi
 }
 
 // notOwnEntryPointStart refuses, in EnqueueAtVersion, the starts that have
-// their own entry point: InterpreterKind (EnqueueStart) and SealKind
-// (EnqueueSeal).
+// their own entry point: InterpreterKind (EnqueueStart), SealKind
+// (EnqueueSeal) and SchemaBackfillKind (EnqueueSchemaBackfill).
 func notOwnEntryPointStart(e Entry) error {
 	t, ok := e.Target.(TargetStart)
 	if !ok {
 		return nil
 	}
-	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
+	for _, k := range [...]struct{ kind, via string }{
+		{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}, {SchemaBackfillKind, "EnqueueSchemaBackfill"},
+	} {
 		if t.Kind == k.kind || e.Kind == k.kind {
 			return fmt.Errorf("%w: a start of %s goes through %s", ErrInvalidEntry, k.kind, k.via)
 		}
@@ -692,6 +701,7 @@ var kindPayloadKeys = map[string][]string{
 	InterpreterSignalKind:  {"signal"},
 	SealKind:               {},
 	FieldIndexBackfillKind: {"tenant_id", "field_id"},
+	SchemaBackfillKind:     {"entity_definition_id"},
 }
 
 // ValidateKindPayload is ValidatePayload plus the per-kind allow-list
@@ -842,6 +852,68 @@ func EnqueueFieldIndexBackfill(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, fmt.Errorf("outbox: insert field index backfill row: %w", err)
+	}
+	var existing uuid.UUID
+	if err := tx.QueryRow(ctx, dedupeLookupSQL, dedupe).Scan(&existing); err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: dedupe lookup after conflict: %w", err)
+	}
+	return existing, nil
+}
+
+// SchemaBackfillDedupeKey is the dedupe_key of the schema backfill start row
+// for entity definition definitionID at targetVersion (ADR-009 D1):
+// schema-backfill:<entity_definition_id>:<target_version>.
+func SchemaBackfillDedupeKey(definitionID uuid.UUID, targetVersion int) string {
+	return fmt.Sprintf("schema-backfill:%s:%d", definitionID, targetVersion)
+}
+
+// EnqueueSchemaBackfill writes the start row of the schema backfill of
+// entity definition definitionID at targetVersion in tx's tenant and returns
+// its id (ADR-009 D1, contract C3). The publish that adds a default calls it
+// in the transaction that inserts the schema_backfills row.
+//
+// The row is the one the rollout migration writes (D15): no workflow_ref,
+// target_key = schema.backfill:<own id>, target_seq = targetVersion,
+// causation_id = its own id at depth 0, and payload {entity_definition_id}:
+// references only. targetVersion is not in the payload because
+// outbox_payload_check admits only UUID values. The relay builds the workflow
+// id from the row's tenant, the payload's definition and target_seq. The
+// job's causation (the publish audit entry) is on the schema_backfills row,
+// which the workflow reads under RLS. A retry of the same publish returns the
+// row it wrote and nothing more.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueSchemaBackfill(ctx context.Context, tx pgx.Tx, definitionID uuid.UUID, targetVersion int) (uuid.UUID, error) {
+	if definitionID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("%w: no entity definition id", ErrInvalidEntry)
+	}
+	if targetVersion < 1 || targetVersion > math.MaxInt32 {
+		return uuid.Nil, fmt.Errorf("%w: target version %d out of range", ErrInvalidEntry, targetVersion)
+	}
+	tenant, err := tenancy.TenantOf(ctx, tx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: %w", err)
+	}
+	payload, err := json.Marshal(map[string]string{"entity_definition_id": definitionID.String()})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: encode payload: %w", err)
+	}
+	if err := ValidateKindPayload(SchemaBackfillKind, payload); err != nil {
+		return uuid.Nil, err
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
+	}
+	dedupe := SchemaBackfillDedupeKey(definitionID, targetVersion)
+	var got uuid.UUID
+	err = tx.QueryRow(ctx, insertSQL, id, tenant, SchemaBackfillKind, 1, dedupe,
+		SchemaBackfillKind+":"+id.String(), int64(targetVersion), id, 0, string(payload), traceparent(ctx)).Scan(&got)
+	if err == nil {
+		return got, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, fmt.Errorf("outbox: insert schema backfill row: %w", err)
 	}
 	var existing uuid.UUID
 	if err := tx.QueryRow(ctx, dedupeLookupSQL, dedupe).Scan(&existing); err != nil {
