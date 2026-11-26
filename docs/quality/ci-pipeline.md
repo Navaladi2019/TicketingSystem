@@ -120,7 +120,14 @@ there; production files never set them.
   job and commit, falling back to the newest entry), so `go vet`, `go test` and
   the temporal-server tests compile only what changed. The lint and
   temporal-server jobs also cache the golangci-lint cache and the pinned tools (`~/go/bin`, keyed on the
-  Makefile, which holds the versions).
+  Makefile, which holds the versions). The cache paths hold `~/go/pkg/mod`, so
+  no `go` command may fill it before the restore: `setup-go` v5 installed the
+  `go` line (1.27.0), the first `go` command then downloaded `toolchain`
+  (go1.27.4) into `~/go/pkg/mod`, and the restore failed on the read-only
+  files (`tar: ... Cannot open: File exists`, TICK-1142). v6 installs the
+  `toolchain` version itself and sets `GOTOOLCHAIN=local`, so a `go` command
+  that needs a newer Go fails instead of downloading it. `check-ci-steps`
+  refuses an older `setup-go` in a job that restores `~/go/pkg/mod`.
 - `make image-ci` builds the images with `docker buildx bake` and keeps the
   layers in the Actions cache (`IMAGE_CACHE=gha`), while the registry images are
   pulled alongside. The temporal-server image compiles the Temporal dependencies
@@ -1185,7 +1192,8 @@ the local cache), with `buildx` and `contexts` linked back to `~/.docker` so the
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
 buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), Node.js 20 or 22 with `npx` (the `s8_entity_types` stack case; GitHub-hosted runners have it preinstalled), `python3`
 (`make check-guide`), `curl`, and the runner registered with the labels
-`self-hosted` and `wsl`. Go comes from `actions/setup-go` into the runner's
+`self-hosted` and `wsl`, at version 2.327.1 or newer (`actions/setup-go` v6
+runs on Node 24). Go comes from `actions/setup-go` into the runner's
 tool cache.
 
 **Reset the `nava-ci` builder by hand** (a corrupt cache, or to measure a cold

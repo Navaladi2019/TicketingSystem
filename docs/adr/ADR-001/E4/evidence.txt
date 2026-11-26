@@ -1,0 +1,59 @@
+Read-only evidence for ADR-001-E4, collected 2026-11-25T19:47:08Z, main at 461484e7a23a89bcaf92281ee07e712c3e78a82a
+
+== 1. required checks: gh api repos/Navaladi2019/TicketingSystem/branches/main/protection
+{"approvals":0,"checks":[{"app_id":15368,"context":"changes"},{"app_id":15368,"context":"lint"},{"app_id":15368,"context":"unit"},{"app_id":15368,"context":"temporal-server"},{"app_id":15368,"context":"integration"},{"app_id":15368,"context":"stack"},{"app_id":15368,"context":"coverage"},{"app_id":15368,"context":"commit-check-budget"},{"app_id":15368,"context":"isolation"}],"enforce_admins":true,"strict":true}
+
+== 2. rulesets: gh api repos/Navaladi2019/TicketingSystem/rulesets/25309002 ; rules/branches/main
+{"enforcement":"active","include":[],"name":"Mina branch","rules":["deletion","non_fast_forward"]}
+[]
+== 3. workflow triggers: .github/workflows/govulncheck.yml at HEAD
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - go.mod
+      - go.sum
+      - temporal-server/go.mod
+      - temporal-server/go.sum
+  schedule:
+    - cron: '17 3 */2 * *'
+  workflow_dispatch:
+
+
+== 4. GraphQL CheckRun.isRequired on the three dependency PRs merged into main since the paths filter (a15013d6, 2026-11-10)
+PR #579 head 768b66358b6f06db755e8dda4a1142b1df8e5c09
+govulncheck	root	SUCCESS	isRequired=false	2026-11-11T11:15:52Z	2026-11-11T11:16:31Z
+govulncheck	temporal-server	SUCCESS	isRequired=true	2026-11-11T11:15:52Z	2026-11-11T11:17:30Z
+ci	temporal-server	SUCCESS	isRequired=true	2026-11-11T11:16:29Z	2026-11-11T11:19:54Z
+PR #751 head 50e393c08d0bc4bc5719ebbb36e7d1c09cb4abc4
+govulncheck	root	SUCCESS	isRequired=false	2026-11-19T19:52:39Z	2026-11-19T19:53:15Z
+govulncheck	temporal-server	SUCCESS	isRequired=true	2026-11-19T19:52:39Z	2026-11-19T19:54:12Z
+ci	temporal-server	SUCCESS	isRequired=true	2026-11-19T19:53:18Z	2026-11-19T19:57:17Z
+PR #890 head 16f303c8517df5954f7d095c36c991053eeb3c65
+govulncheck	root	SUCCESS	isRequired=false	2026-11-25T18:52:25Z	2026-11-25T18:53:07Z
+govulncheck	temporal-server	SUCCESS	isRequired=true	2026-11-25T18:52:25Z	2026-11-25T18:54:07Z
+ci	temporal-server	SUCCESS	isRequired=true	2026-11-25T18:53:04Z	2026-11-25T18:56:15Z
+
+== 5. scheduled runs of govulncheck (cron 17 3 */2 * *): start, conclusion, hours since the previous
+43009559454	2026-11-11T11:09:17Z	failure	180f2d23 
+43415060179	2026-11-13T11:11:32Z	success	21d0e250 48.0 h
+43707547378	2026-11-15T11:09:31Z	success	ecedb2e9 48.0 h
+44079294749	2026-11-17T12:01:39Z	success	c276a374 48.9 h
+44518499280	2026-11-19T11:51:13Z	success	5d4c3c74 47.8 h
+44898606939	2026-11-21T11:20:09Z	success	47634ea5 47.5 h
+45180612700	2026-11-23T13:06:24Z	success	06b205f2 49.8 h
+45620532364	2026-11-25T13:08:19Z	failure	4a42369b 48.0 h
+
+== 6. pull_request runs of govulncheck: all time, failures
+31
+0
+
+== 7. run 45620532364 (2026-11-25, schedule) jobs and the alert it made
+root	success
+temporal-server	failure
+main-red	success
+259	main is red: 741623e	OPEN	2026-10-28T17:32:04Z
+2026-11-11T11:11:09Z	`govulncheck` failed on a scheduled run on `main` at 180f2d23fb8ea5915eaec8960d834b7299559dea.  Failing jobs: root, temporal-server  Run: https://github.com/Navaladi2019/TicketingSystem/actions/runs/43009559454
+2026-11-25T13:09:54Z	`govulncheck` failed on a scheduled run on `main` at 4a42369bd78d29e776c542adcc87296d50d9ff39.  Failing jobs: temporal-server  Run: https://github.com/Navaladi2019/TicketingSystem/actions/runs/45620532364
+comments on #259:
+25
