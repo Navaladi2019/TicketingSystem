@@ -223,3 +223,45 @@ func TestLoadRejectsBadInput(t *testing.T) {
 		t.Errorf("Load of an empty audited manifest: %v", err)
 	}
 }
+
+// TICK-1170: a column in AbsentLogColumns is left out of every writer's
+// generated INSERT, so a run that stops before the migration adding it grants
+// only columns that exist. With none listed the merge is unchanged.
+func TestMergeGrantsAbsentLogColumns(t *testing.T) {
+	m, err := grants.Parse(db.Grants())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := audited.Parse(db.AuditedTables(), m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The writers' own lists from db/grants.yaml would put it back; strip
+	// them as the test helper does.
+	for name, r := range m.Roles {
+		if privs, ok := r.Tables[audited.LogTable]; ok {
+			tables := maps.Clone(r.Tables)
+			p := make(map[string][]string, len(privs))
+			for priv, cols := range privs {
+				p[priv] = slices.DeleteFunc(slices.Clone(cols), func(c string) bool { return c == "diff_nul_escaped" })
+			}
+			tables[audited.LogTable] = p
+			r.Tables = tables
+			m.Roles[name] = r
+		}
+	}
+	a.AbsentLogColumns = []string{"diff_nul_escaped"}
+	merged, err := a.MergeGrants(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range a.Writers() {
+		ins := merged.Roles[w].Tables[audited.LogTable]["INSERT"]
+		if slices.Contains(ins, "diff_nul_escaped") {
+			t.Errorf("%s INSERT names an absent column: %v", w, ins)
+		}
+		if !slices.Contains(ins, "diff_truncated") {
+			t.Errorf("%s INSERT lost a present column: %v", w, ins)
+		}
+	}
+}
