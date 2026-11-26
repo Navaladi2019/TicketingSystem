@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 erratum E4 explained: what a failed security-flaw check blocks</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--good:#1a7f37}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--good:#3fb950}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">ACCEPTED · REV 1 · 2026-11-26</span> <span class="src">ADR-001-E4 · issue TICK-1140 · corrects ADR-001-A1, Decision 3 · round 1 taken; re-check approved (Technical Architect, Security); accepted by the Solution Architect</span>
+
+<h1>The decision says a failed security-flaw check blocks every merge. It does not. We correct the text, and make it block the changes that matter</h1>
+
+<h2>In plain words</h2>
+<dl>
+<dt>Goal</dt><dd>Make the written decision about our check for known security flaws true. The check compares the third-party code we use (code written by others, built into our programs) with a public list of known flaws.</dd>
+<dt>Today</dt><dd>The decision says the check runs on every proposed code change and must pass before it is merged (added to the main code). On 10 November it was moved, and the owner asked for it to run every second day. It also runs when a proposed change touches our lists of third-party code. A failed check then blocks nothing for our own program. For the workflow engine we run beside it (the program that carries out long-running steps such as approvals), the check shared its name with another check that must pass, so it was unclear which of the two the hosting service (GitHub) counted. That shared name was removed on 25 November (PR #900); since then neither check is one GitHub requires, so a failed one blocks nothing until the new rule below is built. A later test also showed that GitHub goes by the newest result of a name, so a later run can undo a failed one (PR #902).</dd>
+<dt>What's new</dt><dd>The text says what really happens. The two checks already have different names (since 25 November). And one new result, shown on every proposed change, must be green (passed) before a merge. It is green without checking anything when neither the lists of third-party code nor the check itself changed, and it is the result of the check when they did. That result is given its name only on changes aimed at the main code, so a run of the same change for another target cannot stand in for it. We expect this to work because GitHub refuses a merge while a result it was told to require is missing or red (failed). The last step tests that on a real change.</dd>
+<dt>Who is affected</dt><dd>Customers see no difference. Engineers see one more result on each proposed change. A change that updates third-party code can no longer be merged while the check fails.</dd>
+<dt>Risks</dt><dd>A flaw made public after a merge can stay unseen for about 50 hours, because the check runs every second day; the owner chose that. If a flaw has no fix yet, updates to that list of third-party code wait until our architects and technical lead decide what to do. Until the new rule (a GitHub setting, step FU2 below) is built, no machine stops a bad merge: the AI agents who merge code must follow the written rule that every result is green. Someone who changes both the check and the reference copy we keep of it to catch edits can still make it pass without checking; only a security review of such changes stops that. The scan only means something if it uses the same version of Go (the programming language our programs are written in) that the product is built with, so a test in follow-up step FU1 will compare the two.</dd>
+<dt>How we'll know it worked</dt><dd>Half-way: the new result appears, green, on a change that touches only documents. At the end: a test change that adds third-party code with a known flaw shows red, and GitHub refuses the merge.</dd>
+</dl>
+
+<h2>1. The problem we faced</h2>
+<p>The scanner is <code>govulncheck</code>. It reads the two <em>modules</em> we ship (a module is a Go program with its own list of libraries, <code>go.mod</code> and <code>go.sum</code>): the <em>root</em> module, our platform, and <code>temporal-server</code>, our build of the Temporal workflow engine. A <em>required check</em> is a named result GitHub insists on before a merge into <code>main</code>.</p>
+<table><thead><tr><th>The decision said</th><th>What is built</th></tr></thead><tbody>
+<tr><td>A required step of the main test workflow, <code>ci.yml</code></td><td>A workflow of its own, <code>govulncheck.yml</code>: every second day, by hand, and on pull requests (proposed changes) that change one of the four list files</td></tr>
+<tr><td>A red result blocks the merge</td><td>Root module: it does not. Temporal module: <span class="bad">not known</span></td></tr>
+</tbody></table>
+<p><strong>What we found on the way</strong> (fixed since by PR #900, 25 November). Two different jobs were called <code>temporal-server</code>: the unit tests in <code>ci.yml</code> and the scan in <code>govulncheck.yml</code>. Branch protection requires a check by name, so GitHub marked <em>both</em> as required. GitHub's documentation says only that this "can cause ambiguous status check results". It could go wrong the other way too: a green scan might count in place of red tests. The tests protect the part of the server that keeps customers apart. We found no case of it: in the three merged changes where both ran, both were green.</p>
+<figure><svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="20" width="250" height="60" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="135" y="44" text-anchor="middle" font-weight="700" fill="#1f2328">ci.yml</text><text x="135" y="64" text-anchor="middle" fill="#1f2328">job temporal-server: unit tests</text>
+<rect x="10" y="120" width="250" height="60" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="135" y="144" text-anchor="middle" font-weight="700" fill="#1f2328">govulncheck.yml</text><text x="135" y="164" text-anchor="middle" fill="#1f2328">job temporal-server: scan</text>
+<rect x="440" y="70" width="270" height="60" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="575" y="94" text-anchor="middle" font-weight="700" fill="#1f2328">required check "temporal-server"</text><text x="575" y="114" text-anchor="middle" fill="#59636e">which of the two decides?</text>
+<line x1="260" y1="50" x2="440" y2="92" stroke="#59636e"/><line x1="260" y1="150" x2="440" y2="108" stroke="#59636e"/>
+</svg><figcaption>As found on 25 November: two results, one required name. PR #900 renamed the scan jobs.</figcaption></figure>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>Required, through a job that always reports</strong></td><td class="good">Chosen: it blocks exactly the changes that bring in third-party code, and never waits for a check that does not run.</td></tr>
+<tr><td>Not required, as today; correct the text only</td><td class="bad">Rejected: the two same-named jobs stay ambiguous, and the root scan rests on people following a rule. In its favour: none of 31 scans of proposed changes was red.</td></tr>
+<tr><td>Required, with today's filter kept</td><td class="bad">Rejected: the workflow is skipped on most changes, and a required check that does not run blocks the merge.</td></tr>
+<tr><td>Required, scan on every change</td><td class="bad">Rejected: the owner asked for the opposite (TICK-694).</td></tr>
+<tr><td>A conditional job in the main test workflow</td><td class="bad">Rejected: GitHub counts a skipped job as passed, and adding an unrelated label to a change skips every job there.</td></tr>
+<tr><td>Stop scanning proposed changes</td><td class="bad">Rejected: a flaw brought in by a new library would be seen up to about 50 hours late.</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<figure><svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="95" width="150" height="60" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="85" y="120" text-anchor="middle" fill="#1f2328">Every pull request:</text><text x="85" y="140" text-anchor="middle" fill="#1f2328">which lists changed?</text>
+<rect x="230" y="15" width="230" height="50" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="345" y="45" text-anchor="middle" fill="#1f2328">root list: scan the root module</text>
+<rect x="230" y="100" width="230" height="50" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="345" y="130" text-anchor="middle" fill="#1f2328">Temporal list: scan that module</text>
+<rect x="230" y="185" width="230" height="50" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="345" y="215" text-anchor="middle" fill="#1f2328">none: no scan</text>
+<rect x="530" y="85" width="180" height="80" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="620" y="112" text-anchor="middle" font-weight="700" fill="#1f2328">vulncheck</text><text x="620" y="132" text-anchor="middle" fill="#1f2328">always reports;</text><text x="620" y="150" text-anchor="middle" fill="#1f2328">required for main</text>
+<line x1="160" y1="115" x2="230" y2="45" stroke="#59636e"/><line x1="160" y1="125" x2="230" y2="125" stroke="#59636e"/><line x1="160" y1="135" x2="230" y2="205" stroke="#59636e"/><line x1="460" y1="40" x2="530" y2="110" stroke="#59636e"/><line x1="460" y1="125" x2="530" y2="125" stroke="#59636e"/><line x1="460" y1="210" x2="530" y2="140" stroke="#59636e"/>
+</svg><figcaption>After the follow-up work. <code>vulncheck</code> is green only if the detection worked and every module is either scanned clean or unchanged.</figcaption></figure>
+<dl>
+<dt>E4-1. Text</dt><dd>Decision 3 says where and when the scan runs. Zero findings and no exception stay.</dd>
+<dt>E4-2. Clearing a finding</dt><dd>An ordinary bug fix after a full test run in which the Authorizer, unit, integration, isolation and stack tests all passed. The architects decide if it moves a Temporal version we pin, changes an Authorizer reference file, or uses <code>replace</code>, <code>exclude</code> or a fork. Security reviews it if it moves a library on the trust path (<code>grpc</code>, <code>protobuf</code>, <code>jwx</code>, <code>pgx</code>) or changes a test's expectation. A flaw in Go itself is cleared only when the Go we scan with equals the Go in every image we build.</dd>
+<dt>E4-3. Until it is built</dt><dd>The agents' rule stops the merge. On a library change each of the scan jobs and the Authorizer tests must say <code>success</code>; <code>skipped</code> or missing counts as red. Until TICK-1146's fix is merged, the reviewer reads every check run on the head commit, across all runs, not the merge box or the latest run. Any result other than <code>success</code> is red.</dd>
+<dt>E4-4. Required</dt><dd>The new job <code>vulncheck</code> always reports. It has that name only on changes aimed at <code>main</code>: a check belongs to a commit, so the same commit aimed at another branch could otherwise lend its green result. A change to the check itself, to an image's Go version or to a <code>go.work</code> file scans both modules. The full rules and tests are in <code>docs/adr/ADR-001/E4/vulncheck-contract.md</code>.</dd>
+<dt>E4-5. Unique names</dt><dd>No two workflows report the same check name. A test enforces it over every job; there is no list to keep in step.</dd>
+<dt>E4-6. Schedule</dt><dd>Every two days, as the owner decided.</dd>
+</dl>
+
+<h2>4. The fix or migration</h2>
+<p>This pull request changes text only. The follow-ups, in order:</p>
+<table><thead><tr><th>#</th><th>Work</th><th>When</th></tr></thead><tbody>
+<tr><td>TICK-1145</td><td>Rename the three scan jobs and add the test that no two workflows share a check name. Outside this erratum.</td><td class="good">Done: PR #900, 25 November</td></tr>
+<tr><td>FU1</td><td>The new job, its two small scripts and their tests, the reference copy of the workflow, the Go-version check, and the pages that still describe the old check.</td><td>Second</td></tr>
+<tr><td>FU2</td><td>Add <code>vulncheck</code> to the required checks of <code>main</code>, then the live tests. Undo: remove it again.</td><td>After FU1, once the result has appeared on one documents-only and one library change</td></tr>
+<tr><td>FU3</td><td>A failed scheduled scan gets a notice of its own instead of one more comment on issue #259, open since 28 October.</td><td>Any time</td></tr>
+</tbody></table>
+<p>Cost: one small run per proposed change (a scan takes 36 to 102 seconds; without a scan we estimate under a minute, not measured). No money: the repository is public, and GitHub's standard machines are free there.</p>
+
+<h2>5. What we accept (residual risk)</h2>
+<p>Severities are the Security &amp; Multi-Tenancy Reviewer's.</p>
+<table><thead><tr><th>ID</th><th>Risk</th><th>When we look again</th></tr></thead><tbody>
+<tr><td>AR-TICK-1140-01 (Medium)</td><td>A flaw published after a merge, or code that starts to use an already listed flaw, stays unseen for up to about 50 hours, and only if the check is unedited and scans the Go we ship. 50 hours is until a red run, not until someone reads it.</td><td>The first real customer: ask the owner again about a daily scan. A finding a customer could reach</td></tr>
+<tr><td>AR-TICK-1140-02 (Medium)</td><td>The shared name was fixed by PR #900 on 25 November. Until FU2 a red scan can be merged: the scan of our own program is not required, and the Authorizer tests are skipped on a library change that has no CI label</td><td>FU2 done</td></tr>
+<tr><td>AR-TICK-1140-03 (Medium)</td><td>A change that edits the check and its reference copy passes without a scan. No GitHub setting we have prevents it; only a security review of such changes does</td><td>A second collaborator or required approvals become possible</td></tr>
+</tbody></table>
+
+<h2>6. The evidence</h2>
+<table><thead><tr><th>Check (25 November 2026, <code>main</code> 461484e7)</th><th>Result</th></tr></thead><tbody>
+<tr><td>Required checks of <code>main</code>, read from GitHub</td><td><code>changes, lint, unit, temporal-server, integration, stack, coverage, commit-check-budget, isolation</code>; binding for admins too</td></tr>
+<tr><td>GitHub's own "is this required?" answer on #579, #751 and #890</td><td><code>root</code>: no. <span class="bad"><code>temporal-server</code>: yes, for both jobs of that name</span></td></tr>
+<tr><td>The library changes merged since 10 November</td><td class="good">3 of 3 had every scan green on the final commit</td></tr>
+<tr><td>Scans of pull requests, all time</td><td>31 runs, 0 failed, so "a red one blocks" has never been tested</td></tr>
+<tr><td>Two results of one name on one commit (#896, both runs of <code>ci</code>)</td><td>A later <code>success</code> replaced an earlier <code>cancelled</code>, and the change was mergeable. A later green next to a red has never occurred; this erratum assumes the green one wins</td></tr>
+<tr><td>A check on a commit shared by two pull requests (#816, #817)</td><td>The run of one counts as required on the other</td></tr>
+<tr><td>Scheduled scans</td><td>8 runs, 47.5 to 49.8 hours apart; 2 red (11 and 25 November)</td></tr>
+<tr><td>The notice for the red scan of 25 November</td><td>A comment on issue #259 (open since 28 October, 25 comments)</td></tr>
+</tbody></table>
+<p>Not verified: which of two same-named checks GitHub acts on when one is red and one green. The rename makes the question irrelevant here, so no test was run. The reviewers showed six edits of the workflow that today's build check lets through, and that a <code>go.work</code> file changes the scanned versions without touching the library lists; both are tests in the follow-up. There is no red-to-green test yet, because this pull request changes no code. The tests V-1 to V-5 belong to the follow-ups.</p>
+
+<p class="src">Source of truth: <code>docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md</code>. Evidence: <code>docs/adr/ADR-001/E4/evidence.txt</code>. Contract: <code>docs/adr/ADR-001/E4/vulncheck-contract.md</code>. Reviews and responses: <code>docs/adr/ADR-001/E4/critique/</code>.</p>
+</main></body></html>

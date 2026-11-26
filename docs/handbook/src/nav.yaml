@@ -186,6 +186,8 @@
             label: "E1: command inspection for continue-as-new"
           - page: adr/adr-001-e3.md
             label: "E3: the onboarding role reads its own tenant row"
+          - page: adr/adr-001-e4.md
+            label: "E4: when the vulnerability scan runs, and what a failure blocks"
       - page: adr/adr-002.md
         label: "ADR-002 /me shows group paths"
         children:
