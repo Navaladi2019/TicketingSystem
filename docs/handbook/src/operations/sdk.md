@@ -2,9 +2,9 @@
 title: "Using the TypeScript SDK"
 section: operations
 status: in-progress
-sources: [sdk/ts/package.json, sdk/ts/.nvmrc, sdk/ts/src/index.ts, sdk/ts/src/client.ts, sdk/ts/src/errors.ts, sdk/ts/src/version.ts, make/sdk.mk, scripts/ci/sdk-changed.sh, Taskfile.yml, .github/workflows/ci.yml, docs/quality/ci-pipeline.md, examples/sdk-node/README.md]
-adrs: [ADR-007]
-stories: [S25]
+sources: [sdk/ts/package.json, sdk/ts/.nvmrc, sdk/ts/src/index.ts, sdk/ts/src/client.ts, sdk/ts/src/errors.ts, sdk/ts/src/version.ts, sdk/ts/src/total.ts, sdk/ts/test/total.test.ts, make/sdk.mk, scripts/ci/sdk-changed.sh, Taskfile.yml, .github/workflows/ci.yml, docs/quality/ci-pipeline.md, examples/sdk-node/README.md]
+adrs: [ADR-007, ADR-006-A2]
+stories: [S25, S21]
 operations: [listRecords, getRecord, createRecord, patchRecord]
 packages: [sdk/ts]
 ---
@@ -44,6 +44,31 @@ const client = createClient({ baseUrl: "http://127.0.0.1:18080", getToken: async
 <!-- gen:operations ids=listRecords,getRecord,createRecord,patchRecord -->
 
 History, attachments, entity types and admin calls are not in the v1 layer; the generated types for them are exported (`paths`, `components`, `operations`) and `createRawClient(baseUrl)` gives the raw generated client.
+
+## List totals: `describeTotal`
+
+A list page's `total` is `integer | null` and `total_state` is `exact`, `capped` or `unknown` ([ADR-006-A2](../adr/adr-006-a2.md) A2-1; `total_capped` is deprecated). `unknown` means the count ran out of its time budget: the page is complete, `total` is `null`, and it must never be shown as 0. `describeTotal` (`sdk/ts/src/total.ts`, added in S21 by TICK-1050) turns a page into text:
+
+```js
+import { describeTotal } from "@nava/sdk";
+
+let best, listed = 0;
+for (const page of pages) {              // pages of one result set, in order
+  listed += page.items.length;
+  best = describeTotal(page, listed, best);
+  render(best.text);                     // "1,234", "1,000+", "150+" or "many"
+}
+```
+
+| `total_state` | `text` | `value` |
+|---|---|---|
+| `exact` | the number, `en-US` grouping (`"1,234"`) | `total` |
+| `capped` | `"1,000+"` | 1000 |
+| `unknown`, `best` is `exact` or `capped` | `best`, kept | `best.value` |
+| `unknown`, `listed` ≥ 1 | `"N+"` (`"150+"`) | `null` |
+| `unknown`, nothing listed | `"many"` | `null` |
+
+It returns `{ text, state, value }` (`TotalView`). Pass the view of the previous page as `best` so a later `unknown` page does not replace a known total. An `exact` or `capped` page with `total: null` breaks the contract and throws a `TypeError`. `TotalState` and `TotalView` are exported types.
 
 ## Errors
 

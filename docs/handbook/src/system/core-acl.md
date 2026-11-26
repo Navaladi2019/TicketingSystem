@@ -5,8 +5,8 @@ status: delivered
 normative: docs/architecture/record-acl.md
 sources: [docs/architecture/record-acl.md, docs/architecture/access-document-format2.md, internal/authz/acl.go, internal/authz/under.go, internal/authz/policyref.go, internal/authz/shape.go, docs/architecture/access-under-leaf.md, internal/authz/aclstore.go, internal/authz/plan.go, internal/authz/branchbound.go, internal/authz/check.go, internal/authz/document.go, internal/authz/convert.go, internal/authz/registry.go, internal/authz/metrics.go, internal/authz/policycheck.go, internal/authz/publish.go, internal/authz/explain.go, internal/server/access.go, internal/onboard/acl.go, tools/acceptance/acld6/main.go, docs/data/acl-format2-caps.md]
 packages: [internal/authz, internal/server, internal/onboard]
-adrs: [ADR-001, ADR-010, ADR-010-A1, ADR-010-A2]
-stories: [S10, S30, S31]
+adrs: [ADR-001, ADR-010, ADR-010-A1, ADR-010-A2, ADR-010-E3]
+stories: [S10, S30, S31, S21]
 invariants: [I5, I1, I8]
 operations: [getEntityTypeAccess, putEntityTypeAccess, explainAccess, getRecord, listRecords, patchRecord]
 tables: [acl_versions, record_shares, entity_definitions, groups, principals, org_units, org_unit_members, org_unit_closure, entity_record_estimates]
@@ -103,6 +103,32 @@ measured the crossover:
 tenant's document lists more than 16 read branches and its lists use the
 slower form. `authz_policy_invalid_total` above zero fires the
 `AuthzPolicyInvalid` alert ([observability](../operations/observability.md)).
+
+## `caller: my_groups` with one group (ADR-010-E3, S21 story branch)
+
+On `TICK-739/filterable-fields` (TICK-1084), not yet on `main`, the SQL text
+of `caller: my_groups` depends on how many groups the caller has
+([ADR-010-E3](../adr/adr-010-e3.md), CI-6 rewrite (c)):
+
+| Caller's groups | Renders | Why |
+|---|---|---|
+| none | false (fail-closed, unchanged) | D5: a caller value that is empty grants nothing |
+| exactly one | `assignment_group_id = $n::uuid`, a `uuid.UUID` argument | PG 16 reads `records_list_group` in order for a scalar `=`, so the band (ii) page reads a page of rows, not the whole group (0.99 ms instead of 61.3 ms, TICK-1049) |
+| two or more | `assignment_group_id = ANY($n::uuid[])` (unchanged, E3-2) | |
+
+Literal lists stay `= ANY`, and `record_shares` is unchanged. The rewrite
+applies everywhere the condition renders (`CompileRead` and `ReadBranches`),
+with the same visible rows and order (E3-4). The golden normalizes only this
+rewrite (E3-3).
+
+**Deferred: multi-group callers (TICK-1089, backlog).** For two or more groups
+the `= ANY` form can still read every row of every group and sort: 33–45 ms
+single-client on TICK-1084's fixture, over A2's 20.6 ms page assumption
+(`AR-TICK-1085-01`). The proposed fix renders one scalar branch per group in
+`ReadBranches` and needs a CI-6 erratum (ADR-010-E4) first. **Trigger:** a
+seeded or onboarded tenant whose agents belong to more than one assignment
+group and list through band (ii), or a fresh-stack cell with a multi-group
+caller whose page statement exceeds 20.6 ms or whose list p95 exceeds 350 ms.
 
 ## The under leaf (S31)
 

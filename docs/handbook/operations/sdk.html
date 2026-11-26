@@ -102,6 +102,54 @@ const client = createClient({ baseUrl: &quot;http://127.0.0.1:18080&quot;, getTo
 </tbody>
 </table>
 <p>History, attachments, entity types and admin calls are not in the v1 layer; the generated types for them are exported (<code>paths</code>, <code>components</code>, <code>operations</code>) and <code>createRawClient(baseUrl)</code> gives the raw generated client.</p>
+<h2 id="list-totals-describetotal">List totals: <code>describeTotal</code></h2>
+<p>A list page's <code>total</code> is <code>integer | null</code> and <code>total_state</code> is <code>exact</code>, <code>capped</code> or <code>unknown</code> (<a href="../adr/adr-006-a2.html">ADR-006-A2</a> A2-1; <code>total_capped</code> is deprecated). <code>unknown</code> means the count ran out of its time budget: the page is complete, <code>total</code> is <code>null</code>, and it must never be shown as 0. <code>describeTotal</code> (<code>sdk/ts/src/total.ts</code>, added in S21 by TICK-1050) turns a page into text:</p>
+<pre><code class="language-js">import { describeTotal } from &quot;@nava/sdk&quot;;
+
+let best, listed = 0;
+for (const page of pages) {              // pages of one result set, in order
+  listed += page.items.length;
+  best = describeTotal(page, listed, best);
+  render(best.text);                     // &quot;1,234&quot;, &quot;1,000+&quot;, &quot;150+&quot; or &quot;many&quot;
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th><code>total_state</code></th>
+<th><code>text</code></th>
+<th><code>value</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exact</code></td>
+<td>the number, <code>en-US</code> grouping (<code>&quot;1,234&quot;</code>)</td>
+<td><code>total</code></td>
+</tr>
+<tr>
+<td><code>capped</code></td>
+<td><code>&quot;1,000+&quot;</code></td>
+<td>1000</td>
+</tr>
+<tr>
+<td><code>unknown</code>, <code>best</code> is <code>exact</code> or <code>capped</code></td>
+<td><code>best</code>, kept</td>
+<td><code>best.value</code></td>
+</tr>
+<tr>
+<td><code>unknown</code>, <code>listed</code> ≥ 1</td>
+<td><code>&quot;N+&quot;</code> (<code>&quot;150+&quot;</code>)</td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>unknown</code>, nothing listed</td>
+<td><code>&quot;many&quot;</code></td>
+<td><code>null</code></td>
+</tr>
+</tbody>
+</table>
+<p>It returns <code>{ text, state, value }</code> (<code>TotalView</code>). Pass the view of the previous page as <code>best</code> so a later <code>unknown</code> page does not replace a known total. An <code>exact</code> or <code>capped</code> page with <code>total: null</code> breaks the contract and throws a <code>TypeError</code>. <code>TotalState</code> and <code>TotalView</code> are exported types.</p>
 <h2 id="errors">Errors</h2>
 <p>Every non-2xx answer throws. The classes are exported from the package.</p>
 <table>
@@ -171,14 +219,16 @@ const client = createClient({ baseUrl: &quot;http://127.0.0.1:18080&quot;, getTo
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../operations/go-toolchain.html">&larr; Go toolchain and setup</a><a class="next" href="../operations/observability.html">Traces, logs and metrics &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
+<h3>Story S21</h3><ul><li><a href="../adr/adr-006.html">ADR-006: filterable tenant fields</a></li><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../stories/s21.html">S21: Filter a large ticket type on a flagged field in milliseconds</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-metadata.html">Core: metadata engine (entity definitions and versions)</a></li><li><a href="../workflows/field-index-backfill.html">Field-index backfill (field_index.coordinator, field_index.backfill.run)</a></li></ul>
 <h3>Story S25</h3><ul><li><a href="../adr/adr-007.html">ADR-007: embedding widget and SDK</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li></ul>
+<h3>ADR ADR-006-A2</h3><ul><li><a href="../adr/adr-006-a2.html">ADR-006-A2: the capped count runs under a 200 ms budget, and total may be unknown</a></li><li><a href="../adr/adr-006-e2.html">ADR-006-E2: CountBudget 170 ms, the count runs without parallel workers, and the leak check uses pg_ls_tmpdir()</a></li><li><a href="../adr/adr-010-e3.html">ADR-010-E3: CI-6 rewrite (c), one-group caller: my_groups renders scalar</a></li><li><a href="../database/field-index.html">Field index: registry, side tables and the records trigger</a></li><li><a href="../stories/s21.html">S21: Filter a large ticket type on a flagged field in milliseconds</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 <h3>ADR ADR-007</h3><ul><li><a href="../adr/adr-007-a1.html">ADR-007-A1: embedding clients always name the organization</a></li><li><a href="../adr/adr-007.html">ADR-007: embedding widget and SDK</a></li><li><a href="../stories/hb2.html">HB2: A first-time reader learns the product from the handbook</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li></ul>
 <h3>Operation createRecord</h3><ul><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s15.html">S15: Each tenant&#x27;s audit entries are sealed into a hash chain</a></li><li><a href="../stories/s16.html">S16: An auditor exports a filtered audit log and proves it complete</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s18.html">S18: A tenant admin defines a number format and links it to a ticket type</a></li><li><a href="../stories/s21.html">S21: Filter a large ticket type on a flagged field in milliseconds</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s31.html">S31: A policy can say &quot;tickets in my region&quot;</a></li><li><a href="../stories/s32.html">S32: A workflow step can check a named access policy</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-numbering.html">Core: record numbering (gaps and gapless)</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 <h3>Operation getRecord</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s11b.html">S11b: Creating an incident starts a workflow that waits a minute and sets its state in_progress</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../stories/s31.html">S31: A policy can say &quot;tickets in my region&quot;</a></li><li><a href="../stories/s32.html">S32: A workflow step can check a named access policy</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 <h3>Operation listRecords</h3><ul><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s21.html">S21: Filter a large ticket type on a flagged field in milliseconds</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../stories/s31.html">S31: A policy can say &quot;tickets in my region&quot;</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 <h3>Operation patchRecord</h3><ul><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../stories/s10.html">S10: A service-desk agent sees only their group&#x27;s incidents; masked fields stay hidden</a></li><li><a href="../stories/s14.html">S14: Every record and entity-type change lands in one audit log</a></li><li><a href="../stories/s17.html">S17: Record numbers keep counting while the counter table moves</a></li><li><a href="../stories/s21.html">S21: Filter a large ticket type on a flagged field in milliseconds</a></li><li><a href="../stories/s25.html">S25: A developer installs the TypeScript SDK and lists, reads and creates records</a></li><li><a href="../stories/s30.html">S30: Admins compose access rules from named conditions with AND, OR and NOT</a></li><li><a href="../stories/s9.html">S9: An agent logs an incident, updates it, sees its history; a stale update is refused</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/core-acl.html">Core: record ACL (Prepare, PolicyStore.Publish, the planner, CanRead/CanWrite, explain)</a></li><li><a href="../system/core-masks.html">Core: field masks on read and write</a></li><li><a href="../system/core-write-pipeline.html">Core: record write pipeline (write, read, list)</a></li><li><a href="../tour/07-access-rules-and-masks.html">7. Set access rules and field masks</a></li><li><a href="../tour/09-create-and-work-with-records.html">9. Create and work with records</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 27f154c78e10 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
