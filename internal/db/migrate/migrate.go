@@ -191,6 +191,24 @@ func isLockTimeout(err error) bool {
 	return errors.As(err, &pg) && pg.Code == "55P03"
 }
 
+// logFailure logs the error that stopped the migrations with its SQLSTATE,
+// constraint and HINT, which PgError.Error() leaves out (TICK-1135). Log no
+// other field of the error: Detail, Where and InternalQuery can hold row
+// values, and so tenant data.
+func logFailure(ctx context.Context, log *slog.Logger, err error) {
+	attrs := []slog.Attr{slog.String("error", err.Error())}
+	if pg, ok := errors.AsType[*pgconn.PgError](err); ok {
+		attrs = append(attrs, slog.String("sqlstate", pg.Code))
+		if pg.ConstraintName != "" {
+			attrs = append(attrs, slog.String("constraint", pg.ConstraintName))
+		}
+		if pg.Hint != "" {
+			attrs = append(attrs, slog.String("hint", pg.Hint))
+		}
+	}
+	log.LogAttrs(ctx, slog.LevelError, "migration failed", attrs...)
+}
+
 func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, log *slog.Logger, opt Options) ([]string, bool, error) {
 	// Out of order: new migrations carry timestamp versions (TICK-290), and
 	// one from a long-lived branch can be older than one already applied.
@@ -221,7 +239,9 @@ func up(ctx context.Context, db *sql.DB, fsys fs.FS, locker lock.SessionLocker, 
 			if isLockTimeout(err) {
 				err = fmt.Errorf("lock_timeout %s hit on %d attempts: %w", opt.LockTimeout, attempt, err)
 			}
-			return nil, false, fmt.Errorf("migrate: %w", err)
+			err = fmt.Errorf("migrate: %w", err)
+			logFailure(ctx, log, err)
+			return nil, false, err
 		}
 		log.WarnContext(ctx, "migration hit lock_timeout, retrying",
 			slog.Int("attempt", attempt),
