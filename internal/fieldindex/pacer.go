@@ -46,6 +46,8 @@ const (
 	pacerCreep  = 64
 )
 
+// Next takes the duration of the page just done, as the workflow measured
+// it, and returns the pause before the next one.
 func (p *Pacer) Next(d time.Duration) time.Duration {
 	if p.pause == 0 {
 		p.pause = InitialPause
