@@ -229,6 +229,9 @@ func checkStartRequest(request any) *commandDenial {
 		reason, detail = checkNormalTaskQueue(tq)
 	}
 	if reason == "" {
+		reason, detail = checkTypeQueue(wt.GetName(), tq.GetName())
+	}
+	if reason == "" {
 		if _, ok := tenantOf(workflowID); !ok {
 			reason = ReasonNoTenantPrefix
 		}
@@ -560,6 +563,18 @@ func checkWorkflowType(name string) (reason, detail string) {
 		return "", ""
 	}
 	return ReasonWorkflowType, "workflow type " + strconv.Quote(truncate(name, maxLoggedName))
+}
+
+// checkTypeQueue allows a platform type only on its own queue
+// (workflowTypeQueue). An empty queue is not checked here: a start's empty
+// queue fails checkNormalTaskQueue first, and a command's empty queue
+// inherits its workflow's.
+func checkTypeQueue(workflowType, queue string) (reason, detail string) {
+	if queue == "" || queue == workflowTypeQueue(workflowType) {
+		return "", ""
+	}
+	return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(queue, maxLoggedName)) + " is not the queue of workflow type " +
+		strconv.Quote(truncate(workflowType, maxLoggedName))
 }
 
 // checkNormalTaskQueue allows a NORMAL (or UNSPECIFIED) platform task queue.

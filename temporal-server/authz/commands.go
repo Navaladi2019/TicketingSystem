@@ -328,7 +328,10 @@ func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) 
 	if name := wt.GetName(); inSet(startOnlyWorkflowTypes(), name) {
 		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is start-only"
 	}
-	return checkCommandTaskQueue(tq)
+	if reason, detail := checkCommandTaskQueue(tq); reason != "" {
+		return reason, detail
+	}
+	return checkTypeQueue(wt.GetName(), tq.GetName())
 }
 
 // checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or

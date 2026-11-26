@@ -260,6 +260,18 @@ var deniedByDefault = []string{
 // widen the allow-list for another.
 func platformTaskQueues() map[string]struct{} { return set("nava-tq", "schema-backfill") }
 
+// workflowTypeQueue is the one queue each platform type runs on: schema.backfill
+// on schema-backfill, every other type on nava-tq. A start, child or
+// continue-as-new that names another queue is denied (task_queue_not_allowed),
+// so schema-backfill is no side door for another type, and schema.backfill
+// never runs outside the worker that caps it (TICK-920, TICK-753 S29).
+func workflowTypeQueue(workflowType string) string {
+	if workflowType == "schema.backfill" {
+		return "schema-backfill"
+	}
+	return "nava-tq"
+}
+
 func platformWorkflowTypes() map[string]struct{} {
 	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run", "schema.backfill")
 }
