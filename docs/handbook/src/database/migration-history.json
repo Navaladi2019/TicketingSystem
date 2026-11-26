@@ -1127,51 +1127,142 @@
     },
     {
       "file": "20261120235900_entity_versions_org_unit_id_reserved.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1115"
+      ]
     },
     {
       "file": "20261121000000_org_unit_members.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946"
+      ]
     },
     {
       "file": "20261121000100_acl_tenant_ids_org_units.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946"
+      ]
     },
     {
       "file": "20261121000200_records_org_unit_id.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946"
+      ]
     },
     {
       "file": "20261121000300_records_org_unit_fkey_validate.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946"
+      ]
     },
     {
       "file": "20261121000400_records_org_unit_index.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946"
+      ]
     },
     {
       "file": "20261121050000_org_unit_closure.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1032"
+      ]
     },
     {
       "file": "20261121060000_records_org_unit_entity_definition.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1032"
+      ]
     },
     {
       "file": "20261121144100_org_unit_closure_unrooted_warning.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1058"
+      ]
     },
     {
       "file": "20261121161036_acl2_under_sets_cap.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1059"
+      ]
     },
     {
       "file": "20261121163600_entity_record_estimates.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1070"
+      ]
     },
     {
       "file": "20261121163700_binding_lookup_worker.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "4c1deb0f",
+      "date": "2026-11-25",
+      "pr": "867",
+      "story": "",
+      "tickets": [
+        "TICK-946",
+        "TICK-1070"
+      ]
     },
     {
       "file": "20261125165000_field_index_tables.sql",
@@ -1183,6 +1274,14 @@
     },
     {
       "file": "20261125165200_field_index_sync_read_committed.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126170000_entity_versions_published_by_system.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126170100_entity_versions_published_by_system_validate.sql",
       "on_main": false
     }
   ]
