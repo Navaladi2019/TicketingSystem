@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
@@ -430,5 +432,134 @@ func TestRewriteLeavesAnIDAnotherAttemptTook(t *testing.T) {
 	}
 	if s := job(t, e, j); s.state != "done" || s.rewritten != int64(len(ids)-1) || s.skipped != 0 {
 		t.Errorf("job = %+v, want done with %d rewritten and the taken id not counted", s, len(ids)-1)
+	}
+}
+
+// The database down mid-job: every activity's attempt fails retryable, logs
+// one line with its step and no error text, and changes nothing, so the
+// retry resumes the job with nothing half-counted.
+func TestActivitiesRetryWhenTheDatabaseIsDown(t *testing.T) {
+	e := migrated(t)
+	for name, step := range map[string]string{schemabackfill.AdmitActivity: "admit", schemabackfill.FillActivity: "fill",
+		schemabackfill.PageActivity: "page", schemabackfill.EndActivity: "end", schemabackfill.R6Activity: "r6 check"} {
+		t.Run(step, func(t *testing.T) {
+			state := map[string]string{"admit": "pending", "fill": "filling", "page": "running", "end": "running", "r6 check": "failed_records"}[step]
+			f, j := jobAt(t, e, state)
+			id := f.insertRecords(t, e, 1, plain)[0]
+			queue(t, e, j, id)
+			before := job(t, e, j)
+			down, err := pgxpool.NewWithConfig(context.Background(), e.worker.Config().Copy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			down.Close()
+			var log bytes.Buffer
+			_, err = runActivity(t, e, j, name, probeOpts{log: &log, acts: func(a *schemabackfill.Activities) { a.Pool = down }})
+			var app *temporal.ApplicationError
+			if err == nil || (errors.As(err, &app) && app.NonRetryable()) {
+				t.Fatalf("%s on a closed pool = %v, want a retryable failure", name, err)
+			}
+			line := log.String()
+			if strings.Count(line, "schema backfill activity failed") != 1 || !strings.Contains(line, `"step":"`+step+`"`) {
+				t.Errorf("log = %s, want one failure line with step %q", line, step)
+			}
+			if strings.Contains(line, "closed") || strings.Contains(line, `"error"`) {
+				t.Errorf("log carries the error's text: %s", line)
+			}
+			if after := job(t, e, j); after.state != before.state || after.rewritten != before.rewritten ||
+				after.skipped != before.skipped || after.failed != before.failed || pending(t, e, j) != 1 {
+				t.Errorf("job changed: %+v -> %+v, pending %d", before, after, pending(t, e, j))
+			}
+		})
+	}
+}
+
+// CI-11 without a real kill: the context is cancelled after the first record
+// of a page commits (the worker stopping). The first record is counted once;
+// the rest stay pending, uncounted and unwritten, and the attempt fails
+// retryable. A second page finishes them, one rewrite entry each.
+func TestPageCancelledMidwayResumes(t *testing.T) {
+	e := migrated(t)
+	f, j := jobAt(t, e, "running")
+	ids := f.insertRecords(t, e, 4, plain)
+	queue(t, e, j, ids...)
+	seen := 0
+	_, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{acts: func(a *schemabackfill.Activities) {
+		schemabackfill.SetBeforeRewrite(a, func(ctx context.Context, _ uuid.UUID) context.Context {
+			seen++
+			if seen < 2 {
+				return ctx
+			}
+			c, cancel := context.WithCancel(ctx)
+			cancel()
+			return c
+		})
+	}})
+	var app *temporal.ApplicationError
+	if err == nil || (errors.As(err, &app) && app.NonRetryable()) {
+		t.Fatalf("cancelled page = %v, want a retryable failure", err)
+	}
+	if s := job(t, e, j); s.rewritten != 1 || s.skipped != 0 || s.failed != 0 || pending(t, e, j) != 3 {
+		t.Fatalf("after the cancel: %+v, pending %d; want 1 rewritten and 3 pending, none failed", s, pending(t, e, j))
+	}
+	written := 0
+	for _, id := range ids {
+		written += materializeEntries(t, e, id)
+	}
+	if written != 1 {
+		t.Fatalf("rewrite entries after the cancel = %d, want 1", written)
+	}
+	if _, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{}); err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	for _, id := range ids {
+		if n := materializeEntries(t, e, id); n != 1 {
+			t.Errorf("record %s: %d rewrite entries, want exactly 1", id, n)
+		}
+	}
+	if s := job(t, e, j); s.rewritten != 4 || pending(t, e, j) != 0 {
+		t.Errorf("after the second page: %+v, pending %d; want 4 rewritten, none pending", s, pending(t, e, j))
+	}
+}
+
+// conflictOnce is the real Materializer, except that the first rewrite of
+// one record answers ErrConflict: a live write landed between the rewrite's
+// read and its write.
+type conflictOnce struct {
+	schemabackfill.Materializer
+	record uuid.UUID
+	fired  bool
+}
+
+func (c *conflictOnce) Materialize(ctx context.Context, tx pgx.Tx, t schemabackfill.Target) (bool, error) {
+	if t.RecordID == c.record && !c.fired {
+		c.fired = true
+		return false, schemabackfill.ErrConflict
+	}
+	return c.Materializer.Materialize(ctx, tx, t)
+}
+
+// D7, a version conflict: the id stays pending with nothing counted or
+// written, and a later pass rewrites it once. The job ends done, no failure.
+func TestConflictLeavesTheIDPending(t *testing.T) {
+	e := migrated(t)
+	f, j := jobAt(t, e, "running")
+	ids := f.insertRecords(t, e, 3, plain)
+	queue(t, e, j, ids...)
+	c := &conflictOnce{Materializer: recordports.NewMaterializer(e.pipe), record: ids[1]}
+	if _, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{acts: func(a *schemabackfill.Activities) { a.Materializer = c }}); err != nil {
+		t.Fatalf("page: %v", err)
+	}
+	if !c.fired {
+		t.Fatal("the conflict did not fire")
+	}
+	if s := job(t, e, j); s.rewritten != 2 || s.failed != 0 || pending(t, e, j) != 1 || materializeEntries(t, e, ids[1]) != 0 {
+		t.Fatalf("after the conflict: %+v, pending %d; want the conflicted id pending, unwritten and uncounted", s, pending(t, e, j))
+	}
+	if _, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{acts: func(a *schemabackfill.Activities) { a.Materializer = c }}); err != nil {
+		t.Fatalf("next pass: %v", err)
+	}
+	if s := job(t, e, j); s.rewritten != 3 || pending(t, e, j) != 0 || materializeEntries(t, e, ids[1]) != 1 {
+		t.Errorf("after the next pass: %+v, pending %d; want all 3 rewritten once", s, pending(t, e, j))
 	}
 }
