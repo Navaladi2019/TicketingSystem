@@ -9,7 +9,7 @@
 //   - Lists go through GET /api/v1/records/{entity}?filter[...] on the real
 //     handler: the D7 EXISTS the list builder emits, the compiled ACL, the
 //     real registry read. Creates and updates go through POST and PATCH, so
-//     the records trigger (20261126163200, with the E1-5 READ COMMITTED
+//     the records trigger (20261127163200, with the E1-5 READ COMMITTED
 //     guard) runs as nava_app inside the audited write.
 //   - The backfill is the real FieldIndexBackfill workflow and its
 //     activities, as nava_worker, on a Temporal dev server (real timers, so

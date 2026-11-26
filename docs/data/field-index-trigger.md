@@ -1,7 +1,7 @@
 # Field index: coercion and the records trigger (P7-02)
 
 TICK-742, S21 (TICK-739). ADR-006 D1, D4, D5, R5. Migration:
-`db/migrations/20261126163100_field_index_trigger.sql`. Builds on P7-01
+`db/migrations/20261127163100_field_index_trigger.sql`. Builds on P7-01
 (`docs/data/field-index.md`).
 
 Any write to `records`, by any writer role and any path, leaves the side
@@ -135,7 +135,7 @@ sequenceDiagram
   The check runs before the registry read, so it also refuses writes to a
   type with no flagged field. An `UPDATE` that does not name `data` does not
   fire the trigger and is not checked. Migration
-  `20261126163200_field_index_sync_read_committed.sql`.
+  `20261127163200_field_index_sync_read_committed.sql`.
 - **The trigger stays AFTER ROW, and is the only `records` trigger that reads
   the registry** (E1-2). `TestP705cRecordsTriggerCatalog` pins both from
   `pg_trigger.tgtype` and each trigger function's `prosrc`.
