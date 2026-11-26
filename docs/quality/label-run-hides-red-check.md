@@ -121,8 +121,8 @@ when any required name has a `failure`, `cancelled` or `timed_out` that no later
 
 ```sh
 gh api --paginate "repos/Navaladi2019/TicketingSystem/commits/<head sha>/check-runs?filter=all&per_page=100" \
-  -q '.check_runs|sort_by(.started_at)[]|select(.conclusion!="skipped")|"\(.started_at) \(.name) \(.conclusion)"'
+  -q '.check_runs[]|select(.conclusion!="skipped")|"\(.started_at) \(.name) \(.conclusion)"' | sort
 ```
 
-Read the last line per name. Do not add labels other than `ci:run`/`ci:full` to a PR
+Read the last line per name. Sort outside the query: `--paginate` applies `-q` to each page of 100 on its own, and a commit can carry more than 100 check runs. Do not add labels other than `ci:run`/`ci:full` to a PR
 whose latest full run is red.
