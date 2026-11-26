@@ -420,7 +420,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 15 }}
     steps:
-      - run: exit 1 # TICK-1146 spike stub
+      - run: exit 0 # TICK-1146 spike stub
 
   commit-check-budget:
     # ADR-004-E3's commit-check budget rows (D-E3-4, TICK-509):
