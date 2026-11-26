@@ -4,7 +4,8 @@ package isolation
 // row, its queue and its failures, each run as tenant A and aimed at tenant B
 // (testdata/seed.sql). Both tenants queue and fail the shared record id
 // RecordA1, so a probe by record alone would meet tenant B's rows. nava_worker
-// runs the job's paths; nava_app only reads (D10, D12), so its writes are
+// runs the job's paths; nava_app reads (D10, D12) and inserts only a fresh
+// pending job of its own tenant (PLAN-010 D-10-11); its other writes are
 // refused by grant before any policy.
 func schemaBackfillPaths() []Path {
 	sql := func(name, role string, expect Expect, query string, args ...any) Path {
@@ -37,8 +38,12 @@ func schemaBackfillPaths() []Path {
 			"UPDATE schema_backfills SET tenant_id = $2 WHERE tenant_id = $1", TenantA, TenantB),
 		sql("schema_backfills: delete tenant B's job", "nava_worker", Denied,
 			"DELETE FROM schema_backfills WHERE tenant_id = $1", TenantB),
-		sql("schema_backfills: nava_app queues a job", "nava_app", Denied,
-			insertJob, TenantA, definitionA1),
+		// D-10-11: nava_app queues only a fresh pending job of its own tenant.
+		sql("schema_backfills: publish queues a pending job for tenant B", "nava_app", Denied,
+			insertJob, TenantB, EntityDefinitionB1),
+		sql("schema_backfills: publish queues a running job", "nava_app", Denied,
+			`INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
+			VALUES ($1, $2, 9, 'running', '{priority}')`, TenantA, definitionA1),
 		sql("schema_backfills: nava_app finishes tenant B's job", "nava_app", Denied,
 			"UPDATE schema_backfills SET state = 'done' WHERE tenant_id = $1", TenantB),
 
