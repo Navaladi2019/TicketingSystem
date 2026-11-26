@@ -16,6 +16,8 @@ paths:
     $ref: "paths/me.yaml#/paths/~1api~1v1~1me"
   /api/v1/operator/tenants:
     $ref: "paths/operator.yaml#/paths/~1api~1v1~1operator~1tenants"
+  /api/v1/operator/tenants/{tenant}/limits:
+    $ref: "paths/operator.yaml#/paths/~1api~1v1~1operator~1tenants~1{tenant}~1limits"
   /api/v1/entity-types:
     $ref: "paths/entity-types.yaml#/paths/~1api~1v1~1entity-types"
   /api/v1/entity-types/{key}:

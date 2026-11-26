@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/tenants/{tenant}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a tenant's limits (operator token only)
+         * @description Sets the tenant's per-type filterable-field limit, from the default 5 up to 10 (ADR-006 D12), with no per-tenant DDL (I8). Requires an operator token (realm role nava-operator, audience nava-operator-api); a tenant token is refused with 403. The change is one audited tenant_limits row (subject tenant_limits, the operator as actor, the reason in the entry); setting the value already in force writes nothing, so a retry is one audit entry. Publish enforces the limit from the next publish on. An unknown tenant is 404. A body with a duplicate member name or invalid UTF-8 is 422 invalid_tenant_limits.
+         */
+        put: operations["setTenantLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-types": {
         parameters: {
             query?: never;
@@ -749,6 +769,15 @@ export interface components {
             /** @description Present when more formats follow; pass it as `cursor`. */
             next_cursor?: string;
         };
+        SetTenantLimitsRequest: {
+            /** @description The most filterable fields one entity type of the tenant may flag. */
+            filterable_fields_per_type: number;
+            /** @description Why the limit changes (for example, the measured cost check). Recorded in the audit entry. */
+            reason: string;
+        };
+        TenantLimits: {
+            filterable_fields_per_type: number;
+        };
         OnboardTenantRequest: {
             /** @description The first tenant admin. Its domain must be one of email_domains. */
             admin_email: string;
@@ -983,6 +1012,42 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+        };
+    };
+    setTenantLimits: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTenantLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description The limits now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLimits"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             500: components["responses"]["Problem"];

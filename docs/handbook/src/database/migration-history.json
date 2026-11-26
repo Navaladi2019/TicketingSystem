@@ -1277,11 +1277,23 @@
       "on_main": false
     },
     {
-      "file": "20261126170000_entity_versions_published_by_system.sql",
+      "file": "20261126163300_schema_backfill_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261126170100_entity_versions_published_by_system_validate.sql",
+      "file": "20261126163400_schema_backfill_rollout.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126163500_audit_log_subject_tenant_limits.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126163600_audit_log_subject_tenant_limits_validate.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126163700_tenant_limits.sql",
       "on_main": false
     }
   ]

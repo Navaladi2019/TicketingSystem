@@ -1,0 +1,30 @@
+meta {
+  name: S4.21 Negative: a duplicate member name in the limits body
+  type: http
+  seq: 19
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-limits-dup
+  Content-Type: application/json
+}
+
+body:json {
+  {"filterable_fields_per_type": 6, "filterable_fields_per_type": 10, "reason": "dup"}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_tenant_limits', 422);
+}
+
+docs {
+  Strict JSON (TICK-964): a body that names `filterable_fields_per_type` twice is 422 `invalid_tenant_limits`; nothing is written.
+}

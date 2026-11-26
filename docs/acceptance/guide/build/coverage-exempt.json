@@ -9,6 +9,10 @@
     "429": "Reserved, not emitted: operator routes carry no tenant, so the per-tenant limiter (ADR-001 D6) does not wrap them (internal/server/api.go). Kept in the contract because removing a response breaks the additive-only rule (check-openapi). TICK-516.",
     "500": "Needs a Keycloak or database failure mid-onboarding; not caused from outside a healthy stack."
   },
+  "setTenantLimits": {
+    "429": "Reserved, not emitted: operator routes carry no tenant, so the per-tenant limiter does not wrap them (internal/server/api.go), as for onboardTenant (TICK-516).",
+    "500": "Needs a database failure mid-request; not caused from outside a healthy stack. TestSetTenantLimitsDatabaseDownIs500 covers it."
+  },
   "listEntityTypes": {
     "429": "Not asserted here: the limiter is route-agnostic and asserted on getMe in S6.12; internal/server/write_chain_test.go (P2) drives it on every tenant write route.",
     "500": "Needs an internal failure (a dependency error mid-request); not caused from outside a healthy stack.",
