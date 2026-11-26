@@ -2,7 +2,7 @@
 
 Reviewer: Quality, Testing & CI Advisor (second reviewer, after the Security & Multi-Tenancy Reviewer). Head reviewed: `agent/senior-software-engineer/0d770eb63a1d` at `681bb9b`. Specs read first: the TICK-1166 description (build items 1 to 4, the seven acceptance tests, accepted limits), AR-TICK-1118-01, and the existing `liveUnitsBestEffort`, `withHashPlan` and `observe` code in `internal/groupsync`.
 
-**Verdict: CHANGES.** The comparison logic matches the spec, and all seven acceptance tests ran and passed in CI. Two things block the merge:
+**Verdict: CHANGES at `681bb9b`; APPROVE at `79e93d7` (see Re-check).** The comparison logic matches the spec, and all seven acceptance tests ran and passed in CI. Two things block the merge:
 
 - lint is red;
 - the new lag alert cannot fire at the default 5-minute cycle, so build item 4 is not met. Its promtool test does not catch this.
@@ -68,6 +68,14 @@ It is not a regression. But the spec's "a failed comparison never undoes a revoc
 - The seven acceptance tests can go Red: with `due` forced false, 7 of 7 fail (pasted in the PR). In CI they cover separate timers, an unchanged cycle, drift outside the touched subtree, a failure with a tombstone, rollback, skip and restart.
 - No tenant-isolation concern: every query is scoped by the tenant id inside the tenant's own transaction. The Security reviewer has the isolation review.
 
-## To re-check after the fix
+## Re-check (head `79e93d7`)
 
-The lint job is green, and `TestAlertRules` passes with the real-rate fire case.
+**Verdict: APPROVE.**
+
+- Finding 1 is fixed in `70fa5d2`: the timeout is put back with `SET LOCAL statement_timeout = '<prev>'`, and lint is green.
+- Finding 2 is fixed in `b651e58` and `79e93d7`:
+  - both ranges are `[10m]`;
+  - the fire case runs at the real rate (`interval: 15s`, one `_count` step every 5 minutes), and the silent case runs at the same rate;
+  - the engineer confirmed with promtool that the case fails against `[5m]`.
+- CI run [45840889811](https://github.com/Navaladi2019/TicketingSystem/actions/runs/45840889811) is green on every job. `TestAlertRules` and all seven `TestClosureCheck*` tests pass.
+- Findings 3 and 5 are should-change and taste, and are not addressed. Finding 4 is the Technical Lead's call.
