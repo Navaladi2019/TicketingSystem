@@ -63,6 +63,56 @@ func TestScannedToolchainIsTheShippedToolchain(t *testing.T) {
 		lower(t, dir, "deploy/compose/nava-db/Dockerfile", "golang")
 		mustSameGo(t, dir, "nava-db/Dockerfile:3: FROM golang without a literal Go version tag")
 	})
+	// TICK-1164: the image the Go ships in must be one the check can read.
+	t.Run("image from a build ARG", func(t *testing.T) {
+		dir := goCopy(t)
+		lower(t, dir, "deploy/compose/nava-relay/Dockerfile", "${GO_IMAGE}")
+		replaceIn(t, dir, "deploy/compose/nava-relay/Dockerfile", "FROM ${GO_IMAGE}", "ARG GO_IMAGE=golang:1.27.3-alpine\nFROM ${GO_IMAGE}")
+		mustSameGo(t, dir, "nava-relay/Dockerfile:3: FROM image ${GO_IMAGE} comes from a variable")
+		mustSameGo(t, dir, "deploy/compose/nava-relay/Dockerfile: no FROM golang:<version> stage")
+	})
+	t.Run("image from a bare $VAR", func(t *testing.T) {
+		dir := goCopy(t)
+		lower(t, dir, "deploy/compose/nava-core/Dockerfile", "$GO_IMAGE")
+		mustSameGo(t, dir, "nava-core/Dockerfile:2: FROM image $GO_IMAGE comes from a variable")
+	})
+	t.Run("runtime image from a variable", func(t *testing.T) {
+		dir := goCopy(t)
+		replaceIn(t, dir, "deploy/compose/nava-db/Dockerfile", "FROM alpine:3.22.1", "FROM ${RUNTIME}")
+		mustSameGo(t, dir, "nava-db/Dockerfile:12: FROM image ${RUNTIME} comes from a variable")
+	})
+	t.Run("build stage from a non-golang Go image", func(t *testing.T) {
+		dir := goCopy(t)
+		lower(t, dir, "deploy/compose/nava-relay/Dockerfile", "cgr.dev/chainguard/go")
+		mustSameGo(t, dir, "deploy/compose/nava-relay/Dockerfile: no FROM golang:<version> stage")
+		mustSameGo(t, dir, "nava-relay/Dockerfile:2: FROM cgr.dev/chainguard/go is neither golang:<version>, an earlier stage nor an allowed runtime image")
+	})
+	t.Run("non-golang Go stage beside a decoy golang stage", func(t *testing.T) {
+		dir := goCopy(t)
+		appendTo(t, dir, "deploy/compose/nava-onboard/Dockerfile", "\nFROM cgr.dev/chainguard/go:latest AS real\n")
+		mustSameGo(t, dir, "FROM cgr.dev/chainguard/go:latest is neither golang:<version>, an earlier stage nor an allowed runtime image")
+	})
+	t.Run("image split over a line continuation", func(t *testing.T) {
+		dir := goCopy(t)
+		lower(t, dir, "deploy/compose/nava-purge/Dockerfile", "\\\n  cgr.dev/chainguard/go")
+		mustSameGo(t, dir, "nava-purge/Dockerfile:2: FROM without an image on its line")
+	})
+	t.Run("runtime stages stay allowed", func(t *testing.T) {
+		dir := goCopy(t)
+		appendTo(t, dir, "deploy/compose/nava-groupsync/Dockerfile",
+			"\nFROM scratch AS a\nFROM gcr.io/distroless/static-debian12:nonroot AS b\nFROM --platform=$BUILDPLATFORM debian:bookworm-slim AS c\nFROM build AS d\nfrom a\n")
+		mustSameGo(t, dir, "")
+	})
+	t.Run("a missing tracked Dockerfile is named", func(t *testing.T) {
+		dir := goCopy(t)
+		if err := os.Remove(filepath.Join(dir, "deploy", "compose", "nava-relay", "Dockerfile")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := checkSameGo(dir)
+		if err == nil || !strings.Contains(err.Error(), "deploy/compose/nava-relay/Dockerfile") {
+			t.Fatalf("want an error naming the missing file, got %v", err)
+		}
+	})
 	for _, f := range []string{"deploy/compose/nava-new/Dockerfile.build", "cmd/tool/Dockerfile", "Dockerfile.ci"} {
 		t.Run("unmapped "+f, func(t *testing.T) {
 			dir := goCopy(t)
