@@ -197,8 +197,10 @@ severity = &#x27;ERROR&#x27;                   -- by level
 </tbody>
 </table>
 <h3 id="field-index-s21-story-branch">Field index (S21, story branch)</h3>
-<p>On <code>TICK-739/filterable-fields</code>, not yet on <code>main</code>, there are no alert rules
-for these yet; the log lines carry <code>alert=true</code>:</p>
+<p>On <code>TICK-739/filterable-fields</code>, not yet on <code>main</code>. One alert rule,
+<code>RecordsListTotalUnknown</code> (TICK-1051), is in
+<code>deploy/compose/prometheus/rules/records.yml</code>; the other signals have no rule
+yet and their log lines carry <code>alert=true</code>:</p>
 <table>
 <thead>
 <tr>
@@ -224,17 +226,33 @@ for these yet; the log lines carry <code>alert=true</code>:</p>
 <td>nava-worker logs for that workflow id</td>
 </tr>
 <tr>
-<td><code>nava.records.list.indexed.duration</code></td>
-<td>Duration of lists that filter on an indexed field, by selectivity band and ACL presence (ADR-006 D13, R-a)</td>
+<td><code>nava.records.list.indexed.duration</code> (Prometheus: <code>nava_records_list_indexed_duration_seconds</code>)</td>
+<td>Duration of lists that filter on an indexed field, labelled <code>acl</code> (<code>open</code> or <code>narrowing</code>), <code>selectivity_band</code> and <code>total_state</code> (<code>exact</code>, <code>capped</code>, <code>unknown</code>; ADR-006-A2 A2-7). No tenant, field or value label. Legacy-scan lists are not in this series</td>
 <td>Prometheus</td>
+</tr>
+<tr>
+<td><code>RecordsListTotalUnknown</code> (warning)</td>
+<td>More than 5% of indexed lists over the last hour answered <code>total_state=&quot;unknown&quot;</code>, for 5 minutes; no lists, no alert. The count ran past its budget (140 ms on the story branch) and <code>total</code> was <code>null</code>; the page was complete. This is the R-a signal, not an outage</td>
+<td>See the runbook below</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Runbook, <code>RecordsListTotalUnknown</code></strong> (the rule's annotation, A2-7). It is
+expected after a field backfill or bulk edits that leave a poor visibility map
+on the <code>rfv_*</code> tables, until autovacuum runs. Check <code>pg_stat_user_tables</code>
+(<code>n_dead_tup</code>, <code>last_autovacuum</code>, <code>last_autoanalyze</code>) for the <code>rfv_*</code> tables.
+If it persists more than 24 h after autovacuum has run, open the R-a / A1-6
+follow-up (owner: Technical Lead, PLAN-007-A1 D-7A1-6). Firing in production is a
+trigger of <code>AR-S21-01</code> and Story S21c (TICK-1159). The rule's annotation still
+says "200 ms budget"; the shipping value is 140 ms
+(<a href="../database/field-index.html#totals-on-a-filtered-list-adr-006-a2">Field index</a>).
+Rule tests: <code>deploy/compose/prometheus/tests/records_test.yml</code>, run by
+<code>lineage.TestAlertRules</code>.</p>
 <h2 id="what-is-never-in-telemetry">What is never in telemetry</h2>
 <p>Spans carry no client values or personal data. Logs carry no raw path, query, headers, client IP or tokens. The full list of controls and known gaps is in <a href="../../../docs/architecture/observability-notes.md">observability-notes.md</a>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../operations/sdk.html">&larr; Using the TypeScript SDK</a><a class="next" href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES) &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 27f154c78e10 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>

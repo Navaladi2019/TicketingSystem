@@ -56,14 +56,20 @@
 <td>Introduced by</td>
 <td>commit <code>4a9f3788</code> (names no ticket)</td>
 </tr>
+<tr>
+<td>Alert rules</td>
+<td>every file in <code>deploy/compose/prometheus/rules/</code> (<code>audit.yml</code>, <code>authz.yml</code>, <code>groupsync.yml</code>, <code>numbering.yml</code>, <code>records.yml</code>); tests in <code>deploy/compose/prometheus/tests/</code>, run by <code>lineage.TestAlertRules</code></td>
+</tr>
 </tbody>
 </table>
+<h2 id="alert-rules">Alert rules</h2>
+<p>The rules and what to do when one fires are in <a href="../operations/observability.html#metrics-and-alerts">traces, logs and metrics</a>. On the S21 story branch, <code>records.yml</code> adds <code>RecordsListTotalUnknown</code> (ADR-006-A2 A2-7, TICK-1051): more than 5% of field-index lists in the last hour answered <code>total_state=&quot;unknown&quot;</code>, read from the <code>total_state</code> label of <code>nava_records_list_indexed_duration_seconds</code>.</p>
 <h2 id="boundary-it-enforces">Boundary it enforces</h2>
 <p>No ADR-001 section 1 invariant. It reads the admin listeners over <code>internal</code>, so they never need publishing: <code>TestComposePublishesNoAdminPort</code>.</p>
 <p><a href="../system/index.html">Back to the system map</a></p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../system/postgres.html">&larr; postgres</a><a class="next" href="../system/temporal-server.html">temporal-server &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 27f154c78e10 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

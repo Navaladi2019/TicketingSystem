@@ -2,7 +2,7 @@
 title: "Field index: registry, side tables and the records trigger"
 section: database
 status: in-progress
-adrs: [ADR-006, ADR-006-E1]
+adrs: [ADR-006, ADR-006-E1, ADR-006-A2, ADR-006-E2]
 stories: [S21]
 invariants: [I1, I3, I8]
 packages: [internal/fieldindex, internal/records/pipeline, internal/records/store]
@@ -14,6 +14,9 @@ sources:
   - internal/records/pipeline/fieldindex.go
   - db/grants.yaml
   - db/audited-tables.yaml
+  - internal/records/store/list.go
+  - docs/adr/ADR-006-A2-count-time-budget.md
+  - docs/data/adr-006-a2-gate.md
 tests: [TestP701LeakproofCatalog, TestP701Grants, TestP701TenantIsolationAndKeys, TestP701MigrationDownUp, TestP702TriggerMatchesRecompute, TestP702CoerceRulesAcrossSessions, TestP702AuditBytesUnchanged, TestP702UncoercedValuesAreCounted, TestUncoercedValueIsCountedNotRaised, TestP705cRecordsWriteRequiresReadCommitted, TestP705cRecordsTriggerCatalog]
 ---
 
@@ -158,6 +161,50 @@ the read, so other writes keep their statement budget. The backfill counts the
 values it skips on the same counter (TICK-974). The label is the type's opaque
 id: no tenant, no value. See [traces, logs and
 metrics](../operations/observability.md).
+
+## Totals on a filtered list (ADR-006-A2)
+
+A broad filter under a narrowing row ACL can have a fast page and a slow
+count: the count's plan follows the side table's visibility map, which a
+backfill or bulk edits leave poor (TICK-1022). [ADR-006-A2](../adr/adr-006-a2.md)
+caps the cost of the count instead of trying to predict it.
+`internal/records/store/list.go` does this:
+
+1. **The page runs first** and is read to the end (A2-3).
+2. **First-page shortcut (A2-4).** On a first page (no cursor) with at most
+   `limit` rows, the page is the whole result: `total` is its length,
+   `total_state` is `exact`, and no count runs.
+3. **Otherwise the count runs under a budget.** For a list with an indexed
+   or legacy-scan data filter: `SAVEPOINT list_count; SET LOCAL
+   statement_timeout = '<CountBudget>'`, the one capped count statement, then
+   `ROLLBACK TO SAVEPOINT list_count` on both paths, which undoes the `SET
+   LOCAL` and recovers the transaction after a cancel. A legacy-scan list uses
+   the shorter of `CountBudget` and its own statement timeout. Lists with no
+   data filter count without a budget.
+4. **A 57014 (statement timeout) on the count** answers `200` with the
+   complete page, `total: null` and `total_state: unknown`. Any other error,
+   or a cancelled request, still fails the list.
+5. **Otherwise** `total` is the count capped at 1,000: `exact` at or below,
+   `capped` (with the deprecated `total_capped: true`) above.
+
+**The budget that ships.** `CountBudget` is a platform constant, not a
+setting (I8). On the story branch it is **140 ms with the server's parallel
+settings**, the interim value of [ADR-006-E2](../adr/adr-006-e2.md) (PLAN-007-E2
+D-7E2-1, `TestCountBudgetFor` pins it). A2 derived 200 ms; E2 corrected it to
+170 ms with the count run without parallel workers (`SET LOCAL
+max_parallel_workers_per_gather = 0`), gated on the A2-8 (3e) run. That change
+(TICK-1097) and its (3e) verdict (TICK-1098) are deferred to Story S21c
+(TICK-1159); on a (3e) FAIL 140 ms stays. Delivery:
+[PLAN-007-A2](../../../delivery/plan-adr-006-a2.md),
+[PLAN-007-E2](../../../delivery/plan-adr-006-e2.md). Measurements:
+[A2 gate](../../../data/adr-006-a2-gate.md) and the
+[benchmarks page](../benchmarks/index.md).
+
+`unknown` is a threshold on the count's duration, which latency already shows,
+so it adds no isolation signal (A2-6, `AR-TICK-1022-01`). Indexed lists label
+`nava.records.list.indexed.duration` with `total_state`; the
+`RecordsListTotalUnknown` alert fires above 5% `unknown` over an hour
+([observability](../operations/observability.md#field-index-s21-story-branch)).
 
 ## Related
 
