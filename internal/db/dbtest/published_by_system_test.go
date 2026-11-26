@@ -24,7 +24,9 @@ const insertVersionSystem = `WITH v AS (INSERT INTO entity_definition_versions
 // principal (published_by) or the system (published_by_system =
 // 'onboarding'). nava_onboard publishes a provisioning tenant's v2 with the
 // system publisher; neither publisher, both, or an unknown system word is
-// refused (23514), for the superuser too.
+// refused (23514), as nava_onboard and as the superuser. nava_app cannot
+// write published_by_system at all (42501, its column-level INSERT grant),
+// so a version the API publishes always names its principal.
 func TestP712aPublishedBySystem(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
@@ -36,10 +38,16 @@ func TestP712aPublishedBySystem(t *testing.T) {
 			t.Errorf("%s is not validated after the migrations", c)
 		}
 	}
-	// No grant change: nava_onboard's table-level INSERT covers the column,
-	// and RLS stays forced.
+	// nava_onboard's table-level INSERT covers the column; nava_app may
+	// insert every column but published_by_system, so its list keeps up with
+	// the table. RLS stays forced.
 	if !queryBool(t, super, `SELECT has_column_privilege('nava_onboard', 'entity_definition_versions', 'published_by_system', 'INSERT')`) {
 		t.Error("nava_onboard cannot insert published_by_system")
+	}
+	if got := queryString(t, super, `SELECT coalesce(string_agg(attname, ', ' ORDER BY attnum), '') FROM pg_attribute
+		WHERE attrelid = 'entity_definition_versions'::regclass AND attnum > 0 AND NOT attisdropped
+		  AND NOT has_column_privilege('nava_app', attrelid, attnum, 'INSERT')`); got != "published_by_system" {
+		t.Errorf("columns nava_app cannot insert = %q, want only published_by_system", got)
 	}
 	if !queryBool(t, super, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'entity_definition_versions'::regclass`) {
 		t.Error("entity_definition_versions no longer forces RLS")
@@ -64,28 +72,35 @@ func TestP712aPublishedBySystem(t *testing.T) {
 		FROM entity_definition_versions WHERE tenant_id = $1 AND version = 2`, tenantX); got != "null onboarding" {
 		t.Errorf("stored v2 publisher = %q, want %q", got, "null onboarding")
 	}
-
-	app := asRole(t, "nava_app")
-	exec(t, super, insertType, tenantA, "ticket", "TCK")
-	if _, err := execIn(app, tenantA, insertVersion, tenantA, tenantA, tenantA, 1, testSchema, schemaSum(testSchema), "initial", nil); err != nil {
-		t.Fatalf("v1 with no publisher: %v, want accepted", err)
-	}
 	for _, c := range []struct {
 		what   string
 		by     any
 		system any
 	}{
-		{"v2 with neither publisher", nil, nil},
-		{"v2 with both publishers", tenantA, "onboarding"},
-		{"v2 with an unknown system publisher", nil, "import"},
+		{"v3 with neither publisher", nil, nil},
+		{"v3 with both publishers", tenantA, "onboarding"},
+		{"v3 with an unknown system publisher", nil, "import"},
 	} {
-		_, err := execIn(app, tenantA, insertVersionSystem, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", c.by, c.system)
-		wantSQLState(t, c.what, err, "23514")
-		_, err = super.Exec(ctx, insertVersionSystem, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", c.by, c.system)
+		err := inTenantTx(onboard, tenantX, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, insertVersionSystem, tenantX, tenantA, tenantX, 3, testSchema, schemaSum(testSchema), "compatible", c.by, c.system)
+			return err
+		})
+		wantSQLState(t, "nava_onboard "+c.what, err, "23514")
+		_, err = super.Exec(ctx, insertVersionSystem, tenantX, tenantA, tenantX, 3, testSchema, schemaSum(testSchema), "compatible", c.by, c.system)
 		wantSQLState(t, c.what+" as the superuser", err, "23514")
 	}
-	if _, err := execIn(app, tenantA, insertVersionSystem, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", tenantA, nil); err != nil {
-		t.Fatalf("v2 published by A's principal: %v, want accepted", err)
+
+	app := asRole(t, "nava_app")
+	exec(t, super, insertType, tenantA, "ticket", "TCK")
+	if _, err := execIn(app, tenantA, insertVersion, tenantA, tenantA, tenantA, 1, testSchema, schemaSum(testSchema), "initial", nil); err != nil {
+		t.Fatalf("nava_app v1 with no publisher: %v, want accepted", err)
+	}
+	_, err = execIn(app, tenantA, insertVersionSystem, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", nil, "onboarding")
+	wantSQLState(t, "nava_app v2 with published_by_system 'onboarding'", err, "42501")
+	_, err = execIn(app, tenantA, insertVersionSystem, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", tenantA, nil)
+	wantSQLState(t, "nava_app naming published_by_system at all", err, "42501")
+	if _, err := execIn(app, tenantA, insertVersion, tenantA, tenantB, tenantA, 2, testSchema, schemaSum(testSchema), "compatible", tenantA); err != nil {
+		t.Fatalf("nava_app v2 published by A's principal: %v, want accepted", err)
 	}
 }
 

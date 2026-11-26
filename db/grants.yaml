@@ -128,7 +128,14 @@ roles:
       # once; publishing moves current_version. numbering_mode (D-3-9, TICK-659)
       # changes later through SetNumberingMode. A version is insert-only (D-3-4).
       entity_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at, numbering_mode] }
-      entity_definition_versions: { SELECT: [], INSERT: [] }
+      # P7-12a (TICK-1172): INSERT by column, every column but
+      # published_by_system, so only onboarding (nava_onboard) can record a
+      # system publisher; a version nava_app publishes names its principal.
+      # A new column on the table is added here when nava_app writes it.
+      entity_definition_versions:
+        SELECT: []
+        INSERT: [tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat,
+                 published_by, published_at, number_format_id, number_format_version, number_compiled]
       # ACLs and shares (P3-30, TICK-615): immutable, insert-only.
       # ADR-010-A1 A1-3 (TICK-940): the one role that publishes an ACL.
       acl_versions: { SELECT: [], INSERT: [] }

@@ -46,7 +46,23 @@ with `23514`, for every role including the superuser.
 
 ## Grants and RLS
 
-No grant diff. `nava_onboard` and `nava_app` hold table-level `INSERT` on
-`entity_definition_versions` (`db/grants.yaml`), which covers the new column.
-Forced RLS and the three policies are unchanged; `nava_onboard`'s insert policy
-still requires its own provisioning tenant.
+One grant diff, a narrowing (Technical Architect's review on PR #938):
+`nava_app`'s INSERT on `entity_definition_versions` goes from table-level to
+every column but `published_by_system`:
+
+```diff
+-      entity_definition_versions: { SELECT: [], INSERT: [] }
++      entity_definition_versions:
++        SELECT: []
++        INSERT: [tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat,
++                 published_by, published_at, number_format_id, number_format_version, number_compiled]
+```
+
+So only `nava_onboard`, which keeps table-level `INSERT`, can record a system
+publisher. A `nava_app` insert that names `published_by_system` gets `42501`,
+and every version the API publishes names its principal. A column added to the
+table later must be added to this list if `nava_app` writes it;
+`TestP712aPublishedBySystem` fails when any column other than
+`published_by_system` is missing from it. Forced RLS and the three policies
+are unchanged. `nava_onboard`'s insert policy still requires its own
+provisioning tenant.
