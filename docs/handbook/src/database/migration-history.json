@@ -1265,23 +1265,15 @@
       ]
     },
     {
-      "file": "20261125165000_field_index_tables.sql",
+      "file": "20261126163000_field_index_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261125165100_field_index_trigger.sql",
+      "file": "20261126163100_field_index_trigger.sql",
       "on_main": false
     },
     {
-      "file": "20261125165200_field_index_sync_read_committed.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261126170000_entity_versions_published_by_system.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261126170100_entity_versions_published_by_system_validate.sql",
+      "file": "20261126163200_field_index_sync_read_committed.sql",
       "on_main": false
     }
   ]
