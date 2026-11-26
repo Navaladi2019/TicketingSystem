@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 amendment A4 explained: the region ticket count reads a covering index</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:620px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+</style></head><body><main>
+
+<span class="pill">PROPOSED · 2026-11-26</span> <span class="src">ADR-010-A4 · issue TICK-1143 · RFC-023 rev 0 and rev 1 · amends ADR-010-A3 A3-1, A3-5, A3-R2 and A2-R4 · CTO tie-break comment 01a2154d</span>
+
+<h1>"Tickets in my region": make the count read one index instead of the whole ticket table</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) When one customer holds about half of all tickets or more, the number shown above a region ticket list could make the database read every ticket of every customer, which pushed the list past its 150 ms budget.
+(2) We add one column to an index the list already uses, so the database can count from the index alone: 17 to 28 ms, warm or cold.
+(3) Nothing changes in the code or in the results; the price is a slightly larger index and about 1 to 1.5 % more write log.</blockquote>
+
+<h2>1. In plain words</h2>
+<dl>
+<dt>Goal</dt>
+<dd>A list of tickets "in my region" shows a page of tickets and a total (counted up to 1,000). Both must come back within 150 ms for 95 of every 100 requests. We want the total to stay fast however big the shared ticket table grows.</dd>
+<dt>Today</dt>
+<dd>For a small ticket type under a large part of the organisation, the database counts by reading the type's tickets and checking each one's org unit. It sometimes guesses that it will find 1,000 matches quickly and reads the table from start to end (a <em>sequential scan</em>). When there are few or no matches, that means reading every row in the table, including rows that belong to other customers, whose data it then discards. In one test the page plus the count took 162 to 178 ms of database time.</dd>
+<dt>What's new</dt>
+<dd>An <em>index</em> is a sorted copy of a few columns that lets the database find rows without reading the table. The list already has one sorted by "last updated" per ticket type. We also store each ticket's org unit in it (an <em>INCLUDE</em> column), so the count can be answered from the index alone (an <em>Index Only Scan</em>). That read starts at the customer's own part of the index and never touches another customer's rows.</dd>
+<dt>Who is affected</dt>
+<dd>Agents whose access rule says "tickets in my region", on installations where one customer is large. They see the same tickets and the same total, faster. Operators see one index rebuilt online during the upgrade. Every ticket write also writes about 31 bytes more.</dd>
+<dt>Risks</dt>
+<dd>The index does not help when the agent also filters on something the index does not hold (a state list, a custom field). That case stays as it is today. The very first region list after a database restart can still take seconds. That is the page, not the count, and it is recorded, not fixed here.</dd>
+<dt>How we'll know it worked</dt>
+<dd>A test on a deliberately unfavourable table, one large customer plus others, fails today and must pass with the index. The test also checks that the plan is not a near tie that could flip. Then the region benchmark (TICK-1105) is re-run with a count at 500 matches.</dd>
+</dl>
+
+<h2>2. The numbers</h2>
+<figure>
+<svg viewBox="0 0 700 238" role="img" aria-label="Count, warm cache, W1 (250,000 tickets of 1 KB, one customer)">
+<text x="230" y="24" font-size="14" font-weight="700" fill="#1f2328">Count, warm cache, W1 (250,000 tickets of 1 KB, one customer)</text>
+<text x="230" y="42" font-size="12" fill="#59636e">Technical Architect's host; solid = fastest run, pale = range</text>
+<line x1="230.0" y1="52" x2="230.0" y2="198" stroke="#d1d9e0"/>
+<text x="230.0" y="216" font-size="11" text-anchor="middle" fill="#59636e">0 ms</text>
+<line x1="306.8" y1="52" x2="306.8" y2="198" stroke="#d1d9e0"/>
+<text x="306.8" y="216" font-size="11" text-anchor="middle" fill="#59636e">25 ms</text>
+<line x1="383.6" y1="52" x2="383.6" y2="198" stroke="#d1d9e0"/>
+<text x="383.6" y="216" font-size="11" text-anchor="middle" fill="#59636e">50 ms</text>
+<line x1="460.4" y1="52" x2="460.4" y2="198" stroke="#d1d9e0"/>
+<text x="460.4" y="216" font-size="11" text-anchor="middle" fill="#59636e">75 ms</text>
+<line x1="537.1" y1="52" x2="537.1" y2="198" stroke="#d1d9e0"/>
+<text x="537.1" y="216" font-size="11" text-anchor="middle" fill="#59636e">100 ms</text>
+<line x1="613.9" y1="52" x2="613.9" y2="198" stroke="#d1d9e0"/>
+<text x="613.9" y="216" font-size="11" text-anchor="middle" fill="#59636e">125 ms</text>
+<text x="220" y="87" font-size="13" text-anchor="end" fill="#1f2328">Today (W1)</text>
+<rect x="230.0" y="68" width="264.1" height="28" rx="3" fill="#8c959f"/>
+<rect x="494.1" y="68" width="73.7" height="28" rx="3" fill="#8c959f" opacity="0.45"/>
+<text x="573.9" y="87" font-size="12" fill="#1f2328">86–110 ms</text>
+<text x="220" y="133" font-size="13" text-anchor="end" fill="#1f2328">Order only</text>
+<rect x="230.0" y="114" width="187.4" height="28" rx="3" fill="#bc4c00"/>
+<rect x="417.4" y="114" width="58.4" height="28" rx="3" fill="#bc4c00" opacity="0.45"/>
+<text x="481.7" y="133" font-size="12" fill="#1f2328">61–80 ms</text>
+<text x="220" y="179" font-size="13" text-anchor="end" fill="#1f2328">Covering index</text>
+<rect x="230.0" y="160" width="52.2" height="28" rx="3" fill="#1a7f37"/>
+<rect x="282.2" y="160" width="33.8" height="28" rx="3" fill="#1a7f37" opacity="0.45"/>
+<text x="322.0" y="179" font-size="12" fill="#1f2328">17–28 ms</text>
+</svg>
+<figcaption>Warm cache: the index is about four times faster than today, and about three times faster than adding an order to the count.</figcaption>
+</figure>
+<figure>
+<svg viewBox="0 0 700 238" role="img" aria-label="Count, first request after a restart, W1, m = 500">
+<text x="230" y="24" font-size="14" font-weight="700" fill="#1f2328">Count, first request after a restart, W1, m = 500</text>
+<text x="230" y="42" font-size="12" fill="#59636e">Logarithmic scale: each grid line is ten times the one before</text>
+<line x1="230.0" y1="52" x2="230.0" y2="198" stroke="#d1d9e0"/>
+<text x="230.0" y="216" font-size="11" text-anchor="middle" fill="#59636e">10 ms</text>
+<line x1="360.3" y1="52" x2="360.3" y2="198" stroke="#d1d9e0"/>
+<text x="360.3" y="216" font-size="11" text-anchor="middle" fill="#59636e">100 ms</text>
+<line x1="490.5" y1="52" x2="490.5" y2="198" stroke="#d1d9e0"/>
+<text x="490.5" y="216" font-size="11" text-anchor="middle" fill="#59636e">1 s</text>
+<line x1="620.8" y1="52" x2="620.8" y2="198" stroke="#d1d9e0"/>
+<text x="620.8" y="216" font-size="11" text-anchor="middle" fill="#59636e">10 s</text>
+<text x="220" y="87" font-size="13" text-anchor="end" fill="#1f2328">Today (W1)</text>
+<rect x="230.0" y="68" width="267.0" height="28" rx="3" fill="#8c959f"/>
+<rect x="497.0" y="68" width="22.0" height="28" rx="3" fill="#8c959f" opacity="0.45"/>
+<text x="525.0" y="87" font-size="12" fill="#1f2328">1,122–1,654 ms</text>
+<text x="220" y="133" font-size="13" text-anchor="end" fill="#1f2328">Order only</text>
+<rect x="230.0" y="114" width="384.6" height="28" rx="3" fill="#bc4c00"/>
+<rect x="614.6" y="114" width="7.5" height="28" rx="3" fill="#bc4c00" opacity="0.45"/>
+<text x="628.1" y="133" font-size="12" fill="#1f2328">8,958–10,231 ms</text>
+<text x="220" y="179" font-size="13" text-anchor="end" fill="#1f2328">Covering index</text>
+<rect x="230.0" y="160" width="33.3" height="28" rx="3" fill="#1a7f37"/>
+<rect x="263.3" y="160" width="18.6" height="28" rx="3" fill="#1a7f37" opacity="0.45"/>
+<text x="287.8" y="179" font-size="12" fill="#1f2328">18–25 ms</text>
+</svg>
+<figcaption>After a restart, adding an order alone made the count about 6 to 9 times slower than today, because it reads the table in random order. The index stays at 18 to 25 ms.</figcaption>
+</figure>
+
+<h2>3. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead><tbody>
+<tr><td>Add the org unit to the existing "last updated" index</td><td class="good">Chosen</td><td>The only option no worse than today in any measured cell, warm or cold. No code change. Costs: that index +23 % in size (+2.3 % across all ticket indexes) and +1.0 to 1.5 % write log.</td></tr>
+<tr><td>Make the count read in "last updated" order (the first proposal, RFC-023 rev 0)</td><td class="bad">Rejected</td><td>Fast with a warm cache, but 9 to 10 s after a restart, against 1.1 to 1.7 s today. It also needs a code change and is 16 to 37 ms slower on some combined rules.</td></tr>
+<tr><td>Both: the index and the order</td><td class="warn">Kept as fallback</td><td>With the index, both texts already plan as an index-only read, so the order adds nothing that was measured. It is applied only if a test shows the index-only read is not picked.</td></tr>
+<tr><td>Change nothing</td><td class="bad">Rejected</td><td>The count's worst case grows with the whole shared table, breaks the bound A3 promised, and its time reflects other customers' data.</td></tr>
+<tr><td>Add every column a rule can name to the index</td><td class="bad">Rejected</td><td>One more column for each kind of rule, and it still cannot cover custom-field filters.</td></tr>
+</tbody></table>
+
+<h2>4. The decision</h2>
+<ol>
+<li><strong>The index.</strong> Build the new index online beside the old one, drop the old one, and give the new one the old name: <code>records_list_updated (tenant_id, entity_definition_id, updated_at DESC, id DESC) INCLUDE (org_unit_id)</code>. The list page keeps using it as before.</li>
+<li><strong>No code change.</strong> The count's SQL text and the page's SQL text stay exactly as A3 specified.</li>
+<li><strong>A fallback, decided now.</strong> If a test ever shows the count is not answered from the index, the count gets the "last updated" order, but only when it has at most one region branch.</li>
+<li><strong>Tests that pin the plan.</strong> On the test tables, the count must be an index-only read starting at the customer's own range. It must read no more rows than the customer's own tickets of that type. Its nearest rival plan must cost at least 1.3 times more, so the test cannot pass on a coin-flip. A deliberately broken build without the new column must fall back to the full-table read.</li>
+</ol>
+
+<h2>5. Migration</h2>
+<p>One database migration that runs outside a transaction: <code>CREATE INDEX CONCURRENTLY</code> for the new index, <code>DROP INDEX CONCURRENTLY</code> for the old one, then a rename. Tickets can be read and written throughout. A failed build leaves an unfinished index, which the migration drops when it is run again. At 800,000 tickets the build took 1.3 s; at production size it has not been measured, which is a recorded risk.</p>
+
+<h2>6. What we are accepting</h2>
+<table><thead><tr><th>Risk</th><th>Why it is acceptable</th><th>When we look again</th></tr></thead><tbody>
+<tr><td><strong>AR-TICK-1143-01 (Low).</strong> Where the count still reads the whole table, its time includes other customers' rows. It can hint at how many tickets all other customers hold together. That happens in small tables, under a filter the index does not hold, in a region branch that follows another branch of the rule, and in counts that are not region counts.</td><td>No ticket, total or choice crosses between customers; only a rough total size. It is no worse than before this change in those cases, and gone in the common one.</td><td>If customer data volume must be confidential from other customers; or a test, the benchmark or a slow-query report shows such a read beyond the type's own size</td></tr>
+<tr><td><strong>Region branch after another branch (A4-R5).</strong> A rule such as "my own tickets, or tickets in my region" adds a "not my own" condition to the region branch. That column is not in the index, so this branch reads as it does today.</td><td>It is exactly today's plan; nothing gets worse. Fixing it now would bring back the slow restart read, or need one more index column per rule type.</td><td>That branch exceeds 150 ms, or reads more of other customers' rows than the type's size. Then the fallback order is applied to that branch.</td></tr>
+<tr><td><strong>First list after a restart (A4-R3).</strong> Until the first-page shortcut (S21) is in <code>main</code>, the first cold region list with at most one page of matches gets slower: 1.45 to 1.95 s today, 8.8 to 11.2 s with the index. Today's full-table count happens to load the table into memory for the page. After S21, that count is skipped, and the page's own slow read is the same with or without this change.</td><td>It happens once per restart, and it disappears once S21 is in <code>main</code>. The Technical Lead orders the two changes.</td><td>Region list p95 above 1 s in the first 10 minutes after a restart, or a ticket table larger than memory: then the page itself is revisited</td></tr>
+<tr><td><strong>Write and size cost (A4-R4).</strong> That index +23 %; write log +1.0 to 1.5 % per ticket update.</td><td>Updates already rewrite this index, because they change "last updated", so only the entry size grows.</td><td>The migration takes over 10 minutes in rehearsal, or ticket write p95 rises by more than 5 %</td></tr>
+<tr><td><strong>Filters the index does not hold (A4-R2).</strong> A state list or a custom-field filter makes the count read the table rows again.</td><td>It is the same as today. Once S21 is in <code>main</code>, custom-field lists also run their count under a time limit.</td><td>A slow filtered region list in the benchmark or in production</td></tr>
+</tbody></table>
+
+<h2>7. Evidence</h2>
+<ul>
+<li><strong>Technical Architect's spike</strong> on PostgreSQL 16.10, using the real statements through the list code. W1 is 250,000 tickets of 1 KB for one customer. W2 is 800,000 empty tickets. Warm count: today 86–110 and 145–170 ms; order 61–80 and 64 ms; index 17.3–27.6 and 16.9–18.0 ms. Cold: today 1,122–1,654 ms; order 8,958–10,231 ms; index 18–25 ms. With 5 % of the type updated and no vacuum since, the index read still took 23.0–28.1 ms.</li>
+<li><strong>Postgres &amp; Data Modeling Specialist:</strong> query plans in many table shapes, without timings. The test table (200,000 rows, one customer at 75 %) uses a full-table read today, 53 % cheaper than the next plan, so it fails before the change. With the index it is an index-only read in 4 of 4 loads. Comparing only the ticket-reading step, the full-table read costs 5.2 times the index-only read. Size and write-log costs as above.</li>
+<li><strong>Security &amp; Multi-Tenancy Reviewer:</strong> plans with other customers' rows present. The index removes the cross-customer read for the plain count and leaves it under a default-valued custom-field filter. Rated Low; no isolation gap. Approved.</li>
+<li><strong>Not measured:</strong> the index-only read in combined rules beyond the two shapes above, the generic-plan case, and the build time at production size.</li>
+</ul>
+<p class="src">Archive: <code>docs/adr/ADR-010/A4/</code> (RFC-023 rev 0 and rev 1, every review, the spike zips). Normative text: <code>docs/adr/ADR-010-A4-r-count-covering-index.md</code>.</p>
+</main></body></html>
