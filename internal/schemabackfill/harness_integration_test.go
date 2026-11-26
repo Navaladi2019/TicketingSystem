@@ -252,8 +252,8 @@ func (f fixture) queueJob(t testing.TB, e itEnv, version int, causation *uuid.UU
 // insertRecordSQL writes one v1 record and its create entry (the records
 // commit check), as a record written before the default existed:
 // tenant $1, id $2, type $3, number $4, data $5.
-const insertRecordSQL = `WITH r AS (INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, data)
-	VALUES ($1, $2, $3, 1, $4, 'open', $5::jsonb) RETURNING tenant_id, id, version)
+const insertRecordSQL = `WITH r AS (INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, data)
+	VALUES ($1, $2, $3, 1, 1, $4, 'open', $5::jsonb) RETURNING tenant_id, id, version)
 	INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, version_after, actor_system, source)
 	SELECT tenant_id, gen_random_uuid(), 'record', 'create', 'record', id, version, 'system', 'system' FROM r`
 

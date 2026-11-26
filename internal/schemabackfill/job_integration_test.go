@@ -465,6 +465,16 @@ func TestBackfillWithLiveWriters(t *testing.T) {
 	p := pipeline.New(authz.ACL{Policies: authz.PolicyStore{}}, entitytypes.Store{}, pipeline.NoopSink{},
 		pipeline.PoolRunner{Pool: e.pipe}, pipeline.SystemClock{})
 
+	// The writers start once the job has committed its first record, so they
+	// run against the job, not before it.
+	r := newRun(t, e, j, nil)
+	begin := make(chan struct{})
+	var beginOnce sync.Once
+	schemabackfill.SetAfterRecord(r.acts, func(context.Context, uuid.UUID) error {
+		beginOnce.Do(func() { close(begin) })
+		time.Sleep(2 * time.Millisecond)
+		return nil
+	})
 	ctx, stop := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	var conflicts atomic.Int64
@@ -472,6 +482,11 @@ func TestBackfillWithLiveWriters(t *testing.T) {
 	for w := range 4 {
 		last[w] = map[uuid.UUID]string{}
 		wg.Go(func() {
+			select {
+			case <-begin:
+			case <-ctx.Done():
+				return
+			}
 			for n := 0; ctx.Err() == nil && n < 2000; n++ {
 				id := ids[(n*4+w)%len(ids)]
 				val := fmt.Sprintf("w%d-%d", w, n)
@@ -487,7 +502,7 @@ func TestBackfillWithLiveWriters(t *testing.T) {
 							Actor: identity.Principal{TenantID: f.tenant}, Source: pipeline.SourceSystem})
 						return err
 					})
-					if errors.Is(err, pipeline.ErrVersionConflict) {
+					if errors.Is(err, pipeline.ErrVersionConflict) || errors.Is(err, pipeline.ErrRetryable) {
 						conflicts.Add(1)
 						continue
 					}
@@ -501,7 +516,6 @@ func TestBackfillWithLiveWriters(t *testing.T) {
 			}
 		})
 	}
-	r := newRun(t, e, j, nil)
 	err := r.start(j)
 	stop()
 	wg.Wait()
@@ -521,7 +535,17 @@ func TestBackfillWithLiveWriters(t *testing.T) {
 		}
 	}
 	t.Logf("live version conflicts: %d", conflicts.Load())
-	if s := job(t, e, j); s.state != "done" || s.rewritten+s.skipped != 400 {
-		t.Errorf("job = %+v, want done with 400 handled", s)
+	// Every record was queued (the fill ran before any live write); a live
+	// write applies the defaults itself, so the job skips the records it
+	// reached after one (D3 compare).
+	if s := job(t, e, j); s.state != "done" || s.rewritten == 0 || s.rewritten+s.skipped != 400 || s.failed != 0 {
+		t.Errorf("job = %+v, want done with all 400 handled, some rewritten, none failed", s)
+	}
+	writes := 0
+	for w := range 4 {
+		writes += len(last[w])
+	}
+	if writes == 0 {
+		t.Fatal("no live write ran during the job")
 	}
 }
