@@ -394,7 +394,7 @@ func writeWorkloadTable(b *strings.Builder) {
 	b.WriteString("| D9d | `TaskToken` decodes as `token.v1.Task` and its `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9d query clause | `TaskToken` decodes as `token.v1.QueryTask` and its `TaskQueue` is in `platformTaskQueues` or sticky-shaped. |\n")
 	b.WriteString("| D9e, D9f | The request's workflow id has a `t:<tenant>:` prefix. |\n")
-	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes` and not in `startOnlyWorkflowTypes`; a relay start or signal-with-start names no type in `childOnlyWorkflowTypes`. |\n")
+	b.WriteString("| D9c | A command's task queue has Kind NORMAL or UNSPECIFIED and an empty name or one in `platformTaskQueues`; a child or continue-as-new names a type in `platformWorkflowTypes` and not in `startOnlyWorkflowTypes`; a relay start or signal-with-start names no type in `childOnlyWorkflowTypes`; a child of a `childOnlyWorkflowTypes` type is started only by `t:<tenant>:field_index.coordinator`, and only a run of that type continues as it. |\n")
 	b.WriteString("| D9g | `StickyTaskQueue` is empty or sticky-shaped and not in `platformTaskQueues`; every `WorkerHeartbeat.TaskQueue`, on polls too, is in `platformTaskQueues`. |\n")
 	b.WriteString("| D9h-links | Every link is a workflow event link whose `WorkflowId` has a `t:<tenant>:` prefix. |\n")
 	b.WriteString("| D9h-failures | Every `ChildWorkflowExecutionFailureInfo` workflow id along a failure's `cause` chain has a `t:<tenant>:` prefix. |\n")

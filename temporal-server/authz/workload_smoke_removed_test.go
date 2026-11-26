@@ -31,7 +31,8 @@ func TestSmokeTypesDenied(t *testing.T) {
 
 // Every allow-listed type passes the relay's start and signal-with-start
 // unless it is child-only (TICK-745), and a worker's child and continue-as-new
-// unless it is start-only (TICK-438),
+// unless it is start-only (TICK-438); a child-only type only from its
+// tenant's coordinator, or a run of itself for continue-as-new (TICK-750),
 // with the tenantA prefix and header. A start-only type is denied as a child
 // or continue-as-new.
 func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
@@ -61,6 +62,17 @@ func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
 					command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"})
 				requireCommandDeny(t, denyCase{name: wt, req: respond(tok, can), reason: ReasonWorkflowType,
 					command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"})
+				return
+			}
+			if inSet(childOnlyWorkflowTypes(), wt) {
+				// Only the tenant's coordinator starts one, and only a run of the
+				// type continues as one (TICK-750): an interpreter run may do neither.
+				requireCommandDeny(t, denyCase{name: wt, req: respond(tok, child), reason: ReasonWorkflowType,
+					command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"})
+				requireCommandDeny(t, denyCase{name: wt, req: respond(tok, can), reason: ReasonWorkflowType,
+					command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"})
+				requireCommandAllow(t, respond(taskToken(t, "t:tenantA:field_index.coordinator"), child))
+				requireCommandAllow(t, respond(taskToken(t, "t:tenantA:"+wt+":3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:1"), can))
 				return
 			}
 			requireCommandAllow(t, respond(tok, child))

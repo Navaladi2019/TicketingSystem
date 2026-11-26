@@ -266,7 +266,13 @@ func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal") }
 // childOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // worker command (a child or continue-as-new) may name; a relay start or
 // signal-with-start of one is denied. It is disjoint from
-// startOnlyWorkflowTypes.
+// startOnlyWorkflowTypes. Its parent is the tenant's field_index.coordinator
+// and nothing else, and only a run of the type may continue as it
+// (checkChildOnlyParent, TICK-750).
+// fieldIndexCoordinatorWorkflowType is the one parent a child-only type may
+// have (checkChildOnlyParent).
+const fieldIndexCoordinatorWorkflowType = "field_index.coordinator"
+
 func childOnlyWorkflowTypes() map[string]struct{} {
 	return set("field_index.backfill.run", "field_index.remove.run")
 }

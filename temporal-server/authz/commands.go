@@ -154,7 +154,7 @@ func inspectCommands(request any) *commandDenial {
 		return d
 	}
 	for i, cmd := range req.GetCommands() {
-		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
+		if reason, target, detail := checkCommand(cmd, workflowID, tenant); reason != "" {
 			return &commandDenial{reason: reason, command: commandName(cmd.GetCommandType()), index: i,
 				workflowID: workflowID, target: target, detail: detail}
 		}
@@ -230,7 +230,7 @@ func checkMessage(m *protocolpb.Message, tenant string) (reason, target, detail 
 // the deny reason with the command's target workflow id, if it has one.
 // Activities, children and continue-as-new must carry the task's tenant in the
 // nava-tenant header; a NavaTenantId they set must be the task's tenant too.
-func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail string) {
+func checkCommand(cmd *commandpb.Command, workflowID, tenant string) (reason, target, detail string) {
 	if !allowedCommands[cmd.GetCommandType()] {
 		return ReasonCommandNotAllowed, "", ""
 	}
@@ -257,6 +257,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
+		if reason, detail := checkChildOnlyParent(a.GetWorkflowType().GetName(), workflowID, tenant, false); reason != "" {
+			return reason, a.GetWorkflowId(), detail
+		}
 		if reason, detail := checkChildSchedule(a.GetCronSchedule(), a.GetRetryPolicy()); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
@@ -281,6 +284,9 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 			return ReasonTenantSearchAttr, "", ""
 		}
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
+			return reason, "", detail
+		}
+		if reason, detail := checkChildOnlyParent(a.GetWorkflowType().GetName(), workflowID, tenant, true); reason != "" {
 			return reason, "", detail
 		}
 	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
@@ -329,6 +335,29 @@ func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) 
 		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is start-only"
 	}
 	return checkCommandTaskQueue(tq)
+}
+
+// checkChildOnlyParent is D9c's parent rule for a child-only type (TICK-750,
+// TICK-753): only the task's tenant's field-index coordinator,
+// t:<tenant>:field_index.coordinator, may start one as a child, and only a run
+// of the same type, t:<tenant>:<type>:..., may continue as one. An interpreter
+// run of the same tenant cannot run a backfill or a removal around the
+// coordinator's one-at-a-time queue (D10.5, PLAN-007 D-7-12). Any other type
+// passes.
+func checkChildOnlyParent(name, workflowID, tenant string, continueAsNew bool) (reason, detail string) {
+	if !inSet(childOnlyWorkflowTypes(), name) {
+		return "", ""
+	}
+	if continueAsNew {
+		if strings.HasPrefix(workflowID, "t:"+tenant+":"+name+":") {
+			return "", ""
+		}
+		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is child-only: only a run of it may continue as it"
+	}
+	if workflowID == "t:"+tenant+":"+fieldIndexCoordinatorWorkflowType {
+		return "", ""
+	}
+	return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is child-only: only the tenant's coordinator may start it"
 }
 
 // checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or

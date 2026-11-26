@@ -21,14 +21,11 @@ import (
 const (
 	fieldIndexCoordinatorType = "field_index.coordinator"
 	fieldIndexBackfillType    = "field_index.backfill.run"
-	fieldIndexRemoveType      = "field_index.remove.run"
 	// coordinatorA is tenantA's coordinator (one id per tenant).
 	coordinatorA = "t:tenantA:field_index.coordinator"
 	// backfillRunA is a backfill child of coordinatorA for one field and
 	// requested version.
 	backfillRunA = "t:tenantA:field_index.backfill.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:2"
-	// removeRunA is a removal child of coordinatorA (TICK-750).
-	removeRunA = "t:tenantA:field_index.remove.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:3"
 )
 
 func fieldIndexSignalWithStart(wfID, wt string) *workflowservice.SignalWithStartWorkflowExecutionRequest {
@@ -81,39 +78,24 @@ func TestRelayCannotStartBackfillDirectly(t *testing.T) {
 	}
 }
 
-// Adversarial (TICK-750, as TICK-745 for the backfill): the relay starts
-// field_index.remove.run directly, by start or signal-with-start, under a
-// valid tenantA id on nava-tq, and is denied: a forged or mis-kinded outbox
-// row cannot run a removal beside the coordinator's backfill.
-func TestRelayCannotStartRemovalDirectly(t *testing.T) {
-	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart(removeRunA, fieldIndexRemoveType), ReasonWorkflowType)
-	requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", fieldIndexSignalWithStart(removeRunA, fieldIndexRemoveType), ReasonWorkflowType)
-	requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", fieldIndexSignalWithStart(coordinatorA, fieldIndexRemoveType), ReasonWorkflowType)
+// TICK-750: a relay start of field_index.remove.run is denied as child-only,
+// and the deny says so (adversarial_s22_s29_test.go covers every id and
+// identity).
+func TestRelayRemovalDenyNamesChildOnly(t *testing.T) {
 	_, _, logs := authorizeAs(t, Relay, wf+"StartWorkflowExecution", interpreterStart(removeRunA, fieldIndexRemoveType))
 	if len(logs) != 1 || logs[0]["detail"] != `workflow type "field_index.remove.run" is child-only` {
 		t.Fatalf("log detail = %v, want the child-only detail", logs)
 	}
 }
 
-// Positive: the coordinator starts a removal child, and the removal
-// schedules its activities and continues as new, in its own tenant.
-func TestCoordinatorStartsRemovalChild(t *testing.T) {
-	child := interpreterChild(removeRunA, jsonString("tenantA"))
-	child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
-	requireCommandAllow(t, respond(taskToken(t, coordinatorA), child))
+// Positive: a removal run schedules its activities and continues as new in
+// its own tenant (the coordinator's start of it is in
+// TestCoordinatorRemovalKeepsTenantChecks).
+func TestRemovalRunSchedulesAndContinuesAsNew(t *testing.T) {
 	can := interpreterContinueAsNew(jsonString("tenantA"))
 	can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
 	requireCommandAllow(t, respond(taskToken(t, removeRunA), can))
 	requireCommandAllow(t, respond(taskToken(t, removeRunA), scheduleActivity(jsonString("tenantA"))))
-}
-
-// Negative: tenant A's coordinator cannot start a removal child in tenant B.
-func TestCoordinatorRemovalKeepsTenantChecks(t *testing.T) {
-	bChild := "t:tenantB:field_index.remove.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:3"
-	cmd := interpreterChild(bChild, jsonString("tenantB"))
-	cmd.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
-	requireCommandDeny(t, denyCase{name: "removal child in tenant B", req: respond(taskToken(t, coordinatorA), cmd),
-		reason: ReasonCrossTenant, command: "StartChildWorkflowExecution", workflowID: coordinatorA, target: bChild, commandIdx: "0"})
 }
 
 // Negative: no identity but the relay may start the coordinator.
@@ -190,4 +172,41 @@ func TestCoordinatorKeepsTenantChecks(t *testing.T) {
 	other.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = tqOf("audit-tq", enumspb.TASK_QUEUE_KIND_NORMAL, "")
 	requireCommandDeny(t, denyCase{name: "other queue", req: respond(tok, other), reason: ReasonTaskQueue,
 		command: "StartChildWorkflowExecution", workflowID: coordinatorA, target: backfillRunA, commandIdx: "0"})
+}
+
+// Adversarial (TICK-750): the parent rule. A child-only type is started only
+// by its tenant's coordinator and continued as new only by a run of itself:
+// an interpreter run, another tenant's coordinator id shape, a backfill run
+// starting a removal, and a removal continuing as a backfill are denied.
+func TestChildOnlyParentRule(t *testing.T) {
+	childOf := func(id, wt string) *commandpb.Command {
+		cmd := interpreterChild(id, jsonString("tenantA"))
+		cmd.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
+		return cmd
+	}
+	canAs := func(wt string) *commandpb.Command {
+		cmd := interpreterContinueAsNew(jsonString("tenantA"))
+		cmd.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = wt
+		return cmd
+	}
+	for _, c := range []struct {
+		name, parent string
+		cmd          *commandpb.Command
+		command      string
+		target       string
+	}{
+		{"interpreter starts a backfill", wfA, childOf(backfillRunA, fieldIndexBackfillType), "StartChildWorkflowExecution", backfillRunA},
+		{"backfill run starts a removal", backfillRunA, childOf(removeRunA, fieldIndexRemoveType), "StartChildWorkflowExecution", removeRunA},
+		{"coordinator look-alike starts a removal", "t:tenantA:field_index.coordinator:x", childOf(removeRunA, fieldIndexRemoveType), "StartChildWorkflowExecution", removeRunA},
+		{"interpreter continues as a removal", wfA, canAs(fieldIndexRemoveType), "ContinueAsNewWorkflowExecution", ""},
+		{"removal continues as a backfill", removeRunA, canAs(fieldIndexBackfillType), "ContinueAsNewWorkflowExecution", ""},
+		{"coordinator continues as a backfill", coordinatorA, canAs(fieldIndexBackfillType), "ContinueAsNewWorkflowExecution", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			requireCommandDeny(t, denyCase{name: c.name, req: respond(taskToken(t, c.parent), c.cmd), reason: ReasonWorkflowType,
+				command: c.command, workflowID: c.parent, target: c.target, commandIdx: "0"})
+		})
+	}
+	requireCommandAllow(t, respond(taskToken(t, backfillRunA), canAs(fieldIndexBackfillType)))
+	requireCommandAllow(t, respond(taskToken(t, coordinatorA), childOf(removeRunA, fieldIndexRemoveType)))
 }
