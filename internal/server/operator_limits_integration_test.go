@@ -199,7 +199,7 @@ func serveLimits(t *testing.T, h http.Handler, token, path, body string) *httpte
 // A database failure is 500 with no cause in the body.
 func TestSetTenantLimitsDatabaseDownIs500(t *testing.T) {
 	v := newIDEnv(t, nil)
-	dead := roleLoginPool(t, "nava_app", 1)
+	dead := roleLoginPool(t, "nava_onboard", 1)
 	dead.Close()
 	rec := serveLimits(t, limitsHandler(t, v, server.WithOperatorLimits(dead)), v.operatorToken(t), limitsPath(v.e.a.id), limitsBody(10, "x"))
 	wantStatus(t, rec, http.StatusInternalServerError, problem.InternalError)
@@ -219,11 +219,11 @@ func TestSetTenantLimitsNotConfiguredIs501(t *testing.T) {
 	}
 }
 
-// setLimit raises tenant's limit to n through tenantlimits on the nava_app
+// setLimit raises tenant's limit to n through tenantlimits on a nava_onboard
 // pool, with its audit entry, as the operator route does.
 func setLimit(t *testing.T, e *etEnv, tenant uuid.UUID, n int) {
 	t.Helper()
-	err := tenancy.InTenantTx(t.Context(), e.pool, tenant, func(tx pgx.Tx) error {
+	err := tenancy.InTenantTx(t.Context(), roleLoginPool(t, "nava_onboard", 1), tenant, func(tx pgx.Tx) error {
 		_, err := tenantlimits.SetPerType(t.Context(), tx, tenant, n, "test", "op-test")
 		return err
 	})

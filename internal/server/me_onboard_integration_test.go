@@ -185,7 +185,7 @@ func newIDEnv(t *testing.T, appPoolOverride *pgxpool.Pool) *idEnv {
 	lim.reset(true)
 	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, nil}, &slog.HandlerOptions{Level: slog.LevelError})),
 		tel, adapter, pgstore.New(appPool), server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithOperator(adapter, svc),
-		server.WithOperatorLimits(pool))
+		server.WithOperatorLimits(onboardPool))
 	if err != nil {
 		t.Fatal(err)
 	}

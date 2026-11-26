@@ -16,7 +16,8 @@ import (
 )
 
 // WithOperatorLimits turns PUT /api/v1/operator/tenants/{tenant}/limits on:
-// p is the nava_app pool the change is written on, in the target tenant's
+// p is the nava_onboard pool the change is written on (tenant_limits' only
+// writer, AR-TICK-916-01), in the target tenant's
 // transaction (TICK-751). Without it the route answers 501.
 func WithOperatorLimits(p *pgxpool.Pool) Option { return func(o *options) { o.limitsPool = p } }
 

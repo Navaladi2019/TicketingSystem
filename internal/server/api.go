@@ -256,7 +256,7 @@ type handlers struct {
 	reg       *problem.Registry
 	log       *slog.Logger
 	onboarder Onboarder
-	// limitsPool (nava_app) serves the operator's tenant limits route
+	// limitsPool (nava_onboard) serves the operator's tenant limits route
 	// (WithOperatorLimits); nil answers 501.
 	limitsPool *pgxpool.Pool
 	// paths is read by GetMe only (ADR-002).
