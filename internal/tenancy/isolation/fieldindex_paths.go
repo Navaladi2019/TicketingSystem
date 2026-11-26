@@ -86,5 +86,6 @@ func fieldIndexPaths() []Path {
 			"INSERT INTO rfv_bool (tenant_id, field_id, record_id, ord, value) VALUES ($1, $2, $3, 1, true)",
 			TenantB, FieldBoolB, RecordB1),
 	)
-	return append(paths, fieldIndexAttackPaths()...)
+	paths = append(paths, fieldIndexAttackPaths()...)
+	return append(paths, s22s29AttackPaths()...)
 }

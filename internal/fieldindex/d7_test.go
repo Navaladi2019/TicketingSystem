@@ -34,6 +34,9 @@ func TestD7SideTablesAreReadOnlyInTheListEXISTS(t *testing.T) {
 		// The S21 attack rows (TICK-748): side rows forged, counted and
 		// cleaned up by the isolation tests, never by a request.
 		"internal/tenancy/isolation/fieldindex_attack_paths.go": true,
+		// The S22/S29 attack rows (TICK-753): removal statements and writes
+		// aimed at tenant B's side rows, run only by the isolation tests.
+		"internal/tenancy/isolation/s22_s29_attack_paths.go": true,
 		// The S10 attack paths' cleanup of the side rows of their own fixture.
 		"internal/tenancy/isolation/acl_attack_paths.go": true,
 	}
