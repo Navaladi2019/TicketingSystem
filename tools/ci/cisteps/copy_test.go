@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,24 +18,37 @@ const (
 	repoCopy     = "tools/ci/cisteps/govulncheck.copy.yml"
 )
 
-// pinned is a make runner that prints exactly the pinned recipes.
-func pinned(target string) ([]byte, error) {
-	for _, r := range pinnedRecipes() {
-		if r.target == target {
-			return []byte(r.recipe + "\n"), nil
-		}
-	}
-	return nil, errors.New("no such target")
+// pinned is a make runner for a makefile with exactly the pinned rules.
+func pinned(args ...string) ([]byte, error) {
+	return recipesWith("", "")(args...)
 }
 
-// recipesWith is a make runner that prints the pinned recipes, target's
-// replaced by recipe.
+// recipesWith is a make runner whose `make -n` prints the pinned recipes,
+// target's replaced by recipe, and whose database (`make -pn`) holds the
+// pinned rules and make's defaults: the dry run alone is wrong.
 func recipesWith(target, recipe string) makeRunner {
-	return func(t string) ([]byte, error) {
+	return func(args ...string) ([]byte, error) {
+		const globals = "# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n\n"
+		if slices.Contains(args, "-pn") {
+			if slices.Contains(args, "-f") {
+				return []byte(globals), nil
+			}
+			db := globals
+			for _, r := range pinnedRecipes() {
+				db += r.target + ":\n#  recipe to execute (from 'make/lint.mk', line 1):\n\t" + r.recipe + "\n\n"
+			}
+			return []byte(db), nil
+		}
+		t := args[len(args)-1]
 		if t == target {
 			return []byte(recipe + "\n"), nil
 		}
-		return pinned(t)
+		for _, r := range pinnedRecipes() {
+			if r.target == t {
+				return []byte(r.recipe + "\n"), nil
+			}
+		}
+		return nil, errors.New("no such target")
 	}
 }
 
@@ -206,35 +221,92 @@ func TestCopyCatchesRecipeEdits(t *testing.T) {
 	}
 }
 
-// V-3 (AC 2 j) through real make: a temporary Makefile whose recipe ends in
-// `|| true` fails.
+// makeEdit is a temporary Makefile: the pinned rule of every target but
+// target, and edit's text for target (rule is "<target>:\n\t<recipe>\n").
+type makeEdit struct {
+	name string
+	edit func(target, recipe string) string
+	want string // a substring of a problem; %s is the target
+}
+
+// trueBin is a shell that runs nothing and exits 0, as a path make accepts
+// (on Windows make ignores a SHELL that does not exist, such as /bin/true).
+func makeEdits(trueBin string) []makeEdit {
+	rule := func(t, r string) string { return t + ":\n\t" + r + "\n" }
+	return []makeEdit{
+		// V-3 (j).
+		{"or true", func(t, r string) string { return rule(t, r+" || true") }, "make -pn %s: recipe is"},
+		// TICK-1149 review finding 1: make -n prints each of these as the
+		// pinned line, yet a failing scan exits 0 or is not run.
+		{"dash prefix", func(t, r string) string { return rule(t, "-"+r) }, "make -pn %s: recipe is"},
+		{"at prefix", func(t, r string) string { return rule(t, "@"+r) }, "make -pn %s: recipe is"},
+		{"plus prefix", func(t, r string) string { return rule(t, "+"+r) }, "make -pn %s: recipe is"},
+		{".IGNORE with the target", func(t, r string) string { return ".IGNORE: " + t + "\n" + rule(t, r) }, `make has ".IGNORE: %s"`},
+		{".IGNORE bare", func(t, r string) string { return ".IGNORE:\n" + rule(t, r) }, `make has ".IGNORE:`},
+		{"target SHELL", func(t, r string) string { return t + ": SHELL := " + trueBin + "\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
+		{"target .SHELLFLAGS", func(t, r string) string { return t + ": .SHELLFLAGS := -c true\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
+		{"pattern SHELL", func(t, r string) string { return "vulncheck%: SHELL := " + trueBin + "\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
+		{"global SHELL", func(t, r string) string { return "SHELL := " + trueBin + "\n" + rule(t, r) }, "make sets SHELL to"},
+		{"global .SHELLFLAGS", func(t, r string) string { return ".SHELLFLAGS := -c true\n" + rule(t, r) }, "make sets .SHELLFLAGS to"},
+		{".ONESHELL", func(t, r string) string { return ".ONESHELL:\n" + rule(t, r) }, `make has ".ONESHELL:`},
+		{"MAKEFLAGS -i", func(t, r string) string { return "MAKEFLAGS += -i\n" + rule(t, r) }, "make sets MAKEFLAGS to"},
+		{"a prerequisite", func(t, r string) string { return t + ": quiet\nquiet:\n" + rule(t, r) }, "make -pn %s: rule is"},
+		{"double-colon rule", func(t, r string) string { return t + "::\n\t" + r + "\n" }, "make -pn %s: want one rule, found 0"},
+	}
+}
+
+// V-3 (AC 2 j) and TICK-1149 review finding 1, through real make on a
+// temporary Makefile: each edit of either recipe's rule fails the check, and
+// the unedited Makefile passes.
 func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("no make on PATH")
 	}
+	trueBin, err := exec.LookPath("true")
+	if err != nil {
+		t.Fatal("no true on PATH:", err)
+	}
+	trueBin = filepath.ToSlash(trueBin)
+	write := func(t *testing.T, target string, edit func(t, r string) string) string {
+		t.Helper()
+		dir := t.TempDir()
+		var mk strings.Builder
+		for _, o := range pinnedRecipes() {
+			if o.target == target {
+				mk.WriteString(edit(o.target, o.recipe))
+			} else {
+				mk.WriteString(o.target + ":\n\t" + o.recipe + "\n")
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(mk.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	t.Run("pinned", func(t *testing.T) {
+		dir := write(t, "", nil)
+		problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+		if err != nil || len(problems) > 0 {
+			t.Fatalf("err %v, problems %q; want none", err, problems)
+		}
+	})
 	for _, r := range pinnedRecipes() {
-		t.Run(r.target, func(t *testing.T) {
-			dir := t.TempDir()
-			var mk strings.Builder
-			for _, o := range pinnedRecipes() {
-				line := o.recipe
-				if o.target == r.target {
-					line += " || true"
+		for _, c := range makeEdits(trueBin) {
+			t.Run(r.target+"/"+c.name, func(t *testing.T) {
+				dir := write(t, r.target, c.edit)
+				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+				if err != nil {
+					t.Fatal(err)
 				}
-				mk.WriteString(o.target + ":\n\t" + line + "\n")
-			}
-			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(mk.String()), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := "make -n " + r.target + ` prints "` + r.recipe + ` || true"`
-			if len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
-				t.Fatalf("want one problem starting %q, got %q", want, problems)
-			}
-		})
+				want := c.want
+				if strings.Contains(want, "%s") {
+					want = fmt.Sprintf(want, r.target)
+				}
+				if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, want) }) {
+					t.Fatalf("want a problem containing %q, got %q", want, problems)
+				}
+			})
+		}
 	}
 }
 
@@ -316,8 +388,14 @@ func TestRunCopyMode(t *testing.T) {
 		{"empty copy", []string{"-workflow", wf, "-copy", ""}, pinned, 2, "-copy needs -workflow", ""},
 		{"copy unreadable", []string{"-workflow", wf, "-copy", missing}, pinned, 2, "check-ci-steps: open " + missing, ""},
 		{"workflow unreadable", []string{"-workflow", missing, "-copy", cp}, pinned, 2, "check-ci-steps: open " + missing, ""},
-		{"make fails", []string{"-workflow", wf, "-copy", cp}, func(string) ([]byte, error) {
-			return []byte("make: *** No rule to make target 'vulncheck'.  Stop."), errors.New("exit status 2")
+		{"make fails", []string{"-workflow", wf, "-copy", cp}, func(...string) ([]byte, error) {
+			return []byte("make: *** missing separator.  Stop."), errors.New("exit status 2")
+		}, 2, "make -pn: exit status 2: make: *** missing separator", ""},
+		{"dry run fails", []string{"-workflow", wf, "-copy", cp}, func(args ...string) ([]byte, error) {
+			if slices.Contains(args, "-n") {
+				return []byte("make: *** No rule to make target 'vulncheck'.  Stop."), errors.New("exit status 2")
+			}
+			return pinned(args...)
 		}, 2, "make -n vulncheck: exit status 2: make: *** No rule", ""},
 		{"recipe edited", []string{"-workflow", wf, "-copy", cp}, recipesWith("vulncheck", "GOWORK=off govulncheck ./... || true"), 1, "edit " + wf + " and " + cp + " together", ""},
 	}
