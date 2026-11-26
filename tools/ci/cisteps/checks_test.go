@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -99,4 +100,48 @@ func TestRepositoryPinsIsolationCheck(t *testing.T) {
 	if !strings.Contains(string(data), "\n  - job: isolation\n    check: isolation\n") {
 		t.Fatal("required.yaml has no checks entry for job isolation, check isolation")
 	}
+}
+
+// A job in another workflow (or another job of the same one) that reports the
+// pinned check under a literal name brings the hole back when it is skipped
+// (Security review of PR 902; the govulncheck collision fixed in PR 900).
+func TestOtherJobReportingTheCheckFails(t *testing.T) {
+	req := writeTemp(t, checksRequired)
+	cases := []struct {
+		name, other, want string
+	}{
+		{"none", "jobs:\n  scan:\n    name: vulncheck\n    runs-on: ubuntu-latest\n", ""},
+		{"literal name", "jobs:\n  scan:\n    name: isolation\n    runs-on: ubuntu-latest\n", `job scan in other.yml: reports check "isolation" under a fixed name, so a skipped run of it passes the required check; only job isolation in f.yml may report it [a skipped run hides a red isolation]`},
+		{"constant expression", "jobs:\n  scan:\n    name: ${{ 'isolation' }}\n    runs-on: ubuntu-latest\n", `job scan in other.yml: reports check "isolation" under a fixed name, so a skipped run of it passes the required check; only job isolation in f.yml may report it [a skipped run hides a red isolation]`},
+		{"id without name", "jobs:\n  isolation:\n    runs-on: ubuntu-latest\n", `job isolation in other.yml: reports check "isolation" under a fixed name, so a skipped run of it passes the required check; only job isolation in f.yml may report it [a skipped run hides a red isolation]`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wf := writeTemp(t, checksWorkflow)
+			if err := os.WriteFile(filepath.Join(filepath.Dir(wf), "other.yml"), []byte(c.other), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			problems, _, err := check(wf, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch {
+			case c.want == "" && len(problems) != 0:
+				t.Fatalf("want no problem, got %q", problems)
+			case c.want != "" && (len(problems) != 1 || problems[0] != c.want):
+				t.Fatalf("want [%q], got %q", c.want, problems)
+			}
+		})
+	}
+	t.Run("second job in the same workflow", func(t *testing.T) {
+		wf := writeTemp(t, checksWorkflow+"  copy:\n    name: isolation\n    runs-on: ubuntu-latest\n")
+		problems, _, err := check(wf, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `job copy in f.yml: reports check "isolation" under a fixed name, so a skipped run of it passes the required check; only job isolation in f.yml may report it [a skipped run hides a red isolation]`
+		if len(problems) != 1 || problems[0] != want {
+			t.Fatalf("want [%q], got %q", want, problems)
+		}
+	})
 }
