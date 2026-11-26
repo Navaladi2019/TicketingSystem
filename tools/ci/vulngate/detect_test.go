@@ -222,6 +222,9 @@ func TestDetect(t *testing.T) {
 		// matched no row.
 		{"non-ASCII path under tools/ci/cisteps/", create("tools/ci/cisteps/é_test.go", "package main\n"), both},
 		{"go.work under a non-ASCII directory", add("dé/go.work"), both},
+		// Row 4 through the FROM diff ($golang), not only $files (Principal
+		// Software Engineer's review of PR #912).
+		{"root Dockerfilé with FROM golang:", create("Dockerfilé", "FROM golang:1.26\n"), both},
 		{"ci.yml only", appendTo(".github/workflows/ci.yml"), none},
 		{"both go.sum", func(r *repo) { appendTo("go.sum")(r); appendTo("temporal-server/go.sum")(r) }, both},
 	} {
