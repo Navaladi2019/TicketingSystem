@@ -48,7 +48,8 @@ func probe(ctx workflow.Context, name string) (json.RawMessage, error) {
 
 type probeOpts struct {
 	id        string        // workflow id; the job's when empty
-	tenantCtx *uuid.UUID    // a verified tenant put on every activity context, with no guard
+	tenantCtx *uuid.UUID    // the verified tenant on every activity context (no guard here); the job's when nil
+	noTenant  bool          // no verified tenant at all
 	log       *bytes.Buffer // the activities' log
 	slowAfter time.Duration // the barrier's slow threshold
 	acts      func(*schemabackfill.Activities)
@@ -65,9 +66,15 @@ func runActivity(t *testing.T, e itEnv, j schemabackfill.Job, name string, o pro
 		id = schemabackfill.WorkflowID(j)
 	}
 	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: id})
+	// The probe runs without the worker guard, so it puts on each activity
+	// context the tenant the guard would have verified: the job's.
 	wo := worker.Options{}
+	tenant := j.Tenant
 	if o.tenantCtx != nil {
-		wo.BackgroundActivityContext = workerguard.ContextWithTenant(context.Background(), *o.tenantCtx)
+		tenant = *o.tenantCtx
+	}
+	if !o.noTenant {
+		wo.BackgroundActivityContext = workerguard.ContextWithTenant(context.Background(), tenant)
 	}
 	env.SetWorkerOptions(wo)
 	env.SetTestTimeout(time.Minute)
@@ -238,8 +245,9 @@ func TestEndIsIdempotent(t *testing.T) {
 
 // D2, the activity guard: every activity reads the job from its workflow id
 // only, and refuses with a non-retryable ErrTypeNoJob an id that is not a
-// job's, a job with no row under RLS, and a verified tenant that is not the
-// id's (another tenant's context reaching this job's activity).
+// job's, a job with no row under RLS, a verified tenant that is not the id's
+// (another tenant's context reaching this job's activity), and no verified
+// tenant at all (a missing nava-tenant header is refused, not trusted).
 func TestActivitiesRefuseAWorkflowThatIsNotTheJob(t *testing.T) {
 	e := migrated(t)
 	f, j := jobAt(t, e, "pending")
@@ -252,6 +260,9 @@ func TestActivitiesRefuseAWorkflowThatIsNotTheJob(t *testing.T) {
 			other := uuid.New()
 			if _, err := runActivity(t, e, j, name, probeOpts{tenantCtx: &other}); !noJob(err) {
 				t.Errorf("another verified tenant: %v, want non-retryable ErrTypeNoJob", err)
+			}
+			if _, err := runActivity(t, e, j, name, probeOpts{noTenant: true}); !noJob(err) {
+				t.Errorf("no verified tenant: %v, want non-retryable ErrTypeNoJob", err)
 			}
 		})
 	}
