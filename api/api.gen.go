@@ -790,6 +790,20 @@ type RepublishLinkedReportResultsStatus string
 // RepublishLinkedRequest `{version}`, a published version of the format. Kept as the request bytes (`json.RawMessage`); the server checks it after the admin check.
 type RepublishLinkedRequest = json.RawMessage
 
+// SetTenantLimitsRequest defines model for SetTenantLimitsRequest.
+type SetTenantLimitsRequest struct {
+	// FilterableFieldsPerType The most filterable fields one entity type of the tenant may flag.
+	FilterableFieldsPerType int `json:"filterable_fields_per_type"`
+
+	// Reason Why the limit changes (for example, the measured cost check). Recorded in the audit entry.
+	Reason string `json:"reason"`
+}
+
+// TenantLimits defines model for TenantLimits.
+type TenantLimits struct {
+	FilterableFieldsPerType int `json:"filterable_fields_per_type"`
+}
+
 // TenantTimeZone defines model for TenantTimeZone.
 type TenantTimeZone struct {
 	// TimeZone An IANA time zone name.
@@ -951,6 +965,11 @@ type OnboardTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// SetTenantLimitsParams defines parameters for SetTenantLimits.
+type SetTenantLimitsParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ListRecordsParams defines parameters for ListRecords.
 type ListRecordsParams struct {
 	Sort   *string `form:"sort,omitempty" json:"sort,omitempty"`
@@ -1006,6 +1025,9 @@ type RepublishLinkedTypesJSONRequestBody = RepublishLinkedRequest
 
 // OnboardTenantJSONRequestBody defines body for OnboardTenant for application/json ContentType.
 type OnboardTenantJSONRequestBody = OnboardTenantRequest
+
+// SetTenantLimitsJSONRequestBody defines body for SetTenantLimits for application/json ContentType.
+type SetTenantLimitsJSONRequestBody = SetTenantLimitsRequest
 
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody = CreateRecordRequest
@@ -1075,6 +1097,9 @@ type ServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(w http.ResponseWriter, r *http.Request, params OnboardTenantParams)
+	// SetTenantLimits Set a tenant's limits (operator token only)
+	// (PUT /api/v1/operator/tenants/{tenant}/limits)
+	SetTenantLimits(w http.ResponseWriter, r *http.Request, tenant openapi_types.UUID, params SetTenantLimitsParams)
 	// ListRecords List the records of an entity type the caller may read
 	// (GET /api/v1/records/{entity})
 	ListRecords(w http.ResponseWriter, r *http.Request, entity Entity, params ListRecordsParams)
@@ -2121,6 +2146,60 @@ func (siw *ServerInterfaceWrapper) OnboardTenant(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// SetTenantLimits operation middleware
+func (siw *ServerInterfaceWrapper) SetTenantLimits(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenant" -------------
+	var tenant openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenant", r.PathValue("tenant"), &tenant, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenant", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetTenantLimitsParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetTenantLimits(w, r, tenant, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRecords operation middleware
 func (siw *ServerInterfaceWrapper) ListRecords(w http.ResponseWriter, r *http.Request) {
 
@@ -2685,6 +2764,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/operator/tenants", wrapper.OnboardTenant)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/operator/tenants/{tenant}/limits", wrapper.SetTenantLimits)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types", wrapper.ListEntityTypes)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types", wrapper.CreateEntityType)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
@@ -5107,6 +5187,130 @@ func (response OnboardTenant501ApplicationProblemPlusJSONResponse) VisitOnboardT
 	return err
 }
 
+type SetTenantLimitsRequestObject struct {
+	Tenant openapi_types.UUID `json:"tenant"`
+	Params SetTenantLimitsParams
+	Body   *SetTenantLimitsJSONRequestBody
+}
+
+type SetTenantLimitsResponseObject interface {
+	VisitSetTenantLimitsResponse(w http.ResponseWriter) error
+}
+
+type SetTenantLimits200JSONResponse TenantLimits
+
+func (response SetTenantLimits200JSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SetTenantLimits400ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits401ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits401ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits403ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits403ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits404ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits404ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits429ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits429ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits500ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits500ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTenantLimits501ApplicationProblemPlusJSONResponse Problem
+
+func (response SetTenantLimits501ApplicationProblemPlusJSONResponse) VisitSetTenantLimitsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListRecordsRequestObject struct {
 	Entity Entity `json:"entity"`
 	Params ListRecordsParams
@@ -6411,6 +6615,9 @@ type StrictServerInterface interface {
 	// OnboardTenant Onboard a tenant (operator token only)
 	// (POST /api/v1/operator/tenants)
 	OnboardTenant(ctx context.Context, request OnboardTenantRequestObject) (OnboardTenantResponseObject, error)
+	// SetTenantLimits Set a tenant's limits (operator token only)
+	// (PUT /api/v1/operator/tenants/{tenant}/limits)
+	SetTenantLimits(ctx context.Context, request SetTenantLimitsRequestObject) (SetTenantLimitsResponseObject, error)
 	// ListRecords List the records of an entity type the caller may read
 	// (GET /api/v1/records/{entity})
 	ListRecords(ctx context.Context, request ListRecordsRequestObject) (ListRecordsResponseObject, error)
@@ -6993,6 +7200,40 @@ func (sh *strictHandler) OnboardTenant(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OnboardTenantResponseObject); ok {
 		if err := validResponse.VisitOnboardTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetTenantLimits operation middleware
+func (sh *strictHandler) SetTenantLimits(w http.ResponseWriter, r *http.Request, tenant openapi_types.UUID, params SetTenantLimitsParams) {
+	var request SetTenantLimitsRequestObject
+
+	request.Tenant = tenant
+	request.Params = params
+
+	var body SetTenantLimitsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetTenantLimits(ctx, request.(SetTenantLimitsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetTenantLimits")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetTenantLimitsResponseObject); ok {
+		if err := validResponse.VisitSetTenantLimitsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

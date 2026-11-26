@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, limitsPool: opts.limitsPool, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -253,6 +253,9 @@ type handlers struct {
 	reg       *problem.Registry
 	log       *slog.Logger
 	onboarder Onboarder
+	// limitsPool (nava_app) serves the operator's tenant limits route
+	// (WithOperatorLimits); nil answers 501.
+	limitsPool *pgxpool.Pool
 	// paths is read by GetMe only (ADR-002).
 	paths identity.GroupPathReader
 	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers

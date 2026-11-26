@@ -1,0 +1,33 @@
+meta {
+  name: S4.16 Negative: a tenant admin sets its own limit
+  type: http
+  seq: 16
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: {{onb_key}}-limits-admin
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 10,
+    "reason": "self-service"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('forbidden', 403);
+}
+
+docs {
+  Only an operator token reaches `setTenantLimits`: a tenant admin's token is 403 and nothing is written.
+}

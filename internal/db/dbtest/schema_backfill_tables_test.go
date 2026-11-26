@@ -351,3 +351,28 @@ func TestP1001Grants(t *testing.T) {
 		t.Errorf("grants on the backfill tables:\n got %v\nwant %v", got, want)
 	}
 }
+
+// tenantLimitsMigration creates tenant_limits (TICK-751).
+const tenantLimitsMigration = "20261126100400_tenant_limits.sql"
+
+// beforeTenantLimits is m and a without tenant_limits when fsys stops before
+// tenantLimitsMigration. beforeNumberingMode calls it.
+func beforeTenantLimits(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, tenantLimitsMigration); err == nil {
+		return m, a
+	}
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		tables := maps.Clone(r.Tables)
+		delete(tables, "tenant_limits")
+		r.Tables = tables
+		gm.Roles[name] = r
+	}
+	am := *a
+	am.Audited = maps.Clone(a.Audited)
+	am.Exempt = maps.Clone(a.Exempt)
+	delete(am.Audited, "tenant_limits")
+	delete(am.Exempt, "tenant_limits")
+	return &gm, &am
+}

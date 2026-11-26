@@ -1,0 +1,33 @@
+meta {
+  name: S4.19 Negative: the limits of a tenant that does not exist
+  type: http
+  seq: 19
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/22222222-2222-4222-8222-222222222222/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-limits-unknown
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 6,
+    "reason": "unknown tenant"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  An unknown tenant is 404 and nothing is written.
+}

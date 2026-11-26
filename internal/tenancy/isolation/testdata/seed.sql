@@ -421,3 +421,11 @@ INSERT INTO schema_backfill_pending (tenant_id, entity_definition_id, target_ver
 INSERT INTO schema_backfill_failures (tenant_id, entity_definition_id, target_version, record_id, code) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000000a1', 'validation_failed'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '0a000000-0000-4000-8000-0000000000a1', 'validation_failed');
+
+-- Tenant limits (TICK-751): tenant B is raised to 8 by an operator, with the
+-- config entry its commit check requires; tenant A keeps the default (no row).
+INSERT INTO tenant_limits (tenant_id, filterable_fields_per_type, updated_by) VALUES
+    ('0b000000-0000-4000-8000-00000000000b', 8, 'seed-operator');
+INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id, actor_system, source, content_sha256) VALUES
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000016b1', 'config', 'update', 'tenant_limits',
+        '0b000000-0000-4000-8000-00000000000b', 'operator:seed-operator', 'system', sha256('{}'::bytea));
