@@ -20,8 +20,11 @@ Group sync is the only writer. A rebuild deletes the tenant's rows and
 inserts them again (TICK-1033); since TICK-1054 a run that touched units
 replaces only the rows of the touched units' subtrees, and the full rebuild
 remains for the first import and for drift. The drift check (stored and live
-closure compared as sets) runs only on a run that touched no unit, so drift
-outside the touched subtrees is repaired by the next such run. The migration's backfill,
+closure compared as sets) runs on a run that touched no unit, and (TICK-1166) on
+the first cycle that holds the tenant's lock one hour or more after the last
+committed check, unchanged, applied or touched alike. Drift outside the touched
+subtrees therefore lasts at most 1 hour plus one cycle, except while that
+tenant's sync fails. The migration's backfill,
 `org_unit_closure_rebuild_all()`, runs the same recursive statement per
 tenant: live roots, then the live children of every unit reached.
 

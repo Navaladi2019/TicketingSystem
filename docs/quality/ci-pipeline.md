@@ -12,7 +12,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `handbook-build` (`build.py` on the real `docs/handbook/src`: a broken link or reference, or a malformed `stories.yaml` / `benchmarks.yaml` row, fails; footer stamp from `GITHUB_SHA`, so no `origin/main` needed; TICK-1162), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`; in CI the `isolation` job, full runs and every pull request run with `ci:run` or `ci:full`, TICK-1003, TICK-1146) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
@@ -869,7 +869,19 @@ reported by two workflows.
 A finding fails the job. On a scheduled run on `main` the workflow's own
 `vulncheck-main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
-keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). They are
+compares the whole workflow, comment lines aside, with its checked-in copy
+`tools/ci/cisteps/govulncheck.copy.yml`, and requires `make -n` of the two
+recipes to print exactly `GOWORK=off govulncheck ./...` and
+`cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149, ADR-001-E4
+contract rule 9). It also reads make's database (`make -pn`): each rule must
+be exactly the target with that one recipe line, and `.IGNORE`, `.ONESHELL`,
+a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global `SHELL`,
+`.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
+`make -n` shows none of them, nor a `-`, `@` or `+` prefix (TICK-1149 review
+finding 1). An edit of only one of the two files fails `lint`; a
+deliberate edit of both passes and is the reviewer's to catch (RS3). Both
+scans run with `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
+`task vulncheck`. The two scans are
 deliberately not required checks of `main`: with the `paths:` filter, a
 required check would never report on most pull requests and block their
 merge. The trade-off (TICK-694): a code-only change that starts calling an

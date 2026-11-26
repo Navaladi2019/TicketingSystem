@@ -141,3 +141,38 @@ tests:
       - eval_time: 80m
         alertname: GroupsyncOrgClosureDriftRepaired
         exp_alerts: []
+  # TICK-1166: one observation per tenant per 5 minute cycle (the default), each
+  # above the 600 s bucket, for 15 minutes fires; observations at or below 600 s
+  # stay silent. The range in the rule is 2x the cycle.
+  - interval: 15s
+    input_series:
+      - series: 'groupsync_lag_seconds_count{job="nava",instance="nava-groupsync:9090"}'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+      - series: 'groupsync_lag_seconds_bucket{job="nava",instance="nava-groupsync:9090",le="600"}'
+        values: '_ 0x260'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GroupsyncTenantLagHigh
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: GroupsyncTenantLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: A tenant's group sync lag has stayed over 10 minutes for 15 minutes.
+              description: >-
+                Find the tenant in the nava-groupsync log line "group sync lag over
+                10 minutes". While a tenant's sync fails its org closure is not
+                compared with the live org tree (AR-TICK-1118-01,
+                docs/security/accepted-risks.md).
+  - interval: 15s
+    input_series:
+      - series: 'groupsync_lag_seconds_count{job="nava",instance="nava-groupsync:9090"}'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+      - series: 'groupsync_lag_seconds_bucket{job="nava",instance="nava-groupsync:9090",le="600"}'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: GroupsyncTenantLagHigh
+        exp_alerts: []
