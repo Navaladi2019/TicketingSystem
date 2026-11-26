@@ -151,6 +151,11 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <td><code>groupsync_org_closure_drift_repairs_total</code> grew in the last 15 minutes: group sync found the stored region tree different from the live one and repaired it (TICK-1124, trigger of AR-TICK-1118-01). It fires on a first repair after a restart. Accepted limits: a restart at 1 followed by another repair before any scrape sees 0 (a gap up to about 1 h) fires nothing, and a scrape gap longer than about 1 h can fire it with no repair; the WARN line, written once per repair, is the trace</td>
 <td>The nava-groupsync WARN line <code>the stored org closure differed from the live org tree and was repaired</code> names the tenant. Re-look at AR-TICK-1118-01</td>
 </tr>
+<tr>
+<td><code>GroupsyncTenantLagHigh</code> (warning)</td>
+<td><code>groupsync_lag_seconds</code> had an observation over 600 s in the last 5 minutes, for 15 minutes: some tenant's sync is failing or stuck (TICK-1166). While it fails the tenant's closure is not compared with the live tree, so the 1-hour limit of AR-TICK-1118-01 does not hold. The metric has no tenant label</td>
+<td>The nava-groupsync WARN line <code>group sync lag over 10 minutes</code> names the tenant; the error line before it says why</td>
+</tr>
 </tbody>
 </table>
 <p><code>authz_policy_ref_missing_total{entity_type}</code> (nava-worker, S32) counts workflow named-policy tests that named no policy, so denied. It has no alert and should stay at zero; a rise means a workflow names a removed or misspelt policy (ADR-010 R5). The nava-worker warning <code>authz: workflow policy reference names no policy, it denies</code> gives <code>entity_type</code>, <code>ref_entity_type</code> and <code>policy</code>, and each one has a <code>policy_ref_refused</code> audit entry (<a href="../stories/s32.html#finding-the-missing-policy-entry">S32</a>).</p>
@@ -210,7 +215,7 @@ severity = &#x27;ERROR&#x27;                   -- by level
 <p>Spans carry no client values or personal data. Logs carry no raw path, query, headers, client IP or tokens. The full list of controls and known gaps is in <a href="../../../docs/architecture/observability-notes.md">observability-notes.md</a>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../operations/sdk.html">&larr; Using the TypeScript SDK</a><a class="next" href="../operations/acl-document-limit.html">Access document size limit (NAVA_ACL_MAX_DOCUMENT_BYTES) &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ d2cc513f598a (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ bbe8631b3206 (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>
