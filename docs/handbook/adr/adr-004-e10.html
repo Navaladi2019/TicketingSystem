@@ -21,7 +21,7 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-004-E10: diff_nul_escaped joins the hash envelope</h1>
-<p>Status: <strong>PROPOSED</strong>, 2026-11-26, on TICK-1169; awaiting the Technical Architect's critique. Erratum to <a href="../adr/adr-004.html">ADR-004</a> R1, R10 and R13, and to <a href="../adr/adr-004-a1.html">ADR-004-A1</a> A1-1 as corrected by <a href="../adr/adr-004-e8.html">E8</a>. Normative text: <a href="../../../docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md">the E10 record</a>; explainer: <a href="../../../docs/adr/ADR-004-E10-explained.html">E10-explained.html</a>. Code: TICK-1170 (column, envelope member, grants, export, vectors) and PR #928 (TICK-1121, sets the flag).</p>
+<p>Status on <code>main</code>: <strong>ACCEPTED</strong> (rev 1), 2026-11-27, by the Solution Architect on TICK-1169 after the Technical Architect's critique (no blocking findings; four corrections folded in; not contested). Erratum to <a href="../adr/adr-004.html">ADR-004</a> R1, R10 and R13, and to <a href="../adr/adr-004-a1.html">ADR-004-A1</a> A1-1 as corrected by <a href="../adr/adr-004-e8.html">E8</a>. Normative text: <a href="../../../docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md">the E10 record</a>; explainer: <a href="../../../docs/adr/ADR-004-E10-explained.html">E10-explained.html</a>. Code: TICK-1170 (column, envelope member, grants, export, vectors) and PR #928 (TICK-1121, sets the flag).</p>
 <p><em>Paraphrases: "Plain words", "Decision", "Rejected options".</em></p>
 <h2 id="problem">Problem</h2>
 <p>TICK-1121 lets an admin publish a clean ticket type over a stored version that holds a NUL character, their only repair path. The audit diff is built from the old version, and PostgreSQL <code>jsonb</code> refuses NUL, so each NUL is written as the text <code>\u0000</code> first. A reader must be able to tell that this happened, and nobody may hide or fake it.</p>
@@ -30,8 +30,9 @@
 <li>New column <code>audit_log.diff_nul_escaped boolean NOT NULL DEFAULT false</code>, set when at least one NUL in the previous schema was escaped.</li>
 <li>It is an envelope member <strong>emitted only when true</strong>. Rows written before E10 are all false, so their canonical bytes and hashes are unchanged and they still verify: no cut-over, no envelope version, no re-hash. In an export line, the member absent means false, <code>true</code> is the only allowed value, and <code>false</code> or <code>null</code> is <code>malformed_line</code>. Flipping the column or stripping the member gives <code>envelope_sha256_mismatch</code>.</li>
 <li>Exposed everywhere <code>diff_truncated</code> is: the reader role (A1-1 now 31 columns), the read endpoints, JSONL (only when true; format stays v1), CSV (new column after <code>diff_truncated</code>, <code>true</code> or empty; the old header still verifies).</li>
-<li>A key collision after escaping (<code>a&lt;NUL&gt;b</code> next to a literal <code>a\u0000b</code>) is not refused: the diff becomes one root <code>replace</code> op, which carries no old content, and the publish answers 201.</li>
-<li>Ordering: no row is written with the flag true before the envelope member, sealer and verifier are on <code>main</code>.</li>
+<li>A key collision (two keys of one object whose escaped forms are equal, including two NUL keys) is not refused: the diff becomes one root <code>replace</code> op, which carries no old content, and the publish answers 201.</li>
+<li><code>audit_log_guard_update</code> is recreated with the column, so no role can change it. In CSV an empty cell means the member is omitted.</li>
+<li>Ordering is enforced: until the envelope member, sealer and verifier are on <code>main</code>, a <code>BEFORE INSERT</code> trigger refuses a row with the flag true (<code>23514</code>).</li>
 </ul>
 <h2 id="accepted-residuals">Accepted residuals</h2>
 <table>

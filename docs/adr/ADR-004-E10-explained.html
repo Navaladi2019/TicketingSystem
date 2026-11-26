@@ -23,7 +23,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 .bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
 </style></head><body><main>
 
-<span class="pill">PROPOSED · 2026-11-26</span> <span class="src">ADR-004-E10 · issue TICK-1169 · from TICK-1121 · amends ADR-004 R1, R10, R13 and A1-1 (via E8), adds CI-A19 · evidence: spike e10</span>
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-27</span> <span class="src">ADR-004-E10 · issue TICK-1169 · from TICK-1121 · amends ADR-004 R1, R10, R13 and A1-1 (via E8), adds CI-A19 · evidence: spike e10, Technical Architect collision spike · rev 1</span>
 
 <h1>Sealing the "NUL was escaped" flag into the audit hash</h1>
 
@@ -39,7 +39,7 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <tr><th>Question</th><th>Answer</th></tr>
 <tr><td>1. Adding a column to the fingerprint changes the fingerprint. How do the entries already sealed still verify?</td><td>The flag is included in the fingerprint <strong>only when it is yes</strong>. Every old entry is "no", so its fingerprint input is byte-for-byte what it was.</td></tr>
 <tr><td>2. Who can see the flag?</td><td>Everyone who can already see <code>diff_truncated</code> (the E1 flag that works the same way): the audit reader role, the audit read API, and both export formats.</td></tr>
-<tr><td>3. Two keys can become identical after rewriting (<code>a&lt;NUL&gt;b</code> and a typed <code>a\u0000b</code>). Refuse the publish?</td><td><strong>No.</strong> In that rare case the diff becomes one step: "replace the whole document with the new version". It is still a correct diff, it contains nothing from the old version, and the admin's repair goes through.</td></tr>
+<tr><td>3. Two keys of one object can become identical after rewriting: <code>a&lt;NUL&gt;b</code> next to a typed <code>a\u0000b</code>, or two keys that both hold a NUL and rewrite to the same text. Refuse the publish?</td><td><strong>No.</strong> In that rare case the diff becomes one step: "replace the whole document with the new version". It is still a correct diff, it contains nothing from the old version, and the admin's repair goes through.</td></tr>
 </table>
 
 <h2>How "only when yes" keeps old entries valid</h2>
@@ -95,7 +95,9 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <li><strong>Database (TICK-1170, Postgres &amp; Data Modeling Specialist):</strong> <code>audit_log.diff_nul_escaped boolean NOT NULL DEFAULT false</code>. A constant default means no table rewrite. Grants beside <code>diff_truncated</code>; no role may UPDATE it.</li>
 <li><strong>Hash code:</strong> one "emitted only when true" member in <code>internal/audit/chain</code>; the sealer reads the column; the verifier accepts the old and the new CSV header.</li>
 <li><strong>Publish path (PR #928):</strong> sets the flag when at least one NUL was rewritten, and uses the whole-document replace on a key collision.</li>
-<li><strong>Order matters:</strong> nothing may write the flag as "yes" before the hash code is live. Otherwise those entries would be sealed without it and fail verification forever.</li>
+<li><strong>Order matters, and the database enforces it:</strong> nothing may write the flag as "yes" before the hash code is live, or those entries would be sealed without it and fail verification forever. Until then, a database trigger refuses any new entry with the flag set to yes; the trigger is removed in the same change that teaches the hash code about the flag.</li>
+<li><strong>Two layers stop later edits:</strong> no role may update the column, and the existing audit guard trigger is extended to refuse any change to it.</li>
+<li><strong>CSV exports:</strong> an empty cell in the new column means "no" (the member is left out), <code>true</code> means yes, and anything else is rejected.</li>
 </ul>
 
 <h2>What is being accepted</h2>
@@ -112,7 +114,19 @@ figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
 <li>The diff library only copies values from the <em>new</em> version, so the old version can reach the diff only through key names. That is why the whole-document replace contains no NUL.</li>
 </ul>
 
+<h2>Review and changes made</h2>
+<p>The Technical Architect found no blocking problems and asked for four corrections, all taken in revision 1:</p>
+<ul>
+<li>A collision also happens when <em>two</em> keys holding a NUL rewrite to the same text. The draft code in PR #928 missed that case and silently dropped a key (shown by the reviewer's spike, 5 of 5 runs). The rule now defines a collision as "two keys whose rewritten forms are equal", checked against the rewritten keys.</li>
+<li>The CSV verifier reads an empty cell as "null", which the new flag rejects; the rule now says an empty cell means "no".</li>
+<li>The audit guard trigger lists the protected columns by name, so it is extended to include the flag.</li>
+<li>The landing order is enforced by a database trigger instead of relying on people merging in the right order. A trigger was chosen over a table constraint because adding the constraint would scan and lock the whole audit table.</li>
+</ul>
+
+<h2>Competitive Gate</h2>
+<p><strong>Result: N/A.</strong> An internal audit integrity fix; it changes nothing a customer compares between products.</p>
+
 <h2>Status</h2>
-<p><strong>PROPOSED</strong>, 2026-11-26. Next: the Technical Architect's critique on TICK-1169, then the Solution Architect's verdict. If refused, the fallback (flag outside the fingerprint) applies, and TICK-1170 proceeds either way.</p>
+<p><strong>ACCEPTED</strong>, 2026-11-27, by the Solution Architect after the Technical Architect's critique (not contested, no tie-break). Delivery: TICK-1170 (column, gate trigger, hash code, grants, exports, test vectors) and PR #928 (sets the flag on the repair publish).</p>
 
 </main></body></html>
