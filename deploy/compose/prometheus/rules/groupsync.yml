@@ -72,8 +72,8 @@ groups:
         # limit. Find it in the nava-groupsync log line "group sync lag over 10
         # minutes" (tenant_id) and the failure line before it.
         expr: >-
-          (sum(increase(groupsync_lag_seconds_count[5m]))
-          - sum(increase(groupsync_lag_seconds_bucket{le="600"}[5m]))) > 0
+          (sum(increase(groupsync_lag_seconds_count[10m]))
+          - sum(increase(groupsync_lag_seconds_bucket{le="600"}[10m]))) > 0
         for: 15m
         labels:
           severity: warning
