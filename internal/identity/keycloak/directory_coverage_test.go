@@ -39,6 +39,40 @@ type kcAnswer struct {
 	loc    string
 }
 
+// Keycloak's own 404 body for each route family, as literals so that a wrong
+// constant in production code fails the tests (TICK-1141).
+const (
+	kcUserNotFound  = `{"error":"User not found"}`
+	kcGroupNotFound = `{"error":"Group path does not exist"}`
+	kcGroupIDNot    = `{"error":"Could not find group by id"}`
+	kcIdPNotFound   = `{"error":"HTTP 404 Not Found"}`
+	proxyNotFound   = `<html>not found</html>`
+)
+
+// kcNotFoundBody is the body Keycloak answers with for a 404 on a path below
+// /admin/realms/nava, and {} for a path outside the four families.
+func kcNotFoundBody(path string) string {
+	switch {
+	case strings.HasPrefix(path, "/users/"):
+		return kcUserNotFound
+	case strings.HasPrefix(path, "/group-by-path/"):
+		return kcGroupNotFound
+	case strings.HasPrefix(path, "/groups/"):
+		return kcGroupIDNot
+	case strings.HasPrefix(path, "/identity-provider/instances/"):
+		return kcIdPNotFound
+	}
+	return `{}`
+}
+
+// gone is Keycloak saying that the object of path does not exist.
+func gone(path string) kcAnswer {
+	return kcAnswer{status: http.StatusNotFound, body: kcNotFoundBody(path)}
+}
+
+// proxy404 is a 404 that does not come from Keycloak.
+func proxy404() kcAnswer { return kcAnswer{status: http.StatusNotFound, body: proxyNotFound} }
+
 func ok(body string) kcAnswer { return kcAnswer{status: http.StatusOK, body: body} }
 func st(code int) kcAnswer    { return kcAnswer{status: code} }
 func (r *routeKC) count(route string) int {
@@ -87,7 +121,7 @@ func newRouteKC(t *testing.T, routes map[string]kcAnswer) (*routeKC, string) {
 		k.mu.Unlock()
 		if !found {
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, `{}`)
+			fmt.Fprint(w, kcNotFoundBody(strings.TrimPrefix(r.URL.Path, "/admin/realms/nava")))
 			return
 		}
 		if a.loc != "" {
@@ -409,7 +443,7 @@ func TestChangesSince(t *testing.T) {
 	t.Run("a user deleted during the read is left out", func(t *testing.T) {
 		t.Parallel()
 		r := full()
-		r["GET /users/u2/federated-identity"] = st(404)
+		r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
 		_, snap, digest, logs, err := vanished(t, r)
 		if err != nil {
 			t.Fatal(err)
@@ -439,8 +473,8 @@ func TestChangesSince(t *testing.T) {
 	t.Run("every user deleted leaves empty member lists", func(t *testing.T) {
 		t.Parallel()
 		r := full()
-		r["GET /users/u1/federated-identity"] = st(404)
-		r["GET /users/u2/federated-identity"] = st(404)
+		r["GET /users/u1/federated-identity"] = gone("/users/u1/federated-identity")
+		r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
 		_, snap, _, _, err := vanished(t, r)
 		if err != nil || len(snap.Users) != 0 {
 			t.Fatalf("got %+v %v", snap.Users, err)
@@ -454,7 +488,7 @@ func TestChangesSince(t *testing.T) {
 	t.Run("a user that still exists keeps the federated-identity error", func(t *testing.T) {
 		t.Parallel()
 		r := full()
-		r["GET /users/u2/federated-identity"] = st(404)
+		r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
 		r["GET /users/u2"] = ok(`{"id":"u2"}`)
 		_, _, _, _, err := vanished(t, r)
 		var se *statusError
@@ -466,7 +500,7 @@ func TestChangesSince(t *testing.T) {
 		t.Run(fmt.Sprintf("second read %d fails the tenant", code), func(t *testing.T) {
 			t.Parallel()
 			r := full()
-			r["GET /users/u2/federated-identity"] = st(404)
+			r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
 			r["GET /users/u2"] = st(code)
 			_, _, _, _, err := vanished(t, r)
 			var se *statusError
@@ -512,7 +546,7 @@ func TestChangesSince(t *testing.T) {
 	t.Run("one read of the user and a tenant id in the log", func(t *testing.T) {
 		t.Parallel()
 		r := full()
-		r["GET /users/u2/federated-identity"] = st(404)
+		r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
 		kc, _, _, logs, err := vanished(t, r)
 		if err != nil {
 			t.Fatal(err)
@@ -569,13 +603,47 @@ func TestChangesSince(t *testing.T) {
 			t.Fatalf("got %+v %v", snap, err)
 		}
 	})
-	t.Run("root path mismatch is treated as absent", func(t *testing.T) {
+	t.Run("root path mismatch fails the tenant", func(t *testing.T) {
 		t.Parallel()
-		r := full()
-		r["GET /group-by-path/t/"+tA.String()] = ok(fmt.Sprintf(`{"id":"g-x","path":%q}`, "/t/"+tB.String()))
-		snap, _, err := dir(t, r).ChangesSince(t.Context(), tA, "")
-		if err != nil || len(snap.Groups) != 0 {
-			t.Fatalf("got %+v %v", snap, err)
+		for name, body := range map[string]string{"another tenant": fmt.Sprintf(`{"id":"g-x","path":%q}`, "/t/"+tB.String()), "empty object": `{}`} {
+			r := full()
+			r["GET /group-by-path/t/"+tA.String()] = ok(body)
+			_, _, err := dir(t, r).ChangesSince(t.Context(), tA, "")
+			if err == nil || errors.Is(err, identity.ErrNotFound) || strings.Contains(err.Error(), tB.String()) {
+				t.Fatalf("%s: got %v", name, err)
+			}
+		}
+	})
+	t.Run("a proxy 404 fails the tenant and leaves nobody out", func(t *testing.T) {
+		t.Parallel()
+		root := "GET /group-by-path/t/" + tA.String()
+		for name, mod := range map[string]func(map[string]kcAnswer){
+			"both user reads": func(r map[string]kcAnswer) {
+				for _, u := range []string{"u1", "u2"} {
+					r["GET /users/"+u+"/federated-identity"] = proxy404()
+					r["GET /users/"+u] = proxy404()
+				}
+			},
+			"root group":             func(r map[string]kcAnswer) { r[root] = proxy404() },
+			"root group 200 with {}": func(r map[string]kcAnswer) { r[root] = ok(`{}`) },
+			"federated Keycloak, user proxy": func(r map[string]kcAnswer) {
+				r["GET /users/u2/federated-identity"] = gone("/users/u2/federated-identity")
+				r["GET /users/u2"] = proxy404()
+			},
+			"federated proxy, user Keycloak": func(r map[string]kcAnswer) {
+				r["GET /users/u2/federated-identity"] = proxy404()
+				r["GET /users/u2"] = gone("/users/u2")
+			},
+		} {
+			r := full()
+			mod(r)
+			_, _, _, logs, err := vanished(t, r)
+			if err == nil || errors.Is(err, identity.ErrNotFound) {
+				t.Fatalf("%s: err = %v, want a plain error", name, err)
+			}
+			if strings.Contains(logs, "users deleted while it was read were left out") {
+				t.Fatalf("%s: left a user out: %s", name, logs)
+			}
 		}
 	})
 	t.Run("a group outside the tenant subtree stops the walk", func(t *testing.T) {
