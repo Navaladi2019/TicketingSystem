@@ -21,10 +21,10 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</h1>
-<p>Status: <strong>PROPOSED, rev 1</strong>, 2026-11-26, by the Solution Architect (TICK-1140). Round 1: the Technical Architect and the Security &amp; Multi-Tenancy Reviewer asked for changes (all taken); re-check pending. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
+<p>Status: <strong>PROPOSED, rev 1</strong>, 2026-11-26, by the Solution Architect (TICK-1140). Round 1: the Technical Architect and the Security &amp; Multi-Tenancy Reviewer asked for changes (all taken); both approved the re-check. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
 <h2 id="problem">Problem</h2>
-<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it runs in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that change <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job that tests the Authorizer. E4 assumes GitHub counts the green one, so neither scan reliably blocks.</p>
+<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it runs in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that change <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job that tests the Authorizer. E4 assumed GitHub counts the green one. The shared name was removed by PR #900 (2026-11-25), and TICK-1146 showed a later run does replace a red check (PR #902), so neither scan reliably blocks until FU2.</p>
 <h2 id="decision">Decision</h2>
 <table>
 <thead>
@@ -44,7 +44,7 @@
 </tr>
 <tr>
 <td>E4-3</td>
-<td>Until FU2, the agents' rule stops a merge: each job <code>success</code>, <code>skipped</code> or missing is red.</td>
+<td>Until FU2, the agents' rule stops a merge: each job <code>success</code>, <code>skipped</code> or missing is red. Until TICK-1146's fix is merged, the reviewer reads every check run on the head commit, not the merge box.</td>
 </tr>
 <tr>
 <td>E4-4</td>
@@ -52,7 +52,7 @@
 </tr>
 <tr>
 <td>E4-5</td>
-<td>No two workflows report the same check name (TICK-1145).</td>
+<td>No two workflows report the same check name (done by TICK-1145, PR #900).</td>
 </tr>
 <tr>
 <td>E4-6</td>
@@ -63,7 +63,7 @@
 <h2 id="options-that-lost">Options that lost</h2>
 <p>Not required, as today; required with the <code>paths</code> filter kept; a scan on every pull request; a conditional job in <code>ci.yml</code>; scanning both modules on any library change; a list of required names; a copy of the <code>jobs:</code> block only; no pull request scan; no erratum.</p>
 <h2 id="accepted-risks">Accepted risks</h2>
-<p>AR-TICK-1140-01: a new flaw can stay unseen on <code>main</code> up to about 50 hours. AR-TICK-1140-02: until TICK-1145 and FU2, a red scan can be merged. AR-TICK-1140-03: a pull request can edit the gate that judges it.</p>
+<p>AR-TICK-1140-01: a new flaw can stay unseen on <code>main</code> up to about 50 hours. AR-TICK-1140-02: until FU2, a red scan can be merged (the name collision was fixed by PR #900). AR-TICK-1140-03: a pull request can edit the gate that judges it.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../adr/adr-001-e3.html">&larr; ADR-001-E3: the onboarding role reads its own tenant row</a><a class="next" href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
@@ -71,7 +71,7 @@
 <h3>ADR ADR-001-A1</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li></ul>
 <h3>ADR ADR-001-E4</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 6a8917fa7674 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ a89c19f2dc66 (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

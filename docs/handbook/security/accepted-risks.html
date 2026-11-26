@@ -1223,12 +1223,12 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
 </tr>
 <tr>
-<td>AR-TICK-1140-02 (a red vulnerability scan can be merged; the name <code>temporal-server</code> is used by two jobs)</td>
+<td>AR-TICK-1140-02 (a red vulnerability scan can be merged)</td>
 <td>🟠 Medium</td>
-<td>ADR-001-E4 E4-3, RS2 (Security, S4). The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job; E4 assumes the green one decides (CTO ruling), so a green scan could hide red Authorizer tests. A library pull request without <code>ci:run</code> or <code>ci:full</code> also merges with that job <code>skipped</code>. No case found. Bounded by: the rule that every job has conclusion <code>success</code> before a merge (<code>skipped</code> or missing is red); the push to <code>main</code> runs the <code>temporal-server</code> job when the module changed (run 45685089268 for #890), and a red one alerts on #259; the daily full run on <code>main</code>.</td>
-<td>Fix proposed (TICK-1145, FU1, FU2)</td>
+<td>ADR-001-E4 E4-3, RS2 (Security, S4). The name collision (the scan job and the required <code>ci.yml</code> job both named <code>temporal-server</code>) was fixed by PR #900 on 2026-11-25. What remains: the <code>root</code> scan is not a required check of <code>main</code>, and a library pull request without <code>ci:run</code> or <code>ci:full</code> merges with the <code>ci</code> job <code>temporal-server</code> <code>skipped</code>. No case found. Bounded by: the rule that every job has conclusion <code>success</code> before a merge (<code>skipped</code> or missing is red). Until TICK-1146's fix is merged, the reviewer reads every check run on the head commit, across all runs, not the merge box or the latest run. Any result other than <code>success</code> is red. Also the push to <code>main</code> runs the <code>temporal-server</code> job when the module changed (run 45685089268 for #890), and a red one alerts on #259; the daily full run on <code>main</code>.</td>
+<td>Fix proposed (FU1, FU2; collision fixed, PR #900)</td>
 <td>Technical Lead</td>
-<td>The collision part: TICK-1145 merged. The <code>root</code> part: FU2 done. Delete the row when both are done. A merge with either <code>temporal-server</code> job not <code>success</code>: at once</td>
+<td>FU2 done: delete the row. TICK-1146's fix merged (PR #902): drop the reading rule from "Bounded by". A merge with either <code>temporal-server</code> job not <code>success</code>: at once</td>
 <td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
 </tr>
 <tr>
@@ -1258,7 +1258,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 6a8917fa7674 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ a89c19f2dc66 (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
