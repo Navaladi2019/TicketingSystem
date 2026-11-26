@@ -145,7 +145,7 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
-      # Field index (ADR-006 D14, P7-01, TICK-741, 20261125165000): the side
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261126163000): the side
       # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
       # runs as the record writer). Publish (P7-04) creates a registry row and
       # flips its state; it never rewrites the key, the field or the type.
