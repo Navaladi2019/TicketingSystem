@@ -1,0 +1,25 @@
+meta {
+  name: S22.6 AC3: an unflagged field of the seed type: 400 field_not_filterable, never a scan
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[short_description]=anything
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/short_description');
+}
+
+docs {
+  `short_description` is not flagged in the seed template. Before S22 a seed type still scanned the JSON for it; with the scan retired it answers 400 at once.
+}

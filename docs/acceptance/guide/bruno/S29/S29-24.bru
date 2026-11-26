@@ -1,0 +1,25 @@
+meta {
+  name: S29.24 AC6: tenant B's filter[priority]=3 lists none of tenant A's tickets
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=3&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_b_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('no items, total 0', () => { expect(N.json().items).to.eql([]); expect(N.json().total).to.eql(0); });
+}
+
+docs {
+  Tenant B's incidents all hold priority 1 and B's type has no default, so its window is closed: 0 matches, `total` 0, and none of tenant A's ids.
+}

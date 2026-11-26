@@ -1,0 +1,40 @@
+meta {
+  name: S29.5 AC4: a default on a field that is x-nava-unique: 422 invalid_schema
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/incident/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s29-{{s29_run}}-unique-default
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s29_def'));
+  d.schema.properties.s29_tier['x-nava-unique'] = true;
+  d.schema.properties.s29_tier.default = 'standard';
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_schema', 422);
+}
+
+docs {
+  ADR-009 D13: uniqueness checks stored values, so a unique field cannot have a default. Nothing is stored: S29.6 publishes on the same version.
+}

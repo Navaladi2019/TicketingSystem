@@ -1,0 +1,33 @@
+meta {
+  name: S22.18 AC2: the operator asks for 11: 400 validation_failed
+  type: http
+  seq: 18
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: s22-{{s22_run}}-limit-11
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 11,
+    "reason": "S22 kit: over the ceiling"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('validation_failed', 400);
+}
+
+docs {
+  ADR-006 D12 allows 5 to 10 per type. 11 is refused and nothing is written.
+}

@@ -1,0 +1,50 @@
+meta {
+  name: S29.20 AC5: backfilled like criterion 2: s29_tier stored, version +1, updated_at unchanged, one more history entry
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ids = { missing: N.v('s29_sample_missing').split(','), held: N.v('s29_sample_held').split(','), poison: [N.v('s29_poison_id')] };
+  const out = {};
+  for (const [k, list] of Object.entries(ids)) {
+    out[k] = [];
+    for (const id of list) {
+      const r = await T.read('admin_a_token', 'incident', id);
+      const h = await T.history('admin_a_token', 'incident', id);
+      out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
+                    priority: r.data && r.data.data && r.data.data.priority, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
+    }
+  }
+  bru.setVar('s29_after', JSON.stringify(out));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = JSON.parse(bru.getVar('s29_before')), a = JSON.parse(bru.getVar('s29_after'));
+  const prev = Object.fromEntries([...b.missing, ...b.held].map(r => [r.id, r]));
+  test('s29_tier standard, version + 1, same updated_at, exactly one new history entry', () => [...a.missing, ...a.held].forEach(r => {
+    expect(r.s29_tier, r.id).to.eql('standard');
+    expect(r.version, r.id).to.eql(prev[r.id].version + 1);
+    expect(r.updated_at, r.id).to.eql(prev[r.id].updated_at);
+    expect(r.history.length, r.id).to.eql(prev[r.id].history.length + 1);
+  }));
+}
+
+docs {
+  The same samples. Every sampled record lacked `s29_tier`, so every one but the poison record is rewritten this time, the 50 with a priority included.
+}

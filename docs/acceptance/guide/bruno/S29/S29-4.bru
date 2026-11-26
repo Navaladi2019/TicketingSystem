@@ -1,0 +1,34 @@
+meta {
+  name: S29.4 The incident type: priority has no default, s29_tier is optional, no backfill yet
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const b = N.json();
+  test('priority has no default; s29_tier is optional with no default', () => {
+    expect(b.schema.properties.priority).to.not.have.property('default');
+    expect(b.schema.properties.s29_tier.type).to.eql('string');
+    expect(b.schema.properties.s29_tier).to.not.have.property('default');
+    expect(b.schema.required || []).to.not.include('s29_tier');
+  });
+  test('no backfill job before the publish', () => expect(b.backfill == null).to.eql(true));
+  bru.setVar('s29_prev', String(b.version));
+  bru.setVar('s29_def', JSON.stringify({ schema: b.schema, fixed_columns: b.fixed_columns, states: b.states }));
+}
+
+docs {
+  kit.mjs setup published a version that drops `priority`'s template default and adds an optional `s29_tier` (string), so the seeded records lack both. Kept for the publishes below.
+}

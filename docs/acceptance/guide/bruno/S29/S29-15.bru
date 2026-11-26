@@ -1,0 +1,24 @@
+meta {
+  name: S29.15 AC3: an agent asks for the failures: 404
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/backfill/failures
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_found', 404);
+}
+
+docs {
+  Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10).
+}

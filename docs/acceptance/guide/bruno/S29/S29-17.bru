@@ -1,0 +1,22 @@
+meta {
+  name: S29.17 AC2: the on-update test workflow has no new run
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{temporal_ui_url}}/api/v1/namespaces/nava/workflows?query=WorkflowType%3D%27nava.interpreter%27%20AND%20WorkflowId%20STARTS_WITH%20%27t%3A00000000-0000-4000-8000-0000000000a1%3A%27
+  body: none
+  auth: none
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ex = N.json().executions || [];
+  test(`tenant A runs: ${ex.length}, the same as before the job (${bru.getVar('s29_runs_before')})`, () => expect(ex.length).to.eql(Number(bru.getVar('s29_runs_before'))));
+}
+
+docs {
+  The same listing as S29.8. About 2,000 records were rewritten; none of them started a workflow (ADR-009 D4: OpMaterialize writes no outbox row).
+}

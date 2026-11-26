@@ -5625,7 +5625,19 @@ console.log('S31B.9 total', N.json().total);""")),
     }
 
 
-FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s21, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, s31, s31_after, late]
+# S22 and S29 (TICK-754): docs/acceptance/guide/build/kits_s22_s29.py.
+import kits_s22_s29  # noqa: E402  (build.py puts this folder on sys.path)
+
+
+def s22():
+    return kits_s22_s29.s22(req, token, problem_req)
+
+
+def s29():
+    return kits_s22_s29.s29(req, token, problem_req)
+
+
+FOLDERS = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11b, s14, s14_story, s16, s15_seal, s15_kill, s15_idle, s17, s21, s22, s29, s18_api, s18_tz, s18_story, s30, x1, x2, x4, x5, x3, s28, s32, s31, s31_after, late]
 
 ENV = [
     ("core_url", "http://127.0.0.1:18080"),
@@ -5754,6 +5766,7 @@ def write(out):
     _write(os.path.join(out, "lib", "nava.js"), LIB.lstrip("\n").replace("__REGISTERED__", codes))
     _write(os.path.join(out, "lib", "s15.js"), LIB_S15)
     _write(os.path.join(out, "lib", "s21.js"), LIB_S21)
+    _write(os.path.join(out, "lib", "kit.js"), kits_s22_s29.LIB_KIT)
     _write(os.path.join(out, "environments", "local.bru"),
            "vars {\n" + "".join(f"  {k}: {v}\n" for k, v in ENV) + "}\n")
     for i, f in enumerate(folders, 1):

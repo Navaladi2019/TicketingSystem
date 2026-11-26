@@ -1,0 +1,48 @@
+meta {
+  name: S22.14 AC1, AC4: re-indexed, K07 lists the seeded, created and moved records; K08 lost the moved three
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{core_url}}/api/v1/records/s22_asset?filter[s22_code]=K07&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const ss = await T.until(async () => { const r = await T.list('admin_a_token', 's22_asset', 'filter[s22_code]=K07&limit=1'); return { status: r.status }; },
+                           s => s.status !== 422, { every: 3000, limit: 900000 });
+  const k7 = await T.all('admin_a_token', 's22_asset', 'filter[s22_code]=K07');
+  const k8 = await T.all('admin_a_token', 's22_asset', 'filter[s22_code]=K08');
+  bru.setVar('s22_after', JSON.stringify({ ss, k7: { status: k7.status, ids: k7.ids, broken: k7.broken }, k8: { status: k8.status, ids: k8.ids } }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const o = JSON.parse(bru.getVar('s22_after'));
+  const d = JSON.parse(bru.getVar('s22_during'));
+  test('ready again', () => expect(o.ss[o.ss.length - 1].status).to.eql(200));
+  test('K07: 1,006 records, including the 3 created and the 3 moved during the removal', () => {
+    expect(o.k7.status).to.eql(200);
+    expect(o.k7.ids.length).to.eql(1006);
+    [...d.creates, ...d.edits].forEach(x => expect(o.k7.ids).to.include(x.id));
+    expect(new Set(o.k7.ids).size).to.eql(o.k7.ids.length);
+    expect(o.k7.broken).to.eql([]);
+  });
+  test('K08: 997, the moved three gone', () => {
+    expect(o.k8.ids.length).to.eql(997);
+    d.edits.forEach(x => expect(o.k8.ids).to.not.include(x.id));
+  });
+}
+
+docs {
+  Waits for the new backfill, then reads every page of K07 and K08. K07: the 1,000 seeded, the 3 created and the 3 moved during the removal (1,006). K08: 997, without the moved ones. The index built after the removal is the same as a fresh one; verify.sql compares it with the JSON of every record.
+}

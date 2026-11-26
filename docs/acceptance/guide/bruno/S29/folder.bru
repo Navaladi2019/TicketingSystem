@@ -1,0 +1,8 @@
+meta {
+  name: S29 schema backfill
+  seq: 21
+}
+
+docs {
+  Story S29, TICK-915 (kit TICK-754, formerly TICK-928; docs/acceptance/S29/README.md): a tenant admin publishes a version that gives an existing field a default, and the platform writes the default into every old ticket that lacks it, in the background (ADR-009). Filters count the default at once, before the job ends (D12). Needs the stack docs/acceptance/S29/tools/run-kit.sh prepares: 2,000 tenant A incidents without `priority` (one of them breaks the schema's `maxLength`), 50 with it, tenant B incidents, and the s29_* expectations. Story users: `admin@tenant-a` publishes and reads the job and its failures, `agent@tenant-a` (Alice, service-desk: every seeded incident is in her group) filters and reads, `admin@tenant-b` checks the other tenant. AC4 (S29.5), AC5 refusal (S29.6), the on-update test workflow (S29.7, S29.8), AC1 (S29.10-S29.12), AC2 (S29.13, S29.17), AC3 (S29.14-S29.16), AC5 backfill (S29.18-S29.20), AC6 (S29.21-S29.24). Runs once per prepared stack.
+}

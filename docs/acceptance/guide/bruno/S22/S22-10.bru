@@ -1,0 +1,44 @@
+meta {
+  name: S22.10 AC1: the admin publishes s22_asset without the flag: 201
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/s22_asset/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-unflag
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s22_def'));
+  delete d.schema.properties.s22_code['x-nava-filterable'];
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  const b = N.json();
+  test('compatible, the next version', () => { expect(b.compat).to.eql('compatible'); expect(b.version).to.eql(Number(bru.getVar('s22_v_flag')) + 1); });
+  test('s22_code is no longer flagged', () => expect(b.schema.properties.s22_code['x-nava-filterable']).to.not.eql(true));
+  bru.setVar('s22_v_unflag', String(b.version));
+  bru.setVar('s22_unflagged_at', String(Date.now()));
+}
+
+docs {
+  The same schema with the flag removed. S21 answered 422 `filterable_field_removal_unavailable`; S22 accepts it (ADR-006 D11): the publish flips the field's index to `removing` and starts `FieldIndexRemove` in the same transaction.
+}

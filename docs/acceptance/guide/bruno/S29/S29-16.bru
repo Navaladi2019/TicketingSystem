@@ -1,0 +1,35 @@
+meta {
+  name: S29.16 AC3: the poison record still matches filter[priority]=3
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?filter[priority]=3&limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const T = require('./lib/kit')(N, bru);
+  const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
+  bru.setVar('s29_p3_after', JSON.stringify({ ids: all.ids, first: all.first }));
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const T = require('./lib/kit')(N, bru);
+  const o = JSON.parse(bru.getVar('s29_p3_after'));
+  test('the poison record is listed', () => expect(o.ids).to.include(N.v('s29_poison_id')));
+  test('the same records as at once (S29.11)', () => expect(T.md5(o.ids)).to.eql(N.v('s29_p3_md5')));
+}
+
+docs {
+  ADR-009 D9 and D12: a `failed_records` job keeps the window open, and its failed record matches through the failures branch. The list is also still the same set as at once (S29.11).
+}

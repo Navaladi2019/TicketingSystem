@@ -1,0 +1,41 @@
+meta {
+  name: S22.8 The admin flags s22_code: 201, then the backfill ends
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types/s22_asset/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-flag
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const d = JSON.parse(bru.getVar('s22_def'));
+  d.schema.properties.s22_code['x-nava-filterable'] = true;
+  req.setBody({ definition: d });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('compatible, the next version', () => { expect(N.json().compat).to.eql('compatible'); expect(N.json().version).to.eql(Number(bru.getVar('s22_prev')) + 1); });
+  bru.setVar('s22_v_flag', String(N.json().version));
+}
+
+docs {
+  Setup for AC1: the flag (S21's behaviour). The next request waits for the backfill of the 20,000 records.
+}

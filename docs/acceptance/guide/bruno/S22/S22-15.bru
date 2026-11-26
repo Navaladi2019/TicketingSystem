@@ -1,0 +1,53 @@
+meta {
+  name: S22.15 AC2: a new type s22_quota with 5 flagged fields: 201
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{core_url}}/api/v1/entity-types
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s22-{{s22_run}}-quota-create
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "key": "s22_quota_{{s22_run}}",
+    "name": "S22 quota",
+    "number_prefix": "SQ{{s22_run_prefix}}",
+    "definition": "set by the pre-request script"
+  }
+}
+
+script:pre-request {
+  const N = require('./lib/nava')({ bru });
+  const run = bru.getVar('s22_run');
+  bru.setVar('s22_qkey', `s22_quota_${run}`);
+  bru.setVar('s22_run_prefix', run.replace(/[^a-f]/g, '').toUpperCase().slice(0, 3).padEnd(3, 'Q'));
+  const props = { name: { type: 'string', title: 'Name' }, state: { type: 'string', enum: ['new', 'closed'], default: 'new' } };
+  for (let i = 1; i <= 6; i++) props['q' + i] = { type: 'string', title: 'Q' + i, ...(i <= 5 ? { 'x-nava-filterable': true } : {}) };
+  const definition = { schema: { type: 'object', additionalProperties: false, required: ['name', 'state'], properties: props },
+                       fixed_columns: { state: 'state' }, states: { initial: 'new', states: ['new', 'closed'], transitions: [{ from: 'new', to: 'closed' }] } };
+  bru.setVar('s22_qdef', JSON.stringify(definition));
+  req.setBody({ key: bru.getVar('s22_qkey'), name: 'S22 quota', number_prefix: 'SQ' + bru.getVar('s22_run_prefix'), definition });
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+  test('version 1, five flagged', () => {
+    expect(N.json().version).to.eql(1);
+    const p = N.json().schema.properties;
+    expect(Object.keys(p).filter(k => p[k]['x-nava-filterable'])).to.have.members(['q1', 'q2', 'q3', 'q4', 'q5']);
+  });
+}
+
+docs {
+  A type of its own (no records, so its backfills are instant), with `q1`..`q5` flagged: exactly the default per-type limit of 5 (ADR-006 D12). `q6` exists but is not flagged.
+}

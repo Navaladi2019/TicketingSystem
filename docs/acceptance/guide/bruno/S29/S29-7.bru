@@ -1,0 +1,49 @@
+meta {
+  name: S29.7 The incident type's on-update test workflow: 201
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{core_url}}/api/v1/workflow-definitions/s29_on_update_{{s29_run}}/versions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+  Idempotency-Key: s29-{{s29_run}}-wf
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "format": "nava.workflow/v1",
+    "trigger": {
+      "on": "record.updated",
+      "entity": "incident"
+    },
+    "start": "wait",
+    "steps": [
+      {
+        "key": "wait",
+        "type": "timer",
+        "duration": "PT1H",
+        "next": "done"
+      },
+      {
+        "key": "done",
+        "type": "end"
+      }
+    ]
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(201);
+}
+
+docs {
+  A workflow on `record.updated` of incidents that waits an hour. AC2: the backfill's rewrites are not updates to anyone listening: no run starts for them (ADR-009 D4, CI-2).
+}
