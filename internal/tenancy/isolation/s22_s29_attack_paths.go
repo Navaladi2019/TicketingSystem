@@ -61,13 +61,13 @@ func s22s29AttackPaths() []Path {
 		s21("CI-2", "2: a field in removing takes no new side row from any records writer (every manifest role with INSERT or UPDATE on records), so the removal's NOT EXISTS holds and the registry delete passes the FK; tenant B's removal does not stop tenant A's indexing", s22RemovingTakesNoWrites),
 		{Name: "S22 attack 2b: R3 race, writers of every records-writer role across the flip and the batched deletes of a real FieldIndexRemove leave 0 side rows and no registry row; with the barrier disabled the row can fail", Case: "CI-5", Role: "nava_worker",
 			Pending: "TICK-750", DB: s22s29NotWritten("2b needs TICK-750's FieldIndexRemove and its barrier test seam")},
-		{Name: "S22 attack 3: tenant_limits, no tenant role writes its own or another tenant's row; a tenant role reads its own row only, and nothing with no app.tenant_id; only the manifest's operator role writes, and not across tenants", Case: "CI-2", Role: "nava_app",
+		{Name: "S22 attack 3: tenant_limits, no tenant role writes its own or another tenant's row; a tenant role reads its own row only, and nothing with no tenant set; only the manifest's operator role writes, and not across tenants", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-916", DB: s22TenantLimits},
 		{Name: "S22 attack 3b: the operator's tenant_limits change writes one audit entry naming the operator and the reason; a tenant admin's attempt is 403 and writes nothing", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-916", DB: s22s29NotWritten("3b drives TICK-751's operator route, whose path TICK-916 fixes")},
 		{Name: "S22 attack 4: with the legacy scan retired, no non-test Go code outside the allow-list evaluates a JSONB operator on records.data for a filter, and DataFilterTimeout and LegacyScanFields are gone", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-752", Check: s22NoJSONBFilter},
-		{Name: "S29 attack 1: the three backfill tables, as nava_app and nava_worker in tenant A, show no tenant B row, refuse a tenant B insert, and nava_app writes nothing; with no app.tenant_id each reads zero rows; failures has no value column; tenant B's active job does not hold tenant A's admission (CI-3 (5), (6))", Case: "CI-2", Role: "nava_app",
+		{Name: "S29 attack 1: the three backfill tables, as nava_app and nava_worker in tenant A, show no tenant B row, refuse a tenant B insert, and nava_app writes nothing; with no tenant set each reads zero rows; failures has no value column; tenant B's active job does not hold tenant A's admission (CI-3 (5), (6))", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-916", DB: s29Tables},
 		{Name: "S29 attack 2: getEntityType, .../backfill/failures and a default-adding publish on tenant B's key are the unknown key's 404 for tenant A and write nothing; a plain user's failures read is the same 404; tenant A's backfill and failures show tenant A's job only under a shared key; the publish's job and outbox rows are tenant A's, with no tenant in the payload (CI-3 (7))", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-919", DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Routes) }},
@@ -382,7 +382,7 @@ func s22TenantRoles() []string { return []string{"nava_app", "nava_worker"} }
 //   - any role the manifest does let write (the operator path) reaches no
 //     tenant B row from tenant A's transaction.
 //
-// With no app.tenant_id, a tenant role reads zero rows. Tenant B's row does
+// With no tenant set, a tenant role reads zero rows. Tenant B's row does
 // not move.
 func s22TenantLimits(ctx context.Context, c Cluster) error {
 	super, err := c.Super()
@@ -483,7 +483,7 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 			// No tenant set: zero rows, not every row.
 			var n int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM tenant_limits`).Scan(&n); err != nil || n != 0 {
-				return fmt.Errorf("%s with no app.tenant_id read %d tenant_limits rows (%w), want 0", role, n, err)
+				return fmt.Errorf("%s with no tenant set read %d tenant_limits rows (%w), want 0", role, n, err)
 			}
 		}
 	}
@@ -493,9 +493,11 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 	return nil
 }
 
-// s22JSONBOnData matches a JSONB operator applied to a data column in a SQL
-// string: containment, key existence, and path or key extraction.
-var s22JSONBOnData = regexp.MustCompile(`\bdata\s*(@>|<@|->>|->|#>>|#>|\?\||\?&|\?|@\?|@@)`)
+// s22JSONBOnData matches a JSONB read of a data column in a SQL string: an
+// operator (containment, key existence, path or key extraction), also after
+// a cast (data::jsonb ->>), or a jsonb_* function taking the column as its
+// first argument (jsonb_extract_path_text(data, ...), jsonb_path_exists(...)).
+var s22JSONBOnData = regexp.MustCompile(`\bdata\s*(::\s*jsonb\s*)?(@>|<@|->>|->|#>>|#>|\?\||\?&|\?|@\?|@@)|\bjsonb_[a-z_]+\s*\(\s*([a-z_]+\.)?data\b`)
 
 // s22JSONBAllowed are the non-test files that may apply a JSONB operator to
 // records.data, none of them a filter route:
@@ -648,7 +650,7 @@ func s29Unseed(ctx context.Context, super *pgx.Conn) error {
 // naming tenant B is refused; nava_app's INSERT, UPDATE and DELETE are
 // refused (42501) even on its own rows; nava_worker's UPDATE and DELETE of
 // tenant B's rows reach none, of its own reach them (control). With no
-// app.tenant_id each reads zero rows. schema_backfill_failures has exactly
+// tenant set each reads zero rows. schema_backfill_failures has exactly
 // the C1 columns: no value column. Admission: tenant B's running job holds
 // tenant B's slot only; tenant A's job still moves to filling, and a second
 // tenant A job is then refused (23505), the index's control.
@@ -748,7 +750,7 @@ func s29Tables(ctx context.Context, c Cluster) error {
 			}
 			var n int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
-				return fmt.Errorf("%s with no app.tenant_id read %d rows of %s (%w), want 0", role, n, table, err)
+				return fmt.Errorf("%s with no tenant set read %d rows of %s (%w), want 0", role, n, table, err)
 			}
 		}
 	}

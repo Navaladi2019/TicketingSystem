@@ -28,7 +28,6 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
-	"go.temporal.io/server/common/authorization"
 )
 
 const (
@@ -150,21 +149,24 @@ func TestSchemaBackfillQueueIsNotASideDoor(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		req  *workflowservice.StartWorkflowExecutionRequest
+		// listed: the case needs schema.backfill allow-listed, or it is
+		// denied for its type (ReasonWorkflowType) before the queue is read.
+		listed bool
 	}{
 		{"interpreter on schema-backfill", &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: "t:tenantA:wf:1",
-			WorkflowType: &commonpb.WorkflowType{Name: interpreterType}, TaskQueue: schemaBackfillTQ()}},
+			WorkflowType: &commonpb.WorkflowType{Name: interpreterType}, TaskQueue: schemaBackfillTQ()}, false},
 		{"coordinator on schema-backfill", &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: coordinatorA,
-			WorkflowType: &commonpb.WorkflowType{Name: fieldIndexCoordinatorType}, TaskQueue: schemaBackfillTQ()}},
+			WorkflowType: &commonpb.WorkflowType{Name: fieldIndexCoordinatorType}, TaskQueue: schemaBackfillTQ()}, false},
 		{"backfill on audit-tq", &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: schemaBackfillA,
-			WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: tqOf("audit-tq", enumspb.TASK_QUEUE_KIND_NORMAL, "")}},
+			WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: tqOf("audit-tq", enumspb.TASK_QUEUE_KIND_NORMAL, "")}, true},
 		{"backfill on a look-alike queue", &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: schemaBackfillA,
-			WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: tqOf("schema-backfill ", enumspb.TASK_QUEUE_KIND_NORMAL, "")}},
+			WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: tqOf("schema-backfill ", enumspb.TASK_QUEUE_KIND_NORMAL, "")}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			decision, _, _ := authorizeAs(t, Relay, wf+"StartWorkflowExecution", c.req)
-			if decision == authorization.DecisionAllow {
-				t.Fatalf("relay start %s allowed, want deny", c.name)
+			if c.listed {
+				requireSchemaBackfillListed(t)
 			}
+			requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", c.req, ReasonTaskQueue)
 		})
 	}
 }
@@ -217,10 +219,8 @@ func TestRelayCannotStartRemovalDirectly(t *testing.T) {
 func TestInterpreterCannotStartRemoval(t *testing.T) {
 	child := interpreterChild(removeRunA, jsonString("tenantA"))
 	child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
-	decision, _, logs := authorizeWorker(t, respond(taskToken(t, wfA), child))
-	if decision == authorization.DecisionAllow {
-		t.Fatalf("an interpreter run started %s as a child (log %v); only the tenant's coordinator may", fieldIndexRemoveType, logs)
-	}
+	requireCommandDeny(t, denyCase{name: "interpreter starts a removal child", req: respond(taskToken(t, wfA), child),
+		reason: ReasonWorkflowType, command: "StartChildWorkflowExecution", workflowID: wfA, target: removeRunA, commandIdx: "0"})
 }
 
 // S22 P7-13 item 1: tenant A's coordinator starts its own removal child, and
