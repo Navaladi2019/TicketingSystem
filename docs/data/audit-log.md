@@ -28,7 +28,7 @@ erDiagram
         uuid subject_id
         bigint version_after "R2 key, NULLS NOT DISTINCT"
         boolean diff_truncated "E1, in the envelope"
-        boolean diff_nul_escaped "TICK-1170; envelope per E10 (TICK-1169)"
+        boolean diff_nul_escaped "E10, in the envelope only when true"
         json diff "never jsonb; <= 65,536 bytes"
         bytea diff_salt "16 bytes; NULL after erase"
         bigint seq "seal: worker only"
@@ -243,5 +243,10 @@ and the partition: `TestTICK1170DiffNULEscapedColumn` adds it to a populated
 (no rewrite) and every existing row reads false. Storage: one byte per row
 (`boolean`); no index (nothing filters on it).
 
-Whether the flag is hashed into `envelope_sha256`, and how the export carries
-it, is ADR-004-E10 (TICK-1169); TICK-1170 step 2 wires it accordingly.
+ADR-004-E10 makes it an envelope member, emitted in the canonical form only
+when true, so every row sealed before it keeps its hash. Step 1 shipped the
+column behind an INSERT gate (`audit_log_nul_escaped_gate`, 23514 on true);
+step 2 (`20261127100000_audit_log_nul_escaped_gate_drop.sql`) drops the gate in
+the same change that adds the member to `internal/audit/chain`, the sealer's
+read, the verifier, the export (JSONL member, CSV column) and the audit read
+API. The export format is documented in `docs/api/audit-export-v1.md`.

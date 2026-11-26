@@ -80,14 +80,14 @@ func seedVector(t *testing.T, e itEnv, v vectors.ChainCase) {
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, occurred_at, domain, action, subject_type,
 		subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source,
 		source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-		diff_sha256, diff_truncated, diff, diff_salt, erased_at, erasure_ref)
+		diff_sha256, diff_truncated, diff, diff_salt, erased_at, erasure_ref, diff_nul_escaped)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-		$21, $22, $23::json, $24, $25, $26)`,
+		$21, $22, $23::json, $24, $25, $26, $27)`,
 		env.TenantID, env.ID, env.OccurredAt, env.Domain, env.Action, env.SubjectType, env.SubjectID,
 		env.EntityDefinitionID, env.VersionBefore, env.VersionAfter, env.ActorPrincipalID, env.ActorSystem,
 		env.Source, env.SourceRef, env.ChangeSetID, env.CausationID, env.CausationDepth, env.RequestID,
 		env.Backfilled, hash(env.ContentSHA256), hash(env.DiffSHA256), env.DiffTruncated, v.Diff, salt,
-		erasedAt, erasureRef); err != nil {
+		erasedAt, erasureRef, env.DiffNULEscaped); err != nil {
 		t.Fatalf("seed %s: %v", v.Name, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -108,7 +108,8 @@ func TestSealGoldenVectors(t *testing.T) {
 	seedHead(t, e, tenant)
 	ctx := asTenant(tenant)
 
-	for _, arrival := range [][]int64{{1, 2, 3}, {4}, {5, 6, 7}} {
+	// Seq 8 is ADR-004-E10's entry with diff_nul_escaped true.
+	for _, arrival := range [][]int64{{1, 2, 3}, {4}, {5, 6, 7}, {8}} {
 		for _, seq := range arrival {
 			seedVector(t, e, f.Chain[seq-1])
 		}
@@ -117,8 +118,8 @@ func TestSealGoldenVectors(t *testing.T) {
 			t.Fatalf("Seal after seq %v arrived = %d, %v", arrival, n, err)
 		}
 	}
-	if len(f.Chain) != 7 {
-		t.Fatalf("the vectors have %d chain cases; this test seeds 7", len(f.Chain))
+	if len(f.Chain) != 8 {
+		t.Fatalf("the vectors have %d chain cases; this test seeds 8", len(f.Chain))
 	}
 
 	for _, v := range f.Chain {

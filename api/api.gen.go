@@ -418,6 +418,9 @@ type AuditEntry struct {
 	// Diff The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased.
 	Diff *json.RawMessage `json:"diff,omitempty"`
 
+	// DiffNulEscaped True when the previous value this diff was built from had each NUL character escaped to the text `\u0000` first, because the database cannot store NUL (ADR-004-E10). Sealed into the entry's hash.
+	DiffNulEscaped bool `json:"diff_nul_escaped"`
+
 	// DiffRedacted True when `diff` differs from the stored diff for this reader (R7).
 	DiffRedacted bool `json:"diff_redacted"`
 
