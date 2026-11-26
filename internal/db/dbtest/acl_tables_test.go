@@ -253,6 +253,7 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m, a = beforeDiffNULEscaped(fsys, m, a)
 	m = beforeFormat2Checks(fsys, m)
 	m = beforeUnderSetsCap(fsys, m)
 	m, a = beforeOrgUnits(fsys, m, a)

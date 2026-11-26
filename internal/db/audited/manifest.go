@@ -22,6 +22,11 @@ import (
 type Manifest struct {
 	Audited map[string]Table     `yaml:"audited"`
 	Exempt  map[string]Exemption `yaml:"exempt"`
+	// AbsentLogColumns are R10 columns the database does not have yet. It is
+	// never read from YAML and is empty in production; a test that migrates
+	// only up to an earlier version sets it, so MergeGrants and Check name
+	// only columns that exist (TICK-1170).
+	AbsentLogColumns []string `yaml:"-"`
 }
 
 // Table is one audited table.
@@ -58,6 +63,11 @@ func InsertColumns() []string {
 		"change_set_id", "causation_id", "causation_depth", "request_id", "content_sha256", "diff_sha256",
 		"diff_truncated", "diff_nul_escaped", "diff", "diff_salt",
 	}
+}
+
+// insertColumns is InsertColumns without AbsentLogColumns.
+func (a *Manifest) insertColumns() []string {
+	return slices.DeleteFunc(InsertColumns(), func(c string) bool { return slices.Contains(a.AbsentLogColumns, c) })
 }
 
 // SelectColumns are the columns a writer reads (R12): the commit check's
@@ -207,7 +217,7 @@ func (a *Manifest) MergeGrants(m *grants.Manifest) (*grants.Manifest, error) {
 		for p, cols := range tables[LogTable] {
 			privs[p] = slices.Clone(cols)
 		}
-		for p, cols := range map[string][]string{"INSERT": InsertColumns(), "SELECT": SelectColumns()} {
+		for p, cols := range map[string][]string{"INSERT": a.insertColumns(), "SELECT": SelectColumns()} {
 			have, listed := privs[p]
 			if listed && len(have) == 0 {
 				continue // table-level already

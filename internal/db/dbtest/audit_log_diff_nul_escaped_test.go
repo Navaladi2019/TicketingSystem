@@ -4,17 +4,54 @@ package dbtest
 
 import (
 	"context"
+	"io/fs"
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/pressly/goose/v3"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/audited"
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 // TICK-1170 (TICK-1121, ADR-004-E10 / TICK-1169): audit_log.diff_nul_escaped.
 
-// diffNULEscapedBefore is the version just before 20261126150000.
-const diffNULEscapedBefore = 20261126145959
+// diffNULEscapedMigration adds the column; diffNULEscapedBefore is the
+// version just before it.
+const (
+	diffNULEscapedMigration = "20261126150000_audit_log_diff_nul_escaped.sql"
+	diffNULEscapedBefore    = 20261126145959
+)
+
+// beforeDiffNULEscaped returns m and a without audit_log.diff_nul_escaped when
+// fsys lacks the migration that adds it: no role's grant names it and the
+// generated writer INSERT leaves it out, so a run over fsys applies a
+// manifest whose columns exist.
+func beforeDiffNULEscaped(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	if _, err := fs.Stat(fsys, diffNULEscapedMigration); err == nil {
+		return m, a
+	}
+	const column = "diff_nul_escaped"
+	gm := *m
+	gm.Roles = make(map[string]grants.Role, len(m.Roles))
+	for name, r := range m.Roles {
+		if privs, ok := r.Tables[audited.LogTable]; ok {
+			tables := maps.Clone(r.Tables)
+			p := make(map[string][]string, len(privs))
+			for priv, cols := range privs {
+				p[priv] = slices.DeleteFunc(slices.Clone(cols), func(c string) bool { return c == column })
+			}
+			tables[audited.LogTable] = p
+			r.Tables = tables
+		}
+		gm.Roles[name] = r
+	}
+	am := *a
+	am.AbsentLogColumns = append(slices.Clone(a.AbsentLogColumns), column)
+	return &gm, &am
+}
 
 // The column is added to a populated audit_log without a rewrite: the
 // partition keeps its relfilenode, existing rows read false, and the R11
