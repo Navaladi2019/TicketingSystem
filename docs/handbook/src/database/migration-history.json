@@ -1277,7 +1277,14 @@
     },
     {
       "file": "20261126150000_audit_log_diff_nul_escaped.sql",
-      "on_main": false
+      "on_main": true,
+      "commit": "5dac1859",
+      "date": "2026-11-27",
+      "pr": "936",
+      "story": "",
+      "tickets": [
+        "TICK-1170"
+      ]
     },
     {
       "file": "20261127100000_audit_log_nul_escaped_gate_drop.sql",

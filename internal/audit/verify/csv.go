@@ -105,8 +105,14 @@ func verifyCSV(r *bufio.Reader) (*Report, error) {
 			}
 			continue
 		}
-		if preE10 && len(cells) == len(CSVColumnsPreE10) {
-			// A pre-E10 row: the flag is false, so its cell is empty.
+		if preE10 {
+			// One file, one layout: under the pre-E10 column row every row
+			// has its 37 cells, and the flag is false, so its cell is empty.
+			if len(cells) != len(CSVColumnsPreE10) {
+				v.fail(nil, ReasonMalformedLine, fmt.Sprintf("row has %d cells, the pre-E10 column row has %d",
+					len(cells), len(CSVColumnsPreE10)))
+				return v.rep, nil
+			}
 			cells = slices.Insert(cells, columnIndex(nulEscapedColumn), "")
 		}
 		v.row(cells)

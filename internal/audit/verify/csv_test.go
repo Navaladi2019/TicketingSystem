@@ -297,3 +297,22 @@ func TestCSVPreE10FixturesVerify(t *testing.T) {
 		t.Fatal("no pre-E10 fixtures found")
 	}
 }
+
+// One file, one layout: a 38-column row under the pre-E10 column row is
+// malformed_line, even when the envelope hash would hold.
+func TestCSVPreE10HeaderRefusesE10Row(t *testing.T) {
+	cur, err := os.ReadFile(filepath.Join(csvDir, "unfiltered.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHeader := strings.Join(verify.CSVColumns, ",") + "\r\n"
+	oldHeader := strings.Join(verify.CSVColumnsPreE10, ",") + "\r\n"
+	if !bytes.HasPrefix(cur, []byte(newHeader)) {
+		t.Fatal("unfiltered.csv does not start with the E10 column row")
+	}
+	mixed := append([]byte(oldHeader), cur[len(newHeader):]...)
+	r := run(t, mixed)
+	if r.Failure == nil || r.Failure.Reason != verify.ReasonMalformedLine || r.Failure.Line != 2 {
+		t.Errorf("38-column row under the pre-E10 header: %s (%s), want malformed_line at line 2", r.Outcome, describe(r))
+	}
+}
