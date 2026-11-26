@@ -57,6 +57,13 @@ These are the breaks that failed tests. None of them showed up as a text conflic
 
 ## 3. Review standard: merging to `main` and to story branches
 
+- **Interim rule: last executed result (TICK-1146, in force until ADR-001-E4 lands).** Do not trust the merge button, `mergeStateStatus`, `statusCheckRollup` or `gh pr checks`: a later run whose jobs were skipped hides an earlier red one. Before approving or merging a PR into `main` or a story branch, list every check run on the head commit and read the last line per required name:
+
+  ```sh
+  gh api --paginate "repos/Navaladi2019/TicketingSystem/commits/<head sha>/check-runs?filter=all&per_page=100" -q '.check_runs|sort_by(.started_at)[]|select(.conclusion!="skipped")|"\(.started_at) \(.name) \(.conclusion)"'
+  ```
+
+  Refuse the merge when any required job's last executed (non-skipped) result is not `success`, or when a required job has no executed result on that commit and its stage was selected. Paste the output in the merge comment. Do not add any label other than `ci:run`/`ci:full` to a PR whose latest full run is red; `MergePr` is such a label. Story branches have no required checks on GitHub, so this check is the only gate there. After PR #902 merges, `isolation` is enforced by GitHub; the rule stays for every other required job.
 - A PR merges only if it is green against the current tip of its base branch. If the base moved after the last green run, merge the base in and run CI again. Approval does not carry over.
 - A PR that adds a migration uses a timestamp version (after TICK-290).
 - A PR does not hand-edit a generated file (`*.gen.go`, the bundled spec). It regenerates the file.
