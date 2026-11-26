@@ -35,6 +35,16 @@ esac
 
 const sha = "741623e0123456789abcdef0123456789abcdef0"
 
+// skipOrFail skips on a laptop without the tool but fails in CI (GitHub sets CI=true), so a
+// green unit job proves the cases ran rather than skipped.
+func skipOrFail(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatal(why + "; CI must have it")
+	}
+	t.Skip(why)
+}
+
 // run executes main-red.sh with WORKFLOW=workflow ("" leaves it unset) against the open P0
 // issues in fixture (a JSON array of {number, title}); it returns the gh calls, each as its
 // argument list.
@@ -42,10 +52,10 @@ func run(t *testing.T, workflow, fixture string) [][]string {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
-		t.Skip("no sh on PATH")
+		skipOrFail(t, "no sh on PATH")
 	}
 	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("no jq on PATH (CI has it)")
+		skipOrFail(t, "no jq on PATH")
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
