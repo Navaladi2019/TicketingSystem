@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	commandpb "go.temporal.io/api/command/v1"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
 )
@@ -74,4 +75,53 @@ func TestSchemaBackfillRunKeepsOrdinaryCommands(t *testing.T) {
 	requireCommandAllow(t, respond(jobTok, scheduleActivity(jsonString("tenantA"))))
 	requireCommandAllow(t, respond(jobTok, &commandpb.Command{CommandType: enumspb.COMMAND_TYPE_START_TIMER}))
 	requireCommandAllow(t, respond(jobTok, &commandpb.Command{CommandType: enumspb.COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION}))
+}
+
+// A child or continue-as-new with no queue runs on its parent's
+// (inheritedQueue), so the type/queue binding checks that queue too. A
+// schema.backfill task that starts a nava.interpreter child with no queue is
+// denied: the child would run on schema-backfill. The job's own
+// continue-as-new with no queue passes the queue binding (it inherits its own
+// queue); it is still denied, as start-only (ADR-009 D2, CI-3 (2)), until a
+// decision lifts that.
+func TestSchemaBackfillInheritedQueueIsBound(t *testing.T) {
+	jobTok := taskToken(t, schemaBackfillA)
+	child := interpreterChild(schemaBackfillA+":child", jsonString("tenantA"))
+	child.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandDeny(t, denyCase{name: "job starts an interpreter child with no queue", req: respond(jobTok, child),
+		reason: ReasonTaskQueue, command: "StartChildWorkflowExecution", workflowID: schemaBackfillA,
+		target: schemaBackfillA + ":child", commandIdx: "0"})
+
+	if r, d := checkCommandWorkload(&commonpb.WorkflowType{Name: interpreterType}, nil, schemaBackfillA); r != ReasonTaskQueue {
+		t.Errorf("interpreter from a job, no queue: %q %q, want %s", r, d, ReasonTaskQueue)
+	}
+	if r, d := checkTypeQueue(schemaBackfillType, inheritedQueue(schemaBackfillA)); r != "" {
+		t.Errorf("the job's own continue-as-new, no queue: queue binding %q %q, want allowed", r, d)
+	}
+	can := interpreterContinueAsNew(jsonString("tenantA"))
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = schemaBackfillType
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandDeny(t, denyCase{name: "job continues as new, no queue", req: respond(jobTok, can),
+		reason: ReasonWorkflowType, command: "ContinueAsNewWorkflowExecution", workflowID: schemaBackfillA, commandIdx: "0"})
+
+	// An interpreter's children and continue-as-new with no queue inherit
+	// nava-tq and stay allowed.
+	tok := taskToken(t, wfA)
+	plain := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
+	plain.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandAllow(t, respond(tok, plain))
+	ican := interpreterContinueAsNew(jsonString("tenantA"))
+	ican.GetContinueAsNewWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandAllow(t, respond(tok, ican))
+}
+
+// A relay start's id and type agree: a schema.backfill start must have a
+// t:<tenant>:schema.backfill: id, and no other type may have one, so the
+// queue a command inherits is always read right from the id.
+func TestSchemaBackfillIDAndTypeAgree(t *testing.T) {
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", schemaBackfillStart("t:tenantA:wf:1"), ReasonWorkflowType)
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart(schemaBackfillA, interpreterType), ReasonWorkflowType)
+	if isSchemaBackfillID("t:tenantA:schema.backfill:") || isSchemaBackfillID("schema.backfill:x:1") || !isSchemaBackfillID(schemaBackfillA) {
+		t.Error("isSchemaBackfillID misreads an id")
+	}
 }

@@ -266,11 +266,14 @@ func platformTaskQueues() map[string]struct{} { return set("nava-tq", "schema-ba
 // so schema-backfill is no side door for another type, and schema.backfill
 // never runs outside the worker that caps it (TICK-920, TICK-753 S29).
 func workflowTypeQueue(workflowType string) string {
-	if workflowType == "schema.backfill" {
+	if workflowType == schemaBackfillWorkflowType {
 		return "schema-backfill"
 	}
 	return "nava-tq"
 }
+
+// schemaBackfillWorkflowType is the one type bound to its own queue.
+const schemaBackfillWorkflowType = "schema.backfill"
 
 func platformWorkflowTypes() map[string]struct{} {
 	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run", "schema.backfill")

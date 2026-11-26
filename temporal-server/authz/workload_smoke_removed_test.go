@@ -46,10 +46,15 @@ func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
 		t.Run(wt, func(t *testing.T) {
 			// Each type on its own queue (workflowTypeQueue, TICK-920).
 			tq := &taskqueuepb.TaskQueue{Name: workflowTypeQueue(wt), Kind: enumspb.TASK_QUEUE_KIND_NORMAL}
+			// and a schema.backfill under its own id form.
+			id := "t:tenantA:wf:1"
+			if wt == schemaBackfillType {
+				id = schemaBackfillA
+			}
 			sws := &workflowservice.SignalWithStartWorkflowExecutionRequest{
-				Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
+				Namespace: Namespace, WorkflowId: id, SignalName: "event",
 				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: tq}
-			start := interpreterStart("t:tenantA:wf:1", wt)
+			start := interpreterStart(id, wt)
 			start.TaskQueue = tq
 			if inSet(childOnlyWorkflowTypes(), wt) {
 				requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", start, ReasonWorkflowType)

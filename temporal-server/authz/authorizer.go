@@ -236,6 +236,13 @@ func checkStartRequest(request any) *commandDenial {
 			reason = ReasonNoTenantPrefix
 		}
 	}
+	if reason == "" && (wt.GetName() == schemaBackfillWorkflowType) != isSchemaBackfillID(workflowID) {
+		// The id and the type agree, so a command with no queue inherits the
+		// right one (inheritedQueue): a schema.backfill start has a
+		// t:<tenant>:schema.backfill: id, and no other type has one.
+		reason, detail = ReasonWorkflowType, "workflow type "+strconv.Quote(truncate(wt.GetName(), maxLoggedName))+
+			" does not match the workflow id's schema.backfill form"
+	}
 	if reason == "" {
 		reason, detail = checkStartSchedule(cron, retry)
 	}
