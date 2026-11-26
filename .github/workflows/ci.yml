@@ -252,7 +252,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -352,7 +352,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -448,7 +448,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -496,7 +496,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: temporal-server/go.mod
           cache: false
@@ -568,7 +568,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -633,7 +633,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -690,7 +690,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -759,7 +759,7 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -995,7 +995,7 @@ jobs:
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -1116,7 +1116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -1157,8 +1157,8 @@ jobs:
     # A push to main or the daily full run (DAILY CRON, TICK-652) with any
     # failed job opens (or comments on) the P0 "main is red" issue, which
     # names the event (EVENT). A skipped job is not a failure; a cancelled run
-    # does not fire this. The govulncheck workflow has a main-red job of its
-    # own (TICK-641).
+    # does not fire this. The govulncheck workflow has its own, named
+    # vulncheck-main-red (TICK-641, TICK-1145).
     needs: [runner, changes, lint, unit, temporal-server, integration, isolation, commit-check-budget, stack, coverage, sdk]
     if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event.schedule == '41 2 * * *')
     runs-on: ubuntu-latest

@@ -120,7 +120,14 @@ there; production files never set them.
   job and commit, falling back to the newest entry), so `go vet`, `go test` and
   the temporal-server tests compile only what changed. The lint and
   temporal-server jobs also cache the golangci-lint cache and the pinned tools (`~/go/bin`, keyed on the
-  Makefile, which holds the versions).
+  Makefile, which holds the versions). The cache paths hold `~/go/pkg/mod`, so
+  no `go` command may fill it before the restore: `setup-go` v5 installed the
+  `go` line (1.27.0), the first `go` command then downloaded `toolchain`
+  (go1.27.4) into `~/go/pkg/mod`, and the restore failed on the read-only
+  files (`tar: ... Cannot open: File exists`, TICK-1142). v6 installs the
+  `toolchain` version itself and sets `GOTOOLCHAIN=local`, so a `go` command
+  that needs a newer Go fails instead of downloading it. `check-ci-steps`
+  refuses an older `setup-go` in a job that restores `~/go/pkg/mod`.
 - `make image-ci` builds the images with `docker buildx bake` and keeps the
   layers in the Actions cache (`IMAGE_CACHE=gha`), while the registry images are
   pulled alongside. The temporal-server image compiles the Temporal dependencies
@@ -843,9 +850,14 @@ input; `TestFullSuite` covers the skip exception.
 **govulncheck workflow.** govulncheck is no longer a step of the `ci`
 workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
 (the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
-`root` (`make vulncheck`) and `temporal-server`
+`vulncheck-root` (`make vulncheck`) and `vulncheck-temporal-server`
 (`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
-no Actions cache (about a minute each).
+no Actions cache (about a minute each). The job ids start with `vulncheck-`
+(TICK-1145) because GitHub knows a check by its name, not by its workflow:
+while the scan's job was also called `temporal-server`, a green scan could
+stand in for the required `ci` job of that name. `TestNoTwoWorkflowsReportTheSameCheck`
+(`tools/ci/cisteps`, part of `go test ./...` in the unit job) fails on any check name
+reported by two workflows.
 
 | Event | Runs |
 | --- | --- |
@@ -855,7 +867,7 @@ no Actions cache (about a minute each).
 | manual | always |
 
 A finding fails the job. On a scheduled run on `main` the workflow's own
-`main-red` job opens or updates the P0 "main is red" issue
+`vulncheck-main-red` job opens or updates the P0 "main is red" issue
 (`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
 keeps both steps (`tools/ci/cisteps/required-govulncheck.yaml`). They are
 deliberately not required checks of `main`: with the `paths:` filter, a
@@ -1180,7 +1192,8 @@ the local cache), with `buildx` and `contexts` linked back to `~/.docker` so the
 **Runner prerequisites** (the owner's WSL, out of scope here): Docker with the
 buildx and compose plugins, `make`, `git` 2.38 or newer (`git merge-tree --write-tree`, used by `tools/ci/storybranches` and its tests; Ubuntu 22.04 ships 2.34: `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`), `gcc` (`go test -race`), Node.js 20 or 22 with `npx` (the `s8_entity_types` stack case; GitHub-hosted runners have it preinstalled), `python3`
 (`make check-guide`), `curl`, and the runner registered with the labels
-`self-hosted` and `wsl`. Go comes from `actions/setup-go` into the runner's
+`self-hosted` and `wsl`, at version 2.327.1 or newer (`actions/setup-go` v6
+runs on Node 24). Go comes from `actions/setup-go` into the runner's
 tool cache.
 
 **Reset the `nava-ci` builder by hand** (a corrupt cache, or to measure a cold

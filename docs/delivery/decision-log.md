@@ -6,7 +6,9 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-26: PLAN-011-A4 drafted: ADR-010-A4 lands as one core-dev task PR into main after TICK-1104 and before S21; TICK-1105 and TICK-1106 are extended](decisions/2026-11-26-plan-011-a4-adr-010-a4.md)
 - [2026-11-25: TICK-1128, CI pulls OpenObserve by one digest from ECR Public, then Docker Hub; our own copy is deferred (`AR-TICK-1128-01`)](decisions/2026-11-25-tick-1128-openobserve-two-registries.md)
+- [2026-11-25: TICK-1113, group sync leaves out a user only after two 404s; a 404 that is not from Keycloak is a follow-up (`AR-TICK-1113-01`)](decisions/2026-11-25-tick-1113-group-sync-404.md)
 - [2026-11-25: S31, the probe load of one list is deferred with a trigger (`AR-S31-05`)](decisions/2026-11-25-s31-probe-load-deferred.md)
 - [2026-11-22: S31, `groupsync_org_subtree_max` has no tenant label; the tenant is named in the 8,000+ warning log line](decisions/2026-11-22-s31-subtree-metric-no-tenant-label.md)
 - [2026-11-22: S31, region-list latency inside one tenant shows the page shape (accepted, `AR-TICK-1040-01`)](decisions/2026-11-22-s31-region-list-latency-bit.md)
