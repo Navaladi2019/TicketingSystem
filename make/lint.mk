@@ -63,7 +63,7 @@ tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION)
 	$(MAKE) --no-print-directory tools-govulncheck
 
-# govulncheck alone, for the temporal-server CI job.
+# govulncheck alone, for the scan jobs of the govulncheck workflow.
 tools-govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
@@ -106,8 +106,9 @@ vulncheck:
 vulncheck-ci:
 	sh scripts/ci/vulncheck.sh
 
-# Required in CI (temporal-server job and ci-lint): zero findings, with no
-# exception or allowlist (ADR-001 A1 Decision 3).
+# Run by the govulncheck workflow (job vulncheck-temporal-server, whose result
+# the pull request's vulncheck check reports) and by ci-lint (vulncheck-ci):
+# zero findings, with no exception or allowlist (ADR-001 A1 Decision 3).
 vulncheck-temporal-server:
 	cd temporal-server && GOWORK=off govulncheck ./...
 

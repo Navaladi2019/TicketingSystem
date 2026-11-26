@@ -8,11 +8,6 @@ name: govulncheck
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - go.mod
-      - go.sum
-      - temporal-server/go.mod
-      - temporal-server/go.sum
   schedule:
     - cron: '17 3 */2 * *'
   workflow_dispatch:
@@ -25,7 +20,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  vulncheck-detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      root: ${{ steps.detect.outputs.root }}
+      temporal_server: ${{ steps.detect.outputs.temporal_server }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Which modules to scan
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git show origin/main:scripts/ci/vulncheck-detect.sh >"$RUNNER_TEMP/vulncheck-detect.sh"
+          sh "$RUNNER_TEMP/vulncheck-detect.sh"
+
   vulncheck-root:
+    needs: vulncheck-detect
+    if: needs.vulncheck-detect.outputs.root == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,6 +57,8 @@ jobs:
         run: make vulncheck
 
   vulncheck-temporal-server:
+    needs: vulncheck-detect
+    if: needs.vulncheck-detect.outputs.temporal_server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -52,6 +71,25 @@ jobs:
         run: make tools-govulncheck
       - name: govulncheck (temporal-server)
         run: make vulncheck-temporal-server
+
+  vulncheck:
+    needs: [vulncheck-detect, vulncheck-root, vulncheck-temporal-server]
+    if: always()
+    name: ${{ github.base_ref == 'main' && 'vulncheck' || 'vulncheck-other' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: The pull request's result
+        env:
+          DETECT_RESULT: ${{ needs.vulncheck-detect.result }}
+          ROOT_NEEDED: ${{ needs.vulncheck-detect.outputs.root }}
+          TS_NEEDED: ${{ needs.vulncheck-detect.outputs.temporal_server }}
+          ROOT_RESULT: ${{ needs.vulncheck-root.result }}
+          TS_RESULT: ${{ needs.vulncheck-temporal-server.result }}
+        run: sh scripts/ci/vulncheck-gate.sh
 
   vulncheck-main-red:
     needs: [vulncheck-root, vulncheck-temporal-server]
