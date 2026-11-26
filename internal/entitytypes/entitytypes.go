@@ -192,7 +192,8 @@ type NewInput struct {
 }
 
 // Create inserts the entity type and its version 1 and returns the stored
-// version. It returns ErrKeyExists or ErrPrefixTaken; the key is checked
+// version. It returns ErrKeyExists, ErrPrefixTaken, or *metadata.ErrInvalidDefinition
+// when the schema holds a NUL (metadata.CheckStorable); the key is checked
 // first, so a request that clashes on both reports the key. The caller's
 // transaction is unusable after an error.
 func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewInput) (*Version, error) {
@@ -223,6 +224,10 @@ func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in New
 		return nil, err
 	}
 	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
+		return nil, err
+	}
+	// The audit entry reads the schema back as jsonb (TICK-1121).
+	if err := metadata.CheckStorable(d.Schema); err != nil {
 		return nil, err
 	}
 	sum := sha256.Sum256(d.Schema)
@@ -330,7 +335,7 @@ type PublishInput struct {
 // returns it. It runs in the caller's transaction and locks the definition
 // row, so concurrent publishes queue and number 2..N with no gap or
 // duplicate. It returns ErrNoPublisher, ErrNotFound, *metadata.ErrInvalidDefinition
-// when the definition does not compile, and *BreakingError when the change is
+// when the definition does not compile or holds a NUL, and *BreakingError when the change is
 // Breaking; nothing is written then. The caller's transaction is unusable
 // after an error.
 func (s Store) Publish(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in PublishInput) (*Version, error) {
@@ -370,6 +375,11 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 		return nil, err
 	}
 	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
+		return nil, err
+	}
+	// The audit entry reads the schema back as jsonb (TICK-1121). Compile
+	// cannot refuse a NUL: it also loads stored versions, which may hold one.
+	if err := metadata.CheckStorable(d.Schema); err != nil {
 		return nil, err
 	}
 	next, err := metadata.Compile(d)
