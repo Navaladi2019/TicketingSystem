@@ -15,7 +15,7 @@
 #      the backfill (about 8 minutes a field on the reference machine).
 #   5. tools/verify.sql: the side tables against a JSON scan, both fields.
 #   6. tools/kit.mjs report: the ADR-006-A2 checks on the evidence (total
-#      contract, short results exact, the >= 40% ACL cell's p95 and its share
+#      contract, short results exact, the >= 40% ACL cell's total_state, p95 (recorded only) and share
 #      of `unknown`, the no-filter controls) into evidence/p95.txt. While step
 #      4 runs, rfv_num's and rfv_ts's relpages / relallvisible are sampled
 #      every 10 s into evidence/visibility.txt, so the all-visible share at the
