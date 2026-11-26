@@ -1157,8 +1157,8 @@ jobs:
     # A push to main or the daily full run (DAILY CRON, TICK-652) with any
     # failed job opens (or comments on) the P0 "main is red" issue, which
     # names the event (EVENT). A skipped job is not a failure; a cancelled run
-    # does not fire this. The govulncheck workflow has a main-red job of its
-    # own (TICK-641).
+    # does not fire this. The govulncheck workflow has its own, named
+    # vulncheck-main-red (TICK-641, TICK-1145).
     needs: [runner, changes, lint, unit, temporal-server, integration, isolation, commit-check-budget, stack, coverage, sdk]
     if: failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event.schedule == '41 2 * * *')
     runs-on: ubuntu-latest

@@ -656,6 +656,25 @@ func TestGroupsyncAccountFloor(t *testing.T) {
 	checkAccountRoles(t, "service-account-nava-groupsync", []string{"manage-users", "query-groups", "query-users", "view-organizations", "view-users"})
 }
 
+// TestDeletedUserReadsAre404 pins what Keycloak answers for a user that is
+// deleted: group sync's snapshot (TICK-1113) leaves a user out only when both
+// reads answer 404. No t.Parallel: another test counts the users of tenant A.
+func TestDeletedUserReadsAre404(t *testing.T) {
+	email := "gone-" + uuid.NewString()[:8] + "@tenant-a.test"
+	uid := seedTenantUser(t, tenantA, email)
+	duringNoCycle(func() {
+		if code, b := adminRealm(t, "nava", http.MethodDelete, "/users/"+uid, nil); code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s", email, code, b)
+		}
+	})
+	tok := accountToken(t, groupsyncCreds)
+	for _, p := range []string{"/users/" + uid + "/federated-identity", "/users/" + uid} {
+		if code, b := admin(t, tok, http.MethodGet, p, nil); code != http.StatusNotFound {
+			t.Errorf("groupsync account GET %s = %d %s, want 404: the snapshot rule of TICK-1113 depends on it", p, code, b)
+		}
+	}
+}
+
 // TestKeycloakRejectsNonCanonicalOrgPaths sends non-canonical spellings of
 // /organizations routes raw, bypassing admin.do, with the real nava-groupsync
 // token (TICK-255, AR-038). admin.do refuses them before sending; this pins

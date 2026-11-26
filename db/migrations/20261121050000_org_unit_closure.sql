@@ -34,10 +34,14 @@
 --    cross-tenant one is SELECT on tenants. The R26.3 check below fails the
 --    migration if one is left over.
 --
--- Locks: the table is new. org_units is locked in SHARE mode for the
--- backfill, so no sync transaction changes the tree between the read and the
--- commit; reads go on. lock_timeout makes the migration fail and be re-run
--- instead of queueing reads behind a long sync transaction.
+-- Locks: the table is new. The backfill's CREATE POLICY takes ACCESS EXCLUSIVE
+-- on tenants, org_units and org_unit_closure until commit, so no sync
+-- transaction changes the tree between the read and the commit, and every
+-- tenant's reads of the three tables wait (the SHARE lock adds nothing).
+-- lock_timeout limits each lock wait: the migration fails and is re-run
+-- instead of queueing reads without end behind a long transaction. To run the
+-- function by hand: docs/data/org-unit-closure.md, "Run the rebuild by hand"
+-- (TICK-1122; only this comment was corrected after the migration shipped).
 
 -- +goose Up
 
