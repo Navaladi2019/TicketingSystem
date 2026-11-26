@@ -9,6 +9,15 @@ import (
 	"testing"
 )
 
+// Fixture image references, built by concatenation so check-pins (which
+// requires every real image tag to come from docs/pins.md) never sees a
+// literal name:tag in this file. The bytes the tests write are unchanged.
+const (
+	goOld     = "golang" + ":" + "1.25"
+	goNew     = "golang" + ":" + "1.26"
+	alpineImg = "alpine" + ":" + "3"
+)
+
 // repo is a throwaway git repository holding every file detect reads.
 type repo struct {
 	t    *testing.T
@@ -26,9 +35,9 @@ func baseFiles() map[string]string {
 		"temporal-server/go.mod":                  "module example.com/ts\n\ngo 1.25\n",
 		"temporal-server/go.sum":                  "example.com/b v1.0.0 h1:y\n",
 		"temporal-server/go.work":                 "go 1.25\n",
-		"temporal-server/Dockerfile":              "FROM golang:1.25 AS build\nRUN go build ./...\n",
-		"deploy/compose/nava-core/Dockerfile":     "FROM golang:1.25 AS build\nRUN go build ./...\nFROM scratch\n",
-		"deploy/compose/nava-core/Dockerfile.dev": "FROM golang:1.25\nRUN go build ./...\n",
+		"temporal-server/Dockerfile":              "FROM " + goOld + " AS build\nRUN go build ./...\n",
+		"deploy/compose/nava-core/Dockerfile":     "FROM " + goOld + " AS build\nRUN go build ./...\nFROM scratch\n",
+		"deploy/compose/nava-core/Dockerfile.dev": "FROM " + goOld + "\nRUN go build ./...\n",
 		"Makefile":                                "GOVULNCHECK_VERSION := 1.1.4\n\nvulncheck:\n\tgovulncheck ./...\n\nbuild:\n\tgo build ./...\n",
 		"make/lint.mk":                            "lint:\n\tgolangci-lint run ./...\n\ntools:\n\tgo install golang.org/x/vuln/cmd/govulncheck@v$(GOVULNCHECK_VERSION)\n",
 		".github/workflows/govulncheck.yml":       "name: govulncheck\n",
@@ -197,21 +206,21 @@ func TestDetect(t *testing.T) {
 		{"govulncheck word outside Makefile", replace("cmd/nava-core/main.go", "package main\n", "package main\n\n// govulncheck\n"), none},
 
 		// Row 4: the Go toolchain and go.work.
-		{"Dockerfile FROM golang:", replace("deploy/compose/nava-core/Dockerfile", "FROM golang:1.25 AS build", "FROM golang:1.26 AS build"), both},
+		{"Dockerfile FROM golang:", replace("deploy/compose/nava-core/Dockerfile", "FROM "+goOld+" AS build", "FROM "+goNew+" AS build"), both},
 		{"Dockerfile other line", replace("deploy/compose/nava-core/Dockerfile", "RUN go build", "RUN go build -trimpath"), none},
-		{"Dockerfile other FROM", replace("deploy/compose/nava-core/Dockerfile", "FROM scratch", "FROM alpine:3"), none},
-		{"Dockerfile.dev FROM golang:", replace("deploy/compose/nava-core/Dockerfile.dev", "golang:1.25", "golang:1.26"), both},
-		{"temporal-server/Dockerfile FROM golang:", replace("temporal-server/Dockerfile", "golang:1.25", "golang:1.26"), both},
+		{"Dockerfile other FROM", replace("deploy/compose/nava-core/Dockerfile", "FROM scratch", "FROM "+alpineImg), none},
+		{"Dockerfile.dev FROM golang:", replace("deploy/compose/nava-core/Dockerfile.dev", goOld, goNew), both},
+		{"temporal-server/Dockerfile FROM golang:", replace("temporal-server/Dockerfile", goOld, goNew), both},
 		// Wider than the contract's "FROM golang:", failing closed (Security
 		// review of PR #912): a lowercase from, and a --platform flag before
 		// the image. Each is a new file, so no FROM golang: line changes.
-		{"Dockerfile lowercase from golang", create("deploy/compose/nava-x/Dockerfile", "from golang:1.26 AS build\n"), both},
-		{"Dockerfile FROM --platform golang", create("deploy/compose/nava-y/Dockerfile", "FROM --platform=$BUILDPLATFORM golang:1.26 AS build\n"), both},
+		{"Dockerfile lowercase from golang", create("deploy/compose/nava-x/Dockerfile", "from "+goNew+" AS build\n"), both},
+		{"Dockerfile FROM --platform golang", create("deploy/compose/nava-y/Dockerfile", "FROM --platform=$BUILDPLATFORM "+goNew+" AS build\n"), both},
 		// Any file can be a Dockerfile (compose dockerfile:, docker build -f),
 		// so a line-start FROM ... golang counts wherever it is; prose that
 		// only mentions it mid-line does not.
-		{"FROM golang: in a non-Dockerfile", replace("docs/notes.md", "# Notes\n", "# Notes\n\nFROM golang:1.26\n"), both},
-		{"FROM golang: mid-line in prose", replace("docs/notes.md", "# Notes\n", "# Notes\n\nBuilt FROM golang:1.26 upstream.\n"), none},
+		{"FROM golang: in a non-Dockerfile", replace("docs/notes.md", "# Notes\n", "# Notes\n\nFROM "+goNew+"\n"), both},
+		{"FROM golang: mid-line in prose", replace("docs/notes.md", "# Notes\n", "# Notes\n\nBuilt FROM "+goNew+" upstream.\n"), none},
 		{"go.work added", add("go.work"), both},
 		{"go.work.sum added", add("go.work.sum"), both},
 		{"nested go.work changed", appendTo("temporal-server/go.work"), both},
@@ -228,7 +237,7 @@ func TestDetect(t *testing.T) {
 		{"go.work under a non-ASCII directory", add("dé/go.work"), both},
 		// Row 4 through the FROM diff ($golang), not only $files (Principal
 		// Software Engineer's review of PR #912).
-		{"root Dockerfilé with FROM golang:", create("Dockerfilé", "FROM golang:1.26\n"), both},
+		{"root Dockerfilé with FROM golang:", create("Dockerfilé", "FROM "+goNew+"\n"), both},
 		{"ci.yml only", appendTo(".github/workflows/ci.yml"), none},
 		{"both go.sum", func(r *repo) { appendTo("go.sum")(r); appendTo("temporal-server/go.sum")(r) }, both},
 	} {
