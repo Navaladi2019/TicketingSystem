@@ -1275,6 +1275,14 @@
     {
       "file": "20261126163200_field_index_sync_read_committed.sql",
       "on_main": false
+    },
+    {
+      "file": "20261126170000_entity_versions_published_by_system.sql",
+      "on_main": false
+    },
+    {
+      "file": "20261126170100_entity_versions_published_by_system_validate.sql",
+      "on_main": false
     }
   ]
 }
