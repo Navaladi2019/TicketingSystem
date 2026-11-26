@@ -16,12 +16,35 @@
 -- hash. Grants (db/grants.yaml, internal/db/audited): INSERT for every R10
 -- writer, SELECT wherever diff_truncated is readable. Whether the flag is an
 -- envelope member is TICK-1169's verdict and a later change (TICK-1170 step 2).
+--
+-- ADR-004-E10 E10-6 (ACCEPTED): until step 2 puts the member in the envelope,
+-- the sealer's read and the verifier, a row sealed with the flag true would
+-- read tampered forever. audit_log_nul_escaped_gate refuses such an INSERT
+-- with 23514; UPDATE is already refused by the guard below. Step 2's
+-- migration drops the gate. A trigger, not a CHECK: ADD CONSTRAINT CHECK
+-- scans every partition under ACCESS EXCLUSIVE; the trigger looks at new rows
+-- only.
 
 -- +goose Up
 
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE audit_log ADD COLUMN diff_nul_escaped boolean NOT NULL DEFAULT false;
+
+-- +goose StatementBegin
+CREATE FUNCTION audit_log_nul_escaped_gate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public AS $$
+BEGIN
+    IF NEW.diff_nul_escaped THEN
+        RAISE EXCEPTION 'audit_log: diff_nul_escaped = true is refused until it is an envelope member (ADR-004-E10 E10-6)'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$$;
+-- +goose StatementEnd
+CREATE TRIGGER audit_log_nul_escaped_gate BEFORE INSERT ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_nul_escaped_gate();
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION audit_log_guard_update() RETURNS trigger
@@ -61,6 +84,9 @@ $$;
 -- +goose Down
 
 SET LOCAL lock_timeout = '5s';
+
+DROP TRIGGER audit_log_nul_escaped_gate ON audit_log;
+DROP FUNCTION audit_log_nul_escaped_gate();
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION audit_log_guard_update() RETURNS trigger

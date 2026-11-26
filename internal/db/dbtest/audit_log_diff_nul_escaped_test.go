@@ -55,8 +55,8 @@ func beforeDiffNULEscaped(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (
 
 // The column is added to a populated audit_log without a rewrite: the
 // partition keeps its relfilenode, existing rows read false, and the R11
-// guard refuses any UPDATE that flips it, the superuser's included. Down
-// drops it and the rows stay.
+// guard refuses any UPDATE that flips it, the superuser's included; the
+// E10-6 gate refuses a true INSERT. Down drops it and the rows stay.
 func TestTICK1170DiffNULEscapedColumn(t *testing.T) {
 	m := freshCluster(t)
 	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
@@ -106,10 +106,15 @@ func TestTICK1170DiffNULEscapedColumn(t *testing.T) {
 	_, err = super.Exec(ctx, `UPDATE audit_log SET diff_nul_escaped = true WHERE tenant_id = $1 AND id = $2`, tenantA, id)
 	wantSQLState(t, "superuser flips diff_nul_escaped", err, "42501")
 
-	// Down and up again with rows that hold true: the drop keeps the rows.
-	exec(t, super, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+	// E10-6: until step 2 the gate refuses a true INSERT with 23514, for
+	// every role (the superuser here; the writers in
+	// TestAppendDiffNULEscapedGated).
+	_, err = super.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
 		actor_system, source, diff_nul_escaped) VALUES ($1, gen_random_uuid(), 'record', 'update', 'record',
 		gen_random_uuid(), 'system', 'system', true)`, tenantA)
+	wantSQLState(t, "superuser inserts diff_nul_escaped = true", err, "23514")
+
+	// Down and up again: the drop keeps the rows.
 	rows = queryString(t, super, total, tenantA)
 	if _, err := p.DownTo(ctx, diffNULEscapedBefore); err != nil {
 		t.Fatalf("down with rows: %v", err)

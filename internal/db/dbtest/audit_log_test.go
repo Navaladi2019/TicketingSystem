@@ -790,7 +790,7 @@ func TestP510bErasureRoleAndMigratorAssertions(t *testing.T) {
 	}
 	// The R10 and R11 triggers are on, plain INVOKER and owned by the migrator.
 	if got := queryString(t, super, `SELECT string_agg(t.tgname || ':' || t.tgenabled::text || ':' || p.prosecdef::text || ':' || pg_get_userbyid(p.proowner), ',' ORDER BY t.tgname)
-		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE t.tgrelid = 'audit_log'::regclass AND NOT t.tgisinternal`); got != "audit_log_assert_insert:O:false:nava_migrator,audit_log_guard_update:O:false:nava_migrator" {
+		FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid WHERE t.tgrelid = 'audit_log'::regclass AND NOT t.tgisinternal`); got != "audit_log_assert_insert:O:false:nava_migrator,audit_log_guard_update:O:false:nava_migrator,audit_log_nul_escaped_gate:O:false:nava_migrator" {
 		t.Errorf("audit_log triggers = %s", got)
 	}
 	// Erasure can connect to the platform database and nothing else.

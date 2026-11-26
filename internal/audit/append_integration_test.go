@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
@@ -616,32 +617,41 @@ func TestAppendEraseCap(t *testing.T) {
 	}
 }
 
-// TICK-1170: an entry written with DiffNULEscaped reads back true, through
-// nava_app's R10 INSERT grant; one written without it reads back false.
-func TestAppendDiffNULEscapedStored(t *testing.T) {
+// TICK-1170 step 1, ADR-004-E10 E10-6: an entry written with DiffNULEscaped
+// is refused with 23514 until the flag is an envelope member; one written
+// without it is stored false, through nava_app's R10 INSERT grant.
+func TestAppendDiffNULEscapedGated(t *testing.T) {
 	e := migrated(t)
 	tenant := newTenant(t, e)
-	for _, want := range []bool{true, false} {
+	for _, flag := range []bool{true, false} {
 		var id uuid.UUID
-		if err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
+		err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
 			en := Entry{
 				Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord, SubjectID: uuid.New(),
 				VersionAfter: new(int64(1)), Actor: Actor{System: new("workflow")}, Source: SourceWorkflow,
-				Diff: []byte(`[{"op":"add","path":"/a","value":"\u0000"}]`), DiffNULEscaped: want,
+				Diff: []byte(`[{"op":"add","path":"/a","value":"\u0000"}]`), DiffNULEscaped: flag,
 			}
 			var err error
 			id, err = Append(context.Background(), tx, en)
 			return err
-		}); err != nil {
-			t.Fatalf("append (escaped %v): %v", want, err)
+		})
+		if flag {
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Errorf("append with the flag true: %v, want 23514 (E10-6)", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("append with the flag false: %v", err)
 		}
 		var got bool
 		if err := e.super.QueryRow(context.Background(),
 			"SELECT diff_nul_escaped FROM audit_log WHERE id = $1", id).Scan(&got); err != nil {
 			t.Fatal(err)
 		}
-		if got != want {
-			t.Errorf("diff_nul_escaped = %v, want %v", got, want)
+		if got {
+			t.Errorf("diff_nul_escaped = true, want false")
 		}
 	}
 }
