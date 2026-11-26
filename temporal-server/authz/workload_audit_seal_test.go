@@ -30,17 +30,19 @@ func auditSealSignalWithStart(wfID, wt string) *workflowservice.SignalWithStartW
 		SignalName: "event", WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}
 }
 
-// The sets hold exactly what R18 and TICK-745 add: audit.seal and the two
-// field-index types join nava.interpreter, no new queue, and audit.seal is the
-// one start-only type.
+// The sets hold exactly what R18, TICK-745 and TICK-920 add: audit.seal, the
+// two field-index types and schema.backfill join nava.interpreter; audit.seal
+// and schema.backfill are the start-only types; and schema-backfill is the
+// one queue beside nava-tq.
 func TestAuditSealIsAllowListed(t *testing.T) {
-	if got := sortedKeys(platformWorkflowTypes()); len(got) != 4 || got[0] != auditSealType ||
-		got[1] != fieldIndexBackfillType || got[2] != fieldIndexCoordinatorType || got[3] != interpreterType {
-		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s %s %s %s]", got,
-			auditSealType, fieldIndexBackfillType, fieldIndexCoordinatorType, interpreterType)
+	if got := sortedKeys(platformWorkflowTypes()); len(got) != 5 || got[0] != auditSealType ||
+		got[1] != fieldIndexBackfillType || got[2] != fieldIndexCoordinatorType || got[3] != interpreterType ||
+		got[4] != schemaBackfillType {
+		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s %s %s %s %s]", got,
+			auditSealType, fieldIndexBackfillType, fieldIndexCoordinatorType, interpreterType, schemaBackfillType)
 	}
-	if got := sortedKeys(startOnlyWorkflowTypes()); len(got) != 1 || got[0] != auditSealType {
-		t.Fatalf("startOnlyWorkflowTypes = %v, want exactly [%s]", got, auditSealType)
+	if got := sortedKeys(startOnlyWorkflowTypes()); len(got) != 2 || got[0] != auditSealType || got[1] != schemaBackfillType {
+		t.Fatalf("startOnlyWorkflowTypes = %v, want exactly [%s %s]", got, auditSealType, schemaBackfillType)
 	}
 	// A start-only type must still be a platform type, or the relay could not
 	// start it either and the entry would silently mean nothing.
@@ -49,8 +51,8 @@ func TestAuditSealIsAllowListed(t *testing.T) {
 			t.Errorf("start-only type %q is not in platformWorkflowTypes", wt)
 		}
 	}
-	if got := sortedKeys(platformTaskQueues()); len(got) != 1 || got[0] != "nava-tq" {
-		t.Fatalf("platformTaskQueues = %v, want exactly [nava-tq]", got)
+	if got := sortedKeys(platformTaskQueues()); len(got) != 2 || got[0] != "nava-tq" || got[1] != schemaBackfillQueue {
+		t.Fatalf("platformTaskQueues = %v, want exactly [nava-tq %s]", got, schemaBackfillQueue)
 	}
 }
 

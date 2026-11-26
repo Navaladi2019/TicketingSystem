@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/outbox"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
+	"github.com/Navaladi2019/TicketingSystem/internal/schemabackfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
@@ -232,8 +234,16 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 	log := d.log.With(slog.String("tenant_id", c.TenantID.String()), slog.String("outbox_id", c.ID.String()),
 		slog.String("op", op), slog.Int("attempts", int(c.Attempts)))
 	workflowID, ok := WorkflowID(c)
-	if ok && op == opSignalWithStart {
+	switch {
+	case ok && op == opSignalWithStart:
 		workflowID = fieldindex.CoordinatorWorkflowID(c.TenantID.String())
+	case ok && c.Kind == outbox.SchemaBackfillKind:
+		var job schemabackfill.Job
+		if job, ok = schemaBackfillJob(c); !ok {
+			d.settle(ctx, log.With(slog.String("workflow_id", workflowID)), c, op, outcomeInvalidPayload, CauseInvalidPayload)
+			return
+		}
+		workflowID = schemabackfill.WorkflowID(job)
 	}
 	if !ok {
 		d.settle(ctx, log, c, op, outcomeInvalidTarget, CauseInvalidTarget)
@@ -267,7 +277,11 @@ func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time
 	switch op {
 	case opStart:
 		d.beforeStart(tctx, c)
-		_, err = d.temporal.ExecuteWorkflow(tctx, startOptions(workflowID, c.TenantID), c.Kind, delivery)
+		o := startOptions(workflowID, c.TenantID)
+		if c.Kind == outbox.SchemaBackfillKind {
+			o.TaskQueue = schemabackfill.TaskQueue
+		}
+		_, err = d.temporal.ExecuteWorkflow(tctx, o, c.Kind, delivery)
 	case opSignalWithStart:
 		d.beforeStart(tctx, c)
 		_, err = d.temporal.SignalWithStartWorkflow(tctx, workflowID, fieldindex.SignalEnqueue, item,
@@ -392,6 +406,27 @@ func enqueueItem(c Claimed) (fieldindex.EnqueueItem, bool) {
 	}
 	return fieldindex.EnqueueItem{Op: fieldindex.OpBackfill, FieldID: p.FieldID,
 		RequestedVersion: int(c.TargetSeq), OutboxID: c.ID.String()}, true
+}
+
+// schemaBackfillJob is the job a schema.backfill start row names (ADR-009
+// D2, contract C3): the row's tenant (tenant_id, written under RLS), never
+// the payload's; the entity definition from the payload, which
+// ValidateKindPayload has checked is {entity_definition_id} and nothing else
+// (so a payload carrying a tenant_id is refused); and the target version from
+// target_seq (the payload admits UUIDs only). A row that is not exactly that
+// form, or that is not a start, is not dispatched.
+func schemaBackfillJob(c Claimed) (schemabackfill.Job, bool) {
+	var p struct {
+		Definition string `json:"entity_definition_id"`
+	}
+	if !c.IsStart() || json.Unmarshal(c.Payload, &p) != nil {
+		return schemabackfill.Job{}, false
+	}
+	def, err := uuid.Parse(p.Definition)
+	if err != nil || def == uuid.Nil || def.String() != p.Definition || c.TargetSeq < 1 || c.TargetSeq > math.MaxInt32 {
+		return schemabackfill.Job{}, false
+	}
+	return schemabackfill.Job{Tenant: c.TenantID, Definition: def, Version: int(c.TargetSeq)}, true
 }
 
 // WorkflowID is the Temporal workflow id of c, t:<tenant_id>:<target_key>

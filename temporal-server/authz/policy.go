@@ -246,18 +246,27 @@ var deniedByDefault = []string{
 // per tenant, and no relay start or signal-with-start may name it, so nothing
 // runs a backfill around the coordinator's one-per-tenant rule (D10.5).
 //
+// schema.backfill is the ADR-009 schema backfill (D2, PLAN-010 P10-03,
+// TICK-920). nava-relay starts it from a schema.backfill outbox row under a
+// `t:<tenant>:schema.backfill:<entity_definition_id>:<target_version>` id,
+// on its own queue, schema-backfill, so the worker that polls that queue caps
+// how many tenants' pages run at once (D7, D-10-4). It is in
+// startOnlyWorkflowTypes: it never continues as new (R9) and no worker
+// command may start it as a child, so every job is a relay start of a row the
+// publish or the rollout migration wrote under RLS.
+//
 // The sets are built by functions, not held in package variables
 // (gochecknoglobals, TICK-610): each call returns a fresh set, so no caller can
 // widen the allow-list for another.
-func platformTaskQueues() map[string]struct{} { return set("nava-tq") }
+func platformTaskQueues() map[string]struct{} { return set("nava-tq", "schema-backfill") }
 
 func platformWorkflowTypes() map[string]struct{} {
-	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run")
+	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run", "schema.backfill")
 }
 
 // startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // relay start may name; a child or continue-as-new of one is denied.
-func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal") }
+func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal", "schema.backfill") }
 
 // childOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // worker command (a child or continue-as-new) may name; a relay start or

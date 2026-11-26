@@ -794,7 +794,7 @@ func barrierEnv(ctx context.Context, t *testing.T, acts *backfill.Activities) (*
 // newest assigned xid is the snapshot's xmax and is not in its xip, so a
 // barrier that waits on pg_snapshot_xip alone waits on nothing. The barrier
 // waits on it (the fence), and returns only after it commits. With the fence
-// removed from takeSnapshot (hi equal to lo) this test fails: the barrier
+// removed from barrier.takeSnapshot (hi equal to lo) this test fails: the barrier
 // returns at once.
 //
 // The precondition is read from the barrier's own first heartbeat, its lo

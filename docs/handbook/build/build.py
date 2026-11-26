@@ -360,6 +360,7 @@ GO_PACKAGES = {
     "interp": "internal/workflow/interp",
     "backfill": "internal/fieldindex/backfill",
     "fieldindex": "internal/fieldindex",
+    "schemabackfill": "internal/schemabackfill",
 }
 # The closed kind list: notOwnEntryPointStart's array of {kind, Enqueue* entry point}.
 GO_KIND_FILE = "internal/outbox/outbox.go"
@@ -373,6 +374,8 @@ GO_REGISTER_FUNCS = [
     ("workerguard", "func (a *Activities) Register(", "activity"),
     ("backfill", "func RegisterWorkflow(", "workflow"),
     ("backfill", "func (a *Activities) Register(", "activity"),
+    ("schemabackfill", "func (w *Workflow) Register(", "workflow"),
+    ("schemabackfill", "func (a *Activities) Register(", "activity"),
 ]
 # Workflow types that no outbox kind starts directly, with how they start
 # (TICK-745). Every other registered type must be a kind of GO_KIND_FILE. The
@@ -391,19 +394,21 @@ GO_WORKER_CALL = re.compile(r"(\(&[\w.]+\{[^{}]*\}\)|[A-Za-z_][\w.]*)\.(Register
 
 
 def worker_receiver_package(text, pos, recv):
-    """The package alias of a Register call's receiver type: (&pkg.T{...}),
+    """The package alias and type of a Register call's receiver: (&pkg.T{...}),
     or a variable declared as `name *pkg.T`, `name := &pkg.T{` or
-    `name := pkg.T{` in the enclosing function. None if it cannot tell."""
-    m = re.match(r"^\(&(\w+)\.Activities\{", recv)
+    `name := pkg.T{` in the enclosing function, T Activities or Workflow
+    (TICK-920: a workflow with settings registers through its own Register).
+    (None, None) if it cannot tell."""
+    m = re.match(r"^\(&(\w+)\.(Activities|Workflow)\{", recv)
     if m:
-        return m.group(1)
+        return m.group(1), m.group(2)
     if not re.match(r"^\w+$", recv):
-        return None
+        return None, None
     start = text.rfind("\nfunc ", 0, pos)
     scope = text[start if start >= 0 else 0:pos]
-    m = (re.search(r"\b%s\s+\*?(\w+)\.Activities\b" % re.escape(recv), scope)
-         or re.search(r"\b%s\s*:?=\s*&?(\w+)\.Activities\{" % re.escape(recv), scope))
-    return m.group(1) if m else None
+    m = (re.search(r"\b%s\s+\*?(\w+)\.(Activities|Workflow)\b" % re.escape(recv), scope)
+         or re.search(r"\b%s\s*:?=\s*&?(\w+)\.(Activities|Workflow)\{" % re.escape(recv), scope))
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 GO_REGISTER_CALL = re.compile(
@@ -503,7 +508,7 @@ class GoRegistry:
         """Every .Register(w) / RegisterWorkflow(w) call in the worker's package
         main must go through a function of GO_REGISTER_FUNCS, so a registration
         added there cannot bypass the parsed names. Returns the problems."""
-        known = {(alias, "workflow" if "RegisterWorkflow" in sig else "activity") for alias, sig, _w in GO_REGISTER_FUNCS}
+        known = {(alias, what) for alias, _sig, what in GO_REGISTER_FUNCS}
         d = os.path.join(self.root, *GO_WORKER_DIR.split("/"))
         if not os.path.isdir(d):
             return ["workflow registry: %s is not a directory" % GO_WORKER_DIR]
@@ -521,12 +526,12 @@ class GoRegistry:
                 if fn == "RegisterWorkflow":
                     key = (recv, "workflow")
                 else:
-                    pkg = worker_receiver_package(text, m.start(), recv)
+                    pkg, typ = worker_receiver_package(text, m.start(), recv)
                     if pkg is None:
                         problems.append("workflow registry: %s: cannot tell the receiver's type; register through "
                                         "a function the handbook build parses" % where)
                         continue
-                    key = (pkg, "activity")
+                    key = (pkg, "workflow" if typ == "Workflow" else "activity")
                 if key not in known:
                     problems.append("workflow registry: %s is not one of the Register functions the handbook build "
                                     "parses (GO_REGISTER_FUNCS)" % where)
