@@ -20,14 +20,16 @@ import (
 
 const etNote = `"note": {"type": "string", "description": "a <b>&amp; tag"}`
 
+type etNULCase struct{ name, note, want string }
+
 // etNULCases put a NUL escape in a description, a property name and an enum
 // value of etSchema; want is the pointer the 422 must carry.
-var etNULCases = []struct {
-	name, note, want string
-}{
-	{"description", `"note": {"type": "string", "description": "x\u0000y"}`, "/definition/schema/properties/note/description"},
-	{"property name", `"no\u0000te": {"type": "string"}`, "/definition/schema/properties/no\x00te"},
-	{"enum value", `"note": {"type": "string", "enum": ["a", "b\u0000"]}`, "/definition/schema/properties/note/enum/1"},
+func etNULCases() []etNULCase {
+	return []etNULCase{
+		{"description", `"note": {"type": "string", "description": "x\u0000y"}`, "/definition/schema/properties/note/description"},
+		{"property name", `"no\u0000te": {"type": "string"}`, "/definition/schema/properties/no\x00te"},
+		{"enum value", `"note": {"type": "string", "enum": ["a", "b\u0000"]}`, "/definition/schema/properties/note/enum/1"},
+	}
 }
 
 func etDefinitionWith(note string) string {
@@ -64,7 +66,7 @@ func TestNULInSchemaIsRefusedWithItsPointer(t *testing.T) {
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-base", etBody("incident", "INC")); rec.Code != http.StatusCreated {
 		t.Fatalf("create the base type = %d: %s", rec.Code, rec.Body)
 	}
-	for i, c := range etNULCases {
+	for i, c := range etNULCases() {
 		t.Run(c.name, func(t *testing.T) {
 			before := e.etWrites(t)
 			rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", fmt.Sprintf("k-create-%d", i), etCreateWith(fmt.Sprintf("nul_%d", i), "NUL", c.note))
@@ -113,7 +115,7 @@ func TestStoredVersionWithNULStillReads(t *testing.T) {
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-base", etBody("incident", "INC")); rec.Code != http.StatusCreated {
 		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
 	}
-	stored := strings.Replace(etSchema, etNote, etNULCases[0].note, 1)
+	stored := strings.Replace(etSchema, etNote, etNULCases()[0].note, 1)
 	sum := sha256.Sum256([]byte(stored))
 	// A row an earlier release stored: written as the superuser, triggers off.
 	for _, q := range []string{
