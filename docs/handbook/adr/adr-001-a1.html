@@ -27,7 +27,7 @@
 <h2 id="decision">Decision</h2>
 <ol>
 <li>Move the Temporal server and API pins to v1.29.7 / v1.53.0 (the SDK stays on its pin). The database schema is updated before the new binary starts.</li>
-<li>No vulnerability-gate exception: the gate must report zero findings. <a href="../adr/adr-001-e4.html">E4</a> (PROPOSED) corrects when the scan runs and what a failure blocks.</li>
+<li>No vulnerability-gate exception: the gate must report zero findings. <a href="../adr/adr-001-e4.html">E4</a> corrects when the scan runs and what a failure blocks.</li>
 <li><strong>D6-K:</strong> the server refuses to start if any of a list of dynamic-config keys breaks its rule (for example schedules, the batcher and cross-namespace commands must be off).</li>
 <li><strong>D9:</strong> a request that names a workflow type, a task queue or a workflow id is allowed only if every such field is on an allow-list. There is no deny-list. It covers relay starts and signals, worker polls (including the sticky-queue shape) and worker commands.</li>
 <li>The R7 revisit trigger is widened to any Go vulnerability advisory against the pinned server module.</li>

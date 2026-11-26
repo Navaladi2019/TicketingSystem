@@ -18,7 +18,7 @@ signs: nava (signed 2026-10-20: "I Approve")
 
 > **Status: ACCEPTED, 2026-10-20.** nava approved it on TICK-115 (comment `01a157c4`: "I Approve"), and the CTO recorded the approval in comment `01a157c5`. Implementation is planned in TICK-119 (T27d).
 
-> **Corrected by [[ADR-001-E4-a1-d3-vulnerability-scan-gate]]** (PROPOSED 2026-11-26): Decision 3's "required `ci.yml` step", "the CI gate fails" in Decision 6, and CI-A. Read E4 for when the scan runs and what a failure blocks.
+> **Corrected by [[ADR-001-E4-a1-d3-vulnerability-scan-gate]]** (ACCEPTED 2026-11-26): Decision 3's "required `ci.yml` step", "the CI gate fails" in Decision 6, and CI-A. Read E4 for when the scan runs and what a failure blocks.
 
 > **Invariants source.** The project description defines no invariants. I checked this against [[ADR-001-platform-blueprint]] §1 I1–I9. If the project is meant to have its own list of eight, these checks are incomplete against it.
 
