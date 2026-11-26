@@ -122,8 +122,9 @@ type Activities struct {
 	SlowAfter time.Duration
 
 	// afterRecord, when set, runs after each record's transaction has
-	// committed (test-only: it kills or cancels a page mid-way).
-	afterRecord func(ctx context.Context, record uuid.UUID)
+	// committed; an error fails the page, which Temporal retries (test-only:
+	// CI-11's retry after a commit).
+	afterRecord func(ctx context.Context, record uuid.UUID) error
 	// beforeAdmit, when set, runs in Admit before the pending → filling
 	// UPDATE (test-only: it lines two admissions up).
 	beforeAdmit func(ctx context.Context)
@@ -442,7 +443,9 @@ func (a *Activities) Page(ctx context.Context, in Cursor) (PageResult, error) {
 			return PageResult{}, a.fail(ctx, "page", err)
 		}
 		if a.afterRecord != nil {
-			a.afterRecord(ctx, id)
+			if err := a.afterRecord(ctx, id); err != nil {
+				return PageResult{}, err
+			}
 		}
 	}
 	last := ids[len(ids)-1]
