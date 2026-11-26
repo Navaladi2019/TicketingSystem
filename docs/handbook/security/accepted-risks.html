@@ -1160,6 +1160,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td><a href="../../../docs/adr/ADR-006-E2-count-budget-170-serial-count.md">ADR-006-E2</a></td>
 </tr>
 <tr>
+<td>AR-S21-01 (a ≥ 40% filter under a narrowing row ACL can list slower than 350 ms p95)</td>
+<td>⚪ Info</td>
+<td>S21 criterion 2 cut. That list returns the right rows, isolated, with the A2 count budget, but measured 578–983 ms p95 on one fresh stack (TICK-1022). A tenant with such a list sees a slow page. No tenant data is at risk.</td>
+<td>Accepted (deferred to S21c, TICK-1159; owner-approved 2026-11-26)</td>
+<td>Technical Lead</td>
+<td>A slow-list report from a tenant, <code>RecordsListTotalUnknown</code> firing in production, or the owner prioritising S21c</td>
+<td><a href="../../../docs/delivery/decisions/2026-11-26-s21-40pct-acl-latency-split.md">2026-11-26-s21-40pct-acl-latency-split.md</a></td>
+</tr>
+<tr>
 <td>AR-S31-02 (one tenant can stop the S31 upgrade)</td>
 <td>🟡 Low</td>
 <td>By design the upgrade stops when any tenant has a stored entity-type version with a top-level <code>org_unit_id</code>, and a tenant of the release before S31 can publish one on purpose. It can also shape the type so that the documented repair refuses it.</td>
@@ -1222,7 +1231,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 27f154c78e10 (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
