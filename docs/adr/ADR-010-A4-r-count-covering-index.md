@@ -2,8 +2,9 @@
 type: adr-amendment
 id: ADR-010-A4
 title: "Amendment A4 to ADR-010: shape R's list count reads a covering records_list_updated (INCLUDE org_unit_id), with its text unchanged"
-status: PROPOSED
+status: ACCEPTED
 date: 2026-11-26
+accepted: 2026-11-26 (Solution Architect verdict, TICK-1143, after the Technical Architect's critique and re-check, Security's APPROVE and text edits, and the CTO tie-break, comments 01a2154d and 01a21554-ca1b)
 issue: TICK-1143
 rfc: "RFC-023, rev 0 and rev 1, archived at docs/adr/ADR-010/A4/rfc/ (TICK-1143 comments 01a21460, rev 1 in reply to 01a21546)"
 supersedes: none
@@ -14,19 +15,25 @@ deciders: "Solution Architect (author); Technical Architect (round 1 CHANGES B1,
 
 # ADR-010 amendment A4: shape R's count reads a covering index
 
-> **Status: PROPOSED.** The verdict comes from the Solution Architect after this PR, under the merge policy set by vknavaladi. The CTO's tie-break (TICK-1143, comment 01a2154d) closed round 2 with five rulings, and all five are folded in below. No reviewer dissents from the index.
+> **Status: ACCEPTED** on 2026-11-26 by the Solution Architect (TICK-1143, PR #906), under the merge policy set by vknavaladi. The comprehension Goldfish ran twice before the verdict: the first run found three Blockers, the second found none. The CTO's tie-break (TICK-1143, comment 01a2154d) closed round 2 with five rulings, and all five are folded in below. No reviewer dissents from the index.
 >
 > **Invariants source.** The project description is empty, so the invariant check is incomplete. Checked against ADR-001 I1 to I9, as A2 and A3 were.
 
-**What changes:** the index the default ticket list already uses, `records_list_updated`, also stores each ticket's org unit. The region count can then be answered from the index alone, without opening the ticket rows.
+**What changes:** the index (a sorted copy of a few columns that lets the database find rows without reading the table) that the default ticket list already uses, `records_list_updated`, also stores each ticket's org unit, the box in the customer's organisation chart the ticket belongs to. The total shown above a "tickets in my region" list (the region count) can then be answered from the index alone, without opening the ticket rows.
 **Why:** where one customer holds about half of all tickets or more, the count for a small ticket type under a large part of the organisation could read every ticket of every customer. Page plus count then took 162 to 178 ms of SQL against a 150 ms list budget.
-**What you'll see when it's done:** the same tickets and the same total. The count takes about 17 to 28 ms with a warm cache and 18 to 25 ms after a restart, whatever the table's size.
+**What you'll see when it's done:** the same tickets and the same total. For a list with no other filter, the count takes about 17 to 28 ms when its data is already in memory, and 18 to 25 ms on the first request after a database restart. It no longer grows with the size of the shared table. One case gets slower until another change lands: on the first such list after a restart, the page that follows the count takes 8.8 to 11.2 s instead of today's 1.45 to 1.95 s (residual A4-R3, under Risks).
 **Codes used below:**
-- **R** is ADR-010-A3's shape that reads the ticket type's own records.
+- **ADR-010** is the access-rule decision. Its amendments A2 and A3 decide how a "region" rule (`under` a unit: the ticket's org unit is at or below one of the caller's units) becomes SQL. Rule ids such as A3-1, A3-5, A3-R2 and A2-R4 are the numbered decisions and risks of those amendments.
+- A **shape** is one of the alternative SQL texts for the region condition, each computing the same rows. **R** is A3's shape that reads the ticket type's own records and keeps those whose unit is in the caller's subtree.
+- **Tenant** is a customer; all tenants' data shares one `records` table. **A** is the tenant making the request in a test; **A's rows** are its records in that table.
+- A **branch** is one alternative of an access rule, for example `under` (region) or requester ("tickets I raised"). A **branched** count runs one SQL arm per branch, joined with `UNION ALL`. Later arms exclude earlier branches with `NOT (…)`: an R arm with such a `NOT` is **negated**, an R arm without one is **un-negated**.
+- A **plan class** is the way PostgreSQL reads `records`: Seq Scan, bitmap, index read or Index Only Scan. A **world** is a test table shape, a **cell** one measured case in it, and a **mutant** a deliberately broken build that a test must catch.
+- **CI-1 to CI-8** are the tests listed under Consequences. **D4** is this fallback, A4-4, by its name in the RFC.
 - **IOS** is an Index Only Scan, a read answered from the index without visiting the table.
 - **N̂_e** is the estimated number of records of the type, **|S|** the units in the subtree, and **m** the matching records.
-- **A2-4** is ADR-006-A2's first-page shortcut, which skips the count on a short first page. It is on the S21 branch, not yet in `main`.
-- **W1** is the Technical Architect's test table: 250,000 records of 1 KB, one tenant, N̂_e = 33,366.
+- **A2-4** is decision 4 of a different amendment, ADR-006-A2 (ADR-006 is the list-filter decision): the first-page shortcut, which skips the count on a short first page. It is on the S21 branch, not yet in `main`. Every other A2 id here (A2-R4, A2-6) belongs to ADR-010-A2.
+- **W1** and **W2** are the Technical Architect's test tables, one tenant each, N̂_e = 33,366: W1 holds 250,000 records of 1 KB, W2 800,000 empty records.
+- **AR-TICK-1040-01** is the existing accepted risk that list timing reveals three facts inside the caller's own tenant. **S21** is the story that ships A2-4. **TICK-1104** and **TICK-1105** are the shape R implementation and the region benchmark rerun.
 
 ## Decision
 
@@ -35,11 +42,11 @@ deciders: "Solution Architect (author); Technical Architect (round 1 CHANGES B1,
 | **A4-1** | **Covering index.** A new NO TRANSACTION migration:<br/>• builds `records_list_updated_v2 ON records (tenant_id, entity_definition_id, updated_at DESC, id DESC) INCLUDE (org_unit_id)` with `CREATE INDEX CONCURRENTLY`;<br/>• drops `records_list_updated` CONCURRENTLY;<br/>• renames v2 to `records_list_updated`.<br/>On a re-run it drops an INVALID v2, as `20261109140000_records_list_updated.sql` does. `org_unit_id` is a fixed column, so PLAN-003 D25 holds (no data or expression index). |
 | **A4-2** | **The count text does not change:** A3-1's, for one arm and for `UNION ALL`. It has no `ORDER BY` and no Go change. |
 | **A4-3** | **The page arm is unchanged.** Its text and its pin (`Index Scan records_list_updated`) stay. It reads every column, so it cannot be an IOS. |
-| **A4-4** | **Fallback, decided now:** if a CI pin in A4-5 shows the un-negated R count is not an IOS of `records_list_updated`, the implementation adds `ORDER BY r.updated_at DESC, r.id DESC` inside that R arm, before its own `LIMIT 1001` (RFC-023 rev 0, D2, D3 and D5). The task reports this on its issue; no new RFC is needed. **If D4 applies, the order is added only to counts with at most one R arm. A count with two or more R arms keeps A3-1's text.** Under the fallback:<br/>• a bitmap + Sort of the type's slice is a pass, and only a Sort over a Seq Scan triggers anything;<br/>• a branched count passes if it crosses no 150 ms line that it passes today, and loses no more than the unbranched count of the same world and m. |
-| **A4-5** | **Plan pins, for the CI worlds only.** In production the count may also be a heap index read or a bitmap under a filter the index does not hold, or a Seq Scan in small tables.<br/>• **R count (CI-3, CI-4, and the un-negated R arm in CI-5):** `Index Only Scan` on `records_list_updated`, filter `(hashed SubPlan n) IS TRUE`, no `Sort`, no `Gather`. Its `Index Cond` starts with `tenant_id`, and rows read, (`Actual Rows` + `Rows Removed by Filter`) × `Loops`, are at most A's rows of the type.<br/>• **A negated R arm in CI-5** (requester first, then `under`) is pinned only as no worse than today's plan class.<br/>• **CI-4 guard:** re-plan with `enable_indexonlyscan = off`. Compare only the `records` scan node's run cost (total minus startup). The runner-up must cost at least 1.3× the IOS, or the test fails as "world at a tie".<br/>• **Mutant `r_count_no_covering`** (CI-4 built with today's index): the count is a Seq Scan, and rows read are more than A's rows.<br/>• **The page pin is unchanged.** TICK-1104's class pin for the count is replaced. |
+| **A4-4** | **Fallback, decided now:** if a CI pin in A4-5 shows the un-negated R count is not an IOS of `records_list_updated`, the implementation adds `ORDER BY r.updated_at DESC, r.id DESC` inside that R arm, before its own `LIMIT 1001` (RFC-023 rev 0, D2, D3 and D5). The task reports this on its issue; no new RFC is needed. **If D4 applies, the order is added only to counts with at most one R arm. A count with two or more R arms keeps A3-1's text.** Under the fallback:<br/>• a bitmap + Sort of the type's slice is a pass, and only a Sort over a Seq Scan triggers anything;<br/>• a branched count passes when both hold: it is not over 150 ms where today's text is under it, and its slowdown against today is no larger than the slowdown of the plain one-arm count on the same table and m, beyond run-to-run noise. |
+| **A4-5** | **Plan pins, for the CI worlds only.** In production the count may also be a heap index read or a bitmap under a filter the index does not hold, or a Seq Scan in small tables.<br/>• **R count (CI-3, CI-4, and the un-negated R arm in CI-5):** `Index Only Scan` on `records_list_updated`, filter `(hashed SubPlan n) IS TRUE`, no `Sort`, no `Gather`. Its `Index Cond` starts with `tenant_id`, and rows read, (`Actual Rows` + `Rows Removed by Filter`) × `Loops`, are at most A's rows of the type.<br/>• **A negated R arm in CI-5** (requester first, then `under`) is pinned only as no worse than today's plan class: its read of `records` is the plan class that A3-1's text gets there without the covering index, or an Index Only Scan.<br/>• **CI-4 guard:** re-plan with `enable_indexonlyscan = off`. Compare only the `records` scan node's run cost (total minus startup). The runner-up must cost at least 1.3× the IOS, or the test fails as "world at a tie".<br/>• **Mutant `r_count_no_covering`** (CI-4 built with today's index): the count is a Seq Scan, and rows read are more than A's rows.<br/>• **The page pin is unchanged.** TICK-1104's class pin for the count is replaced. |
 | **A4-6** | **CI-4's world:** 200,000 empty rows, N̂_e = 33,366, 50,000 rows of other tenants (A's share is 75 %), \|S\| = 10,111 and 20,222, m = 0.<br/>• Today the count there is a Seq Scan, 53 to 54 % cheaper than the next plan, so it is red before A4 and not a tie.<br/>• With the index it is an IOS in 4 of 4 loads; the mutant is a Seq Scan in 4 of 4.<br/>• Node run cost: IOS 1,724 against Seq Scan 8,905, a ratio of 5.2. |
-| **A4-7** | **A2-R4, count part, reworded:** "R's count plans with the statement's values (`QueryExecModeExec`; `plan_cache_mode = force_custom_plan` on `nava_app`, `db/grants.yaml`). Before A4, under `force_generic_plan` the count was a Seq Scan in four of five measured cells. With A4 the generic plan is reported, not pinned; the report must show an IOS, an index walk or a bitmap of the type's slice." The trigger is unchanged. The generic-plan IOS is not measured. |
-| **A4-8** | **A3-5 bound restored:** R's unfiltered count reads at most the type's index entries (≤ about 33,400) plus visibility-map pages, and no row of another tenant. |
+| **A4-7** | **A2-R4, count part, reworded:** "R's count plans with the statement's values (`QueryExecModeExec`; `plan_cache_mode = force_custom_plan` on `nava_app`, `db/grants.yaml`). Before A4, under `force_generic_plan` the count was a Seq Scan in four of five measured cells. With A4 the generic plan is reported, not pinned; the report must show an IOS, an index walk or a bitmap of the type's slice." The trigger is unchanged: a change to cached or prepared statements re-runs the plan test under `force_generic_plan`. The generic-plan IOS is not measured. |
+| **A4-8** | **A3-5 bound restored:** A3-5 said R reads at most the type's records. R's unfiltered count now reads at most the calling tenant's index entries of the type (N̂_e, which R's selector caps at about 33,400) plus visibility-map pages, and no row of another tenant. |
 | **A4-9** | **Security.** A new register row, AR-TICK-1143-01 (below), at 🟡 Low. AR-TICK-1040-01 is unchanged: its three bits do not depend on other tenants' rows (Security, confirmed). |
 | **A4-10** | **TICK-1105** gains the A3-R2 cell at m = 500 beside m = 0, and records the count's plan. Once A2-4 is in `main`, the m = 0 cell runs no count. |
 
@@ -50,16 +57,16 @@ deciders: "Solution Architect (author); Technical Architect (round 1 CHANGES B1,
 - **Remains:**
   - in small tables;
   - under a request filter the index does not hold, where it is as before A4 and can reach the whole table (measured: a default-valued data filter, 400,000 rows, 34,490 other tenants' rows read);
-  - in an R arm that follows another branch of the policy, whose negation names a column the index does not hold;
+  - in an R arm that follows another branch of the policy, whose negation names a column the index does not hold, where it is as before A4 (measured: CI-4's world, 50,000 other tenants' rows read; A4-R5);
   - in counts that are not R.
-- **Accepted** by the Security & Multi-Tenancy Reviewer (TICK-1143), who owns the row.
+- **Accepted** by the Security & Multi-Tenancy Reviewer (TICK-1143 comment 01a2154c-b8d4), who owns the row.
 - **Trigger:**
   - a requirement that a tenant's total record volume is confidential from other tenants;
-  - CI-3, CI-4, CI-5 or TICK-1105 shows a Seq Scan for an unfiltered R count;
-  - an unfiltered R count reads more rows of other tenants than N̂_e;
+  - CI-3, CI-4, CI-5 or TICK-1105 shows a Seq Scan for an R count or R arm that has neither a request filter nor a negation;
+  - such a count or arm reads more rows of other tenants than N̂_e;
   - a request-filtered list count does so in a production slow-query report.
 
-The R-arm clause is the CTO's addition. Security confirms it on this PR.
+The R-arm clause is the CTO's addition. Security reworded it and both triggers, and the CTO accepted that text as given (TICK-1143 comments 01a21554-9a60 and 01a21554-ca1b).
 
 ## Context it rests on
 
@@ -91,7 +98,7 @@ The R-arm clause is the CTO's addition. Security confirms it on this PR.
 |---|---|---|
 | CI-1 | The `records` index list, with `INCLUDE (org_unit_id)` | The index missing or redefined |
 | CI-2 | `TestNoTransactionMigrationsAreIdempotent` covers the new file; a failed build's INVALID v2 is dropped on re-run | A half-built swap |
-| CI-3 | Shared world (as today), 10,111 and 20,222 units: A4-5's count pin; the page pin unchanged | A changed plan |
+| CI-3 | Shared world (TICK-1104's: about 620,000 rows over three tenants), 10,111 and 20,222 units: A4-5's count pin; the page pin unchanged | A changed plan |
 | CI-4 | A4-6's world: the count pin, the 1.3× node guard, mutant `r_count_no_covering` | Red before A4; AR-TICK-1143-01; drift to a tie |
 | CI-5 | `under` first then requester: the R arm is an IOS. Requester first then `under`: the negated R arm is no worse than today's class. Two reads of `records` are accepted | `UNION ALL` |
 | CI-6 | Agreement suite with R forced; 1,000, 1,001 and 1,002 matches through the handler | Rows or totals (A2-6, A3-4) |
@@ -142,6 +149,6 @@ None on the decision. On P3 the Postgres & Data Modeling Specialist named three 
 | A4-R2 | A filter the index does not hold (`state IN (…)`, a data filter) brings back heap reads and today's plan choice, Seq Scan included | Postgres & Data Modeling Specialist | A3-R2 triggers 2 and 3 on a filtered list |
 | A4-R3 | **Until ADR-006-A2 A2-4 is in `main`, A4 makes the first cold R list with at most `limit` matches slower: 1.45–1.95 s today (the Seq Scan count warms the heap for the page) against 8.8–11.2 s with the covering index (W1, m = 0, measured). After A2-4 the count is skipped there, and the page's cold walk is the same with or without A4.** The R page's cold walk is the page arm's, which is not reopened | Solution Architect, as A3's owner | A region list p95 above 1 s in the first 10 minutes after a database restart, or the first installation whose `records` heap is larger than RAM. The page arm is then reopened. |
 | A4-R4 | The index is +23 % and WAL +1.0 to 1.5 % on every `records` write. The swap's build time on a production-sized table is not measured | Postgres & Data Modeling Specialist | The migration takes over 10 minutes in the stage rehearsal, or the `records` write p95 rises by more than 5 % |
-| A4-R5 | **A negated R arm is not an IOS.** An R arm after another policy branch (requester, assignee, group) carries that branch's negation. It names a column the index does not hold, so it plans as today: a Seq Scan or a bitmap. In CI-4's world it reads 50,000 rows of other tenants | Postgres & Data Modeling Specialist | CI-5, TICK-1105 or a production slow-query report shows a negated R arm above the 150 ms budget, or reading more other tenants' rows than N̂_e. The fix is then A4-4's order on that arm, already decided. |
+| A4-R5 | **A negated R arm is not an IOS.** An R arm after another policy branch (requester, assignee, group) carries that branch's negation. It names a column the index does not hold, so it plans as today: a Seq Scan or a bitmap. In CI-4's world it reads 50,000 rows of other tenants | Postgres & Data Modeling Specialist | CI-5, TICK-1105 or a production slow-query report shows a negated R arm above the 150 ms budget. Its reads of other tenants' rows are accepted in AR-TICK-1143-01 and are not a trigger here: CI-4's world already reads 50,000 against N̂_e = 33,366. The fix is then A4-4's order on that arm, already decided. |
 | A3-R2 (rewritten) | R's count reads outside the type's index range: a Seq Scan, `records_org_unit`, or a heap read of the whole slice. With A4, the count is an IOS in every measured cell | Postgres & Data Modeling Specialist | 1. CI-3, CI-4 or CI-5 fails, including CI-4's guard; A4-4 then applies. 2. TICK-1105, either A3-R2 cell: the count is not an IOS of `records_list_updated`, or handler p95 is above 150 ms, or the count is slower than CC in the same run. 3. Production: record-list p95 above 100 ms while `authz_under_list_shape_total{shape="records"}` rises (A3-R5). 4. `records` autovacuum falls behind (`n_dead_tup` above 20 % of `n_live_tup`, or the last autovacuum older than 24 h) while trigger 3 holds. |
 | A2-R4 | Reworded in A4-7 | Postgres & Data Modeling Specialist | Unchanged |
