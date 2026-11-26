@@ -25,7 +25,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Navaladi2019/TicketingSystem/db"
@@ -211,6 +210,7 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 		actorSys, srcRef    *string
 		reqID               *string
 		backfilled, trunc   bool
+		nulEscaped          bool
 		depth               int16
 		txid                *string
 		seq                 *int64
@@ -220,13 +220,14 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 	err := e.super.QueryRow(context.Background(), `SELECT tenant_id, id, occurred_at, domain, action, subject_type,
 		subject_id, entity_definition_id, version_before, version_after, actor_principal_id, actor_system, source,
 		source_ref, change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-		diff_sha256, diff_truncated, diff::text, diff_salt, txid::text, seq, prev_hash, entry_hash, sealed_at, erased_at
+		diff_sha256, diff_truncated, diff::text, diff_salt, txid::text, seq, prev_hash, entry_hash, sealed_at, erased_at,
+		diff_nul_escaped
 		FROM audit_log WHERE id = $1`, id).Scan(
 		&r.env.TenantID, &r.env.ID, &r.occurred, &domain, &action, &st,
 		&r.env.SubjectID, &r.env.EntityDefinitionID, &r.env.VersionBefore, &r.env.VersionAfter,
 		&r.env.ActorPrincipalID, &actorSys, &source, &srcRef, &r.env.ChangeSetID, &r.env.CausationID,
 		&depth, &reqID, &backfilled, &content, &diffSHA, &trunc, &r.diff, &r.salt,
-		&txid, &seq, &prevHash, &entryHash, &sealedAt, &erasedAt)
+		&txid, &seq, &prevHash, &entryHash, &sealedAt, &erasedAt, &nulEscaped)
 	if err != nil {
 		t.Fatalf("read entry %s: %v", id, err)
 	}
@@ -237,6 +238,7 @@ func readRow(t *testing.T, e itEnv, id uuid.UUID) storedRow {
 	r.env.Domain, r.env.Action, r.env.SubjectType, r.env.Source = domain, action, st, source
 	r.env.ActorSystem, r.env.SourceRef, r.env.RequestID = actorSys, srcRef, reqID
 	r.env.CausationDepth, r.env.Backfilled, r.env.DiffTruncated = depth, backfilled, trunc
+	r.env.DiffNULEscaped = nulEscaped
 	if content != nil {
 		h := [32]byte(content)
 		r.env.ContentSHA256 = &h
@@ -270,7 +272,7 @@ func entryFromEnvelope(env chain.Envelope) Entry {
 		Actor:  Actor{PrincipalID: env.ActorPrincipalID, System: env.ActorSystem},
 		Source: Source(env.Source), SourceRef: env.SourceRef, ChangeSetID: env.ChangeSetID,
 		CausationID: env.CausationID, CausationDepth: env.CausationDepth, RequestID: env.RequestID,
-		ContentSHA256: env.ContentSHA256,
+		ContentSHA256: env.ContentSHA256, DiffNULEscaped: env.DiffNULEscaped,
 	}
 }
 
@@ -617,41 +619,33 @@ func TestAppendEraseCap(t *testing.T) {
 	}
 }
 
-// TICK-1170 step 1, ADR-004-E10 E10-6: an entry written with DiffNULEscaped
-// is refused with 23514 until the flag is an envelope member; one written
-// without it is stored false, through nava_app's R10 INSERT grant.
-func TestAppendDiffNULEscapedGated(t *testing.T) {
+// TICK-1170 step 2, ADR-004-E10: an entry written with DiffNULEscaped reads
+// back true, through nava_app's R10 INSERT grant; one written without it
+// reads back false.
+func TestAppendDiffNULEscapedStored(t *testing.T) {
 	e := migrated(t)
 	tenant := newTenant(t, e)
-	for _, flag := range []bool{true, false} {
+	for _, want := range []bool{true, false} {
 		var id uuid.UUID
-		err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
+		if err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
 			en := Entry{
 				Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord, SubjectID: uuid.New(),
 				VersionAfter: new(int64(1)), Actor: Actor{System: new("workflow")}, Source: SourceWorkflow,
-				Diff: []byte(`[{"op":"add","path":"/a","value":"\u0000"}]`), DiffNULEscaped: flag,
+				Diff: []byte(`[{"op":"add","path":"/a","value":"x"}]`), DiffNULEscaped: want,
 			}
 			var err error
 			id, err = Append(context.Background(), tx, en)
 			return err
-		})
-		if flag {
-			var pgErr *pgconn.PgError
-			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
-				t.Errorf("append with the flag true: %v, want 23514 (E10-6)", err)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("append with the flag false: %v", err)
+		}); err != nil {
+			t.Fatalf("append (escaped %v): %v", want, err)
 		}
 		var got bool
 		if err := e.super.QueryRow(context.Background(),
 			"SELECT diff_nul_escaped FROM audit_log WHERE id = $1", id).Scan(&got); err != nil {
 			t.Fatal(err)
 		}
-		if got {
-			t.Errorf("diff_nul_escaped = true, want false")
+		if got != want {
+			t.Errorf("diff_nul_escaped = %v, want %v", got, want)
 		}
 	}
 }

@@ -1278,6 +1278,10 @@
     {
       "file": "20261126150000_audit_log_diff_nul_escaped.sql",
       "on_main": false
+    },
+    {
+      "file": "20261127100000_audit_log_nul_escaped_gate_drop.sql",
+      "on_main": false
     }
   ]
 }

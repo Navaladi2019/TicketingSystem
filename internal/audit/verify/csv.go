@@ -30,15 +30,28 @@ var CSVColumns = []string{
 	"tenant_id", "id", "occurred_at", "domain", "action", "subject_type", "subject_id", "entity_definition_id",
 	"version_before", "version_after", "actor_principal_id", "actor_system", "source", "source_ref",
 	"change_set_id", "causation_id", "causation_depth", "request_id", "backfilled", "content_sha256",
-	"diff_sha256", "diff_truncated", "diff", "diff_salt", "diff_redacted", "erased_at", "erasure_ref", "meta",
+	"diff_sha256", "diff_truncated", "diff_nul_escaped", "diff", "diff_salt", "diff_redacted", "erased_at",
+	"erasure_ref", "meta",
 }
+
+// nulEscapedColumn is ADR-004-E10's envelope member. Its cell is empty when
+// the member is omitted (false) and true when it is present: the one
+// exception to "empty is null". It is not in csvBools, which accepts false.
+const nulEscapedColumn = "diff_nul_escaped"
+
+// CSVColumnsPreE10 is the column row before ADR-004-E10: CSVColumns without
+// diff_nul_escaped. The verifier accepts it; every row then has the flag
+// false (E10-4).
+//
+//nolint:gochecknoglobals // read-only column table (audit-export-v1.md §5)
+var CSVColumnsPreE10 = slices.DeleteFunc(slices.Clone(CSVColumns), func(c string) bool { return c == nulEscapedColumn })
 
 // csvSniff is how Verify tells a CSV file from a JSONL one: a JSONL line
 // starts with '{'.
 const csvSniff = "kind,"
 
-// The envelope members are the CSV columns tenant_id..diff_truncated.
-const envFirst, envLast = 9, 30
+// The envelope members are the CSV columns tenant_id..diff_nul_escaped.
+const envFirst, envLast = 9, 31
 
 //nolint:gochecknoglobals // read-only column tables (audit-export-v1.md §3, §5)
 var (
@@ -66,6 +79,7 @@ func columnIndex(name string) int { return slices.Index(CSVColumns, name) }
 func verifyCSV(r *bufio.Reader) (*Report, error) {
 	v := newVerifier(EncodingCSV)
 	cr := &csvReader{r: r}
+	preE10 := false
 	for !v.done() {
 		cells, err := cr.next()
 		if errors.Is(err, io.EOF) {
@@ -85,10 +99,15 @@ func verifyCSV(r *bufio.Reader) (*Report, error) {
 		}
 		v.lineNo++
 		if v.lineNo == 1 {
-			if !slices.Equal(cells, CSVColumns) {
+			preE10 = slices.Equal(cells, CSVColumnsPreE10)
+			if !preE10 && !slices.Equal(cells, CSVColumns) {
 				v.fail(nil, ReasonHeaderInvalid, "the first row is not the v1 column row")
 			}
 			continue
+		}
+		if preE10 && len(cells) == len(CSVColumnsPreE10) {
+			// A pre-E10 row: the flag is false, so its cell is empty.
+			cells = slices.Insert(cells, columnIndex(nulEscapedColumn), "")
 		}
 		v.row(cells)
 	}
@@ -162,11 +181,26 @@ func rowLine(cells []string) ([]byte, error) {
 		if name == "envelope" {
 			b.WriteByte('{')
 			for j := envFirst; j <= envLast; j++ {
+				if CSVColumns[j] == nulEscapedColumn {
+					// E10-4: empty omits the member, true is the member;
+					// anything else, false included, is malformed.
+					switch cells[j] {
+					case "":
+						continue
+					case "true":
+					default:
+						return nil, fmt.Errorf("column %q is true or empty (ADR-004-E10)", nulEscapedColumn)
+					}
+				}
 				if j > envFirst {
 					b.WriteByte(',')
 				}
 				writeJSONString(&b, CSVColumns[j])
 				b.WriteByte(':')
+				if CSVColumns[j] == nulEscapedColumn {
+					b.WriteString("true")
+					continue
+				}
 				if err := writeCell(&b, CSVColumns[j], cells[j]); err != nil {
 					return nil, err
 				}

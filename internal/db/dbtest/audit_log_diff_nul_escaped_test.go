@@ -23,6 +23,9 @@ import (
 const (
 	diffNULEscapedMigration = "20261126150000_audit_log_diff_nul_escaped.sql"
 	diffNULEscapedBefore    = 20261126145959
+	// nulEscapedGateDropBefore is the version just before step 2's
+	// 20261127100000, which drops the E10-6 gate.
+	nulEscapedGateDropBefore = 20261127095959
 )
 
 // beforeDiffNULEscaped returns m and a without audit_log.diff_nul_escaped when
@@ -56,7 +59,8 @@ func beforeDiffNULEscaped(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (
 // The column is added to a populated audit_log without a rewrite: the
 // partition keeps its relfilenode, existing rows read false, and the R11
 // guard refuses any UPDATE that flips it, the superuser's included; the
-// E10-6 gate refuses a true INSERT. Down drops it and the rows stay.
+// E10-6 gate refuses a true INSERT between step 1 and step 2 only. Down drops
+// the column and the rows stay.
 func TestTICK1170DiffNULEscapedColumn(t *testing.T) {
 	m := freshCluster(t)
 	if _, err := migrateFS(t, m, db.Migrations()); err != nil {
@@ -106,13 +110,23 @@ func TestTICK1170DiffNULEscapedColumn(t *testing.T) {
 	_, err = super.Exec(ctx, `UPDATE audit_log SET diff_nul_escaped = true WHERE tenant_id = $1 AND id = $2`, tenantA, id)
 	wantSQLState(t, "superuser flips diff_nul_escaped", err, "42501")
 
-	// E10-6: until step 2 the gate refuses a true INSERT with 23514, for
-	// every role (the superuser here; the writers in
-	// TestAppendDiffNULEscapedGated).
-	_, err = super.Exec(ctx, `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
+	// E10-6: step 2 dropped the gate, so a true INSERT is stored. Down to
+	// step 1 the gate is back and refuses it with 23514 (the writers'
+	// side is TestAppendDiffNULEscapedStored).
+	const insertTrue = `INSERT INTO audit_log (tenant_id, id, domain, action, subject_type, subject_id,
 		actor_system, source, diff_nul_escaped) VALUES ($1, gen_random_uuid(), 'record', 'update', 'record',
-		gen_random_uuid(), 'system', 'system', true)`, tenantA)
-	wantSQLState(t, "superuser inserts diff_nul_escaped = true", err, "23514")
+		gen_random_uuid(), 'system', 'system', true)`
+	if _, err := super.Exec(ctx, insertTrue, tenantA); err != nil {
+		t.Fatalf("step 2: insert diff_nul_escaped = true: %v", err)
+	}
+	if _, err := p.DownTo(ctx, nulEscapedGateDropBefore); err != nil {
+		t.Fatalf("down to step 1: %v", err)
+	}
+	_, err = super.Exec(ctx, insertTrue, tenantA)
+	wantSQLState(t, "step 1: insert diff_nul_escaped = true", err, "23514")
+	if _, err := p.Up(ctx); err != nil {
+		t.Fatalf("up to step 2: %v", err)
+	}
 
 	// Down and up again: the drop keeps the rows.
 	rows = queryString(t, super, total, tenantA)

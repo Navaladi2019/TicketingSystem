@@ -2,6 +2,7 @@ package verify_test
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -264,5 +265,35 @@ func TestCSVFixturesAreCurrent(t *testing.T) {
 		if !want[filepath.Base(f)] {
 			t.Errorf("%s is in testdata/csv but no export vector builds it", filepath.Base(f))
 		}
+	}
+}
+
+// csvPreE10Dir holds the CSV fixtures as committed before ADR-004-E10, with
+// the 37-column header and no diff_nul_escaped column. They are frozen: the
+// generator no longer writes this header.
+const csvPreE10Dir = "testdata/csv-pre-e10"
+
+// ADR-004-E10 E10-4, CI-A19(g): a CSV export written before E10 still
+// verifies, with the outcome of its golden vector.
+func TestCSVPreE10FixturesVerify(t *testing.T) {
+	n := 0
+	for _, x := range vt.Vectors().Exports {
+		got, err := os.ReadFile(filepath.Join(csvPreE10Dir, x.Name+".csv"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue // a vector added after E10
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.HasPrefix(got, []byte(strings.Join(verify.CSVColumnsPreE10, ",")+"\r\n")) {
+			t.Fatalf("%s: not the pre-E10 column row", x.Name)
+		}
+		n++
+		if r := run(t, got); string(r.Outcome) != x.Expect {
+			t.Errorf("%s: outcome %s (%s), want %s", x.Name, r.Outcome, describe(r), x.Expect)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no pre-E10 fixtures found")
 	}
 }
