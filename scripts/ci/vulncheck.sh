@@ -9,7 +9,8 @@
 # every checkout on the host.
 #
 # VULNCHECK=all scans both modules regardless of stamps. `make vulncheck` and
-# `make vulncheck-temporal-server` are the plain, always-scanning runs.
+# `make vulncheck-temporal-server` are the plain, always-scanning runs. Every
+# scan has GOWORK=off, as the workflow's (ADR-001-E4 contract rule 7).
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -33,7 +34,7 @@ for mod in . temporal-server; do
         echo "vulncheck: $label skipped, its dependencies already passed today ($stamp)"
         continue
     fi
-    ( cd "$mod" && govulncheck ./... ) >"$logs/$label" 2>&1 && touch "$stamp" &
+    ( cd "$mod" && GOWORK=off govulncheck ./... ) >"$logs/$label" 2>&1 && touch "$stamp" &
     procs="$procs $!:$label"
 done
 
