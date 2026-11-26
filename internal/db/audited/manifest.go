@@ -56,7 +56,7 @@ func InsertColumns() []string {
 		"tenant_id", "id", "domain", "action", "subject_type", "subject_id", "entity_definition_id",
 		"version_before", "version_after", "actor_principal_id", "actor_system", "source", "source_ref",
 		"change_set_id", "causation_id", "causation_depth", "request_id", "content_sha256", "diff_sha256",
-		"diff_truncated", "diff", "diff_salt",
+		"diff_truncated", "diff_nul_escaped", "diff", "diff_salt",
 	}
 }
 
@@ -88,7 +88,7 @@ func ReaderColumns() []string {
 		"tenant_id", "id", "occurred_at", "domain", "action", "subject_type", "subject_id", "entity_definition_id",
 		"version_before", "version_after", "actor_principal_id", "actor_system", "source", "source_ref",
 		"change_set_id", "causation_id", "causation_depth", "request_id", "backfilled", "content_sha256",
-		"diff_sha256", "diff_truncated", "diff", "diff_salt", "seq", "prev_hash", "entry_hash", "sealed_at", "erased_at",
+		"diff_sha256", "diff_truncated", "diff_nul_escaped", "diff", "diff_salt", "seq", "prev_hash", "entry_hash", "sealed_at", "erased_at",
 		"erasure_ref",
 	}
 }

@@ -615,3 +615,33 @@ func TestAppendEraseCap(t *testing.T) {
 		t.Errorf("1,500 ids: %d untruncated entries, want 1", n)
 	}
 }
+
+// TICK-1170: an entry written with DiffNULEscaped reads back true, through
+// nava_app's R10 INSERT grant; one written without it reads back false.
+func TestAppendDiffNULEscapedStored(t *testing.T) {
+	e := migrated(t)
+	tenant := newTenant(t, e)
+	for _, want := range []bool{true, false} {
+		var id uuid.UUID
+		if err := tenancy.InTenantTx(context.Background(), e.app, tenant, func(tx pgx.Tx) error {
+			en := Entry{
+				Domain: DomainRecord, Action: ActionUpdate, SubjectType: SubjectRecord, SubjectID: uuid.New(),
+				VersionAfter: new(int64(1)), Actor: Actor{System: new("workflow")}, Source: SourceWorkflow,
+				Diff: []byte(`[{"op":"add","path":"/a","value":"\u0000"}]`), DiffNULEscaped: want,
+			}
+			var err error
+			id, err = Append(context.Background(), tx, en)
+			return err
+		}); err != nil {
+			t.Fatalf("append (escaped %v): %v", want, err)
+		}
+		var got bool
+		if err := e.super.QueryRow(context.Background(),
+			"SELECT diff_nul_escaped FROM audit_log WHERE id = $1", id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("diff_nul_escaped = %v, want %v", got, want)
+		}
+	}
+}
