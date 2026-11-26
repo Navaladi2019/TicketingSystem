@@ -275,8 +275,7 @@ func (a *Activities) Admit(ctx context.Context) (AdmitResult, error) {
 	def := j.Definition
 	var res AdmitResult
 	err = a.inJob(ctx, j, func(tx pgx.Tx, row jobRow) error {
-		switch {
-		case terminal(row.state):
+		if terminal(row.state) {
 			res.Ended = &def
 			return nil
 		}
@@ -519,7 +518,7 @@ func (a *Activities) pendingIDs(ctx context.Context, j Job, after *uuid.UUID) ([
 // cancelled context, or a failure of that separate transaction, is an error:
 // the activity is retried and the id is still pending.
 func (a *Activities) rewrite(ctx context.Context, j Job, pc pageContext, id uuid.UUID) error {
-	var written, taken bool
+	var written bool
 	err := tenancy.InTenantTx(ctx, a.Pool, j.Tenant, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, syncOffSQL); err != nil {
 			return err
@@ -531,7 +530,6 @@ func (a *Activities) rewrite(ctx context.Context, j Job, pc pageContext, id uuid
 		if tag.RowsAffected() == 0 {
 			return nil
 		}
-		taken = true
 		written, err = a.Materializer.Materialize(ctx, tx, Target{Tenant: j.Tenant, EntityKey: pc.entityKey, RecordID: id, Causation: pc.causation})
 		if err != nil {
 			return err
