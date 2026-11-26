@@ -154,14 +154,14 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
-      # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261126100000):
+      # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261126163300):
       # reads, for D10's status and failures and D12's filter shapes, and the
       # publish transaction's INSERT of a pending job (D1, PLAN-010 D-10-11;
       # the pinned policy schema_backfills_insert_app_pending).
       schema_backfills: { SELECT: [], INSERT: [] }
       schema_backfill_pending: { SELECT: [] }
       schema_backfill_failures: { SELECT: [] }
-      # Tenant limits (TICK-751, ADR-006 D12, 20261126100400): publish reads
+      # Tenant limits (TICK-751, ADR-006 D12, 20261126163700): publish reads
       # the row. Only nava_onboard writes it (AR-TICK-916-01).
       tenant_limits: { SELECT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
@@ -313,7 +313,7 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
-      # Schema backfill (ADR-009 D2, D7, P10-01, TICK-916, 20261126100000):
+      # Schema backfill (ADR-009 D2, D7, P10-01, TICK-916, 20261126163300):
       # the backfill job owns its job row, its queue and its failures.
       schema_backfills: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
       schema_backfill_pending: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
@@ -377,7 +377,7 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
-      # Tenant limits (TICK-751, AR-TICK-916-01, 20261126100400): the
+      # Tenant limits (TICK-751, AR-TICK-916-01, 20261126163700): the
       # operator route's write, in the target tenant's transaction. Never
       # DELETE, never a tenant_id change.
       tenant_limits: { SELECT: [], INSERT: [], UPDATE: [filterable_fields_per_type, updated_at, updated_by] }

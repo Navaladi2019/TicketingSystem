@@ -896,36 +896,36 @@ comment.</p>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261126100000</code></td>
-<td><code>20261126100000_schema_backfill_tables.sql</code></td>
+<td><code>20261126163300</code></td>
+<td><code>20261126163300_schema_backfill_tables.sql</code></td>
 <td>P10-01 (TICK-916, ADR-009 D2, D7, grants): the three tables of the schema backfill.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261126100100</code></td>
-<td><code>20261126100100_schema_backfill_rollout.sql</code></td>
+<td><code>20261126163400</code></td>
+<td><code>20261126163400_schema_backfill_rollout.sql</code></td>
 <td>P10-10 (TICK-925, folded into TICK-916; ADR-009 D15): the rollout.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261126100200</code></td>
-<td><code>20261126100200_audit_log_subject_tenant_limits.sql</code></td>
+<td><code>20261126163500</code></td>
+<td><code>20261126163500_audit_log_subject_tenant_limits.sql</code></td>
 <td>TICK-751 (S22 P7-11, folded into TICK-916; ADR-006 D12, I8): registers the audit subject type tenant_limits (internal/audit/subjects).</td>
 <td>in progress (not on main)</td>
 <td><code>audit_log_subject_type_check</code> NOT VALID, validated in <code>20261109130100</code></td>
 </tr>
 <tr>
-<td><code>20261126100300</code></td>
-<td><code>20261126100300_audit_log_subject_tenant_limits_validate.sql</code></td>
+<td><code>20261126163600</code></td>
+<td><code>20261126163600_audit_log_subject_tenant_limits_validate.sql</code></td>
 <td>TICK-751: validates the previous migration's audit_log subject_type CHECK in its own transaction.</td>
 <td>in progress (not on main)</td>
 <td>VALIDATE <code>audit_log_subject_type_check</code> (added in <code>20261109130000</code>)</td>
 </tr>
 <tr>
-<td><code>20261126100400</code></td>
-<td><code>20261126100400_tenant_limits.sql</code></td>
+<td><code>20261126163700</code></td>
+<td><code>20261126163700_tenant_limits.sql</code></td>
 <td>TICK-751 (S22 P7-11, folded into TICK-916; ADR-006 D12, I8): a tenant's per-type filterable-field limit, raised by an operator from the default 5 up to 10 with no per-tenant DDL.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
