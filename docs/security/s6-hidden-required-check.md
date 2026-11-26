@@ -25,9 +25,11 @@ privilege is needed; the effect is that a tenant-isolation regression reaches
 
 ## Fix
 
-- `isolation`: PR #902 names the job `${{ 'isolation' }}` (a skipped job
+- `isolation`: PR #902 (merged 2026-11-26) names the job
+  `${{ github.event_name && 'isolation' || 'isolation' }}` (a skipped job
   reports the raw expression, so only a run that executed it can satisfy the
-  required name) and runs it on every labelled run. Pinned by the `checks:`
+  required name; a constant `${{ 'isolation' }}` is folded to the literal even
+  when skipped, verification PR #904) and runs it on every labelled run. Pinned by the `checks:`
   list in `tools/ci/cisteps/required.yaml` (`make check-ci-steps`).
 - Other required jobs: ADR-001-E4 (PR #895, TICK-1140).
 - Until both land: mergers list the check runs on the head commit with
