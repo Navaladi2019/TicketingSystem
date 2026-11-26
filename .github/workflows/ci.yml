@@ -405,7 +405,7 @@ jobs:
     # (required.yaml checks). So every pull request run with ci:run or
     # ci:full runs the job, whatever the diff: otherwise a ci:run pull
     # request into main could never report isolation. About 6 min a run.
-    name: ${{ 'isolation' }}
+    name: ${{ github.event_name && 'isolation' || 'isolation' }}
     # TICK-1003: the tenant isolation suite (T11, ADR-001 CI-2) and the two
     # checks of CI scripts, on a full run (TICK-652, AR-TICK-652-01) and on
     # every pull request into a TICK-* story branch (TICK-1031), in
