@@ -21,11 +21,14 @@ import (
 const (
 	fieldIndexCoordinatorType = "field_index.coordinator"
 	fieldIndexBackfillType    = "field_index.backfill.run"
+	fieldIndexRemoveType      = "field_index.remove.run"
 	// coordinatorA is tenantA's coordinator (one id per tenant).
 	coordinatorA = "t:tenantA:field_index.coordinator"
 	// backfillRunA is a backfill child of coordinatorA for one field and
 	// requested version.
 	backfillRunA = "t:tenantA:field_index.backfill.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:2"
+	// removeRunA is a removal child of coordinatorA (TICK-750).
+	removeRunA = "t:tenantA:field_index.remove.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:3"
 )
 
 func fieldIndexSignalWithStart(wfID, wt string) *workflowservice.SignalWithStartWorkflowExecutionRequest {
@@ -33,11 +36,12 @@ func fieldIndexSignalWithStart(wfID, wt string) *workflowservice.SignalWithStart
 		SignalName: "field_index.enqueue", WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}
 }
 
-// The child-only set is exactly the backfill, a subset of the platform types,
-// and disjoint from the start-only set: a type in both could never run.
+// The child-only set is exactly the backfill and the removal (TICK-750), a
+// subset of the platform types, and disjoint from the start-only set: a type
+// in both could never run.
 func TestChildOnlyWorkflowTypes(t *testing.T) {
-	if got := sortedKeys(childOnlyWorkflowTypes()); len(got) != 1 || got[0] != fieldIndexBackfillType {
-		t.Fatalf("childOnlyWorkflowTypes = %v, want exactly [%s]", got, fieldIndexBackfillType)
+	if got := sortedKeys(childOnlyWorkflowTypes()); len(got) != 2 || got[0] != fieldIndexBackfillType || got[1] != fieldIndexRemoveType {
+		t.Fatalf("childOnlyWorkflowTypes = %v, want exactly [%s %s]", got, fieldIndexBackfillType, fieldIndexRemoveType)
 	}
 	for _, wt := range sortedKeys(childOnlyWorkflowTypes()) {
 		if !inSet(platformWorkflowTypes(), wt) {
@@ -77,6 +81,41 @@ func TestRelayCannotStartBackfillDirectly(t *testing.T) {
 	}
 }
 
+// Adversarial (TICK-750, as TICK-745 for the backfill): the relay starts
+// field_index.remove.run directly, by start or signal-with-start, under a
+// valid tenantA id on nava-tq, and is denied: a forged or mis-kinded outbox
+// row cannot run a removal beside the coordinator's backfill.
+func TestRelayCannotStartRemovalDirectly(t *testing.T) {
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart(removeRunA, fieldIndexRemoveType), ReasonWorkflowType)
+	requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", fieldIndexSignalWithStart(removeRunA, fieldIndexRemoveType), ReasonWorkflowType)
+	requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", fieldIndexSignalWithStart(coordinatorA, fieldIndexRemoveType), ReasonWorkflowType)
+	_, _, logs := authorizeAs(t, Relay, wf+"StartWorkflowExecution", interpreterStart(removeRunA, fieldIndexRemoveType))
+	if len(logs) != 1 || logs[0]["detail"] != `workflow type "field_index.remove.run" is child-only` {
+		t.Fatalf("log detail = %v, want the child-only detail", logs)
+	}
+}
+
+// Positive: the coordinator starts a removal child, and the removal
+// schedules its activities and continues as new, in its own tenant.
+func TestCoordinatorStartsRemovalChild(t *testing.T) {
+	child := interpreterChild(removeRunA, jsonString("tenantA"))
+	child.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
+	requireCommandAllow(t, respond(taskToken(t, coordinatorA), child))
+	can := interpreterContinueAsNew(jsonString("tenantA"))
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
+	requireCommandAllow(t, respond(taskToken(t, removeRunA), can))
+	requireCommandAllow(t, respond(taskToken(t, removeRunA), scheduleActivity(jsonString("tenantA"))))
+}
+
+// Negative: tenant A's coordinator cannot start a removal child in tenant B.
+func TestCoordinatorRemovalKeepsTenantChecks(t *testing.T) {
+	bChild := "t:tenantB:field_index.remove.run:3f0c4a52-7d6e-4b8a-9a51-2c1f0e9d8b7a:3"
+	cmd := interpreterChild(bChild, jsonString("tenantB"))
+	cmd.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = fieldIndexRemoveType
+	requireCommandDeny(t, denyCase{name: "removal child in tenant B", req: respond(taskToken(t, coordinatorA), cmd),
+		reason: ReasonCrossTenant, command: "StartChildWorkflowExecution", workflowID: coordinatorA, target: bChild, commandIdx: "0"})
+}
+
 // Negative: no identity but the relay may start the coordinator.
 func TestCoordinatorStartedByRelayOnly(t *testing.T) {
 	sws := fieldIndexSignalWithStart(coordinatorA, fieldIndexCoordinatorType)
@@ -99,12 +138,12 @@ func TestCoordinatorNeedsTenantPrefix(t *testing.T) {
 	}
 }
 
-// Negative: the allow-list is exact match for both new types.
+// Negative: the allow-list is exact match for the field-index types.
 func TestFieldIndexLookAlikeTypesDenied(t *testing.T) {
 	for _, wt := range []string{
 		"field_index.coordinator ", " field_index.coordinator", "field_index.Coordinator", "field-index.coordinator",
 		"field_index.backfill", "field_index.backfill.run2", "field_index.backfill.Run", "field_index",
-		"field_index.remove.run", "field_index.coordinator\x00",
+		"field_index.remove", "field_index.remove.run2", "field_index.Remove.run", "field_index.coordinator\x00",
 	} {
 		t.Run(wt, func(t *testing.T) { requireTypeDenied(t, wt) })
 	}

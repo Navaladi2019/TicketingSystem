@@ -23,7 +23,7 @@ import (
 
 // The registered activity names.
 const (
-	// BarrierActivity is fieldindex.Barrier (D9). FieldIndexRemove (TICK-750)
+	// BarrierActivity is fieldindex.Barrier (D9). FieldIndexRemove (remove.go)
 	// reuses it: it takes no argument and reads nothing but the snapshot.
 	BarrierActivity  = "field_index.Barrier"
 	ClassifyActivity = "field_index.Classify"
@@ -67,7 +67,8 @@ type Classified struct {
 	Remove   *uuid.UUID `json:"remove,omitempty"`
 }
 
-// Activities are the coordinator's and FieldIndexBackfill's activities on a
+// Activities are the coordinator's, FieldIndexBackfill's and
+// FieldIndexRemove's activities on a
 // nava_worker pool. Register them with Register. Metrics, Uncoerced and Log
 // may be nil.
 type Activities struct {
@@ -78,7 +79,8 @@ type Activities struct {
 	// (nava_field_index_uncoerced_total{entity_definition}, ADR-006 R5).
 	Uncoerced UncoercedCounter
 	Log       *slog.Logger
-	// BatchSize is the records one batch copies; 0 is DefaultBatchSize.
+	// BatchSize is the records one batch copies, and the side rows one
+	// removal batch deletes; 0 is DefaultBatchSize.
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
 	SlowAfter time.Duration
@@ -108,6 +110,8 @@ func (a *Activities) Register(r worker.ActivityRegistry) {
 	r.RegisterActivityWithOptions(a.Classify, activity.RegisterOptions{Name: ClassifyActivity})
 	r.RegisterActivityWithOptions(a.Batch, activity.RegisterOptions{Name: BatchActivity})
 	r.RegisterActivityWithOptions(a.Ready, activity.RegisterOptions{Name: ReadyActivity})
+	r.RegisterActivityWithOptions(a.RemoveBatch, activity.RegisterOptions{Name: RemoveBatchActivity})
+	r.RegisterActivityWithOptions(a.Retire, activity.RegisterOptions{Name: RetireActivity})
 }
 
 // barrierState is the barrier's heartbeat details: the bounds of the wait set

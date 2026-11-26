@@ -50,24 +50,21 @@ func fieldPointer(key string) string {
 	return "/schema/properties/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(key)
 }
 
-// removedFilterable refuses a new version that no longer flags a field the
-// previous one flags, whether the flag or the whole property is gone (D-7-4):
-// the side rows stay until S22 adds removal.
-func removedFilterable(prev, next *metadata.Compiled) error {
+// removedFilterable returns the keys of the fields prev flags that next does
+// not, sorted: the flag is gone (ADR-006 D8). A property deleted outright is
+// Breaking, so Publish refuses it before this matters.
+func removedFilterable(prev, next *metadata.Compiled) []string {
 	nextKeys := map[string]bool{}
 	for _, f := range next.Filterable() {
 		nextKeys[f.Key] = true
 	}
-	var paths []string
+	var keys []string
 	for _, f := range prev.Filterable() { // sorted by key
 		if !nextKeys[f.Key] {
-			paths = append(paths, fieldPointer(f.Key))
+			keys = append(keys, f.Key)
 		}
 	}
-	if len(paths) == 0 {
-		return nil
-	}
-	return &metadata.RefusalError{Code: metadata.RefusalFilterableRemovalUnavailable, Paths: paths}
+	return keys
 }
 
 // addedFilterable returns the fields next flags that prev does not.
@@ -170,6 +167,41 @@ VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`,
 		}
 		if _, err := outbox.EnqueueFieldIndexBackfill(ctx, tx, id, version); err != nil {
 			return fmt.Errorf("entitytypes: enqueue field index backfill: %w", err)
+		}
+	}
+	return nil
+}
+
+// retireFilterableSQL flips the type's registry rows for keys to removing at
+// the publishing version (ADR-006 D11 step 1). A row already removing is left
+// alone. From the commit on, the records trigger writes nothing for the field
+// and a filter on it answers 400 field_not_filterable.
+const retireFilterableSQL = `
+UPDATE record_index_fields SET state = 'removing', requested_version = $4, updated_at = now()
+WHERE tenant_id = $1 AND entity_definition_id = $2 AND field_key = ANY($3::text[]) AND state <> 'removing'
+RETURNING id`
+
+// retireFilterable writes, in the publish transaction, the flip to removing
+// of each field the new version no longer flags, and one field_index.remove
+// outbox row per flipped row (ADR-006 D8, D11, TICK-750). The relay signals
+// the tenant's coordinator, which runs FieldIndexRemove after any backfill
+// ahead of it. A key with no registry row writes nothing. The tenant is the
+// caller's, from InTenantTx, never the request's.
+func retireFilterable(ctx context.Context, tx pgx.Tx, tenantID, defID uuid.UUID, version int, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, retireFilterableSQL, tenantID, defID, keys, version)
+	if err != nil {
+		return fmt.Errorf("entitytypes: flip field index registry rows to removing: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return fmt.Errorf("entitytypes: flip field index registry rows to removing: %w", err)
+	}
+	for _, id := range ids {
+		if _, err := outbox.EnqueueFieldIndexRemove(ctx, tx, id, version); err != nil {
+			return fmt.Errorf("entitytypes: enqueue field index removal: %w", err)
 		}
 	}
 	return nil

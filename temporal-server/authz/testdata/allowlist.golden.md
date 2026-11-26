@@ -195,9 +195,9 @@ A request to one of these APIs is allowed only if every workflow type, task queu
 
 | Set | Entries |
 |---|---|
-| `platformWorkflowTypes` | `audit.seal`, `field_index.backfill.run`, `field_index.coordinator`, `nava.interpreter` |
+| `platformWorkflowTypes` | `audit.seal`, `field_index.backfill.run`, `field_index.coordinator`, `field_index.remove.run`, `nava.interpreter` |
 | `startOnlyWorkflowTypes` | `audit.seal` |
-| `childOnlyWorkflowTypes` | `field_index.backfill.run` |
+| `childOnlyWorkflowTypes` | `field_index.backfill.run`, `field_index.remove.run` |
 | `platformTaskQueues` | `nava-tq` |
 
 A STICKY queue name must match `^[^/]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, must not be in `platformTaskQueues`, and its `NormalName` must be in `platformTaskQueues`.

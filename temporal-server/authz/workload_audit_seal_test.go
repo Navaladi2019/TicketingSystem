@@ -30,14 +30,15 @@ func auditSealSignalWithStart(wfID, wt string) *workflowservice.SignalWithStartW
 		SignalName: "event", WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}
 }
 
-// The sets hold exactly what R18 and TICK-745 add: audit.seal and the two
-// field-index types join nava.interpreter, no new queue, and audit.seal is the
+// The sets hold exactly what R18, TICK-745 and TICK-750 add: audit.seal and
+// the three field-index types join nava.interpreter, no new queue, and audit.seal is the
 // one start-only type.
 func TestAuditSealIsAllowListed(t *testing.T) {
-	if got := sortedKeys(platformWorkflowTypes()); len(got) != 4 || got[0] != auditSealType ||
-		got[1] != fieldIndexBackfillType || got[2] != fieldIndexCoordinatorType || got[3] != interpreterType {
-		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s %s %s %s]", got,
-			auditSealType, fieldIndexBackfillType, fieldIndexCoordinatorType, interpreterType)
+	if got := sortedKeys(platformWorkflowTypes()); len(got) != 5 || got[0] != auditSealType ||
+		got[1] != fieldIndexBackfillType || got[2] != fieldIndexCoordinatorType || got[3] != fieldIndexRemoveType ||
+		got[4] != interpreterType {
+		t.Fatalf("platformWorkflowTypes = %v, want exactly [%s %s %s %s %s]", got,
+			auditSealType, fieldIndexBackfillType, fieldIndexCoordinatorType, fieldIndexRemoveType, interpreterType)
 	}
 	if got := sortedKeys(startOnlyWorkflowTypes()); len(got) != 1 || got[0] != auditSealType {
 		t.Fatalf("startOnlyWorkflowTypes = %v, want exactly [%s]", got, auditSealType)

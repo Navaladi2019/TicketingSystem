@@ -79,7 +79,7 @@ func TestCreateRefusesNestedFilterable(t *testing.T) {
 	}
 }
 
-func TestPublishFilterableFlagIsCompatibleAndTypeChangeAndRemovalAreRefused(t *testing.T) {
+func TestPublishFilterableFlagAndRemovalAreCompatibleAndTypeChangeIsRefused(t *testing.T) {
 	e := newETEnv(t)
 	etCreateIncident(t, e)
 	compat := func(t *testing.T, key, schema string) {
@@ -107,9 +107,9 @@ func TestPublishFilterableFlagIsCompatibleAndTypeChangeAndRemovalAreRefused(t *t
 		t.Errorf("%d versions, want 2", n)
 	}
 
-	// Removing the flag is refused in S21 (D-7-4); TestPublishFieldIndexRefusalsWriteNothing covers it.
-	rec = e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-fl-remove", etPublishSchema(etFlagged(t, `{"type": "string"}`)))
-	wantProblem(t, rec, http.StatusUnprocessableEntity, problem.FilterableFieldRemovalUnavailable)
+	// Removing the flag is Compatible too (D8); TestPublishUnflagFlipsToRemoving
+	// covers what it writes.
+	compat(t, "k-fl-remove", etFlagged(t, `{"type": "string"}`))
 }
 
 // covers: createEntityType 422
