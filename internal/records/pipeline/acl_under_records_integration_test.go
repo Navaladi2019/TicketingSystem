@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -451,17 +452,53 @@ func recordsPlanWorld(t *testing.T, e env, pw planWorld) (w *shapeWorld, roots m
 	// page out of the map, so an Index Only Scan costs heap fetches and the
 	// plans pinned here change. CHECKPOINT flushes the WAL first.
 	mustExec(t, e.super, `CHECKPOINT`)
-	mustExec(t, e.super, `VACUUM ANALYZE records`)
 	mustExec(t, e.super, `VACUUM ANALYZE org_unit_closure`)
-	var visible float64
-	if err := e.super.QueryRow(ctx, `SELECT relallvisible::float8 / greatest(relpages, 1) FROM pg_class WHERE oid = 'records'::regclass`).Scan(&visible); err != nil {
-		t.Fatal(err)
-	}
-	if visible < 0.99 {
-		t.Fatalf("records is %.0f %% all-visible after VACUUM, want all of it", 100*visible)
-	}
+	waitAllVisible(ctx, t, e, "records")
 	return w, roots, other
 }
+
+// waitAllVisible vacuums table until at least 99 % of its pages are in the
+// visibility map, for at most allVisibleLimit (TICK-1173). One VACUUM cannot
+// promise that: it leaves a page out while any backend in the database (an
+// autovacuum or autoanalyze worker, an open pool connection) holds a snapshot
+// older than the page's inserts, and it skips pages whose cleanup lock it
+// cannot take at once. FREEZE makes the pass aggressive, so it waits for those
+// locks instead. On failure the message names every backend that holds an
+// xmin, which is the one that pinned the horizon.
+func waitAllVisible(ctx context.Context, t *testing.T, e env, table string) {
+	t.Helper()
+	deadline := time.Now().Add(allVisibleLimit)
+	var visible float64
+	for attempt := 1; ; attempt++ {
+		mustExec(t, e.super, `CHECKPOINT`)
+		mustExec(t, e.super, `VACUUM (FREEZE, ANALYZE) `+pgx.Identifier{table}.Sanitize())
+		if err := e.super.QueryRow(ctx, `SELECT relallvisible::float8 / greatest(relpages, 1) FROM pg_class WHERE oid = $1::regclass`, table).Scan(&visible); err != nil {
+			t.Fatal(err)
+		}
+		if visible >= 0.99 {
+			if attempt > 1 {
+				t.Logf("%s all-visible after %d VACUUM passes", table, attempt)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			var holders string
+			if err := e.super.QueryRow(ctx, `SELECT coalesce(string_agg(format('pid=%s type=%s state=%s xmin=%s xact_start=%s query=%L',
+					pid, backend_type, coalesce(state, '-'), coalesce(backend_xmin::text, '-'), coalesce(xact_start::text, '-'), left(query, 80)), '; '), 'none')
+				FROM pg_stat_activity
+				WHERE (datname = current_database() OR datname IS NULL) AND pid <> pg_backend_pid()
+				  AND (backend_xmin IS NOT NULL OR backend_xid IS NOT NULL OR backend_type LIKE 'autovacuum%')`).Scan(&holders); err != nil {
+				t.Fatal(err)
+			}
+			t.Fatalf("%s is %.0f %% all-visible after %d VACUUM passes in %v, want all of it; backends that may hold the xmin horizon: %s",
+				table, 100*visible, attempt, allVisibleLimit, holders)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// allVisibleLimit bounds waitAllVisible.
+const allVisibleLimit = 5 * time.Second
 
 // recordsPlanSizes are the certified unit count and U_hash (A3-5): R runs
 // below the second only.
