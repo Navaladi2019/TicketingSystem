@@ -53,6 +53,9 @@ type stats struct {
 	ClosureRebuilt bool
 	// ClosureDriftRepaired: the run found the stored closure different from the live one and repaired it (TICK-1124).
 	ClosureDriftRepaired bool
+	// ClosureCompared: the run compared the whole stored closure with the live
+	// one (a run that touched no unit does) (TICK-1166).
+	ClosureCompared bool
 	// ClosureUnrooted is the number of live org units with no closure self
 	// row after the run (TICK-1058); anything above 0 is reported, not failed.
 	ClosureUnrooted int
@@ -125,6 +128,7 @@ func apply(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, changes identity.
 	if err != nil {
 		return st, err
 	}
+	st.ClosureCompared = len(st.closureTouched) == 0
 	if st.ClosureUnrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
 		return st, err
 	}
