@@ -62,24 +62,58 @@ func s22s29AttackPaths() []Path {
 		{Name: "S22 attack 2b: R3 race, writers of every records-writer role across the flip and the batched deletes of a real FieldIndexRemove leave 0 side rows and no registry row; with the barrier disabled the row can fail", Case: "CI-5", Role: "nava_worker",
 			Pending: "TICK-750", DB: s22s29NotWritten("2b needs TICK-750's FieldIndexRemove and its barrier test seam")},
 		{Name: "S22 attack 3: tenant_limits, no tenant role writes its own or another tenant's row; a tenant role reads its own row only, and nothing with no tenant set; only the manifest's operator role writes, and not across tenants", Case: "CI-2", Role: "nava_app",
-			Pending: "TICK-916", DB: s22TenantLimits},
-		{Name: "S22 attack 3b: the operator's tenant_limits change writes one audit entry naming the operator and the reason; a tenant admin's attempt is 403 and writes nothing", Case: "CI-2", Role: "nava_app",
-			Pending: "TICK-916", DB: s22s29NotWritten("3b drives TICK-751's operator route, whose path TICK-916 fixes")},
+			DB: s22TenantLimits},
+		{Name: "S22 attack 3b: tenant A's admin on the operator limits route, for tenant A or tenant B, is 403 and writes nothing; the operator's change of tenant B's limit, with tenant A named in the body, writes tenant B's row and one tenant B audit entry naming the operator and the reason, and nothing of tenant A", Case: "CI-2", Role: "nava_onboard",
+			API: s22OperatorLimits},
 		{Name: "S22 attack 4: with the legacy scan retired, no non-test Go code outside the allow-list evaluates a JSONB operator on records.data for a filter, and DataFilterTimeout and LegacyScanFields are gone", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-752", Check: s22NoJSONBFilter},
 		{Name: "S29 attack 1: the three backfill tables, as nava_app and nava_worker in tenant A, show no tenant B row, refuse a tenant B insert, and nava_app writes nothing; with no tenant set each reads zero rows; failures has no value column; tenant B's active job does not hold tenant A's admission (CI-3 (5), (6))", Case: "CI-2", Role: "nava_app",
-			Pending: "TICK-916", DB: s29Tables},
+			DB: s29Tables},
 		{Name: "S29 attack 2: getEntityType, .../backfill/failures and a default-adding publish on tenant B's key are the unknown key's 404 for tenant A and write nothing; a plain user's failures read is the same 404; tenant A's backfill and failures show tenant A's job only under a shared key; the publish's job and outbox rows are tenant A's, with no tenant in the payload (CI-3 (7))", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-919", DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Routes) }},
 		{Name: "S29 attack 3: with open backfill windows in both tenants under one key, a filter on the defaulted field never returns or counts a tenant B record, in the OR shape or the UNION ALL shape, and the UNION ALL arm never returns an ACL-hidden record", Case: "CI-8", Role: "nava_app",
 			Pending: "TICK-919", DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Filters) }},
-		{Name: "S29 attack 4: pipeline.Write(OpMaterialize) with a non-empty patch, a non-system source or another actor_system is refused with a typed code and writes nothing (CI-3 (4))", Case: "CI-2", Role: "nava_worker",
-			Pending: "TICK-916", DB: s22s29NotWritten("4 needs TICK-917's OpMaterialize request type")},
-		{Name: "S29 attack 5: a schema.backfill job t:A:… changes zero tenant B rows when tenant B has the same type key, its own job and pending rows (CI-3 (3)); its history carries no field value", Case: "CI-2", Role: "nava_worker",
-			Pending: "TICK-920", DB: s22s29NotWritten("5 drives TICK-920's schema.backfill workflow on the Temporal test server, as row 3b does")},
-		{Name: "S29 attack 6: the relay refuses a schema.backfill outbox row whose payload carries a tenant_id, and builds the workflow id from outbox.tenant_id only", Case: "CI-2", Role: "nava_relay",
-			Pending: "TICK-920", DB: s22s29NotWritten("6 drives TICK-918's relay dispatch")},
+		{Name: "S29 attack 4: pipeline.Write(OpMaterialize) in tenant A's transaction naming tenant B's record, or tenant B as the actor's tenant, writes nothing of tenant B; a non-empty patch, a non-system source, a principal or another actor_system is refused with a typed code and writes nothing (CI-3 (4))", Case: "CI-2", Role: "nava_worker",
+			DB: s29AttackRow(func(a s29Attacker) s29Fn { return a.S29Materialize4 })},
+		{Name: "S29 attack 5: a schema.backfill job t:A:… rewrites tenant A's records and changes zero tenant B rows when tenant B has the same type key, its own job and pending rows; a job id pairing tenant A with tenant B's definition, or tenant B's id under tenant A's header, ends with nothing written (CI-3 (3)); no activity payload carries a field value", Case: "CI-2", Role: "nava_worker",
+			DB: s29AttackRow(func(a s29Attacker) s29Fn { return a.S29Job5 })},
+		{Name: "S29 attack 6: the relay marks dead, with no Temporal call, a schema.backfill row whose payload carries a tenant_id; it starts a tenant A row naming tenant B's definition as t:A:… (the row's tenant, never the payload's) on the schema-backfill queue with no tenant in the input", Case: "CI-2", Role: "nava_relay",
+			DB: s29AttackRow(func(a s29Attacker) s29Fn { return a.S29Relay6 })},
 	}
+}
+
+// s29Fn is the body of an S29 row that drives the pipeline, the workflow or
+// the relay.
+type s29Fn = func(context.Context, *etIso, *s29Fixture) error
+
+// s29Attacker is the suite's Cluster when it can run rows S29 4 to 6: they
+// drive the records pipeline, the schema.backfill workflow on the Temporal
+// SDK test environment and the relay's dispatcher, so the bodies live in
+// s29_attack_isolation_test.go (integration tag), as row 3b's do.
+type s29Attacker interface {
+	S29Materialize4(context.Context, *etIso, *s29Fixture) error
+	S29Job5(context.Context, *etIso, *s29Fixture) error
+	S29Relay6(context.Context, *etIso, *s29Fixture) error
+}
+
+// s29AttackRow runs the s29Attacker method pick chooses on the S29 fixture.
+func s29AttackRow(pick func(s29Attacker) s29Fn) func(context.Context, Cluster) error {
+	return func(ctx context.Context, cl Cluster) error {
+		a, ok := cl.(s29Attacker)
+		if !ok {
+			return errors.New("rows S29 4 to 6 are not linked: s29_attack_isolation_test.go builds only under the integration tag")
+		}
+		return withS29Fixture(ctx, cl, pick(a))
+	}
+}
+
+// s22Err is err for a message that may be built with a nil err, so it reads
+// "no error" and not %!w(<nil>).
+func s22Err(err error) error {
+	if err == nil {
+		return errors.New("no error")
+	}
+	return err
 }
 
 // s22s29NotWritten is the body of a row whose test needs Go code that has
@@ -164,7 +198,7 @@ func s22RemoveAcrossTenants(ctx context.Context, e *etIso, _ *s21Fixture) error 
 	}
 	sideB, err := s22SideCount(ctx, e, "rfv_text", TenantB, noteB)
 	if err != nil || sideB != 2 {
-		return fmt.Errorf("control: tenant B's note side rows = %d (%w), want 2", sideB, err)
+		return fmt.Errorf("control: tenant B's note side rows = %d (%w), want 2", sideB, s22Err(err))
 	}
 	// $1 is the tenant the statement names, $2 the field id. The own run
 	// names tenant A and tenant A's field; the attack names tenant B's field,
@@ -229,7 +263,7 @@ func s22RemoveAcrossTenants(ctx context.Context, e *etIso, _ *s21Fixture) error 
 		return fmt.Errorf("the removal statements moved tenant B's registry (%w):\n%s\n%s", err, regB, got)
 	}
 	if n, err := s22SideCount(ctx, e, "rfv_text", TenantB, noteB); err != nil || n != sideB {
-		return fmt.Errorf("the removal statements moved tenant B's note side rows: %d -> %d (%w)", sideB, n, err)
+		return fmt.Errorf("the removal statements moved tenant B's note side rows: %d -> %d (%w)", sideB, n, s22Err(err))
 	}
 	return nil
 }
@@ -306,13 +340,13 @@ func s22RemovingTakesNoWrites(ctx context.Context, e *etIso, fx *s21Fixture) err
 		value, qty := "s22-removing-"+role, 7000+i
 		if err := inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
 			if n, err := execOne(ctx, tx, write, TenantA, value, qty, fx.desk); err != nil || n != 1 {
-				return fmt.Errorf("control: %s rewriting tenant A's record: %d rows, %w", role, n, err)
+				return fmt.Errorf("control: %s rewriting tenant A's record: %d rows, %w", role, n, s22Err(err))
 			}
 			if n, err := count(tx, `SELECT count(*) FROM rfv_num WHERE tenant_id = $1 AND field_id = $2 AND record_id = $3 AND value = $4`, TenantA, qtyA, fx.desk, qty); err != nil || n != 1 {
-				return fmt.Errorf("control: %s's write indexed tenant A's ready qty %d times (%w), want 1", role, n, err)
+				return fmt.Errorf("control: %s's write indexed tenant A's ready qty %d times (%w), want 1", role, n, s22Err(err))
 			}
 			if n, err := count(tx, `SELECT count(*) FROM rfv_text WHERE tenant_id = $1 AND field_id = $2 AND value = $3`, TenantA, noteA, value); err != nil || n != 0 {
-				return fmt.Errorf("%s's write added %d side rows (%w) to tenant A's note while it is removing, want 0", role, n, err)
+				return fmt.Errorf("%s's write added %d side rows (%w) to tenant A's note while it is removing, want 0", role, n, s22Err(err))
 			}
 			if role != "nava_worker" {
 				return nil
@@ -320,13 +354,13 @@ func s22RemovingTakesNoWrites(ctx context.Context, e *etIso, fx *s21Fixture) err
 			// D11 steps 3 to 5, as the workflow's role, in the writer's
 			// transaction.
 			if n, err := execOne(ctx, tx, `DELETE FROM rfv_text WHERE tenant_id = $1 AND field_id = $2`, TenantA, noteA); err != nil || n == 0 {
-				return fmt.Errorf("control: batched delete of tenant A's note: %d rows, %w", n, err)
+				return fmt.Errorf("control: batched delete of tenant A's note: %d rows, %w", n, s22Err(err))
 			}
 			if n, err := count(tx, `SELECT count(*) FROM rfv_text WHERE tenant_id = $1 AND field_id = $2`, TenantA, noteA); err != nil || n != 0 {
-				return fmt.Errorf("orphan: %d side rows of tenant A's removing note after the batched delete (%w)", n, err)
+				return fmt.Errorf("orphan: %d side rows of tenant A's removing note after the batched delete (%w)", n, s22Err(err))
 			}
 			if n, err := execOne(ctx, tx, `DELETE FROM record_index_fields WHERE tenant_id = $1 AND id = $2`, TenantA, noteA); err != nil || n != 1 {
-				return fmt.Errorf("registry delete of tenant A's note after the batched delete: %d rows, %w; want 1 (an orphan makes the D3 FK refuse it)", n, err)
+				return fmt.Errorf("registry delete of tenant A's note after the batched delete: %d rows, %w; want 1 (an orphan makes the D3 FK refuse it)", n, s22Err(err))
 			}
 			return nil
 		}); err != nil {
@@ -352,10 +386,10 @@ func s22RemovingTakesNoWrites(ctx context.Context, e *etIso, fx *s21Fixture) err
 		value := "s22-ready-" + role
 		if err := inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
 			if n, err := execOne(ctx, tx, write, TenantA, value, 1, fx.desk); err != nil || n != 1 {
-				return fmt.Errorf("control: %s rewriting tenant A's record: %d rows, %w", role, n, err)
+				return fmt.Errorf("control: %s rewriting tenant A's record: %d rows, %w", role, n, s22Err(err))
 			}
 			if n, err := count(tx, `SELECT count(*) FROM rfv_text WHERE tenant_id = $1 AND field_id = $2 AND value = $3`, TenantA, noteA, value); err != nil || n != 1 {
-				return fmt.Errorf("tenant B's removal changed tenant A's indexing: %s's write gave %d note rows (%w), want 1", role, n, err)
+				return fmt.Errorf("tenant B's removal changed tenant A's indexing: %s's write gave %d note rows (%w), want 1", role, n, s22Err(err))
 			}
 			return nil
 		}); err != nil {
@@ -363,7 +397,7 @@ func s22RemovingTakesNoWrites(ctx context.Context, e *etIso, fx *s21Fixture) err
 		}
 	}
 	if n, err := s22SideCount(ctx, e, "rfv_text", TenantB, noteB); err != nil || n != sideB {
-		return fmt.Errorf("tenant A's writes moved tenant B's note side rows: %d -> %d (%w)", sideB, n, err)
+		return fmt.Errorf("tenant A's writes moved tenant B's note side rows: %d -> %d (%w)", sideB, n, s22Err(err))
 	}
 	return nil
 }
@@ -372,13 +406,14 @@ func s22RemovingTakesNoWrites(ctx context.Context, e *etIso, fx *s21Fixture) err
 // of them may write tenant_limits (ADR-006 D12: an operator change only).
 func s22TenantRoles() []string { return []string{"nava_app", "nava_worker"} }
 
-// Row 3. tenant_limits (TICK-751, absorbed into TICK-916): rows for tenant
-// A (6) and tenant B (9) are seeded past the commit check. Every runtime
-// role, in tenant A's transaction:
+// Row 3. tenant_limits (TICK-751, absorbed into TICK-916): testdata/seed.sql
+// holds tenant A's row (6) and tenant B's (8). Every runtime role, in tenant
+// A's transaction:
 //   - a tenant role (nava_app, nava_worker) holds no write grant on the
 //     table in the manifest, and INSERT, UPDATE and DELETE of its own row
-//     and of tenant B's are refused (42501); its SELECT shows tenant A's row
-//     only (control: it is there);
+//     and of tenant B's are refused (42501); nava_app, whose publish reads
+//     the limit (fieldindex.PerTypeLimit), sees tenant A's row only
+//     (control: it is there); nava_worker reads nothing (no grant);
 //   - any role the manifest does let write (the operator path) reaches no
 //     tenant B row from tenant A's transaction.
 //
@@ -389,31 +424,6 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 	if err != nil {
 		return err
 	}
-	seed := func(q string, args ...any) error {
-		tx, err := super.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, q, args...); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	const upsert = `INSERT INTO tenant_limits (tenant_id, filterable_fields_per_type, updated_at, updated_by) VALUES ($1, $2, now(), 'tick-753')
-		ON CONFLICT (tenant_id) DO UPDATE SET filterable_fields_per_type = EXCLUDED.filterable_fields_per_type`
-	for _, r := range []struct {
-		tenant string
-		n      int
-	}{{TenantA, 6}, {TenantB, 9}} {
-		if err := seed(upsert, r.tenant, r.n); err != nil {
-			return fmt.Errorf("seed tenant_limits: %w", err)
-		}
-	}
-	defer func() { _ = seed(`DELETE FROM tenant_limits WHERE tenant_id IN ($1, $2)`, TenantA, TenantB) }()
 	readB := func() (int, error) {
 		var n int
 		err := super.QueryRow(ctx, `SELECT filterable_fields_per_type FROM tenant_limits WHERE tenant_id = $1`, TenantB).Scan(&n)
@@ -435,8 +445,8 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 		if tenantRole && writes {
 			return fmt.Errorf("db/grants.yaml lets tenant role %s write tenant_limits: a tenant could raise its own quota (ADR-006 D12)", role)
 		}
-		if tenantRole && !sel {
-			return fmt.Errorf("control: tenant role %s cannot read tenant_limits, so PerTypeLimit cannot either", role)
+		if role == "nava_app" && !sel {
+			return errors.New("control: nava_app cannot read tenant_limits, so PerTypeLimit cannot either")
 		}
 		pool, err := c.Pool(role)
 		if err != nil {
@@ -445,10 +455,10 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 		if err := inTenant(ctx, pool, TenantA, func(tx pgx.Tx) error {
 			if sel {
 				if n, err := execOne(ctx, tx, `SELECT 1 FROM tenant_limits WHERE tenant_id <> $1`, TenantA); err != nil || n != 0 {
-					return fmt.Errorf("%s read %d tenant_limits rows of other tenants (%w)", role, n, err)
+					return fmt.Errorf("%s read %d tenant_limits rows of other tenants (%w)", role, n, s22Err(err))
 				}
 				if n, err := execOne(ctx, tx, `SELECT 1 FROM tenant_limits WHERE tenant_id = $1`, TenantA); err != nil || n != 1 {
-					return fmt.Errorf("control: %s reading tenant A's own limit: %d rows, %w", role, n, err)
+					return fmt.Errorf("control: %s reading tenant A's own limit: %d rows, %w", role, n, s22Err(err))
 				}
 			}
 			for _, w := range []struct {
@@ -479,16 +489,142 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 		}); err != nil {
 			return err
 		}
-		if tenantRole {
+		if sel {
 			// No tenant set: zero rows, not every row.
 			var n int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM tenant_limits`).Scan(&n); err != nil || n != 0 {
-				return fmt.Errorf("%s with no tenant set read %d tenant_limits rows (%w), want 0", role, n, err)
+				return fmt.Errorf("%s with no tenant set read %d tenant_limits rows (%w), want 0", role, n, s22Err(err))
 			}
 		}
 	}
-	if n, err := readB(); err != nil || n != 9 {
-		return fmt.Errorf("tenant B's limit moved to %d (%w), want 9", n, err)
+	if n, err := readB(); err != nil || n != 8 {
+		return fmt.Errorf("tenant B's limit is %d (%w), want the seeded 8", n, s22Err(err))
+	}
+	return nil
+}
+
+// s22Limits is tenant's tenant_limits value ("none" without a row) and its
+// tenant_limits audit entries, read past RLS: actor_system and diff of each.
+func s22Limits(ctx context.Context, super *pgx.Conn, tenant string) (string, []string, error) {
+	var stored string
+	if err := super.QueryRow(ctx, `SELECT coalesce((SELECT filterable_fields_per_type::text FROM tenant_limits WHERE tenant_id = $1), 'none')`,
+		tenant).Scan(&stored); err != nil {
+		return "", nil, err
+	}
+	rows, err := super.Query(ctx, `SELECT coalesce(actor_system, '') || ' ' || coalesce(diff::text, '') FROM audit_log
+		WHERE tenant_id = $1 AND subject_type = 'tenant_limits' ORDER BY occurred_at, id`, tenant)
+	if err != nil {
+		return "", nil, err
+	}
+	entries, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return stored, entries, err
+}
+
+// s22RestoreLimits puts tenant B's seeded limit (8) back and deletes the
+// tenant_limits audit entries this row wrote, past the commit check.
+func s22RestoreLimits(ctx context.Context, super *pgx.Conn, seeded map[string][]string) error {
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE tenant_limits SET filterable_fields_per_type = 8 WHERE tenant_id = $1`, TenantB); err != nil {
+		return err
+	}
+	for _, tenant := range []string{TenantA, TenantB} {
+		if _, err := tx.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id = $1 AND subject_type = 'tenant_limits'
+			AND coalesce(actor_system, '') || ' ' || coalesce(diff::text, '') <> ALL($2::text[])`, tenant, seeded[tenant]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// Row 3b. The operator limits route (TICK-751, PUT
+// /api/v1/operator/tenants/{tenant}/limits), on the suite's real API handler
+// with the nava_onboard pool nava-core gives it:
+//   - tenant A's admin token, on tenant A's and on tenant B's limits, with a
+//     contract-valid body, is 403 forbidden and writes no row and no entry
+//     (T26-6 proves the 403 for every operator route; this row proves the
+//     write side of it);
+//   - the allow-listed operator raising tenant B to 7 with tenant A named in
+//     the body (tenant_id is not a member of the request) writes tenant B's
+//     row and exactly one tenant B entry whose actor is the operator and
+//     whose diff holds the reason; tenant A's row (6) and entries do not
+//     move. The tenant is the path's, never the body's.
+func s22OperatorLimits(ctx context.Context, c Cluster, s Server) error {
+	super, err := c.Super()
+	if err != nil {
+		return err
+	}
+	seeded := map[string][]string{}
+	before := map[string]string{}
+	for _, tenant := range []string{TenantA, TenantB} {
+		v, entries, err := s22Limits(ctx, super, tenant)
+		if err != nil {
+			return err
+		}
+		before[tenant], seeded[tenant] = v, entries
+	}
+	if before[TenantA] != "6" || before[TenantB] != "8" {
+		return fmt.Errorf("control: the seeded limits are A=%s B=%s, want 6 and 8", before[TenantA], before[TenantB])
+	}
+	defer func() { _ = s22RestoreLimits(context.WithoutCancel(ctx), super, seeded) }()
+	path := func(tenant string) string { return "/api/v1/operator/tenants/" + tenant + "/limits" }
+	key := func(k string) http.Header { return http.Header{"Idempotency-Key": {"iso-s22-3b-" + k}} }
+	const body = `{"filterable_fields_per_type": 10, "reason": "iso s22 3b"}`
+	admin := s.Mint(Token{Subject: isoTenantSubject, RealmRoles: []string{"tenant-admin"}})
+	for _, tenant := range []string{TenantA, TenantB} {
+		status, out := s.Do(ctx, http.MethodPut, path(tenant), admin, body, key("admin-"+tenant))
+		if status != http.StatusForbidden || !strings.Contains(out, `"forbidden"`) {
+			return fmt.Errorf("tenant A's admin on tenant %s's limits = %d %s, want 403 forbidden", tenant, status, out)
+		}
+	}
+	for _, tenant := range []string{TenantA, TenantB} {
+		v, entries, err := s22Limits(ctx, super, tenant)
+		if err != nil {
+			return err
+		}
+		if v != before[tenant] || !slices.Equal(entries, seeded[tenant]) {
+			return fmt.Errorf("tenant A's admin moved tenant %s's limit %s -> %s or its entries %v -> %v", tenant, before[tenant], v, seeded[tenant], entries)
+		}
+	}
+	op := operatorToken(s, false)
+	forged := fmt.Sprintf(`{"filterable_fields_per_type": 7, "reason": "iso s22 3b measured", "tenant_id": %q}`, TenantA)
+	status, out := s.Do(ctx, http.MethodPut, path(TenantB), op, forged, key("op-b"))
+	switch {
+	case status == http.StatusBadRequest:
+		// The contract refused the extra member: nothing may be written.
+		for _, tenant := range []string{TenantA, TenantB} {
+			if v, entries, err := s22Limits(ctx, super, tenant); err != nil || v != before[tenant] || len(entries) != len(seeded[tenant]) {
+				return fmt.Errorf("a refused operator request moved tenant %s: %s, %d entries (%w)", tenant, v, len(entries), s22Err(err))
+			}
+		}
+		// Control: the same change without the extra member.
+		status, out = s.Do(ctx, http.MethodPut, path(TenantB), op, `{"filterable_fields_per_type": 7, "reason": "iso s22 3b measured"}`, key("op-b2"))
+		if status != http.StatusOK {
+			return fmt.Errorf("control: the operator raising tenant B to 7 = %d %s, want 200", status, out)
+		}
+	case status != http.StatusOK:
+		return fmt.Errorf("control: the operator raising tenant B to 7 = %d %s, want 200 (or 400 for the extra member)", status, out)
+	}
+	vb, entriesB, err := s22Limits(ctx, super, TenantB)
+	if err != nil {
+		return err
+	}
+	added := slices.DeleteFunc(slices.Clone(entriesB), func(e string) bool { return slices.Contains(seeded[TenantB], e) })
+	if vb != "7" || len(added) != 1 || !strings.HasPrefix(added[0], "operator:") || !strings.Contains(added[0], "iso s22 3b measured") {
+		return fmt.Errorf("the operator's change of tenant B: limit %s, new entries %v; want 7 and one entry naming the operator and the reason", vb, added)
+	}
+	va, entriesA, err := s22Limits(ctx, super, TenantA)
+	if err != nil {
+		return err
+	}
+	if va != before[TenantA] || !slices.Equal(entriesA, seeded[TenantA]) {
+		return fmt.Errorf("the operator's change of tenant B (body naming tenant A) moved tenant A: limit %s -> %s, entries %v -> %v", before[TenantA], va, seeded[TenantA], entriesA)
 	}
 	return nil
 }
@@ -497,7 +633,7 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 // operator (containment, key existence, path or key extraction), also after
 // a cast (data::jsonb ->>), or a jsonb_* function taking the column as its
 // first argument (jsonb_extract_path_text(data, ...), jsonb_path_exists(...)).
-var s22JSONBOnData = regexp.MustCompile(`\bdata\s*(::\s*jsonb\s*)?(@>|<@|->>|->|#>>|#>|\?\||\?&|\?|@\?|@@)|\bjsonb_[a-z_]+\s*\(\s*([a-z_]+\.)?data\b`)
+var s22JSONBOnData = regexp.MustCompile(`(?i)\bdata\s*(::\s*jsonb\s*)?(@>|<@|->>|->|#>>|#>|\?\||\?&|\?|@\?|@@)|\bjsonb_[a-z_]+\s*\(\s*([a-z_]+\.)?data\b`)
 
 // s22JSONBAllowed are the non-test files that may apply a JSONB operator to
 // records.data, none of them a filter route:
@@ -622,7 +758,7 @@ func s29Seed(ctx context.Context, super *pgx.Conn) error {
 	}{
 		{`SET LOCAL session_replication_role = replica`, nil},
 		{`INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys, rewritten, skipped, failed, created_at)
-			VALUES ($1, $2, 753, 'pending', '{iso_s29}', 0, 0, 0, now()), ($3, $4, 753, 'running', '{iso_s29}', 31337, 0, 1, now())`,
+			VALUES ($1, $2, 753, 'pending', '{iso_s29}', 0, 0, 0, now()), ($3, $4, 753, 'failed_records', '{iso_s29}', 31337, 0, 1, now())`,
 			[]any{TenantA, ticketDefA, TenantB, incidentDefB}},
 		{`INSERT INTO schema_backfill_pending (tenant_id, entity_definition_id, target_version, record_id) VALUES ($1, $2, 753, $3), ($4, $5, 753, $6)`,
 			[]any{TenantA, ticketDefA, RecordA1, TenantB, incidentDefB, RecordB1}},
@@ -708,11 +844,11 @@ func s29Tables(ctx context.Context, c Cluster) error {
 					{"rows of tenant B's definition", `SELECT 1 FROM ` + table + ` WHERE entity_definition_id = $1`, incidentDefB},
 				} {
 					if n, err := execOne(ctx, tx, q.q, q.arg); err != nil || n != 0 {
-						return fmt.Errorf("%s: %s read %d %s (%w)", role, table, n, q.what, err)
+						return fmt.Errorf("%s: %s read %d %s (%w)", role, table, n, q.what, s22Err(err))
 					}
 				}
-				if n, err := execOne(ctx, tx, `SELECT 1 FROM `+table+` WHERE tenant_id = $1 AND entity_definition_id = $2`, TenantA, ticketDefA); err != nil || n != 1 {
-					return fmt.Errorf("control: %s: %s read %d of tenant A's own rows (%w), want 1", role, table, n, err)
+				if n, err := execOne(ctx, tx, `SELECT 1 FROM `+table+` WHERE tenant_id = $1 AND entity_definition_id = $2 AND target_version = 753`, TenantA, ticketDefA); err != nil || n != 1 {
+					return fmt.Errorf("control: %s: %s read %d of tenant A's own rows (%w), want 1", role, table, n, s22Err(err))
 				}
 				for _, bad := range []struct{ what, tenant, def, record string }{
 					{"a row of tenant B", TenantB, incidentDefB, RecordB1},
@@ -754,8 +890,8 @@ func s29Tables(ctx context.Context, c Cluster) error {
 						return fmt.Errorf("%s: %s reached %d of tenant B's rows (%w): %s", role, table, n, err, q)
 					}
 				}
-				if n, err := execOne(ctx, tx, `UPDATE `+table+` SET target_version = target_version WHERE tenant_id = $1`, TenantA); err != nil || n != 1 {
-					return fmt.Errorf("control: %s: %s UPDATE of its own row: %d rows, %w", role, table, n, err)
+				if n, err := execOne(ctx, tx, `UPDATE `+table+` SET target_version = target_version WHERE tenant_id = $1 AND target_version = 753`, TenantA); err != nil || n != 1 {
+					return fmt.Errorf("control: %s: %s UPDATE of its own row: %d rows, %w", role, table, n, s22Err(err))
 				}
 				return nil
 			}); err != nil {
@@ -763,7 +899,7 @@ func s29Tables(ctx context.Context, c Cluster) error {
 			}
 			var n int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
-				return fmt.Errorf("%s with no tenant set read %d rows of %s (%w), want 0", role, n, table, err)
+				return fmt.Errorf("%s with no tenant set read %d rows of %s (%w), want 0", role, n, table, s22Err(err))
 			}
 		}
 	}
@@ -775,13 +911,13 @@ func s29Tables(ctx context.Context, c Cluster) error {
 	return inTenant(ctx, worker, TenantA, func(tx pgx.Tx) error {
 		const admit = `UPDATE schema_backfills SET state = 'filling', started_at = now() WHERE tenant_id = $1 AND entity_definition_id = $2 AND target_version = $3 AND state = 'pending'`
 		if n, err := execOne(ctx, tx, admit, TenantA, ticketDefA, 753); err != nil || n != 1 {
-			return fmt.Errorf("tenant A's admission with tenant B's job running: %d rows, %w; want 1 (another tenant's job must not hold tenant A's slot)", n, err)
+			return fmt.Errorf("tenant A's admission with tenant B's job running: %d rows, %w; want 1 (another tenant's job must not hold tenant A's slot)", n, s22Err(err))
 		}
 		if _, err := execOne(ctx, tx, inserts["schema_backfills"], TenantA, ticketDefA); err != nil {
 			return fmt.Errorf("control: second tenant A job: %w", err)
 		}
 		if _, err := execOne(ctx, tx, admit, TenantA, ticketDefA, 754); sqlState(err) != "23505" {
-			return fmt.Errorf("control: a second active tenant A job = %w, want 23505 on schema_backfills_one_active_per_tenant", err)
+			return fmt.Errorf("control: a second active tenant A job = %w, want 23505 on schema_backfills_one_active_per_tenant", s22Err(err))
 		}
 		return nil
 	})
@@ -914,7 +1050,7 @@ func s29Setup(ctx context.Context, e *etIso) (*s29Fixture, error) {
 	// Control: the v1 records lack prio in storage.
 	var lacking int
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM records WHERE id = ANY($1::uuid[]) AND NOT (data ? 'prio')`, []string{fx.a1, fx.a3, fx.b1}).Scan(&lacking); err != nil || lacking != 3 {
-		return nil, fmt.Errorf("control: %d of the v1 records lack prio (%w), want 3", lacking, err)
+		return nil, fmt.Errorf("control: %d of the v1 records lack prio (%w), want 3", lacking, s22Err(err))
 	}
 	return fx, nil
 }
@@ -1177,7 +1313,7 @@ func s29Routes(ctx context.Context, e *etIso, fx *s29Fixture) error {
 	var mismatched int
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM schema_backfills b WHERE NOT EXISTS
 		(SELECT 1 FROM entity_definitions d WHERE d.tenant_id = b.tenant_id AND d.id = b.entity_definition_id)`).Scan(&mismatched); err != nil || mismatched != 0 {
-		return fmt.Errorf("%d backfill jobs are not of their definition's tenant (%w)", mismatched, err)
+		return fmt.Errorf("%d backfill jobs are not of their definition's tenant (%w)", mismatched, s22Err(err))
 	}
 	return nil
 }
