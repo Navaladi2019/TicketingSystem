@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
+	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 )
 
@@ -42,14 +44,23 @@ func TestChildAndContinueAsNewAllowEveryPlatformType(t *testing.T) {
 	tok := taskToken(t, wfA)
 	for _, wt := range types {
 		t.Run(wt, func(t *testing.T) {
+			// Each type on its own queue (workflowTypeQueue, TICK-920).
+			tq := &taskqueuepb.TaskQueue{Name: workflowTypeQueue(wt), Kind: enumspb.TASK_QUEUE_KIND_NORMAL}
+			// and a schema.backfill under its own id form.
+			id := "t:tenantA:wf:1"
+			if wt == schemaBackfillType {
+				id = schemaBackfillA
+			}
 			sws := &workflowservice.SignalWithStartWorkflowExecutionRequest{
-				Namespace: Namespace, WorkflowId: "t:tenantA:wf:1", SignalName: "event",
-				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: interpreterQueue()}
+				Namespace: Namespace, WorkflowId: id, SignalName: "event",
+				WorkflowType: &commonpb.WorkflowType{Name: wt}, TaskQueue: tq}
+			start := interpreterStart(id, wt)
+			start.TaskQueue = tq
 			if inSet(childOnlyWorkflowTypes(), wt) {
-				requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt), ReasonWorkflowType)
+				requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", start, ReasonWorkflowType)
 				requireWorkloadDeny(t, Relay, wf+"SignalWithStartWorkflowExecution", sws, ReasonWorkflowType)
 			} else {
-				requireWorkloadAllow(t, Relay, wf+"StartWorkflowExecution", interpreterStart("t:tenantA:wf:1", wt))
+				requireWorkloadAllow(t, Relay, wf+"StartWorkflowExecution", start)
 				requireWorkloadAllow(t, Relay, wf+"SignalWithStartWorkflowExecution", sws)
 			}
 			child := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))

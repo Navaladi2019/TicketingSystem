@@ -2,10 +2,9 @@ package authz
 
 // TICK-920 (PLAN-010 P10-03, ADR-009 D2; RFC-021 CI-3 (1) and (2)): the
 // schema backfill runs as workflow type schema.backfill on its own queue,
-// schema-backfill. nava-relay starts it under a
-// `t:<tenant>:schema.backfill:<entity_definition_id>:<target_version>` id,
-// and nothing else does. It is start-only: no worker command may start it as
-// a child or continue as it.
+// schema-backfill. The S29 adversarial suite (adversarial_s22_s29_test.go,
+// TICK-753) holds the shared names and the relay-only, start-only and
+// side-door cases; these are the workload cases it does not cover.
 
 import (
 	"testing"
@@ -13,25 +12,8 @@ import (
 	commandpb "go.temporal.io/api/command/v1"
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
-	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 )
-
-const (
-	schemaBackfillType  = "schema.backfill"
-	schemaBackfillQueue = "schema-backfill"
-	// schemaBackfillA is tenantA's job for one definition at version 3.
-	schemaBackfillA = "t:tenantA:schema.backfill:0192aaaa-0000-7000-8000-0000000000d1:3"
-)
-
-func schemaBackfillTQ() *taskqueuepb.TaskQueue {
-	return &taskqueuepb.TaskQueue{Name: schemaBackfillQueue, Kind: enumspb.TASK_QUEUE_KIND_NORMAL}
-}
-
-func schemaBackfillStart(wfID string) *workflowservice.StartWorkflowExecutionRequest {
-	return &workflowservice.StartWorkflowExecutionRequest{Namespace: Namespace, WorkflowId: wfID,
-		WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: schemaBackfillTQ()}
-}
 
 // CI-3 (1), positive: the relay starts a job on schema-backfill, and the
 // worker polls that queue for workflow and activity tasks.
@@ -43,28 +25,9 @@ func TestRelayStartsSchemaBackfill(t *testing.T) {
 		&workflowservice.PollActivityTaskQueueRequest{Namespace: Namespace, TaskQueue: schemaBackfillTQ()})
 }
 
-// CI-3 (1), negative: a start with no `t:<tenant>:` prefix is denied.
-func TestSchemaBackfillNeedsTenantPrefix(t *testing.T) {
-	for _, id := range []string{
-		"schema.backfill:0192aaaa-0000-7000-8000-0000000000d1:3", "t::schema.backfill:0192aaaa-0000-7000-8000-0000000000d1:3",
-		"t:tenantA", "",
-	} {
-		t.Run(id, func(t *testing.T) {
-			requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", schemaBackfillStart(id), ReasonNoTenantPrefix)
-		})
-	}
-}
-
-// CI-3 (1), negative: no identity but the relay may start schema.backfill.
-func TestSchemaBackfillStartedByRelayOnly(t *testing.T) {
-	for _, id := range []Identity{Worker, Core, Operator} {
-		t.Run(string(id), func(t *testing.T) {
-			requireAPIDeny(t, id, wf+"StartWorkflowExecution", schemaBackfillStart(schemaBackfillA))
-		})
-	}
-}
-
-// Negative: the new queue is exact match, NORMAL only.
+// Negative: schema.backfill on nava-tq is denied: each type runs on its own
+// queue (workflowTypeQueue), so a job never runs outside the worker that caps
+// it. The new queue is exact match, NORMAL only.
 func TestSchemaBackfillOtherQueuesDenied(t *testing.T) {
 	for _, c := range []struct {
 		name, tq string
@@ -72,7 +35,7 @@ func TestSchemaBackfillOtherQueuesDenied(t *testing.T) {
 		normal   string
 		reason   string
 	}{
-		{"look-alike queue", "schema-backfill ", enumspb.TASK_QUEUE_KIND_NORMAL, "", ReasonTaskQueue},
+		{"nava-tq", "nava-tq", enumspb.TASK_QUEUE_KIND_NORMAL, "", ReasonTaskQueue},
 		{"underscore queue", "schema_backfill", enumspb.TASK_QUEUE_KIND_NORMAL, "", ReasonTaskQueue},
 		{"sticky kind", schemaBackfillQueue, enumspb.TASK_QUEUE_KIND_STICKY, schemaBackfillQueue, ReasonTaskQueueKind},
 	} {
@@ -84,41 +47,25 @@ func TestSchemaBackfillOtherQueuesDenied(t *testing.T) {
 	}
 }
 
-// CI-3 (2): a worker command may not name schema.backfill. A child or a
-// continue-as-new of it, otherwise a valid tenantA command with the tenant
-// header, is denied as workflow_type_not_allowed: no workflow can run a job
-// around the relay start of a row written under RLS.
-func TestWorkerCommandsCannotNameSchemaBackfill(t *testing.T) {
+// Negative: no worker command puts another type on schema-backfill. An
+// interpreter child or continue-as-new that names the queue is denied as
+// task_queue_not_allowed; the same commands on nava-tq stay allowed.
+func TestWorkerCommandsCannotUseTheSchemaBackfillQueue(t *testing.T) {
 	tok := taskToken(t, wfA)
-	jobTok := taskToken(t, schemaBackfillA)
-
-	child := func(workflowID string) *commandpb.Command {
-		cmd := interpreterChild(workflowID, jsonString("tenantA"))
-		cmd.GetStartChildWorkflowExecutionCommandAttributes().WorkflowType.Name = schemaBackfillType
-		return cmd
-	}
-	can := func() *commandpb.Command {
-		cmd := interpreterContinueAsNew(jsonString("tenantA"))
-		cmd.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = schemaBackfillType
-		return cmd
-	}
-	other := "t:tenantA:schema.backfill:0192aaaa-0000-7000-8000-0000000000d1:4"
+	child := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
+	child.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = schemaBackfillTQ()
+	can := interpreterContinueAsNew(jsonString("tenantA"))
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().TaskQueue = schemaBackfillTQ()
 	for _, c := range []denyCase{
-		{name: "interpreter starts a job child", req: respond(tok, child(other)),
-			reason: ReasonWorkflowType, command: "StartChildWorkflowExecution", workflowID: wfA, target: other, commandIdx: "0"},
-		{name: "job starts a job child", req: respond(jobTok, child(other)),
-			reason: ReasonWorkflowType, command: "StartChildWorkflowExecution", workflowID: schemaBackfillA, target: other, commandIdx: "0"},
-		{name: "interpreter continues as a job", req: respond(tok, can()),
-			reason: ReasonWorkflowType, command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"},
-		{name: "job continues as a job", req: respond(jobTok, can()),
-			reason: ReasonWorkflowType, command: "ContinueAsNewWorkflowExecution", workflowID: schemaBackfillA, commandIdx: "0"},
+		{name: "interpreter child on schema-backfill", req: respond(tok, child), reason: ReasonTaskQueue,
+			command: "StartChildWorkflowExecution", workflowID: wfA, target: "t:tenantA:wf:1:child", commandIdx: "0"},
+		{name: "interpreter continues on schema-backfill", req: respond(tok, can), reason: ReasonTaskQueue,
+			command: "ContinueAsNewWorkflowExecution", workflowID: wfA, commandIdx: "0"},
 	} {
 		t.Run(c.name, func(t *testing.T) { requireCommandDeny(t, c) })
 	}
-	_, _, logs := authorizeWorker(t, respond(tok, can()))
-	if len(logs) != 1 || logs[0]["detail"] != `workflow type "schema.backfill" is start-only` {
-		t.Fatalf("log detail = %v, want the start-only detail", logs)
-	}
+	requireCommandAllow(t, respond(tok, interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))))
+	requireCommandAllow(t, respond(tok, interpreterContinueAsNew(jsonString("tenantA"))))
 }
 
 // Positive: a job's ordinary commands (activities with the tenant header,
@@ -128,4 +75,53 @@ func TestSchemaBackfillRunKeepsOrdinaryCommands(t *testing.T) {
 	requireCommandAllow(t, respond(jobTok, scheduleActivity(jsonString("tenantA"))))
 	requireCommandAllow(t, respond(jobTok, &commandpb.Command{CommandType: enumspb.COMMAND_TYPE_START_TIMER}))
 	requireCommandAllow(t, respond(jobTok, &commandpb.Command{CommandType: enumspb.COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION}))
+}
+
+// A child or continue-as-new with no queue runs on its parent's
+// (inheritedQueue), so the type/queue binding checks that queue too. A
+// schema.backfill task that starts a nava.interpreter child with no queue is
+// denied: the child would run on schema-backfill. The job's own
+// continue-as-new with no queue passes the queue binding (it inherits its own
+// queue); it is still denied, as start-only (ADR-009 D2, CI-3 (2)), until a
+// decision lifts that.
+func TestSchemaBackfillInheritedQueueIsBound(t *testing.T) {
+	jobTok := taskToken(t, schemaBackfillA)
+	child := interpreterChild(schemaBackfillA+":child", jsonString("tenantA"))
+	child.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandDeny(t, denyCase{name: "job starts an interpreter child with no queue", req: respond(jobTok, child),
+		reason: ReasonTaskQueue, command: "StartChildWorkflowExecution", workflowID: schemaBackfillA,
+		target: schemaBackfillA + ":child", commandIdx: "0"})
+
+	if r, d := checkCommandWorkload(&commonpb.WorkflowType{Name: interpreterType}, nil, schemaBackfillA); r != ReasonTaskQueue {
+		t.Errorf("interpreter from a job, no queue: %q %q, want %s", r, d, ReasonTaskQueue)
+	}
+	if r, d := checkTypeQueue(schemaBackfillType, inheritedQueue(schemaBackfillA)); r != "" {
+		t.Errorf("the job's own continue-as-new, no queue: queue binding %q %q, want allowed", r, d)
+	}
+	can := interpreterContinueAsNew(jsonString("tenantA"))
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().WorkflowType.Name = schemaBackfillType
+	can.GetContinueAsNewWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandDeny(t, denyCase{name: "job continues as new, no queue", req: respond(jobTok, can),
+		reason: ReasonWorkflowType, command: "ContinueAsNewWorkflowExecution", workflowID: schemaBackfillA, commandIdx: "0"})
+
+	// An interpreter's children and continue-as-new with no queue inherit
+	// nava-tq and stay allowed.
+	tok := taskToken(t, wfA)
+	plain := interpreterChild("t:tenantA:wf:1:child", jsonString("tenantA"))
+	plain.GetStartChildWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandAllow(t, respond(tok, plain))
+	ican := interpreterContinueAsNew(jsonString("tenantA"))
+	ican.GetContinueAsNewWorkflowExecutionCommandAttributes().TaskQueue = nil
+	requireCommandAllow(t, respond(tok, ican))
+}
+
+// A relay start's id and type agree: a schema.backfill start must have a
+// t:<tenant>:schema.backfill: id, and no other type may have one, so the
+// queue a command inherits is always read right from the id.
+func TestSchemaBackfillIDAndTypeAgree(t *testing.T) {
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", schemaBackfillStart("t:tenantA:wf:1"), ReasonWorkflowType)
+	requireWorkloadDeny(t, Relay, wf+"StartWorkflowExecution", interpreterStart(schemaBackfillA, interpreterType), ReasonWorkflowType)
+	if isSchemaBackfillID("t:tenantA:schema.backfill:") || isSchemaBackfillID("schema.backfill:x:1") || !isSchemaBackfillID(schemaBackfillA) {
+		t.Error("isSchemaBackfillID misreads an id")
+	}
 }

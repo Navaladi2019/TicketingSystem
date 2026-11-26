@@ -14,8 +14,8 @@ import (
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 )
 
-// schemaBackfillB is tenantB's job for a definition at version 3.
-const schemaBackfillB = "t:tenantB:schema.backfill:0192bbbb-0000-7000-8000-0000000000d2:3"
+// schemaBackfillB, tenantB's job, is declared with the S29 suite
+// (adversarial_s22_s29_test.go).
 
 // activityOn schedules an activity on queue tq with the tenant header set to
 // tenant.

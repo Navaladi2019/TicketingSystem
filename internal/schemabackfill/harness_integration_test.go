@@ -529,7 +529,7 @@ func (r *run) sum(name string, match func(map[string]string) bool) int64 {
 			for _, dp := range sum.DataPoints {
 				attrs := map[string]string{}
 				for _, kv := range dp.Attributes.ToSlice() {
-					attrs[string(kv.Key)] = kv.Value.Emit()
+					attrs[string(kv.Key)] = kv.Value.String()
 				}
 				if match(attrs) {
 					n += dp.Value

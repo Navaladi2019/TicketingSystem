@@ -310,15 +310,12 @@ func TestBackfillRetriedPageAuditsOnce(t *testing.T) {
 		VALUES ($1, $2, 2, $3)`, f2.tenant, f2.def, id)
 	ctx, cancel := context.WithCancel(context.Background())
 	err := tenancy.InTenantTx(ctx, e.worker, f2.tenant, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(ctx, `DELETE FROM schema_backfill_pending WHERE tenant_id = $1 AND record_id = $2`, f2.tenant, id); err != nil {
 			return err
 		}
 		cancel()
 		return ctx.Err()
-	})
+	}, tenancy.WithSynchronousCommitOff())
 	if err == nil {
 		t.Fatal("the cancelled transaction committed")
 	}

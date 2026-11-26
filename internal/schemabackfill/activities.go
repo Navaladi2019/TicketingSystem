@@ -199,10 +199,6 @@ WHERE b.tenant_id = $1 AND b.entity_definition_id = $2 AND b.target_version = $3
 	pageSQL = `SELECT record_id FROM schema_backfill_pending
 WHERE tenant_id = $1 AND entity_definition_id = $2 AND target_version = $3 AND ($4::uuid IS NULL OR record_id > $4)
 ORDER BY record_id LIMIT $5`
-	// syncOffSQL is the first statement of each record's transaction (D7):
-	// a commit lost in a crash leaves the id pending, and the next pass
-	// repeats it.
-	syncOffSQL = `SET LOCAL synchronous_commit = off`
 	// takePendingSQL removes one id from the queue, in the record's own
 	// transaction; it locks the queue row, so a second attempt at the same
 	// id waits for the first and then finds nothing to do.
@@ -522,10 +518,9 @@ func (a *Activities) pendingIDs(ctx context.Context, j Job, after *uuid.UUID) ([
 // the activity is retried and the id is still pending.
 func (a *Activities) rewrite(ctx context.Context, j Job, pc pageContext, id uuid.UUID) error {
 	var written bool
+	// synchronous_commit off (tenancy.WithSynchronousCommitOff): a commit
+	// lost in a crash leaves the id pending, and the next pass repeats it.
 	err := tenancy.InTenantTx(ctx, a.Pool, j.Tenant, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, syncOffSQL); err != nil {
-			return err
-		}
 		tag, err := tx.Exec(ctx, takePendingSQL, j.Tenant, j.Definition, j.Version, id)
 		if err != nil {
 			return err
@@ -545,7 +540,7 @@ func (a *Activities) rewrite(ctx context.Context, j Job, pc pageContext, id uuid
 		}
 		_, err = tx.Exec(ctx, countSQL, j.Tenant, j.Definition, j.Version, rw, sk)
 		return err
-	})
+	}, tenancy.WithSynchronousCommitOff())
 	if err == nil {
 		return nil
 	}

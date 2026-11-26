@@ -229,9 +229,19 @@ func checkStartRequest(request any) *commandDenial {
 		reason, detail = checkNormalTaskQueue(tq)
 	}
 	if reason == "" {
+		reason, detail = checkTypeQueue(wt.GetName(), tq.GetName())
+	}
+	if reason == "" {
 		if _, ok := tenantOf(workflowID); !ok {
 			reason = ReasonNoTenantPrefix
 		}
+	}
+	if reason == "" && (wt.GetName() == schemaBackfillWorkflowType) != isSchemaBackfillID(workflowID) {
+		// The id and the type agree, so a command with no queue inherits the
+		// right one (inheritedQueue): a schema.backfill start has a
+		// t:<tenant>:schema.backfill: id, and no other type has one.
+		reason, detail = ReasonWorkflowType, "workflow type "+strconv.Quote(truncate(wt.GetName(), maxLoggedName))+
+			" does not match the workflow id's schema.backfill form"
 	}
 	if reason == "" {
 		reason, detail = checkStartSchedule(cron, retry)
@@ -560,6 +570,18 @@ func checkWorkflowType(name string) (reason, detail string) {
 		return "", ""
 	}
 	return ReasonWorkflowType, "workflow type " + strconv.Quote(truncate(name, maxLoggedName))
+}
+
+// checkTypeQueue allows a platform type only on its own queue
+// (workflowTypeQueue). An empty queue is not checked here: a start's empty
+// queue fails checkNormalTaskQueue first, and a command's empty queue
+// inherits its workflow's.
+func checkTypeQueue(workflowType, queue string) (reason, detail string) {
+	if queue == "" || queue == workflowTypeQueue(workflowType) {
+		return "", ""
+	}
+	return ReasonTaskQueue, "task queue " + strconv.Quote(truncate(queue, maxLoggedName)) + " is not the queue of workflow type " +
+		strconv.Quote(truncate(workflowType, maxLoggedName))
 }
 
 // checkNormalTaskQueue allows a NORMAL (or UNSPECIFIED) platform task queue.
