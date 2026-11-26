@@ -64,6 +64,8 @@ type options struct {
 	skipCount  bool
 	// listStatement: see handlers.
 	listStatement func(sql string, args []any)
+	// listIndexTerm: the I5 mutants' side-table term seam (WithListIndexTerm).
+	listIndexTerm IndexTerm
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

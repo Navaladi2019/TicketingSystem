@@ -297,3 +297,9 @@ func (h *handlers) observeIndexedList(ctx context.Context, d time.Duration, page
 		attribute.String("acl", acl),
 		attribute.String("total_state", string(page.TotalState))))
 }
+
+// IndexTerm rewrites the side-table EXISTS of one data field: real is the term
+// existsTerm rendered, table its side table and field the registry id. Only
+// the I5 mutants of the isolation suite supply one (WithListIndexTerm,
+// integration builds only); production lists render real unchanged.
+type IndexTerm func(real, table, field string) string
