@@ -9,6 +9,7 @@ package pipeline_test
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -232,12 +233,18 @@ func recordsFaults(plan planNode, want []string) []string {
 	return out
 }
 
-// recordsScans are the reads R may make: the page walks the sort index; the
-// count reads an index led by (tenant_id, entity_definition_id), plain or as a
-// bitmap. Several cost the planner the same there, so the count is pinned to
-// the class: a plan outside it, records_org_unit or a Seq Scan, is A3-R2's
-// trigger (Postgres & Data Modeling Specialist).
-func recordsScans(t *testing.T, e env) (page, counted []string) {
+// pageRead is the R page's read of records (A3-1, A4-3): a walk of the sort
+// index with heap reads. coveringRead is the R count's (ADR-010-A4 A4-5): an
+// Index Only Scan of the same index, which holds org_unit_id as INCLUDE.
+const (
+	pageRead     = "Index Scan records_list_updated"
+	coveringRead = "Index Only Scan records_list_updated"
+)
+
+// typeSliceReads are the reads A4-7's generic-plan report accepts for the
+// count: the covering Index Only Scan, or a walk or a bitmap of an index led by
+// (tenant_id, entity_definition_id), the type's slice.
+func typeSliceReads(t *testing.T, e env) []string {
 	t.Helper()
 	rows, err := e.super.Query(context.Background(), `SELECT indexname FROM pg_indexes
 		WHERE tablename = 'records' AND indexdef LIKE '%(tenant_id, entity_definition_id,%' AND indexdef NOT LIKE '% WHERE %'`)
@@ -248,22 +255,117 @@ func recordsScans(t *testing.T, e env) (page, counted []string) {
 	if err != nil || slices.Contains(names, "records_org_unit") || !slices.Contains(names, "records_list_updated") {
 		t.Fatalf("(tenant_id, entity_definition_id, …) indexes %q, %v", names, err)
 	}
+	out := []string{coveringRead}
 	for _, n := range names {
-		counted = append(counted, "Index Scan "+n, "Bitmap Heap Scan "+n)
+		out = append(out, "Index Scan "+n, "Bitmap Heap Scan "+n)
 	}
-	return []string{"Index Scan records_list_updated"}, counted
+	return out
 }
 
-// recordsPlanWorld is a records table R is chosen for: a subtree of each size
-// in recordsPlanSizes, 20,000 records of the world's type in other units
-// (m = 0, the bench_conc shape), 200,000 of another type over every unit, so
-// the tenant's unit-tagged slice is not the type's, and 200,000 in each of two
-// other tenants: the table is shared. That matters to the count: PostgreSQL
-// 16.10 picks a Seq Scan of records instead when the table's rows are few next
-// to N̂_e and the tenant holds a large share of them (A3-R2, not covered
-// here). It returns the root of each subtree, and of the 2,000 units that hold
-// the type's records.
-func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UUID, other uuid.UUID) {
+// hashedIsTrue is R's leaf in a plan's filter: the hashed SubPlan, under IS
+// TRUE.
+var hashedIsTrue = regexp.MustCompile(`\(hashed SubPlan \d+\) IS TRUE`)
+
+// rowsRead is what a node of an EXPLAIN ANALYZE plan read: (Actual Rows +
+// Rows Removed by Filter) × Loops; -1 when the plan was not executed.
+func rowsRead(n planNode) int64 {
+	if n.Loops == nil {
+		return -1
+	}
+	return int64((n.ActualRows + n.Removed) * *n.Loops)
+}
+
+// coveringFaults is what A4-5's pin finds wrong with arm, an R count's read of
+// records in an EXPLAIN ANALYZE plan: it must be an Index Only Scan of
+// records_list_updated under (hashed SubPlan n) IS TRUE, whose Index Cond
+// starts with tenant_id, reading at most typeRows, the calling tenant's
+// records of the type (A4-8: no row of another tenant).
+func coveringFaults(arm planNode, typeRows int64) []string {
+	var out []string
+	if r := recordsScan(arm); r != coveringRead || !hashedIsTrue.MatchString(arm.Filter) {
+		out = append(out, fmt.Sprintf("records are read by %q with filter %q, want %q under (hashed SubPlan n) IS TRUE", r, arm.Filter, coveringRead))
+	}
+	if !strings.HasPrefix(strings.TrimLeft(arm.IndexCond, "("), "tenant_id = ") {
+		out = append(out, fmt.Sprintf("Index Cond %q does not start with tenant_id", arm.IndexCond))
+	}
+	if n := rowsRead(arm); n < 0 || n > typeRows {
+		out = append(out, fmt.Sprintf("%d rows read, want at most the type's %d", n, typeRows))
+	}
+	return out
+}
+
+// sortsOrGathers names every Sort or Gather node of plan.
+func sortsOrGathers(plan planNode) []string {
+	var out []string
+	plan.walk(nil, func(n planNode, _ []planNode) {
+		if strings.HasSuffix(n.Type, "Sort") || strings.HasPrefix(n.Type, "Gather") {
+			out = append(out, "a "+n.Type)
+		}
+	})
+	return out
+}
+
+// countPinFaults is A4-5's pin on a one-arm R count's EXPLAIN ANALYZE plan:
+// A3's shape (one read of records, the closure only in the SubPlan, no
+// semi-join), that read covered, and no Sort or Gather.
+func countPinFaults(plan planNode, typeRows int64) []string {
+	out := append(recordsFaults(plan, []string{coveringRead}), sortsOrGathers(plan)...)
+	plan.walk(nil, func(n planNode, _ []planNode) {
+		if n.Relation == "records" {
+			out = append(out, coveringFaults(n, typeRows)...)
+		}
+	})
+	return out
+}
+
+// recordsReads are the nodes of plan that read records.
+func recordsReads(plan planNode) []planNode {
+	var out []planNode
+	plan.walk(nil, func(n planNode, _ []planNode) {
+		if recordsScan(n) != "" {
+			out = append(out, n)
+		}
+	})
+	return out
+}
+
+// planWorld is the records table of a plan test: the world's type has
+// typeRows records in the 2,000 units outside every subtree (m = 0, the
+// bench_conc shape), another type of the tenant busyRows over every unit, and
+// each entry of others is another tenant's rows. scatter spreads the type's
+// updated_at over the table's order, as A4-6's world does; otherwise it
+// follows the insert order. filled sets every row's requester, assignee,
+// group and creator, which the index does not hold, so the heap is as wide as
+// A4-6's measured world's. estimate is N̂_e.
+type planWorld struct {
+	typeRows, busyRows int
+	others             []int
+	scatter, filled    bool
+	estimate           int64
+}
+
+// sharedWorld is CI-3's (TICK-1104): 20,000 records of the type, 200,000 of
+// another type over every unit, so the tenant's unit-tagged slice is not the
+// type's, and 200,000 in each of two other tenants: the table is shared. That
+// matters to the count: without A4's covering index PostgreSQL 16.10 picks a
+// Seq Scan of records when the table's rows are few next to N̂_e and the
+// tenant holds a large share of them (A3-R2; CI-4's world).
+func sharedWorld() planWorld {
+	return planWorld{typeRows: 20_000, busyRows: 200_000, others: []int{200_000, 200_000}, estimate: 20_000}
+}
+
+// ownedWorld is CI-4's (ADR-010-A4 A4-6): one tenant holds 150,000 of the
+// table's 200,000 empty records (75 %), 33,366 of them of the type (N̂_e),
+// beside 50,000 of other tenants. Without the covering index the R count is a
+// Seq Scan there; with it, an Index Only Scan.
+func ownedWorld() planWorld {
+	return planWorld{typeRows: 33_366, busyRows: 116_634, others: []int{25_000, 25_000}, scatter: true, filled: true, estimate: 33_366}
+}
+
+// recordsPlanWorld builds pw: a subtree of each size in recordsPlanSizes and
+// 2,000 units outside them, which hold the type's records. It returns the
+// root of each subtree, and of the 2,000 units.
+func recordsPlanWorld(t *testing.T, e env, pw planWorld) (w *shapeWorld, roots map[int]uuid.UUID, other uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	w = seedShapeWorld(t, e, 1)
@@ -314,31 +416,50 @@ func recordsPlanWorld(t *testing.T, e env) (w *shapeWorld, roots map[int]uuid.UU
 	if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range []struct {
+	type batch struct {
 		tenant, def uuid.UUID
 		like        string
 		n           int
 		number      string
-	}{
-		{w.tenant, w.def, "o-%", 20_000, "PC-"}, {w.tenant, busy, "%", 200_000, "PB-"},
-		{uuid.New(), uuid.New(), "%", 200_000, "PX-"}, {uuid.New(), uuid.New(), "%", 200_000, "PY-"},
-	} {
+		scatter     bool
+	}
+	batches := []batch{{w.tenant, w.def, "o-%", pw.typeRows, "PC-", pw.scatter}, {w.tenant, busy, "%", pw.busyRows, "PB-", false}}
+	for i, n := range pw.others {
+		batches = append(batches, batch{uuid.New(), uuid.New(), "%", n, fmt.Sprintf("P%d-", i), false})
+	}
+	for _, r := range batches {
 		if _, err := tx.Exec(ctx, `WITH u AS (SELECT id, row_number() OVER (ORDER BY id) - 1 AS i
 				FROM org_units WHERE tenant_id = $6 AND name LIKE $3)
-			INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data)
+			INSERT INTO records (tenant_id, id, entity_definition_id, version, schema_version, number, state, org_unit_id, created_at, updated_at, data,
+				requester_id, assignee_id, assignment_group_id, created_by)
 			SELECT $1, gen_random_uuid(), $2, 1, 1, $5::text || g, CASE WHEN g % 2 = 0 THEN 'open' ELSE 'closed' END, u.id,
-				now() - ((g::bigint * 7919) % 100003) * interval '1 second', now() - g * interval '1 second', '{}'
-			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % (SELECT count(*) FROM u)`, r.tenant, r.def, r.like, r.n, r.number, w.tenant); err != nil {
+				now() - ((g::bigint * 7919) % 100003) * interval '1 second',
+				now() - CASE WHEN $7 THEN (g::bigint * 104729) % 1000003 ELSE g END * interval '1 second', '{}',
+				CASE WHEN $8 THEN md5('u' || g % 997)::uuid END, CASE WHEN $8 THEN md5('a' || g % 499)::uuid END,
+				CASE WHEN $8 THEN md5('gr' || g % 50)::uuid END, CASE WHEN $8 THEN md5('u' || g % 997)::uuid END
+			FROM generate_series(1, $4::int) g JOIN u ON u.i = g % (SELECT count(*) FROM u)`, r.tenant, r.def, r.like, r.n, r.number, w.tenant, r.scatter, pw.filled); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w.setEstimate(t, e, 20_000)
-	// The visibility map too, as autovacuum leaves it.
+	w.setEstimate(t, e, pw.estimate)
+	// The visibility map too, as autovacuum leaves it. The test cluster runs
+	// with synchronous_commit = off, so the inserts' commit records may not be
+	// flushed yet; VACUUM cannot set their hint bits then and leaves every
+	// page out of the map, so an Index Only Scan costs heap fetches and the
+	// plans pinned here change. CHECKPOINT flushes the WAL first.
+	mustExec(t, e.super, `CHECKPOINT`)
 	mustExec(t, e.super, `VACUUM ANALYZE records`)
 	mustExec(t, e.super, `VACUUM ANALYZE org_unit_closure`)
+	var visible float64
+	if err := e.super.QueryRow(ctx, `SELECT relallvisible::float8 / greatest(relpages, 1) FROM pg_class WHERE oid = 'records'::regclass`).Scan(&visible); err != nil {
+		t.Fatal(err)
+	}
+	if visible < 0.99 {
+		t.Fatalf("records is %.0f %% all-visible after VACUUM, want all of it", 100*visible)
+	}
 	return w, roots, other
 }
 
@@ -362,20 +483,24 @@ func recordsPlanSettings(ctx context.Context, t *testing.T, tx pgx.Tx) {
 	}
 }
 
-// Acceptance criterion 4 (A3-1, A3-5, A2-R4 extended), on the pinned
-// PostgreSQL with P3-01's settings: R's page and count at 10,111 and 20,222
-// units, the folded probe's P3 never executed on an R path, and the mutants
-// r_without_is_true and r_count_driven.
+// Acceptance criterion 4 (A3-1, A3-5, A2-R4 extended) and ADR-010-A4's CI-3
+// and CI-5, on the pinned PostgreSQL with P3-01's settings, in the shared
+// world: R's page and count at 10,111 and 20,222 units, the count an Index
+// Only Scan of the covering records_list_updated (A4-5), the folded probe's P3
+// never executed on an R path, and the mutants r_without_is_true and
+// r_count_driven.
 func TestUnderListRecordsPlans(t *testing.T) {
 	e := migrated(t)
-	w, roots, other := recordsPlanWorld(t, e)
+	pw := sharedWorld()
+	w, roots, other := recordsPlanWorld(t, e, pw)
 	ctx := context.Background()
+	// The tenant's records of the type: pw's and seedShapeWorld's.
+	typeRows := int64(count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2`, w.tenant, w.def))
 	var version string
 	if err := e.super.QueryRow(ctx, `SHOW server_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("PostgreSQL %s", version)
-	pageReads, countReads := recordsScans(t, e)
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 		recordsPlanSettings(ctx, t, tx)
 		for _, n := range recordsPlanSizes() {
@@ -398,23 +523,24 @@ func TestUnderListRecordsPlans(t *testing.T) {
 				return err
 			}
 			cc, cargs := pipeline.CountStatement(q), append([]any{q.TenantID, q.DefinitionID}, q.Args...)
+
+			// The page: A3-1's pin, unchanged (A4-3).
+			if plan, raw := explain(ctx, t, tx, page, args); len(recordsFaults(plan, []string{pageRead})) > 0 {
+				t.Errorf("R page at %d units: %v\n%s\nEXPLAIN (FORMAT JSON):\n%s", n, recordsFaults(plan, []string{pageRead}), page, raw)
+			}
+			// The count: A4-5's pin (CI-3), executed for the rows it reads.
+			if plan, raw := explain(ctx, t, tx, "ANALYZE "+cc, cargs); len(countPinFaults(plan, typeRows)) > 0 {
+				t.Errorf("R count at %d units: %v\n%s\nEXPLAIN (ANALYZE, FORMAT JSON):\n%s", n, countPinFaults(plan, typeRows), cc, raw)
+			} else {
+				ios := recordsReads(plan)[0]
+				t.Logf("R count at %d units: %s, %d rows read", n, recordsScan(ios), rowsRead(ios))
+			}
 			for _, s := range []struct {
-				name, sql string
-				reads     []string
-				args      []any
-			}{{"page", page, pageReads, args}, {"count", cc, countReads, cargs}} {
-				plan, raw := explain(ctx, t, tx, s.sql, s.args)
-				if faults := recordsFaults(plan, s.reads); len(faults) > 0 {
-					t.Errorf("R %s at %d units: %v\n%s\nEXPLAIN (FORMAT JSON):\n%s", s.name, n, faults, s.sql, raw)
-				} else {
-					plan.walk(nil, func(x planNode, _ []planNode) {
-						if r := recordsScan(x); r != "" {
-							t.Logf("R %s at %d units: %s", s.name, n, r)
-						}
-					})
-				}
+				name, sql, read string
+				args            []any
+			}{{"page", page, pageRead, args}, {"count", cc, coveringRead, cargs}} {
 				mut := strings.ReplaceAll(s.sql, ") IS TRUE)", "))")
-				if plan, raw := explain(ctx, t, tx, mut, s.args); mut == s.sql || len(recordsFaults(plan, s.reads)) == 0 {
+				if plan, raw := explain(ctx, t, tx, mut, s.args); mut == s.sql || len(recordsFaults(plan, []string{s.read})) == 0 {
 					t.Errorf("mutant r_without_is_true is not caught, %s at %d units\n%s", s.name, n, raw)
 				}
 			}
@@ -423,7 +549,7 @@ func TestUnderListRecordsPlans(t *testing.T) {
 			for _, d := range authz.ReadList(bound, w.u1, "r", 2).Drivers {
 				dq.CountDrivers = []pipeline.CountDriver{{From: d.From, Key: d.Key}}
 			}
-			if plan, raw := explain(ctx, t, tx, pipeline.CountStatement(dq), cargs); len(recordsFaults(plan, countReads)) == 0 {
+			if plan, raw := explain(ctx, t, tx, pipeline.CountStatement(dq), cargs); len(recordsFaults(plan, []string{coveringRead})) == 0 {
 				t.Errorf("mutant r_count_driven is not caught at %d units\n%s", n, raw)
 			}
 		}
@@ -464,15 +590,195 @@ func TestUnderListRecordsPlans(t *testing.T) {
 		return nil
 	})
 	reportGenericPlans(t, e, w, roots)
+	unionCountPins(t, e, w, roots[recordsPlanSizes()[0]], typeRows)
+}
+
+// ADR-010-A4 CI-4 (A4-5, A4-6), in a table one tenant mostly owns: R's count
+// is an Index Only Scan of the covering records_list_updated; with Index Only
+// Scans off the runner-up's records node costs at least 1.3× as much, so the
+// world is not at a tie; and mutant r_count_no_covering, the same world with
+// today's index, is a Seq Scan reading more than the tenant's rows, which is
+// what makes this test red before A4. CI-5 runs here too.
+func TestUnderListRecordsCountCovered(t *testing.T) {
+	e := migrated(t)
+	pw := ownedWorld()
+	w, roots, _ := recordsPlanWorld(t, e, pw)
+	ctx := context.Background()
+	// The tenant's records of the type, and all of its records.
+	typeRows := int64(count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1 AND entity_definition_id = $2`, w.tenant, w.def))
+	tenantRows := int64(count(t, e.super, `SELECT count(*) FROM records WHERE tenant_id = $1`, w.tenant))
+	// count explains R's count at n units, executed when analyze is set.
+	count := func(tx pgx.Tx, n int, analyze bool) (planNode, string) {
+		t.Helper()
+		bound, err := authz.ResolveUnder(ctx, tx, underDoc(t, `{"under":{"of":["`+roots[n].String()+`"]}}`), w.u1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := listQuery(w.tenant, w.def, authz.ReadListShaped(bound, w.u1, "r", 2, authz.FixedListShapes(authz.ShapeRecords)), "updated_at", 51)
+		sql := pipeline.CountStatement(q)
+		if analyze {
+			sql = "ANALYZE " + sql
+		}
+		return explain(ctx, t, tx, sql, append([]any{q.TenantID, q.DefinitionID}, q.Args...))
+	}
+	setIOS := func(tx pgx.Tx, on string) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, "SET LOCAL enable_indexonlyscan = "+on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
+		recordsPlanSettings(ctx, t, tx)
+		for _, n := range recordsPlanSizes() {
+			plan, raw := count(tx, n, true)
+			if faults := countPinFaults(plan, typeRows); len(faults) > 0 {
+				// What the planner weighed: the Seq Scan's alternative, and
+				// the table's pages and visibility map it costs them from.
+				if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+					return err
+				}
+				_, noSeq := count(tx, n, false)
+				if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = on"); err != nil {
+					return err
+				}
+				var stats string
+				if err := tx.QueryRow(ctx, `SELECT string_agg(relname || ' pages=' || relpages || ' visible=' || relallvisible || ' tuples=' || reltuples, '; ')
+					FROM pg_class WHERE relname IN ('records', 'records_list_updated')`).Scan(&stats); err != nil {
+					return err
+				}
+				t.Errorf("CI-4, R count at %d units: %v\n%s\nwith Seq Scans off:\n%s\n%s", n, faults, raw, noSeq, stats)
+				continue
+			}
+			ios := recordsReads(plan)[0]
+			// The guard: the records node's own run cost only. The whole
+			// plan's would add the SubPlan's lost Index Only Scan of the
+			// closure to every runner-up (A4, rejected options).
+			setIOS(tx, "off")
+			alt, altRaw := count(tx, n, false)
+			setIOS(tx, "on")
+			reads := recordsReads(alt)
+			if len(reads) != 1 {
+				t.Errorf("CI-4 guard at %d units: %d reads of records\n%s", n, len(reads), altRaw)
+				continue
+			}
+			iosCost, altCost := ios.TotalCost-ios.StartupCost, reads[0].TotalCost-reads[0].StartupCost
+			t.Logf("CI-4 at %d units: %d rows read; records node run cost %s %.0f, runner-up %s %.0f (%.2fx)",
+				n, rowsRead(ios), recordsScan(ios), iosCost, recordsScan(reads[0]), altCost, altCost/iosCost)
+			if altCost < 1.3*iosCost {
+				t.Errorf("world at a tie: at %d units the runner-up %s costs %.0f against the Index Only Scan's %.0f, under 1.3x\n%s",
+					n, recordsScan(reads[0]), altCost, iosCost, altRaw)
+			}
+		}
+		return nil
+	})
+
+	// Mutant r_count_no_covering: today's index, without the INCLUDE.
+	withListUpdated(t, e, plainListUpdated, func() {
+		inTx(t, e, w.tenant, func(tx pgx.Tx) error {
+			recordsPlanSettings(ctx, t, tx)
+			for _, n := range recordsPlanSizes() {
+				plan, raw := count(tx, n, true)
+				reads := recordsReads(plan)
+				if len(countPinFaults(plan, typeRows)) == 0 {
+					t.Errorf("mutant r_count_no_covering is not caught at %d units\n%s", n, raw)
+				}
+				if len(reads) != 1 || reads[0].Type != "Seq Scan" || rowsRead(reads[0]) <= tenantRows {
+					t.Errorf("mutant r_count_no_covering at %d units: want one Seq Scan reading more than the tenant's %d rows\n%s", n, tenantRows, raw)
+				} else {
+					t.Logf("mutant r_count_no_covering at %d units: Seq Scan, %d rows read", n, rowsRead(reads[0]))
+				}
+			}
+			return nil
+		})
+	})
+	unionCountPins(t, e, w, roots[recordsPlanSizes()[0]], typeRows)
+}
+
+// The two definitions of records_list_updated: ADR-010-A4 A4-1's, and the one
+// before it, which the mutant and CI-5's baseline build.
+const (
+	coveringListUpdated = `CREATE INDEX records_list_updated ON records (tenant_id, entity_definition_id, updated_at DESC, id DESC) INCLUDE (org_unit_id)`
+	plainListUpdated    = `CREATE INDEX records_list_updated ON records (tenant_id, entity_definition_id, updated_at DESC, id DESC)`
+)
+
+// withListUpdated runs fn with records_list_updated built as def, then
+// rebuilds the migrated, covering one.
+func withListUpdated(t *testing.T, e env, def string, fn func()) {
+	t.Helper()
+	swap := func(def string) {
+		mustExec(t, e.super, `DROP INDEX records_list_updated`)
+		mustExec(t, e.super, def)
+	}
+	swap(def)
+	defer swap(coveringListUpdated)
+	fn()
+}
+
+// unionCountPins is CI-5 (A4-5) at root's subtree: R's count when the policy
+// has a second branch, requester, so the count is a UNION ALL of one arm per
+// branch and reads records twice. With under first, R's arm carries no
+// negation and meets the one-arm pin. With requester first, R's arm carries
+// requester's negation, a column the index does not hold (A4-R5): it is pinned
+// only to its plan class with today's index, or an Index Only Scan.
+func unionCountPins(t *testing.T, e env, w *shapeWorld, root uuid.UUID, typeRows int64) {
+	t.Helper()
+	ctx := context.Background()
+	under := `{"under":{"of":["` + root.String() + `"]}}`
+	self := `{"cmp":{"column":"requester_id","op":"eq","caller":"self"}}`
+	underFirst, requesterFirst := `{"any":[`+under+`,`+self+`]}`, `{"any":[`+self+`,`+under+`]}`
+	// count runs the count of when under EXPLAIN ANALYZE and returns its plan,
+	// R's arm (the read of records under (hashed SubPlan n) IS TRUE) and the
+	// raw plan.
+	count := func(tx pgx.Tx, when string) (plan, arm planNode, raw string) {
+		t.Helper()
+		bound, err := authz.ResolveUnder(ctx, tx, underDoc(t, when), w.u1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := listQuery(w.tenant, w.def, authz.ReadListShaped(bound, w.u1, "r", 2, authz.FixedListShapes(authz.ShapeRecords)), "updated_at", 51)
+		plan, raw = explain(ctx, t, tx, "ANALYZE "+pipeline.CountStatement(q), append([]any{q.TenantID, q.DefinitionID}, q.Args...))
+		reads := recordsReads(plan)
+		arms := slices.DeleteFunc(slices.Clone(reads), func(n planNode) bool { return !hashedIsTrue.MatchString(n.Filter) })
+		if len(reads) != 2 || len(arms) != 1 {
+			t.Fatalf("CI-5, %s: %d reads of records, %d of them R's arm; want 2 and 1\n%s", when, len(reads), len(arms), raw)
+		}
+		return plan, arms[0], raw
+	}
+	var negated string
+	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
+		recordsPlanSettings(ctx, t, tx)
+		plan, arm, raw := count(tx, underFirst)
+		if faults := append(coveringFaults(arm, typeRows), sortsOrGathers(plan)...); len(faults) > 0 {
+			t.Errorf("CI-5, under first: R's arm: %v\n%s", faults, raw)
+		} else {
+			t.Logf("CI-5, under first: R's arm is a %s, %d rows read", recordsScan(arm), rowsRead(arm))
+		}
+		_, arm, _ = count(tx, requesterFirst)
+		negated = arm.Type
+		return nil
+	})
+	withListUpdated(t, e, plainListUpdated, func() {
+		inTx(t, e, w.tenant, func(tx pgx.Tx) error {
+			recordsPlanSettings(ctx, t, tx)
+			_, arm, raw := count(tx, requesterFirst)
+			t.Logf("CI-5, requester first: R's arm is a %s; with today's index a %s", negated, arm.Type)
+			if negated != "Index Only Scan" && negated != arm.Type {
+				t.Errorf("CI-5, requester first: R's arm is a %s, not today's %s\n%s", negated, arm.Type, raw)
+			}
+			return nil
+		})
+	})
 }
 
 // reportGenericPlans logs R's plans under plan_cache_mode = force_generic_plan
-// (A2-R4, extended). The server never plans generically (QueryExecModeExec),
-// so a miss is reported, not failed.
+// (A2-R4, extended; ADR-010-A4 A4-7, CI-8). The server never plans
+// generically (QueryExecModeExec), so a miss is reported, not failed. The
+// count's plan is logged whole: it must show an Index Only Scan, an index walk
+// or a bitmap of the type's slice.
 func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	pageReads, countReads := recordsScans(t, e)
+	countReads := typeSliceReads(t, e)
 	inTx(t, e, w.tenant, func(tx pgx.Tx) error {
 		recordsPlanSettings(ctx, t, tx)
 		if _, err := tx.Exec(ctx, `SET LOCAL plan_cache_mode = force_generic_plan`); err != nil {
@@ -493,7 +799,7 @@ func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.U
 				reads     []string
 				args      []any
 			}{
-				{"page", page, pageReads, args},
+				{"page", page, []string{pageRead}, args},
 				{"count", pipeline.CountStatement(q), countReads, append([]any{q.TenantID, q.DefinitionID}, q.Args...)},
 			} {
 				name := fmt.Sprintf("r_%s_%d", s.name, n)
@@ -501,10 +807,17 @@ func reportGenericPlans(t *testing.T, e env, w *shapeWorld, roots map[int]uuid.U
 					return fmt.Errorf("prepare %s: %w", s.name, err)
 				}
 				plan, raw := explain(ctx, t, tx, "EXECUTE "+name+literals(s.args), nil)
+				var reads []string
+				for _, r := range recordsReads(plan) {
+					reads = append(reads, recordsScan(r))
+				}
 				if faults := recordsFaults(plan, s.reads); len(faults) > 0 {
 					t.Logf("GENERIC PLAN MISS: R %s at %d units: %v\n%s", s.name, n, faults, raw)
 				} else {
-					t.Logf("GENERIC PLAN OK: R %s at %d units", s.name, n)
+					t.Logf("GENERIC PLAN OK: R %s at %d units: %q", s.name, n, reads)
+				}
+				if s.name == "count" {
+					t.Logf("GENERIC PLAN, R count at %d units:\n%s", n, raw)
 				}
 			}
 		}
