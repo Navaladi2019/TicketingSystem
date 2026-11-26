@@ -1266,6 +1266,17 @@
     },
     {
       "file": "20261126120000_records_list_updated_covering.sql",
+      "on_main": true,
+      "commit": "bac4e595",
+      "date": "2026-11-26",
+      "pr": "930",
+      "story": "",
+      "tickets": [
+        "TICK-1158"
+      ]
+    },
+    {
+      "file": "20261126150000_audit_log_diff_nul_escaped.sql",
       "on_main": false
     }
   ]
