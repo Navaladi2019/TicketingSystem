@@ -1,7 +1,8 @@
 # Field index: the coordinator, the barrier and the backfill (P7-05)
 
 TICK-745, S21 (TICK-739). ADR-006 D9, D10, R11; PLAN-007 D-7-12, D-7-15.
-Code: `internal/fieldindex/backfill` (workflows and activities),
+Code: `internal/fieldindex/backfill` (workflows and activities; `remove.go`
+for the removal, TICK-750),
 `internal/fieldindex/coordinator.go` (the names the relay uses),
 `internal/relay/dispatch.go` (the `field_index.backfill` dispatch). Builds on
 P7-02 (`docs/data/field-index-trigger.md`) and P7-04 (the outbox row).
@@ -37,7 +38,7 @@ sequenceDiagram
 | Piece | What it does |
 |---|---|
 | Relay | A `field_index.backfill` row is a `SignalWithStart` of the tenant's coordinator, never a start of the backfill. `field_id` comes from the payload, `requested_version` from `target_seq`, and the outbox id from the row. The tenant is the row's: a payload `tenant_id` that differs fails closed, and the row is marked dead with no Temporal call (TICK-748 condition). The coordinator refuses such a start payload too. Reuse policy `ALLOW_DUPLICATE`: the coordinator completes when idle, and the next row starts it again. |
-| Coordinator | One per tenant. Dedups each item on its outbox id (`workerguard.AppliedSignals`, kept across continue-as-new) and on `(field, requested_version)` within a run. One item at a time, in arrival order: `Classify` reads the registry row (`backfilling` → backfill child, `removing` → `FieldIndexRemove` child from TICK-750, `ready` or gone → nothing). It continues as new after 100 items with the rest still queued, and completes after 5 minutes idle. A failed child is logged as a `Warn` line with `alert=true` and the field id (TICK-974), and the queue moves on. |
+| Coordinator | One per tenant. Dedups each item on its outbox id (`workerguard.AppliedSignals`, kept across continue-as-new) and on `(field, requested_version)` within a run. One item at a time, in arrival order: `Classify` reads the registry row (`backfilling` → backfill child, `removing` → `FieldIndexRemove` child (below), `ready` or gone → nothing). It continues as new after 100 items with the rest still queued, and completes after 5 minutes idle. A failed child is logged as a `Warn` line with `alert=true` and the field id (TICK-974), and the queue moves on. |
 | Child id | `t:<tenant>:field_index.backfill.run:<field>:<version>`. The activities read the field and the pinned version from it, not from an argument. Version 0 means not pinned: an item carried across continue-as-new. |
 | Barrier | One snapshot, taken once: `pg_current_snapshot()`'s xip **plus** every xid from its `xmax` up to a fence xid the barrier takes right after it that is still in progress. `pg_snapshot_xip` alone misses a running transaction whose xid is the newest assigned, because `xmax` then equals it (`1869:1869:` with 1869 running; found in TICK-745 testing). The xids are kept in the heartbeat details, and the barrier polls `pg_xact_status` 1 s apart, backing off to 10 s, holding no connection between polls. Heartbeat timeout 30 s: a lost worker's attempt is retried from the same snapshot. A cancel ends the wait at once. For a backfill child, a registry row that is removed, set to `removing` or moved to another version ends the wait at the next poll. `field_index_barrier_slow` (metric, plus a log line with `alert=true`) fires once after 15 minutes, and the barrier keeps waiting. |
 | Batch | One `InTenantTx`. (a) The registry row `FOR SHARE`: stop unless it is `backfilling` at the pinned version. (b) The next ids after the cursor, `ORDER BY id LIMIT 1000 FOR SHARE`. (c) DELETE the field's side rows for those ids, then INSERT `record_field_coerce` rows, all in SQL. (d) Progress as a whole percentage, at most 99. The type's records are counted once per child per worker, on the first batch; the worker keeps that total and the done count in memory and each later batch adds its own records to them, so no batch scans the whole type (TICK-991). A miss (another worker, a restart, a retried batch) counts the type once more. The counts never go into the cursor: activity arguments and results are references only (CI-7). The INSERT also returns how many values it skipped because they did not coerce (non-null values minus rows written, as the trigger counts them); once the transaction has committed, the activity adds that count to `nava_field_index_uncoerced_total{entity_definition}`, the trigger's counter (TICK-974). The activity sees it through `backfill.UncoercedCounter`; nava-worker passes the instance `recordports.NewWriter` registered, since the backfill may not import the pipeline (D-3-6). The count is a metric only: the result stays `{cursor}` / `{}` (CI-5c). |
@@ -55,6 +56,55 @@ READ COMMITTED, and the trigger's registry read is a statement of a volatile
 plpgsql function, so it takes its own snapshot. `TestR1WriterAcrossTheFlip`
 proves it both ways: with the barrier replaced by a no-op, the same schedule
 leaves exactly one record missing.
+
+## Removal: FieldIndexRemove (P7-10, TICK-750)
+
+ADR-006 D8, D11, R3. A publish that drops `x-nava-filterable` from a
+property flips the field's registry row to `removing` (at the publishing
+version) and writes one `field_index.remove` outbox row, in the publish
+transaction (`entitytypes.retireFilterable`). The row has the backfill row's
+shape: payload `{tenant_id, field_id}`, `requested_version` in `target_seq`
+and the dedupe key, because `outbox_payload_check` admits only UUID values.
+From that commit on, the trigger writes nothing for the field and a filter on
+it answers 400 `field_not_filterable`. A flag on a field still `removing`
+answers 409 `field_index_busy`. Deleting a flagged property outright is a
+breaking change, refused as `schema_breaking_change`.
+
+The relay delivers the row like a backfill row, as an `op: remove` item to the
+same per-tenant coordinator, so a removal never runs beside a backfill of the
+same tenant (D-7-12). `field_index.remove.run` is in the Authorizer's
+`childOnlyWorkflowTypes`.
+
+```mermaid
+sequenceDiagram
+    participant P as publish
+    participant C as coordinator
+    participant X as FieldIndexRemove<br/>t:<tenant>:field_index.remove.run:<field>:<version>
+    participant DB as PostgreSQL (nava_worker)
+    P->>DB: registry row = removing + field_index.remove outbox row (one tx)
+    C->>X: child, after any backfill ahead of it
+    X->>DB: Barrier
+    loop until a batch deletes fewer than 1,000
+        X->>DB: RemoveBatch: InTenantTx, DELETE up to 1,000 side rows
+    end
+    X->>DB: Retire: DELETE registry row WHERE NOT EXISTS side rows
+    Note over X,DB: side rows left: back to RemoveBatch
+```
+
+**Why no side row survives (R3).** A writer whose trigger read the row as
+`ready` before the flip committed may still insert a side row after the
+deletes passed it. That writer has an xid at the flip, so the barrier waits
+for it. Every later statement reads `removing` and writes nothing. If such a
+row did get through, the side tables' FKs refuse Retire's DELETE, and the
+retried steps delete it. `TestR3WriterAcrossTheFlip` proves both ways: with
+the barrier replaced by a no-op, Retire fails on the FK (a guard deny that
+pages) before the retry cleans up.
+
+Results are `Pending{pending: <field id>}` while work is left and `{}` once
+done: the worker guard admits UUIDs only, so no count or boolean. A run
+continues as new after 1,000 steps and runs the barrier again (one poll).
+Every step reads the field and value type from the registry row and does
+nothing once the row is gone or not `removing`.
 
 ## Security conditions (PR #734 review)
 

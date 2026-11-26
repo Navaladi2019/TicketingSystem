@@ -193,6 +193,7 @@ const (
 	// CoordinatorWorkflowType runs one tenant's backfills.
 	CoordinatorWorkflowType = "field_index.coordinator"
 	BackfillWorkflowType    = "field_index.backfill.run"
+	RemoveWorkflowType      = "field_index.remove.run"
 )
 """,
     "internal/fieldindex/backfill/workflow.go": """package backfill
@@ -200,6 +201,7 @@ const (
 func RegisterWorkflow(r worker.WorkflowRegistry) {
 	r.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})
 	r.RegisterWorkflowWithOptions(backfillRun, workflow.RegisterOptions{Name: fieldindex.BackfillWorkflowType})
+	r.RegisterWorkflowWithOptions(removeRun, workflow.RegisterOptions{Name: fieldindex.RemoveWorkflowType})
 }
 """,
     "internal/fieldindex/backfill/activities.go": """package backfill
@@ -547,8 +549,8 @@ class TestReferences(Base):
         r.load()
         self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal",
                                    "schema.backfill": "EnqueueSchemaBackfill"})
-        self.assertEqual(r.workflows(), ["audit.seal", "field_index.backfill.run", "field_index.coordinator", "nava.interpreter",
-                                         "schema.backfill"])
+        self.assertEqual(r.workflows(), ["audit.seal", "field_index.backfill.run", "field_index.coordinator", "field_index.remove.run",
+                                         "nava.interpreter", "schema.backfill"])
         self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "field_index.Barrier", "field_index.Batch",
                                           "nava.interpreter.ApplyStep", "nava.interpreter.NextStep", "nava.workflow_ref.Close",
                                           "schema_backfill.Admit", "schema_backfill.Page"])

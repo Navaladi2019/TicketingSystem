@@ -160,3 +160,47 @@ func TestFieldIndexBackfillFailureBacksOff(t *testing.T) {
 		t.Errorf("settled %+v, want backoff", got)
 	}
 }
+
+// TICK-750: a field_index.remove row goes the same way, as an OpRemove item
+// to the same per-tenant coordinator, so a removal never runs beside a
+// backfill of the same tenant (PLAN-007 D-7-12).
+func TestFieldIndexRemoveIsSignalWithStartOfTheCoordinator(t *testing.T) {
+	h := newHarness(t)
+	c := backfillRow(4)
+	c.Kind, c.TargetKey = outbox.FieldIndexRemoveKind, outbox.FieldIndexRemoveKind+":"+c.ID.String()
+	h.dispatch(t.Context(), c)
+
+	if _, starts, signals := h.fe.counts(); starts != 0 || signals != 0 || len(h.fe.sws) != 1 {
+		t.Fatalf("%d starts, %d signals and %d signal-with-starts, want one signal-with-start", starts, signals, len(h.fe.sws))
+	}
+	req := h.fe.sws[0]
+	if want := "t:" + tenantAID + ":field_index.coordinator"; req.GetWorkflowId() != want ||
+		req.GetWorkflowType().GetName() != fieldindex.CoordinatorWorkflowType || req.GetSignalName() != fieldindex.SignalEnqueue {
+		t.Errorf("workflow id %q type %q signal %q, want the coordinator's", req.GetWorkflowId(),
+			req.GetWorkflowType().GetName(), req.GetSignalName())
+	}
+	var item fieldindex.EnqueueItem
+	if err := json.Unmarshal(req.GetSignalInput().GetPayloads()[0].GetData(), &item); err != nil {
+		t.Fatal(err)
+	}
+	want := fieldindex.EnqueueItem{Op: fieldindex.OpRemove, FieldID: fieldAID, RequestedVersion: 4, OutboxID: c.ID.String()}
+	if item != want {
+		t.Errorf("signal %+v, want %+v", item, want)
+	}
+	if got := h.db.only(t); got.op != "dispatched" || got.id != c.ID {
+		t.Errorf("settled %+v, want dispatched", got)
+	}
+}
+
+// A removal row whose payload names another tenant is refused before any
+// Temporal call, as a backfill row is (TICK-748).
+func TestFieldIndexRemoveForgedTenantIsRefused(t *testing.T) {
+	h := newHarness(t)
+	c := backfillRow(4)
+	c.Kind, c.TargetKey = outbox.FieldIndexRemoveKind, outbox.FieldIndexRemoveKind+":"+c.ID.String()
+	c.Payload = json.RawMessage(`{"tenant_id":"` + uuid.NewString() + `","field_id":"` + fieldAID + `"}`)
+	h.dispatch(t.Context(), c)
+	if len(h.fe.sws) != 0 {
+		t.Fatalf("%d signal-with-starts for a forged tenant, want 0", len(h.fe.sws))
+	}
+}

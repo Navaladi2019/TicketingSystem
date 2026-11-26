@@ -380,13 +380,15 @@ GO_REGISTER_FUNCS = [
 # Workflow types that no outbox kind starts directly, with how they start
 # (TICK-745). Every other registered type must be a kind of GO_KIND_FILE. The
 # relay signal-with-starts the field-index coordinator for a
-# field_index.backfill row, which is an outbox kind but not a workflow type,
-# and only the coordinator starts the backfill, as a child (PLAN-007 D-7-12,
-# temporal-server/authz childOnlyWorkflowTypes). An entry that no
+# field_index.backfill or field_index.remove row, which are outbox kinds but
+# not workflow types, and only the coordinator starts the backfill and the
+# removal, as children (PLAN-007 D-7-12, TICK-750, temporal-server/authz
+# childOnlyWorkflowTypes). An entry that no
 # RegisterWorkflow registers fails the build, so the list cannot go stale.
 GO_NON_KIND_WORKFLOWS = {
-    "field_index.coordinator": "the relay's SignalWithStart of a field_index.backfill outbox row",
+    "field_index.coordinator": "the relay's SignalWithStart of a field_index.backfill or field_index.remove outbox row",
     "field_index.backfill.run": "a child of field_index.coordinator only",
+    "field_index.remove.run": "a child of field_index.coordinator only",
 }
 # The worker's package main, scanned so no registration bypasses GO_REGISTER_FUNCS.
 GO_WORKER_DIR = "cmd/nava-worker"

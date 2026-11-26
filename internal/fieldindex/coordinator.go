@@ -5,10 +5,11 @@ package fieldindex
 // signal the coordinator without importing the workflow package (and its
 // database driver). The workflow itself is internal/fieldindex/backfill.
 
-// The Temporal names. The Authorizer allow-lists the two workflow types
+// The Temporal names. The Authorizer allow-lists the three workflow types
 // (temporal-server/authz/policy.go): CoordinatorWorkflowType in
-// platformWorkflowTypes, BackfillWorkflowType in childOnlyWorkflowTypes too,
-// so only a coordinator may start a backfill.
+// platformWorkflowTypes, BackfillWorkflowType and RemoveWorkflowType in
+// childOnlyWorkflowTypes too, so only a coordinator may start a backfill or a
+// removal.
 const (
 	// CoordinatorWorkflowType runs one tenant's backfills and removals, one
 	// at a time, in arrival order.
@@ -16,8 +17,8 @@ const (
 	// BackfillWorkflowType is FieldIndexBackfill: one field's barrier,
 	// batches, flip to ready and barrier (D9, D10). A coordinator child only.
 	BackfillWorkflowType = "field_index.backfill.run"
-	// RemoveWorkflowType is FieldIndexRemove (D11). TICK-750 registers it and
-	// adds it to the Authorizer; until then nothing enqueues an OpRemove.
+	// RemoveWorkflowType is FieldIndexRemove (D11, TICK-750): one field's
+	// barrier, side-row deletes and registry DELETE. A coordinator child only.
 	RemoveWorkflowType = "field_index.remove.run"
 	// SignalEnqueue is the one signal the coordinator listens on. Its body is
 	// an EnqueueItem.
@@ -33,7 +34,8 @@ const (
 // EnqueueItem is the body of SignalEnqueue. The relay builds it from a
 // field_index.backfill outbox row: FieldID from the payload, RequestedVersion
 // from target_seq (outbox_payload_check admits only UUID payload values) and
-// OutboxID from the row's id. TICK-750 sends OpRemove items the same way.
+// OutboxID from the row's id. A field_index.remove row gives an OpRemove
+// item the same way (TICK-750).
 //
 // The coordinator dedups on (FieldID, RequestedVersion) within a run and on
 // OutboxID across continue-as-new. It never trusts Op on its own: what a
