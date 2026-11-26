@@ -158,6 +158,9 @@ func TestDetect(t *testing.T) {
 	add := func(p string) func(*repo) {
 		return func(r *repo) { r.write(p, "go 1.25\n") }
 	}
+	create := func(p, body string) func(*repo) {
+		return func(r *repo) { r.write(p, body) }
+	}
 	move := func(from, to string) func(*repo) {
 		return func(r *repo) { r.run("mv", from, to) }
 	}
@@ -199,6 +202,11 @@ func TestDetect(t *testing.T) {
 		{"Dockerfile other FROM", replace("deploy/compose/nava-core/Dockerfile", "FROM scratch", "FROM alpine:3"), none},
 		{"Dockerfile.dev FROM golang:", replace("deploy/compose/nava-core/Dockerfile.dev", "golang:1.25", "golang:1.26"), both},
 		{"temporal-server/Dockerfile FROM golang:", replace("temporal-server/Dockerfile", "golang:1.25", "golang:1.26"), both},
+		// Wider than the contract's "FROM golang:", failing closed (Security
+		// review of PR #912): a lowercase from, and a --platform flag before
+		// the image. Each is a new file, so no FROM golang: line changes.
+		{"Dockerfile lowercase from golang", create("deploy/compose/nava-x/Dockerfile", "from golang:1.26 AS build\n"), both},
+		{"Dockerfile FROM --platform golang", create("deploy/compose/nava-y/Dockerfile", "FROM --platform=$BUILDPLATFORM golang:1.26 AS build\n"), both},
 		{"FROM golang: in a non-Dockerfile", replace("docs/notes.md", "# Notes\n", "# Notes\n\nFROM golang:1.26\n"), none},
 		{"go.work added", add("go.work"), both},
 		{"go.work.sum added", add("go.work.sum"), both},
@@ -209,6 +217,11 @@ func TestDetect(t *testing.T) {
 		// Row 5 and combinations.
 		{".go file only", appendTo("cmd/nava-core/main.go"), none},
 		{"docs only", appendTo("docs/notes.md"), none},
+		// Non-ASCII paths (Security review of PR #912, finding 1): git
+		// C-quotes them unless core.quotePath=false, and a quoted path
+		// matched no row.
+		{"non-ASCII path under tools/ci/cisteps/", create("tools/ci/cisteps/é_test.go", "package main\n"), both},
+		{"go.work under a non-ASCII directory", add("dé/go.work"), both},
 		{"ci.yml only", appendTo(".github/workflows/ci.yml"), none},
 		{"both go.sum", func(r *repo) { appendTo("go.sum")(r); appendTo("temporal-server/go.sum")(r) }, both},
 	} {
@@ -265,6 +278,10 @@ func TestDetectFailures(t *testing.T) {
 		{"no merge base", []string{"BASE_SHA=" + r.base, "HEAD_SHA=" + orphan}},
 		{"empty HEAD_SHA", []string{"BASE_SHA=" + r.base, "HEAD_SHA="}},
 		{"empty BASE_SHA", []string{"BASE_SHA=", "HEAD_SHA=" + head}},
+		// Only a hex commit id reaches git (Security review of PR #912): not
+		// a branch name, and not an option.
+		{"HEAD_SHA a branch name", []string{"BASE_SHA=" + r.base, "HEAD_SHA=case"}},
+		{"BASE_SHA an option", []string{"BASE_SHA=--all", "HEAD_SHA=" + head}},
 		{"unknown commit", []string{"BASE_SHA=" + r.base, "HEAD_SHA=1111111111111111111111111111111111111111"}},
 	} {
 		got, stderr, code := detect(t, r.dir, append([]string{"EVENT=pull_request"}, c.env...)...)
@@ -316,5 +333,26 @@ func TestDetectOutput(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(out)); got != both {
 		t.Errorf("stdout %q, want %q", got, both)
+	}
+}
+
+// Even with core.quotePath=false git quotes a path holding a double quote, a
+// backslash or a control character, and a quoted path matches no row. Detect
+// fails closed on it and scans both. The path goes in through the index
+// only, because Windows cannot create such a file.
+func TestDetectQuotedPathFailsClosed(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.run("checkout", "-q", "-f", "-B", "case", r.base)
+	blob := r.run("rev-parse", r.base+":docs/notes.md")
+	r.run("-c", "core.protectNTFS=false", "update-index", "--add", "--cacheinfo", "100644,"+blob+`,docs/a"b.md`)
+	r.run("commit", "-q", "-m", "quoted path")
+	head := r.run("rev-parse", "HEAD")
+	got, stderr, code := detect(t, r.dir, "EVENT=pull_request", "BASE_SHA="+r.base, "HEAD_SHA="+head)
+	if code != 0 || got != both {
+		t.Errorf("exit %d, output %q, want %q\n%s", code, got, both, stderr)
+	}
+	if !strings.Contains(stderr, "quoted path") {
+		t.Errorf("no quoted-path reason on stderr: %q", stderr)
 	}
 }
