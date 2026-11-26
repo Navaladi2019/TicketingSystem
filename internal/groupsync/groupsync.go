@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -329,7 +330,7 @@ func (s *Syncer) checkClosureBestEffort(ctx context.Context, tx pgx.Tx, tenantID
 			if _, err = sp.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err == nil {
 				if repaired, err = s.compareClosure(ctx, sp, tenantID); err == nil {
 					// SET LOCAL lasts to the end of the transaction: put the old value back.
-					if _, err = sp.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)", prev); err == nil {
+					if _, err = sp.Exec(ctx, "SET LOCAL statement_timeout = '"+strings.ReplaceAll(prev, "'", "''")+"'"); err == nil {
 						if err = sp.Commit(ctx); err == nil {
 							return repaired, true
 						}
