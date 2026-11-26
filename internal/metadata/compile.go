@@ -325,6 +325,11 @@ func checkShape(doc map[string]any, bad *problems) (map[string]map[string]any, e
 	}
 	props := make(map[string]map[string]any, len(rawProps))
 	for name, v := range rawProps {
+		// The pipeline owns records.org_unit_id and puts it in the audit
+		// payload under this name: no property may take it (ADR-010 D8).
+		if name == ColumnOrgUnitID {
+			bad.add("schema", "properties", name)
+		}
 		p, ok := v.(map[string]any)
 		if !ok {
 			bad.add("schema", "properties", name)

@@ -375,7 +375,7 @@ func TestExportRedactedEntriesCarryNoSalt(t *testing.T) {
 // insertUnsealedErase inserts, as the superuser with triggers off on this
 // transaction only (the erase transition belongs to nava_erasure), an
 // unsealed audit/erase entry for tenant under ref listing erased, stamped now.
-func (x *exportEnv) insertUnsealedErase(t *testing.T, ctx context.Context, tenant, ref uuid.UUID, erased ...string) uuid.UUID {
+func (x *exportEnv) insertUnsealedErase(ctx context.Context, t *testing.T, tenant, ref uuid.UUID, erased ...string) uuid.UUID {
 	t.Helper()
 	list, err := json.Marshal(erased)
 	if err != nil {
@@ -428,7 +428,7 @@ func TestExportEraseAfterHeadIsPendingTail(t *testing.T) {
 	ref := uuid.New()
 	var eraseID uuid.UUID
 	// Tenant B: an audit/erase entry under the same ref, committed up front.
-	bErase := x.insertUnsealedErase(t, ctx, x.b.id, ref, uuid.NewString())
+	bErase := x.insertUnsealedErase(ctx, t, x.b.id, ref, uuid.NewString())
 
 	// The hook fires inside each page transaction, before the page reads. Call
 	// 1 is the erasure-refs read; the erasure commits at call 2, so after the
@@ -457,7 +457,7 @@ func TestExportEraseAfterHeadIsPendingTail(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		eraseID = x.insertUnsealedErase(t, ctx, x.a.id, ref, xID.String())
+		eraseID = x.insertUnsealedErase(ctx, t, x.a.id, ref, xID.String())
 	}
 	rec := x.export(t, "admin-a", "")
 	if rec.Code != http.StatusOK {

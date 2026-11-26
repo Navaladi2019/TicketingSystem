@@ -209,3 +209,14 @@ func TestCheckMaskFields(t *testing.T) {
 		t.Fatalf("no masks: %v", ps)
 	}
 }
+
+// The org unit is a fixed column no schema property maps to, so a mask that
+// names it is refused like any unknown field (TICK-1119).
+func TestCheckMaskFieldsRefusesOrgUnitID(t *testing.T) {
+	t.Parallel()
+	masks := []authz.Mask{{Field: "requester"}, {Field: "org_unit_id"}}
+	ps := authz.CheckMaskFields(masks, []string{"requester", "title"})
+	if want := []authz.Problem{{Pointer: "/masks/1/field", Rule: "field"}}; !slices.Equal(ps, want) {
+		t.Fatalf("problems = %v, want %v", ps, want)
+	}
+}

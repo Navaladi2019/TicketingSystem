@@ -69,6 +69,9 @@ roles:
       records:
         SELECT: []
         INSERT: []
+        # UPDATE leaves out org_unit_id (TICK-1120): it is set on create. The
+        # story that ships a "move ticket to another unit" workflow step adds
+        # the grant back (ADR-010 D8).
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       # audit_log: as a writer of an audited table, its INSERT on the R10
@@ -109,6 +112,12 @@ roles:
       groups: { SELECT: [] }
       group_members: { SELECT: [] }
       org_units: { SELECT: [] }
+      # TICK-947 (ADR-010 D7): a caller's units seed the under set S.
+      org_unit_members: { SELECT: [] }
+      # TICK-1032 (ADR-010-A2): the under leaf reads a unit's live subtree.
+      org_unit_closure: { SELECT: [] }
+      # TICK-1070 (ADR-010-A2 A2-9): the list leaf reads N-hat_e to set K*.
+      entity_record_estimates: { SELECT: [] }
       # Keycloak Registry.TenantOwnsEmailDomain (T18a).
       tenant_email_domain: { SELECT: [] }
       # authz.RequireTenantAdmin (P3-04): the platform id of the tenant's admins group.
@@ -136,7 +145,7 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
-      # Field index (ADR-006 D14, P7-01, TICK-741, 20261121100000): the side
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261125165000): the side
       # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
       # runs as the record writer). Publish (P7-04) creates a registry row and
       # flips its state; it never rewrites the key, the field or the type.
@@ -169,6 +178,10 @@ roles:
       "public.acl2_problem(jsonb)": [EXECUTE]
       "public.acl2_rules_valid(jsonb)": [EXECUTE]
       "public.acl2_id_pointers(jsonb)": [EXECUTE]
+      # TICK-1059: the under-set cap of acl2_problem.
+      "public.acl2_max_under_sets()": [EXECUTE]
+      "public.acl2_under_key(jsonb)": [EXECUTE]
+      "public.acl2_under_union(text,text)": [EXECUTE]
 
   # ADR-004-A1 A1-1 (TICK-558): the masking reader's own login, held only by
   # internal/audit/read's pool (read.OpenPool, NAVA_AUDIT_READER_DATABASE_URL,
@@ -217,9 +230,27 @@ roles:
       # dated number format reads its tenant's time_zone (ADR-005 §3.6, A7);
       # tenants_tenant scopes the row. Never state or the onboarding columns.
       tenants: { SELECT: [id, time_zone] }
+      # TICK-947 (ADR-010 D7, SP-2): the worker resolves under for workflow
+      # policy tests: the tree and its tombstones, and a principal's units.
+      # Never keycloak_group_id or name.
+      org_units: { SELECT: [tenant_id, id, parent_id, deleted_at] }
+      org_unit_members: { SELECT: [tenant_id, org_unit_id, principal_id, is_primary] }
+      # TICK-1032 (ADR-010-A2): a unit's live subtree, for under in policy tests.
+      org_unit_closure: { SELECT: [] }
+      # TICK-1070 (ADR-010-A2 A2-9, D-11A2-2): the N-hat_e refresh job upserts
+      # each type's count under its tenant; the key is never updated, and no
+      # row is deleted.
+      entity_record_estimates: { SELECT: [], INSERT: [], UPDATE: [live_records, refreshed_at] }
+      # TICK-1070 (D-11A2-2): the refresh job lists tenants through
+      # binding_lookup (allow-listed, USING (true)); tenant_id only, never the
+      # issuer, org id or aliases.
+      tenant_identity_binding: { SELECT: [tenant_id] } # binding_lookup
       records:
         SELECT: []
         INSERT: []
+        # UPDATE leaves out org_unit_id (TICK-1120): it is set on create. The
+        # story that ships a "move ticket to another unit" workflow step adds
+        # the grant back (ADR-010 D8).
         UPDATE: [version, schema_version, state, requester_id, assignee_id, assignment_group_id,
                  updated_at, data, causation_origin_id, causation_depth]
       # ADR-004: the sealer. It reads every column but diff and diff_salt
@@ -397,7 +428,14 @@ roles:
       # no DELETE (step (ii), TICK-538; D2, D10).
       groups: { SELECT: [], INSERT: [], UPDATE: [path, deleted_at] }
       group_members: { SELECT: [], INSERT: [], DELETE: [] }
-      org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name], DELETE: [] }
+      # TICK-947 (ADR-010 D7): a unit is tombstoned (deleted_at), never
+      # deleted, so records.org_unit_id and stored under ids never dangle.
+      org_units: { SELECT: [], INSERT: [], UPDATE: [parent_id, name, deleted_at] }
+      # Membership and the primary unit (D-11-6); nava_groupsync is the only writer.
+      org_unit_members: { SELECT: [], INSERT: [], UPDATE: [is_primary], DELETE: [] }
+      # TICK-1032 (ADR-010-A2): a rebuild deletes the tenant's closure and
+      # inserts it again; no UPDATE.
+      org_unit_closure: { SELECT: [], INSERT: [], DELETE: [] }
       # Group sync reads the recorded admins and auditors groups (P3-04, I1)
       # and deletes a pointer only once its group is tombstoned (ADR-004-E5
       # D5: tenant_admin_group_delete_tombstoned and

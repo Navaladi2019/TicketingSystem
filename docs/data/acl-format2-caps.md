@@ -312,7 +312,7 @@ Grants (`db/grants.yaml`):
 | Role | `org_units` | `org_unit_members` | `records` |
 |---|---|---|---|
 | `nava_groupsync` | `SELECT`, `INSERT`, `UPDATE: [parent_id, name, deleted_at]`. **No `DELETE`** | `SELECT`, `INSERT`, `UPDATE: [is_primary]`, `DELETE` | none |
-| `nava_app` | `SELECT` (unchanged) | `SELECT` | `org_unit_id` is in `INSERT: []` already. Add it to `UPDATE` (D8: a stored field, moved by a workflow step) |
+| `nava_app` | `SELECT` (unchanged) | `SELECT` | `org_unit_id` is in `INSERT: []` already. Add it to `UPDATE` (D8: a stored field, moved by a workflow step); **removed by TICK-1120**, because no shipped statement updates it |
 | `nava_worker` | `SELECT: [tenant_id, id, parent_id, deleted_at]` (new) | `SELECT: [tenant_id, org_unit_id, principal_id, is_primary]` | the same as `nava_app` |
 
 `records.org_unit_id` is a new audited column. TICK-947 must add it to the

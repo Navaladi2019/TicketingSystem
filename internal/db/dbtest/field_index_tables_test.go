@@ -23,9 +23,9 @@ import (
 // typed side tables rfv_text, rfv_num, rfv_ts, rfv_bool.
 
 const (
-	fieldIndexMigration = "20261121100000_field_index_tables.sql"
+	fieldIndexMigration = "20261125165000_field_index_tables.sql"
 	// beforeFieldIndex is the version just before fieldIndexMigration.
-	beforeFieldIndex = 20261115115959
+	beforeFieldIndex = 20261125164959
 
 	fieldA = "0e000000-0000-4000-8000-0000000007a1" // tenant A's registry row
 	fieldB = "0e000000-0000-4000-8000-0000000007b1" // tenant B's registry row
@@ -38,9 +38,11 @@ const (
 )
 
 // fieldIndexTables are the tables fieldIndexMigration creates, registry first.
-var fieldIndexTables = []string{"record_index_fields", "rfv_text", "rfv_num", "rfv_ts", "rfv_bool"}
+var fieldIndexTables = []string{"record_index_fields", "rfv_text", "rfv_num", "rfv_ts", "rfv_bool"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // sideTables maps each value type to its side table and a literal of its type.
+//
+//nolint:gochecknoglobals // read-only test/bench fixture, set once
 var sideTables = []struct {
 	vt    fieldindex.ValueType
 	table string

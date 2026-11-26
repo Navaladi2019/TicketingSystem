@@ -66,9 +66,14 @@ func perfComposedDoc(agents, admins uuid.UUID) authz.Document {
 	return d
 }
 
-// perfPublishDoc publishes d as a format-2 body, through Prepare (the
-// route's database-free checks) and PublishPrepared, in tx.
+// perfPublishDoc publishes d as the ticket type's format-2 body, through
+// Prepare (the route's database-free checks) and PublishPrepared, in tx.
 func perfPublishDoc(ctx context.Context, tx pgx.Tx, d authz.Document) (*authz.Prepared, error) {
+	return perfPublishKeyDoc(ctx, tx, "ticket", d)
+}
+
+// perfPublishKeyDoc is perfPublishDoc for the type key (TICK-1037).
+func perfPublishKeyDoc(ctx context.Context, tx pgx.Tx, key string, d authz.Document) (*authz.Prepared, error) {
 	enc, err := authz.Encode(d)
 	if err != nil {
 		return nil, err
@@ -85,7 +90,7 @@ func perfPublishDoc(ctx context.Context, tx pgx.Tx, d authz.Document) (*authz.Pr
 		return nil, fmt.Errorf("perf: prepared format %d, want 2", prep.Format)
 	}
 	store := authz.PolicyStore{}
-	cur, err := store.Newest(ctx, tx, "ticket")
+	cur, err := store.Newest(ctx, tx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +98,7 @@ func perfPublishDoc(ctx context.Context, tx pgx.Tx, d authz.Document) (*authz.Pr
 	if cur != nil {
 		have = cur.Version
 	}
-	_, err = store.PublishPrepared(ctx, tx, "ticket", have, authz.Publisher{System: "acl-perf", Source: audit.SourceSystem}, prep)
+	_, err = store.PublishPrepared(ctx, tx, key, have, authz.Publisher{System: "acl-perf", Source: audit.SourceSystem}, prep)
 	return prep, err
 }
 

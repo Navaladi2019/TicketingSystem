@@ -113,7 +113,27 @@ INSERT INTO group_members (tenant_id, group_id, principal_id) VALUES
 INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name) VALUES
     ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', NULL, 'kc-ou-shared', 'Root A'),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', NULL, 'kc-ou-shared', 'Root B'),
-    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B');
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b1', 'kc-ou-b2', 'Support B'),
+    -- TICK-952: a leaf of tenant A that nothing references (OrgUnitA2).
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a2', '0a000000-0000-4000-8000-0000000005a1', 'kc-ou-a2', 'Leaf A');
+
+-- TICK-1032 (ADR-010-A2): the closure of both trees, as group sync's
+-- rebuild writes it: each unit's self-row and root -> child.
+INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000005a1'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000005a2'),
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a2', '0a000000-0000-4000-8000-0000000005a2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000005b1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000005b2'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000005b2');
+
+-- TICK-947 (ADR-010 D7): org-unit membership. Principal b1 is in both of
+-- tenant B's units, b2's primary; both tenants have a primary member.
+INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id, is_primary) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000005a1', '0a000000-0000-4000-8000-0000000003a1', true),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b1', '0b000000-0000-4000-8000-0000000003b1', false),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000003b1', true),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000005b2', '0b000000-0000-4000-8000-0000000003b2', true);
 
 -- Email domains (T18a). A domain is unique realm-wide, so they cannot repeat.
 INSERT INTO tenant_email_domain (tenant_id, domain) VALUES
@@ -140,6 +160,13 @@ INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 'ticket', 'Ticket B', 'TCK', 2),
     ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 'incident', 'Incident B', 'INC', 1);
 
+-- TICK-1070 (ADR-010-A2 A2-9): N-hat_e for each seeded type, as the refresh
+-- job writes it. Tenant B has more rows, one per type.
+INSERT INTO entity_record_estimates (tenant_id, entity_definition_id, live_records, refreshed_at) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 2, now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 3, now()),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b2', 1, now());
+
 INSERT INTO entity_definition_versions (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 SELECT v.tenant_id::uuid, v.id::uuid, v.definition_id::uuid, v.version, v.schema::json,
        sha256(convert_to(v.schema, 'UTF8')), '{}',
@@ -162,11 +189,13 @@ FROM (VALUES
 -- records stay bare PLAN-001 rows, which the all-or-none CHECK allows.
 UPDATE records SET entity_definition_id = '0a000000-0000-4000-8000-0000000006a1', schema_version = 1,
        number = 'TCK0000001', state = 'new', requester_id = '0a000000-0000-4000-8000-0000000003a1',
-       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1'
+       created_by = '0a000000-0000-4000-8000-0000000003a1', assignment_group_id = '0a000000-0000-4000-8000-0000000004a1',
+       org_unit_id = '0a000000-0000-4000-8000-0000000005a1'
 WHERE tenant_id = '0a000000-0000-4000-8000-00000000000a' AND id = '0a000000-0000-4000-8000-0000000000a2';
 UPDATE records SET entity_definition_id = '0b000000-0000-4000-8000-0000000006b1', schema_version = 2,
        number = 'TCK0000001', state = 'new', requester_id = '0b000000-0000-4000-8000-0000000003b1',
-       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1'
+       created_by = '0b000000-0000-4000-8000-0000000003b1', assignment_group_id = '0b000000-0000-4000-8000-0000000004b1',
+       org_unit_id = '0b000000-0000-4000-8000-0000000005b2'
 WHERE tenant_id = '0b000000-0000-4000-8000-00000000000b' AND id = '0b000000-0000-4000-8000-0000000000b2';
 
 -- ADR-004's audit_log, chain head and write keys (P5-10b). The rows land in

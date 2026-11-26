@@ -237,7 +237,7 @@ type interpRow struct {
 
 // interpDefinition is the definition the cascade start key names (A5),
 // created in each row's tenant by workflowDefinitionSQL.
-var interpDefinition = uuid.MustParse("51a11000-0000-4000-8000-0000000000d0")
+var interpDefinition = uuid.MustParse("51a11000-0000-4000-8000-0000000000d0") //nolint:gochecknoglobals // read-only test fixture, set once
 
 // workflowDefinitionSQL is, for a new tenant, what cascade_start's definition foreign key
 // (P3-40) needs before a claim: an entity type with its config audit entry

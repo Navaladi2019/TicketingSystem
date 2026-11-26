@@ -19,6 +19,13 @@ func TenantPred(col string) string {
 	return "(" + col + " = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
 }
 
+// BindingLookupRoles are the roles binding_lookup lets read every tenant's
+// binding: tenant resolution (nava_app), group sync's tenant list
+// (nava_groupsync) and, since TICK-1070 (PLAN-011-A2 D-11A2-2), the N-hat_e
+// refresh job's tenant list (nava_worker, column tenant_id only through
+// db/grants.yaml). Editing it needs CTO sign-off (PLAN-001 D-P10).
+const BindingLookupRoles = "nava_app,nava_groupsync,nava_worker"
+
 // AllowList is ADR-001 A.3: the only policies that do not test app.tenant_id,
 // keyed on schema.table.name and each pinned to its command, roles and exact
 // predicates (T09, TICK-64). The key carries the table because PostgreSQL
@@ -33,7 +40,7 @@ func AllowList() map[string]Policy {
 	return map[string]Policy{
 		"public.outbox.outbox_relay_select":                {"SELECT", "nava_relay", "true", ""},
 		"public.outbox.outbox_relay_update":                {"UPDATE", "nava_relay", pending, "true"},
-		"public.tenant_identity_binding.binding_lookup":    {"SELECT", "nava_app,nava_groupsync", "true", ""},
+		"public.tenant_identity_binding.binding_lookup":    {"SELECT", BindingLookupRoles, "true", ""},
 		"public.tenant_identity_binding.binding_onboard":   {"INSERT", "nava_onboard", "", "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"},
 		"public.idempotency_keys.idempotency_purge":        {"DELETE", "nava_purge", keyExpired, ""},
 		"public.idempotency_keys.idempotency_purge_select": {"SELECT", "nava_purge", keyExpired, ""},

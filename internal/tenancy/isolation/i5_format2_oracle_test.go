@@ -118,8 +118,19 @@ func (e i5RefEval) eval(n authz.Node, stack []string) i5Val {
 		return leaf(v)
 	case authz.NodeShared:
 		return leaf(i5RefShared(e.p, e.row))
+	case authz.NodeUnder:
+		// D7, D5a: the row's unit is in set S (the live subtrees of the
+		// caller's units or of the listed ones); a NULL unit never is.
+		var set []uuid.UUID
+		if n.Under.Caller {
+			set = i5CallerSet(e.p)
+		}
+		for _, root := range n.Under.Units {
+			set = append(set, i5Subtree(e.p.TenantID, root)...)
+		}
+		return leaf(e.row.OrgUnitID != nil && slices.Contains(set, *e.row.OrgUnitID))
 	}
-	return i5Val{bad: true} // no kind, under (not available), anything unknown
+	return i5Val{bad: true} // no kind, anything unknown
 }
 
 // i5RefCmp is a Cond on a row under acl.go's Cond rules: bad when it breaks
@@ -228,7 +239,7 @@ func i5S10Allows(rules []authz.Rule, p identity.Principal, op string, row authz.
 type i5F2Compiler func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any)
 
 func i5F2Real(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
-	return authz.CompileRead(c.Policy, p, alias, argBase)
+	return authz.CompileRead(c.bound(p), p, alias, argBase)
 }
 
 // i5Guarded is the IS NOT NULL guard of a uuid cmp in CompileRead's text
@@ -242,22 +253,24 @@ func i5SentinelCaller() uuid.UUID { return uuid.MustParse("0f000000-0000-4000-80
 // i5F2Mutants are deliberately broken compilers, each the bug a guard in the
 // planner or compiler exists to prevent. Each breaks the SQL side only, so
 // authz.Allows (and the reference) is the oracle the database run compares
-// against. The `under` mutants are S31's (TICK-951 P11-18).
+// against. under_direct_only and under_ignores_tombstone are S31's (TICK-951
+// P11-18, reworked for the closure by TICK-1034): the leaf's closure
+// subquery rewritten to a broken walk of the org tree.
 func i5F2Mutants() map[string]i5F2Compiler {
 	return map[string]i5F2Compiler{
 		// not_unguarded: a uuid cmp loses "col IS NOT NULL AND", so it is
 		// three-valued, and NOT over a NULL column is NULL (no row) where D5
 		// says true.
 		"not_unguarded": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
-			sql, args := authz.CompileRead(c.Policy, p, alias, argBase)
+			sql, args := authz.CompileRead(c.bound(p), p, alias, argBase)
 			return i5Guarded.ReplaceAllString(sql, ""), args
 		},
 		// invalid_leaf_false: an invalid node (a cmp that breaks a Cond rule,
-		// a node with no kind, under, an empty all, an unresolved ref) is
+		// a node with no kind, an empty all, an unresolved ref) is
 		// read as false instead of voiding its policy; under a not it grants.
 		"invalid_leaf_false": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
 			d := c.Policy.Document
-			return authz.CompileRead(i5WithDocument(c.Policy, i5MapDocument(d, func(n authz.Node) authz.Node {
+			return authz.CompileRead(i5WithDocument(c.bound(p), i5MapDocument(d, func(n authz.Node) authz.Node {
 				if i5InvalidLeaf(d, n) {
 					return i5False()
 				}
@@ -272,19 +285,39 @@ func i5F2Mutants() map[string]i5F2Compiler {
 			}
 			d := c.Policy.Document
 			d.Conditions = c.Prev
-			return authz.CompileRead(i5WithDocument(c.Policy, d), p, alias, argBase)
+			return authz.CompileRead(i5WithDocument(c.bound(p), d), p, alias, argBase)
 		},
 		// fold_wrong: the caller-only fold of member_of is inverted.
 		"fold_wrong": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
 			if c.Policy == nil {
 				return authz.CompileRead(nil, p, alias, argBase)
 			}
-			return authz.CompileRead(i5WithDocument(c.Policy, i5MapDocument(c.Policy.Document, func(n authz.Node) authz.Node {
+			return authz.CompileRead(i5WithDocument(c.bound(p), i5MapDocument(c.Policy.Document, func(n authz.Node) authz.Node {
 				if n.MemberOf != nil {
 					return authz.Node{Not: &n}
 				}
 				return n
 			})), p, alias, argBase)
+		},
+		// under_direct_only: the region is the caller's units (or the listed
+		// roots) without their descendants, so a record in a unit below them
+		// drops out of it. The leaf reads the closure in SQL, so the mutant
+		// rewrites the leaf's subquery to the closure's self rows: a live unit
+		// of U, never one below it (i5SubtreeDirectOnly is its Go model).
+		"under_direct_only": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
+			sql, args := authz.CompileRead(c.bound(p), p, alias, argBase)
+			return i5UnderSubquery.ReplaceAllString(sql, `IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou`+
+				` WHERE acl_ou.tenant_id = $1::uuid AND acl_ou.ancestor_id = ANY($2::uuid[]) AND acl_ou.descendant_id = acl_ou.ancestor_id)`), args
+		},
+		// under_ignores_tombstone: tombstoned units stay in the region, and so
+		// does a live unit below one, so access through a unit removed from
+		// the directory survives the sync. Rewritten to a walk down org_units from U that never reads
+		// deleted_at (i5SubtreeIgnoresTombstone is its Go model).
+		"under_ignores_tombstone": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
+			sql, args := authz.CompileRead(c.bound(p), p, alias, argBase)
+			return i5UnderSubquery.ReplaceAllString(sql, `IN (WITH RECURSIVE acl_w(id) AS (SELECT o.id FROM org_units o`+
+				` WHERE o.tenant_id = $1::uuid AND o.id = ANY($2::uuid[]) UNION SELECT k.id FROM acl_w`+
+				` JOIN org_units k ON k.tenant_id = $1::uuid AND k.parent_id = acl_w.id) SELECT id FROM acl_w)`), args
 		},
 		// shared_nil_caller: shared holds for a caller with no id through its
 		// groups' shares, where D5 folds it to false. Compiled as a caller
@@ -292,11 +325,11 @@ func i5F2Mutants() map[string]i5F2Compiler {
 		// groups, the caller's self cmps already folded to false.
 		"shared_nil_caller": func(c *i5F2Case, p identity.Principal, alias string, argBase int) (string, []any) {
 			if c.Policy == nil || p.PrincipalID != uuid.Nil || len(p.Groups) == 0 {
-				return authz.CompileRead(c.Policy, p, alias, argBase)
+				return authz.CompileRead(c.bound(p), p, alias, argBase)
 			}
 			q := p
 			q.PrincipalID = i5SentinelCaller()
-			return authz.CompileRead(i5WithDocument(c.Policy, i5MapDocument(c.Policy.Document, func(n authz.Node) authz.Node {
+			return authz.CompileRead(i5WithDocument(c.bound(q), i5MapDocument(c.Policy.Document, func(n authz.Node) authz.Node {
 				if n.Cmp != nil && n.Cmp.Caller == authz.CallerSelf {
 					if _, bad := i5RefCmp(*n.Cmp, p, authz.Row{}); !bad {
 						return i5False()
@@ -305,6 +338,41 @@ func i5F2Mutants() map[string]i5F2Compiler {
 				return n
 			})), q, alias, argBase)
 		},
+	}
+}
+
+// i5UnderSubquery matches the under leaf's closure subquery as
+// authz.CompileRead renders it; $1 is its tenant placeholder, $2 its U.
+var i5UnderSubquery = regexp.MustCompile(`IN \(SELECT acl_ou\.descendant_id FROM org_unit_closure acl_ou` +
+	` WHERE acl_ou\.tenant_id = (\$[0-9]+)::uuid AND acl_ou\.ancestor_id = ANY\((\$[0-9]+)::uuid\[\]\)\)`)
+
+// i5F2BoundWith is c.bound(p) with the closure from subtree instead of the
+// reference's walk; a case with no world is returned as it is.
+func i5F2BoundWith(c *i5F2Case, p identity.Principal, subtree func(tenant, root uuid.UUID) []uuid.UUID) *authz.Policy {
+	if c.Policy == nil || c.World == nil {
+		return c.Policy
+	}
+	return i5BindWith(c.Policy, p, c.Prev, subtree)
+}
+
+// i5UnderModel is an under mutant's model: Allows over the policy bound with
+// S from subtree. The binding depends only on the case and the principal, so
+// it is made once for each and reused for every record (the models run per
+// record, and the walk is the cost).
+func i5UnderModel(allows func(*authz.Policy, identity.Principal, authz.Row) bool, subtree func(tenant, root uuid.UUID) []uuid.UUID) func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+	type key struct {
+		c *i5F2Case
+		p string
+	}
+	bound := map[key]*authz.Policy{}
+	return func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
+		k := key{c, fmt.Sprint(p)}
+		pol, ok := bound[k]
+		if !ok {
+			pol = i5F2BoundWith(c, p, subtree)
+			bound[k] = pol
+		}
+		return allows(pol, p, rec.row(p))
 	}
 }
 
@@ -319,11 +387,11 @@ func i5F2MutantNames() []string {
 }
 
 // i5InvalidLeaf reports a node that voids its policy by itself, whatever its
-// children: no kind, under, an empty all, a cmp that breaks a Cond rule, or
+// children: no kind, an empty all, a cmp that breaks a Cond rule, or
 // a ref to a name that is not declared exactly once.
 func i5InvalidLeaf(d authz.Document, n authz.Node) bool {
 	switch n.Kind() {
-	case "", authz.NodeUnder:
+	case "":
 		return true
 	case authz.NodeAll:
 		return len(n.All) == 0
@@ -485,7 +553,7 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 				return false
 			}
 			d := c.Policy.Document
-			return allows(i5WithDocument(c.Policy, i5MapDocument(d, func(n authz.Node) authz.Node { return f(d, n) })), p, rec.row(p))
+			return allows(i5WithDocument(c.bound(p), i5MapDocument(d, func(n authz.Node) authz.Node { return f(d, n) })), p, rec.row(p))
 		}
 	}
 	return map[string]func(c *i5F2Case, p identity.Principal, rec i5Record) bool{
@@ -514,7 +582,7 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 			}
 			d := c.Policy.Document
 			d.Conditions = c.Prev
-			return allows(i5WithDocument(c.Policy, d), p, rec.row(p))
+			return allows(i5WithDocument(c.bound(p), d), p, rec.row(p))
 		},
 		"fold_wrong": transformed(func(_ authz.Document, n authz.Node) authz.Node {
 			if n.MemberOf != nil {
@@ -522,14 +590,16 @@ func i5F2MutantModels() map[string]func(c *i5F2Case, p identity.Principal, rec i
 			}
 			return n
 		}),
+		"under_direct_only":       i5UnderModel(allows, i5SubtreeDirectOnly),
+		"under_ignores_tombstone": i5UnderModel(allows, i5SubtreeIgnoresTombstone),
 		"shared_nil_caller": func(c *i5F2Case, p identity.Principal, rec i5Record) bool {
 			if c.Policy == nil || p.PrincipalID != uuid.Nil || len(p.Groups) == 0 {
-				return allows(c.Policy, p, rec.row(p))
+				return allows(c.bound(p), p, rec.row(p))
 			}
 			q := p
 			q.PrincipalID = i5SentinelCaller()
 			d := c.Policy.Document
-			return allows(i5WithDocument(c.Policy, i5MapDocument(d, func(n authz.Node) authz.Node {
+			return allows(i5WithDocument(c.bound(q), i5MapDocument(d, func(n authz.Node) authz.Node {
 				if n.Cmp != nil && n.Cmp.Caller == authz.CallerSelf {
 					if _, bad := i5RefCmp(*n.Cmp, p, authz.Row{}); !bad {
 						return i5False()
@@ -562,7 +632,7 @@ func TestI5Format2MutantsChangeTheRows(t *testing.T) {
 			c := &cases[ci]
 			for ki, p := range c.Principals {
 				for _, rec := range w.Records {
-					_, _, want := authz.Allows(c.Policy, p, authz.OpRead, rec.row(p))
+					_, _, want := authz.Allows(c.bound(p), p, authz.OpRead, rec.row(p))
 					if model(c, p, rec) != want {
 						found = fmt.Sprintf("document #%d principal #%d record %s", ci, ki, rec.Row.ID)
 						break search

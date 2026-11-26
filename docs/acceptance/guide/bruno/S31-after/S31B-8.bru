@@ -1,0 +1,23 @@
+meta {
+  name: S31B.8 The admin finds the APAC requester's tickets (raised while in APAC)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200&filter[requester]={{s31_req_apac}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const items = N.json().items;
+  test('at least one ticket', () => expect(items.length).to.be.above(0));
+  bru.setVar('s31_apac_ids', JSON.stringify(items.map(i => i.id)));
+}

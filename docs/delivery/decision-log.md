@@ -6,6 +6,12 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-25: TICK-1128, CI pulls OpenObserve by one digest from ECR Public, then Docker Hub; our own copy is deferred (`AR-TICK-1128-01`)](decisions/2026-11-25-tick-1128-openobserve-two-registries.md)
+- [2026-11-25: S31, the probe load of one list is deferred with a trigger (`AR-S31-05`)](decisions/2026-11-25-s31-probe-load-deferred.md)
+- [2026-11-22: S31, `groupsync_org_subtree_max` has no tenant label; the tenant is named in the 8,000+ warning log line](decisions/2026-11-22-s31-subtree-metric-no-tenant-label.md)
+- [2026-11-22: S31, region-list latency inside one tenant shows the page shape (accepted, `AR-TICK-1040-01`)](decisions/2026-11-22-s31-region-list-latency-bit.md)
+- [2026-11-22: PLAN-011-A3 drafted: ADR-010-A3 lands after S31 as standalone task PRs into main; one core-dev task, the TICK-1037 rerun as a new issue, and its own handbook task](decisions/2026-11-22-plan-011-a3-adr-010-a3.md)
+- [2026-11-22: PLAN-007-E2 drafted: PR #827 ships at 140 ms provisional; E2 lands in S21 as three tasks; 170 ms ships only on a (3e) PASS](decisions/2026-11-22-plan-007-e2-adr-006-e2.md)
 - [2026-11-21: S32, the missing-policy audit entry stores only a hash of the name; adding the name is a product follow-up](decisions/2026-11-21-s32-policy-ref-audit-hash-only.md)
 - [2026-11-21: S32 has no stack CI case; the fresh-stack acceptance kit is the gate](decisions/2026-11-21-s32-no-stack-ci-case.md)
 - [2026-11-21: PLAN-011-A2 drafted: ADR-010-A2 lands inside S31; N-hat is a new table plus a nava-worker refresh job; groupsync alerts at 10,111 live units and never refuses](decisions/2026-11-21-plan-011-a2-adr-010-a2.md)

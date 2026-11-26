@@ -33,7 +33,8 @@ func tenantRows(t *testing.T, super *pgx.Conn, tid uuid.UUID) string {
 		(SELECT string_agg(id || ':' || keycloak_user_id || ':' || coalesce(email, '') || ':' || enabled || ':' || federated_links::text, ',' ORDER BY id) FROM principals WHERE tenant_id = $1),
 		(SELECT string_agg(id || ':' || keycloak_group_id || ':' || path, ',' ORDER BY id) FROM groups WHERE tenant_id = $1),
 		(SELECT string_agg(group_id || ':' || principal_id, ',' ORDER BY group_id, principal_id) FROM group_members WHERE tenant_id = $1),
-		(SELECT string_agg(id || ':' || keycloak_group_id || ':' || coalesce(parent_id::text, '-') || ':' || name, ',' ORDER BY id) FROM org_units WHERE tenant_id = $1))`,
+		(SELECT string_agg(id || ':' || keycloak_group_id || ':' || coalesce(parent_id::text, '-') || ':' || name, ',' ORDER BY id) FROM org_units WHERE tenant_id = $1),
+		(SELECT string_agg(ancestor_id || '>' || descendant_id, ',' ORDER BY ancestor_id, descendant_id) FROM org_unit_closure WHERE tenant_id = $1))`,
 		tid).Scan(&s)
 	if err != nil {
 		t.Fatal(err)
@@ -167,8 +168,8 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	}
 	victim = tenantRows(t, super, b)
 
-	// 3. A's directory empties: A's groups are tombstoned, its memberships and org units go, and
-	//    its principals are tombstoned; no B row changes.
+	// 3. A's directory empties: A's groups and org units are tombstoned (TICK-947), its
+	//    memberships go, and its principals are tombstoned; no B row changes.
 	dir.set(a, identity.DirectoryChanges{})
 	if r := syncAll(t, s)[a]; r.Err != nil {
 		t.Fatalf("tenant A: %v", r.Err)
@@ -178,7 +179,7 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	}
 	if n := count(t, super, `SELECT (SELECT count(*) FROM groups WHERE tenant_id = $1 AND deleted_at IS NULL)
 		+ (SELECT count(*) FROM group_members WHERE tenant_id = $1)
-		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1)
+		+ (SELECT count(*) FROM org_units WHERE tenant_id = $1 AND deleted_at IS NULL)
 		+ (SELECT count(*) FROM principals WHERE tenant_id = $1 AND (deleted_at IS NULL OR enabled))`, a); n != 0 {
 		t.Errorf("tenant A after an empty snapshot: %d rows left that are not tombstoned principals, want 0", n)
 	}
@@ -187,6 +188,9 @@ func TestHostileSnapshotNeverTouchesAnotherTenant(t *testing.T) {
 	}
 	if n := count(t, super, "SELECT count(*) FROM principals WHERE tenant_id = $1", a); n == 0 {
 		t.Errorf("tenant A's principals were deleted, want tombstones")
+	}
+	if n := count(t, super, "SELECT count(*) FROM org_units WHERE tenant_id = $1 AND deleted_at IS NOT NULL", a); n == 0 {
+		t.Errorf("tenant A's org units were lost, want tombstones")
 	}
 }
 

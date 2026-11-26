@@ -509,15 +509,34 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		// index-ordered branch per subject (TICK-644); CompileRead is the single
 		// statement when there is nothing to split. One plan for both, so a
 		// voided policy is counted once per request (ADR-010 D5b).
-		branches, readSQL, readArgs := authz.ReadPredicate(pol, p, "r", 2)
-		filt, filtArgs := pl.where(2 + len(readArgs))
+		// The caller's units for an under leaf, before rendering; the leaf
+		// reads the closure in SQL (ADR-010 D7 as amended, TICK-1034).
+		if pol, err = authz.ResolveUnder(ctx, tx, pol, p); err != nil {
+			return err
+		}
+		// The page shape of each region term, from a capped probe in this
+		// transaction (ADR-010-A2 A2-5, A2-5a). It selects SQL text only:
+		// the rows are the same in every shape. A probe error is a 500,
+		// never another shape. Nothing about the choice reaches the
+		// response or a log line (A2-6 requirement 2).
+		shapes, err := authz.ChooseListShapes(ctx, tx, pol, p, defID, pl.limit+1)
+		if err != nil {
+			return err
+		}
+		read := authz.ReadListShaped(pol, p, "r", 2, shapes)
+		filt, filtArgs := pl.where(2 + len(read.Args))
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
-			Where: filt, Args: append(slices.Clone(readArgs), filtArgs...), Branches: branches,
+			Where: filt, Args: append(slices.Clone(read.Args), filtArgs...), Branches: read.Branches,
+			CountBranches: read.CountBranches, Materialize: read.Materialize,
 			SortColumn: pl.sortCol, Desc: pl.desc, Limit: pl.limit + 1,
 		}
-		if branches == nil {
-			lq.Where = readSQL + " AND " + filt
+		if read.Branches == nil {
+			lq.Where = read.Where + " AND " + filt
+			lq.CountWhere = read.CountWhere + " AND " + filt
+		}
+		for _, d := range read.Drivers {
+			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
@@ -528,7 +547,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
 		if err == nil && pl.hasIndexFilter() {
-			narrowing := branches != nil || len(readArgs) > 0 || strings.Contains(readSQL, "r.")
+			narrowing := read.Branches != nil || len(read.Args) > 0 || strings.Contains(read.Where, "r.")
 			h.observeIndexedList(ctx, time.Since(started), page, narrowing)
 		}
 		if err != nil {

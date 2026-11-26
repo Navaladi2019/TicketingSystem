@@ -81,11 +81,16 @@ fi
 # names it, before GitHub cancels the step with an empty log (TICK-225). The
 # tests start about 1.5 minutes into the job; the slowest package,
 # internal/server, took 348 s on run 44760743332, so 6m left it 12 s
-# (TICK-1021). 8m panics at about 9.5 minutes. A later -timeout in the
-# script's arguments wins.
+# (TICK-1021). 8m was then raised to 11m (TICK-1100): green hosted runs of
+# internal/server took 241 to 347 s, and run 45012776252 attempts 1 and 2
+# ran 1.57x slower on westus2 runners and hit 8m with no test failing. 11m
+# panics at about 12.5 minutes, leaving about 2.5 for teardown and the dump.
+# Rule: when green runs of the slowest package go over about 70 % of this
+# limit (about 460 s for 11m), split the package (NAVA_IT_SOLO) rather than
+# raise the limit again. A later -timeout in the script's arguments wins.
 # NAVA_IT_GO_TIMEOUT: a slower host sets more (the self-hosted runner, whose
 # integration job has 30 minutes and shares the host with other jobs, TICK-641).
-timeout=${NAVA_IT_GO_TIMEOUT:-8m}
+timeout=${NAVA_IT_GO_TIMEOUT:-11m}
 # NAVA_IT_COVERAGE (a path, make test-integration sets it): every go test
 # below writes an atomic profile over ./... into $covdir, and the script merges
 # them there at the end, the integration half of make check-coverage
@@ -168,6 +173,8 @@ pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' cmd internal too
     # The isolation suite needs its own cluster and PgBouncer: make isolation.
     grep -v '^\./internal/tenancy/isolation$')
 echo "integration packages ($NAVA_TEST_PG_IMAGE):" $pkgs
+# The limit in force, so a timeout can be read against it (TICK-1100).
+echo "integration: go test -timeout $timeout"
 # Compile every test binary, and the log printer, while the clusters start;
 # -run '^$' runs nothing.
 # shellcheck disable=SC2086

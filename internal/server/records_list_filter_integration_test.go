@@ -30,7 +30,7 @@ import (
 )
 
 // sideColumn is the record_field_coerce column of each value type.
-var sideColumn = map[string]string{"text": "value_text", "num": "value_num", "ts": "value_ts", "bool": "value_bool"}
+var sideColumn = map[string]string{"text": "value_text", "num": "value_num", "ts": "value_ts", "bool": "value_bool"} //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
 // flagField writes a registry row for field key of the entity type, as the
 // publish and the backfill would, and, for a ready field, copies the values

@@ -1,0 +1,40 @@
+# Groupsync alerts (ADR-010-A2 A2-7, A2-R6, TICK-1072). Local dev only, like the
+# scrape config; prometheus.yml loads every file in this directory.
+#
+# groupsync_org_units_live_max is the largest live org-unit count of any tenant
+# the cycle visited. No tenant label (T01). Groupsync never refuses a sync on
+# tree size: a refusal would hold back tombstones and membership removals and
+# delay revocation (AR-TICK-901-01). This alert is the only reaction.
+# Tests: ../tests/groupsync_test.yml (lineage.TestAlertRules).
+groups:
+  - name: groupsync
+    rules:
+      - alert: GroupsyncOrgUnitsAboveCertified
+        # 10111 is the live-unit count ADR-010-A2 is certified to (A2-7). It
+        # lives here and nowhere else.
+        expr: groupsync_org_units_live_max > 10111
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A tenant has more live org units than ADR-010-A2 is certified to (10,111).
+          description: >-
+            Find the tenant in the nava-groupsync log line "largest live
+            org-unit tree" (tenant_id, live_org_units). ADR-010-A2 A2-R6:
+            lists for region-only callers may exceed 150 ms above the
+            certified tree; re-decide A2-R6 with the Solution
+            Architect. Never refuse the sync.
+      - alert: GroupsyncOrgUnitsUnrooted
+        # groupsync_org_closure_unrooted_units is an OTel counter; the exporter
+        # writes it with _total. Accepted limit: increase() misses the first
+        # sample of a series that appears already at 1. The WARN line repeats
+        # every cycle and covers that case.
+        expr: increase(groupsync_org_closure_unrooted_units_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Live org units are outside every region (no closure self row).
+          description: >-
+            Find the tenant in the nava-groupsync log line "live org units have
+            no closure self row and are outside every region". Never refuse the
+            sync.

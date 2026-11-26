@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -69,8 +70,9 @@ const (
 	// under this, so the host disk's slow band (17 to 26 ms on the WSL2
 	// reference host) is not scored as the code's cost.
 	perfCommitGateMS = 10.0
-	// perfCommitAttempts is how often a gated create row is run before the
-	// host is reported invalid for creates.
+	// perfCommitAttempts is how often a gated scored row is run before the
+	// host is reported invalid: create rows (all gates) and, since TICK-1040,
+	// list and get rows (the container watch).
 	perfCommitAttempts = 3
 	// perfHostGateMS is the host-speed gate (CTO, 2026-11-10 15:58 UTC): a
 	// 1-client `BEGIN; COMMIT` probe run just before each create attempt
@@ -81,7 +83,13 @@ const (
 	perfHostProbeN = 200
 	// perfFloorGateMS is the transport floor gate: a busy host gives no
 	// numbers at all.
-	perfFloorGateMS  = 3.0
+	perfFloorGateMS = 3.0
+	// perfBaseTailGate is the paired-base tail gate on region rows
+	// (TICK-1091 item 1): an attempt whose paired base request has p95/p50
+	// above it had in-attempt host noise, which the floor gate (the
+	// attempt's edges only) cannot see. Set before the bench_conc rerun;
+	// the other 26 TICK-1037 attempts were 1.34 to 1.65.
+	perfBaseTailGate = 2.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
 	// perfShortTimeout is the bound check's data-filter statement timeout:
@@ -266,6 +274,12 @@ type perfEnv struct {
 	// (TICK-1048: the same handler with a test-only list hook).
 	log  *slog.Logger
 	opts []server.Option
+	// region is the TICK-1037 region bench state, set by its first scenario
+	// (records_perf_region_integration_test.go).
+	region *perfRegion
+	// pairBase are the tokens whose requests are a paired row's base: their
+	// latencies go to pairLat, not lat (TICK-1037).
+	pairBase map[string]bool
 }
 
 // handlerWith is h with extra options appended, over the same pool, tokens
@@ -291,7 +305,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	super, base := etCluster(t)
 	pc := base.Config().Copy()
 	pc.ConnConfig.Tracer = perfTracer{}
-	pc.MaxConns = int32(clients + 2) //nolint:gosec // a small env setting
+	pc.MaxConns = int32(clients + 2)
 	pool, err := pgxpool.NewWithConfig(t.Context(), pc)
 	if err != nil {
 		t.Fatal(err)
@@ -331,7 +345,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, log: log, opts: opts}
+	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}, log: log, opts: opts}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -790,7 +804,7 @@ func (e *perfEnv) scenarios(t *testing.T) []perfScenario {
 // and not held to 50 ms.
 func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 	t.Helper()
-	return map[string]perfExtra{
+	m := map[string]perfExtra{
 		"create, agent, gapless type": {
 			before: func() {
 				// Through the API (a mode-only publish), so the change is audited.
@@ -807,12 +821,14 @@ func (e *perfEnv) extras(t *testing.T) map[string]perfExtra {
 		"composed: agent list, filter[state]=new":              {before: e.composedBefore(t)},
 		"composed: single GET, agent":                          {before: e.composedBefore(t)},
 	}
+	maps.Copy(m, e.regionExtras(t)) // TICK-1037
+	return m
 }
 
 func (e *perfEnv) defs(t *testing.T) []perfDef {
 	t.Helper()
 	admin := []string{"admin-large"}
-	return []perfDef{
+	return append([]perfDef{
 		{"agent list by group, default sort, page 1", "list", "large", func() []perfReq { return listReqs(e.agents, "") }, 0},
 		{"agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"requester list (heavy requesters), page 1", "list", "large", func() []perfReq { return listReqs(e.requesters, "") }, 0},
@@ -853,7 +869,7 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"composed: agent list by group, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, e.agents[:perfPage20Actors], "") }, 0},
 		{"composed: agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
 		{"composed: single GET, agent", "get", "large", func() []perfReq { return e.getReqs(t, e.agents, 5) }, 0},
-	}
+	}, e.regionDefs(t)...) // TICK-1037: last, it rewrites org_unit_id and the ACLs
 }
 
 // ---- measurement -----------------------------------------------------------
@@ -885,8 +901,18 @@ type perfResult struct {
 	// 2026-11-10 19:49 reading (creates only).
 	storage float64
 	// intruders are containers outside perfAllowedContainers seen while the
-	// attempt ran; any one voids the attempt.
+	// attempt ran; any one voids the attempt, for every scored row
+	// (watched).
 	intruders []string
+	// pairLat are the paired base requests' latencies (TICK-1037): the
+	// same client, interleaved with the scored requests in lat.
+	pairLat []time.Duration
+	// floorStart and floorEnd are the 1-client transport floor p50 in ms,
+	// measured just before and just after a region row attempt (TICK-1037,
+	// A2-11; Technical Architect, TICK-1087 item 1). The run-level floor is
+	// taken once before every row, ~17 min before the region rows start,
+	// so it cannot refuse a region attempt; these can. 0 when not measured.
+	floorStart, floorEnd float64
 	// open is set on an open-loop row (TICK-700, NAVA_PERF_RATE).
 	open *perfOpen
 }
@@ -913,10 +939,25 @@ func lastCommit(ss []perfStmt) (time.Duration, bool) {
 	return 0, false
 }
 
-// label names a result in the report tables: a scored create row carries its
+// watched reports a scored latency row: one that is re-run when another
+// container ran during it. Create rows have the host and storage gates too.
+// List and get rows are watched since TICK-1040: the transport floor is
+// checked once before the first row, so a bench or integration cluster that
+// starts later contended a list window without voiding it (QA, 2026-11-21
+// 07:23, P3-36 baseline runs 1 and 2b).
+func (sc perfScenario) watched() bool {
+	// TICK-1037: a region information row is unscored but keeps every
+	// gate (container watch, floor, base tail) and their re-runs.
+	if isRegionRow(sc.name) {
+		return true
+	}
+	return sc.unscored == "" && (sc.kind == "create" || sc.kind == "list" || sc.kind == "get")
+}
+
+// label names a result in the report tables: a watched row carries its
 // attempt.
 func (r *perfResult) label() string {
-	if r.attempt > 0 && r.sc.kind == "create" && r.sc.unscored == "" {
+	if r.attempt > 0 && r.sc.watched() {
 		return fmt.Sprintf("%s, attempt %d", r.sc.name, r.attempt)
 	}
 	return r.sc.name
@@ -925,10 +966,11 @@ func (r *perfResult) label() string {
 // commitP50 is the row's storage window, in ms.
 func (r *perfResult) commitP50() float64 { return pct(r.commits, .5) }
 
-// gated reports a create row attempt that failed a gate: the host-speed
-// probe or the storage window. The transport floor gate stops the whole run.
+// gated reports a watched row attempt that failed a gate: for creates the
+// host-speed probe or the storage window, for every watched row another
+// container during the attempt. The transport floor gate stops the whole run.
 func (r *perfResult) gated() bool {
-	return r.sc.kind == "create" && r.sc.unscored == "" && r.gateReason() != ""
+	return r.sc.watched() && r.gateReason() != ""
 }
 
 // gateReason names the gates the attempt failed, or "" when it is valid.
@@ -942,6 +984,16 @@ func (r *perfResult) gateReason() string {
 	}
 	if len(r.intruders) > 0 {
 		why = append(why, "other containers during the attempt: "+strings.Join(r.intruders, " "))
+	}
+	if r.floorStart > perfFloorGateMS || r.floorEnd > perfFloorGateMS {
+		why = append(why, fmt.Sprintf("floor p50 %.2f / %.2f > %.0f ms", r.floorStart, r.floorEnd, perfFloorGateMS))
+	}
+	// TICK-1091: in-attempt host noise; the floor gate only sees the
+	// attempt's edges. Only region rows have pairLat.
+	if len(r.pairLat) > 0 {
+		if b50, b95 := pct(r.pairLat, .50), pct(r.pairLat, .95); b50 > 0 && b95/b50 > perfBaseTailGate {
+			why = append(why, fmt.Sprintf("paired base p95/p50 %.2f > %.1f", b95/b50, perfBaseTailGate))
+		}
 	}
 	return strings.Join(why, ", ")
 }
@@ -1206,6 +1258,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			defer wg.Done()
 			var (
 				lat     []time.Duration
+				pairLat []time.Duration
 				holds   []perfHold
 				commits []time.Duration
 			)
@@ -1231,6 +1284,12 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 				if rec.Code == http.StatusUnprocessableEntity {
 					atomic.AddInt64(&res.timeouts, 1)
 				}
+				// Only a region row pairs: the base tokens are the plain
+				// agents, whose own rows keep every latency in lat.
+				if isRegionRow(sc.name) && e.pairBase[r.token] {
+					pairLat = append(pairLat, el)
+					continue
+				}
 				lat = append(lat, el)
 				if h, ok := counterHold(tr.stmts); ok && sc.kind == "create" {
 					holds = append(holds, h)
@@ -1245,6 +1304,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 			}
 			mu.Lock()
 			res.lat = append(res.lat, lat...)
+			res.pairLat = append(res.pairLat, pairLat...)
 			res.holds = append(res.holds, holds...)
 			res.commits = append(res.commits, commits...)
 			for k, v := range stmts {
@@ -1380,10 +1440,10 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		if sc.before != nil {
 			sc.before()
 		}
-		// A scored create row runs until its storage window passes the
-		// gate, at most perfCommitAttempts times; every attempt is reported.
+		// A watched row runs until it passes its gates, at most
+		// perfCommitAttempts times; every attempt is reported.
 		attempts := 1
-		if sc.kind == "create" && sc.unscored == "" {
+		if sc.watched() {
 			attempts = perfCommitAttempts
 		}
 		for a := 1; a <= attempts; a++ {
@@ -1396,12 +1456,26 @@ func TestRecordsACLPerf800k(t *testing.T) {
 				st.quiesceWait = e.quiesce(t)
 				probe = e.hostProbe(t, &st)
 				storage = e.storageProbe(t)
+			} else if sc.watched() {
+				st.isolationWait = isolate(t)
+			}
+			// Region rows: the floor gate per attempt, at its start and its
+			// end, as the crossover cells gated each chunk (TICK-1087 item 1).
+			floorStart := 0.0
+			if isRegionRow(sc.name) {
+				floorStart = pct(e.transportFloor(t, 1), .50)
+			}
+			if sc.watched() {
 				watch = watchContainers(t.Context(), stop)
 			}
 			r := e.run(t, sc, c, time.Duration(secs)*time.Second)
 			close(stop)
 			if watch != nil {
 				r.intruders = <-watch
+			}
+			if isRegionRow(sc.name) {
+				r.floorStart, r.floorEnd = floorStart, pct(e.transportFloor(t, 1), .50)
+				t.Logf("FLOOR %s attempt %d: 1-client SELECT 1 p50 %.2f ms before, %.2f ms after (gate %.0f ms)", sc.name, a, r.floorStart, r.floorEnd, perfFloorGateMS)
 			}
 			r.attempt, r.probe, r.setup, r.storage = a, probe, st, storage
 			t.Logf("RESULT %-62s attempt %d n=%6d p50=%8.2f p95=%8.2f p99=%8.2f ms storage probe=%6.2f in-trace commit p50=%6.2f host probe=%5.2f retry_later=%d gated=%q",
@@ -1420,6 +1494,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", out)
+	e.regionReport(t, results, out) // TICK-1037
 	invalid := map[string]bool{}
 	for _, r := range results {
 		switch p95 := pct(r.lat, .95); {
@@ -1437,7 +1512,7 @@ func TestRecordsACLPerf800k(t *testing.T) {
 	}
 	for name, bad := range invalid {
 		if bad {
-			t.Errorf("HOST INVALID for creates: %s had no valid attempt (host probe <= %.1f ms, storage probe <= %.0f ms, no other container) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+			t.Errorf("HOST INVALID: %s had no valid attempt (no other container; creates also host probe <= %.1f ms, storage probe <= %.0f ms) in %d attempts", name, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 		}
 	}
 }
@@ -1498,7 +1573,7 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	w("## Transport floor\n\n`SELECT 1` on the handler's pool, %d clients x 200: p50 %.2f / p95 %.2f / p99 %.2f ms. Each statement in the tables below pays about this much before the database does any work.\n\n",
 		clients, pct(floor, .50), pct(floor, .95), pct(floor, .99))
 	reportOpen(w, results)
-	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). An attempt is also void if a container other than the run's database, the buildkit builder and the three Multica platform containers runs during it. A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
+	w("## Results (ms, per request through the handler)\n\nA create row attempt is scored only when it passes every gate (CTO, 2026-11-10): the transport floor (p50 <= %.0f ms, checked once, the run stops otherwise), the host-speed probe (a 1-client `BEGIN; COMMIT` p50 <= %.1f ms, run just before the attempt) and the storage window (a dedicated 1-client `BEGIN; SELECT pg_logical_emit_message(true, ...); COMMIT` probe, a commit that flushes WAL with no INSERT, p50 <= %.0f ms, run just before the attempt; the in-trace commit round trip, which since TICK-692 carries the INSERT, is reported only). Every scored row, list and get rows included (TICK-1040), waits before each attempt until no container runs other than the run's database, the buildkit builder and the three Multica platform containers, and the attempt is void if another one runs during it (docker ps every 5 s). A gated attempt is neither a pass nor a fail and is re-run, at most %d attempts. A `503 retry_later` in a valid attempt is a miss. Round trips are one request's, the first actor's.\n\n", perfFloorGateMS, perfHostGateMS, perfCommitGateMS, perfCommitAttempts)
 	w("| Scenario | Attempt | Tenant | n | p50 | p95 | p99 | Host probe p50 | Storage probe p50 | In-trace commit p50 | Round trips | retry_later | Target | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		p95 := pct(r.lat, .95)
@@ -1516,9 +1591,12 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 			v = "**MISS** (retry_later)"
 		}
 		attempt, probe, storage, commit, trips, rl := "-", "-", "-", "-", "-", "-"
+		if r.sc.watched() {
+			attempt = strconv.Itoa(max(r.attempt, 1))
+		}
 		if r.sc.kind == "create" {
 			n, _, _ := roundTrips(r.stmtSQL)
-			attempt, commit, trips = strconv.Itoa(max(r.attempt, 1)), fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
+			commit, trips = fmt.Sprintf("%.2f", r.commitP50()), strconv.Itoa(n)
 			probe, rl, storage = fmt.Sprintf("%.2f", r.probe), strconv.FormatInt(r.retryLater(), 10), fmt.Sprintf("%.2f", r.storage)
 		}
 		w("| %s | %s | %s | %d | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %.0f | %s |\n", r.sc.name, attempt, r.sc.tenant, len(r.lat), pct(r.lat, .5), p95, pct(r.lat, .99), probe, storage, commit, trips, rl, r.target(), v)

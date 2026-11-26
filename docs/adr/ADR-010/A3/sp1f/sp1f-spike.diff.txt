@@ -1,0 +1,574 @@
+diff --git a/internal/authz/acl.go b/internal/authz/acl.go
+index 7bdcd171..3204ab3f 100644
+--- a/internal/authz/acl.go
++++ b/internal/authz/acl.go
+@@ -308,10 +308,11 @@ func ReadListShaped(pol *Policy, p identity.Principal, alias string, argBase int
+ // same text in both.
+ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListShapes) (ListRead, bool, []regionLeaf) {
+ 	var out ListRead
+-	count := &compiler{alias: alias, base: argBase, walk: shapes.rare}
++	var keys []string
++	rec := func(k string) bool { return slices.Contains(keys, k) && shapes.recFor(k) }
++	count := &compiler{alias: alias, base: argBase, walk: shapes.rare, rec: shapes.recFor}
+ 	branches, over := readBranches(planned, count)
+ 	split := len(branches) >= 2
+-	var keys []string
+ 	if split {
+ 		out.CountBranches = branches
+ 		for _, pp := range planned {
+@@ -322,7 +323,7 @@ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListSha
+ 			}
+ 		}
+ 	} else {
+-		count = &compiler{alias: alias, base: argBase, walk: shapes.rare}
++		count = &compiler{alias: alias, base: argBase, walk: shapes.rare, rec: shapes.recFor}
+ 		out.CountWhere = compileRead(planned, count)
+ 		var only []pnode
+ 		for _, pp := range planned {
+@@ -342,7 +343,7 @@ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListSha
+ 		}
+ 	}
+ 	c3 := func(k string) bool { return slices.Contains(keys, k) && shapes.c3For(k) }
+-	page := &compiler{alias: alias, base: argBase, walk: true, c3: c3}
++	page := &compiler{alias: alias, base: argBase, walk: true, c3: c3, rec: rec}
+ 	if split {
+ 		out.Branches, _ = readBranches(planned, page)
+ 	} else {
+@@ -359,7 +360,7 @@ func readList(planned []plannedPolicy, alias string, argBase int, shapes ListSha
+ 			continue
+ 		}
+ 		out.Materialize[i] = c3(k)
+-		if !shapes.rare {
++		if !shapes.rare && !rec(k) {
+ 			out.Drivers[i] = count.driverOf(k)
+ 		}
+ 	}
+@@ -571,6 +572,7 @@ type compiler struct {
+ 	// instead (the page of a region term the probe chose C3 for).
+ 	walk bool
+ 	c3   func(key string) bool
++	rec  func(key string) bool
+ 	// c3Neg holds, for each leaf rendered C3, its C3 text then its predicate
+ 	// text: a later branch negates an earlier one with the leaf in the
+ 	// predicate form (a hashed subplan, as before A2), so only the C3 term's
+@@ -611,6 +613,8 @@ func (c *compiler) under(tenant uuid.UUID, units []uuid.UUID) string {
+ 	a := c.underArgs(tenant, units)
+ 	col := c.col(metadata.ColumnOrgUnitID)
+ 	switch {
++	case c.rec != nil && c.rec(underKey(tenant, units)):
++		return recLeaf(col, a)
+ 	case c.c3 != nil && c.c3(underKey(tenant, units)):
+ 		text := c3Leaf(col, a)
+ 		if !slices.Contains(c.c3Neg, text) {
+@@ -630,6 +634,16 @@ func predicateLeaf(col string, a underArgs) string {
+ 		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[])))"
+ }
+ 
++// recLeaf is SP-1f's R leaf: membership in U's closure descendants as a
++// hashed SubPlan. IS TRUE keeps the sublink from being pulled up into a
++// semi-join, so the planner cannot drive the term from the units again: the
++// statement reads the type's records through (tenant_id,
++// entity_definition_id, …) and probes the hash once per row.
++func recLeaf(col string, a underArgs) string {
++	return "(" + col + " IS NOT NULL AND (" + col + " IN (SELECT acl_ou.descendant_id FROM org_unit_closure acl_ou" +
++		" WHERE acl_ou.tenant_id = " + a.tenant + "::uuid AND acl_ou.ancestor_id = ANY(" + a.units + "::uuid[]))) IS TRUE)"
++}
++
+ // walkLeaf is W0 (A2-5): one closure-PK probe per row, kept a SubPlan by
+ // OFFSET 0 so the page walks its sort index in order.
+ func walkLeaf(col string, a underArgs) string {
+diff --git a/internal/authz/shape.go b/internal/authz/shape.go
+index 8f5836ea..ab9bc351 100644
+--- a/internal/authz/shape.go
++++ b/internal/authz/shape.go
+@@ -53,6 +53,17 @@ const (
+ 	ShapeWalk ListShape = iota
+ 	// ShapeC3 is the materialized CTE.
+ 	ShapeC3
++	// ShapeRecords is SP-1f's R (TICK-1092, spike only): the page and the
++	// count driven from the type's records, the leaf a hashed closure set.
++	ShapeRecords
++)
++
++// SP-1f spike switch (TICK-1092, throwaway, never committed). SpikeAlpha 0
++// is A2 unchanged (the control); > 0 runs the folded probe and picks R when
++// N̂_e <= alpha*|S|; SpikeForceR forces R wherever the probe ran (α sweep).
++var (
++	SpikeAlpha  float64
++	SpikeForceR bool
+ )
+ 
+ // The clamp of K* (A2-9) and its coefficient c, measured by the A2-12 (a)
+@@ -91,6 +102,18 @@ type ListShapes struct {
+ 	fixed bool
+ 	shape ListShape
+ 	c3    map[string]bool
++	rec   map[string]bool
++}
++
++// recFor reports whether the region term of leaf key renders R (SP-1f).
++func (s ListShapes) recFor(key string) bool {
++	switch {
++	case s.rare:
++		return false
++	case s.fixed:
++		return s.shape == ShapeRecords
++	}
++	return s.rec[key]
+ }
+ 
+ // FixedListShapes renders every region term of a list as s, with the count
+@@ -107,7 +130,7 @@ func (s ListShapes) c3For(key string) bool {
+ 	case s.fixed:
+ 		return s.shape == ShapeC3
+ 	}
+-	return s.c3[key]
++	return s.c3[key] && !s.rec[key]
+ }
+ 
+ // regionLeaf is an under leaf that drives a list term: its tenant and U.
+@@ -135,6 +158,16 @@ func ProbeStatement(k int) string {
+ 		` AND r.org_unit_id IS NOT NULL AND r.org_unit_id = acl_d.descendant_id LIMIT ` + lim + `) acl_x LIMIT ` + lim + `) acl_p`
+ }
+ 
++// FoldedProbeStatement is SP-1f's probe: the capped closure count |S| (at
++// most $4 rows of the canonical U's closure) and, only when that count stays
++// under $4, P3 for K = k. The P3 subquery is an InitPlan referenced in the
++// CASE's ELSE alone, so it never executes when the cap is reached.
++func FoldedProbeStatement(k int) string {
++	a := underArgs{tenant: "$1", units: "$2"}
++	return `SELECT acl_s.n, CASE WHEN acl_s.n >= $4::bigint THEN NULL::bigint ELSE (` + ProbeStatement(k) + `) END FROM (SELECT count(*) AS n FROM (SELECT 1 FROM ` +
++		regionFrom(a) + ` LIMIT $4::bigint) acl_z) acl_s`
++}
++
+ // ErrProbe wraps a failed P3: the list answers 500 and never falls back to
+ // another shape (A2-6). Its text names no count, threshold or estimate.
+ var ErrProbe = errors.New("authz: under list probe failed")
+@@ -178,7 +211,31 @@ func ChooseListShapes(ctx context.Context, tx pgx.Tx, pol *Policy, p identity.Pr
+ 		}
+ 		return ListShapes{rare: true}, nil
+ 	}
+-	out := ListShapes{c3: make(map[string]bool, len(leaves))}
++	out := ListShapes{c3: make(map[string]bool, len(leaves)), rec: map[string]bool{}}
++	if SpikeAlpha > 0 && known {
++		cap := int64(math.Ceil(float64(estimate) / SpikeAlpha))
++		folded := FoldedProbeStatement(k)
++		for _, l := range leaves {
++			start := time.Now()
++			var n int64
++			var m *int64
++			err := tx.QueryRow(ctx, folded, tenant, UUIDTexts(l.units), def, cap).Scan(&n, &m)
++			observeProbe(ctx, time.Since(start))
++			if err != nil {
++				return ListShapes{}, fmt.Errorf("%w: %w", ErrProbe, err)
++			}
++			switch {
++			case n >= cap || SpikeForceR:
++				out.rec[l.key] = true
++			case m != nil && *m <= int64(k):
++				out.c3[l.key] = true
++			}
++			if m == nil && !out.rec[l.key] {
++				return ListShapes{}, fmt.Errorf("%w: no probe count", ErrProbe)
++			}
++		}
++		return out, nil
++	}
+ 	sql := ProbeStatement(k)
+ 	for _, l := range leaves {
+ 		start := time.Now()
+diff --git a/internal/records/pipeline/acl_under_shape_integration_test.go b/internal/records/pipeline/acl_under_shape_integration_test.go
+index da06cc78..0b5fb329 100644
+--- a/internal/records/pipeline/acl_under_shape_integration_test.go
++++ b/internal/records/pipeline/acl_under_shape_integration_test.go
+@@ -201,7 +201,7 @@ type how struct {
+ }
+ 
+ func hows() []how {
+-	return []how{{"probe", true, 0}, {"C3 forced", false, authz.ShapeC3}, {"W0 forced", false, authz.ShapeWalk}}
++	return []how{{"probe", true, 0}, {"C3 forced", false, authz.ShapeC3}, {"W0 forced", false, authz.ShapeWalk}, {"R forced (SP-1f)", false, authz.ShapeRecords}}
+ }
+ 
+ // list runs the list's page (LIMIT limit) and count for pol as the list
+diff --git a/internal/server/records_perf_region_integration_test.go b/internal/server/records_perf_region_integration_test.go
+index e14465ec..011366c3 100644
+--- a/internal/server/records_perf_region_integration_test.go
++++ b/internal/server/records_perf_region_integration_test.go
+@@ -44,6 +44,7 @@
+ package server_test
+ 
+ import (
++	"encoding/json"
+ 	"fmt"
+ 	"log/slog"
+ 	"net/http"
+@@ -75,27 +76,67 @@ type perfRegionSet struct {
+ 	name string
+ 	pres []int
+ 	key  string // entity type key
++	mode string // SP-1f: "A2" (control, MC3), "R" (selector at spikeAlpha), "R forced"
+ }
+ 
+-// perfRegionSets are TICK-1037's sets, in the order the rows run.
++// spikeAlpha is SP-1f's provisional α for the selector rows. Every
++// TICK-1037 row decides the same for any α in (2.2, 39.6): bench_conc's
++// N̂_e/|S| is 2.20 at 9,099 units and 1.98 at 10,111, ticket's is 39.6 at
++// root. α itself is the crossover of the sweep rows.
++const spikeAlpha = 8.0
++
++// perfRegionSets are SP-1f's rows (TICK-1092): MC3 first (the A2 control on
++// every TICK-1037 set plus bench_conc at 10,111 units), then the α sweep
++// (bench_conc, m = 0, regions 0..k, control against R forced), then every
++// set under the SP-1f selector.
+ func perfRegionSets() []perfRegionSet {
+-	regions08 := make([]int, 0, 9)
+-	for r := range 9 {
+-		regions08 = append(regions08, 1+r*1011)
+-	}
+-	return []perfRegionSet{
+-		{"area (|S| 10)", []int{3}, "ticket"},
+-		{"district (|S| 101)", []int{2}, "ticket"},
+-		{"region (|S| 1,011)", []int{1}, "ticket"},
+-		{"root (|S| 10,111)", []int{0}, "ticket"},
+-		{"district hot", []int{2327}, "ticket"},
+-		{"district thin", []int{2428}, "ticket"},
+-		{"uniform m=1001", []int{3035}, "ticket"},
+-		{"uniform m=3000", []int{3136}, "ticket"},
+-		{"uniform m=4500", []int{3338}, "ticket"},
+-		{"uniform m=10000", []int{3237}, "ticket"},
+-		{"bench_rare at root", []int{0}, "bench_rare"},
+-		{"bench_conc, regions 0-8 (|S| 9,099)", regions08, "bench_conc"},
++	regions := func(n int) []int {
++		out := make([]int, 0, n)
++		for r := range n {
++			out = append(out, 1+r*1011)
++		}
++		return out
++	}
++	base := []perfRegionSet{
++		{"area (|S| 10)", []int{3}, "ticket", ""},
++		{"district (|S| 101)", []int{2}, "ticket", ""},
++		{"region (|S| 1,011)", []int{1}, "ticket", ""},
++		{"root (|S| 10,111)", []int{0}, "ticket", ""},
++		{"district hot", []int{2327}, "ticket", ""},
++		{"district thin", []int{2428}, "ticket", ""},
++		{"uniform m=1001", []int{3035}, "ticket", ""},
++		{"uniform m=3000", []int{3136}, "ticket", ""},
++		{"uniform m=4500", []int{3338}, "ticket", ""},
++		{"uniform m=10000", []int{3237}, "ticket", ""},
++		{"bench_rare at root", []int{0}, "bench_rare", ""},
++		{"bench_conc, regions 0-8 (|S| 9,099)", regions(9), "bench_conc", ""},
++		{"bench_conc at root (|S| 10,111)", []int{0}, "bench_conc", ""},
++	}
++	var out []perfRegionSet
++	for _, s := range base {
++		s.mode = "A2"
++		out = append(out, s)
++	}
++	for _, k := range []int{1, 2, 3, 4} {
++		for _, mode := range []string{"A2", "R forced"} {
++			out = append(out, perfRegionSet{fmt.Sprintf("sweep bench_conc, regions 0-%d (|S| %d)", k-1, k*1011), regions(k), "bench_conc", mode})
++		}
++	}
++	for _, s := range base {
++		s.mode = "R"
++		out = append(out, s)
++	}
++	return out
++}
++
++// spikeMode sets the SP-1f switch for mode.
++func spikeMode(mode string) {
++	authz.SpikeAlpha, authz.SpikeForceR = 0, false
++	switch mode {
++	case "R":
++		authz.SpikeAlpha = spikeAlpha
++	case "R forced":
++		authz.SpikeAlpha, authz.SpikeForceR = spikeAlpha, true
+ 	}
+ }
+ 
+@@ -107,6 +148,8 @@ type perfRegion struct {
+ 	units    map[int]uuid.UUID    // pre -> org unit id
+ 	current  string               // the set whose memberships are in place
+ 	report   strings.Builder
++	agree    strings.Builder // SP-1f
++	agreed   map[string]bool
+ }
+ 
+ // mdCell escapes the pipes in a set name ("|S|") for a markdown table cell.
+@@ -116,7 +159,7 @@ func mdCell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
+ func isRegionRow(name string) bool { return strings.HasPrefix(name, "region: ") }
+ 
+ func perfRegionName(s perfRegionSet, persona string) string {
+-	return "region: " + s.name + ", " + persona
++	return "region: [" + s.mode + "] " + s.name + ", " + persona
+ }
+ 
+ // regionActors registers the personas' tokens once: ragent-N is agent-N in
+@@ -194,7 +237,9 @@ func (e *perfEnv) regionBefore(t *testing.T, s perfRegionSet) {
+ 	if len(e.region.defs) == 0 {
+ 		e.regionSetup(t)
+ 	}
++	spikeMode(s.mode)
+ 	if e.region.current == s.name {
++		e.regionAgree(t, s)
+ 		return
+ 	}
+ 	ids := make([]uuid.UUID, 0, len(s.pres))
+@@ -211,6 +256,66 @@ func (e *perfEnv) regionBefore(t *testing.T, s perfRegionSet) {
+ 	e.exec(t, "ANALYZE org_unit_members")
+ 	e.region.current = s.name
+ 	e.regionSetLine(t, s)
++	e.regionAgree(t, s)
++}
++
++// regionAgree (SP-1f, A2-6) checks, once per set and mode, outside the timed
++// requests, that every agent and the count-only caller get the control's ids,
++// in order, and its capped count. The control is A2 as merged, which the
++// agreement tests hold to Allows. A mismatch fails the run.
++func (e *perfEnv) regionAgree(t *testing.T, s perfRegionSet) {
++	t.Helper()
++	if s.mode == "A2" {
++		return
++	}
++	key := s.mode + "/" + s.name
++	if e.region.agreed == nil {
++		e.region.agreed = map[string]bool{}
++	}
++	if e.region.agreed[key] {
++		return
++	}
++	e.region.agreed[key] = true
++	path := "/api/v1/records/" + s.key + "?sort=-updated_at"
++	toks := []string{"region-only"}
++	for _, tok := range e.agents {
++		toks = append(toks, "r"+tok)
++	}
++	get := func(tok string) (string, int64, bool) {
++		rec := e.serve(t.Context(), http.MethodGet, path, tok, "", "")
++		if rec.Code != http.StatusOK {
++			t.Fatalf("SP-1f agree %s %s: %d %s", key, tok, rec.Code, rec.Body)
++		}
++		var l struct {
++			Items []struct {
++				ID string `json:"id"`
++			} `json:"items"`
++			Total       int64 `json:"total"`
++			TotalCapped *bool `json:"total_capped"`
++		}
++		if err := json.Unmarshal(rec.Body.Bytes(), &l); err != nil {
++			t.Fatal(err)
++		}
++		ids := make([]string, len(l.Items))
++		for i, it := range l.Items {
++			ids[i] = it.ID
++		}
++		return strings.Join(ids, ","), l.Total, l.TotalCapped != nil && *l.TotalCapped
++	}
++	bad := 0
++	for _, tok := range toks {
++		spikeMode("A2")
++		wi, wt, wc := get(tok)
++		spikeMode(s.mode)
++		gi, gt, gc := get(tok)
++		if gi != wi || gt != wt || gc != wc {
++			bad++
++			t.Errorf("SP-1f agree %s %s: ids/total/capped differ (%d/%v vs control %d/%v)", key, tok, gt, gc, wt, wc)
++		}
++	}
++	line := fmt.Sprintf("| %s | %s | %d callers | %d mismatches |", mdCell(s.name), s.mode, len(toks), bad)
++	t.Logf("SP-1f AGREE %s", line)
++	fmt.Fprintln(&e.region.agree, line)
+ }
+ 
+ // regionSetLine records what the row measures: |S|, m (records of the type
+@@ -234,12 +339,16 @@ func (e *perfEnv) regionSetLine(t *testing.T, s perfRegionSet) {
+ 	k := authz.KStar(perfRegionPage, ne, true)
+ 	shape := "W0 (m > K*)"
+ 	switch {
++	case s.mode == "R forced" && ne > int64(k):
++		shape = "R (forced)"
++	case s.mode == "R" && ne > int64(k) && float64(ne) <= spikeAlpha*float64(units):
++		shape = fmt.Sprintf("R (N̂_e <= %.0f·|S|)", spikeAlpha)
+ 	case ne <= int64(k):
+ 		shape = "A2-5a rare: W0, no probe"
+ 	case m <= int64(k):
+ 		shape = "C3 (m <= K*)"
+ 	}
+-	line := fmt.Sprintf("| %s | %s | %d | %d | %d | %d | %s |", mdCell(s.name), s.key, units, m, ne, k, shape)
++	line := fmt.Sprintf("| %s | %s | %s | %d | %d | %d | %d | %s |", s.mode, mdCell(s.name), s.key, units, m, ne, k, shape)
+ 	t.Logf("REGION SET %s", line)
+ 	fmt.Fprintln(&e.region.report, line)
+ }
+@@ -455,8 +564,11 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string)
+ 		return
+ 	}
+ 	var b strings.Builder
+-	b.WriteString("# TICK-1037 region rows (A2-11)\n\n## Sets (as each row ran)\n\n| Set | Type | \\|S\\| | m | N̂_e | K* | Shape (A2-5) |\n| --- | --- | --- | --- | --- | --- | --- |\n")
++	b.WriteString("# SP-1f (TICK-1092) region rows\n\n## Sets (as each row ran)\n\n| Mode | Set | Type | \\|S\\| | m | N̂_e | K* | Shape |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+ 	b.WriteString(e.region.report.String())
++	b.WriteString("\n## A2-6 agreement (ids in order, capped count, against the control)\n\n| Set | Mode | Callers | Result |\n| --- | --- | --- | --- |\n")
++	b.WriteString(e.region.agree.String())
++	b.WriteString(e.regionSpikePlans(t))
+ 	b.WriteString("\n## Rows: handler p95 against 150 ms, paired base beside it (1 client)\n\n| Row | Attempt | n | p50 | **p95** | Base n | Base p50 | Base p95 | Δp95 vs base | Floor p50 before / after | Gate | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+ 	for _, r := range results {
+ 		if !isRegionRow(r.sc.name) {
+diff --git a/internal/server/records_perf_sp1f_integration_test.go b/internal/server/records_perf_sp1f_integration_test.go
+new file mode 100644
+index 00000000..4eb8e72f
+--- /dev/null
++++ b/internal/server/records_perf_sp1f_integration_test.go
+@@ -0,0 +1,152 @@
++//go:build integration && perf
++
++// SP-1f (TICK-1092), throwaway spike code, never committed: the plan-stability
++// cell. After every row ran, EXPLAIN (ANALYZE, BUFFERS) of the folded probe,
++// the R page and the R count, as the handler builds them, for the count-only
++// caller and one agent, at the analyzed n_distinct of records.org_unit_id and
++// at a forced n_distinct of 100 (a planner told each unit holds thousands of
++// records, which is what would pull it back to a unit-driven plan).
++
++package server_test
++
++import (
++	"fmt"
++	"math"
++	"strings"
++	"testing"
++
++	"github.com/google/uuid"
++	"github.com/jackc/pgx/v5"
++
++	"github.com/Navaladi2019/TicketingSystem/internal/authz"
++	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
++	"github.com/Navaladi2019/TicketingSystem/internal/records/store"
++	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
++)
++
++func (e *perfEnv) regionSpikePlans(t *testing.T) string {
++	t.Helper()
++	if e.region == nil || len(e.region.defs) == 0 {
++		return ""
++	}
++	var b strings.Builder
++	b.WriteString("\n## SP-1f plans (EXPLAIN ANALYZE, BUFFERS)\n")
++	regions := func(n int) []int {
++		out := make([]int, 0, n)
++		for r := range n {
++			out = append(out, 1+r*1011)
++		}
++		return out
++	}
++	cells := []perfRegionSet{
++		{"bench_conc, regions 0-8 (|S| 9,099)", regions(9), "bench_conc", "R"},
++		{"bench_conc at root (|S| 10,111)", []int{0}, "bench_conc", "R"},
++		{"sweep bench_conc, regions 0-0 (|S| 1011)", regions(1), "bench_conc", "R"},
++		{"root (|S| 10,111)", []int{0}, "ticket", "R"},
++	}
++	for _, nd := range []string{"analyzed", "100"} {
++		if nd == "100" {
++			e.exec(t, "ALTER TABLE records ALTER COLUMN org_unit_id SET (n_distinct = 100)")
++			e.exec(t, "ANALYZE records")
++		}
++		var stat string
++		_ = e.super.QueryRow(t.Context(), "SELECT coalesce(n_distinct::text, '?') FROM pg_stats WHERE tablename = 'records' AND attname = 'org_unit_id'").Scan(&stat)
++		fmt.Fprintf(&b, "\n### n_distinct(records.org_unit_id) = %s (pg_stats: %s)\n", nd, stat)
++		for _, c := range cells {
++			e.regionBefore(t, c)
++			for _, tok := range []string{"region-only", "r" + e.agents[0]} {
++				fmt.Fprintf(&b, "\n#### %s, %s\n", c.name, tok)
++				b.WriteString(e.spikeExplain(t, c, tok))
++			}
++		}
++	}
++	e.exec(t, "ALTER TABLE records ALTER COLUMN org_unit_id RESET (n_distinct)")
++	e.exec(t, "ANALYZE records")
++	spikeMode("A2")
++	return b.String()
++}
++
++func (e *perfEnv) spikeExplain(t *testing.T, c perfRegionSet, tok string) string {
++	t.Helper()
++	ctx := t.Context()
++	p := e.tokens[tok]
++	def := e.region.defs[c.key]
++	var b strings.Builder
++	explain := func(tx pgx.Tx, label, sql string, args ...any) {
++		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+sql, args...)
++		if err != nil {
++			fmt.Fprintf(&b, "%s: EXPLAIN error %v\n", label, err)
++			return
++		}
++		defer rows.Close()
++		fmt.Fprintf(&b, "\n%s:\n```\n", label)
++		for rows.Next() {
++			var l string
++			if err := rows.Scan(&l); err != nil {
++				t.Fatal(err)
++			}
++			b.WriteString(l + "\n")
++		}
++		b.WriteString("```\n")
++	}
++	err := tenancy.InTenantTx(ctx, e.pool, p.TenantID, func(tx pgx.Tx) error {
++		pol, err := authz.PolicyStore{}.Current(ctx, tx, c.key)
++		if err != nil {
++			return err
++		}
++		bound, err := authz.ResolveUnder(ctx, tx, pol, p)
++		if err != nil {
++			return err
++		}
++		var ne int64
++		if err := tx.QueryRow(ctx, "SELECT live_records FROM entity_record_estimates WHERE tenant_id = $1 AND entity_definition_id = $2", p.TenantID, def).Scan(&ne); err != nil {
++			return err
++		}
++		k := authz.KStar(perfRegionPage, ne, true)
++		cap := int64(math.Ceil(float64(ne) / spikeAlpha))
++		units := make([]uuid.UUID, 0, len(c.pres))
++		for _, pr := range c.pres {
++			units = append(units, e.region.units[pr])
++		}
++		fmt.Fprintf(&b, "N̂_e %d, K* %d, alpha %.1f, cap ceil(N̂_e/alpha) = %d\n", ne, k, spikeAlpha, cap)
++		explain(tx, "folded probe (|S| capped at N̂_e/alpha, P3 in CASE ELSE)", authz.FoldedProbeStatement(k), p.TenantID, authz.UUIDTexts(sortedUUIDs(units)), def, cap)
++		spikeMode("R")
++		shapes, err := authz.ChooseListShapes(ctx, tx, bound, p, def, perfRegionPage)
++		if err != nil {
++			return err
++		}
++		read := authz.ReadListShaped(bound, p, "r", 2, shapes)
++		q := pipeline.ListQuery{TenantID: p.TenantID, DefinitionID: def, Where: "true", Args: read.Args, Branches: read.Branches,
++			CountBranches: read.CountBranches, Materialize: read.Materialize, SortColumn: "updated_at", Desc: true, Limit: perfRegionPage}
++		if read.Branches == nil {
++			q.Where, q.CountWhere = read.Where, read.CountWhere
++		}
++		for _, d := range read.Drivers {
++			q.CountDrivers = append(q.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
++		}
++		args := append([]any{q.TenantID, q.DefinitionID}, q.Args...)
++		explain(tx, "count", store.CountStatement(q), args...)
++		sql, pargs, err := store.PageStatement(q)
++		if err != nil {
++			return err
++		}
++		explain(tx, "page", sql, pargs...)
++		return nil
++	})
++	if err != nil {
++		fmt.Fprintf(&b, "error: %v\n", err)
++	}
++	return b.String()
++}
++
++func sortedUUIDs(u []uuid.UUID) []uuid.UUID {
++	out := append([]uuid.UUID(nil), u...)
++	for i := range out {
++		for j := i + 1; j < len(out); j++ {
++			if strings.Compare(out[j].String(), out[i].String()) < 0 {
++				out[i], out[j] = out[j], out[i]
++			}
++		}
++	}
++	return out
++}

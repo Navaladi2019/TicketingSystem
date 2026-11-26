@@ -204,7 +204,7 @@ func TestPlanInvalidVoidsThePolicy(t *testing.T) {
 		{"unresolved ref under not", ``, `{"not":{"ref":"missing"}}`, RuleUnresolvedRef},
 		{"self reference", ptCond("a", `{"not":{"ref":"a"}}`), `{"ref":"a"}`, RuleRefCycle},
 		{"a -> b -> a", ptCond("a", `{"ref":"b"}`) + "," + ptCond("b", `{"any":[{"ref":"a"},`+isRequester()+`]}`), `{"not":{"ref":"a"}}`, RuleRefCycle},
-		{"under is not available", ``, `{"not":{"under":{"of":"caller"}}}`, RuleNotAvailable},
+		{"under with no set S bound", ``, `{"not":{"under":{"of":"caller"}}}`, RuleUnderUnresolved},
 		{"depth 9", ``, deep, RuleDepthExceeded},
 		{"129+ leaves after expansion", strings.Join(many, ","), `{"any":[` + strings.Join(refs, ",") + `]}`, RulePolicyLeavesExceeded},
 		{"invalid beside a deciding constant", ``, `{"any":[` + memberGA() + `,{"ref":"missing"}]}`, RuleUnresolvedRef},

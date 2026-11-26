@@ -195,7 +195,7 @@ func (e *sgEnv) explain(t *testing.T, q pipeline.ListQuery) map[string]any {
 		t.Fatal(err)
 	}
 	var raw string
-	if err := tenancy.InTenantTx(t.Context(), e.etEnv.pool, e.a.id, func(tx pgx.Tx) error {
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
 		return tx.QueryRow(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, args...).Scan(&raw)
 	}); err != nil {
 		t.Fatalf("explain: %v\n%s", err, sql)
@@ -325,7 +325,7 @@ func (e *sgEnv) pages(t *testing.T, q pipeline.ListQuery, n int, from *sgCursor)
 			lq.KeysetArgs = []any{cur.ts, cur.id.String()}
 		}
 		var page *pipeline.ListPage
-		if err := tenancy.InTenantTx(t.Context(), e.etEnv.pool, e.a.id, func(tx pgx.Tx) error {
+		if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
 			var err error
 			page, err = pipeline.List(t.Context(), tx, lq)
 			return err

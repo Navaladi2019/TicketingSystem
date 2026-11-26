@@ -1,0 +1,26 @@
+meta {
+  name: S31.33 Isolation: Bob lists tenant B's incidents: none of tenant A's
+  type: http
+  seq: 33
+}
+
+get {
+  url: {{core_url}}/api/v1/records/incident?limit=200
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bob_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  const ids = N.json().items.map(i => i.id);
+  test('leaves out s31_t_emea', () => expect(ids).to.not.include(bru.getVar('s31_t_emea')));
+  test('leaves out s31_t_de', () => expect(ids).to.not.include(bru.getVar('s31_t_de')));
+  test('leaves out s31_t_apac', () => expect(ids).to.not.include(bru.getVar('s31_t_apac')));
+  test('leaves out s31_t_none', () => expect(ids).to.not.include(bru.getVar('s31_t_none')));
+  N.noLeak(N.v('s31_a_unit'), bru.getVar('s31_run'));
+}

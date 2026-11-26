@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-006 erratum E2 explained: a 170 ms count budget, and the count runs without parallel workers</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style>
+</head><body><main>
+
+<span class="pill">ACCEPTED · rev 1 · 2026-11-22</span> <span class="src">ADR-006-E2 · issue TICK-1094 · amends ADR-006-A2 (A2-2, A2-3, A2-8) · source: spike S-A2-cancel runs 5 and 6 (TICK-1083, PR #851)</span>
+
+<h1>The count's time limit drops to 170 ms, and the count stops using parallel workers</h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) A list page shows "how many records match". Since amendment A2, that count has a fixed time limit. If the limit runs out, the page still loads and shows "50+" instead of a number.
+(2) A2 promised that a cancelled count stops within 15 ms. Two new tests found it can take up to 46 ms when the count had written temporary files, and up to 71 ms when it ran on parallel worker processes.
+(3) We lower the limit from 200 to 170 ms to pay for the first case. We remove the second case by running the count without workers, provided that a measurement before merge shows this doesn't make more counts miss the limit.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>A list request does two things. It fetches one page of records, and it counts the matching records the user may read, up to 1,000. The count can be slow when the user may see only a few of many matches. So A2 gave it a time limit, <code>CountBudget</code>, of 200 ms. The limit is enforced by the database's own <em>statement timeout</em>, which cancels a query that runs too long. The whole request must stay under <strong>350 ms</strong> at the 95th percentile (<em>p95</em>: 95 of 100 requests are faster).</p>
+<p>The 200 ms came from a sum: 350 ms, minus 94 ms for the page, minus 6 ms for two extra network round trips, minus a 35 ms safety margin. It assumed that a cancelled count stops almost at once, within 15 ms. A2 set a test, spike <em>S-A2-cancel</em>, to check that. Its rule: if a count overshoots by more, subtract the measured overshoot from the budget.</p>
+<p>The first runs passed on a simple plan. The Technical Architect then asked for two harder cases:</p>
+<dl>
+<dt>Spill</dt><dd>A sort or hash table too big for its memory (<code>work_mem</code>) writes <em>temporary files</em> to disk. When the database cancels such a count, it must first close and delete those files.</dd>
+<dt>Parallel</dt><dd>The database can split one query across <em>parallel workers</em>: extra processes whose results a plan step called <code>Gather</code> collects. When it cancels such a count, it must wait for every worker to stop.</dd>
+</dl>
+
+<figure><svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<text x="10" y="20" font-weight="700">How far past the budget the count ran (8 users at once, slowest 1 in 100)</text>
+<line x1="150" y1="35" x2="150" y2="200" stroke="#59636e"/>
+<line x1="150" y1="200" x2="670" y2="200" stroke="#59636e"/>
+<line x1="255" y1="35" x2="255" y2="200" stroke="#1a7f37" stroke-dasharray="4 3"/><text x="258" y="48" fill="#1a7f37">A2's limit, +15 ms</text>
+<text x="10" y="74">simple plan (run 4)</text><rect x="150" y="60" width="77" height="18" fill="#1a7f37"/><text x="232" y="74">+11.0</text>
+<text x="10" y="104">spill, run 6</text><rect x="150" y="90" width="195" height="18" fill="#9a6700"/><text x="350" y="104">+27.8</text>
+<text x="10" y="134">spill, run 5</text><rect x="150" y="120" width="321" height="18" fill="#cf222e"/><text x="476" y="134">+45.9, sets the 40 ms term</text>
+<text x="10" y="164">parallel, run 6*</text><rect x="150" y="150" width="498" height="18" fill="#cf222e"/><text x="600" y="186">+71.2</text>
+<text x="146" y="216">0</text><text x="286" y="216">20</text><text x="426" y="216">40</text><text x="566" y="216">60 ms</text>
+</svg><figcaption>*The parallel run's host check failed narrowly (a busy machine), so that figure is less certain. Source: <code>docs/adr/ADR-006/spikes/s-a2-cancel/</code>.</figcaption></figure>
+
+<h2>2. Options considered</h2>
+<table>
+<tr><th>Option</th><th>Budget</th><th>Verdict</th></tr>
+<tr><td>Keep 200 ms and treat the spill as a rare slow case</td><td>200 ms</td><td class="bad">Rejected. A2's rule is mechanical, and a run on a clean machine confirmed the spill.</td></tr>
+<tr><td>Subtract the spill term only and leave workers on</td><td>170 ms</td><td class="bad">Rejected. A parallel count would still overshoot by up to 71 ms.</td></tr>
+<tr><td>Subtract the parallel term too, from every count</td><td>about 140 ms</td><td>Fallback. It takes 30 ms from every count's budget to pay for a plan shape we can switch off.</td></tr>
+<tr><td><strong>Subtract the spill term and run the count without workers</strong></td><td><strong>170 ms</strong></td><td class="good">Chosen, if the check in section 4 passes.</td></tr>
+<tr><td>Turn off parallel for the whole database or the app's role</td><td>170 ms</td><td class="bad">Rejected. It would also change page queries that nobody measured.</td></tr>
+<tr><td>Give the count more memory so it never spills</td><td>200 ms</td><td class="bad">Rejected. Memory per connection would grow without limit under load.</td></tr>
+</table>
+
+<h2>3. The decision</h2>
+<ol>
+<li><strong>Budget 170 ms.</strong> 350 − 94 − 6 − 35 − <strong>40</strong> = 175, rounded down to 170. The 40 ms is run 5's spill overshoot (45.9 ms), less the 6 ms of round trips already counted. That is a deliberately cautious figure: run 5's machine failed its quiet-host check, and the only clean run measured 27.8 ms (which would allow 190 ms). Erring this way can only make the page faster; the cost is a few more "N+" totals. If those rise, one clean 10-minute rerun can give back up to about 20 ms.</li>
+<li><strong>No parallel workers for the count.</strong> The command that opens the count already sets its time limit. It now also says "use no workers" (<code>SET LOCAL max_parallel_workers_per_gather = 0</code>). It is the same single message to the database, so it costs nothing extra. The count ends by rolling back to a <em>savepoint</em> (a bookmark inside the transaction), and that undoes both settings. The page query keeps the normal settings.</li>
+<li><strong>A real leak check.</strong> The old test read a counter of temporary files <em>created</em>, which can't show one left behind. The new test lists the files that exist (<code>pg_ls_tmpdir()</code>), after the run and 60 s later. Runs 5 and 6 found none.</li>
+</ol>
+
+<figure><svg viewBox="0 0 680 120" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="40" width="88" height="40" fill="#f6f8fa" stroke="#59636e"/><text x="18" y="65">page 94</text>
+<rect x="98" y="40" width="6" height="40" fill="#d1d9e0" stroke="#59636e"/>
+<rect x="104" y="40" width="331" height="40" fill="#dafbe1" stroke="#1a7f37"/><text x="200" y="65">count budget 170</text>
+<rect x="435" y="40" width="78" height="40" fill="#ffebe9" stroke="#cf222e"/><text x="440" y="65">overshoot 40</text>
+<rect x="513" y="40" width="68" height="40" fill="#fff8c5" stroke="#9a6700"/><text x="518" y="65">margin 35</text>
+<line x1="591" y1="25" x2="591" y2="95" stroke="#1f2328" stroke-width="2"/><text x="555" y="20">350 ms p95</text>
+<text x="98" y="105">6 ms round trips; 5 ms left over from rounding</text>
+</svg><figcaption>The 350 ms limit, split up. The bound holds on every request, so it holds at p95.</figcaption></figure>
+
+<h2>4. The check before it ships</h2>
+<p>One fact cuts against choice 2. Under the database's own settings, a count shaped like a band (ii) list (a broad filter, a narrowing access rule) already uses workers: it finished in 94.5 ms with two of them. Without workers it may take longer. We have not measured how much longer. The only serial figure we have (192 ms) came from forced low-memory settings, so it overstates.</p>
+<p>So the change is gated on a measurement, A2-8 (3e). On a fresh, quiet stack with 8 users at once, it compares (A) no workers with 170 ms against (B) workers with 140 ms. The two arms run in alternating 15-second blocks (A, B, B, A), each checked for a quiet host, so that machine drift does not land on one arm only. That gives about 800 requests per arm. Choice 2 stands if (A) leaves the count without a number no more often than (B), allowing for chance: the margin is twice the statistical error of the difference, and at least 1 percentage point. The whole band (ii) request must also stay within 350 ms. A plan check confirms that (A) really runs without workers and (B) with them. If (B) gets no workers at all on the test machine, the result is reported as inconclusive and choice 2 stands, because it removes a slow cancel that no clean run has ever bounded. If (A) is clearly worse, we fall back to 140 ms with workers on, after one clean 10-minute rerun to pin down the parallel figure.</p>
+
+<h2>5. The fix and migration</h2>
+<p>A two-line code change on the S21 story branch (<code>internal/records/store/list.go</code>): the constant becomes 170 ms, and the savepoint command gains the worker setting. Tests check that the setting is 0 inside the count and back to normal after it, including on the next request that reuses the connection. Nothing is stored, so there is no data migration. The S21 acceptance kit is rerun once to record the new "N+" share.</p>
+<p><strong>Until then:</strong> the S21 code change (PR #827) ships with 140 ms, or waits. 170 ms ships only together with the no-workers change, after the check in section 4 passes.</p>
+
+<h2>6. What we are accepting</h2>
+<ul>
+<li><strong>A few more "N+" totals.</strong> A count that would have finished in time only with workers now shows "N+". The page itself is always complete. The check in section 4 gives the first number. In production, the existing alert fires if more than 5% of filtered lists show "N+" for an hour (risk register row AR-TICK-1094-01).</li>
+<li><strong>Nothing about tenant isolation changes.</strong> It is the same query under the same row security. Only the time threshold moves.</li>
+</ul>
+
+<h2>7. Evidence</h2>
+<table>
+<tr><th>Cell</th><th>Run</th><th>Overshoot p99, 1 / 8 users</th><th>Every answer 200 + "N+"</th><th>Leftover temp files</th></tr>
+<tr><td>simple plan (control)</td><td>5</td><td>+6.4 / +13.6 ms</td><td>300 of 300</td><td>none</td></tr>
+<tr><td>spill</td><td>5</td><td>+16.1 / <strong>+45.9 ms</strong></td><td>300 of 300</td><td>none, after the run or 60 s later</td></tr>
+<tr><td>spill</td><td>6 (host checks passed)</td><td>+19.0 / +27.8 ms</td><td>300 of 300</td><td>none</td></tr>
+<tr><td>parallel</td><td>6 (host check failed narrowly)</td><td>+39.5 / <strong>+71.2 ms</strong></td><td>300 of 300</td><td>none, and no worker left</td></tr>
+</table>
+<ul>
+<li>Raw samples, plans and host logs: <code>docs/adr/ADR-006/spikes/s-a2-cancel/run-5/</code> and <code>run-6/</code>, with the summary <code>tick-1083-results.md</code> (from PR #851).</li>
+<li>The Technical Architect's review on TICK-1082 asked for both cells and proposed the leak-check wording used here. Its critique of this erratum (rev 0) had no blocking items; rev 1 took its wording for the 40 ms reason and its design for the check in section 4.</li>
+<li>PostgreSQL 16 manual, <code>SET</code>: rolling back to a savepoint cancels any <code>SET LOCAL</code> issued after it.</li>
+</ul>
+</main></body></html>

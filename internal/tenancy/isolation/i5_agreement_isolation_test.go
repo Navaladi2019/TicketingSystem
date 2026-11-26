@@ -181,10 +181,33 @@ func i5SeedWorld(ctx context.Context, tx pgx.Tx, w *i5World) error {
 	}
 	b.Queue(`INSERT INTO entity_definitions (tenant_id, id, key, name, number_prefix, current_version) VALUES ($1, $2, 'i5case', 'I5', 'IFV', 1)`,
 		w.Tenant, w.Definition)
+	// The org tree, parents first, and the live memberships (TICK-950).
+	for i, u := range w.Units {
+		var parent any
+		if u.Parent != uuid.Nil {
+			parent = u.Parent
+		}
+		b.Queue(`INSERT INTO org_units (tenant_id, id, parent_id, keycloak_group_id, name, deleted_at)
+			VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::boolean THEN now() END)`,
+			w.Tenant, u.ID, parent, "kc-i5-ou-"+u.ID.String(), "i5-ou-"+strconv.Itoa(i), u.Dead)
+	}
+	for principal, units := range w.Members {
+		for _, u := range units {
+			b.Queue(`INSERT INTO org_unit_members (tenant_id, org_unit_id, principal_id) VALUES ($1, $2, $3)`, w.Tenant, u, principal)
+		}
+	}
+	// The closure, from the reference's tree (TICK-1034): each live unit
+	// with no tombstoned ancestor reaches itself and every live unit below
+	// it. Group sync keeps it in production (TICK-1033); the test seeds it.
+	for _, u := range w.Units {
+		for _, d := range i5Subtree(w.Tenant, u.ID) {
+			b.Queue(`INSERT INTO org_unit_closure (tenant_id, ancestor_id, descendant_id) VALUES ($1, $2, $3)`, w.Tenant, u.ID, d)
+		}
+	}
 	for i, rec := range w.Records {
-		b.Queue(`INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, requester_id, assignee_id, assignment_group_id)
-			VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8)`,
-			w.Tenant, rec.Row.ID, w.Definition, fmt.Sprintf("IFV%07d", i+1), rec.Row.State, rec.Row.RequesterID, rec.Row.AssigneeID, rec.Row.AssignmentGroupID)
+		b.Queue(`INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state, requester_id, assignee_id, assignment_group_id, org_unit_id)
+			VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9)`,
+			w.Tenant, rec.Row.ID, w.Definition, fmt.Sprintf("IFV%07d", i+1), rec.Row.State, rec.Row.RequesterID, rec.Row.AssigneeID, rec.Row.AssignmentGroupID, rec.Row.OrgUnitID)
 		for _, s := range rec.Shares {
 			column := "user_id"
 			if s.Kind == "group" {

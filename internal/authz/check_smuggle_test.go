@@ -91,8 +91,8 @@ func TestPrepareCannotSmuggleUncheckedRefs(t *testing.T) {
 		{"cmp duplicate column, state last", f2(when(`{"cmp":{"column":"assignment_group_id","column":"state","op":"in","values":[` + q(b) + `]}}`)), false},
 		{"cmp caller with values", f2(when(`{"cmp":{"column":"assignment_group_id","op":"in","caller":"my_groups","values":[` + q(b) + `]}}`)), false},
 
-		// under units.
-		{"under units", f2(when(`{"under":{"of":[` + q(b) + `]}}`)), false},
+		// under units: a ref source since S31 (TICK-950), so a control.
+		{"control: format 2 under units", f2(when(`{"under":{"of":[` + q(a) + `,` + q(b) + `]}}`)), true},
 		{"under duplicate of", f2(when(`{"under":{"of":"caller","of":[` + q(b) + `]}}`)), false},
 
 		// masks: read, write.

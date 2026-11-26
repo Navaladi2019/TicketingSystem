@@ -47,3 +47,6 @@ func WithCountDelay(d time.Duration) Option { return func(o *options) { o.countD
 
 // WithSkipCount makes lists run no count; their total is unknown.
 func WithSkipCount() Option { return func(o *options) { o.skipCount = true } }
+
+// AddOrgUnitMasks is addOrgUnitMasks, so a test can call it in a transaction.
+var AddOrgUnitMasks = addOrgUnitMasks //nolint:gochecknoglobals // test-only alias of an unexported function

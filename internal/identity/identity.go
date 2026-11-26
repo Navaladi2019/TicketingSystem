@@ -138,6 +138,11 @@ type DirectoryUser struct {
 	Email          string
 	Enabled        bool
 	FederatedLinks []FederatedLink
+	// PrimaryOrgUnitPath is the user's nava_primary_org_unit attribute: the
+	// group path of the org unit they want as primary (ADR-010 D-11-6). Empty
+	// when the attribute is absent. groupsync honours it only when it names a
+	// live unit the user belongs to.
+	PrimaryOrgUnitPath string `json:",omitempty"`
 }
 
 // FederatedLink is one federated identity of a user.

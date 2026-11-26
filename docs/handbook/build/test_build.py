@@ -1167,6 +1167,18 @@ class TestCheck(Base):
         problems = "\n".join(build.check(self.root, FakeGit()))
         self.assertIn("notes.txt is not generated", problems)
 
+    def test_examples_are_hand_authored_source(self):
+        """TICK-913: docs/handbook/examples/ is neither deleted nor reported; only that top-level directory is."""
+        page(self.root, "system/a.md", "A", "system")
+        write(self.root, "docs/handbook/examples/README.md", "readme")
+        write(self.root, "docs/handbook/examples/incident.json", "{}")
+        self.commit()
+        for keep in ("examples/README.md", "examples/incident.json"):
+            self.assertTrue(os.path.exists(os.path.join(self.root, "docs/handbook", keep)), keep)
+        self.assertEqual(build.check(self.root, FakeGit()), [])
+        write(self.root, "docs/handbook/system/examples/x.json", "{}")
+        self.assertIn("system/examples/x.json is not generated", "\n".join(build.check(self.root, FakeGit())))
+
 
 BENCH_ROW = """  - group: "Record history"
     budget: "History length"

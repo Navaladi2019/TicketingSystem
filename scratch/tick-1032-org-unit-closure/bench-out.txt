@@ -1,0 +1,209 @@
+host: MINGW64_NT-10.0-26300 naval 3.3.6-bec3d608-341.x86_64 2023-02-22 08:29 UTC x86_64 Msys
+docker VM: 16 CPUs, 26260877312 bytes
+containers running: nava-tick1032-bench-24214 nava-aclperf-pg-13271 nava-nava-relay-1 nava-nava-worker-1 nava-nava-core-1 nava-temporal-1 nava-temporal-server-1 nava-nava-purge-1 nava-nava-onboard-1 nava-nava-groupsync-1 nava-pgbouncer-1 nava-keycloak-1 nava-postgres-1 nava-otel-collector-1 buildx_buildkit_nava-ci0 multica-backend-1 multica-frontend-1 multica-postgres-1 
+Timing is on.
+SET
+Time: 0.194 ms
+SET
+Time: 0.115 ms
+                                                       version                                                        
+----------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.10 (Debian 16.10-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+(1 row)
+
+Time: 0.468 ms
+CREATE ROLE
+Time: 3.855 ms
+GRANT
+Time: 3.928 ms
+CREATE TABLE
+Time: 20.044 ms
+CREATE INDEX
+Time: 11.128 ms
+CREATE TABLE
+Time: 12.081 ms
+ALTER TABLE
+Time: 3.192 ms
+ALTER TABLE
+Time: 3.449 ms
+CREATE POLICY
+Time: 4.247 ms
+GRANT
+Time: 3.471 ms
+SELECT 400
+Time: 5.046 ms
+SELECT 11111
+Time: 34.929 ms
+INSERT 0 11111
+Time: 131.952 ms
+INSERT 0 399
+Time: 9.124 ms
+INSERT 0 1800
+Time: 27.282 ms
+UPDATE 1
+Time: 5.410 ms
+ANALYZE
+Time: 32.428 ms
+ org_units_rows 
+----------------
+          13310
+(1 row)
+
+Time: 1.283 ms
+== backfill (all 400 tenants, the migration statement per tenant)
+DO
+Time: 1143.388 ms (00:01.143)
+VACUUM
+Time: 53.964 ms
+ closure_rows | tenant0_rows 
+--------------+--------------
+        57777 |        53778
+(1 row)
+
+Time: 6.008 ms
+  heap   |  pkey   |  total  
+---------+---------+---------
+ 4320 kB | 5264 kB | 9616 kB
+(1 row)
+
+Time: 0.563 ms
+== rebuild of tenant 0 (group sync: delete the tenant rows, insert them again)
+BEGIN
+Time: 0.157 ms
+DELETE 53778
+Time: 26.488 ms
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Insert on org_unit_closure (actual time=463.758..463.768 rows=0 loops=1)
+   Buffers: shared hit=283286 dirtied=622 written=622
+   ->  Subquery Scan on "*SELECT*" (actual time=0.028..150.466 rows=53778 loops=1)
+         Buffers: shared hit=11101
+         ->  CTE Scan on closure (actual time=0.027..141.122 rows=53778 loops=1)
+               Buffers: shared hit=11101
+               CTE live
+                 ->  Recursive Union (actual time=0.024..24.339 rows=11000 loops=1)
+                       Buffers: shared hit=4942
+                       ->  Bitmap Heap Scan on org_units u (actual time=0.022..0.024 rows=1 loops=1)
+                             Recheck Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (parent_id IS NULL))
+                             Filter: (deleted_at IS NULL)
+                             Heap Blocks: exact=1
+                             Buffers: shared hit=3
+                             ->  Bitmap Index Scan on org_units_parent (actual time=0.016..0.016 rows=1 loops=1)
+                                   Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (parent_id IS NULL))
+                                   Buffers: shared hit=2
+                       ->  Merge Join (actual time=1.774..4.468 rows=2200 loops=5)
+                             Merge Cond: (u_1.parent_id = l.id)
+                             Buffers: shared hit=4939
+                             ->  Index Scan using org_units_parent on org_units u_1 (actual time=0.007..2.081 rows=8926 loops=5)
+                                   Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid)
+                                   Filter: (deleted_at IS NULL)
+                                   Rows Removed by Filter: 1
+                                   Buffers: shared hit=4939
+                             ->  Sort (actual time=0.640..0.904 rows=4173 loops=5)
+                                   Sort Key: l.id
+                                   Sort Method: quicksort  Memory: 617kB
+                                   ->  WorkTable Scan on live l (actual time=0.001..0.163 rows=2200 loops=5)
+               CTE closure
+                 ->  Recursive Union (actual time=0.025..119.071 rows=53778 loops=1)
+                       Buffers: shared hit=11101
+                       ->  CTE Scan on live (actual time=0.025..27.976 rows=11000 loops=1)
+                             Buffers: shared hit=4942
+                       ->  Merge Join (actual time=4.887..15.677 rows=8556 loops=5)
+                             Merge Cond: (u_2.parent_id = c.descendant_id)
+                             Buffers: shared hit=6159
+                             ->  Index Scan using org_units_parent on org_units u_2 (actual time=0.015..3.588 rows=11108 loops=5)
+                                   Index Cond: (tenant_id = '00000000-0000-4000-8000-000000000000'::uuid)
+                                   Filter: (deleted_at IS NULL)
+                                   Rows Removed by Filter: 1
+                                   Buffers: shared hit=6159
+                             ->  Materialize (actual time=3.479..7.764 rows=18448 loops=5)
+                                   ->  Sort (actual time=3.471..5.407 rows=10756 loops=5)
+                                         Sort Key: c.descendant_id
+                                         Sort Method: quicksort  Memory: 926kB
+                                         ->  WorkTable Scan on closure c (actual time=0.001..0.934 rows=10756 loops=5)
+ Planning Time: 0.339 ms
+ Trigger for constraint org_unit_closure_ancestor_fkey: time=385.161 calls=53778
+ Trigger for constraint org_unit_closure_descendant_fkey: time=394.875 calls=53778
+ Execution Time: 1257.047 ms
+(51 rows)
+
+Time: 1258.137 ms (00:01.258)
+COMMIT
+Time: 3.772 ms
+VACUUM
+Time: 90.176 ms
+Time: 3.343 ms
+SET
+Time: 0.193 ms
+              set_config              
+--------------------------------------
+ 00000000-0000-4000-8000-000000000000
+(1 row)
+
+Time: 0.282 ms
+== Allows probe: is a level-4 leaf under the root?
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.017..0.018 rows=1 loops=1)
+   Buffers: shared hit=4
+   InitPlan 1 (returns $0)
+     ->  Result (actual time=0.016..0.017 rows=1 loops=1)
+           One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000000'::uuid)
+           Buffers: shared hit=4
+           ->  Index Only Scan using org_unit_closure_pkey on org_unit_closure (actual time=0.012..0.012 rows=1 loops=1)
+                 Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (ancestor_id = '2fa46b7d-fcb7-4640-9cbf-98e0adba1569'::uuid) AND (descendant_id = 'a97ef78f-b24f-4687-b794-c94ab81f516a'::uuid))
+                 Heap Fetches: 0
+                 Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=18
+ Planning Time: 0.163 ms
+ Execution Time: 0.037 ms
+(14 rows)
+
+Time: 0.616 ms
+== list leaf: the live subtree of the root (11,000 units)
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.027..2.715 rows=11000 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000000'::uuid)
+   Buffers: shared hit=148
+   ->  Index Only Scan using org_unit_closure_pkey on org_unit_closure (actual time=0.022..1.556 rows=11000 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (ancestor_id = '2fa46b7d-fcb7-4640-9cbf-98e0adba1569'::uuid))
+         Heap Fetches: 0
+         Buffers: shared hit=148
+ Planning Time: 0.072 ms
+ Execution Time: 3.226 ms
+(9 rows)
+
+Time: 3.654 ms
+== list leaf: the live subtree of a level-1 unit (1,000 live of 1,111)
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Result (actual time=0.025..0.275 rows=1000 loops=1)
+   One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = '00000000-0000-4000-8000-000000000000'::uuid)
+   Buffers: shared hit=18
+   ->  Index Only Scan using org_unit_closure_pkey on org_unit_closure (actual time=0.018..0.162 rows=1000 loops=1)
+         Index Cond: ((tenant_id = '00000000-0000-4000-8000-000000000000'::uuid) AND (ancestor_id = '5935a4e5-5bdc-4a66-a255-b9b6532097c8'::uuid))
+         Heap Fetches: 0
+         Buffers: shared hit=18
+ Planning Time: 0.085 ms
+ Execution Time: 0.339 ms
+(9 rows)
+
+Time: 0.659 ms
+== the same, with only the RLS predicate on tenant_id
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Only Scan using org_unit_closure_pkey on org_unit_closure (actual time=0.013..0.159 rows=1000 loops=1)
+   Index Cond: ((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (ancestor_id = '5935a4e5-5bdc-4a66-a255-b9b6532097c8'::uuid))
+   Heap Fetches: 0
+   Buffers: shared hit=18
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.091 ms
+ Execution Time: 0.216 ms
+(8 rows)
+
+Time: 0.527 ms
+RESET
+Time: 0.113 ms

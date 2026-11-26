@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-010 erratum E4 explained: the stored region tree is updated in part, not rebuilt whole, on each change</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--good:#1a7f37}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--good:#3fb950}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill">ACCEPTED · 2026-11-25</span> <span class="src">ADR-010-E4 · issue TICK-1118 · corrects ADR-010-A2 (section A2-2, one grant in A2-1) · source: TICK-1054, whole-story review of PR #867</span>
+
+<h1>The design said "rebuild the whole region tree on every change". What was built changes only the affected part. We keep what was built and correct the design</h1>
+
+<h2>In plain words</h2>
+<dl>
+<dt>Goal</dt><dd>Make the accepted design say how the product really keeps its list of "which office or region is below which" up to date. That list decides who sees "tickets in my region".</dd>
+<dt>Today</dt><dd>A background service reads each customer's offices and regions from the company sign-in system every 5 minutes and stores them. Next to them it stores a ready-made list: for every unit, all the units below it. The design says that when anything changes, the service throws away that customer's whole list and builds it again, and holds a special "only one at a time" marker while it does so. The engineers shipped something else, so the design is wrong for anyone who reads it later.</dd>
+<dt>What's new</dt><dd>Nothing in the product. The corrected design says three things. A change replaces only the part of the list it affects. The whole list is built only the first time, when a check finds it wrong, or when an operator asks for it. The "only one at a time" marker is the one the service already held for its whole run. We expect this to work because we compared the partial way with the full way on 3,563 random changes, and they never differed.</dd>
+<dt>Who is affected</dt><dd>Users see no difference. A customer with about 10,000 units has a moved office handled in about 0.1 seconds instead of 0.8 to 2 seconds. Engineers and reviewers get a design that matches the code.</dd>
+<dt>Risks</dt><dd>If some part of the list is wrong for another reason (a program fault, or someone editing the database by hand), a change to other offices no longer repairs it. It is repaired in the next round that brings in other changes but no office change, or after the service restarts with no office change waiting. Until then, a rule such as "tickets in my region" or "all tickets except this office's" can show a person tickets it should not or let them change those tickets, or hide some it should show, but only within their own company. There is no time limit until that next round. We accept this as a medium risk, as rated by the security reviewer.</dd>
+<dt>How we'll know it worked</dt><dd>Already checked: the random comparison above, and tests that move, remove and bring back units and compare the list each time; they run on every code change. At the end: a reader with no background can describe from the design how the list is kept current, and that matches the code.</dd>
+</dl>
+
+<h2>1. The problem we faced</h2>
+<p>The table is called <code>org_unit_closure</code> (a <em>closure table</em>: one row for every pair "unit A is at or above unit B"). The service that writes it is called <em>group sync</em>; it copies users, groups and units from <em>Keycloak</em>, the sign-in system, for one customer (<em>tenant</em>) at a time. The second amendment to the access-policy design (ADR-010-A2) described the writing in section A2-2. Four statements there do not match the code:</p>
+<table><thead><tr><th>The design said</th><th>What is built</th></tr></thead><tbody>
+<tr><td>Delete and re-insert the tenant's whole table on every tree change. No partial updates.</td><td>Replace only the affected units' rows (<em>delta write</em>). The full rebuild is kept for the first import and for repair.</td></tr>
+<tr><td>Take a lock made for this purpose; a second rebuild waits.</td><td>No such lock. Group sync already holds one lock per tenant for its whole run; a second run skips that tenant until its next turn.</td></tr>
+<tr><td>Write an audit entry for the change.</td><td>None. The units mirror Keycloak, and the list is computed from them, so neither is configuration kept here.</td></tr>
+<tr><td>A full rebuild of 10,111 units takes about 0.3 s.</td><td>0.8 to 2.0 s in the automated test runs.</td></tr>
+</tbody></table>
+<p><strong>How it happened.</strong> The partial-write task (TICK-1054) was parked until a speed or size trigger fired. It was started because the task before it was finished; I found no record that a trigger had fired. Its scope was approved, but the accepted design was not amended first.</p>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>Correct the design to what is built</strong></td><td class="good">Chosen: it gives the same rows, and is faster for a moved unit.</td></tr>
+<tr><td>Change the code back to a full rebuild</td><td class="bad">Rejected: 0.8 to 2 s inside every tree-changing run, against 0.07 to 0.47 s for one moved unit or region, for the same rows. It would be faster only for a large import into a small existing tree (4 to 9 s today, tracked as TICK-1123).</td></tr>
+<tr><td>Also add the lock the design named</td><td class="bad">Rejected: the existing lock already covers every group-sync write of this table. A second lock protects nothing and adds an order to get wrong.</td></tr>
+<tr><td>Check the whole table on every run</td><td class="bad">Not now: at most 0.13 to 0.48 s per large tenant every 5 minutes, for a fault nobody has seen. It is the fix if one appears.</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<figure><svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<rect x="10" y="20" width="200" height="50" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="110" y="42" text-anchor="middle" fill="#1f2328">Sync holds the tenant's lock</text><text x="110" y="60" text-anchor="middle" fill="#59636e">else: skip until next turn</text>
+<rect x="260" y="20" width="200" height="50" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="360" y="42" text-anchor="middle" fill="#1f2328">Write the changed units</text><text x="360" y="60" text-anchor="middle" fill="#59636e">one transaction from here on</text>
+<rect x="10" y="130" width="210" height="64" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="115" y="156" text-anchor="middle" font-weight="700" fill="#1f2328">Units changed</text><text x="115" y="176" text-anchor="middle" fill="#1f2328">replace affected rows only</text>
+<rect x="255" y="130" width="210" height="64" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="360" y="156" text-anchor="middle" font-weight="700" fill="#1f2328">No unit changed</text><text x="360" y="176" text-anchor="middle" fill="#1f2328">compare the whole table</text>
+<rect x="500" y="130" width="210" height="64" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="605" y="156" text-anchor="middle" font-weight="700" fill="#1f2328">Table empty</text><text x="605" y="176" text-anchor="middle" fill="#1f2328">full rebuild</text>
+<rect x="255" y="230" width="210" height="50" rx="6" fill="#fff8c5" stroke="#9a6700"/><text x="360" y="252" text-anchor="middle" fill="#1f2328">Differs: full rebuild</text><text x="360" y="270" text-anchor="middle" fill="#59636e">same: write nothing</text>
+<line x1="210" y1="45" x2="260" y2="45" stroke="#59636e"/><line x1="330" y1="70" x2="150" y2="130" stroke="#59636e"/><line x1="360" y1="70" x2="360" y2="130" stroke="#59636e"/><line x1="390" y1="70" x2="570" y2="130" stroke="#59636e"/><line x1="360" y1="194" x2="360" y2="230" stroke="#59636e"/>
+</svg><figcaption>A run that has something to apply. When Keycloak has not changed since the last run, nothing is applied and the table is not compared.</figcaption></figure>
+<dl>
+<dt>E4-1. Partial write</dt><dd>In the same database transaction as the tree change, so both are saved or neither is. The affected units are the changed ones, everything that was below them, and everything now below them. Their rows are deleted and written again by walking up from each unit to a root.</dd>
+<dt>E4-2. Full rebuild</dt><dd>Three cases: the table is empty for that tenant; a run with no unit change finds the stored and the computed sets differ; an operator runs the repair function. The query plan is fixed so that a freshly filled database does not make it slow (39 s became 0.65 s in the test that exposed this).</dd>
+<dt>E4-3. One lock</dt><dd>Group sync's own lock, taken before it reads Keycloak. The lock the design named must not be added.</dd>
+<dt>E4-4. Same rows</dt><dd>After a partial write, the affected units' rows are exactly what a full rebuild gives. Four named tests must stay green.</dd>
+<dt>E4-5 to E4-8</dt><dd>No audit entry. Measured times. What a run does not check (the risk below). Group sync may also read the table, which the design's list of database permissions had left out.</dd>
+</dl>
+
+<h2>4. The fix or migration</h2>
+<p>Text only: section A2-2 and its explainer point to this erratum. No code, database or configuration change, and nothing to deploy. The code is on the S31 story branch and reaches <code>main</code> with that story; this erratum does not hold it.</p>
+
+<h2>5. What we accept (residual risk)</h2>
+<table><thead><tr><th>ID</th><th>Severity</th><th>Risk</th><th>When we look again</th></tr></thead><tbody>
+<tr><td>AR-TICK-1118-01</td><td>Medium</td><td>A wrong row outside the changed units lasts until the next applied run with no tree change, with no time limit. An extra row grants through "in my region" and hides through "not in this region"; a missing row does the reverse. Either can let a user read <strong>or change</strong> tickets outside their rules, or refuse them tickets inside their rules. A list's total can also be lower or higher than the tickets its pages show (inferred from code). Inside one tenant only: row-level security (the database's own tenant filter) and foreign keys that carry the tenant id are unchanged. Only a group-sync fault, the migration role, a database superuser or someone holding group sync's database password can cause it; no user's sign-in can. No metric counts repairs (TICK-1124 adds one).</td><td>Any such row found in a live tenant, or a second program that writes the table or the units. Then the check runs on every cycle.</td></tr>
+</tbody></table>
+
+<h2>6. The evidence</h2>
+<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
+<tr><td>Random trees on PostgreSQL 16.10, the shipped code against a full rebuild</td><td class="good">0 of 1,887 runs differ (normal trees); 0 of 1,916 (deliberately broken trees)</td></tr>
+<tr><td>The same with one changed unit left out on purpose</td><td><span class="bad">1,011</span> of 1,887 differ, so the check can fail</td></tr>
+<tr><td>A wrong row planted before a partial write</td><td>275 trials: affected units always right; the wrong row remained elsewhere in 216; a run with no unit change repaired all 275</td></tr>
+<tr><td>Full rebuild on a freshly filled database (limit 5 s), red to green</td><td><span class="bad">37.1 s</span> → <span class="good">1.07 s / 2.03 s</span> on two CI runs</td></tr>
+<tr><td>Whole sync at 10,111 units, the same two CI runs</td><td>one office 70 / 144 ms; one country 95 / 216 ms; one region 224 / 468 ms; full rebuild 0.83 / 1.77 s</td></tr>
+</tbody></table>
+<p>Not covered by the random check: timing, two runs at once, and the database's tenant filter. Existing tests cover two runs at once and the tenant filter. The Technical Architect then tested the operator's repair function against a running sync: the list was right after every race. One order stops the function with a deadlock error, and it must be run again. The function also makes every customer's requests that read these tables wait until it finishes, so it belongs in a maintenance window (TICK-1122).</p>
+
+<p class="src">Source of truth: <code>docs/adr/ADR-010-E4-closure-delta-writes.md</code>. Archive: <code>docs/adr/ADR-010/E4/spike/</code>.</p>
+</main></body></html>

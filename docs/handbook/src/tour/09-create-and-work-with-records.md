@@ -60,6 +60,8 @@ A second create returns `LOAN0000002`. The filtered list returns both with `"tot
  {"action":"create","source":"user","changed":["/data/amount","/data/applicant_name","/data/income","/data/requester","/data/state","/data/term_months"],"after":{…}}]}
 ```
 
+A field the reader may not see is left out of the history. The record's org unit ([step 5](05-organisation-units.md)) is never in it, for any reader.
+
 Failure paths, each a problem body with a stable `code`:
 
 | Call | Answer |

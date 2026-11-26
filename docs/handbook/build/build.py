@@ -2612,12 +2612,17 @@ def offline_violations(output):
 
 # ----------------------------------------------------------------- writing
 
+# Top-level directories under docs/handbook that are written by hand: the page
+# sources, this generator, and the example record types (TICK-789).
+HAND_AUTHORED_DIRS = ("src", "build", "examples")
+
+
 def generated_files(base):
     found = set()
     for dirpath, dirs, files in os.walk(base):
         rel_dir = os.path.relpath(dirpath, base).replace(os.sep, "/")
         if rel_dir == ".":
-            dirs[:] = [d for d in dirs if d not in ("src", "build")]
+            dirs[:] = [d for d in dirs if d not in HAND_AUTHORED_DIRS]
         for f in files:
             rel = f if rel_dir == "." else rel_dir + "/" + f
             if rel != "README.md":

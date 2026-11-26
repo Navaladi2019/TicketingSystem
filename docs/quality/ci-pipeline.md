@@ -324,8 +324,11 @@ exactly once, and logs each shard's package time against the timeout
 (`solo-server-1: package time <seconds>s of 8m`).
 
 **Integration timeout and the log (TICK-225).** Every `go test` in the script
-runs with `-timeout 8m` (6m until TICK-1021: `internal/server` took 348 s on
-run 44760743332, 12 s from the panic), against the job's `timeout-minutes: 15`;
+runs with `-timeout 11m` (6m until TICK-1021: `internal/server` took 348 s on
+run 44760743332, 12 s from the panic; 8m until TICK-1100: run 45012776252 ran
+1.57x slower on westus2 runners and timed out twice with no test failing),
+against the job's `timeout-minutes: 15`. When green runs of the slowest package
+go over about 70 % of the limit, split the package instead of raising it again;
 the numbers below are TICK-225's, when the job had 10. A green run
 starts its tests about 2 minutes into the job (set-up 17 s, clusters and test
 compile 85 to 100 s) and they take under a minute, so 6 minutes is several
@@ -456,7 +459,7 @@ Renovate).**
 | A build-tagged test file stops compiling and CI stays green, because `go vet` and `go test` build untagged files only and the tagged suites run only in the stack jobs (TICK-286 finding 4: a duplicate `onboardPostRaw` behind `identitystack && acceptance` on `main`) | `vet-tags` in the lint job (`tools/ci/buildtags`, TICK-320): finds every module (each `go.mod` outside `testdata`), reads every `//go:build` line, takes for each file every minimal set of custom tags that builds it (one for `a && b`, one per side of `a || b`; GOOS, GOARCH and `go1.N` take their linux/amd64 values), and runs `go vet -tags <set> ./...` in the module once per distinct set, so a new tag or module is covered with no edit. A file with more than 16 custom tags fails the step instead of being skipped. `TestBrokenTaggedFileFails` vets a fixture whose `stacktag && accept` test redeclares a `stacktag` helper and expects exactly that set to fail; `TestRepositoryCoversTheAcceptanceTag` keeps the `acceptance,identitystack` set discovered. Tags are never combined beyond what one file needs, so two tags no file uses together are not built together |
 | A security-path change goes without the D-P10 review | `review-paths` prints the summary lines on every PR (fixture: a PR touching `db/`) |
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
-| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 8m` in `test-integration.sh` (below the job's 15 minutes; 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
+| An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 11m` in `test-integration.sh` (below the job's 15 minutes; 8m until TICK-1100, 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
 | A change to `nava.interpreter` breaks determinism, so runs already in flight fail on their next workflow task after a deploy (Epic 09 AC2) | The replay gate in the `unit` job (`make test`), below: `TestReplayRecordedHistories` replays every history under `internal/workflow/testdata/histories/`; `TestHistoriesAppendOnly` keeps the ones on `main` unchanged; `TestHistoriesHoldReferencesOnly` keeps them references only (ADR-001 R1) |
 | A branch's migration merges with a version older than one already on `main`, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE=origin/main` for every event, also pull requests into a story branch (TICK-309), and full history: fails naming each added migration, its version and `main`'s newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |
@@ -957,6 +960,52 @@ workflow's matrix and `paths:`. The guard tests then check the key.
 TICK-693's merge changes the workflow file, so it publishes the first
 keycloak tag (or run the workflow by hand on `main`). After that, a run whose
 key inputs are unchanged from `main` pulls it.
+
+### OpenObserve image (TICK-1128, TICK-1131)
+
+A full run starts the operator profile, which includes OpenObserve.
+`compose.yaml` pins it by tag and index digest, and the digest is written
+nowhere else. `make openobserve-pull` (`scripts/ci/pull-openobserve.sh`) runs
+in the `stack` job before `make image-ci`:
+
+1. It pulls that digest from `public.ecr.aws/zinclabs/openobserve` and, when
+   that source fails, from `docker.io/openobserve/openobserve`. OpenObserve
+   publishes the same index on both.
+2. A source fails when the pull fails, gives no answer in 480 s (one attempt
+   per source, `timeout -k 10 480`; the log then says `<source> failed: no
+   answer in 480 s`), or the image's digest is not the pinned one. The image
+   runs only after its digest is checked, with no network. When both fail, the step fails and prints both errors, before any stack
+   starts.
+3. The pulled binary's `--version` must be the tag's version. Docker ignores
+   the tag of a `tag@digest` ref, so without this a tag bumped without its
+   digest would run the old version unnoticed.
+4. It exports `OPENOBSERVE_REPO=<source>`, the repository without tag or
+   digest. `image-ci` then leaves the service out of its registry pull, and
+   `stack-up` finds the image locally, so nothing contacts a registry for it
+   again. The log line is
+   `pull-openobserve: using <source>@<digest> (<version>)`.
+
+`OPENOBSERVE_REPO` chooses the source only: `compose.yaml` adds the tag and the
+digest after it, so a value set by hand is held to the pinned digest too
+(TICK-1131). A value that carries its own tag or digest makes a reference that
+Docker refuses (`invalid reference format`).
+
+A fast run prints `openobserve-pull: skipped`. A local `docker compose up`
+pulls the same digest from ECR Public, with no login and no extra step.
+Nothing is published and the job holds no registry credential. The tests
+(`deploy/compose/openobserve_pull_test.go`, run by `task test`) run the script
+and the make targets against a fake `docker`. One of them asks the real
+`docker compose` what the variable changes; it skips where that is missing and
+fails there when `CI` is set. The tests set `PULL_TIMEOUT` (seconds) to shorten
+the limit; nothing else does.
+
+**Remaining limit.** A full run still fails when both registries refuse. Docker
+Hub limits unauthenticated pulls, and the stack's other images already come
+from it. We keep no copy of our own: the image is AGPL-3.0, and a public copy
+on ghcr.io cannot be made private again and carries source-availability duties.
+Trigger to revisit: one full run red because both refused, or Docker Hub limits
+turn a full run red on any image. Publishing a copy then needs the human's
+approval first (TICK-1128).
 
 ### Story branches (TICK-322)
 

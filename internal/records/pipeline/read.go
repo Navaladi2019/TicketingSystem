@@ -70,6 +70,9 @@ func DecodeObject(b []byte) (map[string]any, error) { return store.DecodeObject(
 // ListQuery is the store's list query, for the read-only list route.
 type ListQuery = store.ListQuery
 
+// CountDriver is the store's count driver of a region term.
+type CountDriver = store.CountDriver
+
 // ListPage is one page of a list and its total (capped at store.TotalCap).
 type ListPage = store.ListPage
 
