@@ -1,0 +1,34 @@
+meta {
+  name: S4.15 The operator sets tenant A's per-type filterable limit to the default
+  type: http
+  seq: 15
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-limits
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 5,
+    "reason": "S4 kit: the default"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('the limit is 5', () => expect(N.json().filterable_fields_per_type).to.eql(5));
+}
+
+docs {
+  TICK-751 (ADR-006 D12): `setTenantLimits` sets a tenant's per-type filterable-field limit, 5 to 10, as an audited `tenant_limits` row. 5 is the default, so on a fresh stack this writes nothing and no audit entry; S22's kit raises it to 10.
+}

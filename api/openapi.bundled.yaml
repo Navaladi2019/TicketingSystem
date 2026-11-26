@@ -83,6 +83,56 @@ paths:
           $ref: "#/components/responses/Problem"
         "501":
           $ref: "#/components/responses/Problem"
+  /api/v1/operator/tenants/{tenant}/limits:
+    put:
+      operationId: setTenantLimits
+      summary: Set a tenant's limits (operator token only)
+      description: >
+        Sets the tenant's per-type filterable-field limit, from the default 5 up to 10 (ADR-006 D12), with no per-tenant DDL (I8). Requires an operator token (realm role nava-operator, audience nava-operator-api); a tenant token is refused with 403. The change is one audited tenant_limits row (subject tenant_limits, the operator as actor, the reason in the entry); setting the value already in force writes nothing, so a retry is one audit entry. Publish enforces the limit from the next publish on. An unknown tenant is 404. A body with a duplicate member name or invalid UTF-8 is 422 invalid_tenant_limits.
+
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTenantLimitsRequest"
+      responses:
+        "200":
+          description: The limits now in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantLimits"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
   /api/v1/entity-types:
     get:
       operationId: listEntityTypes
@@ -1926,6 +1976,28 @@ components:
         next_cursor:
           type: string
           description: Present when more formats follow; pass it as `cursor`.
+    SetTenantLimitsRequest:
+      type: object
+      required: [filterable_fields_per_type, reason]
+      properties:
+        filterable_fields_per_type:
+          type: integer
+          minimum: 5
+          maximum: 10
+          description: The most filterable fields one entity type of the tenant may flag.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Why the limit changes (for example, the measured cost check). Recorded in the audit entry.
+    TenantLimits:
+      type: object
+      required: [filterable_fields_per_type]
+      properties:
+        filterable_fields_per_type:
+          type: integer
+          minimum: 5
+          maximum: 10
     OnboardTenantRequest:
       type: object
       required: [admin_email, email_domains, identity_provider]

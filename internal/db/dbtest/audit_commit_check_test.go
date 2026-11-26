@@ -170,11 +170,13 @@ func TestP511CatalogueCIA3(t *testing.T) {
 	if p, err := auditedManifest(t).Check(ctx, super, m, g); err != nil || len(p) != 0 {
 		t.Fatalf("real manifest: problems %v, err %v", p, err)
 	}
-	// Exactly six tables have the trigger: records (P5-13c, TICK-530), the
+	// Exactly seven tables have the trigger: records (P5-13c, TICK-530), the
 	// entity-definition tables (P5-32, migration B, TICK-442), acl_versions
-	// (P3-35, TICK-620) and the workflow definition tables (P3-41b, TICK-737).
+	// (P3-35, TICK-620), the workflow definition tables (P3-41b, TICK-737)
+	// and tenant_limits (TICK-751).
 	const wantTriggers = "acl_versions:acl_versions_audit_commit_check:O,entity_definition_versions:entity_definition_versions_audit_commit_check:O," +
 		"entity_definitions:entity_definitions_audit_commit_check:O,records:records_audit_commit_check:O," +
+		"tenant_limits:tenant_limits_audit_commit_check:O," +
 		"workflow_definition_versions:workflow_definition_versions_audit_commit_check:O,workflow_definitions:workflow_definitions_audit_commit_check:O"
 	if got := queryString(t, super, `SELECT coalesce(string_agg(t.tgrelid::regclass::text || ':' || t.tgname || ':' || t.tgenabled::text, ','
 		ORDER BY t.tgname COLLATE "C"), '')
@@ -246,7 +248,7 @@ func TestP511CatalogueCIA3(t *testing.T) {
 			func() *audited.Manifest { return withTestTable(nil) }, "column note may be updated but is not in audited_columns"},
 		{"writer cannot read a probe column", []string{"REVOKE SELECT (txid) ON audit_log FROM nava_app"},
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_app cannot run the commit check or append: no SELECT (txid)"},
-		{"writer has no SELECT policy", []string{"DROP POLICY audit_log_onboard_select ON audit_log"},
+		{"writer has no SELECT policy", []string{"DROP POLICY audit_log_onboard_select ON audit_log", "DROP POLICY audit_log_limits_onboard_select ON audit_log"},
 			func() *audited.Manifest { return withTestTable(nil) }, "writer role nava_onboard cannot run the commit check or append: no SELECT policy"},
 		// ADR-004-E3 decision 3: the clause is in pg_proc.proconfig; a copy
 		// without it, an ALTER ... RESET, or a CREATE OR REPLACE without the
