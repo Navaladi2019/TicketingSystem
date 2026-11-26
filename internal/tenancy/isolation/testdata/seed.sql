@@ -406,3 +406,18 @@ ALTER TABLE entity_definition_versions ENABLE TRIGGER entity_definition_versions
 ALTER TABLE workflow_definitions ENABLE TRIGGER workflow_definitions_audit_commit_check;
 ALTER TABLE workflow_definition_versions ENABLE TRIGGER workflow_definition_versions_audit_commit_check;
 COMMIT;
+
+-- Schema backfill (P10-01, ADR-009 D7): tenant A has a finished job on its
+-- ticket type, tenant B a running one on its own. Both queue and both fail the
+-- shared record id a1, so a queue or failure probe by record alone would meet
+-- tenant B's rows.
+INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, 'done', '{priority}'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, 'running', '{priority}');
+INSERT INTO schema_backfill_pending (tenant_id, entity_definition_id, target_version, record_id) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000000a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '0a000000-0000-4000-8000-0000000000a1'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '0b000000-0000-4000-8000-0000000000b1');
+INSERT INTO schema_backfill_failures (tenant_id, entity_definition_id, target_version, record_id, code) VALUES
+    ('0a000000-0000-4000-8000-00000000000a', '0a000000-0000-4000-8000-0000000006a1', 1, '0a000000-0000-4000-8000-0000000000a1', 'validation_failed'),
+    ('0b000000-0000-4000-8000-00000000000b', '0b000000-0000-4000-8000-0000000006b1', 2, '0a000000-0000-4000-8000-0000000000a1', 'validation_failed');

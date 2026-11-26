@@ -154,6 +154,11 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
+      # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261126100000):
+      # reads only, for D10's status and failures and D12's filter shapes.
+      schema_backfills: { SELECT: [] }
+      schema_backfill_pending: { SELECT: [] }
+      schema_backfill_failures: { SELECT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
     # inserting role. TICK-940: the format-2 rules CHECK calls the acl2_*
     # ones, and the tenant-id trigger (as the inserting role) acl2_id_pointers.
@@ -303,6 +308,11 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
+      # Schema backfill (ADR-009 D2, D7, P10-01, TICK-916, 20261126100000):
+      # the backfill job owns its job row, its queue and its failures.
+      schema_backfills: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
+      schema_backfill_pending: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
+      schema_backfill_failures: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
       # TICK-782 (20261113190000): records/store's recordSelect joins the
       # assignment group for its tombstone; groups_select's tenant predicate
       # reads tenant_id. Never path or keycloak_group_id.

@@ -277,3 +277,12 @@ func openSQL(t *testing.T, cfg *pgx.ConnConfig) *sql.DB {
 	t.Cleanup(func() { _ = d.Close() })
 	return d
 }
+
+// constraintName returns the constraint a server error names, or "".
+func constraintName(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.ConstraintName
+	}
+	return ""
+}
