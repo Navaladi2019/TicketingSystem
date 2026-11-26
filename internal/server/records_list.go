@@ -90,6 +90,10 @@ type listPlan struct {
 	// arg; nil is containment, r.data @> arg. Only the I5 mutants set it
 	// (WithListDataTerm, integration builds only).
 	dataTerm func(arg string) string
+	// indexTerm replaces the D7 EXISTS of a ready data filter; nil renders
+	// existsTerm. Only the TICK-1039 spike sets it (WithListIndexTerm,
+	// integration builds only).
+	indexTerm func(IndexTerm) string
 }
 
 // fields are the top-level names the plan reads, for CheckQueryFields.
@@ -287,7 +291,11 @@ func (pl *listPlan) where(base int) (string, []any) {
 						group = append(group, g)
 					}
 				}
-				terms = append(terms, existsTerm(group, next))
+				term := existsTerm(group, next)
+				if pl.indexTerm != nil {
+					term = pl.indexTerm(indexTermOf(group, term))
+				}
+				terms = append(terms, term)
 				continue
 			}
 			ors := make([]string, 0, len(f.values))
@@ -479,6 +487,9 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			return perr
 		}
 		pl.dataTerm = h.listDataTerm
+		if h.listIndexTerm != nil {
+			pl.indexTerm = func(in IndexTerm) string { return h.listIndexTerm(ctx, tx, in) }
+		}
 		// Before any SQL: filters, sort and the default sort.
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err

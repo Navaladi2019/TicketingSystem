@@ -192,8 +192,15 @@ func sqlOp(op string) string {
 // range, not two unselective halves. A text value is compared under COLLATE
 // "C", the column's own collation, so the value index serves it.
 func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
+	table, fieldArg, cmp := existsParts(fs, next)
+	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
+}
+
+// existsParts renders the side table, the field placeholder and the ANDed
+// comparisons on v.value of existsTerm.
+func existsParts(fs []listFilter, next func(v any, cast string) string) (table, fieldArg, cmp string) {
 	f := fs[0]
-	table, _ := f.idx.ValueType.SideTable()
+	table, _ = f.idx.ValueType.SideTable()
 	cast := map[fieldindex.ValueType]string{
 		fieldindex.TypeText: "text", fieldindex.TypeNum: "double precision",
 		fieldindex.TypeTS: "timestamptz", fieldindex.TypeBool: "boolean",
@@ -202,7 +209,7 @@ func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 	if f.idx.ValueType == fieldindex.TypeText {
 		collate = ` COLLATE "C"`
 	}
-	fieldArg := next(f.idx.ID.String(), "uuid")
+	fieldArg = next(f.idx.ID.String(), "uuid")
 	cmps := make([]string, 0, len(fs))
 	for _, f := range fs {
 		if f.op == "in" {
@@ -211,8 +218,43 @@ func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 			cmps = append(cmps, "v.value "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
 		}
 	}
-	cmp := strings.Join(cmps, " AND ")
-	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
+	return table, fieldArg, strings.Join(cmps, " AND ")
+}
+
+// IndexTerm is one ready field's filter as the list compiler rendered it, for
+// IndexTermFunc. Placeholders in D7 and Cmp are bound by the list statement.
+type IndexTerm struct {
+	FieldID   uuid.UUID
+	ValueType fieldindex.ValueType
+	Table     string // the side table, fieldindex.SideTable's fixed set
+	FieldArg  string // the placeholder bound to FieldID
+	Cmp       string // the ANDed comparisons on v.value
+	D7        string // existsTerm: the term the list uses without a hook
+	Ops       []string
+	Values    [][]any // per op, the parsed values
+}
+
+// IndexTermFunc returns the SQL term that replaces in.D7 in the list
+// statement. It runs inside the list's tenant transaction. Only
+// WithListIndexTerm (integration builds) installs one: the TICK-1039 spike
+// arms. Production lists always render existsTerm.
+type IndexTermFunc func(ctx context.Context, tx pgx.Tx, in IndexTerm) string
+
+// indexTermOf describes the filters fs of one ready field and their rendered
+// D7 term. It binds no placeholder: the parts are re-rendered with a
+// throwaway counter and FieldArg and Cmp are read back from d7.
+func indexTermOf(fs []listFilter, d7 string) IndexTerm {
+	in := IndexTerm{FieldID: fs[0].idx.ID, ValueType: fs[0].idx.ValueType, D7: d7}
+	in.Table, _ = fs[0].idx.ValueType.SideTable()
+	const pre = " AND v.field_id = "
+	rest := d7[strings.Index(d7, pre)+len(pre):]
+	in.FieldArg, in.Cmp, _ = strings.Cut(rest, " AND ")
+	in.Cmp = strings.TrimSuffix(in.Cmp, ")")
+	for _, f := range fs {
+		in.Ops = append(in.Ops, f.op)
+		in.Values = append(in.Values, f.values)
+	}
+	return in
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.

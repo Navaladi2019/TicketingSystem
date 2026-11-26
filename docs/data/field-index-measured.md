@@ -11,6 +11,70 @@ Harness: `TestFieldIndexPerf800k`
 `integration perf`), run by `scratch/field-index-measured/run.sh`. Raw
 output: `docs/data/field-index-measured/`.
 
+## TICK-1009 and TICK-1039: ready, not yet scored (2026-11-26)
+
+**Status: waiting for one fully idle window (vknavaladi).** No cell below is
+scored yet. The harness ran end to end on a busy host as a smoke test (2 s
+cells, transport floor p50 3.6–8.2 ms, gate failed), and those numbers are
+not evidence. They are kept only as a harness check, in
+`scratch/field-index-measured/smoke-2026-11-26/`.
+
+Run: `sh scratch/field-index-measured/spikes.sh` (`NAVA_PERF_PHASES=edges,arms`
+on the TICK-992 harness). One 800k seed serves both. `edges` (TICK-1009) runs
+first, because `arms` (TICK-1039) rewrites the records heap. Cell code:
+`internal/server/records_fieldindex_spikes_perf_integration_test.go`.
+
+| Spike | Cells | Line |
+| --- | --- | --- |
+| TICK-1009 S1, band edge | `num lt` (`score` lt 500 / 1000 / 2000) and `text eq` (`tier` `v5` / `v10` / `v20`) at 5 / 10 / 20%, with the agents' ACL (6%) and without: 12 | 5%: 350 ms; 10%, 20%: 150 ms (over is a new band, reported) |
+| TICK-1009 S2, ACL breadth | 2% `num lt` and `text eq`, agents seeing 6% (control), 26% and 50%: 6 | 350 ms |
+| TICK-1039 arms | D7, (a) adaptive, (b) promoted column, (b) with `assignment_group_id` in the index, × 11 `pk` fixtures (below): 44 | 150 ms |
+| Both | no-filter controls and transport floor before and after each phase | floor p50 ≤ 3 ms |
+
+Fixture changes, none of which move a TICK-992 band:
+
+- **`tier`** gains `v5` 5%, `v10` 10% and `v20` 20%, taken from the 97
+  others. Those keep the remaining 22.74%. `v40` / `v2` / `v025` / `v001`
+  keep 40 / 2 / 0.25 / 0.01%, and the run logs every share.
+- **Broader agents.** `a25-N` and `a50-N` use `agent-N`'s principal, with 13
+  and 25 of the 50 assignment groups. The existing `agent-N` (3 groups) is
+  unchanged. The group sets nest, 6% inside 26% inside 50%. 25% is not a
+  multiple of one group's 2%, so a25 sees 26%. Smoke: agent-1 sees 24,666
+  records (6.2%), a25-1 sees 104,490 (26.1%) and a50-1 sees 200,402 (50.1%).
+- **`pk`** (num, large type only, one side row per record). TICK-1039's a6
+  is `agent-1` and its a50 is `a50-1`:
+
+  | Value | Side rows | Visible to a6 / a50 | Fixture |
+  | --- | --- | --- | --- |
+  | 40 | 8,000, the oldest by `updated_at` | 484 / 4,011 | A1-6 (3): anti-correlated 2%; a6's count stays under the cap |
+  | 10 | 26,593 | 0 / 0 | none visible |
+  | 20 | 21,487 | 494 / 494 | partly correlated |
+  | 30 | 19,999 | 0 / 0 | the R13 step's lower side |
+  | 3 | 200,000 | 15,819 / 133,409 | broad 50% |
+  | 4 | the remaining 123,921 | – | – |
+
+  Unlike A2-11, a50 is a superset of a6, so a50 also sees the 494.
+
+Arms. Each arm goes through the real handler, ACL and RLS, with
+`WithListIndexTerm`, a compiler seam that exists only under the
+`integration` tag.
+
+- **(a), adaptive.** A capped pre-count (`LIMIT 4501`) of the value's side
+  rows runs in the list's transaction. If it finds at most 4,500, the list
+  keeps D7's `EXISTS`, which drives from the side index. If it finds more,
+  the `EXISTS` gets `OFFSET 0`. That blocks the semi-join pull-up, so the
+  list walks the records index in list order and probes `rfv_num_pkey` once
+  per record. The count does the same per group-visible record, up to the
+  cap. The shape forces the probe, with no `enable_*` and no hints. The cap
+  was fixed before any run: sqrt(51 × 400,000) ≈ 4,500 is where a 51-row
+  walk (51 / s probes) costs the same as reading s × 400k side rows.
+- **(b), promoted column.** `records.spike_pk` with an index on (tenant_id,
+  entity_definition_id, spike_pk, updated_at), then the same with
+  `assignment_group_id` before `updated_at`. This is scratch DDL inside the
+  perf test and is dropped at the end. The column is filled before any arm
+  runs, and `VACUUM FULL records` follows, so every arm reads the same heap.
+  Smoke index sizes: 52 MB and 66 MB.
+
 ## TICK-992: scored on the reference machine (2026-11-19)
 
 **Host condition: `nava` stack running at idle, waived by the Technical Lead
@@ -415,6 +479,7 @@ pauses in order, per run).
 sh scratch/field-index-measured/run.sh                      # every phase, about 90 min plus the backfill caps
 NAVA_PERF_PHASES=lists sh scratch/field-index-measured/run.sh   # the idle-host D13 re-run
 NAVA_PERF_PHASES=backfill NAVA_PERF_FIX_BATCHES=0 sh scratch/field-index-measured/run.sh   # a whole fix-candidate backfill, with the diff (0 works from TICK-992 on)
+sh scratch/field-index-measured/spikes.sh                  # TICK-1009 S1/S2, then TICK-1039 arms; refuses a host with nava or bench containers
 ```
 
 Env: `NAVA_PERF_LIST_SECONDS` (20), `NAVA_PERF_WRITE_SECONDS` (60),
