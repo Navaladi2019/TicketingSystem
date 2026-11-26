@@ -50,6 +50,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -79,7 +80,23 @@ type Op int
 const (
 	OpCreate Op = iota + 1
 	OpUpdate
+	// OpMaterialize writes a record's missing defaults under the current
+	// definition (ADR-009 D3-D6): the schema backfill's write. The command
+	// names the record, an empty patch, SourceSystem and ActorSystem
+	// ActorSchemaBackfill. Write reads the stored record and compares
+	// ApplyDefaults(stored) with stored before any SQL write: when they are
+	// equal it writes, bumps and audits nothing and returns Written false.
+	// Otherwise it writes the defaulted body through the update path
+	// (validate, unique, version check, write, audit) with version + 1,
+	// schema_version the current one and updated_at unchanged (D5), and calls
+	// no EventSink: no on_updated start, no signal, no outbox row (D6). A live
+	// write between the read and the write is ErrVersionConflict.
+	OpMaterialize
 )
+
+// ActorSchemaBackfill is the audit actor_system of an OpMaterialize write
+// (ADR-009 D2).
+const ActorSchemaBackfill = "schema-backfill"
 
 // String is the write's op as record_write_keys.action stores it. The audit
 // entry's action is create, update or state_change (audit.go).
@@ -89,6 +106,8 @@ func (o Op) String() string {
 		return "create"
 	case OpUpdate:
 		return "update"
+	case OpMaterialize:
+		return "materialize"
 	default:
 		return "unknown"
 	}
@@ -186,6 +205,12 @@ type Command struct {
 	// name one. The EventSink never signals that run about its own write
 	// (D-3-14).
 	WorkflowRef uuid.UUID
+	// ActorSystem is the audit entry's actor_system for a write with no
+	// principal. Empty: the source's name. Only OpMaterialize names one, and
+	// it must be ActorSchemaBackfill. Its causation is Causation: the job's
+	// causation audit entry as the origin and that entry's depth + 1, or
+	// depth 0 (a minted origin) for a job with none (a rollout job, D15).
+	ActorSystem string
 }
 
 // Result is what a write produced.
@@ -194,6 +219,10 @@ type Result struct {
 	Number        string
 	Version       int64
 	SchemaVersion int
+	// Written reports whether the write changed the record: true for a
+	// create or an update that succeeded, false for an OpMaterialize whose
+	// record already held every default (ADR-009 D3) and for a replay.
+	Written bool
 }
 
 // Event is what the EventSink is told about a committed-to-be write:
@@ -622,11 +651,28 @@ func (c *Command) check() error {
 		if c.RecordID == uuid.Nil || c.ExpectedVersion < 1 {
 			return bad("an update names a record and an expected version of 1 or more")
 		}
+	case OpMaterialize:
+		// ADR-009 D3, CI-3 (4): only the schema backfill, only defaults.
+		switch {
+		case c.RecordID == uuid.Nil || c.ExpectedVersion != 0:
+			return bad("a materialize names a record and no expected version")
+		case len(c.Data) != 0:
+			return bad("a materialize has an empty patch")
+		case c.Source != SourceSystem || c.Actor.PrincipalID != uuid.Nil:
+			return bad("a materialize is a system write with no principal")
+		case c.ActorSystem != ActorSchemaBackfill:
+			return bad("a materialize names actor_system %q", ActorSchemaBackfill)
+		case c.IdempotencyKey != "" || c.WorkflowRef != uuid.Nil:
+			return bad("a materialize names no idempotency key and no workflow ref")
+		}
 	default:
 		return bad("unknown op %d", c.Op)
 	}
 	if c.EntityKey == "" {
 		return bad("no entity key")
+	}
+	if c.ActorSystem != "" && c.Op != OpMaterialize {
+		return bad("only a materialize names an actor_system")
 	}
 	if !c.Source.valid() {
 		return bad("unknown source")
@@ -729,8 +775,11 @@ func (w *write) do(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if w.cmd.Op == OpUpdate {
+	switch w.cmd.Op {
+	case OpUpdate:
 		return w.update(ctx, data)
+	case OpMaterialize:
+		return w.materialize(ctx)
 	}
 	return w.create(ctx, data)
 }
@@ -988,6 +1037,69 @@ func (w *write) update(ctx context.Context, patch map[string]any) (Result, error
 	return w.finish(ctx, rec, prev)
 }
 
+// materialize is OpMaterialize (ADR-009 D3-D6): the record's stored payload
+// with the current definition's defaults applied, written only when that
+// differs from what is stored. The compare runs before any SQL write. A
+// system source skips the authorizer and the mask check, as every system
+// write does; validation, the unique check, the version check and the audit
+// entry are the update path's. updated_at is kept (D5) and no sink is told
+// (D6, finish).
+func (w *write) materialize(ctx context.Context) (Result, error) {
+	rec, err := store.Get(ctx, w.tx, w.tenant, w.cmd.RecordID)
+	if err != nil {
+		return Result{}, mapNotFound(err)
+	}
+	if rec.EntityKey != w.cmd.EntityKey {
+		return Result{}, ErrNotFound
+	}
+	stored := w.def
+	if rec.SchemaVersion != w.defVersion {
+		if stored, err = w.p.defs.Version(ctx, w.tx, w.cmd.EntityKey, rec.SchemaVersion); err != nil {
+			return Result{}, fmt.Errorf("pipeline: read stored definition: %w", err)
+		}
+	}
+	before := rec.Payload(stored.FixedColumns())
+	after := w.def.ApplyDefaults(deepCopy(before))
+	if reflect.DeepEqual(before, after) {
+		return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion}, nil
+	}
+	if fe := w.def.Validate(after); fe != nil {
+		return Result{}, &ErrValidation{Fields: fe}
+	}
+	fixed := w.def.FixedColumns()
+	if err := w.checkUnique(ctx, rec.ID, before, after, fixed); err != nil {
+		return Result{}, err
+	}
+	beforeJSON, err := store.PayloadJSON(ctx, w.tx, w.tenant, rec.ID, rec.Version, stored.FixedColumns())
+	if errors.Is(err, store.ErrStale) {
+		return Result{}, ErrVersionConflict
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	prev := &prior{payload: beforeJSON, version: rec.Version, state: rec.State, secretProps: stored.SecretProperties()}
+	storedGroup, read := rec.AssignmentGroupID, rec.Version
+	if err := rec.Split(after, fixed); err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	if err := w.checkGroup(ctx, storedGroup, rec.AssignmentGroupID); err != nil {
+		return Result{}, err
+	}
+	rec.SchemaVersion = w.defVersion
+	// rec.UpdatedAt stays the stored value (D5).
+	w.causation(rec)
+	tenancy.Forget(w.tx, storedKey{rec.ID})
+	v, err := store.Update(ctx, w.tx, rec, read)
+	if errors.Is(err, store.ErrStale) {
+		return Result{}, ErrVersionConflict
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline: %w", err)
+	}
+	rec.Version = v
+	return w.finish(ctx, rec, prev)
+}
+
 // prior is what an update read of the record before it changed it: its
 // payload as PostgreSQL returned it, version and state, and the secret
 // properties of the definition version it was written under.
@@ -1040,10 +1152,14 @@ func (w *write) finish(ctx context.Context, rec *store.Record, prev *prior) (Res
 	ev := Event{Op: w.cmd.Op, EntityDefinitionID: rec.EntityDefinitionID, RecordID: rec.ID, Version: rec.Version,
 		Causation: w.cmd.Causation, ActorID: w.cmd.Actor.PrincipalID, Source: w.cmd.Source, SourceRef: w.cmd.SourceRef,
 		WorkflowRef: w.cmd.WorkflowRef}
-	if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
-		return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
+	// A materialize tells no sink (ADR-009 D6): no on_updated start, no
+	// signal, no outbox row.
+	if w.cmd.Op != OpMaterialize {
+		if err := w.p.sink.RecordChanged(ctx, w.tx, ev); err != nil {
+			return Result{}, fmt.Errorf("pipeline: event sink: %w", err)
+		}
 	}
-	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion}, nil
+	return Result{RecordID: rec.ID, Number: rec.Number, Version: rec.Version, SchemaVersion: rec.SchemaVersion, Written: true}, nil
 }
 
 // checkGroup refuses a write that changes assignment_group_id to a group the
