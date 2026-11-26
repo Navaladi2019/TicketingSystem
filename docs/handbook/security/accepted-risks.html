@@ -1216,19 +1216,19 @@ recorded mitigation does not hold as written; re-decide).</p>
 <tr>
 <td>AR-TICK-1140-01 (a new flaw in a library can stay unseen on <code>main</code> up to about 50 hours)</td>
 <td>🟠 Medium</td>
-<td>ADR-001-E4 RS1. <code>govulncheck</code> scans <code>main</code> every second day (47.5 to 49.8 h apart over 8 runs). A flaw published after a merge, or code that starts calling an already listed flaw without a <code>go.mod</code> or <code>go.sum</code> change, shows only at the next scheduled run. The <code>temporal-server</code> module holds the Authorizer. Bounded by: pull requests that change a library list are scanned.</td>
-<td>Accepted (schedule: the owner, TICK-694). Severity proposed by the Solution Architect with E4 (PROPOSED)</td>
+<td>ADR-001-E4 RS1 (Security, S3). <code>govulncheck</code> scans <code>main</code> every second day (47.5 to 49.8 h apart over 8 runs). A flaw published after a merge, or code that starts calling an already listed flaw without a library change, shows only at the next scheduled run. The bound holds only while the gate is unedited (AR-TICK-1140-03) and the scanned Go is the shipped Go (E4-2). It is the time to a red run, not to a reader: until FU3 the alert is one more comment on issue #259. No alarm watches the gap between scheduled runs. Both modules: the root module is the one a tenant reaches (<code>nava-core</code> parses tenant tokens and JSON); <code>temporal-server/</code> holds the Authorizer. Bounded by: pull requests that change a library list are scanned.</td>
+<td>Accepted (schedule: the owner, TICK-694)</td>
 <td>Technical Lead</td>
-<td>A finding a tenant could reach, or more than 72 h between scheduled runs. Fix: a daily schedule (the owner's decision)</td>
+<td>The first real tenant: ask the owner again about a daily scan. A finding a tenant could reach. More than 72 h between scheduled runs (found by hand; no alarm). FU3 is part of the fix</td>
 <td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
 </tr>
 <tr>
 <td>AR-TICK-1140-02 (a red vulnerability scan can be merged; the name <code>temporal-server</code> is used by two jobs)</td>
 <td>🟠 Medium</td>
-<td>ADR-001-E4 E4-2, RS2. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job, GitHub marks both as required, and which one decides when they differ is not verified; a green scan might stand in for red Authorizer tests. No case found: both jobs green on #579, #751 and #890. Bounded by: the rule that every job is green before a merge, and the daily full run on <code>main</code>.</td>
-<td>Fix proposed (E4-3, E4-4)</td>
+<td>ADR-001-E4 E4-3, RS2 (Security, S4). The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job; E4 assumes the green one decides (CTO ruling), so a green scan could hide red Authorizer tests. A library pull request without <code>ci:run</code> or <code>ci:full</code> also merges with that job <code>skipped</code>. No case found. Bounded by: the rule that every job has conclusion <code>success</code> before a merge (<code>skipped</code> or missing is red); the push to <code>main</code> runs the <code>temporal-server</code> job when the module changed (run 45685089268 for #890), and a red one alerts on #259; the daily full run on <code>main</code>.</td>
+<td>Fix proposed (TICK-1145, FU1, FU2)</td>
 <td>Technical Lead</td>
-<td>FU1 and FU2 of E4 done: delete this row. A merge with either <code>temporal-server</code> job red: at once</td>
+<td>The collision part: TICK-1145 merged. The <code>root</code> part: FU2 done. Delete the row when both are done. A merge with either <code>temporal-server</code> job not <code>success</code>: at once</td>
 <td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
 </tr>
 <tr>
@@ -1240,6 +1240,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>TICK-1141 fixes it; remove this row with that fix. Before that: any installation that puts a proxy or load balancer between group sync and Keycloak</td>
 <td><a href="../../../docs/delivery/decisions/2026-11-25-tick-1113-group-sync-404.md">2026-11-25-tick-1113-group-sync-404.md</a></td>
 </tr>
+<tr>
+<td>AR-TICK-1140-03 (a pull request can edit the vulnerability gate that judges it)</td>
+<td>🟠 Medium</td>
+<td>ADR-001-E4 RS3 (Technical Architect T1, Security). A <code>pull_request</code> run uses the pull request's own workflow, scripts and make targets. The checked-in copy and the forced scan (E4 contract rules 2 and 9) catch an accidental edit; a pull request that edits the gate and its copy reports green without a scan, and once merged the scheduled scan runs the edit too, so AR-TICK-1140-01's bound no longer holds. No GitHub setting we have prevents it: 0 required approvals, no code owners, one collaborator. <code>docs/delivery/review-paths.yaml</code> only prints.</td>
+<td>Accepted</td>
+<td>Security &amp; Multi-Tenancy Reviewer</td>
+<td>A second collaborator or required approvals become possible (then: code owners on these files). An edit of the gate merged without Security review</td>
+<td><a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">ADR-001-E4</a></td>
+</tr>
 </tbody>
 </table>
 <h2 id="adding-a-row">Adding a row</h2>
@@ -1249,7 +1258,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 6a8917fa7674 (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

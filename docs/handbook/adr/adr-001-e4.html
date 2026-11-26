@@ -21,10 +21,10 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</h1>
-<p>Status: <strong>PROPOSED</strong>, 2026-11-26, by the Solution Architect (TICK-1140). It waits for the Technical Architect's critique. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
+<p>Status: <strong>PROPOSED, rev 1</strong>, 2026-11-26, by the Solution Architect (TICK-1140). Round 1: the Technical Architect and the Security &amp; Multi-Tenancy Reviewer asked for changes (all taken); re-check pending. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
 <h2 id="problem">Problem</h2>
-<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it runs in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that change <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with a required <code>ci.yml</code> job, so GitHub marks both as required, and which one decides when they differ is not known.</p>
+<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it runs in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that change <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job that tests the Authorizer. E4 assumes GitHub counts the green one, so neither scan reliably blocks.</p>
 <h2 id="decision">Decision</h2>
 <table>
 <thead>
@@ -40,26 +40,30 @@
 </tr>
 <tr>
 <td>E4-2</td>
-<td>Until the follow-ups land, the agents' rule that every job is green is what stops a merge on a red scan.</td>
+<td>A library update that clears a finding is an ordinary bug fix after a green <code>ci:full</code> run, unless it moves a Temporal pin, changes an Authorizer golden file or uses <code>replace</code>, <code>exclude</code> or a fork (triad), or moves a trust-path library (Security review). The scanned Go must equal the shipped Go.</td>
 </tr>
 <tr>
 <td>E4-3</td>
-<td>The pull request scan becomes a required check through a job <code>vulncheck</code> that always runs and reports. It scans only the module whose library list changed.</td>
+<td>Until FU2, the agents' rule stops a merge: each job <code>success</code>, <code>skipped</code> or missing is red.</td>
 </tr>
 <tr>
 <td>E4-4</td>
-<td>No required check name is used by two workflows; <code>make check-ci-steps</code> enforces it. The scan jobs are renamed.</td>
+<td>A new job <code>vulncheck</code> always reports and becomes required. It carries that name only on pull requests into <code>main</code>. Contract: <code>docs/adr/ADR-001/E4/vulncheck-contract.md</code>.</td>
 </tr>
 <tr>
 <td>E4-5</td>
+<td>No two workflows report the same check name (TICK-1145).</td>
+</tr>
+<tr>
+<td>E4-6</td>
 <td>The two-day schedule stays (the owner's decision).</td>
 </tr>
 </tbody>
 </table>
 <h2 id="options-that-lost">Options that lost</h2>
-<p>Not required, as today; required with the <code>paths</code> filter kept; a scan on every pull request; a conditional job in <code>ci.yml</code>; scanning both modules on any library change; no pull request scan; no erratum.</p>
+<p>Not required, as today; required with the <code>paths</code> filter kept; a scan on every pull request; a conditional job in <code>ci.yml</code>; scanning both modules on any library change; a list of required names; a copy of the <code>jobs:</code> block only; no pull request scan; no erratum.</p>
 <h2 id="accepted-risks">Accepted risks</h2>
-<p>RS1 (AR-TICK-1140-01): a new flaw can stay unseen on <code>main</code> up to about 50 hours. RS2 (AR-TICK-1140-02): until the follow-ups FU1 and FU2, a red scan can be merged. RS3: a base-branch change starts no new check. RS4: a pull request can edit the workflow that judges it.</p>
+<p>AR-TICK-1140-01: a new flaw can stay unseen on <code>main</code> up to about 50 hours. AR-TICK-1140-02: until TICK-1145 and FU2, a red scan can be merged. AR-TICK-1140-03: a pull request can edit the gate that judges it.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../adr/adr-001-e3.html">&larr; ADR-001-E3: the onboarding role reads its own tenant row</a><a class="next" href="../adr/adr-002.html">ADR-002: /me shows the caller&#x27;s group paths &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
@@ -67,7 +71,7 @@
 <h3>ADR ADR-001-A1</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li></ul>
 <h3>ADR ADR-001-E4</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 461484e7a23a (2026-11-26)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 6a8917fa7674 (2026-11-26)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
