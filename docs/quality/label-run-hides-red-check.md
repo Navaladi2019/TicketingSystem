@@ -11,10 +11,15 @@ GitHub takes each required check from the **newest run** (check suite) on the he
 not from the newest result. Under every `if:` that skips a job, the job still reports
 its required name as `skipped`, and a skipped required check counts as passed.
 
-**Fix, proven on the spike:** name the job with an expression, `name: ${{ 'isolation' }}`.
-A job that ran reports the evaluated name `isolation`. A skipped job reports the
-unevaluated text of the expression. So a skipped run never supplies the required check
-`isolation`, and only a run that executed the suite can turn it green (g, h).
+**Fix (approved by the CTO, in this PR):** name the job with an expression that reads a context,
+`name: ${{ github.event_name && 'isolation' || 'isolation' }}`, and run `isolation` on every
+pull request run with `ci:run` or `ci:full`. A job that ran reports the evaluated name `isolation`.
+A skipped job reports the unevaluated text of the expression. So a skipped run never supplies
+the required check `isolation`, and only a run that executed the suite can turn it green
+(g, h, and the verification below). A constant `${{ 'isolation' }}` does **not** work: GitHub
+folds it to `isolation` even on a skipped job (verification PR #904, first attempt). This is
+observed GitHub behaviour, not documented. The `checks:` pin and the sequences below are the
+way to re-check it if GitHub changes it.
 
 ## Method
 
@@ -52,6 +57,30 @@ Raw output per case: `evidence/<case>-pr.json` (GraphQL), `-rest.json`, `-runs.j
 
 **`gh pr checks` is not evidence.** In e it listed `isolation fail` while the PR was `CLEAN`.
 
+## Verification of the fix (PR #904)
+
+Throwaway draft PR #904 into `main`, closed without merging, with its branch deleted. It ran this
+PR's `ci.yml` with the same step stubs; apart from steps and comments it was identical
+(diffed before the run). Every read had the head 0 commits behind `main`. Raw output in
+`label-run-hides-red-check/evidence-fix/`.
+
+| Case | Sequence | `mergeStateStatus` | `isolation` results on the head |
+|---|---|---|---|
+| v0 | pushed, no label (lint-only) | `BLOCKED` (no executed `isolation`) | none |
+| va | + `ci:full`, red | `BLOCKED` | failure |
+| vb | + `question` | `BLOCKED` | failure (the skipped run is not named `isolation`) |
+| vd | labels removed, + `ci:run` | `BLOCKED` | failure, failure: the fast run executed the suite (the new label clause; `full` was false) |
+| ve | `ci:run` removed, + `ci:full`, + `question` 12 s later | `BLOCKED` | failure x3 |
+| vf | labels removed, close, reopen | `BLOCKED` | failure x3 |
+| vg | new commit, `isolation` green, + `ci:run` | **`CLEAN`** | success |
+
+`evidence-fix/invalid-constant-name/` keeps the first attempt with `${{ 'isolation' }}`:
+v0 and vb read `CLEAN` with a skipped check run named `isolation`.
+
+A pull request into `main` without `ci:run` or `ci:full` now stays `BLOCKED` until a labelled
+run executes `isolation`. That is the documented flow already: the author adds `ci:run`
+when the PR is ready.
+
 ## What else this means
 
 - Every required suite job (`lint`, `unit`, `integration`, `stack`, `coverage`, ...) can be
@@ -65,24 +94,25 @@ Raw output per case: `evidence/<case>-pr.json` (GraphQL), `-rest.json`, `-runs.j
 ## Recommendation
 
 1. **Pin it (this change).** `make check-ci-steps` gains a `checks:` list in
-   `tools/ci/cisteps/required.yaml`. A listed job must be named `${{ '<check>' }}`.
-   The `isolation` entry fails on `main` today and passes with the one-line fix.
-2. **Fix (`ci.yml`), two edits that only work together:**
-   - `isolation`: `name: ${{ 'isolation' }}`.
+   `tools/ci/cisteps/required.yaml`. A listed job must be named
+   `${{ github.event_name && '<check>' || '<check>' }}`. A literal name, no name and the
+   folded constant `${{ '<check>' }}` all fail it.
+2. **Fix (`ci.yml`, this change), two edits that only work together:**
+   - `isolation`: `name: ${{ github.event_name && 'isolation' || 'isolation' }}`.
    - `isolation`'s `if:`: run whenever the run is not label-only or lint-only, not just
      on full runs. Otherwise no `ci:run` PR into `main` can ever report `isolation`
      and every one stays `BLOCKED`. Cost: one isolation job of about 6 min per labelled run.
-     This reverses part of AR-TICK-652-01, so it is the CTO's decision.
-   The same name trick on the other required jobs would make every PR run every suite
-   before merging (reversing AR-TICK-563-01 and the diff-based skipping). Recommended only
-   for `isolation` now; the rest is a cost decision.
+     This reverses the isolation part of AR-TICK-652-01 (CTO decision on TICK-1146, row updated).
+   The other required jobs keep the gap (CTO decision): applying this to them would make every
+   PR run every suite. A single gate over each job's last executed result goes to ADR-001-E4
+   (TICK-1140).
 3. **Rejected candidates.**
    - A check of earlier results when the label is added: case e shows the red can arrive
      after the label run is created.
    - Re-running or dispatching from a separate label workflow: a re-run keeps the old
      payload's labels, and a dispatch runs on the branch head, not the merge ref.
 
-## Until it is fixed (reviewers and mergers)
+## Until ADR-001-E4 lands (reviewers and mergers; `isolation` is covered once this merges)
 
 Do not trust the merge button, `mergeStateStatus` or `statusCheckRollup`. Before approving
 or merging a PR into `main` or a story branch, list every result on the head commit and refuse

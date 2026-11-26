@@ -7,11 +7,15 @@ import (
 )
 
 // TICK-1146: GitHub names a skipped job's check run after its unevaluated
-// name: expression and a run's job after the evaluated one. A job named
-// ${{ 'isolation' }} therefore reports the required check "isolation" only
-// when it ran; a label-only run, a fast run or an unlabelled run that skips
-// it can no longer stand in for a red result on the same commit (spike PR
-// 898: a literal name went BLOCKED -> CLEAN on adding a label).
+// name: expression when the expression reads a context, and a run's job
+// after the evaluated one. A job named
+// ${{ github.event_name && 'isolation' || 'isolation' }} therefore reports
+// the required check "isolation" only when it ran; a label-only run, a fast
+// run or an unlabelled run that skips it can no longer stand in for a red
+// result on the same commit (spike PR 898: a literal name went BLOCKED ->
+// CLEAN on adding a label). A constant ${{ 'isolation' }} does not work:
+// GitHub folds it to the literal name on a skipped run too (PR 904).
+
 const checksRequired = `steps:
   - job: isolation
     run: make isolation
@@ -24,7 +28,7 @@ checks:
 
 const checksWorkflow = `jobs:
   isolation:
-    name: ${{ 'isolation' }}
+    name: ${{ github.event_name && 'isolation' || 'isolation' }}
     runs-on: ubuntu-latest
     steps:
       - run: make isolation
@@ -36,10 +40,11 @@ func TestRequiredCheckFromAJobThatRan(t *testing.T) {
 		name, old, new, want string
 	}{
 		{"expression name", "", "", ""},
-		{"spaces inside the expression", "${{ 'isolation' }}", "${{   'isolation'   }}", ""},
-		{"literal name", "${{ 'isolation' }}", "isolation", `job isolation: check "isolation" is reported by a skipped run: name is "isolation", want "${{ 'isolation' }}" [a skipped run hides a red isolation]`},
-		{"no name", "    name: ${{ 'isolation' }}\n", "", `job isolation: check "isolation" is reported by a skipped run: name is "", want "${{ 'isolation' }}" [a skipped run hides a red isolation]`},
-		{"other check name", "${{ 'isolation' }}", "${{ 'isolation-suite' }}", `job isolation: check "isolation" is never reported: name is "${{ 'isolation-suite' }}", want "${{ 'isolation' }}" [a skipped run hides a red isolation]`},
+		{"spaces inside the expression", "${{ github.event_name && 'isolation' || 'isolation' }}", "${{   github.event_name  &&  'isolation' || 'isolation'   }}", ""},
+		{"constant expression", "${{ github.event_name && 'isolation' || 'isolation' }}", "${{ 'isolation' }}", `job isolation: check "isolation" is reported by a skipped run: name is "${{ 'isolation' }}", want "${{ github.event_name && 'isolation' || 'isolation' }}" [a skipped run hides a red isolation]`},
+		{"literal name", "${{ github.event_name && 'isolation' || 'isolation' }}", "isolation", `job isolation: check "isolation" is reported by a skipped run: name is "isolation", want "${{ github.event_name && 'isolation' || 'isolation' }}" [a skipped run hides a red isolation]`},
+		{"no name", "    name: ${{ github.event_name && 'isolation' || 'isolation' }}\n", "", `job isolation: check "isolation" is reported by a skipped run: name is "", want "${{ github.event_name && 'isolation' || 'isolation' }}" [a skipped run hides a red isolation]`},
+		{"other check name", "${{ github.event_name && 'isolation' || 'isolation' }}", "${{ github.event_name && 'isolation-suite' || 'isolation-suite' }}", `job isolation: check "isolation" is never reported: name is "${{ github.event_name && 'isolation-suite' || 'isolation-suite' }}", want "${{ github.event_name && 'isolation' || 'isolation' }}" [a skipped run hides a red isolation]`},
 		{"job removed", "  isolation:\n", "  tenancy:\n", `job isolation: check "isolation" is missing: no such job [a skipped run hides a red isolation]`},
 	}
 	for _, c := range cases {

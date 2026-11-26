@@ -7,9 +7,12 @@
 // step's, not a second copy of the full-run rule that can drift from it.
 // The list's checks pin a required status check to a job that ran
 // (TICK-1146): GitHub names a skipped job's check run after its unevaluated
-// name: expression, so a job named ${{ 'isolation' }} reports "isolation"
+// name: expression when it reads a context, so a job named
+// ${{ github.event_name && 'isolation' || 'isolation' }} reports "isolation"
 // only when it ran, and a skipped run on the same commit (a label-only run, a
-// fast run, an unlabelled run) can no longer replace a red result.
+// fast run, an unlabelled run) can no longer replace a red result. A constant
+// ${{ 'isolation' }} does not work: GitHub folds it to the literal name even
+// on a skipped run (verification PR 904).
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 package main
@@ -84,7 +87,7 @@ type output struct {
 }
 
 // requiredCheck is one entry of required.yaml's checks: job Job must be
-// named ${{ 'Check' }}, never the literal Check.
+// named ${{ github.event_name && 'Check' || 'Check' }}.
 type requiredCheck struct {
 	Job   string `yaml:"job"`
 	Check string `yaml:"check"`
@@ -170,7 +173,7 @@ func findCheck(jobs map[string]job, c requiredCheck) string {
 	if !ok {
 		return "is missing: no such job"
 	}
-	want := "${{ '" + c.Check + "' }}"
+	want := "${{ github.event_name && '" + c.Check + "' || '" + c.Check + "' }}"
 	got := squash(j.Name)
 	if inner, ok := strings.CutPrefix(got, "${{"); ok {
 		if inner, ok = strings.CutSuffix(inner, "}}"); ok {
@@ -180,7 +183,7 @@ func findCheck(jobs map[string]job, c requiredCheck) string {
 	switch got {
 	case want:
 		return ""
-	case "", c.Check:
+	case "", c.Check, "${{ '" + c.Check + "' }}":
 		return fmt.Sprintf("is reported by a skipped run: name is %q, want %q", got, want)
 	}
 	return fmt.Sprintf("is never reported: name is %q, want %q", got, want)

@@ -1,0 +1,1 @@
+{"data":{"repository":{"pullRequest":{"number":904,"isDraft":true,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"270b1eb904dc97bea47d1dfbe3d922028f592aed","baseRefOid":"a89c19f2dc66854852897628b892f6b4716dfc27","labels":{"nodes":[{"name":"question"},{"name":"ci:full"}]},"baseRef":{"target":{"oid":"a89c19f2dc66854852897628b892f6b4716dfc27"}}}}}}
