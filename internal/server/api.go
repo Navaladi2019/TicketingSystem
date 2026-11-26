@@ -73,6 +73,9 @@ func strictBodyRefusals(reg *problem.Registry) map[string]apihttp.BodyRefusal {
 		"POST " + baseURL + "/api/v1/number-formats":                       numberFormatInvalid,
 		"PUT " + baseURL + "/api/v1/number-formats/{id}":                   numberFormatInvalid,
 		"POST " + baseURL + "/api/v1/number-formats/{id}/republish-linked": numberFormatInvalid,
+		"PUT " + baseURL + "/api/v1/operator/tenants/{tenant}/limits": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
+			reg.Write(w, r, problem.InvalidTenantLimits, fe)
+		},
 		"PUT " + baseURL + "/api/v1/tenant/settings/time-zone": func(w http.ResponseWriter, r *http.Request, fe problem.FieldError) {
 			reg.Write(w, r, problem.InvalidTimeZone, fe)
 		},
@@ -395,6 +398,9 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 					return
 				case problem.InvalidTimeZone:
 					h.reg.Write(w, r, problem.InvalidTimeZone, pe.fields...)
+					return
+				case problem.InvalidTenantLimits:
+					h.reg.Write(w, r, problem.InvalidTenantLimits, pe.fields...)
 					return
 				case problem.NumberFormatInvalid:
 					h.reg.Write(w, r, problem.NumberFormatInvalid, pe.fields...)

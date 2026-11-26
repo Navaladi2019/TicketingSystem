@@ -1,7 +1,7 @@
 package isolation
 
-// tenantLimitsPaths are TICK-751's table: tenant B has a tenant_limits row
-// (testdata/seed.sql), tenant A none. nava_app reads its own tenant's row for
+// tenantLimitsPaths are TICK-751's table: tenants A and B each have a
+// tenant_limits row (testdata/seed.sql). nava_app reads its own tenant's row for
 // publish and writes it only on the operator route, in the target tenant's
 // transaction; every path runs as tenant A and aims at tenant B.
 func tenantLimitsPaths() []Path {

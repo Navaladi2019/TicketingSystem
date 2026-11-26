@@ -81,6 +81,7 @@ const (
 	NumberFormatInvalid           Code = "number_format_invalid"
 	NumberingTemplatesUnavailable Code = "numbering_templates_unavailable"
 	InvalidTimeZone               Code = "invalid_time_zone"
+	InvalidTenantLimits           Code = "invalid_tenant_limits"
 	NumberFormatOverlap           Code = "number_format_overlap"
 	NumberFormatNotFound          Code = "number_format_not_found"
 	NumberSpaceExhausted          Code = "number_space_exhausted"
@@ -97,7 +98,7 @@ func Codes() []Code {
 		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
 		FieldNotFilterable, FieldNotReady,
 		FilterableFieldRemovalUnavailable, IndexQuotaExceeded, FieldIndexBusy,
-		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
+		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone, InvalidTenantLimits,
 		NumberFormatOverlap, NumberFormatNotFound, NumberSpaceExhausted,
 	}
 }

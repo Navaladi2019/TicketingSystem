@@ -69,7 +69,9 @@ paths:
         one audited tenant_limits row (subject tenant_limits, the operator as
         actor, the reason in the entry); setting the value already in force
         writes nothing, so a retry is one audit entry. Publish enforces the
-        limit from the next publish on. An unknown tenant is 404.
+        limit from the next publish on. An unknown tenant is 404. A body with
+        a duplicate member name or invalid UTF-8 is 422
+        invalid_tenant_limits.
       parameters:
         - name: tenant
           in: path
@@ -104,6 +106,8 @@ paths:
         "403":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "404":
+          $ref: "../openapi.yaml#/components/responses/Problem"
+        "422":
           $ref: "../openapi.yaml#/components/responses/Problem"
         "429":
           $ref: "../openapi.yaml#/components/responses/Problem"
