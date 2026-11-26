@@ -296,7 +296,9 @@ func (d *Directory) rootGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup,
 		return kcGroup{}, err
 	}
 	if g.Path != rootPath(tenantID) {
-		return kcGroup{}, identity.ErrNotFound
+		// A 200 that is not the root group is not Keycloak saying it is gone
+		// (a proxy's {} for example): a plain error, never ErrNotFound.
+		return kcGroup{}, errors.New("keycloak admin: root group read returned another group")
 	}
 	return g, nil
 }
@@ -735,10 +737,13 @@ func (d *Directory) SetGroupMembers(ctx context.Context, tenantID, groupID uuid.
 
 // ChangesSince returns the tenant's directory snapshot and its digest. A
 // cursor equal to the digest returns Unchanged and nothing else. A tenant with
-// no /t/<tenant_id> group yet has an empty directory. A user whose
+// no /t/<tenant_id> group yet has an empty directory, but only when Keycloak
+// itself answers that the group does not exist: a 404 without Keycloak's own
+// error string, or a 200 for another group, fails the snapshot. A user whose
 // federated-identity read answers 404 and whose own record (GET /users/{id})
-// also answers 404 was deleted during the read: the snapshot leaves them out
-// of the users and of every member list. Any other answer fails the snapshot.
+// also answers 404, both with Keycloak's own "User not found", was deleted
+// during the read: the snapshot leaves them out of the users and of every
+// member list. Any other answer fails the snapshot.
 func (d *Directory) ChangesSince(ctx context.Context, tenantID uuid.UUID, cursor string) (identity.DirectoryChanges, string, error) {
 	if err := requireTenant(tenantID); err != nil {
 		return identity.DirectoryChanges{}, "", err

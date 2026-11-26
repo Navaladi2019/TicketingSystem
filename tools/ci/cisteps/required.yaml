@@ -33,6 +33,9 @@ steps:
   - job: lint
     run: make test-handbook-coverage
     why: unit is skipped on a docs-only change, so an ADR or story merged without its handbook page turns main red after the merge, not on the pull request (TICK-960, #711, #716)
+  - job: lint
+    run: make handbook-build
+    why: a handbook page with a broken link or a malformed stories.yaml / benchmarks.yaml row merges green, and the story handbook gate rests on the author's local run (TICK-1162)
 
   # Story work that never reaches main (TICK-322, after S6 and the S5
   # post-merge PRs, TICK-286).
