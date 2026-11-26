@@ -44,8 +44,9 @@ var (
 	toolchainRe = regexp.MustCompile(`(?m)^\s*toolchain\s+go(\S+)\s*$`)
 	// FROM [--flag...] [registry/path/]golang[:tag][@digest] ...
 	fromGolangRe = regexp.MustCompile(`(?i)^\s*FROM\s+(?:--\S+\s+)*(?:\S+/)?golang(?:[:@](\S*))?(?:\s|$)`)
-	// FROM [--flag...] image [AS name], image possibly empty or a lone \.
-	fromAnyRe = regexp.MustCompile(`(?i)^\s*FROM(?:\s+--\S+)*(?:\s+(\S+))?(?:\s+AS\s+(\S+))?`)
+	// FROM [--flag...] image [AS name], image possibly empty or a lone \; FROM
+	// must end the line or be followed by whitespace, so FROMX is not FROM.
+	fromAnyRe = regexp.MustCompile(`(?i)^\s*FROM(?:\s+--\S+)*(?:\s+(\S+))?(?:\s+AS\s+(\S+))?(?:\s|$)`)
 	// The Go version at the start of a golang image tag: 1.27.4 in 1.27.4-alpine.
 	goTagRe = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)*)(?:$|[-@])`)
 )
@@ -99,7 +100,14 @@ func checkSameGo(root string) ([]string, error) {
 		_, mappedFile := wantMod[f]
 		stages := map[string]bool{} // AS names seen so far
 		golangStages := 0
-		for i, line := range strings.Split(string(data), "\n") {
+		lines, starts, unclosed := dockerLines(string(data))
+		for _, i := range unclosed {
+			problems = append(problems, fmt.Sprintf("%s:%d: heredoc %s is never closed; its lines are read as instructions (ADR-001-E4 rule 8)", f, i+1, heredocWord(lines[i])))
+		}
+		for i, line := range lines {
+			if !starts[i] {
+				continue // a heredoc body, comment or continuation (TICK-1165)
+			}
 			at := fmt.Sprintf("%s:%d", f, i+1)
 			m := fromGolangRe.FindStringSubmatch(line)
 			if mappedFile {

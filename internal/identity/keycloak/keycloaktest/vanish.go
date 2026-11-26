@@ -30,14 +30,52 @@ type Vanish struct {
 	userCode map[string]int
 	listed   map[string]bool
 	userReqs []string
+	faults   map[uuid.UUID]Fault
 	dir      *keycloak.Directory
+}
+
+// Fault is something other than Keycloak answering for a tenant (TICK-1141):
+// a proxy's 404 page, or a 200 that is not the group asked for.
+type Fault int
+
+const (
+	// NoFault is: Keycloak answers as usual.
+	NoFault Fault = iota
+	// ProxyUsers404 is: both user reads (federated identities and the user)
+	// answer a 404 with an HTML body, as a proxy does.
+	ProxyUsers404
+	// ProxyRoot404 is: the root group read answers the same HTML 404.
+	ProxyRoot404
+	// ProxyRootEmpty is: the root group read answers 200 with {}.
+	ProxyRootEmpty
+	// KeycloakRootGone is: the root group read answers Keycloak's own 404,
+	// {"error":"Group path does not exist"}: the group was deleted.
+	KeycloakRootGone
+)
+
+const proxyHTML404 = `<html>not found</html>`
+
+// SetFault switches the fault for one tenant; NoFault switches it off.
+func (v *Vanish) SetFault(tenant uuid.UUID, f Fault) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.faults[tenant] = f
+}
+
+func (v *Vanish) faultOfUser(id string) Fault {
+	for t, f := range v.faults {
+		if strings.HasPrefix(id, "kc-"+t.String()+"-") {
+			return f
+		}
+	}
+	return NoFault
 }
 
 // NewVanish starts the server, closed with the test, and builds a real
 // keycloak.Directory on it. Every user starts listed and present.
 func NewVanish(t *testing.T, tenants ...uuid.UUID) *Vanish {
 	t.Helper()
-	v := &Vanish{tenants: tenants, fedGone: map[string]bool{}, userCode: map[string]int{}, listed: map[string]bool{}}
+	v := &Vanish{tenants: tenants, fedGone: map[string]bool{}, userCode: map[string]int{}, listed: map[string]bool{}, faults: map[uuid.UUID]Fault{}}
 	for _, tn := range tenants {
 		v.listed[v.User(tn, 1)], v.listed[v.User(tn, 2)] = true, true
 	}
@@ -125,6 +163,19 @@ func (v *Vanish) handle(w http.ResponseWriter, r *http.Request) {
 		root, grp := "root-"+t.String(), "grp-"+t.String()
 		switch p {
 		case "/group-by-path/t/" + t.String():
+			switch v.faults[t] {
+			case ProxyRoot404:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, proxyHTML404)
+				return
+			case ProxyRootEmpty:
+				fmt.Fprint(w, `{}`)
+				return
+			case KeycloakRootGone:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `{"error":"Group path does not exist"}`)
+				return
+			}
 			fmt.Fprintf(w, `{"id":%q,"name":"r","path":"/t/%s","subGroupCount":1}`, root, t)
 			return
 		case "/groups/" + root + "/children":
@@ -140,9 +191,16 @@ func (v *Vanish) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if rest, ok := strings.CutPrefix(p, "/users/"); ok {
 		v.userReqs = append(v.userReqs, rest)
-		if id, fed := strings.CutSuffix(rest, "/federated-identity"); fed {
+		id, fed := strings.CutSuffix(rest, "/federated-identity")
+		if v.faultOfUser(id) == ProxyUsers404 {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, proxyHTML404)
+			return
+		}
+		if fed {
 			if v.fedGone[id] {
 				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `{"error":"User not found"}`)
 				return
 			}
 			fmt.Fprint(w, `[]`)
@@ -153,6 +211,10 @@ func (v *Vanish) handle(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusOK
 		}
 		w.WriteHeader(code)
+		if code == http.StatusNotFound {
+			fmt.Fprint(w, `{"error":"User not found"}`)
+			return
+		}
 		fmt.Fprint(w, `{}`)
 		return
 	}
