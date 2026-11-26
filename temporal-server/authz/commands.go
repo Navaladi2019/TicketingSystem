@@ -154,7 +154,7 @@ func inspectCommands(request any) *commandDenial {
 		return d
 	}
 	for i, cmd := range req.GetCommands() {
-		if reason, target, detail := checkCommand(cmd, tenant); reason != "" {
+		if reason, target, detail := checkCommand(cmd, tenant, workflowID); reason != "" {
 			return &commandDenial{reason: reason, command: commandName(cmd.GetCommandType()), index: i,
 				workflowID: workflowID, target: target, detail: detail}
 		}
@@ -230,7 +230,9 @@ func checkMessage(m *protocolpb.Message, tenant string) (reason, target, detail 
 // the deny reason with the command's target workflow id, if it has one.
 // Activities, children and continue-as-new must carry the task's tenant in the
 // nava-tenant header; a NavaTenantId they set must be the task's tenant too.
-func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail string) {
+// workflowID is the task's workflow, whose queue a child or continue-as-new
+// with no queue inherits.
+func checkCommand(cmd *commandpb.Command, tenant, workflowID string) (reason, target, detail string) {
 	if !allowedCommands[cmd.GetCommandType()] {
 		return ReasonCommandNotAllowed, "", ""
 	}
@@ -254,7 +256,7 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
 			return ReasonTenantSearchAttr, a.GetWorkflowId(), ""
 		}
-		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
+		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue(), workflowID); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
 		if reason, detail := checkChildSchedule(a.GetCronSchedule(), a.GetRetryPolicy()); reason != "" {
@@ -280,7 +282,7 @@ func checkCommand(cmd *commandpb.Command, tenant string) (reason, target, detail
 		if !tenantSearchAttrOK(a.GetSearchAttributes(), tenant) {
 			return ReasonTenantSearchAttr, "", ""
 		}
-		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue()); reason != "" {
+		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue(), workflowID); reason != "" {
 			return reason, "", detail
 		}
 	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
@@ -320,15 +322,47 @@ func checkChildSchedule(cron string, retry *commonpb.RetryPolicy) (reason, detai
 
 // checkCommandWorkload is D9c for a child or continue-as-new: the workflow type
 // is a platform type that is not start-only (an empty one is denied, not
-// inherited) and the task queue is empty (inherited) or a platform queue.
-func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue) (reason, detail string) {
+// inherited), the task queue is empty (inherited) or a platform queue, and
+// the queue it runs on, named or inherited from the task's workflow
+// (inheritedQueue), is the type's own (workflowTypeQueue).
+func checkCommandWorkload(wt *commonpb.WorkflowType, tq *taskqueuepb.TaskQueue, workflowID string) (reason, detail string) {
 	if reason, detail := checkWorkflowType(wt.GetName()); reason != "" {
 		return reason, detail
 	}
 	if name := wt.GetName(); inSet(startOnlyWorkflowTypes(), name) {
 		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is start-only"
 	}
-	return checkCommandTaskQueue(tq)
+	if reason, detail := checkCommandTaskQueue(tq); reason != "" {
+		return reason, detail
+	}
+	queue := tq.GetName()
+	if queue == "" {
+		queue = inheritedQueue(workflowID)
+	}
+	return checkTypeQueue(wt.GetName(), queue)
+}
+
+// inheritedQueue is the queue a command with no queue runs on: its task's
+// workflow's. A task token names no queue, so it is read from the workflow
+// id. Only a schema.backfill id (t:<tenant>:schema.backfill:...) runs on
+// schema-backfill: a relay start of the type must name the queue, and only
+// with that id (checkStartRequest). Every other workflow runs on nava-tq.
+func inheritedQueue(workflowID string) string {
+	if isSchemaBackfillID(workflowID) {
+		return workflowTypeQueue(schemaBackfillWorkflowType)
+	}
+	return workflowTypeQueue("")
+}
+
+// isSchemaBackfillID reports whether workflowID is t:<tenant>:schema.backfill:<rest>.
+func isSchemaBackfillID(workflowID string) bool {
+	tenant, ok := tenantOf(workflowID)
+	if !ok {
+		return false
+	}
+	rest := strings.TrimPrefix(workflowID, "t:"+tenant+":")
+	after, ok := strings.CutPrefix(rest, schemaBackfillWorkflowType+":")
+	return ok && after != ""
 }
 
 // checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or

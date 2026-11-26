@@ -47,9 +47,10 @@ func TestInterpreterTypeIsAllowListed(t *testing.T) {
 		t.Fatalf("platformWorkflowTypes = %v, startOnly = %v: want %s allow-listed and not start-only",
 			sortedKeys(platformWorkflowTypes()), sortedKeys(startOnlyWorkflowTypes()), interpreterType)
 	}
-	// D-3-11: no separate interpreter queue.
-	if got := sortedKeys(platformTaskQueues()); len(got) != 1 || got[0] != "nava-tq" {
-		t.Fatalf("platformTaskQueues = %v, want exactly [nava-tq]", got)
+	// D-3-11: no separate interpreter queue. The one other queue is the
+	// schema backfill's (TICK-920), pinned by TestAuditSealIsAllowListed.
+	if !inSet(platformTaskQueues(), "nava-tq") {
+		t.Fatalf("platformTaskQueues = %v, want nava-tq in it", sortedKeys(platformTaskQueues()))
 	}
 }
 

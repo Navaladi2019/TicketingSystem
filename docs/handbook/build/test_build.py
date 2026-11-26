@@ -104,8 +104,13 @@ const InterpreterKind = "nava.interpreter"
 // SealKind is the sealer.
 const SealKind = "audit.seal"
 
+// SchemaBackfillKind is the schema backfill (TICK-920).
+const SchemaBackfillKind = "schema.backfill"
+
 func notOwnEntryPointStart(e Entry) error {
-	for _, k := range [...]struct{ kind, via string }{{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}} {
+	for _, k := range [...]struct{ kind, via string }{
+		{InterpreterKind, "EnqueueStart"}, {SealKind, "EnqueueSeal"}, {SchemaBackfillKind, "EnqueueSchemaBackfill"},
+	} {
 		_ = k
 	}
 	return nil
@@ -214,6 +219,46 @@ func (a *Activities) Register(r worker.ActivityRegistry) {
 func registerFieldIndex(w worker.Registry, acts *backfill.Activities, workflows bool) {
 	if workflows {
 		backfill.RegisterWorkflow(w)
+	}
+	acts.Register(w)
+}
+""",
+    # TICK-920: the schema backfill registers through Workflow.Register, so the
+    # worker can pass its R6 window (GO_REGISTER_FUNCS).
+    "internal/schemabackfill/names.go": """package schemabackfill
+
+const (
+	WorkflowType = outbox.SchemaBackfillKind
+	TaskQueue    = "schema-backfill"
+)
+""",
+    "internal/schemabackfill/workflow.go": """package schemabackfill
+
+func RegisterWorkflow(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(run, workflow.RegisterOptions{Name: WorkflowType})
+}
+
+func (w *Workflow) Register(r worker.WorkflowRegistry) {
+	r.RegisterWorkflowWithOptions(w.Run, workflow.RegisterOptions{Name: WorkflowType})
+}
+""",
+    "internal/schemabackfill/activities.go": """package schemabackfill
+
+const (
+	AdmitActivity = "schema_backfill.Admit"
+	PageActivity  = "schema_backfill.Page"
+)
+
+func (a *Activities) Register(r worker.ActivityRegistry) {
+	r.RegisterActivityWithOptions(a.Admit, activity.RegisterOptions{Name: AdmitActivity})
+	r.RegisterActivityWithOptions(a.Page, activity.RegisterOptions{Name: PageActivity})
+}
+""",
+    "cmd/nava-worker/schemabackfill.go": """package main
+
+func registerSchemaBackfill(w worker.Registry, acts *schemabackfill.Activities, wf *schemabackfill.Workflow, workflows bool) {
+	if workflows {
+		wf.Register(w)
 	}
 	acts.Register(w)
 }
@@ -500,10 +545,13 @@ class TestReferences(Base):
     def test_go_registry_reads_kinds_and_activities(self):
         r = build.GoRegistry(self.root)
         r.load()
-        self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal"})
-        self.assertEqual(r.workflows(), ["audit.seal", "field_index.backfill.run", "field_index.coordinator", "nava.interpreter"])
+        self.assertEqual(r.kinds, {"nava.interpreter": "EnqueueStart", "audit.seal": "EnqueueSeal",
+                                   "schema.backfill": "EnqueueSchemaBackfill"})
+        self.assertEqual(r.workflows(), ["audit.seal", "field_index.backfill.run", "field_index.coordinator", "nava.interpreter",
+                                         "schema.backfill"])
         self.assertEqual(r.activities(), ["audit.seal.Reschedule", "audit.seal.Seal", "field_index.Barrier", "field_index.Batch",
-                                          "nava.interpreter.ApplyStep", "nava.interpreter.NextStep", "nava.workflow_ref.Close"])
+                                          "nava.interpreter.ApplyStep", "nava.interpreter.NextStep", "nava.workflow_ref.Close",
+                                          "schema_backfill.Admit", "schema_backfill.Page"])
 
     def test_go_registry_refuses_an_unlisted_non_kind_workflow(self):
         # A registered type that is neither a kind nor in GO_NON_KIND_WORKFLOWS.

@@ -120,6 +120,11 @@ func InTenantTx(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, fn 
 			}
 		}
 	}()
+	if o.synchronousCommitOff {
+		if _, err := st.Exec(ctx, syncCommitOffSQL); err != nil {
+			return fmt.Errorf("tenancy: synchronous_commit: %w", err)
+		}
+	}
 	if err := fn(st); err != nil {
 		return err
 	}
