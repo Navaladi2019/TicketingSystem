@@ -56,26 +56,11 @@ const (
 // test filter agreement, not the limiter.
 var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 << 20}) //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
-// i5rLegacyScan lets the route rows filter iso_et_i5r's unflagged fields
-// through the JSONB scan, the compiler these rows and the mutants check
-// (ADR-006 D6 refuses them otherwise with 400 field_not_filterable; that the
-// seed types' legacy fields still take this path is TestListDataFilterOnDefault*).
-var i5rLegacyScan = server.WithLegacyScan(func(typeKey, _ string) bool { return typeKey == i5rKey }) //nolint:gochecknoglobals // read-only test/bench fixture, set once
-
-// i5FilterMutants are broken data-filter compilers for the list route
-// (server.WithListDataTerm). arg is the bound JSON document {prop: value}.
+// i5FilterMutants are broken data-filter compilers for the list route. The
+// JSONB-scan compiler they broke is gone (S22 P7-12), so none are defined until
+// mutants of the side-table compiler replace them (follow-up on TICK-752).
 func i5FilterMutants() map[string]func(arg string) string {
-	return map[string]func(arg string) string{
-		// type_blind compares the text of the values, so the string "1" of a
-		// v1 row matches the integer filter 1.
-		"type_blind": func(arg string) string {
-			return "EXISTS (SELECT 1 FROM jsonb_each(" + arg + ") f WHERE r.data->>f.key = f.value#>>'{}')"
-		},
-		// null_matches lets a JSON null match any value.
-		"null_matches": func(arg string) string {
-			return "(r.data @> " + arg + " OR EXISTS (SELECT 1 FROM jsonb_each(" + arg + ") f WHERE r.data->f.key = 'null'::jsonb))"
-		},
-	}
+	return map[string]func(arg string) string{}
 }
 
 func i5FilterMutantNames() []string {
@@ -139,7 +124,7 @@ func i5rCleanup(ctx context.Context, e *etIso) error {
 // pool's extra principals and groups, and the records and shares written past
 // the API (as rows of an older version would be).
 func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() error, error) {
-	e, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan)
+	e, err := newETIso(ctx, cl, i5rNoRateLimit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,13 +136,6 @@ func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() err
 			m.stop()
 		}
 		return err
-	}
-	for name, term := range i5FilterMutants() {
-		m, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan, server.WithListDataTerm(term))
-		if err != nil {
-			return nil, stop, err
-		}
-		run.mutants[name] = m
 	}
 	if err := i5rCleanup(ctx, e); err != nil { // rows a killed earlier run left
 		return nil, stop, err

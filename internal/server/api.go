@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, countDelay: opts.countDelay, skipCount: opts.skipCount, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -257,19 +257,13 @@ type handlers struct {
 	paths identity.GroupPathReader
 	// pool (nava_app) and cursors serve the entity-type endpoints; nil answers
 	// 501 not_implemented.
-	pool              *pgxpool.Pool
-	cursors           *cursor.Keyring
-	aclMaxBytes       int // the access policy byte limit (A1-2a)
-	dataFilterTimeout time.Duration
+	pool        *pgxpool.Pool
+	cursors     *cursor.Keyring
+	aclMaxBytes int // the access policy byte limit (A1-2a)
 	// countDelay and skipCount are the list's test seams, set only through
 	// WithCountDelay / WithSkipCount (export_test.go).
 	countDelay time.Duration
 	skipCount  bool
-	// listDataTerm replaces the list's data-filter term; nil in every
-	// production build (see listPlan.dataTerm).
-	listDataTerm func(arg string) string
-	// legacyScan widens fieldindex.LegacyScan; nil in every production build.
-	legacyScan func(typeKey, field string) bool
 	store      entitytypes.Store
 	nfStore    numberformats.Store
 	tsStore    tenantsettings.Store
