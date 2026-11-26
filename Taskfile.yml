@@ -105,7 +105,7 @@ tasks:
   vulncheck:
     desc: Run govulncheck on the platform module (install it with make tools)
     cmds:
-      - govulncheck ./...
+      - GOWORK=off govulncheck ./...
 
   generate:
     desc: Bundle api/openapi.yaml + api/paths/*.yaml and regenerate api/api.gen.go (oapi-codegen, pinned by the go.mod tool directive)

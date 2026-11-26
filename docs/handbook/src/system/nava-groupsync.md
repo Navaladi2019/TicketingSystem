@@ -56,13 +56,16 @@ tenant's sync ([Org units](../database/org-units.md)):
   ([Keycloak](keycloak.md)).
 - **`org_unit_closure`.** A run that touched units replaces only the closure
   rows of the touched subtrees (TICK-1054); an empty stored closure (the first
-  import included) takes the full rebuild. An **applied** run (the directory changed) that touched no unit compares
-  the stored and the live closure as sets and rebuilds on drift. An
-  unchanged-snapshot cycle does not compare the closure. The cursor is in
-  memory, so a restart makes the next cycle apply. Both run under the per-tenant advisory lock.
+  import included) takes the full rebuild. An **applied** run that touched no unit compares
+  the stored and the live closure as sets and rebuilds on drift. Since TICK-1166 every
+  tenant is also compared on the first cycle that holds its lock one hour or more after
+  the last committed comparison (unchanged cycles and runs that touched units
+  included), in a savepoint: a failed comparison does not undo the run's revocations
+  and the tenant stays due. The timer is in memory, so a restart compares on the
+  first cycle. Both run under the per-tenant advisory lock.
   [ADR-010-E4](../adr/adr-010-e4.md) records this; a wrong row outside the touched
-  subtrees lasts until an **applied** run that touched no unit, with no time
-  limit (`AR-TICK-1118-01`).
+  subtrees lasts at most 1 hour plus one cycle, except while the tenant's sync
+  fails (`AR-TICK-1118-01`).
 - **Unrooted check (TICK-1058).** After every rebuild call, and on every
   unchanged-snapshot cycle, it counts the tenant's live units with no closure
   self row. Such a unit is outside every region. A count above 0 is reported

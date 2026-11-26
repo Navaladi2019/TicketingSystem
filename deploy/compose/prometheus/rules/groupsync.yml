@@ -64,3 +64,23 @@ groups:
             Find the tenant in the nava-groupsync log line "the stored org
             closure differed from the live org tree and was repaired". Re-look
             at AR-TICK-1118-01 (docs/security/accepted-risks.md).
+      - alert: GroupsyncTenantLagHigh
+        # TICK-1166: a tenant whose sync fails is not compared with the live org
+        # tree, so the 1-hour limit of AR-TICK-1118-01 does not hold for it.
+        # groupsync_lag_seconds has no tenant label (T01): it is one observation
+        # per tenant per cycle, so any series above 600 s is some tenant over the
+        # limit. Find it in the nava-groupsync log line "group sync lag over 10
+        # minutes" (tenant_id) and the failure line before it.
+        expr: >-
+          (sum(increase(groupsync_lag_seconds_count[10m]))
+          - sum(increase(groupsync_lag_seconds_bucket{le="600"}[10m]))) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A tenant's group sync lag has stayed over 10 minutes for 15 minutes.
+          description: >-
+            Find the tenant in the nava-groupsync log line "group sync lag over
+            10 minutes". While a tenant's sync fails its org closure is not
+            compared with the live org tree (AR-TICK-1118-01,
+            docs/security/accepted-risks.md).
