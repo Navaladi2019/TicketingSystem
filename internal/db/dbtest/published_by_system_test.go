@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const publishedBySystemMigration = "20261126170000_entity_versions_published_by_system.sql"
+const publishedBySystemMigration = "20261127110000_entity_versions_published_by_system.sql"
 
 // insertVersionSystem is insertVersion with published_by_system $9: tenant
 // $1, version id $2, type $3, version $4, schema $5, schema_sha256 $6, compat

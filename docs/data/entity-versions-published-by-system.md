@@ -1,7 +1,7 @@
 # A version after v1 names a principal or the system as its publisher (TICK-1172)
 
-Migrations: `db/migrations/20261126170000_entity_versions_published_by_system.sql`
-(expand) and `db/migrations/20261126170100_entity_versions_published_by_system_validate.sql`
+Migrations: `db/migrations/20261127110000_entity_versions_published_by_system.sql`
+(expand) and `db/migrations/20261127110100_entity_versions_published_by_system_validate.sql`
 (validate). Tests: `internal/db/dbtest/published_by_system_test.go`.
 
 ## Decision
@@ -39,7 +39,7 @@ with `23514`, for every role including the superuser.
 
 - `ADD COLUMN` with no default is a catalogue change: no rewrite.
 - Both CHECKs are added `NOT VALID` under `lock_timeout = '5s'`, then validated
-  in `20261126170100` under `SHARE UPDATE EXCLUSIVE`, the same split as
+  in `20261127110100` under `SHARE UPDATE EXCLUSIVE`, the same split as
   P3-06c. The old CHECK is dropped and its replacement added in one
   transaction, so no insert runs unchecked between them.
 - No index: nothing filters on the column.
