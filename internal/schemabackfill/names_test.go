@@ -96,3 +96,10 @@ func TestJobDocHoldsNoRecordData(t *testing.T) {
 		t.Errorf("jobDoc without counts = %s", got)
 	}
 }
+
+// A refusal's text names its code, the only thing it carries.
+func TestRefusalNamesItsCode(t *testing.T) {
+	if got := (&Refusal{Code: "validation_failed"}).Error(); got != "schemabackfill: the pipeline refused the rewrite: validation_failed" {
+		t.Errorf("Error() = %q", got)
+	}
+}
