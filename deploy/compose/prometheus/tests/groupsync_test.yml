@@ -147,9 +147,9 @@ tests:
   - interval: 15s
     input_series:
       - series: 'groupsync_lag_seconds_count{job="nava",instance="nava-groupsync:9090"}'
-        values: '0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
       - series: 'groupsync_lag_seconds_bucket{job="nava",instance="nava-groupsync:9090",le="600"}'
-        values: '0x260'
+        values: '_ 0x260'
     alert_rule_test:
       - eval_time: 10m
         alertname: GroupsyncTenantLagHigh
@@ -169,9 +169,9 @@ tests:
   - interval: 15s
     input_series:
       - series: 'groupsync_lag_seconds_count{job="nava",instance="nava-groupsync:9090"}'
-        values: '0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
       - series: 'groupsync_lag_seconds_bucket{job="nava",instance="nava-groupsync:9090",le="600"}'
-        values: '0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
+        values: '_ 0x19 1x19 2x19 3x19 4x19 5x19 6x19 7x19 8x19 9x19 10x19 11x19 12x19'
     alert_rule_test:
       - eval_time: 55m
         alertname: GroupsyncTenantLagHigh
