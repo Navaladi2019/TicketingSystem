@@ -115,8 +115,9 @@ during the rewrite gets one `412 version_conflict` and re-reads (R2).
   `authz.ReadBranches` for one index-ordered branch per subject) and checks
   every filter and sort field with `authz.CheckQueryFields`, before any SQL.
   `store.List` (`list.go`) counts (capped at `TotalCap`) and pages by keyset
-  over a `listable` column; a data-property filter runs under
-  `DataFilterTimeout` and maps a cancel to `ErrStatementTimeout`.
+  over a `listable` column; a data-property filter reads the field-index side
+  tables, and its count runs under `CountBudget` (the JSONB scan and
+  `DataFilterTimeout` are gone).
 - **Effective value (S29, ADR-009 D11).** Every surface that returns a record
   body returns its effective value: the fixed columns mapped in, the type's
   **current** defaults applied, and then the field masks. The one place that
@@ -134,7 +135,7 @@ during the rewrite gets one `412 version_conflict` and re-reads (R2).
   field the newest job defaults also returns records that lack it, in an `OR`
   or `UNION ALL` shape. See [Records](../database/records.md#filters-while-a-default-is-being-backfilled-s29-story-branch).
 - Proving tests: `TestCompileReadAgreesWithAllows`, `TestBranchedStatements`,
-  `TestTimedOutMapsOnlyADataFilterCancel`.
+  `TestCountBudget`.
 
 ## Errors
 

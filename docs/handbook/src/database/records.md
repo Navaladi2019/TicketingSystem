@@ -64,8 +64,9 @@ audited.
 On the `TICK-739/filterable-fields` branch (not yet on `main`), a list filter
 on a `data` field is resolved against the [field-index
 registry](field-index.md) after the masked-field check: not flagged is `400
-field_not_filterable` (except `incident.priority`, `request.priority` and
-`change.risk`, which keep the JSONB scan until S22), `backfilling` is `422
+field_not_filterable` for every type (the seed fields `incident.priority`,
+`request.priority` and `change.risk` are flagged; the JSONB scan is gone),
+`backfilling` is `422
 field_not_ready` with `index_progress`, and `ready` compiles to one correlated
 `EXISTS` per field on the typed side table, inside the list statement that
 carries the row ACL (ADR-006 D6, D7; TICK-746, TICK-989). All bounds on one

@@ -256,7 +256,7 @@ func TestOnboardKillBeforeBindingThenRetryLive(t *testing.T) {
 	dir := newDirectory(t, newRegistry(), true, specs.Source)
 	st := &resumeStore{failing: true, domains: map[string]uuid.UUID{}}
 	svc, err := onboard.New(onboard.Options{
-		Store: st, Directory: dir, Finder: dir, Domains: st, ACL: noACL{}, Specs: specs, Resolver: publicResolver{},
+		Store: st, Directory: dir, Finder: dir, Domains: st, ACL: noACL{}, Index: noIndex{}, Specs: specs, Resolver: publicResolver{},
 		Issuer: baseURL() + "/realms/nava", Log: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
@@ -312,3 +312,8 @@ func (s *resumeStore) SeedAuditChain(context.Context, uuid.UUID) error { return 
 type noACL struct{}
 
 func (noACL) PublishDefaultIncident(context.Context, uuid.UUID) (bool, error) { return false, nil }
+
+// noIndex registers no field index: these tests are about the Keycloak resume.
+type noIndex struct{}
+
+func (noIndex) RegisterSeedFilterable(context.Context, uuid.UUID, string) error { return nil }

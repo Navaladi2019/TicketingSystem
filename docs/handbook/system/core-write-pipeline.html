@@ -236,8 +236,9 @@ the memo, otherwise <code>store.Get</code>. The handler then calls <code>ACL.Can
 <code>authz.ReadBranches</code> for one index-ordered branch per subject) and checks
 every filter and sort field with <code>authz.CheckQueryFields</code>, before any SQL.
 <code>store.List</code> (<code>list.go</code>) counts (capped at <code>TotalCap</code>) and pages by keyset
-over a <code>listable</code> column; a data-property filter runs under
-<code>DataFilterTimeout</code> and maps a cancel to <code>ErrStatementTimeout</code>.</li>
+over a <code>listable</code> column; a data-property filter reads the field-index side
+tables, and its count runs under <code>CountBudget</code> (the JSONB scan and
+<code>DataFilterTimeout</code> are gone).</li>
 <li><strong>Effective value (S29, ADR-009 D11).</strong> Every surface that returns a record
 body returns its effective value: the fixed columns mapped in, the type's
 <strong>current</strong> defaults applied, and then the field masks. The one place that
@@ -255,7 +256,7 @@ schema backfill moves <code>version</code> (and the ETag) but not <code>updated_
 field the newest job defaults also returns records that lack it, in an <code>OR</code>
 or <code>UNION ALL</code> shape. See <a href="../database/records.html#filters-while-a-default-is-being-backfilled-s29-story-branch">Records</a>.</li>
 <li>Proving tests: <code>TestCompileReadAgreesWithAllows</code>, <code>TestBranchedStatements</code>,
-<code>TestTimedOutMapsOnlyADataFilterCancel</code>.</li>
+<code>TestCountBudget</code>.</li>
 </ul>
 <h2 id="errors">Errors</h2>
 <p>Written by hand from the mapping in <code>handlers.recordError</code>

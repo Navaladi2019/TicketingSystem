@@ -170,7 +170,7 @@ func newIDEnv(t *testing.T, appPoolOverride *pgxpool.Pool) *idEnv {
 		t.Fatal(err)
 	}
 	svc, err := onboard.New(onboard.Options{
-		Store: store, Directory: dir, Finder: dir, Domains: onboard.NewRegistry(pool), ACL: onboard.ACLStore{Pool: pool},
+		Store: store, Directory: dir, Finder: dir, Domains: onboard.NewRegistry(pool), ACL: onboard.ACLStore{Pool: pool}, Index: onboard.IndexStore{Pool: pool},
 		Specs: onboard.NewSpecs(), Resolver: pubResolver{}, Issuer: realm.Issuer(), Log: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

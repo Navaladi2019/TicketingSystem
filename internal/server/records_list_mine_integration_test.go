@@ -3,12 +3,10 @@
 package server_test
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,7 +15,6 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
-	"github.com/Navaladi2019/TicketingSystem/internal/server"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 )
 
@@ -369,46 +366,5 @@ func TestListRecordsMineTotalIsCappedAtTheCap(t *testing.T) {
 	got = e.mustList(t, "user-a", "ticket", "filter[assignee]="+user.String())
 	if got.Total != 3 || got.Capped != nil {
 		t.Errorf("assignee filter: total %d capped %v; want exact 3, absent", got.Total, got.Capped)
-	}
-}
-
-// TICK-647 with TICK-644: the data-filter statement timeout also bounds the
-// branched page and count. A superuser holds ACCESS EXCLUSIVE on records, so
-// the branched list blocks until the timeout and answers 422
-// filter_too_expensive; once released the same request is served.
-func TestListMineDataFilterTimeoutAnswers422(t *testing.T) {
-	e := newETEnvWith(t, server.WithDataFilterTimeout(300*time.Millisecond))
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", incidentTypeBody()); rec.Code != http.StatusCreated {
-		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
-	}
-	e.mineACLFor(t, "incident")
-	e.mustCreateRec(t, "admin-a", "incident", "k1", fmt.Sprintf(`{"short_description": "x", "priority": 1, "requester": %q}`, e.a.user.PrincipalID))
-
-	lock, err := e.super.Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	released := false
-	defer func() {
-		if !released {
-			_ = lock.Rollback(context.Background())
-		}
-	}()
-	if _, err := lock.Exec(t.Context(), "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	rec, _ := e.list(t, "user-a", "incident", "filter[priority]=1")
-	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("timed-out branched list took %s, want about the 300 ms timeout", d)
-	}
-	if err := lock.Rollback(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	released = true
-	// Exact (TICK-1107): 1 incident at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
-	if p := e.mustList(t, "user-a", "incident", "filter[priority]=1"); p.Total != 1 {
-		t.Errorf("branched list after the timeout: total %d, want 1", p.Total)
 	}
 }

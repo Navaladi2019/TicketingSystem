@@ -92,13 +92,6 @@ const (
 	perfBaseTailGate = 2.0
 	perfListTargetMS = 150.0
 	perfGetTargetMS  = 50.0
-	// perfShortTimeout is the bound check's data-filter statement timeout:
-	// far below what the s7 count and page take even run alone (tens of ms
-	// at 800k), so every request must hit it. 100 ms did not fire on a warm,
-	// single request (2026-11-10).
-	perfShortTimeout = 2 * time.Millisecond
-	// perfDataFilterTimeoutLabel names the server default (store.DataFilterTimeout).
-	perfDataFilterTimeoutLabel = "2s (store.DataFilterTimeout)"
 	// The D-3-9 trigger: create p95 > 50 ms revisits record numbering.
 	perfCreateTargetMS = 50.0
 	perfSmallTenants   = 399
@@ -248,10 +241,7 @@ func (perfAllow) Allow(context.Context, uuid.UUID) (ratelimit.Decision, error) {
 // ---- environment -----------------------------------------------------------
 
 type perfEnv struct {
-	h http.Handler
-	// hShort is the same handler with a perfShortTimeout data-filter
-	// statement timeout (TICK-647), for the bound check.
-	hShort http.Handler
+	h      http.Handler
 	pool   *pgxpool.Pool
 	super  *pgx.Conn
 	tokens etTokens
@@ -341,11 +331,7 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hShort, err := server.NewHandler(log, tel, tokens, stubPaths{}, append(opts, server.WithDataFilterTimeout(perfShortTimeout))...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &perfEnv{h: h, hShort: hShort, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}, log: log, opts: opts}
+	return &perfEnv{h: h, pool: pool, super: super, tokens: tokens, large: large, tel: tel, agentGroups: map[string][]uuid.UUID{}, pairBase: map[string]bool{}, log: log, opts: opts}
 }
 
 func (e *perfEnv) exec(t *testing.T, sql string, args ...any) {
@@ -615,23 +601,9 @@ func (e *perfEnv) send(ctx context.Context, sc perfScenario, r perfReq) (*httpte
 	case "create":
 		rec := e.serve(ctx, http.MethodPost, r.path, r.token, uuid.NewString(), r.body)
 		return rec, rec.Code == http.StatusCreated
-	case "timeout":
-		// The bound check: the short timeout must answer filter_too_expensive.
-		rec := serveOn(ctx, e.hShort, http.MethodGet, r.path, r.token, "", "")
-		return rec, isFilterTooExpensive(rec)
-	case "data":
-		// A data-filter list either answers or hits its statement timeout.
-		rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
-		return rec, rec.Code == http.StatusOK || isFilterTooExpensive(rec)
 	}
 	rec := e.serve(ctx, http.MethodGet, r.path, r.token, "", "")
 	return rec, rec.Code == http.StatusOK
-}
-
-// isFilterTooExpensive reports whether rec is TICK-647's data-filter timeout:
-// 422 with the filter_too_expensive problem code.
-func isFilterTooExpensive(rec *httptest.ResponseRecorder) bool {
-	return rec.Code == http.StatusUnprocessableEntity && strings.Contains(rec.Body.String(), `"filter_too_expensive"`)
 }
 
 func (e *perfEnv) list(ctx context.Context, t *testing.T, token, query string) listPage {
@@ -836,11 +808,6 @@ func (e *perfEnv) defs(t *testing.T) []perfDef {
 		{"admin list, default sort, page 1", "list", "large", func() []perfReq { return listReqs(admin, "") }, 0},
 		{"admin list, default sort, page 20", "list", "large", func() []perfReq { return e.page20(t, admin, "") }, 0},
 		{"agent list, filter[state]=new", "list", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bstate%5D=new") }, 0},
-		{"agent list, filter[priority]=1 (data)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bpriority%5D=1") }, 0},
-		{"agent list, filter[site]=s7 (rare data, < 1% of visible rows)", "data", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
-		// TICK-647's bound: the same list under a short statement timeout must
-		// answer 422 filter_too_expensive about that fast, never hang.
-		{"agent list, filter[site]=s7, short data-filter timeout (bound check)", "timeout", "large", func() []perfReq { return listReqs(e.agents, "filter%5Bsite%5D=s7") }, 0},
 		{"agent list, sort=-updated_at", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=-updated_at") }, 0},
 		{"agent list, sort=assignee", "list", "large", func() []perfReq { return listReqs(e.agents, "sort=assignee") }, 0},
 		{"admin list, filter[state][in]=new,in_progress, sort=-updated_at", "list", "large", func() []perfReq {
@@ -1389,8 +1356,6 @@ func (r *perfResult) target() float64 {
 		return perfGetTargetMS
 	case "create":
 		return perfCreateTargetMS
-	case "timeout":
-		return 0 // the bound check has no latency target
 	}
 	return perfListTargetMS
 }
@@ -1604,7 +1569,6 @@ func (e *perfEnv) report(t *testing.T, results []*perfResult, floor []time.Durat
 	e.reportHolds(w, results, floor)
 	reportAlloc(w, results)
 	reportSetup(w, results)
-	reportTimeouts(w, results)
 	w("\n## Per statement (ms, as pgx traced it, all requests of the scenario)\n\n")
 	for _, r := range results {
 		trips, stmts, sizes := roundTrips(r.stmtSQL)
@@ -1683,19 +1647,6 @@ func roundTrips(ss []perfStmt) (trips, stmts int, batchSizes []int) {
 		stmts++
 	}
 	return trips, stmts, batchSizes
-}
-
-// reportTimeouts prints how data-filter lists ended (TICK-647): answered, or
-// 422 filter_too_expensive, with the latency including the 422s.
-func reportTimeouts(w func(string, ...any), results []*perfResult) {
-	w("\n## Data-filter statement timeout (TICK-647)\n\nDefault timeout %s; the bound check runs with %s. A 422 is `filter_too_expensive`. Latency includes the 422s.\n\n| Scenario | Requests | 422 | p50 | p95 | max |\n| --- | --- | --- | --- | --- | --- |\n",
-		perfDataFilterTimeoutLabel, perfShortTimeout)
-	for _, r := range results {
-		if r.sc.kind != "data" && r.sc.kind != "timeout" {
-			continue
-		}
-		w("| %s | %d | %d | %.2f | %.2f | %.2f |\n", r.sc.name, len(r.lat), r.timeouts, pct(r.lat, .5), pct(r.lat, .95), pct(r.lat, 1))
-	}
 }
 
 func (e *perfEnv) superText(t *testing.T, sql string) string {

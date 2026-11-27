@@ -143,7 +143,9 @@ type Options struct {
 	// Domains reads, as nava_app under RLS, whether the tenant owns a domain.
 	Domains DomainOwnership
 	// ACL publishes the default incident ACL of the new tenant (P3-35).
-	ACL      ACLPublisher
+	ACL ACLPublisher
+	// Index registers the seeded types' field-index rows, as nava_app (P7-12).
+	Index    SeedIndexer
 	Specs    *Specs
 	Resolver Resolver
 	// DevIdPHosts is the default-off dev allowance (exact host[:port] list)
@@ -161,7 +163,7 @@ type Service struct {
 
 // New returns a Service.
 func New(o Options) (*Service, error) {
-	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Domains == nil || o.ACL == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
+	if o.Store == nil || o.Directory == nil || o.Specs == nil || o.Domains == nil || o.ACL == nil || o.Index == nil || o.Resolver == nil || o.Log == nil || o.Issuer == "" {
 		return nil, errors.New("onboard: store, directory, domains, acl, specs, resolver, issuer and logger are required")
 	}
 	return &Service{o: o}, nil
@@ -236,6 +238,12 @@ func (s *Service) Onboard(ctx context.Context, operator identity.Operator, key s
 		}
 	}
 	if err := SeedEntityTypes(ctx, s.o.Store, tenantID); err != nil {
+		return Result{}, err
+	}
+	// The seed types flag their filtered fields; nava_onboard cannot write the
+	// registry, so nava_app does, idempotently on every attempt. The tenant is
+	// not activated until it has succeeded for every seed type (S22 P7-12).
+	if err := RegisterSeedIndexes(ctx, s.o.Index, tenantID); err != nil {
 		return Result{}, err
 	}
 	// The admins group exists, and tenant_admin_group names it, before the

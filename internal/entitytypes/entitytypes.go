@@ -42,10 +42,10 @@ var (
 	// ErrInvalidNumberingMode means a numbering mode other than gaps or
 	// gapless (entity_definitions_numbering_mode_check).
 	ErrInvalidNumberingMode = errors.New("entitytypes: numbering mode must be gaps or gapless")
-	// ErrSeedFilterable means a seeded definition flags x-nava-filterable. The
-	// registry is written only by nava_app in a publish or create (P7-01), never
-	// by onboarding.
-	ErrSeedFilterable = errors.New("entitytypes: a seeded definition may not flag x-nava-filterable")
+	// ErrNotOnboardingSeed means RegisterSeedFilterable found a type that is
+	// not an onboarding seed: its current version is not 1, or version 1 was
+	// not written by the onboarding seed (published_by_system 'onboarding').
+	ErrNotOnboardingSeed = errors.New("entitytypes: not an onboarding seed at version 1")
 )
 
 // BreakingError is returned by Publish when the new definition is a breaking
@@ -286,19 +286,19 @@ type SeedInput struct {
 // Seed inserts the entity type and its version 1 with the ids in in, each as
 // INSERT ... ON CONFLICT DO NOTHING, and reports whether it inserted anything.
 // It needs INSERT only (nava_onboard has no SELECT on either table, so it reads
-// nothing back) and writes published_by NULL: the tenant is still provisioning
-// and has no principal. A retry after a crash finishes what is missing and
-// never duplicates; on a second run it inserts nothing. When it inserts, it
+// nothing back) and writes published_by NULL and published_by_system
+// 'onboarding': the tenant is still provisioning and has no principal. A
+// definition that flags x-nava-filterable is seeded like any other; its
+// registry rows are RegisterSeedFilterable's, as nava_app. A retry after a
+// crash finishes what is missing and never duplicates; on a second run it inserts nothing. When it inserts, it
 // also writes the version's config create entry (auditSeed), which the
 // commit check on both tables requires from migration B (P5-32) on. The
 // caller's transaction must run as the tenant (tenancy.InTenantTx).
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
-	if c, err := metadata.CompileNew(d); err != nil {
+	if _, err := metadata.CompileNew(d); err != nil {
 		return false, fmt.Errorf("entitytypes: compile seeded definition: %w", err)
-	} else if len(c.Filterable()) > 0 {
-		return false, ErrSeedFilterable
 	}
 	fixed, err := encodeFixedColumns(d.FixedColumns)
 	if err != nil {
@@ -318,8 +318,8 @@ ON CONFLICT DO NOTHING`, tenantID, in.DefinitionID, d.Key, in.Name, d.NumberPref
 	}
 	ver, err := tx.Exec(ctx, `
 INSERT INTO entity_definition_versions
-  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
-VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', NULL)
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by, published_by_system)
+VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', NULL, 'onboarding')
 ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schema), sum[:], string(fixed), string(states))
 	if err != nil {
 		return false, fmt.Errorf("entitytypes: seed version: %w", err)
@@ -332,6 +332,63 @@ ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schem
 	}
 	return true, nil
 }
+
+// RegisterSeedFilterable writes the field-index registry rows, and enqueues
+// the backfill, for the fields the seeded type key flags (S22 P7-12). It runs
+// as nava_app in the tenant's transaction, after Seed (nava_onboard cannot
+// write the registry). It refuses, with ErrNotOnboardingSeed, any type whose
+// current version is not 1 or whose version 1 was published by a principal or
+// names another system, so it cannot be used to flag an API-published type outside
+// Publish. Idempotent: a field that already has a registry row adds nothing,
+// so onboarding calls it on every attempt. A version 1 with no publisher at all
+// was seeded before published_by_system existed and flags nothing: it returns
+// nil. ErrNotFound for an unknown key.
+func (s Store) RegisterSeedFilterable(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) error {
+	defer tenancy.Forget(tx, currentKey{key})
+	var (
+		defID   uuid.UUID
+		current int
+	)
+	err := tx.QueryRow(ctx, `SELECT id, current_version FROM entity_definitions WHERE key = $1 FOR UPDATE`, key).Scan(&defID, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("entitytypes: lock definition: %w", err)
+	}
+	if current != 1 {
+		return ErrNotOnboardingSeed
+	}
+	var system *string
+	var by *uuid.UUID
+	if err := tx.QueryRow(ctx, `
+SELECT published_by_system, published_by FROM entity_definition_versions WHERE definition_id = $1 AND version = 1`,
+		defID).Scan(&system, &by); err != nil {
+		return fmt.Errorf("entitytypes: read seeded version: %w", err)
+	}
+	if system == nil && by == nil {
+		// Seeded by a build before published_by_system (TICK-1172): that Seed
+		// refused flagged definitions, so this version flags nothing and there
+		// is nothing to register. A retried onboarding goes on to Activate.
+		return nil
+	}
+	if system == nil || *system != OnboardingSystem || by != nil {
+		return ErrNotOnboardingSeed
+	}
+	v, err := s.GetVersion(ctx, tx, key, 1)
+	if err != nil {
+		return err
+	}
+	c, err := compile(v)
+	if err != nil {
+		return err
+	}
+	return registerFilterable(ctx, tx, tenantID, defID, 1, c.Filterable())
+}
+
+// OnboardingSystem is the published_by_system word of a version onboarding
+// seeded (audit_log.actor_system uses the same word).
+const OnboardingSystem = "onboarding"
 
 // PublishInput is the next version of an existing entity type. Definition
 // carries Schema, FixedColumns and States; its Key, NumberPrefix and

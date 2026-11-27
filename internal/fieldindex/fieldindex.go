@@ -60,32 +60,3 @@ const (
 
 // States returns every state, in the order of the CHECK.
 func States() []State { return []State{StateBackfilling, StateReady, StateRemoving} }
-
-// LegacyField names one data field of a seed template type.
-type LegacyField struct {
-	// Type is the seed template type key (incident, request, change).
-	Type string
-	// Field is the top-level property key.
-	Field string
-}
-
-// LegacyScanFields is the fixed allow-list of seed-type data fields that a
-// list may still filter on through the JSONB scan while they are not flagged
-// x-nava-filterable (PLAN-007 D-7-6). It is keyed by (seed template type,
-// field key), never by field key alone, so a tenant type with its own
-// "priority" never reaches the scan (D-7-14). S22 P7-12 flags these fields and
-// deletes this list and store.DataFilterTimeout. Nothing is added to it.
-//
-//nolint:gochecknoglobals // constant allow-list
-var LegacyScanFields = map[LegacyField]struct{}{
-	{Type: "incident", Field: "priority"}: {},
-	{Type: "request", Field: "priority"}:  {},
-	{Type: "change", Field: "risk"}:       {},
-}
-
-// LegacyScan reports whether a filter on field of the entity type typeKey may
-// use the legacy JSONB scan.
-func LegacyScan(typeKey, field string) bool {
-	_, ok := LegacyScanFields[LegacyField{Type: typeKey, Field: field}]
-	return ok
-}

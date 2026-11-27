@@ -47,9 +47,10 @@ import (
 // child input or continue-as-new input the guard refused would fail the run.
 
 type itEnv struct {
-	super  *pgxpool.Pool // the platform database as superuser: seeding, reading back
-	app    *pgxpool.Pool // nava_app: the live writers
-	worker *pgxpool.Pool // nava_worker: the activities
+	super   *pgxpool.Pool // the platform database as superuser: seeding, reading back
+	app     *pgxpool.Pool // nava_app: the live writers
+	worker  *pgxpool.Pool // nava_worker: the activities
+	onboard *pgxpool.Pool // nava_onboard: the seed
 }
 
 //nolint:gochecknoglobals // one migrated cluster per package run
@@ -136,6 +137,9 @@ func setup(url string) (itEnv, error) {
 		return itEnv{}, err
 	}
 	if e.worker, err = pool("nava_worker", 8); err != nil {
+		return itEnv{}, err
+	}
+	if e.onboard, err = pool("nava_onboard", 4); err != nil {
 		return itEnv{}, err
 	}
 	return e, nil

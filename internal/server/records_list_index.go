@@ -22,8 +22,7 @@ import (
 
 // List filters on data fields (ADR-006 D6, D7, P7-06). After the masked check,
 // each data filter is resolved against the field-index registry of the entity
-// type: not flagged is 400 field_not_filterable (except the fixed legacy
-// allow-list), backfilling is 422 field_not_ready, ready compiles to one
+// type: not flagged is 400 field_not_filterable, backfilling is 422 field_not_ready, ready compiles to one
 // correlated EXISTS on the typed side table inside the list statement.
 
 // maxTextBytes is the longest value record_field_coerce stores for a text
@@ -72,8 +71,6 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 	if err != nil {
 		return err
 	}
-	types := def.PropertyTypes()
-	defaults := pipeline.Defaults(def)
 	for i := range pl.filters {
 		f := &pl.filters[i]
 		if f.col != "" {
@@ -85,16 +82,7 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			flagged = false
 		}
 		if !flagged {
-			if !fieldindex.LegacyScan(entity, f.prop) && (h.legacyScan == nil || !h.legacyScan(entity, f.prop)) {
-				return notFilterable(f.prop)
-			}
-			if f.op != "eq" && f.op != "in" {
-				return listInvalid(ptr, "operator")
-			}
-			if perr := parseLegacy(f, types[f.prop], defaults); perr != nil {
-				return perr
-			}
-			continue
+			return notFilterable(f.prop)
 		}
 		if row.State == fieldindex.StateBackfilling {
 			progress := min(max(row.Progress, 0), 100)
@@ -111,25 +99,6 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			f.values = append(f.values, v)
 		}
 		f.idx = &row
-	}
-	return nil
-}
-
-// parseLegacy parses the values of a legacy-scan data filter f, a property of
-// JSON type typ, into {prop: value} documents for r.data @>. A value equal to
-// the current version's default (defaults, from ApplyDefaults) also matches a
-// record that leaves the property out (I5, TICK-912).
-func parseLegacy(f *listFilter, typ string, defaults map[string]any) *problemError {
-	f.legacy = true
-	for _, raw := range f.raws {
-		v, ok := filterValue("", f.prop, typ, raw)
-		if !ok {
-			return listInvalid("/filter/"+escapePointer(f.prop), "type")
-		}
-		f.values = append(f.values, v)
-		if d, has := defaults[f.prop]; has && sameFilterValue(v, d) {
-			f.absentMatches = true
-		}
 	}
 	return nil
 }

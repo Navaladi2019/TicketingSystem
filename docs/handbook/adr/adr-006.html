@@ -52,19 +52,23 @@
 </tr>
 <tr>
 <td><code>filter[f]</code> checks and the one-<code>EXISTS</code> compile (D6, D7)</td>
-<td>Built on the S21 story branch (TICK-746, TICK-989); the legacy scan stays for three seed fields until S22</td>
+<td>Built on the S21 story branch (TICK-746, TICK-989); the legacy JSONB scan and <code>store.DataFilterTimeout</code> are removed in S22 (TICK-752): <code>incident.priority</code>, <code>request.priority</code> and <code>change.risk</code> are flagged in the seed templates</td>
 </tr>
 <tr>
 <td>D13 latency (as amended by ADR-006-A1) and D10 write cost</td>
 <td>Measured on the story branch (TICK-747, TICK-992). See <a href="../benchmarks/index.html">Benchmarks</a></td>
 </tr>
 <tr>
-<td>Removal (D11), the operator quota raise, retiring the JSONB scan</td>
-<td>Not built: S22 (TICK-740)</td>
+<td>Removal (D11), the operator quota raise</td>
+<td>Built on the S22 story branch (TICK-750, TICK-751)</td>
+</tr>
+<tr>
+<td>Retiring the JSONB scan; seed types flagged</td>
+<td>Built on the S22 story branch (TICK-752). Onboarding seeds version 1 flagged (<code>published_by_system = &#x27;onboarding&#x27;</code>) and registers the field index as <code>nava_app</code> before activation</td>
 </tr>
 </tbody>
 </table>
-<p>Nothing above is on <code>main</code> until S21 is accepted and merged; see the <a href="../stories/s21.html">S21 story page</a>. Until then on <code>main</code>, a data filter is the legacy JSONB scan held by <code>store.DataFilterTimeout</code> (TICK-621: <code>filter[priority]=1</code> p95 841 ms, <code>filter[site]=s7</code> 1,287 ms). It replaces the 2026-11-09 D25 deferral of data-filter indexing (accepted by the CTO, TICK-646) and the PLAN-003 cut of range filters on data fields.</p>
+<p>Nothing above is on <code>main</code> until S21 is accepted and merged; see the <a href="../stories/s21.html">S21 story page</a>. Until then on <code>main</code>, a data filter is the legacy JSONB scan held by <code>store.DataFilterTimeout</code> (TICK-621: <code>filter[priority]=1</code> p95 841 ms, <code>filter[site]=s7</code> 1,287 ms); the <a href="https://github.com/Navaladi2019/TicketingSystem/blob/main/docs/delivery/decisions/2026-11-26-s22-retire-jsonb-scan-and-data-filter-timeout.md">S22 decision</a> retires both. It replaces the 2026-11-09 D25 deferral of data-filter indexing (accepted by the CTO, TICK-646) and the PLAN-003 cut of range filters on data fields.</p>
 <h2 id="decision">Decision</h2>
 <p><em>Paraphrases: "Decision", D1 to D14.</em> A tenant field marked <code>x-nava-filterable</code> is copied, by a trigger on <code>records</code> in the same transaction, into one of four typed side tables (<code>text</code>, <code>num</code>, <code>ts</code>, <code>bool</code>). Filters run as leakproof B-tree comparisons that PostgreSQL pushes below RLS for <code>nava_app</code>. <code>records.data</code> stays the only source of truth, and no DDL runs per tenant or per field (ADR-001 I8).</p>
 <ul>

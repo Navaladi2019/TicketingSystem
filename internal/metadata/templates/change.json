@@ -27,7 +27,7 @@
       "short_description": {"type": "string", "title": "Short description", "minLength": 1, "maxLength": 160},
       "description": {"type": "string", "title": "Description", "maxLength": 32000},
       "state": {"type": "string", "title": "State", "enum": ["draft", "assess", "approved", "implement", "closed"], "default": "draft"},
-      "risk": {"type": "string", "title": "Risk", "enum": ["low", "medium", "high"], "default": "medium"},
+      "risk": {"type": "string", "x-nava-filterable": true, "title": "Risk", "enum": ["low", "medium", "high"], "default": "medium"},
       "requester": {"type": "string", "format": "uuid", "title": "Requester"},
       "assignee": {"type": "string", "format": "uuid", "title": "Assignee"},
       "assignment_group": {"type": "string", "format": "uuid", "title": "Assignment group"}
