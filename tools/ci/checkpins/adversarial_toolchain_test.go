@@ -159,7 +159,7 @@ func TestCLISameGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := goCopy(t)
+	dir := vulnCopy(t) // goCopy plus the A7.2 files the CLI also reads
 	lower(t, dir, "deploy/compose/nava-relay/Dockerfile", "golang:1.27.3-alpine")
 	var stdout, stderr bytes.Buffer
 	if code := cli([]string{"-root", dir, "-pins", pins}, &stdout, &stderr); code != 1 ||
