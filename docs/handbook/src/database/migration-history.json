@@ -1298,35 +1298,35 @@
       ]
     },
     {
-      "file": "20261127163000_field_index_tables.sql",
+      "file": "20261127100100_field_index_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261127163100_field_index_trigger.sql",
+      "file": "20261127100200_field_index_trigger.sql",
       "on_main": false
     },
     {
-      "file": "20261127163200_field_index_sync_read_committed.sql",
+      "file": "20261127100300_field_index_sync_read_committed.sql",
       "on_main": false
     },
     {
-      "file": "20261127163300_schema_backfill_tables.sql",
+      "file": "20261127100400_schema_backfill_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261127163400_schema_backfill_rollout.sql",
+      "file": "20261127100500_schema_backfill_rollout.sql",
       "on_main": false
     },
     {
-      "file": "20261127163500_audit_log_subject_tenant_limits.sql",
+      "file": "20261127100600_audit_log_subject_tenant_limits.sql",
       "on_main": false
     },
     {
-      "file": "20261127163600_audit_log_subject_tenant_limits_validate.sql",
+      "file": "20261127100700_audit_log_subject_tenant_limits_validate.sql",
       "on_main": false
     },
     {
-      "file": "20261127163700_tenant_limits.sql",
+      "file": "20261127100800_tenant_limits.sql",
       "on_main": false
     }
   ]

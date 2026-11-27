@@ -896,57 +896,57 @@ comment.</p>
 <td>drops trigger <code>audit_log_nul_escaped_gate</code>; drops function <code>audit_log_nul_escaped_gate</code></td>
 </tr>
 <tr>
-<td><code>20261127163000</code></td>
-<td><code>20261127163000_field_index_tables.sql</code></td>
+<td><code>20261127100100</code></td>
+<td><code>20261127100100_field_index_tables.sql</code></td>
 <td>P7-01 (TICK-741): the field-index registry and the four typed side tables of ADR-006 (D2, D3, D14).</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261127163100</code></td>
-<td><code>20261127163100_field_index_trigger.sql</code></td>
+<td><code>20261127100200</code></td>
+<td><code>20261127100200_field_index_trigger.sql</code></td>
 <td>P7-02 (TICK-742): record_field_coerce and the records triggers that keep the field-index side tables equal to a recompute from records.data (ADR-006 D1, D4, D5, R5).</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261127163200</code></td>
-<td><code>20261127163200_field_index_sync_read_committed.sql</code></td>
+<td><code>20261127100300</code></td>
+<td><code>20261127100300_field_index_sync_read_committed.sql</code></td>
 <td>P7-05c (TICK-979, ADR-006-E1 E1-5): the barrier's precondition fails closed.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261127163300</code></td>
-<td><code>20261127163300_schema_backfill_tables.sql</code></td>
+<td><code>20261127100400</code></td>
+<td><code>20261127100400_schema_backfill_tables.sql</code></td>
 <td>P10-01 (TICK-916, ADR-009 D2, D7, grants): the three tables of the schema backfill.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261127163400</code></td>
-<td><code>20261127163400_schema_backfill_rollout.sql</code></td>
+<td><code>20261127100500</code></td>
+<td><code>20261127100500_schema_backfill_rollout.sql</code></td>
 <td>P10-10 (TICK-925, folded into TICK-916; ADR-009 D15): the rollout.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
 <tr>
-<td><code>20261127163500</code></td>
-<td><code>20261127163500_audit_log_subject_tenant_limits.sql</code></td>
+<td><code>20261127100600</code></td>
+<td><code>20261127100600_audit_log_subject_tenant_limits.sql</code></td>
 <td>TICK-751 (S22 P7-11, folded into TICK-916; ADR-006 D12, I8): registers the audit subject type tenant_limits (internal/audit/subjects).</td>
 <td>in progress (not on main)</td>
 <td><code>audit_log_subject_type_check</code> NOT VALID, validated in <code>20261109130100</code></td>
 </tr>
 <tr>
-<td><code>20261127163600</code></td>
-<td><code>20261127163600_audit_log_subject_tenant_limits_validate.sql</code></td>
+<td><code>20261127100700</code></td>
+<td><code>20261127100700_audit_log_subject_tenant_limits_validate.sql</code></td>
 <td>TICK-751: validates the previous migration's audit_log subject_type CHECK in its own transaction.</td>
 <td>in progress (not on main)</td>
 <td>VALIDATE <code>audit_log_subject_type_check</code> (added in <code>20261109130000</code>)</td>
 </tr>
 <tr>
-<td><code>20261127163700</code></td>
-<td><code>20261127163700_tenant_limits.sql</code></td>
+<td><code>20261127100800</code></td>
+<td><code>20261127100800_tenant_limits.sql</code></td>
 <td>TICK-751 (S22 P7-11, folded into TICK-916; ADR-006 D12, I8): a tenant's per-type filterable-field limit, raised by an operator from the default 5 up to 10 with no per-tenant DDL.</td>
 <td>in progress (not on main)</td>
 <td>-</td>
