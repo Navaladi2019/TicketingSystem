@@ -122,7 +122,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, limitsPool: opts.limitsPool, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, listStatement: opts.listStatement, countDelay: opts.countDelay, skipCount: opts.skipCount, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, limitsPool: opts.limitsPool, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, listStatement: opts.listStatement, countDelay: opts.countDelay, skipCount: opts.skipCount, listIndexTerm: opts.listIndexTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -273,6 +273,9 @@ type handlers struct {
 	// listStatement, when set, receives the page statement and arguments of
 	// every list (a test seam, set only through export_test.go).
 	listStatement func(sql string, args []any)
+	// listIndexTerm rewrites the list's side-table filter term; nil in every
+	// production build (see listPlan.indexTerm).
+	listIndexTerm IndexTerm
 	store         entitytypes.Store
 	nfStore       numberformats.Store
 	tsStore       tenantsettings.Store

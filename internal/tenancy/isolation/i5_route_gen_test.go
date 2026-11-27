@@ -7,11 +7,15 @@ package isolation
 // has no build tag, so task test checks the generator; the database half is
 // i5_route_isolation_test.go.
 //
-// One entity type, iso_et_i5r, in tenant A, with two schema versions:
+// One entity type, iso_et_i5r, in tenant A, with three schema versions:
 //
 //	v1: prio string, tag string, kind integer, cost number (no defaults)
 //	v2: v1 plus "default": "low" on prio (NeedsBackfill: old rows start
 //	    reading it, TICK-360, and nothing backfills them)
+//	v3: v2 with prio, tag, kind and cost flagged x-nava-filterable (ADR-006
+//	    D6, D8), published after the records are written, so the real
+//	    FieldIndexBackfill copies them to the side tables before any filter
+//	    runs (S22 P7-12 removed the JSONB scan these rows used to drive)
 //
 // Records are written past the API as the superuser, under schema_version 1
 // or 2, so each data field takes every shape a row written under an older
@@ -35,6 +39,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
+	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
 	"github.com/Navaladi2019/TicketingSystem/internal/identity"
 	"github.com/Navaladi2019/TicketingSystem/internal/metadata"
 )
@@ -52,7 +57,13 @@ const (
 	i5rLists      = 1 // paged unfiltered lists per principal and policy
 	// i5rDefaultPrio is v2's default of prio.
 	i5rDefaultPrio = "low"
+	// i5rFlaggedVersion is the version that flags i5rFlagged.
+	i5rFlaggedVersion = 3
 )
+
+// i5rFlagged are the data fields v3 flags x-nava-filterable, sorted: every
+// data field the route rows filter on (4 of the per-type quota of 5, D12).
+func i5rFlagged() []string { return []string{"cost", "kind", "prio", "tag"} }
 
 // The data fields' shapes (scope item 1 of TICK-900).
 const (
@@ -77,16 +88,20 @@ func i5rExtraGroups() []uuid.UUID {
 	return s10UUIDs("0a000000-0000-4000-8000-0000000096a1", "0a000000-0000-4000-8000-0000000096a2")
 }
 
-// i5rSchema is version v's schema (1 or 2). The definition maps state, group,
-// assignee and requester to the fixed columns.
+// i5rSchema is version v's schema (1, 2 or 3). The definition maps state,
+// group, assignee and requester to the fixed columns.
 func i5rSchema(v int) string {
-	prio := `{"type":"string"}`
+	flag := ""
+	if v >= i5rFlaggedVersion {
+		flag = `,"x-nava-filterable":true`
+	}
+	prio := `{"type":"string"` + flag + `}`
 	if v >= 2 {
-		prio = `{"type":"string","default":"` + i5rDefaultPrio + `"}`
+		prio = `{"type":"string","default":"` + i5rDefaultPrio + `"` + flag + `}`
 	}
 	return `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,` +
 		`"required":["state"],"properties":{"state":{"type":"string","enum":["open","closed"],"default":"open"},` +
-		`"prio":` + prio + `,"tag":{"type":"string"},"kind":{"type":"integer"},"cost":{"type":"number"},` +
+		`"prio":` + prio + `,"tag":{"type":"string"` + flag + `},"kind":{"type":"integer"` + flag + `},"cost":{"type":"number"` + flag + `},` +
 		`"group":{"type":"string","format":"uuid"},"assignee":{"type":"string","format":"uuid"},"requester":{"type":"string","format":"uuid"}}}`
 }
 
@@ -289,41 +304,90 @@ func (w *i5rWorld) query(r *rand.Rand) i5rQuery {
 	return q
 }
 
-// matches is the Go side of a filter: the defaulted record's value of the
-// property equals one of the filter's values, compared as JSON after the
-// value is read as the property's current type (what the route parses it
-// as). A missing property or a JSON null never matches.
-func (q i5rQuery) matches(view map[string]any) bool {
-	for _, f := range q {
-		got, ok := view[f.Prop]
-		if !ok || got == nil {
-			return false
+// i5rIndexed is the side-table oracle of one stored value (ADR-006 D5, D7):
+// the value record_field_coerce copies for field, read by the field's value
+// type (text for a string property, num for integer and number), and whether
+// it copies one at all. An absent key, a JSON null and a value of another
+// JSON type (kind stored as "1") copy nothing, so no filter matches them.
+func i5rIndexed(field string, v any) (any, bool) {
+	switch i5rDataFields()[field] {
+	case "string":
+		s, ok := v.(string)
+		return s, ok
+	case "integer", "number":
+		switch n := v.(type) {
+		case int:
+			return float64(n), true
+		case int64:
+			return float64(n), true
+		case float64:
+			return n, true
+		case json.Number:
+			f, err := n.Float64()
+			return f, err == nil
 		}
-		gotJSON, err := json.Marshal(got)
-		if err != nil {
+	}
+	return nil, false
+}
+
+// matches is the Go side of a filter, the side-table oracle: the record's
+// value of the property as stored (filterView), not as the read path serves
+// it, is indexed and equals one of the filter's values read by the field's
+// value type. A key the read path only fills with v2's default has no side
+// row. One exception, ADR-009 D12 (TICK-1192): v2 gives prio a default and its
+// schema backfill never finishes in this run, so the window is open the whole
+// time, and a filter that the default satisfies also matches a record whose
+// stored payload has no prio key (a stored null is not absent: GET serves it
+// as null, so it must not match).
+func (q i5rQuery) matches(stored map[string]any) bool {
+	for _, f := range q {
+		v, present := stored[f.Prop]
+		if f.Prop == "prio" && !present && slices.Contains(f.Values, i5rDefaultPrio) {
+			continue // in the D12 window: the default satisfies this filter
+		}
+		var got any
+		ok := false
+		switch f.Prop {
+		case "state", "assignee", "group":
+			got, ok = v.(string) // a fixed column, as text
+		default:
+			if present {
+				got, ok = i5rIndexed(f.Prop, v)
+			}
+		}
+		if !ok {
 			return false
 		}
 		hit := false
 		for _, raw := range f.Values {
 			var want any = raw
-			switch i5rDataFields()[f.Prop] {
-			case "integer":
-				n, err := strconv.ParseInt(raw, 10, 64)
+			if _, num := got.(float64); num {
+				n, err := strconv.ParseFloat(raw, 64)
 				if err != nil {
 					return false
 				}
 				want = n
-			case "number":
-				want = json.Number(raw)
 			}
-			wantJSON, _ := json.Marshal(want)
-			hit = hit || string(gotJSON) == string(wantJSON)
+			hit = hit || got == want
 		}
 		if !hit {
 			return false
 		}
 	}
 	return true
+}
+
+// filterView is what matches reads for the record: the data as stored and
+// the fixed columns as text, without the read path's defaults.
+func (rec i5rRecord) filterView() map[string]any {
+	out := map[string]any{"state": rec.State}
+	maps.Copy(out, rec.Data)
+	for prop, id := range map[string]*uuid.UUID{"requester": rec.Requester, "assignee": rec.Assignee, "group": rec.Group} {
+		if id != nil {
+			out[prop] = id.String()
+		}
+	}
+	return out
 }
 
 // i5rMask is the case's mask on cost: read and write by one group or one
@@ -476,6 +540,11 @@ func TestI5RouteGeneratorCoversTheRiskyShapes(t *testing.T) {
 		if rec.Shapes["prio"] == i5rDefaulted && rec.SchemaVersion == 1 {
 			has["a v1 row that reads v2's default"] = true
 		}
+		for _, field := range i5rFlagged() {
+			if _, ok := i5rIndexed(field, rec.Data[field]); ok {
+				has["an indexed "+field] = true
+			}
+		}
 	}
 	for _, c := range cases {
 		pol := &authz.Policy{Document: authz.ConvertFormat1(c.Rules), Masks: c.Masks}
@@ -493,7 +562,8 @@ func TestI5RouteGeneratorCoversTheRiskyShapes(t *testing.T) {
 	}
 	want := append(i5rShapes(), "prio: "+i5rDefaulted, "kind: "+i5rTypeChanged, "tag: "+i5rNull, "tag: "+i5rNoDefault,
 		"schema_version 1", "schema_version 2", "a v1 row that reads v2's default", "a filter on prio's default",
-		"in: true", "in: false", "caller who may name cost: true", "caller who may name cost: false")
+		"in: true", "in: false", "caller who may name cost: true", "caller who may name cost: false",
+		"an indexed cost", "an indexed kind", "an indexed prio", "an indexed tag")
 	for _, s := range want {
 		if !has[s] {
 			t.Errorf("the default seed's route run has no %s", s)
@@ -501,23 +571,35 @@ func TestI5RouteGeneratorCoversTheRiskyShapes(t *testing.T) {
 	}
 }
 
-// TestI5RouteMatchesComparesAsJSON: the Go filter is typed. The string "1"
-// does not match the integer filter 1, a null and a missing field match
-// nothing, and v2's default matches a filter on the default.
-func TestI5RouteMatchesComparesAsJSON(t *testing.T) {
+// TestI5RouteMatchesTheSideTable: the Go filter is the side-table oracle. A
+// number matches by value (1 and 1.0 are one double), the string "1" does
+// not match the integer filter 1, a null and a missing field match nothing,
+// and a prio absent as stored matches a filter on the default only through
+// the D12 window (a stored null does not), while a stored "low" always does.
+func TestI5RouteMatchesTheSideTable(t *testing.T) {
 	kind1 := i5rQuery{{Prop: "kind", Values: []string{"1"}}}
+	prioLow := i5rQuery{{Prop: "prio", Values: []string{i5rDefaultPrio}}}
 	for _, c := range []struct {
 		view map[string]any
 		q    i5rQuery
 		want bool
 	}{
-		{map[string]any{"kind": json.Number("1")}, kind1, true},
+		{map[string]any{"kind": 1}, kind1, true},
+		{map[string]any{"kind": json.Number("1.0")}, kind1, true},
 		{map[string]any{"kind": "1"}, kind1, false},
 		{map[string]any{"kind": nil}, kind1, false},
 		{map[string]any{}, kind1, false},
-		{i5rRecord{Data: map[string]any{}}.defaulted(), i5rQuery{{Prop: "prio", Values: []string{i5rDefaultPrio}}}, true},
-		{map[string]any{"tag": "x", "kind": json.Number("2")}, i5rQuery{{Prop: "tag", In: true, Values: []string{"y", "x"}}, {Prop: "kind", Values: []string{"2"}}}, true},
-		{map[string]any{"cost": json.Number("3")}, i5rQuery{{Prop: "cost", In: true, Values: []string{"1", "2"}}}, false},
+		// ADR-009 D12 window: a stored payload with no prio matches the default
+		// (the run's v2 backfill never finishes); a stored null does not.
+		{i5rRecord{State: "open", Data: map[string]any{}}.filterView(), prioLow, true},
+		{i5rRecord{State: "open", Data: map[string]any{"prio": nil}}.filterView(), prioLow, false},
+		{i5rRecord{State: "open", Data: map[string]any{}}.filterView(), i5rQuery{{Prop: "prio", Values: []string{"high"}}}, false},
+		{i5rRecord{State: "open", Data: map[string]any{}}.defaulted(), prioLow, true},
+		{i5rRecord{State: "open", Data: map[string]any{"prio": i5rDefaultPrio}}.filterView(), prioLow, true},
+		{map[string]any{"tag": "x", "kind": 2}, i5rQuery{{Prop: "tag", In: true, Values: []string{"y", "x"}}, {Prop: "kind", Values: []string{"2"}}}, true},
+		{map[string]any{"cost": 3}, i5rQuery{{Prop: "cost", In: true, Values: []string{"1", "2"}}}, false},
+		{map[string]any{"tag": 1}, i5rQuery{{Prop: "tag", Values: []string{"1"}}}, false},
+		{i5rRecord{State: "closed", Data: map[string]any{}}.filterView(), i5rQuery{{Prop: "state", In: true, Values: []string{"open", "closed"}}}, true},
 	} {
 		if got := c.q.matches(c.view); got != c.want {
 			t.Errorf("%v matches %v = %v, want %v", c.q, c.view, got, c.want)
@@ -538,9 +620,10 @@ func TestI5RouteGeneratorReplaysItsSeed(t *testing.T) {
 	}
 }
 
-// TestI5RouteVersionsPublish: v1 and v2 compile, and v2 is NeedsBackfill
+// TestI5RouteVersionsPublish: v1, v2 and v3 compile; v2 is NeedsBackfill
 // (prio's new default), never Breaking, so the route run's publish succeeds
-// and old rows start reading the default (TICK-360).
+// and old rows start reading the default (TICK-360); v3 flags exactly
+// i5rFlagged, as text and num, and is not Breaking.
 func TestI5RouteVersionsPublish(t *testing.T) {
 	compile := func(v int) *metadata.Compiled {
 		var d metadata.Definition
@@ -554,10 +637,30 @@ func TestI5RouteVersionsPublish(t *testing.T) {
 		}
 		return c
 	}
-	v1, v2 := compile(1), compile(2)
+	v1, v2, v3 := compile(1), compile(2), compile(i5rFlaggedVersion)
 	class, paths, err := metadata.Classify(v1, v2)
 	if err != nil || class != metadata.NeedsBackfill {
 		t.Fatalf("v1 -> v2 = %v %v %v, want NeedsBackfill", class, paths, err)
+	}
+	if class, paths, err := metadata.Classify(v2, v3); err != nil || class == metadata.Breaking {
+		t.Fatalf("v2 -> v3 = %v %v %v, want not Breaking", class, paths, err)
+	}
+	if len(v2.Filterable()) != 0 {
+		t.Fatalf("v2 flags %v, want none", v2.Filterable())
+	}
+	var flagged []string
+	for _, f := range v3.Filterable() {
+		want := fieldindex.TypeText
+		if k := i5rDataFields()[f.Key]; k == "integer" || k == "number" {
+			want = fieldindex.TypeNum
+		}
+		if f.ValueType != want {
+			t.Errorf("v3 indexes %s as %s, want %s", f.Key, f.ValueType, want)
+		}
+		flagged = append(flagged, f.Key)
+	}
+	if !slices.Equal(flagged, i5rFlagged()) {
+		t.Fatalf("v3 flags %v, want %v", flagged, i5rFlagged())
 	}
 	if got := v2.ApplyDefaults(map[string]any{})["prio"]; got != i5rDefaultPrio {
 		t.Fatalf("v2 reads an absent prio as %v, want %q", got, i5rDefaultPrio)

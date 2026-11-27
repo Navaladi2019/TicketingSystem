@@ -56,7 +56,7 @@ const (
 	i5RowAgreement = "I5 agreement: SELECT … WHERE CompileRead equals {r | Allows(read, r)} for random policies × principals × records"
 	i5RowLoader    = "I5 loader: authz.SharesFor fills Row.SharedWith pair-matched, as the generator does (A1, AR-S10-01)"
 	i5RowMutant    = "I5 mutant %s: the suite catches a broken compiler"
-	i5RowFilters   = "I5 data filters: eq and in on data fields agree with the Go check on null, absent, defaulted and type-changed fields"
+	i5RowFilters   = "I5 data filters: eq and in on flagged ready data fields agree with the side-table oracle on null, absent, defaulted and type-changed fields; an unflagged field is 400"
 	i5RowListPage  = "I5 list route: a record the caller cannot read is on no page of GET /records/{entity}, and total is the readable count (PR #523 security finding 2)"
 )
 

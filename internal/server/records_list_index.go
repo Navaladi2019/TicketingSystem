@@ -222,11 +222,14 @@ func defaultTrue(fs []listFilter, def any, next func(v any, cast string) string)
 		fieldCmps(fs, "d."+defaultColumn(f.idx.ValueType), next) + ")", nil
 }
 
-// fieldAbsent renders "the record has no side-table row for this field", the
-// D12 test for a record whose stored JSON lacks the key.
+// fieldAbsent renders "the stored JSON lacks the key", the ADR-009 D12 test for
+// an absent field: key presence, the test the D7 queue fill and ApplyDefaults
+// use. A stored null or a value that does not coerce has the key, so it is not
+// absent and the default does not stand in for it. The key is bound from the
+// registry row of the compiled schema, never from request text. S22 attack 4
+// allows this one site, by function name and fragment.
 func fieldAbsent(f listFilter, next func(v any, cast string) string) string {
-	table, _ := f.idx.ValueType.SideTable()
-	return "NOT EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + next(f.idx.ID.String(), "uuid") + ")"
+	return "NOT (r.data ? " + next(f.idx.Key, "text") + ")"
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.
@@ -297,3 +300,9 @@ func (h *handlers) observeIndexedList(ctx context.Context, d time.Duration, page
 		attribute.String("acl", acl),
 		attribute.String("total_state", string(page.TotalState))))
 }
+
+// IndexTerm rewrites the side-table EXISTS of one data field: real is the term
+// existsTerm rendered, table its side table and field the registry id. Only
+// the I5 mutants of the isolation suite supply one (WithListIndexTerm,
+// integration builds only); production lists render real unchanged.
+type IndexTerm func(real, table, field string) string

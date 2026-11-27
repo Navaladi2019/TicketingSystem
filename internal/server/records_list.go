@@ -78,6 +78,10 @@ type listPlan struct {
 	sortCol  string
 	desc     bool
 	limit    int
+	// indexTerm rewrites the side-table EXISTS of one data field; nil is the
+	// real term. Only the I5 mutants set it (WithListIndexTerm, integration
+	// builds only).
+	indexTerm IndexTerm
 	// win is the open backfill window of the type, when one touches a filter
 	// of this request (ADR-009 D12); nil otherwise.
 	win *filterWindow
@@ -255,6 +259,10 @@ func (pl *listPlan) render(base int, second bool) (string, []any) {
 					}
 				}
 				stored := existsTerm(group, next)
+				if pl.indexTerm != nil {
+					table, _ := f.idx.ValueType.SideTable()
+					stored = pl.indexTerm(stored, table, f.idx.ID.String())
+				}
 				def, inWindow := pl.windowFor(f.prop)
 				switch {
 				case !inWindow || (pl.win.union && !second):
@@ -439,6 +447,7 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if perr != nil {
 			return perr
 		}
+		pl.indexTerm = h.listIndexTerm
 		// Before any SQL: filters, sort and the default sort.
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err

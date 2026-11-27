@@ -585,3 +585,41 @@ func TestBackfillRoutesRefuseAnImpossibleKeyAndTheStoreKnowsNoJobForAnUnknownOne
 		t.Fatal(err)
 	}
 }
+
+// covers: listRecords 200
+//
+// ADR-009 D12 (TICK-1200): "absent" is key presence. A record that stores an
+// explicit null, or a value that does not coerce, has the key, so inside the
+// window a filter only the default satisfies never returns it, in the OR shape
+// and in the UNION ALL shape, and the total agrees. Outside the window the
+// stored value alone decides.
+func TestListFilterWindowDoesNotReturnAStoredNullOrANonCoercibleValue(t *testing.T) {
+	b := newBFEnv(t)
+	nullRec := b.old[0]
+	oddRec := b.old[1]
+	for id, doc := range map[string]string{nullRec: `{"severity": null}`, oddRec: `{"severity": {"x": 1}}`} {
+		if _, err := b.super.Exec(t.Context(), `UPDATE records SET data = data || $3::jsonb, version = version + 1 WHERE tenant_id = $1 AND id = $2`, b.a.id, id, doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := slices.DeleteFunc(slices.Clone(b.expectedLow()), func(id string) bool { return id == nullRec || id == oddRec })
+
+	// OR shape: more than 1,000 remaining.
+	b.setJob(t, b.a.id, 2, "running")
+	b.queue(t, b.a.id, 2, b.old)
+	b.seedQueue(t, b.a.id, "job", 2, 1200)
+	b.wantList(t, "OR shape", "admin-a", "filter[severity]=low", want)
+	b.wantList(t, "OR shape, in", "admin-a", "filter[severity][in]=low,high", slices.Concat(want, b.high))
+
+	// UNION ALL shape: 1,000 or fewer remaining.
+	b.clearQueue(t)
+	b.queue(t, b.a.id, 2, b.old)
+	b.wantList(t, "UNION ALL shape", "admin-a", "filter[severity]=low", want)
+	b.wantList(t, "UNION ALL shape, in", "admin-a", "filter[severity][in]=low,high", slices.Concat(want, b.high))
+
+	// Outside the window nothing but the stored value decides.
+	b.clearQueue(t)
+	b.setJob(t, b.a.id, 2, "done")
+	b.wantList(t, "done", "admin-a", "filter[severity]=low", b.low)
+	b.wantList(t, "done, high", "admin-a", "filter[severity]=high", b.high)
+}
