@@ -46,10 +46,12 @@ package server_test
 import (
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +124,54 @@ type perfRegion struct {
 	report   strings.Builder
 }
 
+// shapeSnapshot reads authz_under_list_shape_total from the handler's
+// telemetry registry, by shape label (TICK-1105).
+func (e *perfEnv) shapeSnapshot(t *testing.T) map[string]float64 {
+	t.Helper()
+	mfs, err := e.tel.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]float64{}
+	for _, mf := range mfs {
+		if !strings.HasPrefix(mf.GetName(), "authz_under_list_shape") {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "shape" {
+					out[l.GetValue()] += m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return out
+}
+
+// shapeDelta is after minus before, by shape label.
+func shapeDelta(before, after map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	for k, v := range after {
+		if d := v - before[k]; d != 0 {
+			out[k] = d
+		}
+	}
+	return out
+}
+
+// shapeCell is a row's shape counts, such as "records 241".
+func shapeCell(m map[string]float64) string {
+	if len(m) == 0 {
+		return "none counted"
+	}
+	keys := slices.Sorted(maps.Keys(m))
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s %.0f", k, m[k]))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // mdCell escapes the pipes in a set name ("|S|") for a markdown table cell.
 func mdCell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
@@ -186,7 +236,8 @@ func (e *perfEnv) regionDefs(t *testing.T) []perfDef {
 			out = append(out, perfDef{perfRegionName(s, persona), "list", "large", func() []perfReq { return e.regionReqs(t, s.key, s.query, persona) }, 1})
 		}
 	}
-	return out
+	// TICK-1105: the wide-tenant cell, after every TICK-1037 row.
+	return append(out, e.wideDefs(t)...)
 }
 
 func (e *perfEnv) regionExtras(t *testing.T) map[string]perfExtra {
@@ -197,6 +248,7 @@ func (e *perfEnv) regionExtras(t *testing.T) map[string]perfExtra {
 			m[perfRegionName(s, persona)] = perfExtra{before: func() { e.regionBefore(t, s) }, unscored: s.info}
 		}
 	}
+	maps.Copy(m, e.wideExtras(t)) // TICK-1105
 	return m
 }
 
@@ -403,6 +455,21 @@ func (e *perfEnv) regionRefresh(t *testing.T) {
 	t.Helper()
 	e.exec(t, `INSERT INTO tenant_identity_binding (tenant_id, issuer, org_id)
 		SELECT tenant_id, 'https://kc.perf.test/realms/nava', 'perf-org-' || tn FROM perf_tenant ON CONFLICT DO NOTHING`)
+	e.estimatesCycle(t)
+	for _, k := range []string{"ticket", "bench_rare", "bench_conc"} {
+		var ne int64
+		if err := e.super.QueryRow(t.Context(), "SELECT live_records FROM entity_record_estimates WHERE tenant_id = $1 AND entity_definition_id = $2",
+			e.large.id, e.region.defs[k]).Scan(&ne); err != nil {
+			t.Fatalf("estimate %s: %v", k, err)
+		}
+		t.Logf("REGION estimate %s: N̂_e %d, K* %d", k, ne, authz.KStar(perfRegionPage, ne, true))
+	}
+}
+
+// estimatesCycle runs one TICK-1071 refresh cycle as nava_worker over every
+// bound tenant.
+func (e *perfEnv) estimatesCycle(t *testing.T) {
+	t.Helper()
 	u, err := url.Parse(os.Getenv("NAVA_TEST_PG_URL"))
 	if err != nil {
 		t.Fatal(err)
@@ -424,14 +491,6 @@ func (e *perfEnv) regionRefresh(t *testing.T) {
 	}
 	if failed := r.Cycle(t.Context()); failed > 0 {
 		t.Fatalf("estimates refresh: %d tenants failed", failed)
-	}
-	for _, k := range []string{"ticket", "bench_rare", "bench_conc"} {
-		var ne int64
-		if err := e.super.QueryRow(t.Context(), "SELECT live_records FROM entity_record_estimates WHERE tenant_id = $1 AND entity_definition_id = $2",
-			e.large.id, e.region.defs[k]).Scan(&ne); err != nil {
-			t.Fatalf("estimate %s: %v", k, err)
-		}
-		t.Logf("REGION estimate %s: N̂_e %d, K* %d", k, ne, authz.KStar(perfRegionPage, ne, true))
 	}
 }
 
@@ -470,7 +529,7 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 	var b strings.Builder
 	b.WriteString("# TICK-1037 region rows (A2-11)\n\n## Sets (as each row ran)\n\n| Set | Type | \\|S\\| | m | N̂_e | K* | Shape (A2-5) |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	b.WriteString(e.region.report.String())
-	b.WriteString("\n## Rows: handler p95 against 150 ms, paired base beside it (1 client)\n\n| Row | Attempt | n | p50 | **p95** | Base n | Base p50 | Base p95 | Δp95 vs base | Floor p50 before / after | Gate | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\n## Rows: handler p95 against 150 ms, paired base beside it (1 client)\n\n| Row | Attempt | n | p50 | **p95** | Base n | Base p50 | Base p95 | Δp95 vs base | Net p50 | Floor p50 before / after | Gate | Verdict | Shape (authz_under_list_shape_total) |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, r := range results {
 		if !isRegionRow(r.sc.name) {
 			continue
@@ -485,8 +544,15 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 		case p95 > perfListTargetMS:
 			v = "**FAIL**"
 		}
-		fmt.Fprintf(&b, "| %s | %d | %d | %.2f | **%.2f** | %d | %.2f | %.2f | %+.2f | %.2f / %.2f | %s | %s |\n", mdCell(r.sc.name), r.attempt, len(r.lat), pct(r.lat, .5), p95,
-			len(r.pairLat), pct(r.pairLat, .5), b95, p95-b95, r.floorStart, r.floorEnd, r.gateReason(), v)
+		fmt.Fprintf(&b, "| %s | %d | %d | %.2f | **%.2f** | %d | %.2f | %.2f | %+.2f | %+.2f | %.2f / %.2f | %s | %s | %s |\n", mdCell(r.sc.name), r.attempt, len(r.lat), pct(r.lat, .5), p95,
+			len(r.pairLat), pct(r.pairLat, .5), b95, p95-b95, pct(r.lat, .5)-pct(r.pairLat, .5), r.floorStart, r.floorEnd, r.gateReason(), v, shapeCell(r.shapes))
+	}
+	// TICK-1105 (A3-R2, A4-10): the wide cell's count plans.
+	b.WriteString("\n## Count plans, wide cell (A3-R2, A4-10)\n\n| Row | Count plan (captured request) |\n| --- | --- |\n")
+	for _, r := range results {
+		if strings.HasPrefix(r.sc.name, "region: wide ") {
+			fmt.Fprintf(&b, "| %s | %s |\n", mdCell(r.sc.name), mdCell(countPlan(r)))
+		}
 	}
 	path := strings.TrimSuffix(out, filepath.Ext(out)) + "-region.md"
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
