@@ -59,9 +59,42 @@ mkdir -p "$(dirname "$NAVA_PERF_OUT")"
 # Every 10 s, the other database workloads on the Docker VM (integration
 # clusters, CI stacks, other benches): a scenario that ran while one was up is
 # contended, and its numbers say so (TICK-621).
+# TICK-1105: the sampler never waits on docker ps for more than 8 s. The call
+# writes to a file, not a pipe (a pipe stays open while any child holds it),
+# and after 8 s it is killed with its whole process tree. A call that is cut
+# off writes a DOCKER_PS_TIMEOUT line instead of leaving a gap: a missing line
+# means the host stopped (a suspend), a timeout line does not. Every container
+# that is not this bench's and not a multica-* platform container is listed,
+# not only the nava-* ones.
+sample_ps() {
+    out="$NAVA_PERF_OUT.contention.ps"
+    : > "$out"
+    docker ps --format '{{.Names}}' > "$out" 2>/dev/null &
+    p=$!
+    deadline=$(($(date +%s) + 8))
+    while kill -0 "$p" 2>/dev/null; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            # Git Bash: kill the native docker.exe tree by its Windows pid.
+            if [ -r "/proc/$p/winpid" ] && command -v taskkill >/dev/null 2>&1; then
+                taskkill //T //F //PID "$(cat "/proc/$p/winpid")" >/dev/null 2>&1
+            fi
+            pkill -KILL -P "$p" 2>/dev/null
+            kill -KILL "$p" 2>/dev/null
+            wait "$p" 2>/dev/null
+            return 1
+        fi
+        sleep 0.2
+    done
+    wait "$p"
+}
 (
     while :; do
-        echo "$(date -u +%H:%M:%S) $(docker ps --format '{{.Names}}' | grep -E '^(nava-it-|nava-ci-|nava-aclperf-)' | grep -v "^$pg\$" | tr '\n' ' ')"
+        t0=$(date -u +%H:%M:%S)
+        if sample_ps; then
+            echo "$t0 $(grep -v -e "^$pg\$" -e '^multica-' "$NAVA_PERF_OUT.contention.ps" | tr '\n' ' ')"
+        else
+            echo "$t0 DOCKER_PS_TIMEOUT docker ps killed after 8 s"
+        fi
         sleep 10
     done
 ) > "$NAVA_PERF_OUT.contention" 2>/dev/null &

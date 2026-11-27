@@ -1,0 +1,84 @@
+Aggregate  (cost=7389.57..7389.58 rows=1 width=8) (actual time=42.473..42.482 rows=1 loops=1)
+  Buffers: shared hit=34184
+  ->  Limit  (cost=0.55..7377.06 rows=1001 width=4) (actual time=42.470..42.478 rows=0 loops=1)
+        Buffers: shared hit=34184
+        ->  Result  (cost=0.55..7399.17 rows=1004 width=4) (actual time=42.469..42.477 rows=0 loops=1)
+              Buffers: shared hit=34184
+              ->  Append  (cost=0.55..7389.13 rows=1004 width=0) (actual time=42.469..42.476 rows=0 loops=1)
+                    Buffers: shared hit=34184
+                    ->  Subquery Scan on "*SELECT* 1"  (cost=0.55..4.59 rows=1 width=0) (actual time=0.022..0.024 rows=0 loops=1)
+                          Buffers: shared hit=4
+                          ->  Limit  (cost=0.55..4.58 rows=1 width=4) (actual time=0.022..0.023 rows=0 loops=1)
+                                Buffers: shared hit=4
+                                ->  Result  (cost=0.55..4.58 rows=1 width=4) (actual time=0.022..0.022 rows=0 loops=1)
+                                      One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                      Buffers: shared hit=4
+                                      ->  Index Only Scan using records_list_requester on records r  (cost=0.55..4.58 rows=1 width=0) (actual time=0.018..0.019 rows=0 loops=1)
+                                            Index Cond: ((tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid) AND (entity_definition_id = '01a21b94-efcf-735e-b049-68dfa7bfa30b'::uuid) AND (requester_id IS NOT NULL) AND (requester_id = '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid))
+                                            Heap Fetches: 0
+                                            Buffers: shared hit=4
+                    ->  Subquery Scan on "*SELECT* 2"  (cost=0.55..8.59 rows=1 width=0) (actual time=0.013..0.014 rows=0 loops=1)
+                          Buffers: shared hit=4
+                          ->  Limit  (cost=0.55..8.58 rows=1 width=4) (actual time=0.013..0.013 rows=0 loops=1)
+                                Buffers: shared hit=4
+                                ->  Result  (cost=0.55..8.58 rows=1 width=4) (actual time=0.012..0.013 rows=0 loops=1)
+                                      One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                      Buffers: shared hit=4
+                                      ->  Index Scan using records_list_assignee on records r_1  (cost=0.55..8.58 rows=1 width=0) (actual time=0.012..0.012 rows=0 loops=1)
+                                            Index Cond: ((tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid) AND (entity_definition_id = '01a21b94-efcf-735e-b049-68dfa7bfa30b'::uuid) AND (assignee_id IS NOT NULL) AND (assignee_id = '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid))
+                                            Filter: ((requester_id IS NULL) OR (requester_id <> '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid))
+                                            Buffers: shared hit=4
+                    ->  Subquery Scan on "*SELECT* 3"  (cost=5.20..13.26 rows=1 width=0) (actual time=0.007..0.009 rows=0 loops=1)
+                          Buffers: shared hit=2
+                          ->  Limit  (cost=5.20..13.25 rows=1 width=4) (actual time=0.007..0.009 rows=0 loops=1)
+                                Buffers: shared hit=2
+                                ->  Result  (cost=5.20..13.25 rows=1 width=4) (actual time=0.007..0.008 rows=0 loops=1)
+                                      One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                      Buffers: shared hit=2
+                                      ->  Nested Loop  (cost=5.20..13.25 rows=1 width=0) (actual time=0.006..0.007 rows=0 loops=1)
+                                            Buffers: shared hit=2
+                                            ->  HashAggregate  (cost=4.76..4.77 rows=1 width=32) (actual time=0.006..0.006 rows=0 loops=1)
+                                                  Group Key: acl_share.tenant_id, acl_share.record_id
+                                                  Batches: 1  Memory Usage: 24kB
+                                                  Buffers: shared hit=2
+                                                  ->  Index Only Scan using record_shares_pkey on record_shares acl_share  (cost=0.29..4.76 rows=1 width=32) (actual time=0.005..0.005 rows=0 loops=1)
+                                                        Index Cond: (tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                                        Filter: (((principal_kind = 'user'::text) AND (principal_id = '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{a5d4d9fa-7d77-325d-a6c9-0124689344e0}'::uuid[]))))
+                                                        Heap Fetches: 0
+                                                        Buffers: shared hit=2
+                                            ->  Index Scan using records_pkey on records r_2  (cost=0.43..8.46 rows=1 width=32) (never executed)
+                                                  Index Cond: ((tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid) AND (id = acl_share.record_id))
+                                                  Filter: (((requester_id IS NULL) OR (requester_id <> '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) AND ((assignee_id IS NULL) OR (assignee_id <> '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) AND (entity_definition_id = '01a21b94-efcf-735e-b049-68dfa7bfa30b'::uuid))
+                    ->  Subquery Scan on "*SELECT* 4"  (cost=1165.28..7357.67 rows=1001 width=0) (actual time=42.425..42.427 rows=0 loops=1)
+                          Buffers: shared hit=34174
+                          ->  Limit  (cost=1165.28..7347.66 rows=1001 width=4) (actual time=42.424..42.426 rows=0 loops=1)
+                                Buffers: shared hit=34174
+                                ->  Result  (cost=1165.28..23850.49 rows=3673 width=4) (actual time=42.424..42.425 rows=0 loops=1)
+                                      One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                      Buffers: shared hit=34174
+                                      ->  Nested Loop Anti Join  (cost=1165.28..23850.49 rows=3673 width=0) (actual time=42.423..42.424 rows=0 loops=1)
+                                            Join Filter: (acl_share_1.record_id = r_3.id)
+                                            Buffers: shared hit=34174
+                                            ->  Index Scan using records_number_key on records r_3  (cost=1164.98..23790.62 rows=3673 width=32) (actual time=42.422..42.423 rows=0 loops=1)
+                                                  Index Cond: ((tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid) AND (entity_definition_id = '01a21b94-efcf-735e-b049-68dfa7bfa30b'::uuid))
+                                                  Filter: (((requester_id IS NULL) OR (requester_id <> '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) AND ((assignee_id IS NULL) OR (assignee_id <> '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) AND ((hashed SubPlan 1) IS TRUE))
+                                                  Rows Removed by Filter: 33366
+                                                  Buffers: shared hit=34174
+                                                  SubPlan 1
+                                                    ->  Result  (cost=0.01..1139.19 rows=10144 width=16) (actual time=0.008..5.455 rows=10111 loops=1)
+                                                          One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                                          Buffers: shared hit=461
+                                                          ->  Seq Scan on org_unit_closure  (cost=0.01..1139.19 rows=10144 width=16) (actual time=0.007..4.581 rows=10111 loops=1)
+                                                                Filter: ((ancestor_id = ANY ('{64dd84c5-5959-74f9-8730-a7be785b371a}'::uuid[])) AND (tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid))
+                                                                Rows Removed by Filter: 39211
+                                                                Buffers: shared hit=461
+                                            ->  Materialize  (cost=0.29..4.76 rows=1 width=32) (never executed)
+                                                  ->  Result  (cost=0.29..4.76 rows=1 width=32) (never executed)
+                                                        One-Time Filter: ((NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                                        ->  Index Only Scan using record_shares_pkey on record_shares acl_share_1  (cost=0.29..4.76 rows=1 width=32) (never executed)
+                                                              Index Cond: (tenant_id = 'fd594593-8333-4ab5-a2a0-6651a98440cc'::uuid)
+                                                              Filter: (((principal_kind = 'user'::text) AND (principal_id = '3e7e0ec9-f81e-3a4f-9dcf-34d9e44dc051'::uuid)) OR ((principal_kind = 'group'::text) AND (principal_id = ANY ('{a5d4d9fa-7d77-325d-a6c9-0124689344e0}'::uuid[]))))
+                                                              Heap Fetches: 0
+Settings: effective_cache_size = '6GB', plan_cache_mode = 'force_custom_plan', jit = 'off'
+Planning Time: 0.698 ms
+Execution Time: 42.564 ms

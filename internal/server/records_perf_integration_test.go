@@ -263,6 +263,9 @@ type perfEnv struct {
 	// region is the TICK-1037 region bench state, set by its first scenario
 	// (records_perf_region_integration_test.go).
 	region *perfRegion
+	// wide is the TICK-1105 wide-tenant region cell
+	// (records_perf_region_wide_integration_test.go).
+	wide *perfWide
 	// pairBase are the tokens whose requests are a paired row's base: their
 	// latencies go to pairLat, not lat (TICK-1037).
 	pairBase map[string]bool
@@ -305,6 +308,12 @@ func newPerfEnv(t *testing.T, clients int) *perfEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	// nava-core registers the authz metrics on its telemetry (cmd/nava-core);
+	// here too, so the region rows can read authz_under_list_shape_total
+	// (TICK-1105).
+	if err := authz.RegisterMetrics(tel.MeterProvider); err != nil {
+		t.Fatal(err)
+	}
 	kr, err := cursor.NewKeyring("k1", cursor.Key{ID: "k1", Secret: bytes.Repeat([]byte("s"), 32)})
 	if err != nil {
 		t.Fatal(err)
@@ -854,8 +863,11 @@ type perfResult struct {
 	errs     int64
 	errCodes map[string]int64       // failed requests by "status problem-code"
 	alloc    map[string]*dto.Metric // nava_numbering_alloc_* during the scenario
-	timeouts int64                  // 422 filter_too_expensive answers (data and timeout kinds)
-	holds    []perfHold             // creates only, one per request
+	// shapes is authz_under_list_shape_total during the scenario, by shape
+	// label, warm-up included (TICK-1105).
+	shapes   map[string]float64
+	timeouts int64      // 422 filter_too_expensive answers (data and timeout kinds)
+	holds    []perfHold // creates only, one per request
 	// commits are each create's commit round trip: the last statement of
 	// the request that ends its transaction ("commit" or a batch ending in
 	// " ; commit"). Their p50 is the storage-window gate.
@@ -1209,6 +1221,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 	t.Helper()
 	res := &perfResult{sc: sc, stmtDur: map[string][]time.Duration{}, errCodes: map[string]int64{}}
 	allocBefore := e.allocSnapshot(t)
+	shapesBefore := e.shapeSnapshot(t)
 	for i, r := range sc.reqs {
 		if i >= 50 {
 			break
@@ -1286,6 +1299,7 @@ func (e *perfEnv) run(t *testing.T, sc perfScenario, clients int, d time.Duratio
 	}
 	wg.Wait()
 	res.alloc = allocDelta(allocBefore, e.allocSnapshot(t))
+	res.shapes = shapeDelta(shapesBefore, e.shapeSnapshot(t))
 	if res.errs > 0 {
 		t.Errorf("%s: %d requests failed: %v", sc.name, res.errs, res.errCodes)
 	}
