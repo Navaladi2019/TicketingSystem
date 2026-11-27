@@ -23,8 +23,9 @@
 # On a pull request, detect and the gate run the scripts as they are on main,
 # not the pull request's own copy (TICK-1148 security review of PR #912): a
 # pull request that edits vulncheck-detect.sh cannot make its own run scan
-# nothing. A change to either script takes effect on the pull requests opened
-# after it merges.
+# nothing. Both read main on every run, so a change to either script takes
+# effect once it merges, on the next run of any pull request: one opened
+# later, and the next push to one already open (TICK-1178).
 # A failed scheduled run on main opens or updates a P0 issue
 # (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
 # self-hosted runner would speed up. Every step is a make target or a script:
@@ -32,7 +33,10 @@
 # locally.
 # make check-ci-steps compares this file, comment lines aside, with
 # tools/ci/cisteps/govulncheck.copy.yml (TICK-1149, ADR-001-E4 contract
-# rule 9): edit both together.
+# rule 9): edit both together. It also pins the three make targets the scan
+# jobs run (tools-govulncheck, vulncheck, vulncheck-temporal-server),
+# GOVULNCHECK_VERSION, and the environment make gives their recipes
+# (TICK-1178).
 # Job ids start with vulncheck- (TICK-1145): GitHub knows a check by its
 # name, not its workflow, and ci.yml has jobs temporal-server (a required
 # check of main) and main-red. A green scan named temporal-server could stand
