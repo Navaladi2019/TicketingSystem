@@ -28,6 +28,9 @@ steps:
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
   - job: lint
+    run: make test-check-openapi-base
+    why: check-openapi drifts back to a moving origin/main and fails unrelated PRs whenever main merges an API change mid-run (TICK-1179, run 45917518839)
+  - job: lint
     run: make test-handbook
     why: docs/handbook/build/build.py, which renders every handbook page and checks its references, changes with no test run (TICK-847)
   - job: lint
