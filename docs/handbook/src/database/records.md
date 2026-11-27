@@ -4,8 +4,9 @@ section: database
 status: delivered
 tables: [records, record_write_keys]
 adrs: [ADR-001, ADR-004, ADR-010]
-stories: [S31]
-sources: [docs/data/org-units.md, docs/data/org-unit-closure.md, docs/data/records-list-indexes.md, docs/data/records-list-bench.md, docs/data/record-write-keys-per-principal.md]
+stories: [S31, S21, S29]
+tests: [TestListFilterOnADefaultFindsUnrewrittenRecordsWhilePending, TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape, TestListFilterOnADefaultAfterDoneAndWithFailedRecords, TestListFilterWindowIsPerTenantAndRefusesABadValue, TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords]
+sources: [internal/server/records_list_backfill.go, docs/data/org-units.md, docs/data/org-unit-closure.md, docs/data/records-list-indexes.md, docs/data/records-list-bench.md, docs/data/record-write-keys-per-principal.md]
 ---
 
 `records` holds every tenant's tickets and other entities in one table.
@@ -71,3 +72,35 @@ field_not_ready` with `index_progress`, and `ready` compiles to one correlated
 carries the row ACL (ADR-006 D6, D7; TICK-746, TICK-989). All bounds on one
 field share the one `EXISTS`, so on an array field a single element must
 satisfy every bound. See the [S21 story page](../stories/s21.md).
+
+## Filters while a default is being backfilled (S29, story branch)
+
+While a schema backfill is open on a type, a filter on a field that the
+newest job defaults also returns the records that still lack the field
+(ADR-009 D12, S29, TICK-1192). The window is open from the publish until the
+type's newest `schema_backfills` row (highest `target_version`) is `done`, and
+it applies only when the filter is true for the default (the test runs inline
+in SQL through `record_field_coerce`). "Lacks the field" means no side-table
+row for it, so a stored value that does not coerce also counts as absent while
+the window is open.
+
+| Newest job | Shape |
+|---|---|
+| `pending` or `filling` (the queue cannot be trusted yet) | `(<stored predicate>) OR <field absent>` |
+| `running` or `failed_records`, more than 1,000 queued plus failed | the same `OR` shape |
+| `running` or `failed_records`, 1,000 or fewer | `(<stored>) UNION ALL (records joined to the queue and the failures, field absent, NOT <stored>)` |
+| two or more filtered fields in the window | the `OR` shape for each, ANDed; never a `UNION ALL` |
+| `done`, `superseded`, or no job | the filter is unchanged |
+
+The row ACL, the keyset and the `ORDER BY` are in **both** arms of the `UNION
+ALL`, and `total` (capped at 1,001) uses the same shape
+(`store.ListQuery.UnionWhere`, `UnionCountWhere`). The job is read once per
+list request, in the request's transaction as `nava_app`, and only when the
+request filters on a side-table field (`resolveWindow`,
+`internal/server/records_list_backfill.go`). Proving tests:
+`TestListFilterOnADefaultFindsUnrewrittenRecordsWhilePending`,
+`TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape`,
+`TestListFilterOnADefaultAfterDoneAndWithFailedRecords`,
+`TestListFilterWindowIsPerTenantAndRefusesABadValue`,
+`TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords`. S29 attack
+row 3 checks both shapes across tenants and the ACL in the `UNION ALL` arm.

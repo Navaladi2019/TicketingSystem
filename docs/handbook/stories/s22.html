@@ -47,11 +47,11 @@
 </tr>
 <tr>
 <td>TICK-752: seed types flag their filtered fields; the JSONB scan and <code>DataFilterTimeout</code> are removed</td>
-<td>in review (PR #956)</td>
+<td>merged (PR #956); its I5 route-row PR #931 is still open</td>
 </tr>
 <tr>
 <td>TICK-753: adversarial isolation suite</td>
-<td>in progress; rows 1b and 2b (removal) still have no body</td>
+<td>done, but rows 1b and 2b have no body and row 4 is still <code>Pending</code>: fixed by TICK-1198</td>
 </tr>
 <tr>
 <td>TICK-754: acceptance kit (Bruno S22), verified on a fresh stack</td>
@@ -70,9 +70,10 @@ re-indexed. Before S22 this publish was refused.</li>
 <li><strong>Get a higher limit.</strong> An operator raises a tenant's per-type limit of
 filterable fields from 5 to at most 10, with a reason. The change is
 audited. A tenant cannot raise its own limit.</li>
-<li><strong>(When TICK-752 lands.)</strong> The seed types <code>incident</code>, <code>request</code> and <code>change</code>
-flag the fields they filter on, and the old JSONB filter scan is gone: every
-data-field filter goes through the field index.</li>
+<li><strong>One filter path.</strong> The seed types <code>incident</code>, <code>request</code> and <code>change</code> flag
+the fields they filter on (<code>priority</code>, <code>priority</code>, <code>risk</code>), and the old JSONB
+filter scan and <code>DataFilterTimeout</code> are gone: every data-field filter goes
+through the field index, and its count runs under <code>CountBudget</code>.</li>
 </ul>
 <h2 id="rules-a-caller-sees">Rules a caller sees</h2>
 <table>
@@ -154,7 +155,7 @@ types</a>.</li>
 <tr>
 <td>1b</td>
 <td>A crafted <code>field_index.remove</code> row naming B's field deletes nothing of B</td>
-<td><strong>no body yet</strong> (TICK-753)</td>
+<td><strong>no body yet</strong> (TICK-1198)</td>
 </tr>
 <tr>
 <td>2</td>
@@ -164,7 +165,7 @@ types</a>.</li>
 <tr>
 <td>2b</td>
 <td>The R3 race against a real removal leaves no side row</td>
-<td><strong>no body yet</strong> (TICK-753)</td>
+<td><strong>no body yet</strong> (TICK-1198)</td>
 </tr>
 <tr>
 <td>3, 3b</td>
@@ -174,7 +175,7 @@ types</a>.</li>
 <tr>
 <td>4</td>
 <td>No JSONB filter on <code>records.data</code> remains in non-test code</td>
-<td>pending TICK-752</td>
+<td>body written, still marked <code>Pending</code> (TICK-1198)</td>
 </tr>
 <tr>
 <td>authz</td>
