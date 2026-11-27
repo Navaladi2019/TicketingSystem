@@ -334,11 +334,17 @@ func i5rIndexed(field string, v any) (any, bool) {
 // value of the property as stored (filterView), not as the read path serves
 // it, is indexed and equals one of the filter's values read by the field's
 // value type. A key the read path only fills with v2's default has no side
-// row, so a filter on prio's default does not match it: the JSONB scan's
-// absent-default rule went with the scan (S22 P7-12).
+// row. One exception, ADR-009 D12 (TICK-1192): v2 gives prio a default and its
+// schema backfill never finishes in this run, so the window is open the whole
+// time, and a filter that the default satisfies also matches a record whose
+// stored payload has no prio key (a stored null is not absent: GET serves it
+// as null, so it must not match).
 func (q i5rQuery) matches(stored map[string]any) bool {
 	for _, f := range q {
 		v, present := stored[f.Prop]
+		if f.Prop == "prio" && !present && slices.Contains(f.Values, i5rDefaultPrio) {
+			continue // in the D12 window: the default satisfies this filter
+		}
 		var got any
 		ok := false
 		switch f.Prop {
@@ -568,8 +574,8 @@ func TestI5RouteGeneratorCoversTheRiskyShapes(t *testing.T) {
 // TestI5RouteMatchesTheSideTable: the Go filter is the side-table oracle. A
 // number matches by value (1 and 1.0 are one double), the string "1" does
 // not match the integer filter 1, a null and a missing field match nothing,
-// and a prio the read path only defaults does not match a filter on the
-// default, while a stored "low" does.
+// and a prio absent as stored matches a filter on the default only through
+// the D12 window (a stored null does not), while a stored "low" always does.
 func TestI5RouteMatchesTheSideTable(t *testing.T) {
 	kind1 := i5rQuery{{Prop: "kind", Values: []string{"1"}}}
 	prioLow := i5rQuery{{Prop: "prio", Values: []string{i5rDefaultPrio}}}
@@ -583,8 +589,11 @@ func TestI5RouteMatchesTheSideTable(t *testing.T) {
 		{map[string]any{"kind": "1"}, kind1, false},
 		{map[string]any{"kind": nil}, kind1, false},
 		{map[string]any{}, kind1, false},
-		{i5rRecord{State: "open", Data: map[string]any{}}.filterView(), prioLow, false},
-		// The read path's view of that record does match: where the two part.
+		// ADR-009 D12 window: a stored payload with no prio matches the default
+		// (the run's v2 backfill never finishes); a stored null does not.
+		{i5rRecord{State: "open", Data: map[string]any{}}.filterView(), prioLow, true},
+		{i5rRecord{State: "open", Data: map[string]any{"prio": nil}}.filterView(), prioLow, false},
+		{i5rRecord{State: "open", Data: map[string]any{}}.filterView(), i5rQuery{{Prop: "prio", Values: []string{"high"}}}, false},
 		{i5rRecord{State: "open", Data: map[string]any{}}.defaulted(), prioLow, true},
 		{i5rRecord{State: "open", Data: map[string]any{"prio": i5rDefaultPrio}}.filterView(), prioLow, true},
 		{map[string]any{"tag": "x", "kind": 2}, i5rQuery{{Prop: "tag", In: true, Values: []string{"y", "x"}}, {Prop: "kind", Values: []string{"2"}}}, true},

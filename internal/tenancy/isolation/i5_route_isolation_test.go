@@ -468,8 +468,13 @@ func (run *i5rRun) filters(ctx context.Context, h *etIso, ci int, c i5rCase, pol
 				if reads && q.matches(rec.filterView()) {
 					goOK = true
 					want++
-				} else if reads && q.matches(run.views[rec.ID]) {
-					res.defaultMisses++
+					// A hit only the D12 window gives: prio absent as stored, the
+					// filter satisfied by v2's default.
+					if _, has := rec.Data["prio"]; !has && slices.ContainsFunc(q, func(f i5rFilter) bool {
+						return f.Prop == "prio" && slices.Contains(f.Values, i5rDefaultPrio)
+					}) {
+						res.defaultMisses++
+					}
 				}
 				if sqlOK := got[rec.ID.String()]; sqlOK != goOK {
 					side := "the Go check admits it and the list does not"
@@ -764,10 +769,10 @@ func i5RouteRows(ctx context.Context, cl Cluster, seed uint64, filterMutant stri
 		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d, %s: %d record disagreements in %d filter requests, by the filtered field's shape %s; first: %s",
 			seed, i5HandlerName(filterMutant), len(row.diffs), row.checks, i5rJSON(row.causes), row.first))
 	case row.matched*10 < row.checks*i5rMinMatchedTenths || row.masked == 0 || row.defaultMisses == 0:
-		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests match a record, %d are masked, %d misses on a prio defaulted only on read; the row proves little",
+		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests match a record, %d are masked, %d window hits on a prio absent as stored; the row proves little",
 			seed, row.matched, row.checks, row.masked, row.defaultMisses))
 	default:
-		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree with the side table (%d match a record, %d misses on a prio defaulted only on read, %d are 400 masked_field); %s",
+		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree with the side table (%d match a record, %d window hits on a prio absent as stored, %d are 400 masked_field); %s",
 			seed, i5HandlerName(filterMutant), len(run.cases), i5rPrincipals, i5rFilters, len(run.all), row.matched, row.defaultMisses, row.masked, took))
 	}
 
