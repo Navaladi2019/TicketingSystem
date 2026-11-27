@@ -67,6 +67,13 @@ slows a record delete. The rewrite treats a missing record as <code>not_found</c
 and moves on.</li>
 <li><code>(tenant_id, record_id)</code> indexes on the queue and the failures serve the
 ADR-009 D12 filter shape, which joins records to them while a job is open.</li>
+<li>**"Lacks the field" in a D12 filter means the key is not in the stored
+JSON** (<code>NOT (r.data ? key)</code>), the same test the queue fill and
+<code>ApplyDefaults</code> use. A record that stores an explicit <code>null</code>, or a value that
+does not coerce to the field's type, <strong>has</strong> the key: inside the window a
+filter that only the default satisfies does not return it, and its GET shows
+that stored value, not the default. The key comes from the compiled schema,
+never from the request (TICK-1200).</li>
 <li><strong>One active job per tenant (D7).</strong> The partial unique index
 <code>schema_backfills_one_active_per_tenant ON (tenant_id) WHERE state IN (&#x27;filling&#x27;, &#x27;running&#x27;)</code> is the admission rule. A second job of the same
 tenant that tries to start gets <code>23505</code> and waits. Another tenant is not

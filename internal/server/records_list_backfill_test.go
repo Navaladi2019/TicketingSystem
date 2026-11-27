@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestRenderORShapeInAnOpenWindow(t *testing.T) {
 		win:     &filterWindow{fields: map[string]any{"severity": "low"}, target: 2},
 	}
 	where, _ := pl.where(2)
-	for _, want := range []string{" OR (", "record_field_coerce(", "NOT EXISTS (SELECT 1 FROM"} {
+	for _, want := range []string{" OR (", "record_field_coerce(", "NOT (r.data ? $"} {
 		if !strings.Contains(where, want) {
 			t.Errorf("OR shape %s lacks %q", where, want)
 		}
@@ -149,5 +150,37 @@ func TestBackfillJSONUsesUTC(t *testing.T) {
 	}
 	if utcPtr(nil) != nil {
 		t.Error("utcPtr(nil) is not nil")
+	}
+}
+
+// ADR-009 D12: absent is key presence. The window's term is NOT (r.data ? key)
+// with the key bound; a stored null or a non-coercible value has the key, so no
+// side-row test stands in for it, in the OR shape and in the UNION ALL arm.
+func TestRenderAbsentIsKeyPresenceNotNoSideRow(t *testing.T) {
+	pl := &listPlan{
+		filters: []listFilter{idxFilter("severity", fieldindex.TypeText, "eq", "low")},
+		win:     &filterWindow{fields: map[string]any{"severity": "low"}, target: 2},
+	}
+	or, args := pl.where(2)
+	pl.win.union = true
+	second, args2 := pl.whereSecond(2)
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+	}{"OR": {or, args}, "UNION second arm": {second, args2}} {
+		if !strings.Contains(c.sql, "NOT (r.data ? $") {
+			t.Errorf("%s: %s lacks the key-presence term", name, c.sql)
+		}
+		if strings.Contains(c.sql, "NOT (r.data ? 'severity'") || strings.Contains(c.sql, "v.record_id = r.id AND v.field_id = $3::uuid)") && strings.Contains(c.sql, "AND NOT EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id") {
+			t.Errorf("%s: key inlined or side-row absence kept: %s", name, c.sql)
+		}
+		if !slices.Contains(c.args, any("severity")) {
+			t.Errorf("%s: key not bound as a parameter: %v", name, c.args)
+		}
+	}
+	// Outside the window the term is not there at all.
+	out := &listPlan{filters: []listFilter{idxFilter("severity", fieldindex.TypeText, "eq", "low")}}
+	if w, _ := out.where(2); strings.Contains(w, "r.data") {
+		t.Errorf("outside the window: %s reads data", w)
 	}
 }
