@@ -4,9 +4,13 @@ package dbtest
 
 import (
 	"context"
+	"io/fs"
+	"maps"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
 const publishedBySystemMigration = "20261127110000_entity_versions_published_by_system.sql"
@@ -132,5 +136,62 @@ func TestP712aPublishedBySystemValidatesOverSeededTenants(t *testing.T) {
 	if got := queryString(t, super, `SELECT count(*)::text || ' ' || count(published_by)::text || ' ' || count(published_by_system)::text
 		FROM entity_definition_versions`); got != "4 1 0" {
 		t.Errorf("rows, published_by, published_by_system after the migration = %q, want the 4 seeded, 1 with a principal, none with a system publisher", got)
+	}
+}
+
+// beforePublishedBySystem gives nava_app back its table-level INSERT on
+// entity_definition_versions when fsys stops before 20261127110000, as
+// db/grants.yaml did before P7-12a. The column list names columns an older
+// schema does not have yet (number_format_id and the other number_* columns
+// arrive in 20261113210200), and the grants applier refuses a listed column
+// that does not exist, so a run that stops earlier could not apply the
+// manifest. With every migration in fsys the manifest is unchanged.
+func beforePublishedBySystem(fsys fs.FS, m *grants.Manifest) *grants.Manifest {
+	if _, err := fs.Stat(fsys, publishedBySystemMigration); err == nil {
+		return m
+	}
+	const role, table = "nava_app", "entity_definition_versions"
+	r, ok := m.Roles[role]
+	if !ok {
+		return m
+	}
+	privs, ok := r.Tables[table]
+	if !ok {
+		return m
+	}
+	gm := *m
+	gm.Roles = maps.Clone(m.Roles)
+	p := maps.Clone(privs)
+	p["INSERT"] = []string{}
+	r.Tables = maps.Clone(r.Tables)
+	r.Tables[table] = p
+	gm.Roles[role] = r
+	return &gm
+}
+
+// P7-12a (TICK-1172): the grants manifest applies on the schema just before
+// 20261127110000, where nava_app's INSERT is table-level and covers every
+// column, and an upgrade from there converges it to the column list: the
+// table-level grant is revoked, and published_by_system is the one column
+// nava_app cannot insert. Integration CI on PR #938 found the column list
+// refused on older schemas; this applies the manifest there on purpose.
+func TestP712aGrantsApplyBeforeAndAfterPublishedBySystem(t *testing.T) {
+	m := freshCluster(t)
+	if _, err := migrateFS(t, m, migrationsBefore(t, publishedBySystemMigration)); err != nil {
+		t.Fatalf("migrate with grants to before %s: %v", publishedBySystemMigration, err)
+	}
+	super := superNava(t)
+	if !queryBool(t, super, `SELECT has_table_privilege('nava_app', 'entity_definition_versions', 'INSERT')`) {
+		t.Fatal("before the migration nava_app has no table-level INSERT on entity_definition_versions")
+	}
+
+	migrateAll(t, m)
+	if queryBool(t, super, `SELECT has_table_privilege('nava_app', 'entity_definition_versions', 'INSERT')`) {
+		t.Error("after the migration nava_app still has table-level INSERT on entity_definition_versions")
+	}
+	if got := queryString(t, super, `SELECT coalesce(string_agg(attname, ', ' ORDER BY attnum), '') FROM pg_attribute
+		WHERE attrelid = 'entity_definition_versions'::regclass AND attnum > 0 AND NOT attisdropped
+		  AND NOT has_column_privilege('nava_app', attrelid, attnum, 'INSERT')`); got != "published_by_system" {
+		t.Errorf("after the upgrade, columns nava_app cannot insert = %q, want only published_by_system", got)
 	}
 }
