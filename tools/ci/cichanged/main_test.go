@@ -59,6 +59,11 @@ func TestClassify(t *testing.T) {
 		// lint job's make test-handbook-coverage is what checks the page, so
 		// a docs-only PR stays cheap and still cannot drop the page.
 		{"ADR record and handbook page", []string{"docs/adr/ADR-011-new-thing.md", "docs/handbook/src/adr/adr-011.md", "docs/handbook/adr/adr-011.html"}, "ci-lint"},
+		// TICK-1193: the rest of the handbook (generated search index, nav
+		// and stories YAML, diagrams, the generator) is lint only too: the
+		// lint job's test-handbook, test-handbook-coverage and handbook-build
+		// check all of it. PR 954's handbook update was all such files.
+		{"handbook sources, generated pages and generator", []string{"docs/handbook/assets/search-index.js", "docs/handbook/src/stories/stories.yaml", "docs/handbook/src/nav.yaml", "docs/handbook/build/build.py", "docs/handbook/diagrams/x.svg"}, "ci-lint"},
 		{"pins pick the images", []string{"docs/pins.md"}, "ci-lint ci-unit ci-integration ci-stack"},
 		{"unit-only package", []string{"tools/ci/checkpins/main.go"}, "ci-lint ci-unit"},
 		{"integration package", []string{"internal/db/roles/roles.go"}, "ci-lint ci-unit ci-integration"},

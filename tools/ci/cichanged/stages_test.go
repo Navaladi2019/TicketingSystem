@@ -154,6 +154,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
+// allFalse is every output but docs_only, which each scenario appends.
 const allFalse = "unit=false\nintegration=false\nstack=false\nareas=none\nimages=real\nfull=false\n"
 
 // The ci-stages.sh scenarios share one clone and run one after another
@@ -170,6 +171,48 @@ func TestCIStages(t *testing.T) {
 	t.Run("a Dockerfile change builds the real images", func(t *testing.T) {
 		testDockerfileChangeBuildsRealImages(t, dir, base)
 	})
+	t.Run("a handbook update is docs-only", func(t *testing.T) {
+		testHandbookUpdateIsDocsOnly(t, dir, base)
+	})
+	t.Run("a workflow change is not docs-only", func(t *testing.T) {
+		testWorkflowChangeIsNotDocsOnly(t, dir, base)
+	})
+}
+
+// TICK-1193: PR 954's kind of change, handbook sources, generated pages and
+// the search index, is docs-only without the ci:run label, so a pull request
+// into main gets its isolation check from isolation-not-needed.
+func testHandbookUpdateIsDocsOnly(t *testing.T, dir, base string) {
+	stagesChange(t, dir, base, func(dir string) {
+		writeFiles(t, dir, map[string]string{
+			"docs/handbook/src/adr/adr-999-tick-1193.md": "# adr\n",
+			"docs/handbook/adr/adr-999-tick-1193.html":   "<p>adr</p>\n",
+			"docs/handbook/assets/search-index.js":       "// TICK-1193 test change.\n",
+			"docs/handbook/src/stories/stories.yaml":     "# TICK-1193 test change.\n",
+		})
+	})
+	if got, want := ciStages(t, dir, base, "CI_LINT_ONLY=1"), allFalse+"docs_only=true\n"; got != want {
+		t.Errorf("GITHUB_OUTPUT = %q, want %q", got, want)
+	}
+}
+
+// TICK-1193: a workflow edit runs every stage (only a full run proves it),
+// so it is never docs-only, though cichanged alone calls .github/ lint only:
+// isolation-not-needed must not vouch for a changed isolation job.
+func testWorkflowChangeIsNotDocsOnly(t *testing.T, dir, base string) {
+	stagesChange(t, dir, base, func(dir string) {
+		p := filepath.Join(dir, ".github", "workflows", "ci.yml")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, append(b, []byte("\n# TICK-1193 test change.\n")...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got, want := ciStages(t, dir, base, "CI_LINT_ONLY=1"), allFalse+"docs_only=false\n"; got != want {
+		t.Errorf("GITHUB_OUTPUT = %q, want %q", got, want)
+	}
 }
 
 // TICK-628: a change to deploy/compose/nava-core/Dockerfile builds the real
@@ -226,8 +269,13 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 			"docs/acceptance/S99/tick-563-notes.md": "notes\n",
 		})
 	})
-	if got := ciStages(t, dir, base); got != allFalse {
-		t.Fatalf("GITHUB_OUTPUT = %q, want %q", got, allFalse)
+	// TICK-1193: and docs_only=true, which runs isolation-not-needed in
+	// place of the isolation suite, whatever the labels (CI_LINT_ONLY).
+	if got, want := ciStages(t, dir, base, "CI_LINT_ONLY=1"), allFalse+"docs_only=true\n"; got != want {
+		t.Fatalf("CI_LINT_ONLY=1: GITHUB_OUTPUT = %q, want %q", got, want)
+	}
+	if got, want := ciStages(t, dir, base), allFalse+"docs_only=true\n"; got != want {
+		t.Fatalf("GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 	// TICK-638: a pull request into a story branch (CI_FULL=1) runs every
 	// stage and every stack-case area whatever its diff, even this docs-only
@@ -235,7 +283,7 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	// isolation job with no ci:full label (TICK-1031). The images still
 	// follow the rule: no Dockerfile changed, so thin. Checked on this diff
 	// to save a cichanged pass (TICK-597).
-	const full = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=thin\nfull=true\n"
+	const full = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=thin\nfull=true\ndocs_only=true\n"
 	if got := ciStages(t, dir, base, "CI_FULL=1"); got != full {
 		t.Errorf("CI_FULL=1: GITHUB_OUTPUT = %q, want %q", got, full)
 	}
@@ -247,7 +295,8 @@ func testDocsOnlyDiffRunsNoUnitIntegrationOrStack(t *testing.T, dir, base string
 	// before (a new ref) or one this clone lacks (a force push) has no diff,
 	// so the push runs as CI_ALL=1: every stage and area, real images, but
 	// not a full run (full=false): only CI_FULL makes one.
-	const all = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\n"
+	// No diff, so never docs-only (TICK-1193).
+	const all = "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\ndocs_only=false\n"
 	for _, b := range []string{"0000000000000000000000000000000000000000", "0123456789abcdef0123456789abcdef01234567"} {
 		if got := ciStages(t, dir, b); got != all {
 			t.Errorf("BASE=%s: GITHUB_OUTPUT = %q, want %q", b, got, all)
@@ -268,18 +317,20 @@ func testLintOnlyGatesAGoChange(t *testing.T, dir, base string) {
 			t.Fatal(err)
 		}
 	})
-	if got := ciStages(t, dir, base, "CI_LINT_ONLY=1"); got != allFalse {
-		t.Errorf("without ci:run: GITHUB_OUTPUT = %q, want %q", got, allFalse)
+	// TICK-1193: the Go change is not docs-only, labelled or not, so
+	// isolation-not-needed never reports isolation for it.
+	if got, want := ciStages(t, dir, base, "CI_LINT_ONLY=1"), allFalse+"docs_only=false\n"; got != want {
+		t.Errorf("without ci:run: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 	// cmd/nava-core is in no stack-case area, so the keycloak, pgbouncer and
 	// db cases are skipped, unless ci:full (or a PR into main) sets
 	// CI_AREAS_ALL.
-	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\nimages=thin\nfull=false\n"; got != want {
+	if got, want := ciStages(t, dir, base), "unit=true\nintegration=true\nstack=true\nareas=none\nimages=thin\nfull=false\ndocs_only=false\n"; got != want {
 		t.Errorf("with ci:run: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 	// TICK-628: a manual run's images input (CI_IMAGES) overrides the rule;
 	// checked here, beside CI_AREAS_ALL, to save a cichanged pass (TICK-597).
-	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1", "CI_IMAGES=real"), "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\n"; got != want {
+	if got, want := ciStages(t, dir, base, "CI_AREAS_ALL=1", "CI_IMAGES=real"), "unit=true\nintegration=true\nstack=true\nareas=all\nimages=real\nfull=false\ndocs_only=false\n"; got != want {
 		t.Errorf("with ci:full and CI_IMAGES=real: GITHUB_OUTPUT = %q, want %q", got, want)
 	}
 }

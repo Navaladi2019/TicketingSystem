@@ -24,6 +24,63 @@ func TestNoTwoWorkflowsReportTheSameCheck(t *testing.T) {
 	}
 }
 
+// TICK-1193: inside one workflow two jobs may report one check only when
+// their if: conditions exclude each other, which no test can read. So the one
+// such pair is listed: ci.yml's isolation (the suite) and isolation-not-needed
+// (a docs-only diff), both under TICK-1146's computed name. Any other pair
+// fails here until it is reviewed and added.
+func TestOneWorkflowSharesANameOnlyForIsolation(t *testing.T) {
+	allowed := map[string][]string{"ci.yml isolation": {"isolation", "isolation-not-needed"}}
+	dir := repo(".github/workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if ext := filepath.Ext(e.Name()); ext != ".yml" && ext != ".yaml" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var w struct {
+			Jobs map[string]struct {
+				Name string `yaml:"name"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(body, &w); err != nil {
+			t.Fatal(err)
+		}
+		jobs := map[string][]string{}
+		for id, j := range w.Jobs {
+			names := []string{id}
+			if j.Name != "" {
+				if names, err = reportedNames(j.Name); err != nil {
+					t.Fatalf("%s job %s: %v", e.Name(), id, err)
+				}
+			}
+			for _, n := range names {
+				jobs[n] = append(jobs[n], id)
+			}
+		}
+		for n, ids := range jobs {
+			if len(ids) < 2 {
+				continue
+			}
+			slices.Sort(ids)
+			key := e.Name() + " " + n
+			if want, ok := allowed[key]; !ok || !slices.Equal(ids, want) {
+				t.Errorf("%s: check %q is reported by jobs %v; only %v may share one", e.Name(), n, ids, allowed)
+			}
+			delete(allowed, key)
+		}
+	}
+	for key, ids := range allowed {
+		t.Errorf("%s: jobs %v no longer share the check; update this list", key, ids)
+	}
+}
+
 func TestReportedChecksReadsNameAndYaml(t *testing.T) {
 	dir := t.TempDir()
 	for f, body := range map[string]string{
@@ -153,7 +210,11 @@ func reportedChecks(t *testing.T, dir string) map[string][]string {
 				}
 			}
 			for _, name := range names {
-				out[name] = append(out[name], e.Name())
+				// One entry per workflow: two jobs of one workflow may share a
+				// name on purpose (TestOneWorkflowSharesANameOnlyForIsolation).
+				if !slices.Contains(out[name], e.Name()) {
+					out[name] = append(out[name], e.Name())
+				}
 			}
 		}
 	}
