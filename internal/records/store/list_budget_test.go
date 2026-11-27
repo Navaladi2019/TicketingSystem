@@ -24,7 +24,7 @@ func TestCountBudgetFor(t *testing.T) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
-	if CountBudget != 140*time.Millisecond {
-		t.Errorf("CountBudget = %v, want 140ms (PLAN-007-E2 D-7E2-1)", CountBudget)
+	if CountBudget != 170*time.Millisecond {
+		t.Errorf("CountBudget = %v, want 170ms (ADR-006-E2 E2-1)", CountBudget)
 	}
 }

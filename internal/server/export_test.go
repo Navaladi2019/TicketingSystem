@@ -45,6 +45,13 @@ func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, va
 // WithCountDelay makes every list count statement sleep d (ADR-006-A2 D-7A2-5).
 func WithCountDelay(d time.Duration) Option { return func(o *options) { o.countDelay = d } }
 
+// WithCountArm sets the (3e) arm: budget > 0 replaces CountBudget, parallel
+// keeps max_parallel_workers_per_gather at the server value inside the count
+// (ADR-006-E2 E2-4). WithCountArm(0, false) is the shipped behaviour.
+func WithCountArm(budget time.Duration, parallel bool) Option {
+	return func(o *options) { o.countBudgetOverride, o.countParallel = budget, parallel }
+}
+
 // WithSkipCount makes lists run no count; their total is unknown.
 func WithSkipCount() Option { return func(o *options) { o.skipCount = true } }
 
