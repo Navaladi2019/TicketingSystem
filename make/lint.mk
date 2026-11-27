@@ -49,9 +49,13 @@ check-guide:
 # (ADR-001-A7 rule 9, TICK-1187), so no makefile can change what the scan
 # jobs scan, and this check reads no makefile. A deliberate edit of both
 # files that adds no make passes; review catches that (RS3).
+# Every uses: of every workflow and copy names its action by full commit SHA
+# with the version tag in a trailing comment (TICK-1194): a moved tag cannot
+# change what CI runs.
 check-ci-steps:
 	go run ./tools/ci/cisteps
 	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml
+	go run ./tools/ci/cisteps -pins $(wildcard .github/workflows/*.yml .github/workflows/*.yaml) $(wildcard tools/ci/cisteps/*.copy.yml)
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A
