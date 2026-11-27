@@ -104,9 +104,18 @@ func atMakeLine(target string, f func(ind string) []string) edit {
 	}
 }
 
+// replaceLine replaces the first line matching re by with (none: deleted).
+func replaceLine(re string, with ...string) edit {
+	return func(t *testing.T, wf string) string {
+		t.Helper()
+		lines := strings.Split(wf, "\n")
+		i := lineIndex(t, lines, re)
+		return strings.Join(append(lines[:i], append(with, lines[i+1:]...)...), "\n")
+	}
+}
+
 // v3Edits are contract test V-3's edits of govulncheck.yml alone (TICK-1149
-// AC 2 a-i). Each must fail check-ci-steps. The gate cases (no always(), name
-// without the base test) come with the gate job, TICK-1150.
+// AC 2 a-i, TICK-1150 AC 1 the gate cases). Each must fail check-ci-steps.
 type v3Edit struct {
 	name string
 	edit edit
@@ -135,13 +144,20 @@ func v3Edits() []v3Edit {
 		{"f another job named vulncheck", insertAt(`^jobs:\s*$`, true, "  vulncheck-other:", "    name: vulncheck", "    runs-on: ubuntu-latest", "    steps:", "      - run: 'true'", "")},
 		{"g top-level defaults.run.shell", insertAt(`^jobs:\s*$`, false, "defaults:", "  run:", "    shell: 'true {0}'", "")},
 		{"h top-level env", insertAt(`^jobs:\s*$`, false, "env:", "  GOFLAGS: -mod=mod", "")},
-		{"i paths entry added", insertAt(`^    paths:\s*$`, true, "      - '**/*.md'")},
-		{"i paths entry changed", func(t *testing.T, wf string) string {
-			lines := strings.Split(wf, "\n")
-			i := lineIndex(t, lines, `^      - go\.mod\s*$`)
-			lines[i] = strings.Replace(lines[i], "go.mod", "go.mod.unused", 1)
-			return strings.Join(lines, "\n")
-		}},
+		// TICK-1150 (contract rule 1): the paths filter is gone; re-adding one fails.
+		{"i paths re-added", insertAt(`^    types: \[opened, synchronize, reopened\]\s*$`, true, "    paths:", "      - go.mod", "      - go.sum")},
+		// TICK-1150 (contract rules 4 and 5, AC 1): the gate cases.
+		{"gate without always()", replaceLine(`^    if: always\(\)\s*$`)},
+		{"gate if: success()", replaceLine(`^    if: always\(\)\s*$`, "    if: success()")},
+		{"gate name without the base test", replaceLine(`^    name: \$\{\{ github\.base_ref == 'main'`, "    name: vulncheck")},
+		{"gate needs one scan dropped", replaceLine(`^    needs: \[vulncheck-detect, vulncheck-root, vulncheck-temporal-server\]\s*$`, "    needs: [vulncheck-detect, vulncheck-root]")},
+		{"gate input from the wrong job", replaceLine(`^\s+TS_RESULT: `, "          TS_RESULT: ${{ needs.vulncheck-root.result }}")},
+		{"scan without detect's if", replaceLine(`^    if: needs\.vulncheck-detect\.outputs\.root == 'true'\s*$`)},
+		// TICK-1148 security review of PR #912: detect and the gate run
+		// main's scripts, not the pull request's.
+		{"gate checks out the pull request", replaceLine(`^          ref: main\s*$`, "          ref: ${{ github.head_ref }}")},
+		{"detect runs the pull request's script", replaceLine(`^\s+git show origin/main:scripts/ci/vulncheck-detect\.sh`, "          cp scripts/ci/vulncheck-detect.sh \"$RUNNER_TEMP/vulncheck-detect.sh\"")},
+		{"detect shallow", replaceLine(`^          fetch-depth: 0\s*$`, "          fetch-depth: 1")},
 		{"make line commented out", atMakeLine("vulncheck", func(ind string) []string {
 			return []string{ind + "run: 'true'", ind + "# run: make vulncheck"}
 		})},

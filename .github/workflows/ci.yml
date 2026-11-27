@@ -9,8 +9,8 @@
 #                    handbook build on the real sources (TICK-1162) (no
 #                    containers). govulncheck is the
 #                    govulncheck workflow since TICK-641
-#                    (.github/workflows/govulncheck.yml): every second day
-#                    and on PRs that change a go.mod or go.sum (TICK-694)
+#                    (.github/workflows/govulncheck.yml): every second day,
+#                    by hand and on every pull request (ADR-001-E4, TICK-1150)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and golangci-lint
 #                    (TICK-584) (no containers); only when the module or how

@@ -286,6 +286,7 @@ func TestDetectFailures(t *testing.T) {
 	r.run("rm", "-q", "-rf", ".")
 	r.write("other.txt", "x\n")
 	orphan := r.commit("unrelated history")
+	r.run("branch", "beef", head)
 
 	for _, c := range []struct {
 		name string
@@ -299,6 +300,14 @@ func TestDetectFailures(t *testing.T) {
 		{"HEAD_SHA a branch name", []string{"BASE_SHA=" + r.base, "HEAD_SHA=case"}},
 		{"BASE_SHA an option", []string{"BASE_SHA=--all", "HEAD_SHA=" + head}},
 		{"unknown commit", []string{"BASE_SHA=" + r.base, "HEAD_SHA=1111111111111111111111111111111111111111"}},
+		// TICK-1150 (TICK-1148 review of PR #912): only a full 40- or
+		// 64-character commit id. A short one resolves, and so does a
+		// branch whose name is only hex characters.
+		{"HEAD_SHA short hex", []string{"BASE_SHA=" + r.base, "HEAD_SHA=" + head[:7]}},
+		{"BASE_SHA short hex", []string{"BASE_SHA=" + r.base[:12], "HEAD_SHA=" + head}},
+		{"HEAD_SHA a hex-only branch name", []string{"BASE_SHA=" + r.base, "HEAD_SHA=beef"}},
+		{"HEAD_SHA 41 hex characters", []string{"BASE_SHA=" + r.base, "HEAD_SHA=" + head + "a"}},
+		{"HEAD_SHA 63 hex characters", []string{"BASE_SHA=" + r.base, "HEAD_SHA=" + strings.Repeat("a", 63)}},
 	} {
 		got, stderr, code := detect(t, r.dir, append([]string{"EVENT=pull_request"}, c.env...)...)
 		if code == 0 {

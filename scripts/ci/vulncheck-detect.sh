@@ -14,9 +14,10 @@
 #
 # On a pull request the diff runs from git merge-base BASE_SHA HEAD_SHA to
 # HEAD_SHA with --no-renames, so a rename lists both paths and renaming go.sum
-# or go.work away still matches. An empty or non-hex BASE_SHA or HEAD_SHA (a
-# branch name, an option), no merge base or any git error exits non-zero, and
-# the gate then fails.
+# or go.work away still matches. An empty BASE_SHA or HEAD_SHA, or one that is
+# not a full 40- or 64-character hex commit id (a branch name, an option, a
+# short id), no merge base or any git error exits non-zero, and the gate then
+# fails.
 #
 # Paths are read with core.quotePath=false, so a non-ASCII path such as
 # tools/ci/cisteps/<e-acute>_test.go prints as is and matches its row. Git
@@ -64,9 +65,15 @@ fi
 
 [ -n "${BASE_SHA:-}" ] || die "BASE_SHA is empty on a pull_request"
 [ -n "${HEAD_SHA:-}" ] || die "HEAD_SHA is empty on a pull_request"
-# A commit id only: never a ref name, and never an option to git.
-case $BASE_SHA in *[!0-9a-fA-F]*) die "BASE_SHA '$BASE_SHA' is not a hex commit id" ;; esac
-case $HEAD_SHA in *[!0-9a-fA-F]*) die "HEAD_SHA '$HEAD_SHA' is not a hex commit id" ;; esac
+# A full commit id only (40 hex characters for SHA-1, 64 for SHA-256): never
+# a ref name, never an option to git, and never a short id, which a branch
+# whose name is only hex characters would also match (TICK-1150).
+full_sha() {
+    case $2 in *[!0-9a-fA-F]*) die "$1 '$2' is not a hex commit id" ;; esac
+    case ${#2} in 40 | 64) ;; *) die "$1 '$2' is ${#2} characters, want a full 40- or 64-character commit id" ;; esac
+}
+full_sha BASE_SHA "$BASE_SHA"
+full_sha HEAD_SHA "$HEAD_SHA"
 
 from=$(git merge-base "$BASE_SHA" "$HEAD_SHA") ||
     die "no merge base of $BASE_SHA and $HEAD_SHA (fetch with fetch-depth: 0)"
