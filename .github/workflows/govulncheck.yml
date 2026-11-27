@@ -27,9 +27,11 @@
 # after it merges.
 # A failed scheduled run on main opens or updates a P0 issue
 # (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
-# self-hosted runner would speed up. Every step is a make target or a script:
-# `make tools-govulncheck vulncheck vulncheck-temporal-server` runs the scans
-# locally.
+# self-hosted runner would speed up. The two scan jobs call govulncheck
+# directly, not through make (ADR-001-A7): go run
+# golang.org/x/vuln/cmd/govulncheck@<version> ./... after setup-go reads that
+# module's go.mod, with GOENV, GOWORK, GOFLAGS, GOTOOLCHAIN and the proxy and
+# checksum settings pinned in the step's env:. Every other step is a script.
 # make check-ci-steps compares this file, comment lines aside, with
 # tools/ci/cisteps/govulncheck.copy.yml (TICK-1149, ADR-001-E4 contract
 # rule 9): edit both together.
@@ -85,14 +87,22 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
-      - name: Install govulncheck
-        run: make tools-govulncheck
       - name: govulncheck (root module)
-        run: make vulncheck
+        env:
+          GOENV: 'off'
+          GOWORK: 'off'
+          GOFLAGS: ''
+          GOTOOLCHAIN: local
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GONOSUMDB: ''
+          GOPRIVATE: ''
+          GOINSECURE: ''
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   vulncheck-temporal-server:
     needs: vulncheck-detect
@@ -101,14 +111,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: temporal-server/go.mod
           cache: false
-      - name: Install govulncheck
-        run: make tools-govulncheck
-      - name: govulncheck (temporal-server)
-        run: make vulncheck-temporal-server
+      - name: govulncheck (temporal-server module)
+        working-directory: temporal-server
+        env:
+          GOENV: 'off'
+          GOWORK: 'off'
+          GOFLAGS: ''
+          GOTOOLCHAIN: local
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GONOSUMDB: ''
+          GOPRIVATE: ''
+          GOINSECURE: ''
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   vulncheck:
     needs: [vulncheck-detect, vulncheck-root, vulncheck-temporal-server]
