@@ -415,6 +415,9 @@ jobs:
         run: make check-ci-steps
       - name: OpenAPI additive-only
         run: make check-openapi
+      # TICK-1179: on a pull_request it compares against HEAD^1, not a moved origin/main.
+      - name: OpenAPI check uses the tested base
+        run: make test-check-openapi-base
       # TICK-847: the handbook generator's tests.
       - name: Handbook generator tests
         run: make test-handbook

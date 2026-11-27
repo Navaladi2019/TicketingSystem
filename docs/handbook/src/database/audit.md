@@ -3,9 +3,9 @@ title: "Audit log and seal chain"
 section: database
 status: delivered
 tables: [audit_log, audit_log_default, audit_chain_head]
-adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-004-E9, ADR-001-A6]
+adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-004-E9, ADR-004-E10, ADR-001-A6]
 stories: [S18]
-sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql, db/migrations/20261120160100_audit_log_action_policy_ref_refused.sql, internal/authz/policyref.go]
+sources: [docs/data/audit-log.md, docs/adr/ADR-004-audit-log.md, internal/audit/entry.go, internal/server/records.go, db/migrations/20261115090000_audit_log_action_number_space_exhausted.sql, db/migrations/20261120160100_audit_log_action_policy_ref_refused.sql, internal/authz/policyref.go, db/migrations/20261126150000_audit_log_diff_nul_escaped.sql, db/migrations/20261127100000_audit_log_nul_escaped_gate_drop.sql]
 ---
 
 `audit_log` is one append-only log for every audited table (ADR-004). An
@@ -55,6 +55,22 @@ subject as the admin's access publishes), `actor_system: workflow`,
 the worker's tenant transaction of the test, which reads `principals` and
 `group_members` through TICK-1025's grants. The CHECK was widened `NOT VALID`
 (`20261120160100`), then validated (`20261120160200`).
+
+**`diff_nul_escaped` (ADR-004-E10).** A `boolean NOT NULL DEFAULT false`
+column beside `diff_truncated`. It is true when the previous schema the
+entry's `diff` was built from held a NUL character, which `jsonb` cannot
+store, so each NUL was written as the text `\u0000` first (TICK-1121). Rows
+written before E10 all read false; the constant default made the column
+metadata-only on every partition (`20261126150000`). `audit_log_guard_update`
+was recreated with the column in its envelope comparison, so neither the seal
+nor the erase transition, and no role, can change it. It is an envelope
+member emitted only when true, so the chain covers it (see
+[audit chain](../security/10-audit-chain.md)). Until that member was on
+`main`, a `BEFORE INSERT` trigger refused a true flag with `23514`; TICK-1170
+step 2 dropped it (`20261127100000`). The audit read API returns it on every
+entry as `diff_nul_escaped`, always present, boolean.
+`TestTICK1170DiffNULEscapedColumn` proves the column, its grants and the
+guard.
 
 Only `nava_audit_reader` reads `diff` and `diff_salt` (ADR-004-A1). The
 migrator generates the `audit_log` policies from `db/audited-tables.yaml`.
