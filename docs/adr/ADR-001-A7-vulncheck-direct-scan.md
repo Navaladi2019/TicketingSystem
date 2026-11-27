@@ -18,7 +18,7 @@ deciders: "Solution Architect (author; verdict ACCEPTED); Technical Architect (r
 
 > **Status: ACCEPTED, rev 1, 2026-11-27,** by the Solution Architect (TICK-1183), under the merge policy set by vknavaladi. Technical Architect: round 1 CHANGES (F1, the wording of rule 9), re-check APPROVE. No CTO tie-break: nothing contested. It changes no code; the work comes from `Plan ADR-001-A7`.
 >
-> **Invariants source.** TICK-1183 has no project set, so the project's eight invariants were not loaded; the invariant check is incomplete. This is CI only: no tenant data, identity, workflow or runtime code. ADR-001-A1 Decision 3 (zero reachable findings, no allow-list) is unchanged.
+> **Invariants source.** [[ADR-001-platform-blueprint]] §1 I1–I9, as for A6 and E4 (TICK-1183 has no project set, so no project description was loaded). CI only: no tenant data, identity, workflow or runtime code, so none of I1–I9 is touched. ADR-001-A1 Decision 3 (zero reachable findings, no allow-list) is unchanged.
 >
 > **Numbering.** A6 is the highest ADR-001 amendment; RFC-023 the highest RFC. So A7 and RFC-024.
 
@@ -84,6 +84,10 @@ deciders: "Solution Architect (author; verdict ACCEPTED); Technical Architect (r
 | R-A7-1 (AR-TICK-1183-01) | `docs`, `tools/navalint`, `tools/workflowcheck` are never scanned | Tooling, in no image; a new module is a reviewed edit of rule 7's set |
 | R-A7-2 (AR-TICK-1183-02) | `replace`, `exclude`, `ignore` in a scanned `go.mod` narrow the scan | That edit triggers the scan and is reviewed with the module |
 | R-A7-3 | Local `make vulncheck` and CI drift | Same command line and one checked version; CI is the gate |
+
+## Competitive Gate (ADR-008)
+
+**Result:** N/A. CI only: no axis, limit, API, configuration surface or upgrade path changes. Parity: I1–I9 unchanged.
 
 ## Dissent
 
