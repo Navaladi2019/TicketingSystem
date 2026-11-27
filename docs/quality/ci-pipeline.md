@@ -12,7 +12,7 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `handbook-build` (`build.py` on the real `docs/handbook/src`: a broken link or reference, or a malformed `stories.yaml` / `benchmarks.yaml` row, fails; footer stamp from `GITHUB_SHA`, so no `origin/main` needed; TICK-1162), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`, or `govulncheck.yml` differs from its copy `tools/ci/cisteps/govulncheck.copy.yml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `handbook-build` (`build.py` on the real `docs/handbook/src`: a broken link or reference, or a malformed `stories.yaml` / `benchmarks.yaml` row, fails; footer stamp from `GITHUB_SHA`, so no `origin/main` needed; TICK-1162), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow: every second day, by hand, and on every pull request, whose result is the check `vulncheck`; TICK-641, ADR-001-E4) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
 | Isolation (in `ci-integration`, after `test-integration`; in CI the `isolation` job, full runs and every pull request run with `ci:run` or `ci:full`, TICK-1003, TICK-1146) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
@@ -849,46 +849,67 @@ input; `TestFullSuite` covers the skip exception.
 
 **govulncheck workflow.** govulncheck is no longer a step of the `ci`
 workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
-(the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
-`vulncheck-root` (`make vulncheck`) and `vulncheck-temporal-server`
-(`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
-no Actions cache (about a minute each). The job ids start with `vulncheck-`
-(TICK-1145) because GitHub knows a check by its name, not by its workflow:
-while the scan's job was also called `temporal-server`, a green scan could
-stand in for the required `ci` job of that name. `TestNoTwoWorkflowsReportTheSameCheck`
-(`tools/ci/cisteps`, part of `go test ./...` in the unit job) fails on any check name
-reported by two workflows.
+(the owner's request on TICK-641), and since ADR-001-E4 (TICK-1150) on every
+pull request. All jobs run on `ubuntu-latest`:
+
+| Job | What it does |
+| --- | --- |
+| `vulncheck-detect` | `scripts/ci/vulncheck-detect.sh` (contract rule 2): on a pull request, diffs the merge base with the head and says which module needs a scan. A library list of the root module (`go.mod`, `go.sum`) scans the root, one of `temporal-server/` scans that module; a change to the gate itself (the workflow, its copy, the two scripts, `tools/ci/cisteps/`, `tools/ci/vulngate/`, a `govulncheck` line in `Makefile` or `make/lint.mk`), a `FROM ... golang` line or a `go.work` scans both; anything else neither. On `schedule` and `workflow_dispatch`, both. A short SHA or a ref name fails (TICK-1150) |
+| `vulncheck-root`, `vulncheck-temporal-server` | `make vulncheck` / `make vulncheck-temporal-server` after `make tools-govulncheck`, no Actions cache (about a minute each), only when detect asks for that module |
+| `vulncheck` (the gate) | `if: always()`; `scripts/ci/vulncheck-gate.sh` (contract rule 4) passes only when detect succeeded and each module either ran and succeeded, or was skipped because detect said it was not needed. It reports the check `vulncheck` on a pull request into `main` and `vulncheck-other` on any other base or event (rule 5) |
+| `vulncheck-main-red` | a failed scheduled run on `main` opens or updates a P0 issue `govulncheck is red: <short sha>` (`scripts/ci/main-red.sh`, `WORKFLOW=govulncheck`, TICK-1152) |
 
 | Event | Runs |
 | --- | --- |
-| pull request (opened, synchronize, reopened) | only when it changes `go.mod`, `go.sum`, `temporal-server/go.mod` or `temporal-server/go.sum` (`paths:` filter, TICK-694): a new or bumped dependency is how a known-vulnerable module enters `main`. Every other pull request skips it. Allowed because it is not a required check of `main` |
-| push to `main` | never (TICK-694): a dependency change was scanned on its pull request, and anything else waits for the next scheduled run |
-| schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st): a new advisory needs no change of ours (ADR-001-A1 R7) |
-| manual | always |
+| pull request (opened, synchronize, reopened) | always, no `paths:` filter (contract rule 1: a filtered-out workflow leaves its check Pending), with the scans the change needs. A docs-only pull request into `main` gets a green `vulncheck` with no scan |
+| push to `main` | never (TICK-694): a merge was scanned on its pull request, and anything else waits for the next scheduled run |
+| schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st), both modules: a new advisory needs no change of ours (ADR-001-A1 R7) |
+| manual | both modules |
 
-A finding fails the job. On a scheduled run on `main` the workflow's own
-`vulncheck-main-red` job opens or updates the P0 "main is red" issue
-(`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
-compares the whole workflow, comment lines aside, with its checked-in copy
-`tools/ci/cisteps/govulncheck.copy.yml`, and requires `make -n` of the two
-recipes to print exactly `GOWORK=off govulncheck ./...` and
-`cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149, ADR-001-E4
-contract rule 9). It also reads make's database (`make -pn`): each rule must
-be exactly the target with that one recipe line, and `.IGNORE`, `.ONESHELL`,
-a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global `SHELL`,
-`.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
+`vulncheck` is the pull request's result, but it is not yet a required check
+of `main`: branch protection adds it in T-E4-7 (TICK-1154). Until then a red
+`vulncheck` does not block a merge.
+
+On a pull request, detect and the gate run the scripts as they are on `main`,
+not the pull request's own copies: detect runs
+`git show origin/main:scripts/ci/vulncheck-detect.sh`, and the gate job checks
+out `main`. A pull request that edits `vulncheck-detect.sh` so that it says
+"none" therefore still gets the scans `main`'s detect asks for (both, since the
+script is part of the gate). This answers the TICK-1148 security review of
+PR #912. It does not stop a pull request that edits `govulncheck.yml` and its
+copy together to run its own script: that is RS3, caught by review. The cost:
+a change to either script takes effect on pull requests opened after it
+merges, and a change to the interface between the workflow and a script (a
+new input) needs the script change merged first.
+
+The job ids start with `vulncheck-` (TICK-1145) because GitHub knows a check
+by its name, not by its workflow: while the scan's job was also called
+`temporal-server`, a green scan could stand in for the required `ci` job of
+that name. `TestNoTwoWorkflowsReportTheSameCheck` (`tools/ci/cisteps`, part of
+`go test ./...` in the unit job) fails on any check name reported by two
+workflows. It reads both values of a `${{ <cond> && 'x' || 'y' }}` name, so a
+second workflow with a job called `vulncheck-other` fails too (ADR-001-E4
+E4-5). Any other expression in a job name fails the test.
+
+`make check-ci-steps` compares the whole workflow, comment lines aside, with
+its checked-in copy `tools/ci/cisteps/govulncheck.copy.yml`, and requires
+`make -n` of the two recipes to print exactly `GOWORK=off govulncheck ./...`
+and `cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149,
+ADR-001-E4 contract rule 9). It also reads make's database (`make -pn`): each
+rule must be exactly the target with that one recipe line, and `.IGNORE`,
+`.ONESHELL`, a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global
+`SHELL`, `.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
 `make -n` shows none of them, nor a `-`, `@` or `+` prefix (TICK-1149 review
-finding 1). An edit of only one of the two files fails `lint`; a
-deliberate edit of both passes and is the reviewer's to catch (RS3). Both
-scans run with `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
-`task vulncheck`. The two scans are
-deliberately not required checks of `main`: with the `paths:` filter, a
-required check would never report on most pull requests and block their
-merge. The trade-off (TICK-694): a code-only change that starts calling an
-already-listed vulnerable symbol, or an advisory published after a merge, is
-caught by the next scheduled run, up to two days later. Locally:
+finding 1). An edit of only one of the two files fails `lint`; a deliberate
+edit of both passes and is the reviewer's to catch (RS3). Both scans run with
+`GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
+`task vulncheck`. The trade-off of scanning only the module whose library list
+changed (rule 3): a code-only change that starts calling an already-listed
+vulnerable symbol, or an advisory published after a merge, is caught by the
+next scheduled run, up to two days later. Locally:
 `make tools-govulncheck vulncheck vulncheck-temporal-server`, or
-`make vulncheck-ci` as part of `make ci-lint`.
+`make vulncheck-ci` as part of `make ci-lint`. `go test ./tools/ci/vulngate`
+runs the detect and gate tables (V-1, V-2).
 
 **The published image.** Since TICK-693 the stack job pulls
 `nava/temporal-server` with the generic mechanism in "Published CI images"
