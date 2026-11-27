@@ -24,6 +24,20 @@ func TestCopyCatchesParseTimeCodeWithMake(t *testing.T) {
 		{"sinclude", "sinclude cisteps-none.mk\n" + pinnedMakefile, "include"},
 		{"$(shell on a continued line", "STAMP := a \\\n  $(shell echo stub)\n" + pinnedMakefile, "runs at parse time"},
 		{"a GNUmakefile beside the Makefile", withFile(pinnedMakefile, "GNUmakefile", "include Makefile\n"), "GNUmakefile"},
+		// PR #950 re-review (Principal Software Engineer, 052e25a8): a # line
+		// inside define is part of the value, and make expands it with the
+		// variable.
+		{"# line in a define body", "define STAMP\n# $(shell echo stub)\nendef\nX := $(STAMP)\n" + pinnedMakefile, "runs at parse time"},
+		{"# line in an override define body", "override define STAMP\n  # $(shell echo stub)\nendef\nX := $(STAMP)\n" + pinnedMakefile, "runs at parse time"},
+		{"# line in a nested define body", "define OUTER\ndefine INNER\nendef\n# $(shell echo stub)\nendef\nX := $(OUTER)\n" + pinnedMakefile, "runs at parse time"},
+		// A tab-indented line with no rule open is makefile text, not a
+		// recipe: make reads its include, load or != assignment.
+		{"tab-indented include after a variable", withFile("X := 1\n\tinclude extra.mk\n"+pinnedMakefile, "extra.mk", "X := 1\n"), "include"},
+		{"tab-indented load after a variable", "X := 1\n\t-load ./cisteps-none.so\n" + pinnedMakefile, "runs at parse time"},
+		{"tab-indented != after a variable", "X := 1\n\tSTAMP != echo stub\n" + pinnedMakefile, "runs at parse time"},
+		{"tab-indented != after a target-specific variable", "other: X := 1\n\tSTAMP != echo stub\n" + pinnedMakefile, "runs at parse time"},
+		// The scan reads a tab as the recipe prefix.
+		{".RECIPEPREFIX changed", ".RECIPEPREFIX := >\n" + pinnedMakefile, ".RECIPEPREFIX"},
 	})
 }
 
@@ -43,5 +57,20 @@ func TestParseTimeScanReadsRecipeComments(t *testing.T) {
 	}
 	if len(problems) != 1 {
 		t.Fatalf("want one problem, got %q", problems)
+	}
+}
+
+// A recipe's != is the shell's test, also after a blank line, a comment or a
+// conditional inside the rule, and a define body without parse-time code
+// passes.
+func TestParseTimeScanSkipsRecipeTests(t *testing.T) {
+	mk := "define BANNER\n# a comment in the value\nendef\n" + pinnedMakefile +
+		"other:\n\t[ a != b ]\n\n# note\nifeq (1,1)\n\t[ c != d ]\nendif\n"
+	problems, _, err := scanMakefile(".", "Makefile", []byte(mk))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) > 0 {
+		t.Fatalf("want none, got %q", problems)
 	}
 }

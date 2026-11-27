@@ -52,8 +52,9 @@ check-guide:
 # tools/ci/cisteps/copy.go allows, and no makefile line may run code at parse
 # time ($(shell, $(file, $(eval, !=, load, include) outside the allow-list in
 # tools/ci/cisteps/parsetime.go (TICK-1167). A deliberate edit of both passes;
-# review catches that (RS3). An edit conditional on a CI-only variable such as
-# $(GITHUB_JOB) is not caught: AR-TICK-1167-01, TICK-1183.
+# review catches that (RS3). An edit that acts only when make runs in a scan
+# job, not under this check ($(GITHUB_JOB), $(origin SHELL), n in MAKEFLAGS,
+# a rule that remakes a makefile), is not caught: AR-TICK-1167-01, TICK-1183.
 check-ci-steps:
 	go run ./tools/ci/cisteps
 	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml

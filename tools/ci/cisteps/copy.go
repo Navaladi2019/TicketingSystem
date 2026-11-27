@@ -6,8 +6,10 @@ package main
 // (tools-govulncheck, TICK-1167) must be the pinned lines, run with each
 // target as the goal in the environment an empty makefile gives them, by a
 // makefile that runs no code at parse time outside an allow-list
-// (parsetime.go). A makefile edit that acts only when a CI-only variable
-// matches, such as $(GITHUB_JOB), is not caught: AR-TICK-1167-01, TICK-1183. An edit
+// (parsetime.go). A makefile edit that acts only when make runs in a scan
+// job, not under this check ($(GITHUB_JOB), $(origin SHELL), n in MAKEFLAGS,
+// a rule that remakes a makefile), is not caught: AR-TICK-1167-01, TICK-1183.
+// An edit
 // of one file alone (a step if:, an exit 0, a shell:, a paths filter, a
 // top-level env: or defaults:, a second job reporting the gate's name, a
 // `|| true` or a - prefix in a recipe, .IGNORE, a changed SHELL) fails lint.

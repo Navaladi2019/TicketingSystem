@@ -6,11 +6,14 @@ package main
 // has n in MAKEFLAGS. A makefile that tests them behaves one way for the
 // check and another for CI. And make remakes the makefiles it read before
 // any goal: a rule for Makefile runs on every make call and is not a pinned
-// target. Every case uses real make on a temporary Makefile.
+// target. Every case uses real make on a temporary Makefile. Both tests are
+// skipped under AR-TICK-1167-01 (docs/security/accepted-risks.md): no rule in
+// check-ci-steps can close them, TICK-1183 does (Technical Lead, 2026-11-27).
 
 import "testing"
 
 func TestCopyCatchesDumpAwareEditsWithMake(t *testing.T) {
+	t.Skip("AR-TICK-1167-01: a makefile can tell the check's make calls from CI's ($(origin SHELL), CISTEPS_ENV_DUMP); closed by TICK-1183")
 	notDump := func(body string) string {
 		return "ifneq ($(origin SHELL),command line)\n" + body + "endif\n" + pinnedMakefile
 	}
@@ -27,6 +30,7 @@ func TestCopyCatchesDumpAwareEditsWithMake(t *testing.T) {
 // one. It is left out under the dump (SHELL on the command line) and under -n
 // (n in MAKEFLAGS), so neither the dry run nor the dump shows it.
 func TestCopyCatchesMakefileRemakeRulesWithMake(t *testing.T) {
+	t.Skip("AR-TICK-1167-01: a makefile can tell the check's make calls from CI's (a Makefile remake rule guarded by $(origin SHELL) and n in MAKEFLAGS); closed by TICK-1183")
 	const remake = "ifneq ($(origin SHELL),command line)\n" +
 		"ifeq ($(findstring n,$(firstword x$(MAKEFLAGS))),)\n" +
 		"Makefile: cisteps-force\n" +

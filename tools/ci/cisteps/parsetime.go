@@ -88,6 +88,8 @@ func parseTimeProblems(dir string) ([]string, error) {
 // allowed include lines name.
 func scanMakefile(dir, rel string, data []byte) ([]string, []string, error) {
 	var problems, includes []string
+	defines := 0      // the depth of the open define blocks
+	ruleOpen := false // a rule line opened a recipe that tab lines continue
 	lines := bytes.Split(bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n")), []byte("\n"))
 	for i := 0; i < len(lines); i++ {
 		// A logical line: backslash-newline continues it.
@@ -106,22 +108,47 @@ func scanMakefile(dir, rel string, data []byte) ([]string, []string, error) {
 				}
 				includes = append(includes, names...)
 			}
+			ruleOpen = false
 			continue
 		}
-		recipe := strings.HasPrefix(text, "\t")
+		at := fmt.Sprintf("%s:%d", rel, n)
+		if defines > 0 {
+			// A define body is the variable's value, # lines too: make
+			// expands all of it wherever the variable is expanded.
+			switch firstWord(trimmed) {
+			case "endef":
+				defines--
+			case "define":
+				defines++
+			}
+			for _, f := range parseTimeCalls(text) {
+				problems = append(problems, fmt.Sprintf("%s: %s runs at parse time, on every make call: %q", at, f, trimmed))
+			}
+			continue
+		}
+		// A tab starts a recipe line only while a rule is open; with none,
+		// make reads the line as makefile text.
+		recipe := ruleOpen && strings.HasPrefix(text, "\t")
 		if !recipe && strings.HasPrefix(trimmed, "#") {
 			// make expands no comment; a recipe line's # is the shell's, and
 			// make expands the line.
 			continue
 		}
-		at := fmt.Sprintf("%s:%d", rel, n)
 		for _, f := range parseTimeCalls(text) {
 			problems = append(problems, fmt.Sprintf("%s: %s runs at parse time, on every make call: %q", at, f, trimmed))
 		}
-		if recipe {
+		if recipe || trimmed == "" {
 			continue
 		}
+		if isDefineLine(trimmed) {
+			defines++
+		}
+		if !isConditionalLine(trimmed) {
+			ruleOpen = isRuleText(trimmed)
+		}
 		switch {
+		case strings.Contains(text, ".RECIPEPREFIX"):
+			problems = append(problems, fmt.Sprintf("%s: .RECIPEPREFIX changes which lines are recipes; this scan reads a tab as the recipe prefix: %q", at, trimmed))
 		case includeLine.MatchString(text):
 			problems = append(problems, fmt.Sprintf("%s: an include not on the allow-list: %q", at, trimmed))
 		case loadLine.MatchString(text):
@@ -131,6 +158,48 @@ func scanMakefile(dir, rel string, data []byte) ([]string, []string, error) {
 		}
 	}
 	return problems, includes, nil
+}
+
+// firstWord is the first space-separated word of s.
+func firstWord(s string) string {
+	if f := strings.Fields(s); len(f) > 0 {
+		return f[0]
+	}
+	return ""
+}
+
+// isDefineLine is whether line opens a define block: `define X`, with any of
+// the override, export and private modifiers before it.
+func isDefineLine(line string) bool {
+	for _, w := range strings.Fields(line) {
+		switch w {
+		case "override", "export", "private":
+			continue
+		case "define":
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+// isConditionalLine is whether line is a conditional directive, which leaves
+// an open rule open.
+func isConditionalLine(line string) bool {
+	switch firstWord(line) {
+	case "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif":
+		return true
+	}
+	return false
+}
+
+// isRuleText is whether line, a makefile line that is not a recipe, opens a
+// rule whose recipe tab lines continue: a `targets: prerequisites` line with
+// no = on it. A target-specific variable has one and opens no recipe; a rule
+// with an = elsewhere on its line counts as none, which only makes the scan
+// stricter.
+func isRuleText(line string) bool {
+	return strings.Contains(line, ":") && !strings.Contains(line, "=")
 }
 
 // includedFiles are the files, relative to dir, that an include's patterns
