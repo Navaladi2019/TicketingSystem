@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/backfill/failures",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": []
+    }
+  },
+  "tests": [
+    {
+      "test": "200 with no items (no job on B's own type), or 404",
+      "status": "pass"
+    },
+    {
+      "test": "no failure listed",
+      "status": "pass"
+    },
+    {
+      "test": "a type tenant B does not have: 404 not_found",
+      "status": "pass"
+    },
+    {
+      "test": "never tenant A's poison id",
+      "status": "pass"
+    }
+  ]
+}

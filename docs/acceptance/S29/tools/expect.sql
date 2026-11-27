@@ -3,10 +3,10 @@
 -- run-kit.sh passes to Bruno as --env-var. Reads `data` directly, never the
 -- side tables.
 --
---   s29_p3_n / s29_p3_md5   tenant A incidents Alice may read whose priority,
+--   s29_p3_n / s29_p3_md5   tenant A incidents Alice may read whose s29_level,
 --                           with the default 3 applied, is 3: no stored
---                           priority, or a stored 3 (criterion 1)
---   s29_missing_n           tenant A incidents with no stored priority (all
+--                           s29_level, or a stored 3 (criterion 1)
+--   s29_missing_n           tenant A incidents with no stored s29_level (all
 --                           of them, the poison record included)
 --   s29_sample_missing      10 of the seeded records (ordinals 1 to 10)
 --   s29_poison_id           the seeded record that breaks maxLength
@@ -27,7 +27,7 @@ SELECT p.id AS alice, array_agg(gm.group_id) AS groups
 SELECT 's29_p3_n=' || count(*) || E'\n' || 's29_p3_md5=' || md5(coalesce(string_agg(a.id::text, ',' ORDER BY a.id::text COLLATE "C"), ''))
   FROM s29_a a, s29_alice x
  WHERE (a.assignment_group_id = ANY (x.groups) OR a.requester_id = x.alice)
-   AND (NOT a.data ? 'priority' OR a.data->>'priority' = '3');
-SELECT 's29_missing_n=' || count(*) FROM s29_a WHERE NOT data ? 'priority';
+   AND (NOT a.data ? 's29_level' OR a.data->>'s29_level' = '3');
+SELECT 's29_missing_n=' || count(*) FROM s29_a WHERE NOT data ? 's29_level';
 SELECT 's29_sample_missing=' || string_agg(md5('s29a/' || n)::uuid::text, ',' ORDER BY n) FROM generate_series(1, 10) n;
 SELECT 's29_poison_id=' || md5('s29a/2000')::uuid;

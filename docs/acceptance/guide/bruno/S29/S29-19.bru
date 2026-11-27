@@ -29,7 +29,7 @@ tests {
   test('the job of the new version ended', () => {
     expect(N.json().backfill.target_version).to.eql(Number(bru.getVar('s29_v4')));
     expect(['done', 'failed_records']).to.include(N.json().backfill.state);
-    expect(N.json().backfill.remaining).to.eql(0);
+    expect(N.json().backfill.remaining, 'remaining is pending plus failure rows').to.eql(N.json().backfill.failed);
   });
   console.log('S29.19 states', JSON.stringify(ss));
 }

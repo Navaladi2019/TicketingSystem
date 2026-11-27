@@ -1,0 +1,444 @@
+{
+  "requests": 24,
+  "tests": 73,
+  "failed": 1,
+  "results": [
+    {
+      "request": "S29-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "s29_level is flagged with no default; s29_tier is optional with no default",
+          "status": "pass"
+        },
+        {
+          "test": "no backfill job before the publish",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-5",
+      "status": 422,
+      "tests": [
+        {
+          "test": "problem+json, code invalid_schema",
+          "status": "fail",
+          "error": "expected 'invalid_definition' to deeply equal 'invalid_schema'"
+        },
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-6",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code schema_breaking_change",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-7",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-8",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the baseline update: 200",
+          "status": "pass"
+        },
+        {
+          "test": "S29.5 and S29.6 stored nothing: the type is still at its version",
+          "status": "pass"
+        },
+        {
+          "test": "at least one tenant A run (the baseline)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-9",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "every sampled record reads 200",
+          "status": "pass"
+        },
+        {
+          "test": "the missing ones and the poison show no stored s29_level yet (no default in this version)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-10",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "the next version",
+          "status": "pass"
+        },
+        {
+          "test": "s29_level defaults to 3",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-11",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "job state pending: pending, filling or running, with counts",
+          "status": "pass"
+        },
+        {
+          "test": "2025 records listed; the JSON scan with the default applied has 2025",
+          "status": "pass"
+        },
+        {
+          "test": "the same records (md5 of the sorted ids)",
+          "status": "pass"
+        },
+        {
+          "test": "no record listed twice",
+          "status": "pass"
+        },
+        {
+          "test": "over 1,000 matches (2025): every page capped at 1,000 or unknown with a null total, never exact",
+          "status": "pass"
+        },
+        {
+          "test": "every listed record reads s29_level 3 (effective value, D11)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-12",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the job ended failed_records after 39 s and 20 samples",
+          "status": "pass"
+        },
+        {
+          "test": "states only move forward: pending, filling, running, then failed_records",
+          "status": "pass"
+        },
+        {
+          "test": "every sample, in every state: filter[s29_level]=3 answers 200, capped at 1,000 or unknown with a null total",
+          "status": "pass"
+        },
+        {
+          "test": "the final counts: 1 failed, nothing pending (remaining = the 1 failure), rewritten + failed = the records that lacked s29_level",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-13",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "each rewritten record: s29_level 3, version + 1, same updated_at",
+          "status": "pass"
+        },
+        {
+          "test": "each rewritten record: exactly one new history entry, an update with source system (verify.sql: its audit actor_system is schema-backfill)",
+          "status": "pass"
+        },
+        {
+          "test": "the records that held a s29_level: same version, same updated_at, no new history entry",
+          "status": "pass"
+        },
+        {
+          "test": "the poison record: same version, no new history entry",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-14",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "exactly one failure: the poison record",
+          "status": "pass"
+        },
+        {
+          "test": "a code, such as validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "no field value in the body",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-15",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json, code not_found, no instance",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-16",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the poison record is listed",
+          "status": "pass"
+        },
+        {
+          "test": "the same records as at once (S29.11)",
+          "status": "pass"
+        },
+        {
+          "test": "every page capped at 1,000 or unknown with a null total",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-17",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "tenant A runs: 1, the same as before the job (1)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-18",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "the next version, s29_tier required with default standard",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-19",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the job of the new version ended",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-20",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "s29_tier standard, version + 1, same updated_at, exactly one new history entry",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-21",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "no backfill on tenant B's type",
+          "status": "pass"
+        },
+        {
+          "test": "tenant B's s29_level has no s29 version: no s29_tier",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-22",
+      "status": 200,
+      "tests": [
+        {
+          "test": "200 with no items (no job on B's own type), or 404",
+          "status": "pass"
+        },
+        {
+          "test": "no failure listed",
+          "status": "pass"
+        },
+        {
+          "test": "a type tenant B does not have: 404 not_found",
+          "status": "pass"
+        },
+        {
+          "test": "never tenant A's poison id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-23",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404 problem+json, code not_found, no instance",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S29-24",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "no items, total 0",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}

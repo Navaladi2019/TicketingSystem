@@ -1,9 +1,9 @@
 -- S29 acceptance (TICK-754, formerly TICK-928): 2,000 tenant A incidents
--- with no `priority`, written in one statement as the bootstrap superuser, as
+-- with no `s29_level`, written in one statement as the bootstrap superuser, as
 -- S21's seed does. Run by run-kit.sh after kit.mjs setup, so the incident type
--- is at the version with no default on `priority` and an optional `s29_tier`;
+-- is at the version with a flagged `s29_level` with no default and an optional `s29_tier`;
 -- every record is written at that version and holds neither key. No stored
--- value is a flagged field's (priority is absent), so the field-index trigger
+-- value is a flagged field's (s29_level is absent), so the field-index trigger
 -- has nothing to copy, and session_replication_role = replica skips it, the
 -- audit commit check and the foreign keys for the bulk load.
 --
@@ -14,7 +14,7 @@
 --                      characters, over the schema's maxLength of 160, so the
 --                      backfill's validation refuses it (criterion 3)
 --
--- The 50 records that already hold a priority are created through the API
+-- The 50 records that already hold an s29_level are created through the API
 -- afterwards (kit.mjs held), so they have their create history.
 \set ON_ERROR_STOP on
 \timing on
@@ -51,9 +51,6 @@ SELECT c.tenant_id, md5('s29a/' || n)::uuid, 1, c.def, c.ver, 'INC9' || lpad(n::
        0
   FROM s29_ctx c, generate_series(1, 2000) n;
 
-INSERT INTO record_counters (tenant_id, entity_definition_id, next)
-SELECT tenant_id, def, 1 FROM s29_ctx
-ON CONFLICT (tenant_id, entity_definition_id, scope_key) DO UPDATE SET next = GREATEST(record_counters.next, EXCLUDED.next);
 
 SET session_replication_role = origin;
 ANALYZE records;

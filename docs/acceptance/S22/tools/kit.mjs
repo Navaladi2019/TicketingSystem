@@ -2,7 +2,7 @@
 //
 //   node kit.mjs setup <evidence-dir>
 //     As admin@tenant-a, on a fresh stack: creates the ticket type `s22_asset`
-//     (prefix S22A) with `name` and an optional `s22_code` (string), not
+//     (prefix SAST) with `name` and an optional `s22_code` (string), not
 //     flagged, and an access policy letting tenant A's admins group read and
 //     write it. seed.sql then writes 20,000 records at that version. Writes
 //     <evidence-dir>/setup.json (requests and answers, no credentials).
@@ -48,12 +48,20 @@ function must(cond, msg) {
   }
 }
 
+// The groups of one default policy (ACL format 2: rules.policies[].when.all[].any[].member_of.groups).
+function policyGroups(acl, name) {
+  const p = ((acl && acl.rules && acl.rules.policies) || []).find((x) => x.name === name);
+  const out = [];
+  for (const a of (p && p.when && p.when.all) || []) for (const b of a.any || []) if (b.member_of) out.push(...(b.member_of.groups || []));
+  return out;
+}
+
 async function setup() {
   const tok = await token('admin@tenant-a.test', 'dev-only-admin-a');
   const exists = await call(tok, 'GET', '/api/v1/entity-types/s22_asset');
   must(exists.status === 404, 's22_asset already exists: the kit needs a fresh stack');
   const created = await call(tok, 'POST', '/api/v1/entity-types', {
-    key: 's22_asset', name: 'S22 asset', number_prefix: 'S22A',
+    key: 's22_asset', name: 'S22 asset', number_prefix: 'SAST',
     definition: {
       schema: {
         type: 'object', additionalProperties: false, required: ['name', 'state'],
@@ -72,10 +80,11 @@ async function setup() {
   // The admins group reads and writes it (its group ids from the default incident ACL, as S18's kit does).
   const inc = await call(tok, 'GET', '/api/v1/entity-types/incident/access');
   must(inc.status === 200, `read the incident access policy: HTTP ${inc.status}`);
-  const groups = ((inc.json.rules || []).find((r) => r.id === 'default-admins') || { who: {} }).who.groups || [];
+  const groups = policyGroups(inc.json, 'default_admins');
   must(groups.length > 0, 'the default incident ACL has no admins group');
   const put = await call(tok, 'PUT', '/api/v1/entity-types/s22_asset/access',
-    { rules: [{ id: 's22-admins', ops: ['read', 'write'], who: { groups } }] }, { 'If-Match': 'W/"0"' });
+    { rules: { format: 2, conditions: [], policies: [{ name: 's22_admins', ops: ['read', 'write'], when: { all: [{ any: [{ member_of: { groups } }] }] } }] }, masks: [] },
+    { 'If-Match': 'W/"0"' });
   must(put.status === 200, `publish the s22_asset access policy: HTTP ${put.status}`);
 }
 

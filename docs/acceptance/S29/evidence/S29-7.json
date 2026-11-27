@@ -1,0 +1,59 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/workflow-definitions/s29_on_update_be0e934a/versions",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "301",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s29-be0e934a-wf",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"format\": \"nava.workflow/v1\",\n  \"trigger\": {\n    \"on\": \"record.updated\",\n    \"entity\": \"incident\"\n  },\n  \"start\": \"wait\",\n  \"steps\": [\n    {\n      \"key\": \"wait\",\n      \"type\": \"timer\",\n      \"duration\": \"PT1H\",\n      \"next\": \"done\"\n    },\n    {\n      \"key\": \"done\",\n      \"type\": \"end\"\n    }\n  ]\n}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "s29_on_update_be0e934a",
+      "entity": "incident",
+      "version": 1,
+      "current": true,
+      "version_id": "01a21f33-94ce-75a1-9489-b32099633636",
+      "body": {
+        "format": "nava.workflow/v1",
+        "trigger": {
+          "on": "record.updated",
+          "entity": "incident"
+        },
+        "start": "wait",
+        "steps": [
+          {
+            "key": "wait",
+            "type": "timer",
+            "duration": "PT1H",
+            "next": "done"
+          },
+          {
+            "key": "done",
+            "type": "end"
+          }
+        ]
+      },
+      "body_sha256": "95bf07a9f6bd2b4e5a362a33d1c0a319f2263b6ecfe346ae2d1314be5bd6e5cd",
+      "step_ids": {
+        "done": "01a21f33-94ce-7569-82c1-ff5b8fd306c5",
+        "wait": "01a21f33-94ce-755d-be16-46846a1a8f8d"
+      },
+      "published_at": "2026-11-27T22:50:03.84873Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    }
+  ]
+}

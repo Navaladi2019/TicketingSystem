@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/backfill/failures",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "urn:nava:problem:not_found",
+      "title": "Not found",
+      "status": 404,
+      "code": "not_found",
+      "detail": "The resource does not exist."
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 404 problem+json, code not_found, no instance",
+      "status": "pass"
+    }
+  ]
+}

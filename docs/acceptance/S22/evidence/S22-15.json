@@ -1,0 +1,109 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "764",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-32354317-quota-create",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"key\":\"s22_quota_32354317\",\"name\":\"S22 quota\",\"number_prefix\":\"SQQQQ\",\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\"},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"q1\":{\"type\":\"string\",\"title\":\"Q1\",\"x-nava-filterable\":true},\"q2\":{\"type\":\"string\",\"title\":\"Q2\",\"x-nava-filterable\":true},\"q3\":{\"type\":\"string\",\"title\":\"Q3\",\"x-nava-filterable\":true},\"q4\":{\"type\":\"string\",\"title\":\"Q4\",\"x-nava-filterable\":true},\"q5\":{\"type\":\"string\",\"title\":\"Q5\",\"x-nava-filterable\":true},\"q6\":{\"type\":\"string\",\"title\":\"Q6\"}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "s22_quota_32354317",
+      "name": "S22 quota",
+      "number_prefix": "SQQQQ",
+      "numbering_mode": "gaps",
+      "version": 1,
+      "current": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "q1": {
+            "type": "string",
+            "title": "Q1",
+            "x-nava-filterable": true
+          },
+          "q2": {
+            "type": "string",
+            "title": "Q2",
+            "x-nava-filterable": true
+          },
+          "q3": {
+            "type": "string",
+            "title": "Q3",
+            "x-nava-filterable": true
+          },
+          "q4": {
+            "type": "string",
+            "title": "Q4",
+            "x-nava-filterable": true
+          },
+          "q5": {
+            "type": "string",
+            "title": "Q5",
+            "x-nava-filterable": true
+          },
+          "q6": {
+            "type": "string",
+            "title": "Q6"
+          }
+        }
+      },
+      "schema_sha256": "14bba50f6b3bd95bf5e1a406a01c6931eb4d524609bdb1d0cea2772dd2ea7f38",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "initial",
+      "number_format": null,
+      "published_at": "2026-11-27T22:49:54.041645Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "version 1, five flagged",
+      "status": "pass"
+    }
+  ]
+}

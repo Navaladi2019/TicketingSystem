@@ -32,7 +32,7 @@ script:pre-request {
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.problem('index_quota_exceeded', 422);
-  N.fieldError('/schema/properties/q6');
+  N.fieldError('/definition/schema/properties/q6');
 }
 
 docs {

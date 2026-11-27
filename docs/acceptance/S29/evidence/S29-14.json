@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident/backfill/failures",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "code": "validation_failed",
+          "record_id": "33308c14-3460-5ba4-b592-97f828c1c83c"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "exactly one failure: the poison record",
+      "status": "pass"
+    },
+    {
+      "test": "a code, such as validation_failed",
+      "status": "pass"
+    },
+    {
+      "test": "no field value in the body",
+      "status": "pass"
+    }
+  ]
+}

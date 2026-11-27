@@ -25,7 +25,7 @@ script:pre-request {
       const r = await T.read('admin_a_token', 'incident', id);
       const h = await T.history('admin_a_token', 'incident', id);
       out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
-                    priority: r.data && r.data.data && r.data.data.priority, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
                     history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
     }
   }
@@ -38,18 +38,19 @@ tests {
   const b = JSON.parse(bru.getVar('s29_before')), a = JSON.parse(bru.getVar('s29_after'));
   const by = (l) => Object.fromEntries(l.map(r => [r.id, r]));
   const bm = by(b.missing), bh = by(b.held), bp = by(b.poison);
-  test('each rewritten record: priority 3, version + 1, same updated_at', () => a.missing.forEach(r => {
-    expect(r.priority, r.id).to.eql(3);
+  test('each rewritten record: s29_level 3, version + 1, same updated_at', () => a.missing.forEach(r => {
+    expect(r.s29_level, r.id).to.eql(3);
     expect(r.version, r.id).to.eql(bm[r.id].version + 1);
     expect(r.updated_at, r.id).to.eql(bm[r.id].updated_at);
   }));
-  test('each rewritten record: exactly one new history entry, and it is from schema-backfill', () => a.missing.forEach(r => {
+  test('each rewritten record: exactly one new history entry, an update with source system (verify.sql: its audit actor_system is schema-backfill)', () => a.missing.forEach(r => {
     const seen = new Set(bm[r.id].history.map(h => h.id));
     const added = r.history.filter(h => !seen.has(h.id));
     expect(added.length, r.id).to.eql(1);
-    expect(added[0].raw, JSON.stringify(added[0])).to.eql(true);
+    expect(added[0].source, JSON.stringify(added[0])).to.eql('system');
+    expect(added[0].action, JSON.stringify(added[0])).to.eql('update');
   }));
-  test('the records that held a priority: same version, same updated_at, no new history entry', () => a.held.forEach(r => {
+  test('the records that held a s29_level: same version, same updated_at, no new history entry', () => a.held.forEach(r => {
     expect(r.version, r.id).to.eql(bh[r.id].version);
     expect(r.updated_at, r.id).to.eql(bh[r.id].updated_at);
     expect(r.history.length, r.id).to.eql(bh[r.id].history.length);
@@ -61,5 +62,5 @@ tests {
 }
 
 docs {
-  The same samples as S29.9. A rewritten record: `priority` 3 stored, `version` one more (its ETag), the same `updated_at` (ADR-009 D5) and exactly one new history entry, from `schema-backfill`. A record that already held a priority: the same version and no new entry. The poison record: unchanged (S29.14).
+  The same samples as S29.9. A rewritten record: `s29_level` 3 stored, `version` one more (its ETag), the same `updated_at` (ADR-009 D5) and exactly one new history entry, from `schema-backfill`. A record that already held a s29_level: the same version and no new entry. The poison record: unchanged (S29.14).
 }

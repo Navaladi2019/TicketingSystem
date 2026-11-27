@@ -1,0 +1,451 @@
+{
+  "requests": 24,
+  "tests": 75,
+  "failed": 0,
+  "results": [
+    {
+      "request": "S22-1",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-2",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-3",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200 from Keycloak",
+          "status": "pass"
+        },
+        {
+          "test": "access token issued",
+          "status": "pass"
+        },
+        {
+          "test": "issuer is the pinned realm URL",
+          "status": "pass"
+        },
+        {
+          "test": "aud nava-operator-api",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-4",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "priority is flagged x-nava-filterable in the seed template",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-5",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "priority on the seed type is ready (never 422 after the start-up backfill)",
+          "status": "pass"
+        },
+        {
+          "test": "filter[priority]=1: 200, exactly the incidents a full read filtered in JS gives (25)",
+          "status": "pass"
+        },
+        {
+          "test": "filter[priority][in]=1,2: 200, exactly the incidents a full read filtered in JS gives (50)",
+          "status": "pass"
+        },
+        {
+          "test": "filter[priority][lte]=2: 200, exactly the incidents a full read filtered in JS gives (50)",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-6",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_filterable",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /filter/short_description",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-7",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "s22_code is a string, not flagged yet",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-8",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "compatible, the next version",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-9",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "ready after 24 s",
+          "status": "pass"
+        },
+        {
+          "test": "every answer while indexing was 422",
+          "status": "pass"
+        },
+        {
+          "test": "exactly the 1000 seeded K07 records, each K07",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-10",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "compatible, the next version",
+          "status": "pass"
+        },
+        {
+          "test": "s22_code is no longer flagged",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-11",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_not_filterable",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /filter/s22_code",
+          "status": "pass"
+        },
+        {
+          "test": "during the removal: 3 creates 201, 3 edits 200 at version 2",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-12",
+      "status": 409,
+      "tests": [
+        {
+          "test": "HTTP 409",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code field_index_busy",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-13",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the flag published again after 33 s and 12 attempts: 201",
+          "status": "pass"
+        },
+        {
+          "test": "every attempt before it: 409 field_index_busy",
+          "status": "pass"
+        },
+        {
+          "test": "the 409s wrote nothing: the type was at the unflag version, and is now exactly one past it",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-14",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "ready again",
+          "status": "pass"
+        },
+        {
+          "test": "K07: 1,006 records, including the 3 created and the 3 moved during the removal",
+          "status": "pass"
+        },
+        {
+          "test": "K08: 997, the moved three gone",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-15",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 1, five flagged",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-16",
+      "status": 422,
+      "tests": [
+        {
+          "test": "HTTP 422",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code index_quota_exceeded",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        },
+        {
+          "test": "errors[] points at /definition/schema/properties/q6",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-17",
+      "status": 403,
+      "tests": [
+        {
+          "test": "HTTP 403",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code forbidden",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-18",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-19",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-20",
+      "status": 400,
+      "tests": [
+        {
+          "test": "HTTP 400",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code validation_failed",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-21",
+      "status": 404,
+      "tests": [
+        {
+          "test": "HTTP 404",
+          "status": "pass"
+        },
+        {
+          "test": "problem+json, code not_found",
+          "status": "pass"
+        },
+        {
+          "test": "problem instance is this response's X-Request-Id",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-22",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "the limit is 10",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-23",
+      "status": 200,
+      "tests": [
+        {
+          "test": "HTTP 200",
+          "status": "pass"
+        },
+        {
+          "test": "still 10",
+          "status": "pass"
+        }
+      ]
+    },
+    {
+      "request": "S22-24",
+      "status": 201,
+      "tests": [
+        {
+          "test": "HTTP 201",
+          "status": "pass"
+        },
+        {
+          "test": "version 2, q6 flagged",
+          "status": "pass"
+        }
+      ]
+    }
+  ]
+}

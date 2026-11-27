@@ -25,7 +25,7 @@ body:json {
 script:pre-request {
   const N = require('./lib/nava')({ bru });
   const d = JSON.parse(bru.getVar('s29_def'));
-  d.schema.properties.priority.default = 3;
+  d.schema.properties.s29_level.default = 3;
   d.schema.required = [...(d.schema.required || []), 's29_tier'];
   d.schema.properties.s29_tier.default = 'standard';
   req.setBody({ definition: d });

@@ -23,7 +23,7 @@ script:pre-request {
   // The reference: every incident Alice may read, unfiltered, checked here in JS.
   const every = await T.all('alice_token', 'incident', 'sort=created_at');
   const out = { ready: ss, every: every.items.map(i => ({ id: i.id, priority: i.data.priority })) };
-  for (const q of ['filter[priority]=1', 'filter[priority][in]=1,2', 'filter[priority][gte]=3']) {
+  for (const q of ['filter[priority]=1', 'filter[priority][in]=1,2', 'filter[priority][lte]=2']) {
     const r = await T.all('alice_token', 'incident', q);
     out[q] = { status: r.status, ids: r.ids, broken: r.broken };
   }
@@ -36,7 +36,7 @@ tests {
   const o = JSON.parse(bru.getVar('s22_ac3'));
   test('priority on the seed type is ready (never 422 after the start-up backfill)', () => expect(o.ready[o.ready.length - 1].status).to.eql(200));
   const want = (f) => o.every.filter(r => f(r.priority)).map(r => r.id).sort();
-  [['filter[priority]=1', p => p === 1], ['filter[priority][in]=1,2', p => p === 1 || p === 2], ['filter[priority][gte]=3', p => p >= 3]].forEach(([q, f]) => {
+  [['filter[priority]=1', p => p === 1], ['filter[priority][in]=1,2', p => p === 1 || p === 2], ['filter[priority][lte]=2', p => p <= 2]].forEach(([q, f]) => {
     test(`${q}: 200, exactly the incidents a full read filtered in JS gives (${want(f).length})`, () => {
       expect(o[q].status).to.eql(200);
       expect([...o[q].ids].sort()).to.eql(want(f));

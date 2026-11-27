@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "PUT",
+    "url": "http://127.0.0.1:18082/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "83",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18082",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-32354317-limit-admin",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 kit: a tenant admin tries\"\n}"
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "urn:nava:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "forbidden",
+      "detail": "The token does not allow this operation.",
+      "instance": "urn:nava:request:d842c484d0353773b2ccb3c801040e23"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 403",
+      "status": "pass"
+    },
+    {
+      "test": "problem+json, code forbidden",
+      "status": "pass"
+    },
+    {
+      "test": "problem instance is this response's X-Request-Id",
+      "status": "pass"
+    }
+  ]
+}

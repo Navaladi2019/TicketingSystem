@@ -1,0 +1,12 @@
+Output format is unaligned.
+SELECT 2050
+check|tenant A incidents with no stored s29_level (only the poison record)|1|ok
+check|tenant A incidents with no stored s29_tier (only the poison record)|1|ok
+check|seeded records whose updated_at moved|0|ok
+check|seeded records with exactly 2 schema-backfill audit entries (of 1999)|1999|ok
+check|schema-backfill audit entries on the poison record|0|ok
+check|tenant A schema_backfill_failures rows, all the poison record|2 validation_failed|ok
+check|tenant B schema_backfills / pending / failures rows|0 0 0|ok
+check|tenant B incidents changed by schema-backfill|0|ok
+job|{"tenant_id":"00000000-0000-4000-8000-0000000000a1","entity_definition_id":"ca0fe41c-32cb-4b5c-ac2b-5aa0752b3337","target_version":3,"state":"failed_records","default_keys":["priority","s29_level","state"],"causation_audit_id":"01a21f33-be95-77cd-a1fb-70861ab7d9d9","rewritten":1999,"skipped":50,"failed":1,"created_at":"2026-11-27T22:50:14.544941+00:00","started_at":"2026-11-27T22:50:14.835675+00:00","finished_at":"2026-11-27T22:50:51.855071+00:00"}
+job|{"tenant_id":"00000000-0000-4000-8000-0000000000a1","entity_definition_id":"ca0fe41c-32cb-4b5c-ac2b-5aa0752b3337","target_version":4,"state":"failed_records","default_keys":["priority","s29_level","s29_tier","state"],"causation_audit_id":"01a21f34-5d09-7907-b23d-93caa335a476","rewritten":2049,"skipped":0,"failed":1,"created_at":"2026-11-27T22:50:55.10865+00:00","started_at":"2026-11-27T22:50:55.53611+00:00","finished_at":"2026-11-27T22:51:30.674328+00:00"}

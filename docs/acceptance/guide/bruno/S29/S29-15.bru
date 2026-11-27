@@ -16,9 +16,14 @@ headers {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
-  N.problem('not_found', 404);
+  test('HTTP 404 problem+json, code not_found, no instance', () => {
+    expect(res.getStatus()).to.eql(404);
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
 }
 
 docs {
-  Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10).
+  Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10): `not_found`, with no `instance`, as every 404 on the platform.
 }

@@ -8,10 +8,10 @@ CREATE TEMP TABLE s29_a AS
 SELECT r.* FROM records r JOIN entity_definitions d ON d.tenant_id = r.tenant_id AND d.id = r.entity_definition_id
  WHERE r.tenant_id = '00000000-0000-4000-8000-0000000000a1' AND d.key = 'incident';
 
--- AC2: after both jobs, only the poison record lacks priority and s29_tier.
-SELECT 'check|tenant A incidents with no stored priority (only the poison record)|' || count(*) || '|'
+-- AC2: after both jobs, only the poison record lacks s29_level and s29_tier.
+SELECT 'check|tenant A incidents with no stored s29_level (only the poison record)|' || count(*) || '|'
        || CASE WHEN count(*) = 1 AND bool_and(id = md5('s29a/2000')::uuid) THEN 'ok' ELSE 'FAIL' END
-  FROM s29_a WHERE NOT data ? 'priority';
+  FROM s29_a WHERE NOT data ? 's29_level';
 SELECT 'check|tenant A incidents with no stored s29_tier (only the poison record)|' || count(*) || '|'
        || CASE WHEN count(*) = 1 THEN 'ok' ELSE 'FAIL' END
   FROM s29_a WHERE NOT data ? 's29_tier';
@@ -22,7 +22,7 @@ SELECT 'check|seeded records whose updated_at moved|' || count(*) || '|' || CASE
  WHERE a.id = md5('s29a/' || n)::uuid AND a.updated_at <> timestamptz '2026-11-01 00:00:00+00' - n * interval '1 minute';
 
 -- AC2: exactly one schema-backfill audit entry per rewrite: each seeded,
--- non-poison record was rewritten twice (priority, then s29_tier).
+-- non-poison record was rewritten twice (s29_level, then s29_tier).
 WITH per AS (
   SELECT a.id, (SELECT count(*) FROM audit_log l WHERE l.tenant_id = a.tenant_id AND l.subject_id = a.id AND l.actor_system = 'schema-backfill') AS n
     FROM s29_a a, generate_series(1, 1999) g WHERE a.id = md5('s29a/' || g)::uuid)

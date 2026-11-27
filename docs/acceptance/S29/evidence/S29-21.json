@@ -1,0 +1,138 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/incident",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "key": "incident",
+      "name": "Incident",
+      "number_prefix": "INC",
+      "numbering_mode": "gaps",
+      "version": 1,
+      "current": true,
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "short_description",
+          "state"
+        ],
+        "properties": {
+          "short_description": {
+            "type": "string",
+            "title": "Short description",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "maxLength": 32000
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "enum": [
+              "new",
+              "in_progress",
+              "resolved",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "priority": {
+            "type": "integer",
+            "x-nava-filterable": true,
+            "title": "Priority",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "default": 3
+          },
+          "requester": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requester"
+          },
+          "assignee": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignee"
+          },
+          "assignment_group": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment group"
+          }
+        }
+      },
+      "schema_sha256": "461fdade5c60b9e9fbbad51cd4d7b373b7fbfdeee72592706c2eeb7a0b2ca0d0",
+      "fixed_columns": {
+        "assignee": "assignee_id",
+        "assignment_group": "assignment_group_id",
+        "requester": "requester_id",
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "in_progress",
+          "resolved",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "in_progress"
+          },
+          {
+            "from": "in_progress",
+            "to": "resolved"
+          },
+          {
+            "from": "resolved",
+            "to": "closed"
+          },
+          {
+            "from": "resolved",
+            "to": "in_progress"
+          }
+        ]
+      },
+      "compat": "initial",
+      "number_format": null,
+      "published_at": "2026-11-27T22:47:45.967444Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "no backfill on tenant B's type",
+      "status": "pass"
+    },
+    {
+      "test": "tenant B's s29_level has no s29 version: no s29_tier",
+      "status": "pass"
+    }
+  ]
+}

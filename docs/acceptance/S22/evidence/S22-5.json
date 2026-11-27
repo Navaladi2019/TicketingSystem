@@ -1,0 +1,572 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18080/api/v1/records/incident?filter[priority]=1&limit=200",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "content-type": null
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.574791Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 50",
+            "state": "new"
+          },
+          "id": "01a21f31-f1bd-7ad4-9a3c-fd6c090d7826",
+          "number": "INC0000050",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.574791Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.557581Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 49",
+            "state": "new"
+          },
+          "id": "01a21f31-f1ac-7344-bc50-9d9b8be422e5",
+          "number": "INC0000049",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.557581Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.540177Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 48",
+            "state": "new"
+          },
+          "id": "01a21f31-f19a-747d-80a2-6f209e7fc625",
+          "number": "INC0000048",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.540177Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.522606Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 47",
+            "state": "new"
+          },
+          "id": "01a21f31-f189-77fc-84f9-3ce6bfe54c78",
+          "number": "INC0000047",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.522606Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.507718Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 46",
+            "state": "new"
+          },
+          "id": "01a21f31-f17a-7ac1-82f4-0e9ff8814c03",
+          "number": "INC0000046",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.507718Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.492147Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 45",
+            "state": "new"
+          },
+          "id": "01a21f31-f16b-70f1-9ede-c092badba308",
+          "number": "INC0000045",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.492147Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.476757Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 44",
+            "state": "new"
+          },
+          "id": "01a21f31-f15b-7951-857d-bf26795f69f5",
+          "number": "INC0000044",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.476757Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.461643Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 43",
+            "state": "new"
+          },
+          "id": "01a21f31-f14c-79b5-bad2-0b0debba2485",
+          "number": "INC0000043",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.461643Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.444807Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 42",
+            "state": "new"
+          },
+          "id": "01a21f31-f13b-7a72-865f-097e911aaaa3",
+          "number": "INC0000042",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.444807Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.429306Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 41",
+            "state": "new"
+          },
+          "id": "01a21f31-f12c-748a-ba31-18ab0c71ff0d",
+          "number": "INC0000041",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.429306Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.413425Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 40",
+            "state": "new"
+          },
+          "id": "01a21f31-f11c-74da-9b93-75ac3004beea",
+          "number": "INC0000040",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.413425Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.39807Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 39",
+            "state": "new"
+          },
+          "id": "01a21f31-f10d-7053-b244-ec19c9524f28",
+          "number": "INC0000039",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.39807Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.379666Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 38",
+            "state": "new"
+          },
+          "id": "01a21f31-f0fa-77b9-80e4-bb26a6b24e77",
+          "number": "INC0000038",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.379666Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.364572Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 37",
+            "state": "new"
+          },
+          "id": "01a21f31-f0eb-7732-abd0-7a72c7c92f51",
+          "number": "INC0000037",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.364572Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.349606Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 36",
+            "state": "new"
+          },
+          "id": "01a21f31-f0dc-78a6-96be-d029796a7888",
+          "number": "INC0000036",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.349606Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.334386Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 35",
+            "state": "new"
+          },
+          "id": "01a21f31-f0cd-7162-ab71-f549b10e7709",
+          "number": "INC0000035",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.334386Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.317881Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 34",
+            "state": "new"
+          },
+          "id": "01a21f31-f0bc-7d2a-bdd2-074545716e79",
+          "number": "INC0000034",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.317881Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.301437Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 33",
+            "state": "new"
+          },
+          "id": "01a21f31-f0ac-74fe-9723-abd35b2e067c",
+          "number": "INC0000033",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.301437Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.285513Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 32",
+            "state": "new"
+          },
+          "id": "01a21f31-f09c-7725-9fdb-28e68f7c3180",
+          "number": "INC0000032",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.285513Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.269763Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 31",
+            "state": "new"
+          },
+          "id": "01a21f31-f08c-7bf4-b9d7-2e40d9e5c8d3",
+          "number": "INC0000031",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.269763Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.252971Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 30",
+            "state": "new"
+          },
+          "id": "01a21f31-f07b-7e6e-8836-e71a82e790e0",
+          "number": "INC0000030",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.252971Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.236959Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 29",
+            "state": "new"
+          },
+          "id": "01a21f31-f06b-7cf0-b84b-735e4d205a3b",
+          "number": "INC0000029",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.236959Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.221529Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 28",
+            "state": "new"
+          },
+          "id": "01a21f31-f05c-754d-84d2-cb23052331c7",
+          "number": "INC0000028",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.221529Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.203369Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 27",
+            "state": "new"
+          },
+          "id": "01a21f31-f04a-7482-8866-df8d4484bff7",
+          "number": "INC0000027",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.203369Z",
+          "version": 1
+        },
+        {
+          "assignment_group": {
+            "id": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "removed": false
+          },
+          "created_at": "2026-11-27T22:48:16.187663Z",
+          "data": {
+            "assignment_group": "01a21f31-7474-78de-8db3-7d5925c930d8",
+            "priority": 1,
+            "requester": "01a21f31-746f-79cb-a4ba-1469cedbc993",
+            "s29_level": 1,
+            "short_description": "S29 held 26",
+            "state": "new"
+          },
+          "id": "01a21f31-f03a-77bf-a0e7-59d0bcb139b2",
+          "number": "INC0000026",
+          "schema_version": 2,
+          "state": "new",
+          "updated_at": "2026-11-27T22:48:16.187663Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": null,
+      "total": 25,
+      "total_state": "exact"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "priority on the seed type is ready (never 422 after the start-up backfill)",
+      "status": "pass"
+    },
+    {
+      "test": "filter[priority]=1: 200, exactly the incidents a full read filtered in JS gives (25)",
+      "status": "pass"
+    },
+    {
+      "test": "filter[priority][in]=1,2: 200, exactly the incidents a full read filtered in JS gives (50)",
+      "status": "pass"
+    },
+    {
+      "test": "filter[priority][lte]=2: 200, exactly the incidents a full read filtered in JS gives (50)",
+      "status": "pass"
+    }
+  ]
+}

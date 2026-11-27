@@ -1,0 +1,69 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://127.0.0.1:18233/api/v1/namespaces/nava/workflows?query=WorkflowType%3D%27nava.interpreter%27%20AND%20WorkflowId%20STARTS_WITH%20%27t%3A00000000-0000-4000-8000-0000000000a1%3A%27",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18233",
+      "Connection": "keep-alive",
+      "content-type": null,
+      "Cookie": "********"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "executions": [
+        {
+          "execution": {
+            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f33-9542-752e-87b0-7178908a9858",
+            "runId": "01a21f33-9655-7537-ab52-9249861c5daa"
+          },
+          "type": {
+            "name": "nava.interpreter"
+          },
+          "startTime": "2026-11-27T22:50:04.245344Z",
+          "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
+          "executionTime": "2026-11-27T22:50:04.245344Z",
+          "memo": {},
+          "searchAttributes": {
+            "indexedFields": {
+              "BuildIds": {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg==",
+                  "type": "S2V5d29yZExpc3Q="
+                },
+                "data": "WyJ1bnZlcnNpb25lZCIsInVudmVyc2lvbmVkOjk2NjU3MGVmMDVlYzk3NTFhYTI2N2Y2NDg0YWE2ZWFlIl0="
+              },
+              "NavaTenantId": {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg==",
+                  "type": "S2V5d29yZA=="
+                },
+                "data": "IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDBhMSI="
+              }
+            }
+          },
+          "taskQueue": "nava-tq",
+          "rootExecution": {
+            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f33-9542-752e-87b0-7178908a9858",
+            "runId": "01a21f33-9655-7537-ab52-9249861c5daa"
+          }
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "tenant A runs: 1, the same as before the job (1)",
+      "status": "pass"
+    }
+  ]
+}

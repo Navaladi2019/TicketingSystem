@@ -25,7 +25,7 @@ script:pre-request {
       const r = await T.read('admin_a_token', 'incident', id);
       const h = await T.history('admin_a_token', 'incident', id);
       out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
-                    priority: r.data && r.data.data && r.data.data.priority, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
                     history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
     }
   }
@@ -46,5 +46,5 @@ tests {
 }
 
 docs {
-  The same samples. Every sampled record lacked `s29_tier`, so every one but the poison record is rewritten this time, the 50 with a priority included.
+  The same samples. Every sampled record lacked `s29_tier`, so every one but the poison record is rewritten this time, the 50 with a s29_level included.
 }

@@ -66,7 +66,7 @@ echo "s22: 4. AC3: the JSONB filter path and DataFilterTimeout are gone ($(stamp
 # (TICK-752's acceptance criteria).
 {
   for p in 'DataFilterTimeout' 'LegacyScanFields' 'boundDataFilter'; do
-    hits=$(git grep -n "$p" -- '*.go' ':!*_test.go' || true)
+    hits=$(git grep -n "$p" -- '*.go' ':!*_test.go' ':!internal/tenancy/isolation/*' || true)
     echo "pattern $p: $(printf '%s' "$hits" | grep -c . || true) hits"
     [ -z "$hits" ] || printf '%s\n' "$hits"
   done

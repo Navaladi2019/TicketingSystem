@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "PUT",
+    "url": "http://127.0.0.1:18082/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "100",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18082",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-32354317-limit-10",
+      "Content-Type": "application/json"
+    },
+    "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 acceptance: measured cost check (TICK-754)\"\n}"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "filterable_fields_per_type": 10
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 200",
+      "status": "pass"
+    },
+    {
+      "test": "still 10",
+      "status": "pass"
+    }
+  ]
+}

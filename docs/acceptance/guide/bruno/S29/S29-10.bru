@@ -1,5 +1,5 @@
 meta {
-  name: S29.10 AC1: the admin publishes priority default 3: 201 and a backfill job
+  name: S29.10 AC1: the admin publishes s29_level default 3: 201 and a backfill job
   type: http
   seq: 10
 }
@@ -25,7 +25,7 @@ body:json {
 script:pre-request {
   const N = require('./lib/nava')({ bru });
   const d = JSON.parse(bru.getVar('s29_def'));
-  d.schema.properties.priority.default = 3;
+  d.schema.properties.s29_level.default = 3;
   req.setBody({ definition: d });
 }
 
@@ -33,12 +33,12 @@ tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(201);
   test('the next version', () => expect(N.json().version).to.eql(Number(bru.getVar('s29_prev')) + 1));
-  test('priority defaults to 3', () => expect(N.json().schema.properties.priority.default).to.eql(3));
+  test('s29_level defaults to 3', () => expect(N.json().schema.properties.s29_level.default).to.eql(3));
   if (N.json().backfill) test('the answer names the job', () => expect(['pending', 'filling', 'running']).to.include(N.json().backfill.state));
   bru.setVar('s29_v3', String(N.json().version));
   bru.setVar('s29_published_at', new Date().toISOString());
 }
 
 docs {
-  The version adds `default: 3` to `priority`. ADR-009 D1: the publish writes the version, the `schema_backfills` job row and its outbox row in one transaction.
+  The version adds `default: 3` to `s29_level`. ADR-009 D1: the publish writes the version, the `schema_backfills` job row and its outbox row in one transaction.
 }

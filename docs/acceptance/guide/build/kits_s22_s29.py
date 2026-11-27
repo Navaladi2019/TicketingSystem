@@ -192,7 +192,7 @@ const ss = await T.until(async () => { const r = await T.list('alice_token', 'in
 // The reference: every incident Alice may read, unfiltered, checked here in JS.
 const every = await T.all('alice_token', 'incident', 'sort=created_at');
 const out = { ready: ss, every: every.items.map(i => ({ id: i.id, priority: i.data.priority })) };
-for (const q of ['filter[priority]=1', 'filter[priority][in]=1,2', 'filter[priority][gte]=3']) {
+for (const q of ['filter[priority]=1', 'filter[priority][in]=1,2', 'filter[priority][lte]=2']) {
   const r = await T.all('alice_token', 'incident', q);
   out[q] = { status: r.status, ids: r.ids, broken: r.broken };
 }
@@ -202,7 +202,7 @@ bru.setVar('s22_ac3', JSON.stringify(out));""",
 const o = JSON.parse(bru.getVar('s22_ac3'));
 test('priority on the seed type is ready (never 422 after the start-up backfill)', () => expect(o.ready[o.ready.length - 1].status).to.eql(200));
 const want = (f) => o.every.filter(r => f(r.priority)).map(r => r.id).sort();
-[['filter[priority]=1', p => p === 1], ['filter[priority][in]=1,2', p => p === 1 || p === 2], ['filter[priority][gte]=3', p => p >= 3]].forEach(([q, f]) => {
+[['filter[priority]=1', p => p === 1], ['filter[priority][in]=1,2', p => p === 1 || p === 2], ['filter[priority][lte]=2', p => p <= 2]].forEach(([q, f]) => {
   test(`${q}: 200, exactly the incidents a full read filtered in JS gives (${want(f).length})`, () => {
     expect(o[q].status).to.eql(200);
     expect([...o[q].ids].sort()).to.eql(want(f));
@@ -214,7 +214,7 @@ const want = (f) => o.every.filter(r => f(r.priority)).map(r => r.id).sort();
                         desc="`short_description` is not flagged in the seed template. Before S22 a seed type still scanned the JSON for it; with the scan retired it answers 400 at once.",
                         extra="N.fieldError('/filter/short_description');"),
             req("S22.7 The kit's type s22_asset: s22_code not flagged, 20,000 seeded records", "GET", at, auth="admin_a_token",
-                desc="kit.mjs setup created `s22_asset` (prefix S22A) with an optional `s22_code` (string), not flagged; seed.sql wrote 20,000 records at that version, 1,000 per value K00..K19. Kept for the publishes below: the current schema, fixed columns and states.",
+                desc="kit.mjs setup created `s22_asset` (prefix SAST) with an optional `s22_code` (string), not flagged; seed.sql wrote 20,000 records at that version, 1,000 per value K00..K19. Kept for the publishes below: the current schema, fixed columns and states.",
                 tests="""N.status(200);
 const b = N.json();
 test('s22_code is a string, not flagged yet', () => {
@@ -366,7 +366,7 @@ const d = JSON.parse(bru.getVar('s22_qdef'));
 d.schema.properties.q6['x-nava-filterable'] = true;
 req.setBody({ definition: d });""",
                         desc="Flagging `q6` makes 6 on one type, over the default limit of 5. Nothing is written; `errors[]` points at the newly flagged property.",
-                        extra="N.fieldError('/schema/properties/q6');"),
+                        extra="N.fieldError('/definition/schema/properties/q6');"),
             problem_req("S22.17 AC2: the tenant admin cannot raise its own limit: 403 forbidden", "PUT", limits, "forbidden", 403, auth="admin_a_token",
                         headers={"Idempotency-Key": "s22-{{s22_run}}-limit-admin"},
                         body={"filterable_fields_per_type": 10, "reason": "S22 kit: a tenant admin tries"},
@@ -436,13 +436,13 @@ def s29(req, token, problem_req):
         desc=desc, tests=tests, **kw)
 
     # Samples the job and the filter until the job is terminal. Every sample
-    # checks the D12 window: filter[priority]=3 gives the expected count.
+    # checks the D12 window: filter[s29_level]=3 gives the expected count.
     def watch(var, expect_var):
         return KIT + """
 const want = Number(N.v('""" + expect_var + """'));
 const ss = await T.until(async () => {
   const t = await T.type('admin_a_token', 'incident');
-  const f = await T.list('alice_token', 'incident', 'filter[priority]=3&limit=1');
+  const f = await T.list('alice_token', 'incident', 'filter[s29_level]=3&limit=1');
   return { state: t.data && t.data.backfill && t.data.backfill.state, backfill: t.data && t.data.backfill,
            filter_status: f.status, total: f.data && f.data.total, total_state: f.data && f.data.total_state,
            total_bad: f.status !== 200 ? 'HTTP ' + f.status : (want > 1000 ? T.bigTotal(f.data) : (T.totalOk(f.data, want) ? null : 'total ' + JSON.stringify(f.data.total))) };
@@ -458,24 +458,25 @@ for (const [k, list] of Object.entries(ids)) {
     const r = await T.read('admin_a_token', 'incident', id);
     const h = await T.history('admin_a_token', 'incident', id);
     out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
-                  priority: r.data && r.data.data && r.data.data.priority, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                  s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
                   history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
   }
 }"""
 
     return {
         "dir": "S29", "name": "S29 schema backfill",
-        "desc": "Story S29, TICK-915 (kit TICK-754, formerly TICK-928; docs/acceptance/S29/README.md): a tenant admin publishes a version that gives an existing field a default, and the platform writes the default into every old ticket that lacks it, in the background (ADR-009). Filters count the default at once, before the job ends (D12). Needs the stack docs/acceptance/S29/tools/run-kit.sh prepares: 2,000 tenant A incidents without `priority` (one of them breaks the schema's `maxLength`), 50 with it, tenant B incidents, and the s29_* expectations. Story users: `admin@tenant-a` publishes and reads the job and its failures, `agent@tenant-a` (Alice, service-desk: every seeded incident is in her group) filters and reads, `admin@tenant-b` checks the other tenant. AC4 (S29.5), AC5 refusal (S29.6), the on-update test workflow (S29.7, S29.8), AC1 (S29.10-S29.12), AC2 (S29.13, S29.17), AC3 (S29.14-S29.16), AC5 backfill (S29.18-S29.20), AC6 (S29.21-S29.24). Runs once per prepared stack.",
+        "desc": "Story S29, TICK-915 (kit TICK-754, formerly TICK-928; docs/acceptance/S29/README.md): a tenant admin publishes a version that gives an existing field a default, and the platform writes the default into every old ticket that lacks it, in the background (ADR-009). Filters count the default at once, before the job ends (D12). Needs the stack docs/acceptance/S29/tools/run-kit.sh prepares: 2,000 tenant A incidents without `s29_level` (one of them breaks the schema's `maxLength`), 50 with it, tenant B incidents, and the s29_* expectations. Story users: `admin@tenant-a` publishes and reads the job and its failures, `agent@tenant-a` (Alice, service-desk: every seeded incident is in her group) filters and reads, `admin@tenant-b` checks the other tenant. AC4 (S29.5), AC5 refusal (S29.6), the on-update test workflow (S29.7, S29.8), AC1 (S29.10-S29.12), AC2 (S29.13, S29.17), AC3 (S29.14-S29.16), AC5 backfill (S29.18-S29.20), AC6 (S29.21-S29.24). Runs once per prepared stack.",
         "items": [
             token("S29.1 Sign in as admin@tenant-a", "admin_a_username", "admin_a_password", "admin_a_token", extra=_run_var("s29")),
             token("S29.2 Sign in as agent@tenant-a (Alice)", "alice_username", "alice_password", "alice_token"),
             token("S29.3 Sign in as admin@tenant-b", "admin_b_username", "admin_b_password", "admin_b_token"),
-            req("S29.4 The incident type: priority has no default, s29_tier is optional, no backfill yet", "GET", et, auth="admin_a_token",
-                desc="kit.mjs setup published a version that drops `priority`'s template default and adds an optional `s29_tier` (string), so the seeded records lack both. Kept for the publishes below.",
+            req("S29.4 The incident type: s29_level has no default, s29_tier is optional, no backfill yet", "GET", et, auth="admin_a_token",
+                desc="kit.mjs setup published a version that adds `s29_level` (integer 1 to 4, flagged `x-nava-filterable`, no default) and an optional `s29_tier` (string), so the seeded records lack both. The incident template already defaults `priority` to 3, and removing a default is breaking (ADR-009 D14), so criterion 1 runs on `s29_level`: the same shape the story describes for `priority`. Kept for the publishes below.",
                 tests="""N.status(200);
 const b = N.json();
-test('priority has no default; s29_tier is optional with no default', () => {
-  expect(b.schema.properties.priority).to.not.have.property('default');
+test('s29_level is flagged with no default; s29_tier is optional with no default', () => {
+  expect(b.schema.properties.s29_level['x-nava-filterable']).to.eql(true);
+  expect(b.schema.properties.s29_level).to.not.have.property('default');
   expect(b.schema.properties.s29_tier.type).to.eql('string');
   expect(b.schema.properties.s29_tier).to.not.have.property('default');
   expect(b.schema.required || []).to.not.include('s29_tier');
@@ -520,28 +521,28 @@ bru.setVar('s29_runs_before', String(ex.length));
 console.log('S29.8 tenant A nava.interpreter executions', ex.length);"""),
             req("S29.9 Before the publish: the sampled records", "GET", et, auth="admin_a_token",
                 pre=KIT + sample + "\nbru.setVar('s29_before', JSON.stringify(out));",
-                desc="Reads, as the admin, 10 sampled records without `priority`, 10 of the 50 with it, and the poison record: version, `updated_at`, `priority` and the history. S29.13 compares.",
+                desc="Reads, as the admin, 10 sampled records without `s29_level`, 10 of the 50 with it, and the poison record: version, `updated_at`, `s29_level` and the history. S29.13 compares.",
                 tests="""N.status(200);
 const o = JSON.parse(bru.getVar('s29_before'));
 test('every sampled record reads 200', () => Object.values(o).flat().forEach(r => expect(r.status, r.id).to.eql(200)));
-test('the missing ones and the poison show no stored priority yet (no default in this version)', () => [...o.missing, ...o.poison].forEach(r => expect(r.priority, r.id).to.eql(undefined)));"""),
-            publish("S29.10 AC1: the admin publishes priority default 3: 201 and a backfill job", "default-3",
-                    "d.schema.properties.priority.default = 3;",
-                    "The version adds `default: 3` to `priority`. ADR-009 D1: the publish writes the version, the `schema_backfills` job row and its outbox row in one transaction.",
+test('the missing ones and the poison show no stored s29_level yet (no default in this version)', () => [...o.missing, ...o.poison].forEach(r => expect(r.s29_level, r.id).to.eql(undefined)));"""),
+            publish("S29.10 AC1: the admin publishes s29_level default 3: 201 and a backfill job", "default-3",
+                    "d.schema.properties.s29_level.default = 3;",
+                    "The version adds `default: 3` to `s29_level`. ADR-009 D1: the publish writes the version, the `schema_backfills` job row and its outbox row in one transaction.",
                     """N.status(201);
 test('the next version', () => expect(N.json().version).to.eql(Number(bru.getVar('s29_prev')) + 1));
-test('priority defaults to 3', () => expect(N.json().schema.properties.priority.default).to.eql(3));
+test('s29_level defaults to 3', () => expect(N.json().schema.properties.s29_level.default).to.eql(3));
 if (N.json().backfill) test('the answer names the job', () => expect(['pending', 'filling', 'running']).to.include(N.json().backfill.state));
 bru.setVar('s29_v3', String(N.json().version));
 bru.setVar('s29_published_at', new Date().toISOString());"""),
-            req("S29.11 AC1: at once, filter[priority]=3 lists every ticket without priority plus those holding 3", "GET",
-                inc + "?filter[priority]=3&limit=200", auth="alice_token",
+            req("S29.11 AC1: at once, filter[s29_level]=3 lists every ticket without s29_level plus those holding 3", "GET",
+                inc + "?filter[s29_level]=3&limit=200", auth="alice_token",
                 pre=KIT + """
-const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
+const all = await T.all('alice_token', 'incident', 'filter[s29_level]=3');
 const t = await T.type('admin_a_token', 'incident');
 bru.setVar('s29_at_once', JSON.stringify({ status: all.status, ids: all.ids, totals: all.totals, backfill: t.data.backfill,
-  stored: all.items.filter(i => i.data.priority !== undefined && i.data.priority !== 3).map(i => i.id) }));""",
-                desc="Right after S29.10, whatever the job's state: every page of `filter[priority]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `priority` stored, plus those that store 3 (D12's `OR <absent>` window). A list never reports a `total` over 1,000 (ADR-006-A2; the Technical Lead corrected the story wording on TICK-915). Every page must answer either `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON null. `exact`, or a `total` under 1,000, fails. The number of `unknown` pages is logged (A2-8(7)).",
+  stored: all.items.filter(i => i.data.s29_level !== undefined && i.data.s29_level !== 3).map(i => i.id) }));""",
+                desc="Right after S29.10, whatever the job's state: every page of `filter[s29_level]=3` as Alice. The want is expect.sql's count: tenant A incidents with no `s29_level` stored, plus those that store 3 (D12's `OR <absent>` window). A list never reports a `total` over 1,000 (ADR-006-A2; the Technical Lead corrected the story wording on TICK-915). Every page must answer either `capped` with `total` 1,000 and `total_capped: true`, or `unknown` with `total` a JSON null. `exact`, or a `total` under 1,000, fails. The number of `unknown` pages is logged (A2-8(7)).",
                 tests="""N.status(200);
 """ + KIT_T + """
 const o = JSON.parse(bru.getVar('s29_at_once'));
@@ -558,10 +559,10 @@ test(`over 1,000 matches (${want}): every page capped at 1,000 or unknown with a
   o.totals.forEach((x, i) => expect(T.bigTotal(x), 'page ' + (i + 1)).to.eql(null));
 });
 console.log('S29.11 pages', o.totals.length, 'unknown', o.totals.filter(x => x.total_state === 'unknown').length);
-test('every listed record reads priority 3 (effective value, D11)', () => expect(o.stored).to.eql([]));"""),
+test('every listed record reads s29_level 3 (effective value, D11)', () => expect(o.stored).to.eql([]));"""),
             req("S29.12 AC1: until the job ends, every sample's filter total is right", "GET", et, auth="admin_a_token",
                 pre=watch("s29_watch", "s29_p3_n"),
-                desc="Samples every 2 s (at most 20 minutes) until the job is `done` or `failed_records`: the job's `state` and counts, and Alice's `filter[priority]=3&limit=1` total. Every sample must answer `capped` 1,000 or `unknown` with a null `total`, whatever the state (pending, filling, running). The job ends `failed_records` because of the poison record.",
+                desc="Samples every 2 s (at most 20 minutes) until the job is `done` or `failed_records`: the job's `state` and counts, and Alice's `filter[s29_level]=3&limit=1` total. Every sample must answer `capped` 1,000 or `unknown` with a null `total`, whatever the state (pending, filling, running). The job ends `failed_records` because of the poison record.",
                 tests="""N.status(200);
 const ss = JSON.parse(bru.getVar('s29_watch'));
 const last = ss[ss.length - 1];
@@ -570,35 +571,37 @@ test('states only move forward: pending, filling, running, then failed_records',
   const order = ['pending', 'filling', 'running', 'done', 'failed_records'];
   let prev = -1; ss.forEach(s => { const i = order.indexOf(s.state); expect(i, JSON.stringify(s)).to.be.at.least(prev); prev = i; });
 });
-test('every sample, in every state: filter[priority]=3 answers 200, capped at 1,000 or unknown with a null total', () => ss.forEach(s => expect(s.total_bad, JSON.stringify(s)).to.eql(null)));
+test('every sample, in every state: filter[s29_level]=3 answers 200, capped at 1,000 or unknown with a null total', () => ss.forEach(s => expect(s.total_bad, JSON.stringify(s)).to.eql(null)));
 console.log('S29.12 samples', ss.length, 'unknown', ss.filter(s => s.total_state === 'unknown').length);
-test('the final counts: 1 failed, 0 remaining, rewritten + skipped + failed = the records that lacked priority', () => {
+test('the final counts: 1 failed, nothing pending (remaining = the 1 failure), rewritten + failed = the records that lacked s29_level', () => {
   const b = N.json().backfill;
   expect(b.failed).to.eql(1);
-  expect(b.remaining).to.eql(0);
-  expect(b.rewritten + b.skipped + b.failed).to.eql(Number(N.v('s29_missing_n')));
+  expect(b.remaining, 'remaining is pending plus failure rows (D10, PR #960)').to.eql(b.failed);
+  expect(b.rewritten + b.failed, 'every record that lacked s29_level was rewritten or failed').to.eql(Number(N.v('s29_missing_n')));
+  console.log('S29.12 final counts', JSON.stringify(b));
   expect(b.target_version).to.eql(Number(bru.getVar('s29_v3')));
 });
 console.log('S29.12 states', JSON.stringify(ss.map(s => [s.at_s, s.state, s.backfill && s.backfill.remaining, s.total, s.total_state])));"""),
             req("S29.13 AC2: the rewritten tickets hold 3, version +1, updated_at unchanged, one schema-backfill history entry; the 50 untouched", "GET", et, auth="admin_a_token",
                 pre=KIT + sample + "\nbru.setVar('s29_after', JSON.stringify(out));",
-                desc="The same samples as S29.9. A rewritten record: `priority` 3 stored, `version` one more (its ETag), the same `updated_at` (ADR-009 D5) and exactly one new history entry, from `schema-backfill`. A record that already held a priority: the same version and no new entry. The poison record: unchanged (S29.14).",
+                desc="The same samples as S29.9. A rewritten record: `s29_level` 3 stored, `version` one more (its ETag), the same `updated_at` (ADR-009 D5) and exactly one new history entry, from `schema-backfill`. A record that already held a s29_level: the same version and no new entry. The poison record: unchanged (S29.14).",
                 tests="""N.status(200);
 const b = JSON.parse(bru.getVar('s29_before')), a = JSON.parse(bru.getVar('s29_after'));
 const by = (l) => Object.fromEntries(l.map(r => [r.id, r]));
 const bm = by(b.missing), bh = by(b.held), bp = by(b.poison);
-test('each rewritten record: priority 3, version + 1, same updated_at', () => a.missing.forEach(r => {
-  expect(r.priority, r.id).to.eql(3);
+test('each rewritten record: s29_level 3, version + 1, same updated_at', () => a.missing.forEach(r => {
+  expect(r.s29_level, r.id).to.eql(3);
   expect(r.version, r.id).to.eql(bm[r.id].version + 1);
   expect(r.updated_at, r.id).to.eql(bm[r.id].updated_at);
 }));
-test('each rewritten record: exactly one new history entry, and it is from schema-backfill', () => a.missing.forEach(r => {
+test('each rewritten record: exactly one new history entry, an update with source system (verify.sql: its audit actor_system is schema-backfill)', () => a.missing.forEach(r => {
   const seen = new Set(bm[r.id].history.map(h => h.id));
   const added = r.history.filter(h => !seen.has(h.id));
   expect(added.length, r.id).to.eql(1);
-  expect(added[0].raw, JSON.stringify(added[0])).to.eql(true);
+  expect(added[0].source, JSON.stringify(added[0])).to.eql('system');
+  expect(added[0].action, JSON.stringify(added[0])).to.eql('update');
 }));
-test('the records that held a priority: same version, same updated_at, no new history entry', () => a.held.forEach(r => {
+test('the records that held a s29_level: same version, same updated_at, no new history entry', () => a.held.forEach(r => {
   expect(r.version, r.id).to.eql(bh[r.id].version);
   expect(r.updated_at, r.id).to.eql(bh[r.id].updated_at);
   expect(r.history.length, r.id).to.eql(bh[r.id].history.length);
@@ -620,11 +623,17 @@ test('no field value in the body', () => {
   expect(text).to.not.include('S29 poison');
   expect(text).to.not.include('short_description');
 });"""),
-            problem_req("S29.15 AC3: an agent asks for the failures: 404", "GET", et + "/backfill/failures", "not_found", 404, auth="alice_token",
-                        desc="Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10)."),
-            req("S29.16 AC3: the poison record still matches filter[priority]=3", "GET", inc + "?filter[priority]=3&limit=200", auth="alice_token",
+            req("S29.15 AC3: an agent asks for the failures: 404", "GET", et + "/backfill/failures", auth="alice_token",
+                desc="Alice is not an entity-type admin. She gets the same 404 a missing type gives (ADR-009 D10): `not_found`, with no `instance`, as every 404 on the platform.",
+                tests="""test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});"""),
+            req("S29.16 AC3: the poison record still matches filter[s29_level]=3", "GET", inc + "?filter[s29_level]=3&limit=200", auth="alice_token",
                 pre=KIT + """
-const all = await T.all('alice_token', 'incident', 'filter[priority]=3');
+const all = await T.all('alice_token', 'incident', 'filter[s29_level]=3');
 bru.setVar('s29_p3_after', JSON.stringify({ ids: all.ids, totals: all.totals }));""",
                 desc="ADR-009 D9 and D12: a `failed_records` job keeps the window open, and its failed record matches through the failures branch. The list is also still the same set as at once (S29.11).",
                 tests="""N.status(200);
@@ -640,7 +649,7 @@ test('every page capped at 1,000 or unknown with a null total', () => o.totals.f
 const ex = N.json().executions || [];
 test(`tenant A runs: ${ex.length}, the same as before the job (${bru.getVar('s29_runs_before')})`, () => expect(ex.length).to.eql(Number(bru.getVar('s29_runs_before'))));"""),
             publish("S29.18 AC5: s29_tier made required with a default: 201", "required-default",
-                    "d.schema.properties.priority.default = 3;\nd.schema.required = [...(d.schema.required || []), 's29_tier'];\nd.schema.properties.s29_tier.default = 'standard';",
+                    "d.schema.properties.s29_level.default = 3;\nd.schema.required = [...(d.schema.required || []), 's29_tier'];\nd.schema.properties.s29_tier.default = 'standard';",
                     "ADR-009 D14: required plus a default is `needs_backfill`, not breaking. A new job starts for `s29_tier`.",
                     """N.status(201);
 test('the next version, s29_tier required with default standard', () => {
@@ -661,12 +670,12 @@ const ss = JSON.parse(bru.getVar('s29_watch2'));
 test('the job of the new version ended', () => {
   expect(N.json().backfill.target_version).to.eql(Number(bru.getVar('s29_v4')));
   expect(['done', 'failed_records']).to.include(N.json().backfill.state);
-  expect(N.json().backfill.remaining).to.eql(0);
+  expect(N.json().backfill.remaining, 'remaining is pending plus failure rows').to.eql(N.json().backfill.failed);
 });
 console.log('S29.19 states', JSON.stringify(ss));"""),
             req("S29.20 AC5: backfilled like criterion 2: s29_tier stored, version +1, updated_at unchanged, one more history entry", "GET", et, auth="admin_a_token",
                 pre=KIT + sample + "\nbru.setVar('s29_after', JSON.stringify(out));",
-                desc="The same samples. Every sampled record lacked `s29_tier`, so every one but the poison record is rewritten this time, the 50 with a priority included.",
+                desc="The same samples. Every sampled record lacked `s29_tier`, so every one but the poison record is rewritten this time, the 50 with a s29_level included.",
                 tests="""N.status(200);
 const b = JSON.parse(bru.getVar('s29_before')), a = JSON.parse(bru.getVar('s29_after'));
 const prev = Object.fromEntries([...b.missing, ...b.held].map(r => [r.id, r]));
@@ -681,7 +690,7 @@ test('s29_tier standard, version + 1, same updated_at, exactly one new history e
                 tests="""N.status(200);
 const b = N.json();
 test("no backfill on tenant B's type", () => expect(b.backfill == null).to.eql(true));
-test("tenant B's priority has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));"""),
+test("tenant B's s29_level has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));"""),
             req("S29.22 AC6: tenant B's failures route on its own incident type: none of tenant A's failures", "GET", et + "/backfill/failures", auth="admin_b_token",
                 pre=KIT + """
 const r = await T.call('admin_b_token', 'GET', '/api/v1/entity-types/s29_no_such_type/backfill/failures');
@@ -692,8 +701,14 @@ if (res.getStatus() === 200) test('no failure listed', () => expect(N.json().ite
 const m = JSON.parse(bru.getVar('s29_b_missing'));
 test('a type tenant B does not have: 404 not_found', () => { expect(m.status).to.eql(404); expect(m.code).to.eql('not_found'); });
 test("never tenant A's poison id", () => expect(JSON.stringify(N.json())).to.not.include(N.v('s29_poison_id')));"""),
-            problem_req("S29.23 AC6: tenant B reads a tenant A ticket: 404", "GET", inc + "/{{s29_poison_id}}", "not_found", 404, auth="admin_b_token",
-                        desc="The poison record, by id, as tenant B's admin: the same 404 as a record that does not exist."),
+            req("S29.23 AC6: tenant B reads a tenant A ticket: 404", "GET", inc + "/{{s29_poison_id}}", auth="admin_b_token",
+                desc="The poison record, by id, as tenant B's admin: the same 404 as a record that does not exist (`not_found`, no `instance`).",
+                tests="""test('HTTP 404 problem+json, code not_found, no instance', () => {
+  expect(res.getStatus()).to.eql(404);
+  expect(N.header('Content-Type') || '').to.include('application/problem+json');
+  expect(N.json().code).to.eql('not_found');
+  expect(N.json()).to.not.have.property('instance');
+});"""),
             req("S29.24 AC6: tenant B's filter[priority]=3 lists none of tenant A's tickets", "GET", inc + "?filter[priority]=3&limit=200", auth="admin_b_token",
                 desc="Tenant B's incidents all hold priority 1 and B's type has no default, so its window is closed: 0 matches, `total` 0, and none of tenant A's ids.",
                 tests="""N.status(200);

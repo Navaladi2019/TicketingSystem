@@ -1,5 +1,5 @@
 meta {
-  name: S29.4 The incident type: priority has no default, s29_tier is optional, no backfill yet
+  name: S29.4 The incident type: s29_level has no default, s29_tier is optional, no backfill yet
   type: http
   seq: 4
 }
@@ -18,8 +18,9 @@ tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
   N.status(200);
   const b = N.json();
-  test('priority has no default; s29_tier is optional with no default', () => {
-    expect(b.schema.properties.priority).to.not.have.property('default');
+  test('s29_level is flagged with no default; s29_tier is optional with no default', () => {
+    expect(b.schema.properties.s29_level['x-nava-filterable']).to.eql(true);
+    expect(b.schema.properties.s29_level).to.not.have.property('default');
     expect(b.schema.properties.s29_tier.type).to.eql('string');
     expect(b.schema.properties.s29_tier).to.not.have.property('default');
     expect(b.schema.required || []).to.not.include('s29_tier');
@@ -30,5 +31,5 @@ tests {
 }
 
 docs {
-  kit.mjs setup published a version that drops `priority`'s template default and adds an optional `s29_tier` (string), so the seeded records lack both. Kept for the publishes below.
+  kit.mjs setup published a version that adds `s29_level` (integer 1 to 4, flagged `x-nava-filterable`, no default) and an optional `s29_tier` (string), so the seeded records lack both. The incident template already defaults `priority` to 3, and removing a default is breaking (ADR-009 D14), so criterion 1 runs on `s29_level`: the same shape the story describes for `priority`. Kept for the publishes below.
 }

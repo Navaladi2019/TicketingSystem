@@ -33,7 +33,7 @@ END $$;
 
 INSERT INTO records (tenant_id, id, version, entity_definition_id, schema_version, number, state,
                      requester_id, assignee_id, assignment_group_id, created_by, created_at, updated_at, data, causation_depth)
-SELECT c.tenant_id, md5('s22/' || n)::uuid, 1, c.def, c.ver, 'S22A' || lpad(n::text, 7, '0'), 'new',
+SELECT c.tenant_id, md5('s22/' || n)::uuid, 1, c.def, c.ver, 'SAST' || lpad(n::text, 7, '0'), 'new',
        c.admin_id, NULL, NULL, c.admin_id,
        timestamptz '2026-11-01 00:00:00+00' - n * interval '1 minute' - interval '1 day',
        timestamptz '2026-11-01 00:00:00+00' - n * interval '1 minute',

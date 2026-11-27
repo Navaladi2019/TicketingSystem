@@ -1,0 +1,1 @@
+s22: PASS at a48a82e7091e2216defe5cf77e35eb5b944f3f38; evidence in docs/acceptance/S22/evidence (2026-11-27T22:49:55Z)

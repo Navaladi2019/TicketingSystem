@@ -1,0 +1,110 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:18080/api/v1/entity-types/s22_quota_32354317/versions",
+    "headers": {
+      "Accept": "application/json, text/plain, */*",
+      "User-Agent": "bruno-runtime/4.3.0",
+      "Content-Length": "719",
+      "Accept-Encoding": "gzip, compress, deflate, br",
+      "Host": "127.0.0.1:18080",
+      "Connection": "keep-alive",
+      "Idempotency-Key": "s22-32354317-quota-6th-after",
+      "Content-Type": "application/json"
+    },
+    "body": "{\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\"},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"q1\":{\"type\":\"string\",\"title\":\"Q1\",\"x-nava-filterable\":true},\"q2\":{\"type\":\"string\",\"title\":\"Q2\",\"x-nava-filterable\":true},\"q3\":{\"type\":\"string\",\"title\":\"Q3\",\"x-nava-filterable\":true},\"q4\":{\"type\":\"string\",\"title\":\"Q4\",\"x-nava-filterable\":true},\"q5\":{\"type\":\"string\",\"title\":\"Q5\",\"x-nava-filterable\":true},\"q6\":{\"type\":\"string\",\"title\":\"Q6\",\"x-nava-filterable\":true}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "key": "s22_quota_32354317",
+      "name": "S22 quota",
+      "number_prefix": "SQQQQ",
+      "numbering_mode": "gaps",
+      "version": 2,
+      "current": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "closed"
+            ],
+            "default": "new"
+          },
+          "q1": {
+            "type": "string",
+            "title": "Q1",
+            "x-nava-filterable": true
+          },
+          "q2": {
+            "type": "string",
+            "title": "Q2",
+            "x-nava-filterable": true
+          },
+          "q3": {
+            "type": "string",
+            "title": "Q3",
+            "x-nava-filterable": true
+          },
+          "q4": {
+            "type": "string",
+            "title": "Q4",
+            "x-nava-filterable": true
+          },
+          "q5": {
+            "type": "string",
+            "title": "Q5",
+            "x-nava-filterable": true
+          },
+          "q6": {
+            "type": "string",
+            "title": "Q6",
+            "x-nava-filterable": true
+          }
+        }
+      },
+      "schema_sha256": "f18c71bc4ecabd32dfb89199b0de9b5af2e7611f7e4e0408d4e29037670d0abe",
+      "fixed_columns": {
+        "state": "state"
+      },
+      "states": {
+        "initial": "new",
+        "states": [
+          "new",
+          "closed"
+        ],
+        "transitions": [
+          {
+            "from": "new",
+            "to": "closed"
+          }
+        ]
+      },
+      "compat": "compatible",
+      "number_format": null,
+      "published_at": "2026-11-27T22:49:54.283435Z"
+    }
+  },
+  "tests": [
+    {
+      "test": "HTTP 201",
+      "status": "pass"
+    },
+    {
+      "test": "version 2, q6 flagged",
+      "status": "pass"
+    }
+  ]
+}

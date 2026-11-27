@@ -19,7 +19,7 @@ tests {
   N.status(200);
   const b = N.json();
   test("no backfill on tenant B's type", () => expect(b.backfill == null).to.eql(true));
-  test("tenant B's priority has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));
+  test("tenant B's s29_level has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));
 }
 
 docs {

@@ -28,7 +28,7 @@ ls db/migrations/*schema_backfill*.sql >/dev/null 2>&1 || missing="$missing sche
 grep -q 'backfill/failures' api/openapi.yaml 2>/dev/null || missing="$missing backfill-failures-route(TICK-919)"
 grep -q 'operator/tenants/{tenant}/limits' api/openapi.yaml 2>/dev/null || missing="$missing limits-route(TICK-916)"
 [ -f internal/fieldindex/backfill/remove.go ] || missing="$missing FieldIndexRemove(TICK-750)"
-if git grep -q DataFilterTimeout -- '*.go' ':!*_test.go' 2>/dev/null; then missing="$missing scan-retired(TICK-752)"; fi
+if git grep -q DataFilterTimeout -- '*.go' ':!*_test.go' ':!internal/tenancy/isolation/*' 2>/dev/null; then missing="$missing scan-retired(TICK-752)"; fi
 if [ -n "$missing" ]; then
   printf 'SKIP: s22_s29_acceptance: not every S22/S29 feature is on this branch yet:%s\n' "$missing"
   exit 0

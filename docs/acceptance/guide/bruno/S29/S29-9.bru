@@ -25,7 +25,7 @@ script:pre-request {
       const r = await T.read('admin_a_token', 'incident', id);
       const h = await T.history('admin_a_token', 'incident', id);
       out[k].push({ id, status: r.status, version: r.data && r.data.version, updated_at: r.data && r.data.updated_at,
-                    priority: r.data && r.data.data && r.data.data.priority, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
+                    s29_level: r.data && r.data.data && r.data.data.s29_level, s29_tier: r.data && r.data.data && r.data.data.s29_tier,
                     history: (h.data && h.data.items || []).map(i => ({ id: i.id, source: i.source, actor: i.actor_system || i.actor_id || null, action: i.action, raw: JSON.stringify(i).includes('schema-backfill') })) });
     }
   }
@@ -37,9 +37,9 @@ tests {
   N.status(200);
   const o = JSON.parse(bru.getVar('s29_before'));
   test('every sampled record reads 200', () => Object.values(o).flat().forEach(r => expect(r.status, r.id).to.eql(200)));
-  test('the missing ones and the poison show no stored priority yet (no default in this version)', () => [...o.missing, ...o.poison].forEach(r => expect(r.priority, r.id).to.eql(undefined)));
+  test('the missing ones and the poison show no stored s29_level yet (no default in this version)', () => [...o.missing, ...o.poison].forEach(r => expect(r.s29_level, r.id).to.eql(undefined)));
 }
 
 docs {
-  Reads, as the admin, 10 sampled records without `priority`, 10 of the 50 with it, and the poison record: version, `updated_at`, `priority` and the history. S29.13 compares.
+  Reads, as the admin, 10 sampled records without `s29_level`, 10 of the 50 with it, and the poison record: version, `updated_at`, `s29_level` and the history. S29.13 compares.
 }
