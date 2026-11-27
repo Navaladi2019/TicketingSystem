@@ -65,6 +65,10 @@ state. They hold ids, counts and codes, never a record's values.
 | Rollout migration (`nava_migrator`, once) | one `pending` job and one outbox row per tenant and type that already had a default before S29 | `20261127100500_schema_backfill_rollout.sql` (D15). It skips a type that combines a default with `x-nava-unique` and logs a `schema_backfill_skipped` NOTICE. Running it again inserts nothing, and it never reads or writes `records` |
 | `schema.backfill` workflow (`nava_worker`) | every state change, the queue, the failures, the counters | `internal/schemabackfill`, one tenant transaction per step |
 
+`nava_app` reads them, SELECT only, for the entity type's `backfill` object
+and the failures route (D10, see [metadata engine](../system/core-metadata.md#backfill-progress-on-the-entity-type-s29-story-branch))
+and for the D12 filter window (see [Records](records.md#filters-while-a-default-is-being-backfilled-s29-story-branch)).
+
 ## RLS and grants
 
 All three tables are `ENABLE` and `FORCE` row-level security, with the

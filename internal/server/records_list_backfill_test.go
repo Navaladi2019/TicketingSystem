@@ -171,8 +171,8 @@ func TestRenderAbsentIsKeyPresenceNotNoSideRow(t *testing.T) {
 		if !strings.Contains(c.sql, "NOT (r.data ? $") {
 			t.Errorf("%s: %s lacks the key-presence term", name, c.sql)
 		}
-		if strings.Contains(c.sql, "NOT (r.data ? 'severity'") || strings.Contains(c.sql, "v.record_id = r.id AND v.field_id = $3::uuid)") && strings.Contains(c.sql, "AND NOT EXISTS (SELECT 1 FROM rfv_text v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id") {
-			t.Errorf("%s: key inlined or side-row absence kept: %s", name, c.sql)
+		if strings.Contains(c.sql, "NOT EXISTS (SELECT 1 FROM rfv_") || strings.Contains(c.sql, "'severity'") {
+			t.Errorf("%s: side-row absence kept or key inlined: %s", name, c.sql)
 		}
 		if !slices.Contains(c.args, any("severity")) {
 			t.Errorf("%s: key not bound as a parameter: %v", name, c.args)
