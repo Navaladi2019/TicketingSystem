@@ -108,6 +108,9 @@ check-pins:
 
 # Local use; the workflow runs the same command directly (ADR-001-A7), with
 # its other Go settings pinned in the step's env: (CI is the gate, R-A7-3).
+# Local targets need the installed Go to be at least the module's go line
+# (go1.27); go run otherwise picks govulncheck's own toolchain and fails to
+# load our packages.
 # GOWORK=off (ADR-001-E4 contract rule 7): a go.work beside the module would
 # change the scanned versions without changing go.mod or go.sum.
 vulncheck:
@@ -123,6 +126,9 @@ vulncheck-ci:
 # vulncheck-temporal-server, whose result the pull request's vulncheck check
 # reports). Zero findings, with no exception or allowlist (ADR-001 A1
 # Decision 3).
+# Local targets need the installed Go to be at least the module's go line
+# (go1.27); go run otherwise picks govulncheck's own toolchain and fails to
+# load our packages.
 vulncheck-temporal-server:
 	cd temporal-server && GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
