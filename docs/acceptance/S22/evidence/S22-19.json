@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-32354317-limit-11",
+      "Idempotency-Key": "s22-17823ed8-limit-11",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 11,\n  \"reason\": \"S22 kit: over the ceiling\"\n}"
@@ -22,7 +22,7 @@
       "status": 400,
       "code": "validation_failed",
       "detail": "The request does not match the API contract. See errors for the failing fields.",
-      "instance": "urn:nava:request:0b7bda06695cd0ae1a5b8b8e945487da",
+      "instance": "urn:nava:request:c47cfa6b47824b4e8fc4a90ac0e37c91",
       "errors": [
         {
           "pointer": "/body/filterable_fields_per_type",

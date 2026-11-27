@@ -19,15 +19,15 @@
       "executions": [
         {
           "execution": {
-            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f33-9542-752e-87b0-7178908a9858",
-            "runId": "01a21f33-9655-7537-ab52-9249861c5daa"
+            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f3d-fc15-7e93-970d-3ce52515e15b",
+            "runId": "01a21f3d-fce3-7815-8cdc-a8e2b057b19a"
           },
           "type": {
             "name": "nava.interpreter"
           },
-          "startTime": "2026-11-27T22:50:04.245344Z",
+          "startTime": "2026-11-27T23:01:25.859531Z",
           "status": "WORKFLOW_EXECUTION_STATUS_RUNNING",
-          "executionTime": "2026-11-27T22:50:04.245344Z",
+          "executionTime": "2026-11-27T23:01:25.859531Z",
           "memo": {},
           "searchAttributes": {
             "indexedFields": {
@@ -49,8 +49,8 @@
           },
           "taskQueue": "nava-tq",
           "rootExecution": {
-            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f33-9542-752e-87b0-7178908a9858",
-            "runId": "01a21f33-9655-7537-ab52-9249861c5daa"
+            "workflowId": "t:00000000-0000-4000-8000-0000000000a1:nava.interpreter:01a21f3d-fc15-7e93-970d-3ce52515e15b",
+            "runId": "01a21f3d-fce3-7815-8cdc-a8e2b057b19a"
           }
         }
       ]

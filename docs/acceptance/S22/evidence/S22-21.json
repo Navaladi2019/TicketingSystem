@@ -9,7 +9,7 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18082",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-32354317-limit-unknown",
+      "Idempotency-Key": "s22-17823ed8-limit-unknown",
       "Content-Type": "application/json"
     },
     "body": "{\n  \"filterable_fields_per_type\": 10,\n  \"reason\": \"S22 kit: unknown tenant\"\n}"
@@ -22,7 +22,7 @@
       "status": 404,
       "code": "not_found",
       "detail": "The resource does not exist.",
-      "instance": "urn:nava:request:ef159c21104d037f1cac5954bf0775ea"
+      "instance": "urn:nava:request:ea624559db82de31f891bd1ab20a0011"
     }
   },
   "tests": [

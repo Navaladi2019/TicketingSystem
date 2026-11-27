@@ -244,7 +244,7 @@
           "status": "pass"
         },
         {
-          "test": "the flag published again after 33 s and 12 attempts: 201",
+          "test": "the flag published again after 30 s and 11 attempts: 201",
           "status": "pass"
         },
         {

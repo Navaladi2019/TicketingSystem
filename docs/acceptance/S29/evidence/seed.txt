@@ -1,19 +1,19 @@
 Timing is on.
 SET
-Time: 0.272 ms
+Time: 0.288 ms
 SELECT 1
-Time: 3.737 ms
+Time: 4.277 ms
 DO
-Time: 2.657 ms
+Time: 2.895 ms
 INSERT 0 2000
-Time: 54.450 ms
+Time: 50.566 ms
 SET
-Time: 0.414 ms
+Time: 0.242 ms
 ANALYZE
-Time: 17.793 ms
+Time: 16.237 ms
  incidents | poison 
 -----------+--------
       2000 |      1
 (1 row)
 
-Time: 2.663 ms
+Time: 2.656 ms

@@ -23,7 +23,7 @@
       "path": "/api/v1/entity-types",
       "headers": {
         "Content-Type": "application/json",
-        "Idempotency-Key": "s22-setup-7302e36d-d83e-48cd-bbd7-0832d9b534f5"
+        "Idempotency-Key": "s22-setup-05ea310a-fb07-4bcd-a78b-6e4b75cf80bd"
       },
       "body": {
         "key": "s22_asset",
@@ -135,7 +135,7 @@
         },
         "compat": "initial",
         "number_format": null,
-        "published_at": "2026-11-27T22:48:18.066868Z"
+        "published_at": "2026-11-27T22:59:38.272988Z"
       }
     }
   },
@@ -167,7 +167,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a21f31-7474-78b3-93f3-1214788a2509"
+                            "01a21f3b-ed2e-7d1c-a099-0d091edbde88"
                           ]
                         }
                       }
@@ -189,7 +189,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a21f31-7474-78de-8db3-7d5925c930d8"
+                            "01a21f3b-ed2e-7d42-94c2-ee451e6dcb3a"
                           ]
                         }
                       }
@@ -261,7 +261,7 @@
         },
         "masks": [],
         "published_by": null,
-        "published_at": "2026-11-27T22:47:46.422828Z"
+        "published_at": "2026-11-27T22:59:12.400388Z"
       }
     }
   },
@@ -272,7 +272,7 @@
       "headers": {
         "If-Match": "W/\"0\"",
         "Content-Type": "application/json",
-        "Idempotency-Key": "s22-setup-54a644ce-4465-4ebe-bf30-20f47a1de26e"
+        "Idempotency-Key": "s22-setup-9d0e8dd0-0647-42b4-b04f-e1bff35870f5"
       },
       "body": {
         "rules": {
@@ -292,7 +292,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a21f31-7474-78b3-93f3-1214788a2509"
+                            "01a21f3b-ed2e-7d1c-a099-0d091edbde88"
                           ]
                         }
                       }
@@ -327,7 +327,7 @@
                       {
                         "member_of": {
                           "groups": [
-                            "01a21f31-7474-78b3-93f3-1214788a2509"
+                            "01a21f3b-ed2e-7d1c-a099-0d091edbde88"
                           ]
                         }
                       }
@@ -339,8 +339,8 @@
           ]
         },
         "masks": [],
-        "published_by": "01a21f31-746f-79cb-a4ba-1469cedbc993",
-        "published_at": "2026-11-27T22:48:18.105449Z"
+        "published_by": "01a21f3b-ed2a-7651-ac98-98253ad4a807",
+        "published_at": "2026-11-27T22:59:38.296096Z"
       }
     }
   }

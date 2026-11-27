@@ -1,22 +1,22 @@
 Timing is on.
 SET
-Time: 0.308 ms
+Time: 0.290 ms
 SELECT 1
-Time: 2.610 ms
+Time: 2.288 ms
 DO
-Time: 2.967 ms
+Time: 2.437 ms
 INSERT 0 20000
-Time: 620.212 ms
+Time: 533.126 ms
 INSERT 0 1
-Time: 0.881 ms
+Time: 1.257 ms
 SET
-Time: 0.177 ms
+Time: 0.239 ms
 ANALYZE
-Time: 161.363 ms
+Time: 157.841 ms
  code | count 
 ------+-------
  K07  |  1000
  K08  |  1000
 (2 rows)
 
-Time: 7.388 ms
+Time: 7.235 ms

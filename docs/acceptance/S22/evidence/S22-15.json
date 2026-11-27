@@ -9,17 +9,17 @@
       "Accept-Encoding": "gzip, compress, deflate, br",
       "Host": "127.0.0.1:18080",
       "Connection": "keep-alive",
-      "Idempotency-Key": "s22-32354317-quota-create",
+      "Idempotency-Key": "s22-17823ed8-quota-create",
       "Content-Type": "application/json"
     },
-    "body": "{\"key\":\"s22_quota_32354317\",\"name\":\"S22 quota\",\"number_prefix\":\"SQQQQ\",\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\"},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"q1\":{\"type\":\"string\",\"title\":\"Q1\",\"x-nava-filterable\":true},\"q2\":{\"type\":\"string\",\"title\":\"Q2\",\"x-nava-filterable\":true},\"q3\":{\"type\":\"string\",\"title\":\"Q3\",\"x-nava-filterable\":true},\"q4\":{\"type\":\"string\",\"title\":\"Q4\",\"x-nava-filterable\":true},\"q5\":{\"type\":\"string\",\"title\":\"Q5\",\"x-nava-filterable\":true},\"q6\":{\"type\":\"string\",\"title\":\"Q6\"}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
+    "body": "{\"key\":\"s22_quota_17823ed8\",\"name\":\"S22 quota\",\"number_prefix\":\"SQEDQ\",\"definition\":{\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"name\",\"state\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Name\"},\"state\":{\"type\":\"string\",\"enum\":[\"new\",\"closed\"],\"default\":\"new\"},\"q1\":{\"type\":\"string\",\"title\":\"Q1\",\"x-nava-filterable\":true},\"q2\":{\"type\":\"string\",\"title\":\"Q2\",\"x-nava-filterable\":true},\"q3\":{\"type\":\"string\",\"title\":\"Q3\",\"x-nava-filterable\":true},\"q4\":{\"type\":\"string\",\"title\":\"Q4\",\"x-nava-filterable\":true},\"q5\":{\"type\":\"string\",\"title\":\"Q5\",\"x-nava-filterable\":true},\"q6\":{\"type\":\"string\",\"title\":\"Q6\"}}},\"fixed_columns\":{\"state\":\"state\"},\"states\":{\"initial\":\"new\",\"states\":[\"new\",\"closed\"],\"transitions\":[{\"from\":\"new\",\"to\":\"closed\"}]}}}"
   },
   "response": {
     "status": 201,
     "body": {
-      "key": "s22_quota_32354317",
+      "key": "s22_quota_17823ed8",
       "name": "S22 quota",
-      "number_prefix": "SQQQQ",
+      "number_prefix": "SQEDQ",
       "numbering_mode": "gaps",
       "version": 1,
       "current": true,
@@ -93,7 +93,7 @@
       },
       "compat": "initial",
       "number_format": null,
-      "published_at": "2026-11-27T22:49:54.041645Z"
+      "published_at": "2026-11-27T23:01:11.537741Z"
     }
   },
   "tests": [
