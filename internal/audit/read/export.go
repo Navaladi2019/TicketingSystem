@@ -68,12 +68,12 @@ const exportMatch = `((($4::timestamptz IS NULL OR occurred_at >= $4)
 // has no grant on txid, and a star would fail with 42501.
 const exportInner = `tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
 version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id,
-causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
+causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, diff_nul_escaped,
 seq, sealed_at, erased_at, erasure_ref, prev_hash, entry_hash, diff, diff_salt`
 
 const exportColumns = `tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
 version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id,
-causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
+causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, diff_nul_escaped,
 seq, sealed_at, erased_at, erasure_ref, prev_hash, entry_hash,
 m AS matched,
 CASE WHEN m THEN diff::text END AS diff_text,
@@ -310,7 +310,7 @@ func scanExport(rows pgx.Rows) ([]ExportRow, error) {
 		)
 		if err := rows.Scan(&ten, &e.ID, &e.OccurredAt, &e.Domain, &e.Action, &e.SubjectType, &e.SubjectID, &e.EntityDefinitionID,
 			&e.VersionBefore, &e.VersionAfter, &e.ActorPrincipalID, &e.ActorSystem, &e.Source, &e.SourceRef, &e.ChangeSetID,
-			&e.CausationID, &e.CausationDepth, &e.RequestID, &e.Backfilled, &e.ContentSHA256, &e.DiffSHA256, &e.DiffTruncated,
+			&e.CausationID, &e.CausationDepth, &e.RequestID, &e.Backfilled, &e.ContentSHA256, &e.DiffSHA256, &e.DiffTruncated, &e.DiffNULEscaped,
 			&e.Seq, &e.SealedAt, &e.ErasedAt, &x.row.ErasureRef, &x.row.PrevHash, &x.row.EntryHash,
 			&x.row.Match, &diff, &e.DiffSalt); err != nil {
 			return nil, fmt.Errorf("audit/read: export scan: %w", err)

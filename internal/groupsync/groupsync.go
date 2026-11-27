@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,9 +48,16 @@ type Options struct {
 	// MaxOrgUnitDepth bounds every walk of the org-unit tree. Default
 	// DefaultMaxOrgUnitDepth.
 	MaxOrgUnitDepth int
+	// ClosureCheckInterval is the longest a tenant's org_unit_closure goes
+	// without a comparison with the live org tree (TICK-1166, AR-TICK-1118-01).
+	// Default DefaultClosureCheckInterval.
+	ClosureCheckInterval time.Duration
 	// Now defaults to time.Now.
 	Now func() time.Time
 }
+
+// DefaultClosureCheckInterval is the default Options.ClosureCheckInterval.
+const DefaultClosureCheckInterval = time.Hour
 
 // Result is what one cycle did to one tenant.
 type Result struct {
@@ -82,6 +90,9 @@ type Syncer struct {
 	mu      sync.Mutex
 	cursors map[uuid.UUID]string
 	lastOK  map[uuid.UUID]time.Time
+	// closureChecked is the time of each tenant's last committed closure
+	// comparison; no entry means due at once (TICK-1166).
+	closureChecked map[uuid.UUID]time.Time
 	// liveUnits is each tenant's last counted live org units; a tenant not
 	// re-counted in a cycle (lock held elsewhere, failed apply) keeps it.
 	liveUnits map[uuid.UUID]int
@@ -91,7 +102,9 @@ type Syncer struct {
 	liveMaxCount  int
 	// countLive counts a tenant's live org units; a test swaps it to fail.
 	countLive func(context.Context, pgx.Tx, uuid.UUID) (int, error)
-	started   time.Time
+	// compareClosure compares and repairs a tenant's closure; a test swaps it.
+	compareClosure func(context.Context, pgx.Tx, uuid.UUID) (bool, error)
+	started        time.Time
 }
 
 // New registers groupsync_lag_seconds, groupsync_org_subtree_max and
@@ -109,6 +122,9 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	}
 	if opts.MaxOrgUnitDepth <= 0 {
 		opts.MaxOrgUnitDepth = DefaultMaxOrgUnitDepth
+	}
+	if opts.ClosureCheckInterval <= 0 {
+		opts.ClosureCheckInterval = DefaultClosureCheckInterval
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -155,7 +171,7 @@ func New(pool *pgxpool.Pool, dir identity.DirectoryAdmin, mp metric.MeterProvide
 	dr.Add(context.Background(), 0)
 	return &Syncer{
 		pool: pool, dir: dir, log: log, opts: opts, lag: h, subtree: sub, unrooted: unr, drift: dr, unitsLive: live,
-		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),
+		cursors: map[uuid.UUID]string{}, lastOK: map[uuid.UUID]time.Time{}, closureChecked: map[uuid.UUID]time.Time{}, compareClosure: compareAndRepairClosure, liveUnits: map[uuid.UUID]int{}, countLive: countLiveOrgUnits, started: opts.Now(),
 	}, nil
 }
 
@@ -280,6 +296,61 @@ func (s *Syncer) liveUnitsBestEffort(ctx context.Context, tx pgx.Tx, tenantID uu
 	return -1
 }
 
+// compareAndRepairClosure compares the tenant's stored closure with the live
+// tree and repairs it by a full rebuild on a difference. It reports whether it
+// repaired.
+func compareAndRepairClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (bool, error) {
+	tid := tenantID.String()
+	var drift bool
+	if err := withHashPlan(ctx, tx, func() error {
+		return tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift)
+	}); err != nil {
+		return false, fmt.Errorf("compare closure: %w", err)
+	}
+	if !drift {
+		return false, nil
+	}
+	if _, _, err := fullRebuildClosure(ctx, tx, tid); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// checkClosureBestEffort runs the due comparison in a savepoint with a
+// server-side time limit. On an error or timeout the savepoint is rolled back,
+// a warning names the tenant, and the tenant stays due; the rest of the run
+// (tombstones, removals, delta) still commits. It returns whether it repaired
+// and whether the comparison completed.
+func (s *Syncer) checkClosureBestEffort(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (repaired, done bool) {
+	sp, err := tx.Begin(ctx)
+	if err == nil {
+		var prev string
+		if err = sp.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&prev); err == nil {
+			ms := max(s.opts.TenantTimeout/2, time.Millisecond).Milliseconds()
+			if _, err = sp.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", ms)); err == nil {
+				if repaired, err = s.compareClosure(ctx, sp, tenantID); err == nil {
+					// SET LOCAL lasts to the end of the transaction: put the old value back.
+					if _, err = sp.Exec(ctx, "SET LOCAL statement_timeout = '"+strings.ReplaceAll(prev, "'", "''")+"'"); err == nil {
+						if err = sp.Commit(ctx); err == nil {
+							return repaired, true
+						}
+						s.warnCompare(ctx, tenantID, err)
+						return false, false
+					}
+				}
+			}
+		}
+		_ = sp.Rollback(ctx)
+	}
+	s.warnCompare(ctx, tenantID, err)
+	return false, false
+}
+
+func (s *Syncer) warnCompare(ctx context.Context, tenantID uuid.UUID, err error) {
+	s.log.WarnContext(ctx, "group sync: comparing the org closure with the live org tree failed; the tenant stays due",
+		slog.String("tenant_id", tenantID.String()), slog.Any("error", err))
+}
+
 // lockSQL is transaction-scoped, so it is released with the transaction and
 // is safe through PgBouncer's transaction mode.
 const lockSQL = `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`
@@ -299,7 +370,11 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	// by one interval, and only while this process keeps losing the lock.
 	s.mu.Lock()
 	cursor := s.cursors[tenantID]
+	lastChecked, hasChecked := s.closureChecked[tenantID]
 	s.mu.Unlock()
+	// Due: never compared by this process, or the interval has passed (TICK-1166).
+	due := !hasChecked || s.opts.Now().Sub(lastChecked) >= s.opts.ClosureCheckInterval
+	compared := false // a comparison ran and its work is in the transaction
 
 	var digest string
 	var snapAt time.Time
@@ -333,6 +408,12 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		digest = d
 		if changes.Unchanged {
 			res.Unchanged = true
+			if due {
+				var rep bool
+				if rep, compared = s.checkClosureBestEffort(ctx, tx, tenantID); rep {
+					driftRepaired = true
+				}
+			}
 			// Nothing to apply, but the tenant's tree size is still reported.
 			n, err := storedOrgSubtreeMax(ctx, tx, tenantID, s.opts.MaxOrgUnitDepth)
 			if err != nil {
@@ -356,6 +437,17 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 		subtreeMax = st.OrgSubtreeMax
 		unrooted = st.ClosureUnrooted
 		driftRepaired = st.ClosureDriftRepaired
+		// A run that touched no unit already compared inside apply.
+		compared = st.ClosureCompared
+		if due && !compared {
+			var rep bool
+			if rep, compared = s.checkClosureBestEffort(ctx, tx, tenantID); rep {
+				driftRepaired = true
+				if unrooted, err = unrootedUnits(ctx, tx, tenantID); err != nil {
+					return err
+				}
+			}
+		}
 		liveUnits = s.liveUnitsBestEffort(ctx, tx, tenantID)
 		if st.AdminGroupDeleted {
 			s.log.WarnContext(ctx, "group sync: the tenant's admins group was deleted in the directory; the tenant has no admin until one is recorded",
@@ -396,6 +488,9 @@ func (s *Syncer) syncTenant(ctx context.Context, tenantID uuid.UUID) Result {
 	s.mu.Lock()
 	if liveUnits >= 0 {
 		s.liveUnits[tenantID] = liveUnits
+	}
+	if compared {
+		s.closureChecked[tenantID] = s.opts.Now()
 	}
 	s.cursors[tenantID] = digest
 	s.lastOK[tenantID] = snapAt

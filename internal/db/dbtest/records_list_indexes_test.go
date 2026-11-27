@@ -142,16 +142,56 @@ func TestP334bListOrdersNeedNoSort(t *testing.T) {
 // Acceptance: an equality filter on state or a foreign key under the default
 // sort (-updated_at) reads that value's range of its access-path index in
 // order, with no Sort.
+//
+// The choice is between two index walks with the same order: the value's
+// range of its access-path index, or records_list_updated filtered row by row.
+// On an empty table they cost the same, and the planner keeps whichever it
+// saw first, which a rebuild of records_list_updated (TICK-1158, ADR-010-A4)
+// changed. So the table holds 20,000 analysed rows of tenant A, as in
+// TestP336dGroupStateFilterIsIndexCond, rolled back at the end: with them the
+// value's range is the cheaper walk, as it is in production.
 func TestP334bFilterUnderDefaultSortNeedsNoSort(t *testing.T) {
 	migratedPlatform(t)
-	conn := asRole(t, "nava_app")
+	super := superNava(t)
+	ctx := context.Background()
+	tx, err := super.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, s := range []string{
+		"SET LOCAL session_replication_role = replica",
+		fmt.Sprintf(`INSERT INTO records (tenant_id, id, entity_definition_id, schema_version, number, state,
+				assignment_group_id, requester_id, assignee_id, created_by, updated_at)
+			SELECT '%[1]s', md5('r/' || g)::uuid, '%[1]s', 1, 'TCK' || lpad(g::text, 7, '0'),
+			       (ARRAY['new','in_progress','resolved','closed','cancelled'])[1 + g %% 5],
+			       md5('group/' || g %% 50)::uuid, md5('requester/' || g %% 50)::uuid, md5('assignee/' || g %% 50)::uuid,
+			       '%[1]s', now() - g * interval '1 minute'
+			FROM generate_series(1, 20000) g`, tenantA),
+		"ANALYZE records",
+		"SET LOCAL ROLE nava_app",
+		fmt.Sprintf("SELECT set_config('app.tenant_id', '%s', true)", tenantA),
+		"SET LOCAL enable_seqscan = off", "SET LOCAL enable_bitmapscan = off", "SET LOCAL enable_sort = off",
+		"SET LOCAL enable_incremental_sort = off",
+	} {
+		if _, err := tx.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
 	for _, s := range listSorts() {
 		if !s.tie {
 			continue
 		}
 		q := fmt.Sprintf(`SELECT r.id FROM records r WHERE r.tenant_id = '%s' AND r.entity_definition_id = '%s' AND r.%s = %s
 			ORDER BY r.updated_at DESC NULLS FIRST, r.id DESC LIMIT 51`, tenantA, tenantA, s.col, literal(s.col))
-		types, indexes := explainAsApp(t, conn, q)
+		var raw string
+		if err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+q).Scan(&raw); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		types, indexes, err := planNodes(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if slices.Contains(types, "Sort") || !slices.Contains(indexes, s.index) {
 			t.Errorf("filter on %s: plan %v over %v, want %s with no Sort", s.col, types, indexes, s.index)
 		}

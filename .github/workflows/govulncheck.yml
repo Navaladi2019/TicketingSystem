@@ -1,41 +1,49 @@
 # TICK-641: govulncheck as a pipeline of its own, out of the ci workflow's
 # lint and temporal-server jobs. Both modules (the root and temporal-server/,
-# separate go.mod files) are scanned in parallel, and each must report zero
-# findings: no exception and no allowlist (ADR-001 A1 Decision 3).
+# separate go.mod files) are scanned, and each must report zero findings: no
+# exception and no allowlist (ADR-001 A1 Decision 3).
 #
-# When it runs (TICK-694, the owner's request: every 2 days, not every PR):
+# When it runs (ADR-001-E4 E4-1, TICK-1150):
+#   pull_request  every pull request (opened, synchronize, reopened), no paths
+#                 filter (contract rule 1: a filtered-out workflow leaves its
+#                 check Pending). vulncheck-detect decides which module the
+#                 change needs scanned (rule 2): a library list of one module
+#                 scans that module, a change to the gate scans both, anything
+#                 else scans neither.
 #   schedule      03:17 UTC on every second day of the month ('17 3 */2 * *';
 #                 a 31-day month runs on the 31st and the 1st): a new advisory
-#                 needs no change of ours (ADR-001-A1 R7).
-#   pull_request  only when it changes go.mod or go.sum of either module: a
-#                 new or bumped dependency is how a known-vulnerable module
-#                 enters main (ADR-001-A1 Decision 3, zero findings). Not a
-#                 required check of main, so the paths filter blocks no merge.
-#                 Every other pull request skips it.
-#   workflow_dispatch  by hand.
-# No push trigger: a merge is scanned by its pull request (when it changed a
-# dependency) and by the next scheduled run.
-# A failed scheduled run on main opens or updates the P0 "main is red" issue
+#                 needs no change of ours (ADR-001-A1 R7). Both modules.
+#   workflow_dispatch  by hand. Both modules.
+# No push trigger: a merge is scanned by its pull request and by the next
+# scheduled run.
+# The job vulncheck (the gate, if: always(), rule 4) is the pull request's
+# result: it reports the check vulncheck on a pull request into main and
+# vulncheck-other on any other base or event (rule 5). Not yet a required
+# check of main (T-E4-7, TICK-1154).
+# On a pull request, detect and the gate run the scripts as they are on main,
+# not the pull request's own copy (TICK-1148 security review of PR #912): a
+# pull request that edits vulncheck-detect.sh cannot make its own run scan
+# nothing. A change to either script takes effect on the pull requests opened
+# after it merges.
+# A failed scheduled run on main opens or updates a P0 issue
 # (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
-# self-hosted runner would speed up. Every step is a make target:
-# `make tools-govulncheck vulncheck vulncheck-temporal-server` runs it locally.
-# The steps below are kept by make check-ci-steps
-# (tools/ci/cisteps/required-govulncheck.yaml).
+# self-hosted runner would speed up. Every step is a make target or a script:
+# `make tools-govulncheck vulncheck vulncheck-temporal-server` runs the scans
+# locally.
+# make check-ci-steps compares this file, comment lines aside, with
+# tools/ci/cisteps/govulncheck.copy.yml (TICK-1149, ADR-001-E4 contract
+# rule 9): edit both together.
 # Job ids start with vulncheck- (TICK-1145): GitHub knows a check by its
 # name, not its workflow, and ci.yml has jobs temporal-server (a required
 # check of main) and main-red. A green scan named temporal-server could stand
 # in for red Authorizer tests. TestNoTwoWorkflowsReportTheSameCheck
-# (tools/ci/cisteps) fails on any name two workflows report.
+# (tools/ci/cisteps) fails on any name two workflows report, both values of
+# the gate's name included.
 name: govulncheck
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - go.mod
-      - go.sum
-      - temporal-server/go.mod
-      - temporal-server/go.sum
   schedule:
     - cron: '17 3 */2 * *'
   workflow_dispatch:
@@ -50,7 +58,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  vulncheck-detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      root: ${{ steps.detect.outputs.root }}
+      temporal_server: ${{ steps.detect.outputs.temporal_server }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Which modules to scan
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git show origin/main:scripts/ci/vulncheck-detect.sh >"$RUNNER_TEMP/vulncheck-detect.sh"
+          sh "$RUNNER_TEMP/vulncheck-detect.sh"
+
   vulncheck-root:
+    needs: vulncheck-detect
+    if: needs.vulncheck-detect.outputs.root == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -65,6 +95,8 @@ jobs:
         run: make vulncheck
 
   vulncheck-temporal-server:
+    needs: vulncheck-detect
+    if: needs.vulncheck-detect.outputs.temporal_server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -77,6 +109,25 @@ jobs:
         run: make tools-govulncheck
       - name: govulncheck (temporal-server)
         run: make vulncheck-temporal-server
+
+  vulncheck:
+    needs: [vulncheck-detect, vulncheck-root, vulncheck-temporal-server]
+    if: always()
+    name: ${{ github.base_ref == 'main' && 'vulncheck' || 'vulncheck-other' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: The pull request's result
+        env:
+          DETECT_RESULT: ${{ needs.vulncheck-detect.result }}
+          ROOT_NEEDED: ${{ needs.vulncheck-detect.outputs.root }}
+          TS_NEEDED: ${{ needs.vulncheck-detect.outputs.temporal_server }}
+          ROOT_RESULT: ${{ needs.vulncheck-root.result }}
+          TS_RESULT: ${{ needs.vulncheck-temporal-server.result }}
+        run: sh scripts/ci/vulncheck-gate.sh
 
   vulncheck-main-red:
     needs: [vulncheck-root, vulncheck-temporal-server]

@@ -15,7 +15,13 @@
 // ${{ 'isolation' }} does not work: GitHub folds it to the literal name even
 // on a skipped run (verification PR 904).
 //
+// With -copy (TICK-1149) the check is a different one: the whole workflow,
+// comment lines aside, must equal the checked-in copy, and the vulncheck make
+// recipes must be the pinned lines (copy.go).
+//
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
+//
+//	cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml
 package main
 
 import (
@@ -41,15 +47,31 @@ func main() {
 // run returns the exit code: 0 every required step runs, 1 one does not,
 // 2 bad usage or an unreadable input.
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, stdout, stderr, makeIn(""))
+}
+
+// runWith is run with the make runner of the -copy mode's recipe check.
+func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 	fs := flag.NewFlagSet("cisteps", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	workflow := fs.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
 	required := fs.String("required", "tools/ci/cisteps/required.yaml", "the list of required steps")
+	copyPath := fs.String("copy", "", "a checked-in copy the whole workflow must equal, comment lines aside (needs -workflow, excludes -required)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["copy"] {
+		if set["required"] || !set["workflow"] || *copyPath == "" {
+			fmt.Fprintln(stderr, "check-ci-steps: -copy needs -workflow and excludes -required")
+			fs.Usage()
+			return 2
+		}
+		return runCopy(*workflow, *copyPath, mk, stdout, stderr)
 	}
 
 	problems, n, err := check(*workflow, *required)
@@ -65,6 +87,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "check-ci-steps: ok: %d required steps and outputs in %s\n", n, *workflow)
+	return 0
+}
+
+// runCopy is run's -copy mode.
+func runCopy(workflow, copyPath string, mk makeRunner, stdout, stderr io.Writer) int {
+	problems, err := checkCopy(workflow, copyPath, mk)
+	if err != nil {
+		fmt.Fprintln(stderr, "check-ci-steps:", err)
+		return 2
+	}
+	for _, p := range problems {
+		fmt.Fprintln(stderr, "check-ci-steps:", p)
+	}
+	if len(problems) > 0 {
+		fmt.Fprintf(stderr, "check-ci-steps: edit %s and %s together, or not at all (ADR-001-E4 contract rule 9)\n", workflow, copyPath)
+		return 1
+	}
+	fmt.Fprintf(stdout, "check-ci-steps: ok: %s equals %s and the vulncheck recipes are pinned\n", workflow, copyPath)
 	return 0
 }
 

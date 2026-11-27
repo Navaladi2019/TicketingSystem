@@ -218,6 +218,8 @@
             label: "E8: the reader also reads the chain columns"
           - page: adr/adr-004-e9.md
             label: "E9: the audit row for a number_space_exhausted refusal"
+          - page: adr/adr-004-e10.md
+            label: "E10: diff_nul_escaped joins the hash envelope"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:

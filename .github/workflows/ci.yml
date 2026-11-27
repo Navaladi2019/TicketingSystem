@@ -5,11 +5,12 @@
 #                    golangci-lint, fixtures, pins, generated code (API and
 #                    acceptance guide), required
 #                    CI steps, OpenAPI, the handbook generator tests and
-#                    the handbook page-coverage gate (TICK-960) (no
+#                    the handbook page-coverage gate (TICK-960), the
+#                    handbook build on the real sources (TICK-1162) (no
 #                    containers). govulncheck is the
 #                    govulncheck workflow since TICK-641
-#                    (.github/workflows/govulncheck.yml): every second day
-#                    and on PRs that change a go.mod or go.sum (TICK-694)
+#                    (.github/workflows/govulncheck.yml): every second day,
+#                    by hand and on every pull request (ADR-001-E4, TICK-1150)
 #   unit             go test -race (no containers)
 #   temporal-server  the custom server module's unit tests and golangci-lint
 #                    (TICK-584) (no containers); only when the module or how
@@ -423,6 +424,12 @@ jobs:
       # every pull request, label or not, and on every push to main.
       - name: Handbook covers every story and ADR
         run: make test-handbook-coverage
+      # TICK-1162: build.py on the real docs/handbook/src, so a broken link or
+      # a malformed stories.yaml / benchmarks.yaml row fails the pull request.
+      # Last on purpose: it rewrites docs/handbook/**/*.html, and the coverage
+      # gate above must see the committed HTML, not freshly built pages.
+      - name: Handbook builds from its sources
+        run: make handbook-build
       # govulncheck: the govulncheck workflow (TICK-641).
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache

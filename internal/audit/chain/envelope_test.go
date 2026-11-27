@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,7 +86,15 @@ var mutators = map[string]func(*Envelope){
 	"ContentSHA256":      func(e *Envelope) { e.ContentSHA256 = &[32]byte{} },
 	"DiffSHA256":         func(e *Envelope) { e.DiffSHA256 = &[32]byte{} },
 	"DiffTruncated":      func(e *Envelope) { e.DiffTruncated = true },
+	"DiffNULEscaped":     func(e *Envelope) { e.DiffNULEscaped = true },
 }
+
+// optionalMembers are the envelope members CanonicalEnvelope may omit: only
+// diff_nul_escaped, emitted only when true (ADR-004-E10 E10-2). A second
+// optional member fails TestCanonicalKeysAreSortedAndComplete.
+//
+//nolint:gochecknoglobals // read-only test table
+var optionalMembers = []string{"diff_nul_escaped"}
 
 // TestEveryFieldIsHashed: changing any envelope field, including NULL to a
 // zero value, changes envelope_sha256, and every struct field is in the
@@ -138,8 +147,31 @@ func TestCanonicalKeysAreSortedAndComplete(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(keys) != len(envelopeFields) {
-		t.Fatalf("%d members, want %d (NULL is emitted, never omitted)", len(keys), len(envelopeFields))
+	// Every member but the one optional member (E10-2), whose base value is
+	// false, so it is omitted; with it true it is emitted as the literal true.
+	var optional []string
+	for _, f := range envelopeFields {
+		if f.optional {
+			optional = append(optional, f.name)
+		}
+	}
+	if !slices.Equal(optional, optionalMembers) {
+		t.Fatalf("optional members = %v, want only %v (NULL is emitted, never omitted)", optional, optionalMembers)
+	}
+	if len(keys) != len(envelopeFields)-len(optionalMembers) {
+		t.Fatalf("%d members, want %d (NULL is emitted, never omitted)", len(keys), len(envelopeFields)-len(optionalMembers))
+	}
+	if slices.Contains(keys, "diff_nul_escaped") {
+		t.Errorf("diff_nul_escaped emitted while false")
+	}
+	withFlag := baseEnvelope()
+	withFlag.DiffNULEscaped = true
+	bt, err := CanonicalEnvelope(withFlag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(bt, []byte(`"diff_nul_escaped":true`)) || len(bt) != len(b)+len(`,"diff_nul_escaped":true`) {
+		t.Errorf("flag true: canonical form %s does not add exactly the member", bt)
 	}
 	for i := 1; i < len(keys); i++ {
 		if keys[i-1] >= keys[i] {
@@ -486,6 +518,42 @@ func TestParseSalt16Rejects(t *testing.T) {
 	} {
 		if _, err := ParseSalt16(s); !errors.Is(err, ErrInvalidEnvelope) || err.Error() != want {
 			t.Errorf("ParseSalt16(%q) err = %v, want %s", s, err, want)
+		}
+	}
+}
+
+// ADR-004-E10 E10-2, the verifier rule: absent parses as false and hashes as
+// the pre-E10 form; "diff_nul_escaped":true parses as true and changes the
+// hash; stripping it from a true envelope changes the hash back; an explicit
+// false, null or any other value is refused (one encoding per value).
+func TestDiffNULEscapedMember(t *testing.T) {
+	e := baseEnvelope()
+	b0, err := CanonicalEnvelope(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Envelope
+	if err := json.Unmarshal(b0, &back); err != nil || back.DiffNULEscaped {
+		t.Fatalf("absent: %v, flag %v; want false", err, back.DiffNULEscaped)
+	}
+	h0, _ := EnvelopeSHA256(e)
+	e.DiffNULEscaped = true
+	h1, _ := EnvelopeSHA256(e)
+	if h0 == h1 {
+		t.Fatal("setting the flag did not change envelope_sha256")
+	}
+	b1, _ := CanonicalEnvelope(e)
+	if err := json.Unmarshal(b1, &back); err != nil || !back.DiffNULEscaped {
+		t.Fatalf("true round trip: %v, flag %v", err, back.DiffNULEscaped)
+	}
+	stripped := bytes.Replace(b1, []byte(`,"diff_nul_escaped":true`), nil, 1)
+	if !bytes.Equal(stripped, b0) {
+		t.Fatalf("stripped form %s, want the false form %s", stripped, b0)
+	}
+	for _, v := range []string{"false", "null", `"true"`, "1", "{}"} {
+		bad := append([]byte(`{"diff_nul_escaped":`+v+`,`), b0[1:]...)
+		if err := json.Unmarshal(bad, &back); !errors.Is(err, ErrInvalidEnvelope) {
+			t.Errorf("diff_nul_escaped %s: err = %v, want ErrInvalidEnvelope", v, err)
 		}
 	}
 }

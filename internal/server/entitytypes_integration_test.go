@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -704,6 +705,48 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A create that starts while another create of the same key and prefix is open
+// waits on the per-tenant advisory lock, and once that one commits it reports
+// the key, never the prefix (TICK-1160). The interleaving is made, not hoped
+// for: tx A creates and stays open; tx B is seen waiting on the advisory lock
+// in pg_locks before A commits. Without the lock in Create, B passes both
+// checks and blocks on the unique index instead, so the wait is never seen and
+// the test fails.
+func TestCreateWaitsBehindOpenCreateAndReportsTheKey(t *testing.T) {
+	e := newETEnv(t)
+	in := entitytypes.NewInput{Name: "T", PublishedBy: e.a.admin.PrincipalID, Definition: etDefinition(t, "race_key", "RAC")}
+	create := func(tx pgx.Tx) error {
+		_, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, in)
+		return err
+	}
+	second := make(chan error, 1)
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		if err := create(tx); err != nil {
+			return err
+		}
+		go func() { second <- tenancy.InTenantTx(t.Context(), e.pool, e.a.id, create) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting bool
+			if err := e.super.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)").Scan(&waiting); err != nil {
+				return err
+			}
+			if waiting {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return errors.New("the second create never waited on the advisory lock")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; !errors.Is(err, entitytypes.ErrKeyExists) {
+		t.Fatalf("second create = %v, want ErrKeyExists", err)
 	}
 }
 

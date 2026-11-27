@@ -1475,7 +1475,7 @@ components:
           type: string
     AuditEntry:
       type: object
-      required: [id, occurred_at, domain, action, subject_type, subject_id, source, causation_depth, backfilled, diff_truncated, diff_redacted]
+      required: [id, occurred_at, domain, action, subject_type, subject_id, source, causation_depth, backfilled, diff_truncated, diff_nul_escaped, diff_redacted]
       properties:
         id:
           type: string
@@ -1532,6 +1532,9 @@ components:
           description: Lowercase hex.
         diff_truncated:
           type: boolean
+        diff_nul_escaped:
+          type: boolean
+          description: True when the previous value this diff was built from had each NUL character escaped to the text `\u0000` first, because the database cannot store NUL (ADR-004-E10). Sealed into the entry's hash.
         diff:
           description: The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased.
           x-go-type: json.RawMessage

@@ -97,7 +97,8 @@ func envOf(r read.ExportRow) chain.Envelope {
 		return &a
 	}
 	return chain.Envelope{TenantID: r.TenantID, ID: e.ID, OccurredAt: e.OccurredAt, Domain: e.Domain, Action: e.Action,
-		SubjectType: e.SubjectType, SubjectID: e.SubjectID, ActorSystem: e.ActorSystem, Source: e.Source, DiffSHA256: h(e.DiffSHA256)}
+		SubjectType: e.SubjectType, SubjectID: e.SubjectID, ActorSystem: e.ActorSystem, Source: e.Source, DiffSHA256: h(e.DiffSHA256),
+		DiffNULEscaped: e.DiffNULEscaped}
 }
 
 func (l *fakeLog) head() export.Session {

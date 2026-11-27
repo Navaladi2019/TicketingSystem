@@ -554,6 +554,13 @@ type planNode struct {
 	Filter   string     `json:"Filter"`
 	Loops    *float64   `json:"Actual Loops"` // EXPLAIN ANALYZE only
 	Plans    []planNode `json:"Plans"`
+	// TICK-1158 (ADR-010-A4 A4-5): the count pin's index range, rows read
+	// and the 1.3× guard's node run cost.
+	IndexCond   string  `json:"Index Cond"`
+	ActualRows  float64 `json:"Actual Rows"`            // EXPLAIN ANALYZE only
+	Removed     float64 `json:"Rows Removed by Filter"` // EXPLAIN ANALYZE only
+	StartupCost float64 `json:"Startup Cost"`
+	TotalCost   float64 `json:"Total Cost"`
 }
 
 // explain is sql's JSON EXPLAIN, parsed, and its raw text for a failure
