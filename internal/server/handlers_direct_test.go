@@ -41,6 +41,9 @@ func tenantCalls() []call {
 		{"GetEntityType", func(ctx context.Context, h *handlers) (any, error) {
 			return h.GetEntityType(ctx, api.GetEntityTypeRequestObject{Key: "incident"})
 		}},
+		{"ListEntityTypeBackfillFailures", func(ctx context.Context, h *handlers) (any, error) {
+			return h.ListEntityTypeBackfillFailures(ctx, api.ListEntityTypeBackfillFailuresRequestObject{Key: "incident"})
+		}},
 		{"GetEntityTypeVersion", func(ctx context.Context, h *handlers) (any, error) {
 			return h.GetEntityTypeVersion(ctx, api.GetEntityTypeVersionRequestObject{Key: "incident", N: 1})
 		}},

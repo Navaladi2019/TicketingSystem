@@ -51,6 +51,7 @@ func refusalOps(e *etEnv, id string) []refusalOp {
 		{id: "getRecordHistory", method: http.MethodGet, path: "/api/v1/records/ticket/" + id + "/history", want: http.StatusOK},
 		{id: "listAuditEntries", method: http.MethodGet, path: "/api/v1/audit/entries", want: http.StatusOK},
 		{id: "getEntityTypeAccess", method: http.MethodGet, path: "/api/v1/entity-types/ticket/access", want: http.StatusOK},
+		{id: "listEntityTypeBackfillFailures", method: http.MethodGet, path: "/api/v1/entity-types/ticket/backfill/failures", want: http.StatusOK},
 		// A policy that keeps every seeded principal able to use the type, so
 		// the writes after it still succeed.
 		{id: "putEntityTypeAccess", method: http.MethodPut, path: "/api/v1/entity-types/ticket/access", write: true, want: http.StatusOK,
@@ -165,6 +166,7 @@ func checkRefusals(t *testing.T, e *etEnv, status int, code problem.Code, token 
 // covers: getRecordHistory 401
 // covers: listAuditEntries 401
 // covers: getEntityTypeAccess 401
+// covers: listEntityTypeBackfillFailures 401
 // covers: putEntityTypeAccess 401
 // covers: explainAccess 401
 // covers: publishWorkflowDefinitionVersion 401
@@ -185,6 +187,7 @@ func TestEveryTenantOperationWithoutATokenIs401AndWritesNothing(t *testing.T) {
 // covers: getRecordHistory 429
 // covers: listAuditEntries 429
 // covers: getEntityTypeAccess 429
+// covers: listEntityTypeBackfillFailures 429
 // covers: putEntityTypeAccess 429
 // covers: explainAccess 429
 // covers: publishWorkflowDefinitionVersion 429
@@ -217,6 +220,7 @@ func withoutIdempotencyKeys(counts []string) []string {
 // covers: getRecordHistory 500
 // covers: listAuditEntries 500
 // covers: getEntityTypeAccess 500
+// covers: listEntityTypeBackfillFailures 500
 // covers: putEntityTypeAccess 500
 // covers: explainAccess 500
 // covers: publishWorkflowDefinitionVersion 500
@@ -236,8 +240,10 @@ func TestEveryTenantOperationOnADatabaseFailureIs500AndWritesNothing(t *testing.
 		"getRecordHistory":         "audit_log",
 		"listAuditEntries":         "audit_log",
 		"getEntityTypeAccess":      "acl_versions",
-		"putEntityTypeAccess":      "entity_definitions",
-		"explainAccess":            "records",
+
+		"listEntityTypeBackfillFailures": "entity_definitions",
+		"putEntityTypeAccess":            "entity_definitions",
+		"explainAccess":                  "records",
 
 		"publishWorkflowDefinitionVersion": "workflow_definitions",
 		"getWorkflowDefinition":            "workflow_definitions",

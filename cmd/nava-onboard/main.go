@@ -215,7 +215,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		return nil, nil, nil, err
 	}
 	svc, err := onboard.New(onboard.Options{
-		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, ACL: onboard.ACLStore{Pool: b.appPool}, Specs: b.specs,
+		Store: b.store, Directory: b.dir, Finder: b.dir, Domains: b.reg, ACL: onboard.ACLStore{Pool: b.appPool}, Index: onboard.IndexStore{Pool: b.appPool}, Specs: b.specs,
 		Resolver: onboard.NewNetResolver(), DevIdPHosts: cfg.DevIdPHosts, Issuer: cfg.Issuer, Log: log,
 	})
 	if err != nil {

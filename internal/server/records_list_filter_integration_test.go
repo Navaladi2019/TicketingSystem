@@ -506,40 +506,24 @@ func TestListFilterRefusalsWriteNothing(t *testing.T) {
 	}
 }
 
-// PLAN-007 D-7-6 and D-7-14: the legacy scan is the fixed allow-list keyed by
-// (seed template type, field key), and replaces only step 2 of the D6 order.
-func TestListFilterLegacyAllowList(t *testing.T) {
+// PLAN-007 D-7-6 (S22 P7-12): there is no legacy JSONB scan. An unflagged data
+// field is 400 field_not_filterable for every type, a seed-shaped incident
+// priority included.
+func TestListFilterUnflaggedIsRefusedForEveryType(t *testing.T) {
 	e := newFilterEnv(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "inc", incidentTypeBody()); rec.Code != http.StatusCreated {
 		t.Fatalf("seed incident = %d: %s", rec.Code, rec.Body)
 	}
-	one := e.mustCreateRec(t, "admin-a", "incident", "i1", `{"short_description": "p1", "priority": 1}`)
-	e.mustCreateRec(t, "admin-a", "incident", "i2", `{"short_description": "p2", "priority": 2}`)
+	e.mustCreateRec(t, "admin-a", "incident", "i1", `{"short_description": "p1", "priority": 1}`)
 	e.mustCreateRec(t, "admin-a", "asset", "t1", `{"short_description": "t", "priority": 1}`)
 
-	// A tenant-defined type with its own priority never reaches the scan.
-	rec, _ := e.list(t, "admin-a", "asset", "filter[priority]=1")
-	listCode(t, rec, http.StatusBadRequest, "field_not_filterable")
-	// An unflagged seed field on the list goes through the scan.
-	// Exact (TICK-1107): 2 incidents at the default limit; the first page holds the whole result, so no count runs (A2-4) and CountBudget never applies.
-	p := e.mustList(t, "admin-a", "incident", "filter[priority]=1")
-	wantIDs(t, "scan eq", p.Items, one)
-	if p.Total != 1 {
-		t.Errorf("scan total %d, want 1", p.Total)
+	for _, c := range [][2]string{
+		{"asset", "filter[priority]=1"}, {"incident", "filter[priority]=1"}, {"incident", "filter[priority][in]=1,2"},
+		{"incident", "filter[priority][gt]=0"}, {"incident", "filter[short_description]=p1"},
+	} {
+		rec, _ := e.list(t, "admin-a", c[0], c[1])
+		listCode(t, rec, http.StatusBadRequest, "field_not_filterable")
 	}
-	if p := e.mustList(t, "admin-a", "incident", "filter[priority][in]=1,2"); p.Total != 2 {
-		t.Errorf("scan in: total %d, want 2", p.Total)
-	}
-	// The scan takes equality and in only; another field of the seed type is not on the list.
-	rec, _ = e.list(t, "admin-a", "incident", "filter[priority][gt]=0")
-	listCode(t, rec, http.StatusBadRequest, "validation_failed")
-	// A value of the wrong type is refused before the scan runs.
-	for _, q := range []string{"filter[priority][in]=1,abc", "filter[priority]=abc"} {
-		rec, _ = e.list(t, "admin-a", "incident", q)
-		listCode(t, rec, http.StatusBadRequest, "validation_failed")
-	}
-	rec, _ = e.list(t, "admin-a", "incident", "filter[short_description]=p1")
-	listCode(t, rec, http.StatusBadRequest, "field_not_filterable")
 
 	// Masked still answers first.
 	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
@@ -550,10 +534,10 @@ func TestListFilterLegacyAllowList(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rec, _ = e.list(t, "user-a", "incident", "filter[priority]=1")
+	rec, _ := e.list(t, "user-a", "incident", "filter[priority]=1")
 	listCode(t, rec, http.StatusBadRequest, "masked_field")
 
-	// A listed field that is flagged follows the registry: backfilling is 422, never the scan.
+	// A flagged field follows the registry: backfilling is 422.
 	e.flagField(t, e.a.id, "incident", "priority", "num", "backfilling", 60)
 	rec, _ = e.list(t, "admin-a", "incident", "filter[priority]=1")
 	listCode(t, rec, http.StatusUnprocessableEntity, "field_not_ready")

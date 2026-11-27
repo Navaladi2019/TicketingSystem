@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -68,15 +67,8 @@ type listFilter struct {
 	// the registry row of the field, so resolve parses them (ADR-006 D6).
 	raws []string
 	// idx is the ready registry row a data filter reads through its side
-	// table; nil for a legacy-scan filter and for a fixed column.
+	// table; nil for a fixed column.
 	idx *pipeline.IndexField
-	// legacy is a data filter answered by the JSONB scan (fieldindex.LegacyScanFields).
-	legacy bool
-	// absentMatches is set for a legacy-scan data filter when one value equals
-	// the current version's default for prop: a record that leaves prop out is
-	// served with that default, so it matches too (I5). A present null does
-	// not. Set by resolveFilters.
-	absentMatches bool
 }
 
 // listPlan is a request resolved against one entity type version.
@@ -86,10 +78,32 @@ type listPlan struct {
 	sortCol  string
 	desc     bool
 	limit    int
-	// dataTerm renders one data-filter value whose JSON document is bound at
-	// arg; nil is containment, r.data @> arg. Only the I5 mutants set it
-	// (WithListDataTerm, integration builds only).
-	dataTerm func(arg string) string
+	// win is the open backfill window of the type, when one touches a filter
+	// of this request (ADR-009 D12); nil otherwise.
+	win *filterWindow
+}
+
+// filterWindow is what D12 needs of the type's newest schema backfill job
+// while its window is open and a data filter names a field that job defaults.
+type filterWindow struct {
+	// fields are the filtered fields in the job's default_keys, with the
+	// default the current version gives each.
+	fields map[string]any
+	// union is true for the UNION ALL shape: the job is running or has failed
+	// records, no more than 1,000 rows remain, and exactly one filtered field
+	// is in the window. Otherwise every field in the window uses the OR shape.
+	union bool
+	// target is the newest job's target_version, the key of its queue.
+	target int
+}
+
+// windowFor returns the default of prop's filter when the window covers it.
+func (pl *listPlan) windowFor(prop string) (any, bool) {
+	if pl.win == nil {
+		return nil, false
+	}
+	d, ok := pl.win.fields[prop]
+	return d, ok
 }
 
 // fields are the top-level names the plan reads, for CheckQueryFields.
@@ -157,7 +171,7 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 			return nil, listInvalid(ptr, "operator")
 		}
 		for _, raw := range raws {
-			v, ok := filterValue(f.col, prop, "", raw)
+			v, ok := filterValue(f.col, raw)
 			if !ok {
 				return nil, listInvalid(ptr, "type")
 			}
@@ -181,71 +195,13 @@ func planList(def *metadata.Compiled, q url.Values, sort *string, limit *int) (*
 	return pl, nil
 }
 
-// filterValue converts one raw filter value for a fixed column or a data
-// property of type typ. A data value is the JSON document {prop: value}.
-func filterValue(col, prop, typ, raw string) (any, bool) {
-	switch col {
-	case "":
-	case metadata.ColumnState:
+// filterValue converts one raw filter value for a fixed column.
+func filterValue(col, raw string) (any, bool) {
+	if col == metadata.ColumnState {
 		return raw, raw != ""
-	default:
-		id, err := uuid.Parse(raw)
-		return id.String(), err == nil
 	}
-	var v any
-	switch typ {
-	case "string":
-		v = raw
-	case "integer":
-		n, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			return nil, false
-		}
-		v = n
-	case "number":
-		if !numberRE.MatchString(raw) {
-			return nil, false
-		}
-		v = json.Number(raw)
-	case "boolean":
-		if raw != "true" && raw != "false" {
-			return nil, false
-		}
-		v = raw == "true"
-	default:
-		return nil, false // objects, arrays and unions have no equality filter
-	}
-	doc, err := json.Marshal(map[string]any{prop: v})
-	return string(doc), err == nil
-}
-
-// sameFilterValue reports whether the filter document doc ({prop: v}, from
-// filterValue) holds the JSON value def. Numbers compare by value, as jsonb @>
-// does (1 and 1.0 are equal); other scalars compare exactly.
-func sameFilterValue(doc any, def any) bool {
-	s, ok := doc.(string)
-	if !ok {
-		return false
-	}
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
-	var m map[string]any
-	if dec.Decode(&m) != nil {
-		return false
-	}
-	for _, v := range m {
-		if a, ok := v.(json.Number); ok {
-			b, ok := def.(json.Number)
-			if !ok {
-				return false
-			}
-			ra, ok1 := new(big.Rat).SetString(a.String())
-			rb, ok2 := new(big.Rat).SetString(b.String())
-			return ok1 && ok2 && ra.Cmp(rb) == 0
-		}
-		return v == def
-	}
-	return false
+	id, err := uuid.Parse(raw)
+	return id.String(), err == nil
 }
 
 // checkPlan is the masked-field gate for everything the request names.
@@ -261,7 +217,18 @@ func maskedFieldError(err error) error {
 }
 
 // where renders the filters as one predicate with placeholders from base+1.
-func (pl *listPlan) where(base int) (string, []any) {
+// While a backfill window is open, a filter on a field the job defaults is
+// answered for records not yet rewritten too (ADR-009 D12): in the OR shape,
+// (<stored>) OR (<true for the default> AND <field absent>); in the UNION ALL
+// shape this is the first arm and the stored predicate alone.
+func (pl *listPlan) where(base int) (string, []any) { return pl.render(base, false) }
+
+// whereSecond renders the second arm of the UNION ALL shape: the records that
+// lack the field in storage, whose default satisfies the filter, and that the
+// stored predicate does not already return. It exists only when win.union.
+func (pl *listPlan) whereSecond(base int) (string, []any) { return pl.render(base, true) }
+
+func (pl *listPlan) render(base int, second bool) (string, []any) {
 	var (
 		terms []string
 		args  []any
@@ -287,22 +254,23 @@ func (pl *listPlan) where(base int) (string, []any) {
 						group = append(group, g)
 					}
 				}
-				terms = append(terms, existsTerm(group, next))
+				stored := existsTerm(group, next)
+				def, inWindow := pl.windowFor(f.prop)
+				switch {
+				case !inWindow || (pl.win.union && !second):
+					terms = append(terms, stored)
+				case second:
+					dt, _ := defaultTrue(group, def, next)
+					terms = append(terms, "("+queued(pl.win.target, next)+" AND "+dt+" AND "+fieldAbsent(f, next)+" AND NOT "+stored+")")
+				default:
+					dt, _ := defaultTrue(group, def, next)
+					terms = append(terms, "("+stored+" OR ("+dt+" AND "+fieldAbsent(f, next)+"))")
+				}
 				continue
 			}
-			ors := make([]string, 0, len(f.values))
-			for _, v := range f.values {
-				arg := next(v, "jsonb")
-				term := "r.data @> " + arg
-				if pl.dataTerm != nil {
-					term = pl.dataTerm(arg)
-				}
-				ors = append(ors, term)
-			}
-			if f.absentMatches {
-				ors = append(ors, "NOT (r.data ? "+next(f.prop, "text")+")")
-			}
-			terms = append(terms, "("+strings.Join(ors, " OR ")+")")
+			// A data filter with no side table is never answered from the data
+			// document (the JSONB scan is gone): fail closed, match nothing.
+			terms = append(terms, "false")
 		case metadata.ColumnState:
 			terms = append(terms, "r.state = ANY("+next(textsOf(f.values), "text[]")+")")
 		default:
@@ -313,13 +281,6 @@ func (pl *listPlan) where(base int) (string, []any) {
 		return "true", nil
 	}
 	return strings.Join(terms, " AND "), args
-}
-
-// hasLegacyScan reports whether any filter reads the data document through
-// the JSONB scan: only such a list has no index to lean on and runs under the
-// data-filter timeout (PLAN-007 D-7-6).
-func (pl *listPlan) hasLegacyScan() bool {
-	return slices.ContainsFunc(pl.filters, func(f listFilter) bool { return f.legacy })
 }
 
 // hasIndexFilter reports whether any filter reads a typed side table.
@@ -478,7 +439,6 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		if perr != nil {
 			return perr
 		}
-		pl.dataTerm = h.listDataTerm
 		// Before any SQL: filters, sort and the default sort.
 		if err := checkPlan(pol, p, pl); err != nil {
 			return err
@@ -524,7 +484,18 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			return err
 		}
 		read := authz.ReadListShaped(pol, p, "r", 2, shapes)
+		// ADR-009 D12: the newest backfill job, read once, decides the shape of
+		// a filter on a field it defaults.
+		if err := h.resolveWindow(ctx, tx, p.TenantID, defID, def, pl); err != nil {
+			return err
+		}
 		filt, filtArgs := pl.where(2 + len(read.Args))
+		var filt2 string
+		if pl.win != nil && pl.win.union {
+			var args2 []any
+			filt2, args2 = pl.whereSecond(2 + len(read.Args) + len(filtArgs))
+			filtArgs = append(slices.Clone(filtArgs), args2...)
+		}
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
 			Where: filt, Args: append(slices.Clone(read.Args), filtArgs...), Branches: read.Branches,
@@ -535,15 +506,26 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			lq.Where = read.Where + " AND " + filt
 			lq.CountWhere = read.CountWhere + " AND " + filt
 		}
+		if filt2 != "" {
+			lq.UnionWhere = filt2
+			if read.Branches == nil {
+				lq.UnionWhere = read.Where + " AND " + filt2
+				lq.UnionCountWhere = read.CountWhere + " AND " + filt2
+			}
+		}
 		for _, d := range read.Drivers {
 			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 		}
 		if pos != nil {
 			lq.Keyset, lq.KeysetArgs = pl.keyset(*pos, 2+len(lq.Args))
 		}
-		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
-		lq.BudgetCount = pl.hasIndexFilter() || pl.hasLegacyScan()
+		lq.BudgetCount = pl.hasIndexFilter()
 		lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
+		if h.listStatement != nil {
+			if stmt, stmtArgs, err := pipeline.PageStatement(lq); err == nil {
+				h.listStatement(stmt, stmtArgs)
+			}
+		}
 		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
 		if err == nil && pl.hasIndexFilter() {
@@ -551,9 +533,6 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			h.observeIndexedList(ctx, time.Since(started), page, narrowing)
 		}
 		if err != nil {
-			if errors.Is(err, pipeline.ErrStatementTimeout) {
-				return &problemError{problem.FilterTooExpensive, nil, err}
-			}
 			return err
 		}
 		out = api.RecordList{Items: make([]api.Record, 0, min(len(page.Records), pl.limit)), TotalState: api.RecordListTotalState(page.TotalState)}
@@ -572,7 +551,8 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 				}
 				fixedBy[rec.SchemaVersion] = fixed
 			}
-			out.Items = append(out.Items, shapeRecord(pol, p, rec, def.ApplyDefaults(rec.Payload(fixed)), fixed))
+			// ADR-009 D11: the effective value, then the field masks.
+			out.Items = append(out.Items, shapeRecord(pol, p, rec, pipeline.Effective(def, rec, fixed), fixed))
 		}
 		if len(page.Records) > pl.limit {
 			last := pl.limit - 1

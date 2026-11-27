@@ -108,10 +108,6 @@ func DefinitionID(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string
 // (col, updated_at, id), so its cursor carries the last row's updated_at.
 func TieBreaksOnUpdatedAt(col string) bool { return store.TieBreaksOnUpdatedAt(col) }
 
-// ErrStatementTimeout is the store's: a list with a data filter ran past its
-// statement timeout.
-var ErrStatementTimeout = store.ErrStatementTimeout
-
 // PageStatement is the page statement List runs for q, for plan tests and benches.
 func PageStatement(q ListQuery) (string, []any, error) { return store.PageStatement(q) }
 

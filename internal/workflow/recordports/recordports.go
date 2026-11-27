@@ -82,8 +82,11 @@ type Reader struct {
 
 var _ interp.RecordReader = Reader{}
 
-// Read returns the record's payload and its version. A record the tenant does
-// not have, another tenant's included, is interp.ErrNotFound.
+// Read returns the record's effective value and its version (ADR-009 D11):
+// the same JSON the API's single read returns before field masks, that is the
+// stored payload with the fixed columns mapped in and the current version's
+// defaults applied (pipeline.Effective). A record the tenant does not have,
+// another tenant's included, is interp.ErrNotFound.
 func (r Reader) Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[string]any, int64, error) {
 	if err := verified(ctx, tenantID); err != nil {
 		return nil, 0, err
@@ -92,8 +95,20 @@ func (r Reader) Read(ctx context.Context, tenantID, recordID uuid.UUID) (map[str
 		data    map[string]any
 		version int64
 	)
-	err := workerguard.InTenantTx(ctx, r.Pool, func(tx pgx.Tx) (err error) {
-		_, version, data, err = readRecord(ctx, tx, tenantID, recordID)
+	err := workerguard.InTenantTx(ctx, r.Pool, func(tx pgx.Tx) error {
+		rec, err := pipeline.Get(ctx, tx, tenantID, recordID)
+		if errors.Is(err, pipeline.ErrNotFound) {
+			return errNoRecord
+		}
+		if err != nil {
+			return err
+		}
+		cur, curVersion, err := (entitytypes.Store{}).Current(ctx, tx, rec.EntityKey)
+		if err != nil {
+			return fmt.Errorf("recordports: read definition: %w", err)
+		}
+		data, _, err = pipeline.EffectiveUnder(ctx, tx, entitytypes.Store{}, rec.EntityKey, rec, curVersion, cur)
+		version = rec.Version
 		return err
 	})
 	switch {

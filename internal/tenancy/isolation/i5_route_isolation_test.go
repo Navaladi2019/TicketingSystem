@@ -42,12 +42,6 @@ const (
 	i5rBudget = 240 * time.Second
 	// i5rMutantCases is how many cases each filter mutant runs on.
 	i5rMutantCases = 12
-	// i5rMinMatchedTenths is the floor on the share of filter requests that
-	// match at least one record, in tenths. The generator reaches 11-23 %
-	// (seeds 20261109 / 7 / 4242 / 31337: 82 / 145 / 163 / 158 of 720), so
-	// 10 % passes every seed with a correct compiler while a compiler or
-	// generator that matches (almost) nothing still turns the row red.
-	i5rMinMatchedTenths = 1
 )
 
 // i5rNoRateLimit lifts the per-tenant limiter (50 rps by default) off the
@@ -56,26 +50,11 @@ const (
 // test filter agreement, not the limiter.
 var i5rNoRateLimit = server.WithRateLimit(config.RateLimit{Rate: 1e6, Burst: 1 << 20}) //nolint:gochecknoglobals // read-only test/bench fixture, set once
 
-// i5rLegacyScan lets the route rows filter iso_et_i5r's unflagged fields
-// through the JSONB scan, the compiler these rows and the mutants check
-// (ADR-006 D6 refuses them otherwise with 400 field_not_filterable; that the
-// seed types' legacy fields still take this path is TestListDataFilterOnDefault*).
-var i5rLegacyScan = server.WithLegacyScan(func(typeKey, _ string) bool { return typeKey == i5rKey }) //nolint:gochecknoglobals // read-only test/bench fixture, set once
-
-// i5FilterMutants are broken data-filter compilers for the list route
-// (server.WithListDataTerm). arg is the bound JSON document {prop: value}.
+// i5FilterMutants are broken data-filter compilers for the list route. The
+// JSONB-scan compiler they broke is gone (S22 P7-12), so none are defined until
+// mutants of the side-table compiler replace them (follow-up on TICK-752).
 func i5FilterMutants() map[string]func(arg string) string {
-	return map[string]func(arg string) string{
-		// type_blind compares the text of the values, so the string "1" of a
-		// v1 row matches the integer filter 1.
-		"type_blind": func(arg string) string {
-			return "EXISTS (SELECT 1 FROM jsonb_each(" + arg + ") f WHERE r.data->>f.key = f.value#>>'{}')"
-		},
-		// null_matches lets a JSON null match any value.
-		"null_matches": func(arg string) string {
-			return "(r.data @> " + arg + " OR EXISTS (SELECT 1 FROM jsonb_each(" + arg + ") f WHERE r.data->f.key = 'null'::jsonb))"
-		},
-	}
+	return map[string]func(arg string) string{}
 }
 
 func i5FilterMutantNames() []string {
@@ -139,7 +118,7 @@ func i5rCleanup(ctx context.Context, e *etIso) error {
 // pool's extra principals and groups, and the records and shares written past
 // the API (as rows of an older version would be).
 func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() error, error) {
-	e, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan)
+	e, err := newETIso(ctx, cl, i5rNoRateLimit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,13 +130,6 @@ func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() err
 			m.stop()
 		}
 		return err
-	}
-	for name, term := range i5FilterMutants() {
-		m, err := newETIso(ctx, cl, i5rNoRateLimit, i5rLegacyScan, server.WithListDataTerm(term))
-		if err != nil {
-			return nil, stop, err
-		}
-		run.mutants[name] = m
 	}
 	if err := i5rCleanup(ctx, e); err != nil { // rows a killed earlier run left
 		return nil, stop, err
@@ -301,6 +273,19 @@ func i5rList(ctx context.Context, h *etIso, token, query string) (ci8Resp, i5rLi
 	return r, p, nil
 }
 
+// i5rListOK is i5rList for a request that must answer 200: any other answer
+// is an error, so a wrong status fails the row instead of reaching a nil page.
+func i5rListOK(ctx context.Context, h *etIso, token, query string) (i5rListPage, error) {
+	r, p, err := i5rList(ctx, h, token, query)
+	if err != nil {
+		return p, err
+	}
+	if r.code != http.StatusOK {
+		return p, fmt.Errorf("?%s = %d %s, want 200", query, r.code, r.body)
+	}
+	return p, nil
+}
+
 // i5rCounts is how much the list route and masked-field rows discriminated.
 type i5rCounts struct {
 	pages, proper, masked, open int
@@ -309,7 +294,7 @@ type i5rCounts struct {
 // i5rFilterResult is one filter request's verdict: the records on which the
 // route and the Go side differ.
 type i5rFilterResult struct {
-	checks, matched, masked, defaultHits int
+	checks, matched, masked, defaultHits, unflagged int
 	// diffs keys each disagreement as case/principal/query/record.
 	diffs map[string]string
 	first string
@@ -337,6 +322,17 @@ func (run *i5rRun) filters(ctx context.Context, h *etIso, ci int, c i5rCase, pol
 				if _, code, perr := s10Problem(resp); perr != nil || resp.code != http.StatusBadRequest || code != "masked_field" {
 					return fmt.Errorf("%s: a filter on cost, masked from the caller = %d %s, want 400 masked_field", where, resp.code, resp.body)
 				}
+				continue
+			}
+			// S22 P7-12: iso_et_i5r flags no data field, so the JSONB scan being
+			// gone, a filter on one is 400 field_not_filterable (ADR-006 D6 step
+			// 2), after the masked check above. Only the fixed-column filters
+			// still reach the agreement check below.
+			if slices.ContainsFunc(q, func(f i5rFilter) bool { _, data := i5rDataFields()[f.Prop]; return data }) {
+				if _, code, perr := s10Problem(resp); perr != nil || resp.code != http.StatusBadRequest || code != "field_not_filterable" {
+					return fmt.Errorf("%s: a filter on an unflagged data field = %d %s, want 400 field_not_filterable", where, resp.code, resp.body)
+				}
+				res.unflagged++
 				continue
 			}
 			if resp.code != http.StatusOK {
@@ -475,6 +471,10 @@ func (run *i5rRun) lists(ctx context.Context, ci int, c i5rCase, pol *authz.Poli
 // item but for id and number, and one page each at limit 1.
 func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Policy, st *i5rCounts) error {
 	a := run.twins[0]
+	// tag is an unflagged data field, so the twins are selected by the fixed
+	// columns they share, requester and group; other records may match too, so
+	// the expected set is computed by the Go check, per caller.
+	twinSel := fmt.Sprintf("filter[requester]=%s&filter[group]=%s&limit=200", a.Requester, a.Group)
 	for k, p := range c.Principals {
 		_, _, readsA := authz.Allows(pol, p, authz.OpRead, a.row(p))
 		if !readsA {
@@ -485,12 +485,21 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		if authz.Readable(pol, p, "cost") {
 			// The positive control: a caller the mask admits tells the twins
 			// apart, so the masked caller's sameness is the mask's doing.
-			_, page, err := i5rList(ctx, run.e, tok, "filter[tag]=twin&filter[cost]=1")
+			// cost is an unflagged data field, so the positive control reads
+			// it instead of filtering on it: a caller the mask admits sees
+			// the twins' costs, 1 and 900, in the twins' own items.
+			page, err := i5rListOK(ctx, run.e, tok, twinSel)
 			if err != nil {
-				return err
+				return fmt.Errorf("control: %s: %w", where, err)
 			}
-			if ids := page.ids(); len(ids) != 1 || ids[0] != a.ID.String() {
-				return fmt.Errorf("control: %s: ?filter[tag]=twin&filter[cost]=1 = %v, want only twin %s", where, ids, a.ID)
+			costs := map[string]string{}
+			for _, it := range page.Items {
+				id, _ := it["id"].(string)
+				d, _ := it["data"].(map[string]any)
+				costs[id] = fmt.Sprint(d["cost"])
+			}
+			if costs[a.ID.String()] != "1" || costs[run.twins[1].ID.String()] != "900" {
+				return fmt.Errorf("control: %s: ?%s shows costs %v, want twin %s at 1 and twin %s at 900", where, twinSel, costs, a.ID, run.twins[1].ID)
 			}
 			st.open++
 			continue
@@ -498,7 +507,7 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		st.masked++
 		var first string
 		for _, q := range []string{"filter[cost]=1", "filter[cost]=900", "filter[cost]=5", "filter[cost][in]=1,900", "filter[cost][in]=5,6",
-			"filter[tag]=twin&filter[cost]=1", "filter[tag]=twin&filter[cost]=5", "sort=cost", "sort=-cost"} {
+			twinSel + "&filter[cost]=1", twinSel + "&filter[cost]=5", "sort=cost", "sort=-cost"} {
 			r := run.e.ci8Do(ctx, run.e.h, http.MethodGet, i5rPath+"?"+q, tok, "", nil)
 			body, code, err := s10Problem(r)
 			if err != nil || r.code != http.StatusBadRequest || (code != "masked_field" && !strings.HasPrefix(q, "sort=")) {
@@ -516,13 +525,36 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 				return fmt.Errorf("%s: the 400 of ?%s differs from the first:\n%s\n%s", where, q, body, first)
 			}
 		}
-		_, page, err := i5rList(ctx, run.e, tok, "filter[tag]=twin")
+		want := map[string]bool{}
+		for _, rec := range run.all {
+			if rec.Requester != nil && rec.Group != nil && *rec.Requester == *a.Requester && *rec.Group == *a.Group {
+				if _, _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok {
+					want[rec.ID.String()] = true
+				}
+			}
+		}
+		page, err := i5rListOK(ctx, run.e, tok, twinSel)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", where, err)
 		}
-		if len(page.Items) != 2 || *page.Total != 2 {
-			return fmt.Errorf("%s: ?filter[tag]=twin = %v total %d, want both twins", where, page.ids(), *page.Total)
+		got := map[string]bool{}
+		var twinItems []map[string]any
+		for _, it := range page.Items {
+			id, _ := it["id"].(string)
+			got[id] = true
+			if id == a.ID.String() || id == run.twins[1].ID.String() {
+				twinItems = append(twinItems, it)
+			}
 		}
+		if *page.Total != len(want) || len(got) != len(want) || len(twinItems) != 2 {
+			return fmt.Errorf("%s: ?%s = %v total %d, want %d records including both twins", where, twinSel, page.ids(), *page.Total, len(want))
+		}
+		for id := range want {
+			if !got[id] {
+				return fmt.Errorf("%s: ?%s lacks readable record %s", where, twinSel, id)
+			}
+		}
+		page.Items = twinItems
 		strip := func(it map[string]any) string {
 			it = mapsClone(it)
 			for _, f := range []string{"id", "number"} {
@@ -535,16 +567,16 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		}
 		cursor, n := "", 0
 		for {
-			q := "filter[tag]=twin&limit=1"
+			q := fmt.Sprintf("filter[requester]=%s&filter[group]=%s&limit=1", a.Requester, a.Group)
 			if cursor != "" {
 				q += "&cursor=" + url.QueryEscape(cursor)
 			}
-			_, pg, err := i5rList(ctx, run.e, tok, q)
+			pg, err := i5rListOK(ctx, run.e, tok, q)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s: %w", where, err)
 			}
-			if len(pg.Items) != 1 || *pg.Total != 2 {
-				return fmt.Errorf("%s: page %d of ?%s = %v total %d, want one twin and total 2", where, n+1, q, pg.ids(), *pg.Total)
+			if len(pg.Items) != 1 || *pg.Total != len(want) {
+				return fmt.Errorf("%s: page %d of ?%s = %v total %d, want one record and total %d", where, n+1, q, pg.ids(), *pg.Total, len(want))
 			}
 			n++
 			if pg.NextCursor == nil {
@@ -552,8 +584,8 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 			}
 			cursor = *pg.NextCursor
 		}
-		if n != 2 {
-			return fmt.Errorf("%s: the twins took %d pages at limit 1, want 2", where, n)
+		if n != len(want) {
+			return fmt.Errorf("%s: the twin selection took %d pages at limit 1, want %d", where, n, len(want))
 		}
 	}
 	return nil
@@ -648,12 +680,12 @@ func i5RouteRows(ctx context.Context, cl Cluster, seed uint64, filterMutant stri
 	case len(row.diffs) > 0:
 		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d, %s: %d record disagreements in %d filter requests, by the filtered field's shape %s; first: %s",
 			seed, i5HandlerName(filterMutant), len(row.diffs), row.checks, i5rJSON(row.causes), row.first))
-	case row.matched*10 < row.checks*i5rMinMatchedTenths || row.masked == 0 || row.defaultHits == 0:
-		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests match a record, %d are masked, %d hits on a defaulted prio; the row proves little",
-			seed, row.matched, row.checks, row.masked, row.defaultHits))
+	case row.masked == 0 || row.unflagged == 0:
+		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests are masked and %d are 400 field_not_filterable; the row proves little",
+			seed, row.masked, row.checks, row.unflagged))
 	default:
-		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree (%d match a record, %d hits on a defaulted prio, %d are 400 masked_field); %s",
-			seed, i5HandlerName(filterMutant), len(run.cases), i5rPrincipals, i5rFilters, len(run.all), row.matched, row.defaultHits, row.masked, took))
+		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree (%d fixed-column requests match a record, %d are 400 field_not_filterable on an unflagged data field, %d are 400 masked_field); %s",
+			seed, i5HandlerName(filterMutant), len(run.cases), i5rPrincipals, i5rFilters, len(run.all), row.matched, row.unflagged, row.masked, took))
 	}
 
 	// A mutant is caught when it disagrees where the real compiler agreed.

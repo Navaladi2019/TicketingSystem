@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"regexp"
 	"strconv"
@@ -21,8 +22,7 @@ import (
 
 // List filters on data fields (ADR-006 D6, D7, P7-06). After the masked check,
 // each data filter is resolved against the field-index registry of the entity
-// type: not flagged is 400 field_not_filterable (except the fixed legacy
-// allow-list), backfilling is 422 field_not_ready, ready compiles to one
+// type: not flagged is 400 field_not_filterable, backfilling is 422 field_not_ready, ready compiles to one
 // correlated EXISTS on the typed side table inside the list statement.
 
 // maxTextBytes is the longest value record_field_coerce stores for a text
@@ -71,8 +71,6 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 	if err != nil {
 		return err
 	}
-	types := def.PropertyTypes()
-	defaults := def.ApplyDefaults(nil)
 	for i := range pl.filters {
 		f := &pl.filters[i]
 		if f.col != "" {
@@ -84,16 +82,7 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			flagged = false
 		}
 		if !flagged {
-			if !fieldindex.LegacyScan(entity, f.prop) && (h.legacyScan == nil || !h.legacyScan(entity, f.prop)) {
-				return notFilterable(f.prop)
-			}
-			if f.op != "eq" && f.op != "in" {
-				return listInvalid(ptr, "operator")
-			}
-			if perr := parseLegacy(f, types[f.prop], defaults); perr != nil {
-				return perr
-			}
-			continue
+			return notFilterable(f.prop)
 		}
 		if row.State == fieldindex.StateBackfilling {
 			progress := min(max(row.Progress, 0), 100)
@@ -110,25 +99,6 @@ func (h *handlers) resolveFilters(ctx context.Context, tx pgx.Tx, tenantID, defI
 			f.values = append(f.values, v)
 		}
 		f.idx = &row
-	}
-	return nil
-}
-
-// parseLegacy parses the values of a legacy-scan data filter f, a property of
-// JSON type typ, into {prop: value} documents for r.data @>. A value equal to
-// the current version's default (defaults, from ApplyDefaults) also matches a
-// record that leaves the property out (I5, TICK-912).
-func parseLegacy(f *listFilter, typ string, defaults map[string]any) *problemError {
-	f.legacy = true
-	for _, raw := range f.raws {
-		v, ok := filterValue("", f.prop, typ, raw)
-		if !ok {
-			return listInvalid("/filter/"+escapePointer(f.prop), "type")
-		}
-		f.values = append(f.values, v)
-		if d, has := defaults[f.prop]; has && sameFilterValue(v, d) {
-			f.absentMatches = true
-		}
 	}
 	return nil
 }
@@ -194,6 +164,15 @@ func sqlOp(op string) string {
 func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 	f := fs[0]
 	table, _ := f.idx.ValueType.SideTable()
+	fieldArg := next(f.idx.ID.String(), "uuid")
+	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + fieldCmps(fs, "v.value", next) + ")"
+}
+
+// fieldCmps renders the comparisons of fs, all the filters of one field, over
+// col, ANDed. It is the one place a data filter's operator and value become
+// SQL, for the stored value (existsTerm) and for a default (defaultTrue).
+func fieldCmps(fs []listFilter, col string, next func(v any, cast string) string) string {
+	f := fs[0]
 	cast := map[fieldindex.ValueType]string{
 		fieldindex.TypeText: "text", fieldindex.TypeNum: "double precision",
 		fieldindex.TypeTS: "timestamptz", fieldindex.TypeBool: "boolean",
@@ -202,17 +181,52 @@ func existsTerm(fs []listFilter, next func(v any, cast string) string) string {
 	if f.idx.ValueType == fieldindex.TypeText {
 		collate = ` COLLATE "C"`
 	}
-	fieldArg := next(f.idx.ID.String(), "uuid")
 	cmps := make([]string, 0, len(fs))
 	for _, f := range fs {
 		if f.op == "in" {
-			cmps = append(cmps, "v.value = ANY("+next(arrayOf(f.values), cast+"[]")+")")
+			cmps = append(cmps, col+" = ANY("+next(arrayOf(f.values), cast+"[]")+")")
 		} else {
-			cmps = append(cmps, "v.value "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
+			cmps = append(cmps, col+" "+sqlOp(f.op)+" "+next(f.values[0], cast)+collate)
 		}
 	}
-	cmp := strings.Join(cmps, " AND ")
-	return "EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + fieldArg + " AND " + cmp + ")"
+	return strings.Join(cmps, " AND ")
+}
+
+// defaultColumn is the column of record_field_coerce that holds a value of
+// type vt.
+func defaultColumn(vt fieldindex.ValueType) string {
+	switch vt {
+	case fieldindex.TypeNum:
+		return "value_num"
+	case fieldindex.TypeTS:
+		return "value_ts"
+	case fieldindex.TypeBool:
+		return "value_bool"
+	}
+	return "value_text"
+}
+
+// defaultTrue renders "the filters of this field are true for def, the type's
+// default for it" (ADR-009 D12), evaluated in SQL through record_field_coerce,
+// the coercion the side table's own rows went through, never by Go-side
+// equality. It reads no row of records, so the planner evaluates it once per
+// statement.
+func defaultTrue(fs []listFilter, def any, next func(v any, cast string) string) (string, error) {
+	raw, err := json.Marshal(def)
+	if err != nil {
+		return "", err
+	}
+	f := fs[0]
+	vt := string(f.idx.ValueType)
+	return "EXISTS (SELECT 1 FROM record_field_coerce(" + next(string(raw), "jsonb") + ", " + next(vt, "text") + ") d WHERE " +
+		fieldCmps(fs, "d."+defaultColumn(f.idx.ValueType), next) + ")", nil
+}
+
+// fieldAbsent renders "the record has no side-table row for this field", the
+// D12 test for a record whose stored JSON lacks the key.
+func fieldAbsent(f listFilter, next func(v any, cast string) string) string {
+	table, _ := f.idx.ValueType.SideTable()
+	return "NOT EXISTS (SELECT 1 FROM " + table + " v WHERE v.tenant_id = r.tenant_id AND v.record_id = r.id AND v.field_id = " + next(f.idx.ID.String(), "uuid") + ")"
 }
 
 // arrayOf returns vs as a typed slice pgx encodes as a PostgreSQL array.

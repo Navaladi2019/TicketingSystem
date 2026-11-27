@@ -70,9 +70,9 @@ func s22s29AttackPaths() []Path {
 		{Name: "S29 attack 1: the three backfill tables, as nava_app and nava_worker in tenant A, show no tenant B row, refuse a tenant B insert, and nava_app writes nothing; with no tenant set each reads zero rows; failures has no value column; tenant B's active job does not hold tenant A's admission (CI-3 (5), (6))", Case: "CI-2", Role: "nava_app",
 			DB: s29Tables},
 		{Name: "S29 attack 2: getEntityType, .../backfill/failures and a default-adding publish on tenant B's key are the unknown key's 404 for tenant A and write nothing; a plain user's failures read is the same 404; tenant A's backfill and failures show tenant A's job only under a shared key; the publish's job and outbox rows are tenant A's, with no tenant in the payload (CI-3 (7))", Case: "CI-2", Role: "nava_app",
-			Pending: "TICK-919", DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Routes) }},
+			DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Routes) }},
 		{Name: "S29 attack 3: with open backfill windows in both tenants under one key, a filter on the defaulted field never returns or counts a tenant B record, in the OR shape or the UNION ALL shape, and the UNION ALL arm never returns an ACL-hidden record", Case: "CI-8", Role: "nava_app",
-			Pending: "TICK-919", DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Filters) }},
+			DB: func(ctx context.Context, cl Cluster) error { return withS29Fixture(ctx, cl, s29Filters) }},
 		{Name: "S29 attack 4: pipeline.Write(OpMaterialize) in tenant A's transaction naming tenant B's record, or tenant B as the actor's tenant, writes nothing of tenant B; a non-empty patch, a non-system source, a principal or another actor_system is refused with a typed code and writes nothing (CI-3 (4))", Case: "CI-2", Role: "nava_worker",
 			DB: s29AttackRow(func(a s29Attacker) s29Fn { return a.S29Materialize4 })},
 		{Name: "S29 attack 5: a schema.backfill job t:A:… rewrites tenant A's records and changes zero tenant B rows when tenant B has the same type key, its own job and pending rows; a job id pairing tenant A with tenant B's definition, or tenant B's id under tenant A's header, ends with nothing written (CI-3 (3)); no activity payload carries a field value", Case: "CI-2", Role: "nava_worker",
@@ -1119,7 +1119,19 @@ func s29ListHas(ctx context.Context, e *etIso, token, query string, want ...stri
 // the admin's: the ACL holds in the UNION ALL arm); the plain user's is
 // empty; filter[prio]=high is {a2} for the admin; tenant B's admin sees only
 // b1 and b2. No answer ever holds or counts a tenant B record.
-func s29Filters(ctx context.Context, e *etIso, fx *s29Fixture) error {
+func s29Filters(ctx context.Context, e *etIso, fx *s29Fixture) (err error) {
+	// The seed holds a running job of tenant B on its ticket type, and a
+	// tenant admits one active job: park the seeded jobs while the rows below
+	// drive tenant B's own, and put them back as they were.
+	parked, err := s29ParkActiveJobs(ctx, e, fx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rerr := parked.restore(ctx, e); err == nil {
+			err = rerr
+		}
+	}()
 	type jobState struct {
 		state           string
 		pending, failed []string
@@ -1316,6 +1328,54 @@ func s29Routes(ctx context.Context, e *etIso, fx *s29Fixture) error {
 	if err := e.super.QueryRow(ctx, `SELECT count(*) FROM schema_backfills b WHERE NOT EXISTS
 		(SELECT 1 FROM entity_definitions d WHERE d.tenant_id = b.tenant_id AND d.id = b.entity_definition_id)`).Scan(&mismatched); err != nil || mismatched != 0 {
 		return fmt.Errorf("%d backfill jobs are not of their definition's tenant (%w)", mismatched, s22Err(err))
+	}
+	return nil
+}
+
+// s29Parked is the active jobs s29ParkActiveJobs set aside.
+type s29Parked []struct {
+	tenant, def, state string
+	target             int
+}
+
+// s29ParkActiveJobs moves every filling or running job that is not one of the
+// fixture's two types to pending, and returns what it moved.
+func s29ParkActiveJobs(ctx context.Context, e *etIso, fx *s29Fixture) (s29Parked, error) {
+	rows, err := e.super.Query(ctx, `UPDATE schema_backfills b SET state = 'pending'
+		FROM (SELECT tenant_id, entity_definition_id, target_version, state FROM schema_backfills
+		      WHERE state IN ('filling', 'running') AND entity_definition_id NOT IN ($1::uuid, $2::uuid)) o
+		WHERE b.tenant_id = o.tenant_id AND b.entity_definition_id = o.entity_definition_id AND b.target_version = o.target_version
+		RETURNING b.tenant_id::text, b.entity_definition_id::text, b.target_version, o.state`, fx.defA, fx.defB)
+	if err != nil {
+		return nil, fmt.Errorf("park the seeded active jobs: %w", err)
+	}
+	defer rows.Close()
+	var out s29Parked
+	for rows.Next() {
+		var p struct {
+			tenant, def, state string
+			target             int
+		}
+		if err := rows.Scan(&p.tenant, &p.def, &p.target, &p.state); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// restore puts the parked jobs back in the state they had. It first sets the
+// fixture's own jobs aside, as they are deleted with it anyway.
+func (p s29Parked) restore(ctx context.Context, e *etIso) error {
+	if _, err := e.super.Exec(ctx, `UPDATE schema_backfills SET state = 'pending' WHERE state IN ('filling', 'running')
+		AND entity_definition_id IN (SELECT id FROM entity_definitions WHERE key = $1)`, s29Key); err != nil {
+		return err
+	}
+	for _, j := range p {
+		if _, err := e.super.Exec(ctx, `UPDATE schema_backfills SET state = $4 WHERE tenant_id = $1 AND entity_definition_id = $2 AND target_version = $3`,
+			j.tenant, j.def, j.target, j.state); err != nil {
+			return fmt.Errorf("restore the seeded active job: %w", err)
+		}
 	}
 	return nil
 }

@@ -31,11 +31,6 @@ type ListQuery struct {
 	Keyset     string
 	KeysetArgs []any
 	Limit      int
-	// DataFilter is true when Where filters on a data property: such a list has
-	// no index to lean on, so both statements run under Timeout.
-	DataFilter bool
-	// Timeout bounds a DataFilter list; zero means DataFilterTimeout.
-	Timeout time.Duration
 
 	// Branches, when it has two or more entries, are mutually exclusive
 	// predicates over r (authz.ReadBranches) whose OR is the ACL; Where then
@@ -62,8 +57,22 @@ type ListQuery struct {
 	// order. The rows are the same either way.
 	Materialize []bool
 
-	// BudgetCount is set for a list with any data filter (indexed or legacy
-	// scan): its count runs under CountBudget in SAVEPOINT list_count.
+	// UnionWhere, when set, is the second arm of ADR-009 D12's UNION ALL
+	// shape: the filters' predicate for the records that lack a default in
+	// storage and are still queued (or failed) for the backfill, with the ACL
+	// predicate merged in the way Where's is (Where itself when Branches is
+	// empty). The page is (the page of Where) UNION ALL (the page of
+	// UnionWhere): both arms get the same Branches, the same Keyset and the
+	// same ORDER BY, and the outer query orders and limits again. The caller
+	// makes the arms disjoint (the second one ends in AND NOT <stored>), so
+	// nothing is deduplicated. UnionCountWhere replaces UnionWhere in the
+	// count, as CountWhere replaces Where. The placeholders of UnionWhere
+	// follow those of Where in Args.
+	UnionWhere      string
+	UnionCountWhere string
+
+	// BudgetCount is set for a list with a data filter (read through its side
+	// table): its count runs under CountBudget in SAVEPOINT list_count.
 	BudgetCount bool
 	// CountDelay and SkipCount are test seams (ADR-006-A2 D-7A2-5): CountDelay
 	// sleeps inside every count statement, SkipCount runs no count and leaves the
@@ -126,22 +135,12 @@ const TotalCap = 1000
 // unknown instead (ADR-006-A2 A2-2). Not a setting.
 const CountBudget = 140 * time.Millisecond
 
-// DataFilterTimeout is the statement timeout of a list with a data filter (TICK-647).
-const DataFilterTimeout = 2 * time.Second
-
-// ErrStatementTimeout is returned when a DataFilter list ran past its timeout.
-var ErrStatementTimeout = errors.New("records/store: list statement timed out")
-
 // List returns up to Limit records of the entity type matching Where and
 // Keyset, ordered by SortColumn then id, and the count of rows matching Where
 // alone. Row-level security still scopes both statements to the tenant.
 func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	if !listable(q.SortColumn) {
 		return nil, fmt.Errorf("records/store: sort column %q is not listable", q.SortColumn)
-	}
-	restore, err := boundDataFilter(ctx, tx, q)
-	if err != nil {
-		return nil, err
 	}
 	// The page runs first and is read to the end (A2-3): a count that runs out
 	// of budget then costs the caller only its total.
@@ -151,7 +150,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 	}
 	rows, err := tx.Query(ctx, sql, pageArgs...)
 	if err != nil {
-		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
+		return nil, fmt.Errorf("records/store: list records: %w", err)
 	}
 	defer rows.Close()
 	page := &ListPage{}
@@ -165,7 +164,7 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		page.SortKeys = append(page.SortKeys, key)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, timedOut(ctx, q, fmt.Errorf("records/store: list records: %w", err))
+		return nil, fmt.Errorf("records/store: list records: %w", err)
 	}
 	rows.Close()
 
@@ -180,9 +179,6 @@ func List(ctx context.Context, tx pgx.Tx, q ListQuery) (*ListPage, error) {
 		if err := countInto(ctx, tx, q, page); err != nil {
 			return nil, err
 		}
-	}
-	if err := restore(); err != nil {
-		return nil, err
 	}
 	return page, nil
 }
@@ -202,7 +198,7 @@ func countInto(ctx context.Context, tx pgx.Tx, q ListQuery, page *ListPage) erro
 	var total int64
 	if !q.BudgetCount {
 		if err := tx.QueryRow(ctx, stmt, args...).Scan(&total); err != nil {
-			return timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", err))
+			return fmt.Errorf("records/store: count records: %w", err)
 		}
 		setTotal(page, total)
 		return nil
@@ -210,7 +206,7 @@ func countInto(ctx context.Context, tx pgx.Tx, q ListQuery, page *ListPage) erro
 	// One no-argument Exec: SET LOCAL cannot take a parameter and the value is
 	// whole milliseconds.
 	if _, err := tx.Exec(ctx, "SAVEPOINT list_count; SET LOCAL statement_timeout = '"+
-		strconv.FormatInt(CountBudgetFor(q).Milliseconds(), 10)+"'"); err != nil {
+		strconv.FormatInt(CountBudget.Milliseconds(), 10)+"'"); err != nil {
 		return fmt.Errorf("records/store: open count budget: %w", err)
 	}
 	countErr := tx.QueryRow(ctx, stmt, args...).Scan(&total)
@@ -228,7 +224,7 @@ func countInto(ctx context.Context, tx pgx.Tx, q ListQuery, page *ListPage) erro
 			page.Total, page.TotalState = 0, TotalUnknown
 			return nil
 		}
-		return timedOut(ctx, q, fmt.Errorf("records/store: count records: %w", countErr))
+		return fmt.Errorf("records/store: count records: %w", countErr)
 	}
 	setTotal(page, total)
 	return nil
@@ -239,20 +235,6 @@ func setTotal(page *ListPage, total int64) {
 	if page.TotalCapped {
 		page.TotalState = TotalCapped
 	}
-}
-
-// CountBudgetFor is the statement_timeout of q's budgeted count: CountBudget,
-// or for a legacy-scan list min(CountBudget, its Timeout), Timeout zero
-// meaning DataFilterTimeout.
-func CountBudgetFor(q ListQuery) time.Duration {
-	if !q.DataFilter {
-		return CountBudget
-	}
-	d := q.Timeout
-	if d <= 0 {
-		d = DataFilterTimeout
-	}
-	return min(CountBudget, d)
 }
 
 // rowWithExtra scans the record columns plus one trailing text column.
@@ -286,7 +268,7 @@ func PageStatement(q ListQuery) (string, []any, error) {
 		order += ", r.updated_at " + dir
 	}
 	order += ", r.id " + dir
-	if branched(q) {
+	if branched(q) || q.UnionWhere != "" {
 		return branchedPage(q, args, keyset, order), args, nil
 	}
 	if q.materialize(0) {
@@ -312,51 +294,6 @@ WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + keyset 
 		` ORDER BY r.` + q.SortColumn + ` ` + order + ` LIMIT $` + fmt.Sprint(len(args)), args, nil
 }
 
-// boundDataFilter sets the transaction's statement_timeout for a DataFilter
-// list and returns the func that puts the earlier value back, so the handler's
-// later statements in the same transaction are not bound. SET LOCAL ends with
-// the transaction either way.
-func boundDataFilter(ctx context.Context, tx pgx.Tx, q ListQuery) (func() error, error) {
-	if !q.DataFilter {
-		return func() error { return nil }, nil
-	}
-	d := q.Timeout
-	if d <= 0 {
-		d = DataFilterTimeout
-	}
-	var prior string
-	if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout')`).Scan(&prior); err != nil {
-		return nil, fmt.Errorf("records/store: read statement_timeout: %w", err)
-	}
-	set := func(v string) error {
-		// SET cannot take a parameter. v is whole milliseconds or the server's own
-		// earlier setting, quoted as a literal.
-		_, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '"+strings.ReplaceAll(v, "'", "''")+"'")
-		return err
-	}
-	if err := set(strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
-		return nil, fmt.Errorf("records/store: set statement_timeout: %w", err)
-	}
-	return func() error {
-		if err := set(prior); err != nil {
-			return fmt.Errorf("records/store: restore statement_timeout: %w", err)
-		}
-		return nil
-	}, nil
-}
-
-// timedOut wraps err with ErrStatementTimeout when Postgres cancelled the
-// statement (57014) of a DataFilter list while the request itself is still
-// live. A cancel on a list without a data filter (a role-level timeout,
-// pg_cancel_backend) is not the data filter's doing and stays the raw error.
-func timedOut(ctx context.Context, q ListQuery, err error) error {
-	var pe *pgconn.PgError
-	if q.DataFilter && ctx.Err() == nil && errors.As(err, &pe) && pe.Code == "57014" {
-		return fmt.Errorf("%w: %w", ErrStatementTimeout, err)
-	}
-	return err
-}
-
 // branched reports whether q is answered branch by branch.
 func branched(q ListQuery) bool { return len(q.Branches) > 1 }
 
@@ -373,16 +310,35 @@ func CountStatement(q ListQuery) string {
 	}
 	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + w
 	cap1 := fmt.Sprint(TotalCap + 1)
-	if !branched(q) {
+	if !branched(q) && q.UnionWhere == "" {
 		return `SELECT count(*) FROM ` + countArm(q.driver(0), where, cap1) + ` c`
 	}
-	branches := q.Branches
-	if len(q.CountBranches) == len(q.Branches) {
-		branches = q.CountBranches
+	// The second arm of a UNION ALL page counts apart too, each arm capped by
+	// itself, and the disjoint arms add up (D12: total uses the same shape).
+	wheres := []string{where}
+	if q.UnionWhere != "" {
+		w2 := q.UnionWhere
+		if q.UnionCountWhere != "" {
+			w2 = q.UnionCountWhere
+		}
+		wheres = append(wheres, ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND `+w2)
 	}
-	arms := make([]string, len(branches))
-	for i, b := range branches {
-		arms[i] = countArm(q.driver(i), where+` AND `+b, cap1)
+	branches := []string{""}
+	if branched(q) {
+		branches = q.Branches
+		if len(q.CountBranches) == len(q.Branches) {
+			branches = q.CountBranches
+		}
+	}
+	var arms []string
+	for _, wh := range wheres {
+		for i, b := range branches {
+			if b != "" {
+				arms = append(arms, countArm(q.driver(i), wh+` AND `+b, cap1))
+			} else {
+				arms = append(arms, countArm(q.driver(i), wh, cap1))
+			}
+		}
 	}
 	return `SELECT count(*) FROM (SELECT 1 FROM (` + strings.Join(arms, ` UNION ALL `) + `) u LIMIT ` + cap1 + `) c`
 }
@@ -419,16 +375,33 @@ func branchedPage(q ListQuery, args []any, keyset, order string) string {
 	cols := `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
   r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
   r.data, r.causation_origin_id, r.causation_depth, r.` + q.SortColumn + ` AS sort_key`
-	arms := make([]string, len(q.Branches))
-	for i, b := range q.Branches {
-		term := `SELECT ` + cols + ` FROM records r
-WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND ` + b + keyset
-		if q.materialize(i) {
-			// C3: the branch's rows, then sorted, never walked.
-			arms[i] = `(WITH acl_m AS MATERIALIZED (` + term + `) SELECT * FROM acl_m r ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
-			continue
+	// One arm per branch, and with a UnionWhere the same again over its
+	// predicate (ADR-009 D12). A page that is not branched has one "branch"
+	// with no predicate of its own: the ACL is in Where.
+	branches := q.Branches
+	if !branched(q) {
+		branches = []string{""}
+	}
+	wheres := []string{q.Where}
+	if q.UnionWhere != "" {
+		wheres = append(wheres, q.UnionWhere)
+	}
+	var arms []string
+	for _, w := range wheres {
+		for i, b := range branches {
+			pred := w
+			if b != "" {
+				pred += ` AND ` + b
+			}
+			term := `SELECT ` + cols + ` FROM records r
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + pred + keyset
+			if q.materialize(i) {
+				// C3: the branch's rows, then sorted, never walked.
+				arms = append(arms, `(WITH acl_m AS MATERIALIZED (`+term+`) SELECT * FROM acl_m r ORDER BY r.`+q.SortColumn+` `+order+` `+limit+`)`)
+				continue
+			}
+			arms = append(arms, `(`+term+` ORDER BY r.`+q.SortColumn+` `+order+` `+limit+`)`)
 		}
-		arms[i] = `(` + term + ` ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
 	}
 	outer := strings.NewReplacer("r.updated_at", "updated_at", "r.id", "id").Replace(order)
 	// The sort column's ORDER BY term leads; order starts with its direction.

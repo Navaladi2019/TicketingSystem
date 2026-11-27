@@ -8,9 +8,9 @@ packages: [internal/metadata, internal/entitytypes]
 adrs: [ADR-001, ADR-004-E5, ADR-006, ADR-009]
 stories: [S21, S22, S29]
 invariants: [I4, I8]
-operations: [createEntityType, publishEntityTypeVersion, getEntityType, getEntityTypeVersion, listEntityTypes]
+operations: [createEntityType, publishEntityTypeVersion, getEntityType, getEntityTypeVersion, listEntityTypes, listEntityTypeBackfillFailures]
 tables: [entity_definitions, entity_definition_versions, schema_backfills, tenant_limits]
-tests: [TestCompileRefusesExternalRefs, TestCompilerLoaderDeniesEverything, TestSharedCompilerWouldLeak, TestNoDatabaseOrNetworkImports, TestCompileCapsAreInclusive, TestClassify, TestCheckSchemaSecretRequired, TestPublishRefusalsAndFailures, TestCreateRefusals, TestValidateReportsEachKindOfFailure, TestApplyDefaults, TestUpdateUnderNewVersionFillsDefaults, TestClassifyRequiredWithExistingDefault, TestCompileNewRefusesDefaultWithUnique, TestPublishAddingADefaultWritesOneJobAndOneOutboxRow, TestPublishAddingNoDefaultWritesNoJob, TestPublishDefaultWithUniqueIsRefusedAndWritesNothing, TestRolledBackPublishAfterJobInsertWritesNoJobAndNoOutboxRow, TestPublishReplayWithADefaultKeepsOneVersionOneJobOneOutboxRow, TestStoredDefaultWithUniqueStillReadsAndWritesButPublishIsRefused, TestPublishUnflagFlipsToRemoving, TestPublishReflagWhileRemovingIsBusyThenBackfills, TestPublishHonoursTheTenantsRaisedLimit]
+tests: [TestCompileRefusesExternalRefs, TestCompilerLoaderDeniesEverything, TestSharedCompilerWouldLeak, TestNoDatabaseOrNetworkImports, TestCompileCapsAreInclusive, TestClassify, TestCheckSchemaSecretRequired, TestPublishRefusalsAndFailures, TestCreateRefusals, TestValidateReportsEachKindOfFailure, TestApplyDefaults, TestUpdateUnderNewVersionFillsDefaults, TestClassifyRequiredWithExistingDefault, TestCompileNewRefusesDefaultWithUnique, TestPublishAddingADefaultWritesOneJobAndOneOutboxRow, TestPublishAddingNoDefaultWritesNoJob, TestPublishDefaultWithUniqueIsRefusedAndWritesNothing, TestRolledBackPublishAfterJobInsertWritesNoJobAndNoOutboxRow, TestPublishReplayWithADefaultKeepsOneVersionOneJobOneOutboxRow, TestStoredDefaultWithUniqueStillReadsAndWritesButPublishIsRefused, TestPublishUnflagFlipsToRemoving, TestPublishReflagWhileRemovingIsBusyThenBackfills, TestPublishHonoursTheTenantsRaisedLimit, TestGetEntityTypeCarriesTheNewestBackfillJob, TestGetEntityTypeBackfillRemainingIsCappedAt1001, TestListBackfillFailuresPagesThroughEveryFailureOnce, TestBackfillRoutesDoNotSayWhetherATypeExists, TestListBackfillFailuresRefusesABadLimitAndWritesNothing]
 ---
 
 ## Purpose
@@ -101,6 +101,25 @@ Adding an optional property **with** a default is Compatible, but it also
 queues a backfill, so old records get the value stored (ADR-009 D1). The job
 is described on [Schema backfill](../workflows/schema-backfill.md), and its
 tables on [Schema backfill tables](../database/schema-backfill.md).
+
+## Backfill progress on the entity type (S29, story branch)
+
+ADR-009 D10, TICK-1192. Both routes read the job tables as `nava_app`, SELECT
+only, in the request's tenant transaction.
+
+- `getEntityType` carries a `backfill` object from the type's newest job (the
+  highest `target_version`): `state`, `target_version`, `rewritten`,
+  `skipped`, `failed`, `remaining`, `started_at`, `finished_at` (UTC). It is
+  absent when the type has no job. `remaining` is the job's queued plus failed
+  records, counted up to 1,001, where 1,001 means "more than 1,000".
+- `GET /api/v1/entity-types/{key}/backfill/failures`
+  (`listEntityTypeBackfillFailures`) lists the newest job's failed records as
+  `{items: [{record_id, code}], next_cursor}`, keyset by `record_id`, `limit`
+  1 to 100 (default 50). It never returns a value. It needs the entity-type
+  admin permission that publish needs. Anyone else, an unknown key and another
+  tenant's key all get the same `404 not_found`. An admin's own type with no
+  job gets `200` with empty `items`. A bad `limit` or cursor is `400
+  validation_failed`, refused before the database is read.
 
 ## Filterable fields (S21, S22, story branch)
 
