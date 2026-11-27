@@ -182,13 +182,10 @@ func TestPublishFieldIndexRefusalsWriteNothing(t *testing.T) {
 		code   problem.Code
 		want   []string // pointers that must be among the errors
 	}{
-		{name: "flag removed", schema: func(t *testing.T) string {
-			return strings.Replace(etSchema, `"properties": {`, `"properties": {"region": {"type": "string"}, `, 1)
-		}, status: http.StatusUnprocessableEntity, code: problem.FilterableFieldRemovalUnavailable,
-			want: []string{"/definition/schema/properties/region"}},
+		// Dropping the flag publishes (TestPublishUnflagFlipsToRemoving); deleting
+		// the flagged property outright is a breaking change and flips nothing.
 		{name: "flagged property deleted from the schema", schema: func(t *testing.T) string { return etSchema },
-			status: http.StatusUnprocessableEntity, code: problem.FilterableFieldRemovalUnavailable,
-			want: []string{"/definition/schema/properties/region"}},
+			status: http.StatusUnprocessableEntity, code: problem.SchemaBreakingChange},
 		{name: "type change", schema: func(t *testing.T) string {
 			return strings.Replace(etFlaggedProps(t, "region"), `"region": {"type": "string"`, `"region": {"type": "number"`, 1)
 		}, status: http.StatusUnprocessableEntity, code: problem.FilterableFieldTypeChange,

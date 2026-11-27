@@ -13,12 +13,10 @@ package authz
 //     tenant's coordinator starts it, so a removal never runs beside a
 //     backfill and the relay cannot start one from a forged row.
 //
-// The deny cases below are denied today (the types are not allow-listed yet)
-// and must stay denied once they are, for the same reason: they run now. The
-// cases that need the type allow-listed (positive controls, the tenant checks
-// on a run of the type) skip until the policy lists the type, so they turn
-// on in the PR that adds it (TICK-920 for schema.backfill, TICK-750 for
-// field_index.remove.run) with no further change here.
+// The deny cases ran before the types were listed and must stay denied, for
+// the same reason. schema.backfill is listed (TICK-920): every case runs, and
+// one that finds it unlisted fails. The field_index.remove.run cases that
+// need the type listed skip until TICK-750 lists it.
 
 import (
 	"testing"
@@ -52,12 +50,14 @@ func schemaBackfillStart(wfID string) *workflowservice.StartWorkflowExecutionReq
 		WorkflowType: &commonpb.WorkflowType{Name: schemaBackfillType}, TaskQueue: schemaBackfillTQ()}
 }
 
-// requireSchemaBackfillListed skips until schema.backfill is a platform type
-// (TICK-920 adds it to platformWorkflowTypes and startOnlyWorkflowTypes).
+// requireSchemaBackfillListed fails unless schema.backfill is a start-only
+// platform type. TICK-920 listed it; until then these cases skipped. A type
+// dropped from the lists now would turn every positive control below into a
+// silent pass, so it is a failure, not a skip.
 func requireSchemaBackfillListed(t *testing.T) {
 	t.Helper()
-	if !inSet(platformWorkflowTypes(), schemaBackfillType) {
-		t.Skip("schema.backfill is not allow-listed yet (TICK-920)")
+	if !inSet(platformWorkflowTypes(), schemaBackfillType) || !inSet(startOnlyWorkflowTypes(), schemaBackfillType) {
+		t.Fatalf("%s is not a start-only platform type (TICK-920 lists it)", schemaBackfillType)
 	}
 }
 

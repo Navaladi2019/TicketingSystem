@@ -582,8 +582,6 @@ func refusalProblem(r *metadata.RefusalError, prefix string, err error) *problem
 		code = problem.FilterableFieldTypeChange
 	case metadata.RefusalSearchableNotAvailable:
 		code = problem.SearchableNotAvailable
-	case metadata.RefusalFilterableRemovalUnavailable:
-		code = problem.FilterableFieldRemovalUnavailable
 	default:
 		return &problemError{problem.InternalError, nil, err}
 	}

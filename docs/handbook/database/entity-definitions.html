@@ -286,7 +286,7 @@ case where a stored version's schema changes. Decision and figures:
 </tr>
 </tbody>
 </table>
-<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT; nava_audit_reader SELECT (tenant_id, definition_id, schema); nava_onboard INSERT; nava_worker SELECT.</p>
+<p>Grants (<code>db/grants.yaml</code>, <a href="../database/roles-and-grants.html">roles and grants</a>): nava_app SELECT; nava_app INSERT (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by, published_at, number_format_id, number_format_version, number_compiled); nava_audit_reader SELECT (tenant_id, definition_id, schema); nava_onboard INSERT; nava_worker SELECT.</p>
 <h4 id="entitydefinitions"><code>entity_definitions</code></h4>
 <p>Kind: table. Row-level security: enabled true, forced true. Primary key: <code>tenant_id</code>, <code>id</code>.</p>
 <p>Audit: audited (subject <code>entity_definition</code>, writers <code>nava_app</code>, <code>nava_onboard</code>).</p>

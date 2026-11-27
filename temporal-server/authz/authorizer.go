@@ -244,6 +244,9 @@ func checkStartRequest(request any) *commandDenial {
 			" does not match the workflow id's schema.backfill form"
 	}
 	if reason == "" {
+		reason, detail = checkReservedID(workflowID, wt.GetName())
+	}
+	if reason == "" {
 		reason, detail = checkStartSchedule(cron, retry)
 	}
 	if reason == "" {

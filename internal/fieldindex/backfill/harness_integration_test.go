@@ -304,8 +304,10 @@ type runOptions struct {
 	backfill    *backfill.Backfill
 	// barrier, when set, replaces fieldindex.Barrier (the test seam).
 	barrier func(context.Context) error
-	// remove, when set, is registered as FieldIndexRemove (TICK-750's).
-	remove func(workflow.Context, backfill.FieldRef) error
+	// remove, when set, is registered as FieldIndexRemove instead of the
+	// real one, remover (zero: the defaults).
+	remove  func(workflow.Context, backfill.FieldRef) error
+	remover *backfill.Remove
 	// onBatch runs after each Batch activity completes, with its workflow id.
 	onBatch func(workflowID string)
 	// onHeartbeat runs on each Barrier heartbeat.
@@ -363,6 +365,12 @@ func newRun(t *testing.T, tenant uuid.UUID, o runOptions) *run {
 	b.Register(r.env)
 	if o.remove != nil {
 		r.env.RegisterWorkflowWithOptions(o.remove, workflow.RegisterOptions{Name: fieldindex.RemoveWorkflowType})
+	} else {
+		rm := o.remover
+		if rm == nil {
+			rm = &backfill.Remove{}
+		}
+		rm.Register(r.env)
 	}
 
 	r.env.SetOnActivityStartedListener(func(_ *activity.Info, _ context.Context, args converter.EncodedValues) {
@@ -517,6 +525,17 @@ func item(f fixture, version int) fieldindex.EnqueueItem {
 
 func backfillChild(f fixture, version int) string {
 	return backfill.ChildID(f.tenant, fieldindex.BackfillWorkflowType, f.field, version)
+}
+
+// removeItem is the coordinator item of f's field_index.remove row.
+func removeItem(f fixture, version int) fieldindex.EnqueueItem {
+	it := item(f, version)
+	it.Op = fieldindex.OpRemove
+	return it
+}
+
+func removeChild(f fixture, version int) string {
+	return backfill.ChildID(f.tenant, fieldindex.RemoveWorkflowType, f.field, version)
 }
 
 // lockedWriter serialises writes to a buffer shared with the test.

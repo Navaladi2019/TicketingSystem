@@ -89,6 +89,9 @@ func newAPIRunner(t *testing.T) *apiRunner {
 	// a StoredUnderA call reaches the real create (P3-18).
 	h, err := server.NewHandler(slog.New(slog.DiscardHandler), tel, resolver, pgstore.New(pool),
 		server.WithOperator(resolver, refusingOnboarder{}), server.WithPool(pool),
+		// The operator limits route writes on nava_onboard, as nava-core
+		// wires it (TICK-751); S22 attack 3b drives it.
+		server.WithOperatorLimits(suite.pool(t, "nava_onboard", suite.m.Roles["nava_onboard"].PgBouncerLogin)),
 		// A create takes its number on the allocator pool (ADR-005 L2s); on
 		// pool, one connection the create holds, it would starve.
 		server.WithAllocatorPool(suite.allocPool(t)))

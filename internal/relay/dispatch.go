@@ -66,7 +66,8 @@ type Temporal interface {
 const (
 	opStart  = "start"
 	opSignal = "signal"
-	// opSignalWithStart is a field_index.backfill row: a signal to the
+	// opSignalWithStart is a field_index.backfill or field_index.remove row
+	// (TICK-750): a signal to the
 	// tenant's field-index coordinator, which the call starts if it is not
 	// running (PLAN-007 D-7-12).
 	opSignalWithStart = "signal_with_start"
@@ -220,7 +221,7 @@ func (d *Dispatcher) Poll(ctx context.Context) (int, error) {
 func (d *Dispatcher) dispatch(ctx context.Context, c Claimed, deadline time.Time) {
 	op := opSignal
 	switch {
-	case c.Kind == outbox.FieldIndexBackfillKind:
+	case outbox.IsFieldIndexKind(c.Kind):
 		op = opSignalWithStart
 	case c.IsStart():
 		op = opStart
@@ -382,7 +383,8 @@ func coordinatorOptions(workflowID string, tenant uuid.UUID) client.StartWorkflo
 }
 
 // enqueueItem is the coordinator's signal body for a field_index.backfill
-// row (ADR-006 D10, TICK-745): the field from the payload, which
+// row (ADR-006 D10, TICK-745), or a field_index.remove row (D11, TICK-750),
+// whose op is OpRemove: the field from the payload, which
 // ValidateKindPayload has checked, requested_version from target_seq (the
 // payload admits UUIDs only), and the row's own id for the coordinator's
 // dedupe. Nothing else is read. A field id that is not a canonical UUID, or
@@ -404,7 +406,11 @@ func enqueueItem(c Claimed) (fieldindex.EnqueueItem, bool) {
 	if err != nil || f == uuid.Nil || f.String() != p.FieldID || c.TargetSeq < 1 || c.TargetSeq > 32767 {
 		return fieldindex.EnqueueItem{}, false
 	}
-	return fieldindex.EnqueueItem{Op: fieldindex.OpBackfill, FieldID: p.FieldID,
+	op := fieldindex.OpBackfill
+	if c.Kind == outbox.FieldIndexRemoveKind {
+		op = fieldindex.OpRemove
+	}
+	return fieldindex.EnqueueItem{Op: op, FieldID: p.FieldID,
 		RequestedVersion: int(c.TargetSeq), OutboxID: c.ID.String()}, true
 }
 

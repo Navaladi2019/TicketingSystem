@@ -407,9 +407,6 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: classify: %w", err)
 	}
-	if err := removedFilterable(prev, next); err != nil {
-		return nil, err
-	}
 	if class == metadata.Breaking {
 		return nil, &BreakingError{Paths: paths}
 	}
@@ -429,6 +426,9 @@ SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE defin
 		return nil, fmt.Errorf("entitytypes: next version: %w", err)
 	}
 	if err := registerFilterable(ctx, tx, tenantID, defID, number, addedFilterable(prev, next)); err != nil {
+		return nil, err
+	}
+	if err := retireFilterable(ctx, tx, tenantID, defID, number, removedFilterable(prev, next)); err != nil {
 		return nil, err
 	}
 	// The epoch is taken after the row lock above, in this transaction (C10).

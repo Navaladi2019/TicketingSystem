@@ -20,21 +20,26 @@ of tenant B.
 
 ## Day 1 and day 2
 
-On 2026-11-26 none of the code under test had landed: TICK-750, TICK-752,
-TICK-916, TICK-919 and TICK-920 were all open. The suite is written from their
-contracts. A row whose code has not landed names its task in `Pending`. It is
-listed in the isolation report and not run. The PR that lands the task
-removes `Pending`, and the row must then pass. The rows that need Go APIs
-that do not exist yet (`OpMaterialize`, `FieldIndexRemove`, the relay
-dispatch, the schema.backfill workflow) have a `s22s29NotWritten` body. If
-`Pending` is removed before the body is written, the row fails.
+On 2026-11-26 (day 1) none of the code under test had landed. The suite was
+written from the contracts of TICK-750, TICK-752, TICK-916, TICK-919 and
+TICK-920, and each row whose code had not landed named its task in `Pending`.
 
-The authz tests switch on by themselves. Their deny cases run today: the
-types are not allow-listed, so the commands are denied for
-`workflow_type_not_allowed`. Once the types are listed as start-only or
-child-only, the reason stays the same. The cases that need the type listed
-(positive controls, tenant checks on a run of the type) skip until
-`platformWorkflowTypes` or `childOnlyWorkflowTypes` lists it.
+On 2026-11-27 (day 2, PR #943) TICK-916 and TICK-920 had merged, and their
+rows run: S22 3 and 3b, and S29 1, 4, 5 and 6. Their bodies are in
+`s29_attack_isolation_test.go` (integration tag), because they drive the
+records pipeline, the real `schema.backfill` workflow on the Temporal SDK test
+environment, and the relay. S22 3b drives the real operator limits route: the
+suite's API handler is now built with `WithOperatorLimits`. The authz suite
+now fails, rather than skips, if `schema.backfill` is not a start-only
+platform type.
+
+Still `Pending`:
+
+| Rows | Pending on |
+|---|---|
+| S22 1b, S22 2b, and the `field_index.remove.run` authz cases | TICK-750 |
+| S22 4 | TICK-752 |
+| S29 2 and 3 | TICK-919 |
 
 ## Rows against the scope
 
@@ -61,24 +66,29 @@ child-only, the reason stays the same. The cases that need the type listed
 
 ## Broken variants
 
-Each row must be red against a broken variant of the defence it proves.
+Each row must be red against a broken variant of the defence it proves. The
+DB variants were run in GitHub CI, each on a throwaway `SPIKE, NEVER MERGE`
+branch (since deleted) with one `gh workflow run ci`. A variant that weakens a
+policy also needs an entry in the CI-1 allow-list (`internal/db/catalog`), or
+the catalogue gate refuses the migration before the suite runs.
 
 | Variant | Row | Result |
 |---|---|---|
-| A1: `schema.backfill` added to `platformWorkflowTypes` but not to `startOnlyWorkflowTypes` | `TestWorkerCommandsCannotNameSchemaBackfill` | **Run locally: red.** The interpreter's child and continue-as-new are allowed |
-| A2: `field_index.remove.run` added to `platformWorkflowTypes` but not to `childOnlyWorkflowTypes` | `TestRelayCannotStartRemovalDirectly`, `TestInterpreterCannotStartRemoval` | **Run locally: red.** The relay starts a removal directly, and an interpreter starts one as a child |
-| S4: today's tree, with the legacy scan still in place | S22 attack 4 | **Run locally: red.** It flags exactly the 8 sites TICK-752 deletes: `records_list.go:296` (`data @>`), `:303` (`data ?`), `LegacyScanFields` ×2, `DataFilterTimeout` ×3, `WithDataFilterTimeout` |
-| D1: `record_index_fields` DELETE policy for nava_worker `USING (true)` | S22 attack 1, "registry delete" naming B | Traced: tenant B's note row is reached (1 row, want 0) |
-| D2: `rfv_text` DELETE policy `USING (true)` | S22 attack 1, "batched delete by field id alone" | Traced: tenant B's 2 rows are reached |
-| D3: the D4 trigger copies fields in `removing` too (`state IN ('backfilling','ready','removing')`) | S22 attack 2 | Traced: "write added 1 side rows to tenant A's note while it is removing" |
-| D4: `GRANT UPDATE ON tenant_limits TO nava_app` | S22 attack 3 | Traced: the manifest check fails before any SQL runs |
-| D5: `schema_backfills` policy without the tenant predicate | S29 attack 1 | Traced: "read 1 rows of another tenant" |
-| D6: the partial unique index on `(state)` instead of `(tenant_id)` | S29 attack 1, admission | Traced: tenant A's admission gets 23505 while tenant B's job runs |
-
-D1 to D6 are traced, not run. The isolation suite runs only in CI
-(`scripts/ci/isolation.sh`). Agents do not run it locally. The pending rows
-run for the first time in the PR that lands their task. That PR must show the
-row red against D4 to D6 and against the variants of the rows it fills in.
+| A1: `schema.backfill` platform-listed, not start-only | `TestWorkerCommandsCannotNameSchemaBackfill` | Local run: red |
+| A2: `field_index.remove.run` platform-listed, not child-only | `TestRelayCannotStartRemovalDirectly`, `TestInterpreterCannotStartRemoval` | Local run: red |
+| S4: the tree before TICK-752 | S22 attack 4 | Local run: red on exactly the 8 legacy-scan sites |
+| D1: `record_index_fields` worker DELETE `USING (true)` | none of the S22 rows | The CI-1 gate refuses it (run 45840586980). Past the gate, the generic per-table probe catches it (run 45844195746). S22 attack 1 stays green, because PostgreSQL also applies the SELECT policy to a `DELETE … WHERE`. |
+| D1': D1, plus worker SELECT `USING (true)` | S22 attack 1 | Red (run 45845475310): tenant A reaches tenant B's registry row, and only the D3 FK stops the delete |
+| D2: `rfv_text` worker DELETE `USING (true)` | none of the S22 rows | As D1: the gate (run 45840594226), then the generic probe (run 45844240150) |
+| D2': D2, plus worker SELECT `USING (true)` | S22 attack 1 | Red (run 45845504565): the batched delete reaches tenant B's 2 side rows |
+| D3: the D4 trigger also copies fields in `removing` | S22 attack 2 | Red, on this row only (run 45840602023) |
+| V4: `nava_app` granted UPDATE on `tenant_limits` | S22 attack 3 | The CI-A3 audited-writers gate refuses it (run 45913136815). With `nava_app` also listed as a writer, S22 attack 3 is red (run 45918771787) |
+| V5: `schema_backfills_select_app USING (true)` | S29 attack 1 | Red (run 45913188778), together with the generic probe and TICK-916's own row |
+| V6: the one-active index on `(state)`, not `(tenant_id)` | S29 attack 5 | Red (run 45913295758): tenant A's own job cannot run while tenant B's runs. S29 attack 1 stays green, because B's seeded job is `running` and A's goes to `filling`, a different key |
+| V7: the limits audit actor is `system:`, not `operator:` | S22 attack 3b | Red (run 45913351311) |
+| V8: `OpMaterialize` accepts a patch | S29 attack 4 | Red (run 45913406847): "a non-empty patch = written" |
+| V9: the job's statements drop `tenant_id = $1`, and the worker SELECT and UPDATE policies on `schema_backfills` are open | generic probe | The generic probe is red (run 45913464508). The suite step then failed without writing its report, so S29 attack 5's own result under V9 is not confirmed |
+| V10: the relay skips `ValidateKindPayload` | S29 attack 6 | Red (run 45913509592): the forged row is dispatched |
 
 ## Findings
 

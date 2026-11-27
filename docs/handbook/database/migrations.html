@@ -951,6 +951,20 @@ comment.</p>
 <td>in progress (not on main)</td>
 <td>-</td>
 </tr>
+<tr>
+<td><code>20261127110000</code></td>
+<td><code>20261127110000_entity_versions_published_by_system.sql</code></td>
+<td>P7-12a (TICK-1172): a version after v1 may name a system publisher instead of a principal.</td>
+<td>in progress (not on main)</td>
+<td><code>entity_definition_versions_published_by_check</code> NOT VALID, validated in <code>20261101130100</code>; <code>entity_definition_versions_published_by_system_check</code> NOT VALID, validated in <code>20261127110100</code></td>
+</tr>
+<tr>
+<td><code>20261127110100</code></td>
+<td><code>20261127110100_entity_versions_published_by_system_validate.sql</code></td>
+<td>P7-12a (TICK-1172): validates 20261127110000's two CHECKs in their own transaction.</td>
+<td>in progress (not on main)</td>
+<td>VALIDATE <code>entity_definition_versions_published_by_check</code> (added in <code>20261101130000</code>); VALIDATE <code>entity_definition_versions_published_by_system_check</code> (added in <code>20261127110000</code>)</td>
+</tr>
 </tbody>
 </table>
 </article>
