@@ -217,7 +217,7 @@ jobs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       self_hosted: ${{ steps.pick.outputs.self_hosted }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Pick the runner
         id: pick
         env:
@@ -259,16 +259,16 @@ jobs:
       # the labels, so every run of one head agrees. check-ci-steps pins it.
       docs_only: ${{ steps.stages.outputs.docs_only }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -342,7 +342,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -358,17 +358,17 @@ jobs:
       # check-openapi and review-paths diff against the pull request's base.
       BASE: origin/${{ github.base_ref || 'main' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -383,7 +383,7 @@ jobs:
       - name: Cache pinned tools
         id: tools
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/go/bin
           # The Go version is in the key: a golangci-lint built with an older Go
@@ -444,7 +444,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -464,16 +464,16 @@ jobs:
       # have shipped bind deployed databases (TICK-309).
       BASE: origin/main
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -486,7 +486,7 @@ jobs:
         run: make test
       # The unit half of the coverage gate (TICK-518).
       - name: Unit coverage profile
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-unit
           path: coverage.out
@@ -494,7 +494,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -511,17 +511,17 @@ jobs:
       # (TICK-584 ratchet), so the checkout needs the base's history.
       BASE: origin/${{ github.base_ref || 'main' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - id: setup-go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: temporal-server/go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -537,7 +537,7 @@ jobs:
       - name: Cache pinned tools
         id: tools
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/go/bin
           # The Go version is in the key: a golangci-lint built with an older Go
@@ -556,7 +556,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -585,7 +585,7 @@ jobs:
     # budget" in docs/quality/ci-pipeline.md.
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 20 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Self-hosted (TICK-641): this run's compose project, image tag and
       # host ports, and the nava.ci.owner label of its clusters, which the
       # self-hosted-cleanup job removes.
@@ -594,13 +594,13 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -618,7 +618,7 @@ jobs:
         run: make test-integration
       # The integration half of the coverage gate (TICK-518).
       - name: Integration coverage profile
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-integration
           path: coverage-integration.out
@@ -630,7 +630,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -665,14 +665,14 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 15 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Self-hosted (TICK-641): as integration.
       - name: Per-run Docker names (self-hosted)
         if: needs.runner.outputs.self_hosted == 'true'
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
@@ -680,7 +680,7 @@ jobs:
       # integration packages. Only integration saves it.
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -705,7 +705,7 @@ jobs:
         run: make test-integration-cleanup
       - name: Isolation report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: isolation-report
           path: isolation-report.md
@@ -729,7 +729,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Docs-only diff, isolation suite not needed
         env:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
@@ -752,13 +752,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -772,7 +772,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -813,7 +813,7 @@ jobs:
       # workflow's CI_FULL expression (keep the two equal).
       STACK_TIER: ${{ (github.event.schedule == '41 2 * * *' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full'))) && 'all' || 'smoke' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Self-hosted (TICK-641): this run's compose project, image tag and
       # host ports, and the nava.ci.owner label of its clusters, which the
       # self-hosted-cleanup job removes.
@@ -822,13 +822,13 @@ jobs:
         env:
           ID: ci-${{ github.run_id }}
         run: make ci-self-hosted-env
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -841,9 +841,9 @@ jobs:
       # type=gha. Self-hosted: neither (setup-buildx-action's builder is
       # throwaway, its cache gone after the job); the persistent nava-ci
       # builder instead, selected through BUILDX_BUILDER (TICK-641).
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         if: needs.runner.outputs.self_hosted != 'true'
-      - uses: crazy-max/ghaction-github-runtime@v3
+      - uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124 # v3.1.0
         if: needs.runner.outputs.self_hosted != 'true'
       - name: Persistent buildx builder nava-ci (self-hosted)
         if: needs.runner.outputs.self_hosted == 'true'
@@ -876,7 +876,7 @@ jobs:
       # node --test --experimental-strip-types, so the Node of sdk/ts/.nvmrc
       # (22), not the runner's default; same setup as the sdk job. The npm
       # cache key covers the Bruno CLI's lockfile too (TICK-1003).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: sdk/ts/.nvmrc
           cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
@@ -913,14 +913,14 @@ jobs:
       # sdk and identity_attacks write these; both are full-tier (TICK-652).
       - name: CI-6 report
         if: always() && env.CI_FULL == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ci6-report
           path: ci6-report.md
           if-no-files-found: error
       - name: CI-5 report
         if: always() && env.CI_FULL == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ci5-report
           path: ci5-report.md
@@ -932,7 +932,7 @@ jobs:
       # and that case is the failure to read.
       - name: S10 access report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: s10-access-report
           path: docs/acceptance/guide/reports/S10.*
@@ -942,7 +942,7 @@ jobs:
       # evidence of the fresh-stack run. Same content and the same warn as the S10 report.
       - name: S11b workflows report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: s11b-workflows-report
           path: docs/acceptance/guide/reports/S11b.*
@@ -952,7 +952,7 @@ jobs:
       # reports, onboarding to the first workflow-routed record. Same content and warn as above.
       - name: S28 first routed record report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: s28-first-routed-record-report
           path: docs/acceptance/guide/reports/S28.*
@@ -1009,7 +1009,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true' && needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -1032,7 +1032,7 @@ jobs:
     runs-on: [self-hosted, wsl]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Remove this run's containers, volumes, networks and image tags
         env:
           ID: ci-${{ github.run_id }}
@@ -1057,14 +1057,14 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 30 || 10 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
         if: needs.runner.outputs.self_hosted != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -1074,18 +1074,18 @@ jobs:
             go-unit-${{ hashFiles('**/go.sum') }}-
             go-unit-
       - name: Download the unit profile
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage-unit
       - name: Download the integration profile
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage-integration
       - name: Coverage gate (95%, TICK-518)
         run: make check-coverage
       - name: Coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
           path: |
@@ -1107,8 +1107,8 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.runs_on) }}
     timeout-minutes: ${{ needs.runner.outputs.self_hosted == 'true' && 20 || 10 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: sdk/ts/.nvmrc
           cache: ${{ needs.runner.outputs.self_hosted != 'true' && 'npm' || '' }}
@@ -1122,7 +1122,7 @@ jobs:
       - name: SDK build and npm pack
         run: make sdk-pack
       - name: Upload the SDK tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sdk
           path: sdk/ts/*.tgz
@@ -1144,7 +1144,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Every suite job succeeded
         env:
           TEMPORAL_SERVER: ${{ needs.changes.outputs.temporal_server }}
@@ -1176,15 +1176,15 @@ jobs:
       pull-requests: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Restore the Go build cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -1209,7 +1209,7 @@ jobs:
       # Only main writes the cache (TICK-400); see CACHE_WRITE above.
       - name: Save the Go build cache
         if: success() && env.CACHE_WRITE == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cache/go-build
@@ -1230,7 +1230,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Open or update the P0 issue
         env:
           GH_TOKEN: ${{ github.token }}
