@@ -26,7 +26,7 @@ import (
 // correlated EXISTS on the typed side table inside the list statement.
 
 // maxTextBytes is the longest value record_field_coerce stores for a text
-// field (db/migrations/20261126163100_field_index_trigger.sql); a longer one
+// field (db/migrations/20261127100200_field_index_trigger.sql); a longer one
 // can match nothing and is refused as a value of the wrong type.
 const maxTextBytes = 2000
 

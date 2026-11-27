@@ -130,6 +130,9 @@ type reply struct {
 	header http.Header
 }
 
+// grantRoute is the route template of the token endpoint.
+const grantRoute = "/realms/{realm}/protocol/openid-connect/token"
+
 // statusError is a non-success reply. Its text never carries the body.
 type statusError struct {
 	method, route string
@@ -137,17 +140,50 @@ type statusError struct {
 	// message is Keycloak's errorMessage, bounded. Error never prints it; it
 	// exists so a caller can match one precise refusal.
 	message string
+	// kcError is the "error" string of a 404 body, bounded, "" when the body
+	// has none. Error never prints it; Is compares it with notFoundErrors.
+	kcError string
 }
 
 func (e *statusError) Error() string {
 	return fmt.Sprintf("keycloak admin: %s %s: status %d", e.method, e.route, e.status)
 }
 
-// Is maps the statuses the directory acts on to the port's sentinels.
+// notFoundError is the "error" string Keycloak (26.8.1; the stack test
+// TestKeycloakNotFoundBodies pins them) puts in the 404 body of a route below
+// /admin/realms/{realm}, or "" for a route that has none. A route belongs to a
+// row when its template equals the row's prefix or continues with "/".
+func notFoundError(rest string) string {
+	rows := [...][2]string{
+		{"/users/{id}", "User not found"},
+		{"/group-by-path", "Group path does not exist"},
+		{"/groups/{id}", "Could not find group by id"},
+		{"/identity-provider/instances/{alias}", "HTTP 404 Not Found"},
+	}
+	for _, r := range rows {
+		if rest == r[0] || strings.HasPrefix(rest, r[0]+"/") {
+			return r[1]
+		}
+	}
+	return ""
+}
+
+// keycloakNotFound reports whether a 404 on route carries the error string
+// Keycloak uses for that route.
+func keycloakNotFound(route, kcError string) bool {
+	rest, ok := strings.CutPrefix(route, "/admin/realms/{realm}")
+	return ok && kcError != "" && kcError == notFoundError(rest)
+}
+
+// Is maps the statuses the directory acts on to the port's sentinels. A 404
+// is identity.ErrNotFound only when its JSON body has the "error" string
+// Keycloak uses for the route (notFoundErrors): a 404 of a proxy, or of the
+// token endpoint, says nothing about an object, and a caller would read it as
+// "gone" (TICK-1113, TICK-1141). Any other 404 is an ordinary error.
 func (e *statusError) Is(target error) bool {
 	switch target {
 	case identity.ErrNotFound:
-		return e.status == http.StatusNotFound
+		return e.status == http.StatusNotFound && keycloakNotFound(e.route, e.kcError)
 	case identity.ErrAlreadyExists:
 		return e.status == http.StatusConflict
 	}
@@ -167,8 +203,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		"client_id":     {acct.creds.ClientID},
 		"client_secret": {acct.creds.ClientSecret},
 	}
-	const route = "/realms/{realm}/protocol/openid-connect/token"
-	ctx = telemetry.WithRoute(ctx, route)
+	ctx = telemetry.WithRoute(ctx, grantRoute)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		a.base+"/realms/"+url.PathEscape(a.realm)+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -180,7 +215,7 @@ func (a *admin) bearer(ctx context.Context, acct *account) (string, error) {
 		return "", fmt.Errorf("keycloak admin: token: %w", err)
 	}
 	if r.status != http.StatusOK {
-		return "", &statusError{method: http.MethodPost, route: route, status: r.status}
+		return "", &statusError{method: http.MethodPost, route: grantRoute, status: r.status}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -262,7 +297,11 @@ func (a *admin) do(ctx context.Context, acct *account, method, route, path strin
 		if slices.Contains(ok, r.status) {
 			return r, nil
 		}
-		return reply{}, &statusError{method: method, route: full, status: r.status, message: errorMessage(r.body)}
+		se := &statusError{method: method, route: full, status: r.status, message: errorMessage(r.body)}
+		if r.status == http.StatusNotFound {
+			se.kcError = errorField(r.body)
+		}
+		return reply{}, se
 	}
 }
 
@@ -275,6 +314,22 @@ func errorMessage(body []byte) string {
 		return ""
 	}
 	return e.ErrorMessage
+}
+
+// errorField returns the "error" string of a JSON object body, or "" when the
+// body is not an object, the field is not a string, or it is over 512 bytes.
+func errorField(body []byte) string {
+	var e struct {
+		Error any `json:"error"`
+	}
+	if json.Unmarshal(body, &e) != nil {
+		return ""
+	}
+	s, ok := e.Error.(string)
+	if !ok || len(s) > 512 {
+		return ""
+	}
+	return s
 }
 
 // getJSON GETs path and decodes the 200 body into v.

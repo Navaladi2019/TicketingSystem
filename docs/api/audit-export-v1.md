@@ -3,7 +3,7 @@ type: api-spec
 id: audit-export-v1
 title: Audit export format v1 and the hash-chain canonical form
 status: DRAFT (P5-02, TICK-424; reviewers Technical Lead, Technical Architect, Security)
-implements: ADR-004 R13, R20, R21, R22, R24; ADR-004-E1 (diff_truncated); ADR-004-E2 (verifiable is computed, §4.1 reason codes); PLAN-005 C1, C4, D-5-7
+implements: ADR-004 R13, R20, R21, R22, R24; ADR-004-E1 (diff_truncated); ADR-004-E10 (diff_nul_escaped); ADR-004-E2 (verifiable is computed, §4.1 reason codes); PLAN-005 C1, C4, D-5-7
 code: internal/audit/chain
 vectors: internal/audit/chain/testdata/vectors.json
 ---
@@ -48,8 +48,8 @@ prev_hash of seq 1 (genesis) = 32 zero bytes
 
 ## 2. The envelope
 
-The envelope is exactly these 22 columns: the R1 envelope columns plus
-`diff_truncated`. **Not** in it: `txid`, `diff`, `diff_salt`, `seq`,
+The envelope is exactly these 23 columns: the R1 envelope columns plus
+`diff_truncated` (E1) and `diff_nul_escaped` (E10). **Not** in it: `txid`, `diff`, `diff_salt`, `seq`,
 `prev_hash`, `entry_hash`, `sealed_at`, `erased_at`, `erasure_ref`.
 
 | Member | Column type | JSON value | NULL? |
@@ -76,6 +76,7 @@ The envelope is exactly these 22 columns: the R1 envelope columns plus
 | `content_sha256` | bytea (32) | hex string | yes |
 | `diff_sha256` | bytea (32) | hex string | yes |
 | `diff_truncated` | boolean | `true` / `false` | no |
+| `diff_nul_escaped` | boolean | `true` only; **omitted when false** (note 6) | no |
 
 ### Canonical form (JCS, RFC 8785)
 
@@ -83,7 +84,8 @@ The envelope is serialised with RFC 8785, which here is short because the
 envelope holds **only strings, integers, booleans and null — never a float**
 (TICK-449):
 
-- **Members:** all 22, always. **NULL is emitted as `null`, never omitted.**
+- **Members:** all 23, always, except `diff_nul_escaped`, which is emitted
+  only when true (note 6). **NULL is emitted as `null`, never omitted.**
   Sorted by UTF-16 code units of the name (all names are ASCII, so this is
   plain byte order). No whitespace anywhere.
 - **Strings:** UTF-8. Escape only `"` → `\"`, `\` → `\\`, and U+0000–U+001F:
@@ -147,6 +149,14 @@ Notes:
    stored `''` could never be canonicalised and would stall the tenant's
    sealer. The same holds for U+0000, which PostgreSQL `text` cannot store and
    the canonical form rejects.
+6. **`diff_nul_escaped` is the one optional member** (ADR-004-E10 E10-2). It
+   is true when the previous value the diff was built from had each NUL
+   escaped to the text `\u0000` first. The canonical form emits
+   `"diff_nul_escaped":true` when it is true and omits it when it is false,
+   so every envelope written before E10 (all false) keeps its bytes and its
+   hash. A reader parses an absent member as false and `true` as true, and
+   rejects `false`, `null` or any other value (one encoding per value). No
+   other member may be absent.
 
 ## 3. The export file (JSONL)
 
@@ -416,7 +426,7 @@ kind,seq,prev_hash,entry_hash,envelope_sha256,genesis,sealed,in_verified_range,s
 tenant_id,id,occurred_at,domain,action,subject_type,subject_id,entity_definition_id,
 version_before,version_after,actor_principal_id,actor_system,source,source_ref,
 change_set_id,causation_id,causation_depth,request_id,backfilled,content_sha256,
-diff_sha256,diff_truncated,diff,diff_salt,diff_redacted,erased_at,erasure_ref,meta
+diff_sha256,diff_truncated,diff_nul_escaped,diff,diff_salt,diff_redacted,erased_at,erasure_ref,meta
 ```
 
 (one row; wrapped here for reading). The envelope members are flattened into
@@ -424,6 +434,12 @@ their own columns. Values use the canonical forms of section 2; booleans are
 `true` / `false`; **NULL or "not applicable to this kind" is an empty cell**
 (present text is never empty, so this is unambiguous). `header` and `trailer`
 rows put their whole JSONL object in `meta` and leave the rest empty.
+
+**`diff_nul_escaped` (ADR-004-E10 E10-4)** is the one exception to "empty is
+null": an empty cell means the member is omitted from the rebuilt envelope
+(false), `true` means the member is `true`, and `false` or any other value is
+`malformed_line`. A reader also accepts the column row without this column
+(the 37-column row written before E10); every row is then false.
 
 **Formula injection (OWASP, R22):** a cell whose value begins with `=`, `+`,
 `-`, `@`, tab (U+0009) or CR (U+000D) is written with a `'` prefixed.
@@ -449,10 +465,10 @@ generator's output. The file holds:
 | List | Contents |
 |---|---|
 | `diffs` | salt, stored diff bytes, `diff_sha256`; includes the same ops compact and spaced (different hashes) |
-| `chain` | seq 1..7 of one tenant: envelope, canonical bytes, `envelope_sha256`, `prev_hash`, `entry_hash`, diff and salt. Covers a minimal config entry, every nullable field set, string escapes (control characters, DEL, U+2028, astral, HTML), a backfilled UUIDv5 entry with integer bounds, **truncated-honest** (`diff_truncated: true`, hash over the stored cut bytes), an erased entry and its `audit/erase` entry |
-| `tampered` | lines changed after sealing, each with the failure it must produce, including the **tampered `diff_truncated` flag** both ways and a diff re-serialised as jsonb would |
+| `chain` | seq 1..8 of one tenant: envelope, canonical bytes, `envelope_sha256`, `prev_hash`, `entry_hash`, diff and salt. Covers a minimal config entry, every nullable field set, string escapes (control characters, DEL, U+2028, astral, HTML), a backfilled UUIDv5 entry with integer bounds, **truncated-honest** (`diff_truncated: true`, hash over the stored cut bytes), an erased entry and its `audit/erase` entry, and (E10, seq 8, after every earlier case so their hashes are unchanged) **config-publish-nul-escaped** (`diff_nul_escaped: true`) |
+| `tampered` | lines changed after sealing, each with the failure it must produce, including the **tampered `diff_truncated` flag** both ways, the **`diff_nul_escaped` flag** cleared and set (E10), and a diff re-serialised as jsonb would |
 | `invalid` | envelope inputs the parser must reject, including lone high and low surrogate escapes, a raw invalid UTF-8 byte (given as `envelope_hex`) and a non-canonical escape |
-| `exports` | whole JSONL files with the file outcome, the failing reason and the per-line outcomes a section 4 verifier must produce: an unfiltered and a filtered pass, a diff dropped from an entry that was not erased (`diff_missing`), a diff replaced and marked redacted (`diff_unverified`), a diff injected where `diff_sha256` is null, a header relabelled to another tenant (`header_tenant_mismatch`), `verifiable: false` on a complete file (`verifiable_flag_mismatch`), an erased entry whose erase entry is only a stub (`erasure_unlisted`), an honest `stubs: false` file (`unverifiable`) and an empty range (`empty`). ADR-004-E2 adds ten: `stubs-false-contiguous` (`pass`), `stubs-false-tail-excluded` (`unverifiable`), `stubs-false-gap-flagged-verifiable` (`verifiable_flag_mismatch`), `stubs-true-seq-missing` and `stubs-true-tail-missing` (`seq_missing`), `anchor-not-after-seq` and `anchor-not-genesis` (`anchor_mismatch`), `stubs-false-none-matched` (`unverifiable`), `stubs-true-all-missing` (`seq_missing`) and `stubs-false-gap-head-forged` (`head_mismatch`) |
+| `exports` | whole JSONL files with the file outcome, the failing reason and the per-line outcomes a section 4 verifier must produce: an unfiltered and a filtered pass, a diff dropped from an entry that was not erased (`diff_missing`), a diff replaced and marked redacted (`diff_unverified`), a diff injected where `diff_sha256` is null, a header relabelled to another tenant (`header_tenant_mismatch`), `verifiable: false` on a complete file (`verifiable_flag_mismatch`), an erased entry whose erase entry is only a stub (`erasure_unlisted`), an honest `stubs: false` file (`unverifiable`) and an empty range (`empty`). ADR-004-E2 adds ten: `stubs-false-contiguous` (`pass`), `stubs-false-tail-excluded` (`unverifiable`), `stubs-false-gap-flagged-verifiable` (`verifiable_flag_mismatch`), `stubs-true-seq-missing` and `stubs-true-tail-missing` (`seq_missing`), `anchor-not-after-seq` and `anchor-not-genesis` (`anchor_mismatch`), `stubs-false-none-matched` (`unverifiable`), `stubs-true-all-missing` (`seq_missing`) and `stubs-false-gap-head-forged` (`head_mismatch`). These cover seq 1..7 only. ADR-004-E10 adds three over seq 1..8: `nul-escaped-honest` (`pass`), `nul-escaped-member-stripped` and `nul-escaped-member-added` (`envelope_sha256_mismatch`) |
 
 The writer (P5-12b), the sealer (P5-34a) and the verifier (P5-03) each test
 against this file; the verifier's fixtures (TICK-425) are built from the

@@ -439,3 +439,39 @@ func e2Cases(cs []ChainCase) []exportCase {
 	}
 	return out
 }
+
+// e10ExportCases are the ADR-004-E10 export vectors, over the whole chain,
+// the E10 case (the last seq) included (CI-A19 (c), (d)).
+func e10ExportCases(cs []ChainCase) ([]Export, error) {
+	all := func(ChainCase) bool { return true }
+	reason := func(s string) *string { return &s }
+	last := cs[len(cs)-1]
+	if !last.Envelope.DiffNULEscaped {
+		return nil, fmt.Errorf("export: the last chain case %s is not the E10 case", last.Name)
+	}
+	seq := fmt.Sprint(last.Seq)
+	var cases []exportCase
+	cases = append(cases, exportCase{name: "nul-escaped-honest", review: "ADR-004-E10", expect: FilePass,
+		file: rangeExport(cs, filterBlock{}, all)})
+	{ // The member stripped from the line of a true row.
+		f := rangeExport(cs, filterBlock{}, all)
+		f.entryAt(last.Seq).Envelope.DiffNULEscaped = false
+		cases = append(cases, exportCase{name: "nul-escaped-member-stripped", review: "ADR-004-E10", expect: FileTampered,
+			reason: reason(ExpectEnvelopeMismatch), lines: map[string]string{seq: LineTampered}, file: f})
+	}
+	{ // The member added to the line of a sealed false row (seq 2).
+		f := rangeExport(cs, filterBlock{}, all)
+		f.entryAt(2).Envelope.DiffNULEscaped = true
+		cases = append(cases, exportCase{name: "nul-escaped-member-added", review: "ADR-004-E10", expect: FileTampered,
+			reason: reason(ExpectEnvelopeMismatch), lines: map[string]string{"2": LineTampered}, file: f})
+	}
+	out := make([]Export, 0, len(cases))
+	for _, c := range cases {
+		lines, err := c.file.lines()
+		if err != nil {
+			return nil, fmt.Errorf("export %s: %w", c.name, err)
+		}
+		out = append(out, Export{Name: c.name, Review: c.review, Expect: c.expect, Reason: c.reason, LineOutcomes: c.lines, JSONL: lines})
+	}
+	return out, nil
+}

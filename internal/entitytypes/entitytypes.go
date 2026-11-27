@@ -197,11 +197,16 @@ type NewInput struct {
 
 // Create inserts the entity type and its version 1 and returns the stored
 // version. It returns ErrKeyExists or ErrPrefixTaken; the key is checked
-// first, so a request that clashes on both reports the key. The caller's
-// transaction is unusable after an error.
+// first, so a request that clashes on both reports the key, also when two
+// creates race (TICK-1160): a transaction-scoped advisory lock per tenant makes
+// the second one wait for the first to commit, so its key check sees the row.
+// The caller's transaction is unusable after an error.
 func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewInput) (*Version, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('entity_definitions:create:' || $1::text, 0))`, tenantID); err != nil {
+		return nil, fmt.Errorf("entitytypes: serialise create: %w", err)
+	}
 	var one int
 	switch err := tx.QueryRow(ctx, `SELECT 1 FROM entity_definitions WHERE key = $1`, d.Key).Scan(&one); {
 	case err == nil:

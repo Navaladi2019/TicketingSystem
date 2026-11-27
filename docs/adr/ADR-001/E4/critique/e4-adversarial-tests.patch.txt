@@ -1,0 +1,142 @@
+diff --git a/tools/ci/checkpins/adversarial_toolchain_test.go b/tools/ci/checkpins/adversarial_toolchain_test.go
+new file mode 100644
+index 00000000..16738153
+--- /dev/null
++++ b/tools/ci/checkpins/adversarial_toolchain_test.go
+@@ -0,0 +1,57 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"regexp"
++	"testing"
++)
++
++// TICK-1140 (ADR-001-E4): govulncheck judges the standard library of the Go in
++// the module's toolchain line; the image ships the Go of its FROM line, and the
++// golang images set GOTOOLCHAIN=local, which ignores the toolchain line. If the
++// two differ, the scan can be green over a standard library that still ships.
++func TestScannedToolchainIsTheShippedToolchain(t *testing.T) {
++	root := filepath.Join("..", "..", "..")
++	toolchain := regexp.MustCompile(`(?m)^toolchain go(\S+)`)
++	from := regexp.MustCompile(`(?m)^FROM golang:([0-9.]+)`)
++	for mod, glob := range map[string]string{
++		"go.mod":                 "deploy/compose/*/Dockerfile",
++		"temporal-server/go.mod": "temporal-server/Dockerfile",
++	} {
++		want := submatch(t, toolchain, filepath.Join(root, mod))
++		if want == "" {
++			t.Fatalf("%s has no toolchain line", mod)
++		}
++		files, err := filepath.Glob(filepath.Join(root, glob))
++		if err != nil {
++			t.Fatal(err)
++		}
++		checked := 0
++		for _, f := range files {
++			got := submatch(t, from, f)
++			if got == "" {
++				continue
++			}
++			checked++
++			if got != want {
++				t.Errorf("%s builds with Go %s, but %s is scanned with Go %s", f, got, mod, want)
++			}
++		}
++		if checked == 0 {
++			t.Errorf("no Dockerfile matched for %s", mod)
++		}
++	}
++}
++
++func submatch(t *testing.T, re *regexp.Regexp, path string) string {
++	t.Helper()
++	body, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m := re.FindSubmatch(body); m != nil {
++		return string(m[1])
++	}
++	return ""
++}
+diff --git a/tools/ci/cisteps/adversarial_names_test.go b/tools/ci/cisteps/adversarial_names_test.go
+new file mode 100644
+index 00000000..118f2e00
+--- /dev/null
++++ b/tools/ci/cisteps/adversarial_names_test.go
+@@ -0,0 +1,73 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"slices"
++	"testing"
++
++	"go.yaml.in/yaml/v3"
++)
++
++// TICK-1140 (ADR-001-E4 E4-4): branch protection knows a check by its reported
++// name and the app, not by its workflow. A name reported by two workflows lets
++// the green vulnerability scan stand in for the red Authorizer tests. The rule
++// covers every job of every workflow, so no list of required names can drift.
++func TestNoTwoWorkflowsReportTheSameCheck(t *testing.T) {
++	for name, files := range reportedChecks(t, repo(".github/workflows")) {
++		if len(files) > 1 {
++			t.Errorf("check %q is reported by %v; branch protection cannot tell them apart", name, files)
++		}
++	}
++}
++
++func TestReportedChecksReadsNameAndYaml(t *testing.T) {
++	dir := t.TempDir()
++	for f, body := range map[string]string{
++		"a.yml":  "jobs:\n  isolation: {}\n",
++		"b.yaml": "jobs:\n  other:\n    name: isolation\n",
++	} {
++		if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if got := reportedChecks(t, dir)["isolation"]; !slices.Equal(got, []string{"a.yml", "b.yaml"}) {
++		t.Fatalf("isolation reported by %v, want a.yml and b.yaml", got)
++	}
++}
++
++// reportedChecks maps each reported check name (a job's name:, else its id) to
++// the workflow files, in order, that report it.
++func reportedChecks(t *testing.T, dir string) map[string][]string {
++	t.Helper()
++	entries, err := os.ReadDir(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	out := map[string][]string{}
++	for _, e := range entries {
++		if ext := filepath.Ext(e.Name()); ext != ".yml" && ext != ".yaml" {
++			continue
++		}
++		body, err := os.ReadFile(filepath.Join(dir, e.Name()))
++		if err != nil {
++			t.Fatal(err)
++		}
++		var w struct {
++			Jobs map[string]struct {
++				Name string `yaml:"name"`
++			} `yaml:"jobs"`
++		}
++		if err := yaml.Unmarshal(body, &w); err != nil {
++			t.Fatal(err)
++		}
++		for id, j := range w.Jobs {
++			name := id
++			if j.Name != "" {
++				name = j.Name
++			}
++			out[name] = append(out[name], e.Name())
++		}
++	}
++	return out
++}

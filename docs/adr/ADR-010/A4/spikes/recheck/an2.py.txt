@@ -1,0 +1,18 @@
+import re
+M={'B self|R m=0':'m=0','B R|self m=500':'m=500','B R|R 500|1000':'m=1000','B R|self m=all':'m=all','B R|R+open m=0':'m=0'}
+for f in ('out-run1.log','out-run2.log','out-run3.log'):
+    w=None;rows={}
+    for l in open(f,encoding='utf8'):
+        m=re.match(r'## (W\d)',l)
+        if m: w=m[1]+(rows.get('_c'+m[1],'')); 
+        m2=re.match(r'  (\S.*?)\s+(today|ordered|todayA/A|ord m=0)\s+med=\s*([\d.]+)',l)
+        if m2: rows.setdefault(w,{}).setdefault(m2[1].strip(),{})[m2[2]]=float(m2[3])
+    for w,r in rows.items():
+        if w.startswith('_'): continue
+        z=[v['ord m=0'] for v in r.values() if 'ord m=0' in v]
+        aa=[abs(v['todayA/A']-v['today']) for v in r.values() if 'todayA/A' in v]
+        print(f,w,'ord-m0 same stmt across rows: min %.1f max %.1f range %.1f; A/A max %.1f'%(min(z),max(z),max(z)-min(z),max(aa)))
+        for b,u in M.items():
+            if b in r and u in r:
+                bd=r[b]['ordered']-r[b]['today']; ud=r[u]['ordered']-r[u]['today']
+                print('   %-16s branched %+6.1f  unbranched(%s) %+6.1f  excess %+6.1f  ord b/u %.1f/%.1f today b/u %.1f/%.1f  >150only-ord:%s'%(b,bd,u,ud,bd-ud,r[b]['ordered'],r[u]['ordered'],r[b]['today'],r[u]['today'], r[b]['ordered']>150 and r[b]['today']<=150))

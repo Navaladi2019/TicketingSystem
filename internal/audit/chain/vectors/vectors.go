@@ -133,7 +133,9 @@ func build() (File, error) {
 	}
 
 	prev := chain.Genesis
-	for i, in := range chainInputs() {
+	// The E10 cases come last, so every earlier seq, prev_hash and hash is
+	// unchanged (ADR-004-E10 E10-4).
+	for i, in := range append(chainInputs(), e10ChainInputs()...) {
 		env := in.env
 		var diff, salt *string
 		if in.diff != nil {
@@ -165,11 +167,17 @@ func build() (File, error) {
 
 	f.Tampered = tamperedCases(f.Chain)
 	f.Invalid = invalidCases(f.Chain[0])
-	exports, err := exportCases(f.Chain)
+	// The pre-E10 export vectors cover the pre-E10 chain only, so they are
+	// byte-for-byte what they were.
+	exports, err := exportCases(f.Chain[:len(chainInputs())])
 	if err != nil {
 		return File{}, err
 	}
-	f.Exports = exports
+	e10, err := e10ExportCases(f.Chain)
+	if err != nil {
+		return File{}, err
+	}
+	f.Exports = append(exports, e10...)
 	return f, nil
 }
 
@@ -341,6 +349,31 @@ func chainInputs() []chainInput {
 	}
 }
 
+// e10ChainInputs are the ADR-004-E10 chain cases, after every earlier one:
+// a repair publish over a stored version that held a NUL, its diff built from
+// the escaped previous schema, sealed with diff_nul_escaped true.
+func e10ChainInputs() []chainInput {
+	tenant := mustUUID("0190f3a0-0000-7000-8000-000000000001")
+	principal := mustUUID("0190f3a0-0000-7000-8000-0000000000a1")
+	defID := mustUUID("0190f3a0-0000-7000-8000-0000000000d1")
+	salt := [16]byte{0x5a, 0x17, 0x00, 0xff, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	content := [32]byte{0xc0, 0x47, 0xe4, 0x7e}
+	content[31] = 0x02
+	diff := `[{"op":"replace","path":"/title","value":"Incident"}]`
+	return []chainInput{{
+		name: "config-publish-nul-escaped",
+		env: chain.Envelope{
+			TenantID: tenant, ID: mustUUID("0190f3a0-0000-7000-8000-000000000108"),
+			OccurredAt: mustTime("2026-11-02T11:00:01.000000Z"),
+			Domain:     "config", Action: "publish", SubjectType: "entity_definition", SubjectID: defID,
+			VersionBefore: new(int64(1)), VersionAfter: new(int64(2)),
+			ActorPrincipalID: &principal, Source: "user", ContentSHA256: &content,
+			DiffNULEscaped: true,
+		},
+		diff: &diff, salt: salt,
+	}}
+}
+
 func byName(cs []ChainCase, name string) ChainCase {
 	for _, c := range cs {
 		if c.Name == name {
@@ -388,6 +421,12 @@ func tamperedCases(cs []ChainCase) []Tampered {
 			}),
 		from("prev-hash-relinked", "system-actor-string-escapes", ExpectEntryHashMismatch,
 			func(t *Tampered) { t.PrevHash = chain.Hex(chain.Genesis[:]) }),
+		// ADR-004-E10: clearing the flag on a sealed row, or setting it on
+		// one, must break the envelope hash.
+		from("diff-nul-escaped-flag-cleared", "config-publish-nul-escaped", ExpectEnvelopeMismatch,
+			func(t *Tampered) { t.Envelope.DiffNULEscaped = false }),
+		from("diff-nul-escaped-flag-set", "record-update-all-fields", ExpectEnvelopeMismatch,
+			func(t *Tampered) { t.Envelope.DiffNULEscaped = true }),
 	}
 }
 

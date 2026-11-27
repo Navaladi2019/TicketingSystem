@@ -34,8 +34,8 @@ const insertSQL = `INSERT INTO audit_log (
 	tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
 	version_before, version_after, actor_principal_id, actor_system, source, source_ref,
 	change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
-	diff_truncated, diff, diff_salt)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::json, $22)`
+	diff_truncated, diff, diff_salt, diff_nul_escaped)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::json, $22, $23)`
 
 // Append writes e as one audit_log entry inside tx, the caller's transaction
 // (ADR-004 decision 1, PLAN-005 C2), and returns its id. The entry commits or
@@ -135,7 +135,7 @@ func prepare(ctx context.Context, tx pgx.Tx, e Entry) (uuid.UUID, []any, error) 
 		tenant, e.ID, string(e.Domain), string(e.Action), string(e.SubjectType), e.SubjectID, e.EntityDefinitionID,
 		e.VersionBefore, e.VersionAfter, e.Actor.PrincipalID, e.Actor.System, string(e.Source), e.SourceRef,
 		e.ChangeSetID, e.CausationID, e.CausationDepth, e.RequestID, content, diffSHA,
-		truncated, diffText, salt,
+		truncated, diffText, salt, e.DiffNULEscaped,
 	}, nil
 }
 
