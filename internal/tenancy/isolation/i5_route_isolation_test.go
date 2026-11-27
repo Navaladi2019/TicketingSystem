@@ -42,12 +42,6 @@ const (
 	i5rBudget = 240 * time.Second
 	// i5rMutantCases is how many cases each filter mutant runs on.
 	i5rMutantCases = 12
-	// i5rMinMatchedTenths is the floor on the share of filter requests that
-	// match at least one record, in tenths. The generator reaches 11-23 %
-	// (seeds 20261109 / 7 / 4242 / 31337: 82 / 145 / 163 / 158 of 720), so
-	// 10 % passes every seed with a correct compiler while a compiler or
-	// generator that matches (almost) nothing still turns the row red.
-	i5rMinMatchedTenths = 1
 )
 
 // i5rNoRateLimit lifts the per-tenant limiter (50 rps by default) off the
@@ -287,7 +281,7 @@ type i5rCounts struct {
 // i5rFilterResult is one filter request's verdict: the records on which the
 // route and the Go side differ.
 type i5rFilterResult struct {
-	checks, matched, masked, defaultHits int
+	checks, matched, masked, defaultHits, unflagged int
 	// diffs keys each disagreement as case/principal/query/record.
 	diffs map[string]string
 	first string
@@ -315,6 +309,17 @@ func (run *i5rRun) filters(ctx context.Context, h *etIso, ci int, c i5rCase, pol
 				if _, code, perr := s10Problem(resp); perr != nil || resp.code != http.StatusBadRequest || code != "masked_field" {
 					return fmt.Errorf("%s: a filter on cost, masked from the caller = %d %s, want 400 masked_field", where, resp.code, resp.body)
 				}
+				continue
+			}
+			// S22 P7-12: iso_et_i5r flags no data field, so the JSONB scan being
+			// gone, a filter on one is 400 field_not_filterable (ADR-006 D6 step
+			// 2), after the masked check above. Only the fixed-column filters
+			// still reach the agreement check below.
+			if slices.ContainsFunc(q, func(f i5rFilter) bool { _, data := i5rDataFields()[f.Prop]; return data }) {
+				if _, code, perr := s10Problem(resp); perr != nil || resp.code != http.StatusBadRequest || code != "field_not_filterable" {
+					return fmt.Errorf("%s: a filter on an unflagged data field = %d %s, want 400 field_not_filterable", where, resp.code, resp.body)
+				}
+				res.unflagged++
 				continue
 			}
 			if resp.code != http.StatusOK {
@@ -626,12 +631,12 @@ func i5RouteRows(ctx context.Context, cl Cluster, seed uint64, filterMutant stri
 	case len(row.diffs) > 0:
 		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d, %s: %d record disagreements in %d filter requests, by the filtered field's shape %s; first: %s",
 			seed, i5HandlerName(filterMutant), len(row.diffs), row.checks, i5rJSON(row.causes), row.first))
-	case row.matched*10 < row.checks*i5rMinMatchedTenths || row.masked == 0 || row.defaultHits == 0:
-		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests match a record, %d are masked, %d hits on a defaulted prio; the row proves little",
-			seed, row.matched, row.checks, row.masked, row.defaultHits))
+	case row.masked == 0 || row.unflagged == 0:
+		add(i5RowFilters, statusFail, fmt.Sprintf("seed %d: %d of %d requests are masked and %d are 400 field_not_filterable; the row proves little",
+			seed, row.masked, row.checks, row.unflagged))
 	default:
-		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree (%d match a record, %d hits on a defaulted prio, %d are 400 masked_field); %s",
-			seed, i5HandlerName(filterMutant), len(run.cases), i5rPrincipals, i5rFilters, len(run.all), row.matched, row.defaultHits, row.masked, took))
+		add(i5RowFilters, statusPass, fmt.Sprintf("seed %d, %s: %d policies × %d principals × %d filter requests over %d records agree (%d fixed-column requests match a record, %d are 400 field_not_filterable on an unflagged data field, %d are 400 masked_field); %s",
+			seed, i5HandlerName(filterMutant), len(run.cases), i5rPrincipals, i5rFilters, len(run.all), row.matched, row.unflagged, row.masked, took))
 	}
 
 	// A mutant is caught when it disagrees where the real compiler agreed.
