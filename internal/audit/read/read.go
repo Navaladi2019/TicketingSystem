@@ -48,9 +48,12 @@ type Entry struct {
 	ContentSHA256      []byte
 	DiffSHA256         []byte
 	DiffTruncated      bool
-	Seq                *int64
-	SealedAt           *time.Time
-	ErasedAt           *time.Time
+	// DiffNULEscaped is ADR-004-E10's flag: the previous value the diff was
+	// built from had each NUL escaped to the text \u0000.
+	DiffNULEscaped bool
+	Seq            *int64
+	SealedAt       *time.Time
+	ErasedAt       *time.Time
 
 	// Diff is the entry's diff as this reader may see it: nil when the entry
 	// has none (a config entry, or an erased one), the stored bytes when
@@ -127,7 +130,7 @@ func (r *Reader) maxRecordEntries() int {
 
 const columns = `id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
 version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id,
-causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
+causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated, diff_nul_escaped,
 seq, sealed_at, erased_at, diff::text, diff_salt`
 
 // List returns up to limit of tenantID's entries matching f, newest first
@@ -261,7 +264,7 @@ func scan(rows pgx.Rows) ([]Entry, error) {
 		)
 		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.Domain, &e.Action, &e.SubjectType, &e.SubjectID, &e.EntityDefinitionID,
 			&e.VersionBefore, &e.VersionAfter, &e.ActorPrincipalID, &e.ActorSystem, &e.Source, &e.SourceRef, &e.ChangeSetID,
-			&e.CausationID, &e.CausationDepth, &e.RequestID, &e.Backfilled, &e.ContentSHA256, &e.DiffSHA256, &e.DiffTruncated,
+			&e.CausationID, &e.CausationDepth, &e.RequestID, &e.Backfilled, &e.ContentSHA256, &e.DiffSHA256, &e.DiffTruncated, &e.DiffNULEscaped,
 			&e.Seq, &e.SealedAt, &e.ErasedAt, &diff, &e.DiffSalt); err != nil {
 			return nil, fmt.Errorf("audit/read: scan: %w", err)
 		}

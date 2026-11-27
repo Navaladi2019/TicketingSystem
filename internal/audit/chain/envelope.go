@@ -57,6 +57,7 @@ type Envelope struct {
 	ContentSHA256      *[32]byte
 	DiffSHA256         *[32]byte
 	DiffTruncated      bool
+	DiffNULEscaped     bool
 }
 
 // CanonicalEnvelope returns the RFC 8785 (JCS) bytes of e: members sorted by
@@ -71,6 +72,9 @@ func CanonicalEnvelope(e Envelope) ([]byte, error) {
 		v, err := f.enc(&e)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s: %w", ErrInvalidEnvelope, f.name, err)
+		}
+		if v == nil && f.optional {
+			continue
 		}
 		members = append(members, member{f.name, v})
 	}
@@ -140,6 +144,9 @@ func (e *Envelope) UnmarshalJSON(b []byte) error {
 	var out Envelope
 	for _, f := range envelopeFields {
 		v, ok := raw[f.name]
+		if !ok && f.optional {
+			continue
+		}
 		if !ok {
 			return fmt.Errorf("%w: missing member %q (NULL is emitted, never omitted)", ErrInvalidEnvelope, f.name)
 		}
@@ -161,9 +168,10 @@ func (e *Envelope) UnmarshalJSON(b []byte) error {
 
 // envelopeField maps one column to its canonical value and back.
 type envelopeField struct {
-	name string
-	enc  func(*Envelope) ([]byte, error)
-	dec  func(*Envelope, json.RawMessage) error
+	optional bool
+	name     string
+	enc      func(*Envelope) ([]byte, error)
+	dec      func(*Envelope, json.RawMessage) error
 }
 
 // envelopeFields lists every envelope column. TestEveryFieldIsHashed fails if
@@ -215,6 +223,31 @@ var envelopeFields = []envelopeField{
 	nullHashField("content_sha256", func(e *Envelope) **[32]byte { return &e.ContentSHA256 }),
 	nullHashField("diff_sha256", func(e *Envelope) **[32]byte { return &e.DiffSHA256 }),
 	boolField("diff_truncated", func(e *Envelope) *bool { return &e.DiffTruncated }),
+	trueOnlyField("diff_nul_escaped", func(e *Envelope) *bool { return &e.DiffNULEscaped }),
+}
+
+// trueOnlyField is an envelope member emitted only when true (ADR-004-E10).
+// enc returns nil for false, and CanonicalEnvelope then omits the member, so
+// an envelope with the flag false is byte-identical to the pre-E10 form.
+// dec accepts only the literal true; absence means false.
+func trueOnlyField(name string, p func(*Envelope) *bool) envelopeField {
+	return envelopeField{
+		name:     name,
+		optional: true,
+		enc: func(e *Envelope) ([]byte, error) {
+			if !*p(e) {
+				return nil, nil
+			}
+			return []byte("true"), nil
+		},
+		dec: func(e *Envelope, v json.RawMessage) error {
+			if string(v) != "true" {
+				return errors.New("present only as true")
+			}
+			*p(e) = true
+			return nil
+		},
+	}
 }
 
 var null = []byte("null") //nolint:gochecknoglobals // read-only literal
