@@ -1,0 +1,28 @@
+meta {
+  name: S10.67 The admin lists the schema backfill failures of the type: 200 and no values
+  type: http
+  seq: 67
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/backfill/failures
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{admin_a_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(200);
+  test('items is an array of ids and codes, never values', () => {
+    expect(N.json().items).to.be.an('array');
+    N.json().items.forEach(i => expect(Object.keys(i).sort()).to.eql(['code', 'record_id']));
+  });
+}
+
+docs {
+  ADR-009 D10. Entity-type admins only. An item is `{record_id, code}`, never a field value; a type with no failed record gives an empty `items`.
+}

@@ -90,6 +90,32 @@ type listPlan struct {
 	// arg; nil is containment, r.data @> arg. Only the I5 mutants set it
 	// (WithListDataTerm, integration builds only).
 	dataTerm func(arg string) string
+	// win is the open backfill window of the type, when one touches a filter
+	// of this request (ADR-009 D12); nil otherwise.
+	win *filterWindow
+}
+
+// filterWindow is what D12 needs of the type's newest schema backfill job
+// while its window is open and a data filter names a field that job defaults.
+type filterWindow struct {
+	// fields are the filtered fields in the job's default_keys, with the
+	// default the current version gives each.
+	fields map[string]any
+	// union is true for the UNION ALL shape: the job is running or has failed
+	// records, no more than 1,000 rows remain, and exactly one filtered field
+	// is in the window. Otherwise every field in the window uses the OR shape.
+	union bool
+	// target is the newest job's target_version, the key of its queue.
+	target int
+}
+
+// windowFor returns the default of prop's filter when the window covers it.
+func (pl *listPlan) windowFor(prop string) (any, bool) {
+	if pl.win == nil {
+		return nil, false
+	}
+	d, ok := pl.win.fields[prop]
+	return d, ok
 }
 
 // fields are the top-level names the plan reads, for CheckQueryFields.
@@ -261,7 +287,18 @@ func maskedFieldError(err error) error {
 }
 
 // where renders the filters as one predicate with placeholders from base+1.
-func (pl *listPlan) where(base int) (string, []any) {
+// While a backfill window is open, a filter on a field the job defaults is
+// answered for records not yet rewritten too (ADR-009 D12): in the OR shape,
+// (<stored>) OR (<true for the default> AND <field absent>); in the UNION ALL
+// shape this is the first arm and the stored predicate alone.
+func (pl *listPlan) where(base int) (string, []any) { return pl.render(base, false) }
+
+// whereSecond renders the second arm of the UNION ALL shape: the records that
+// lack the field in storage, whose default satisfies the filter, and that the
+// stored predicate does not already return. It exists only when win.union.
+func (pl *listPlan) whereSecond(base int) (string, []any) { return pl.render(base, true) }
+
+func (pl *listPlan) render(base int, second bool) (string, []any) {
 	var (
 		terms []string
 		args  []any
@@ -287,7 +324,18 @@ func (pl *listPlan) where(base int) (string, []any) {
 						group = append(group, g)
 					}
 				}
-				terms = append(terms, existsTerm(group, next))
+				stored := existsTerm(group, next)
+				def, inWindow := pl.windowFor(f.prop)
+				switch {
+				case !inWindow || (pl.win.union && !second):
+					terms = append(terms, stored)
+				case second:
+					dt, _ := defaultTrue(group, def, next)
+					terms = append(terms, "("+queued(pl.win.target, next)+" AND "+dt+" AND "+fieldAbsent(f, next)+" AND NOT "+stored+")")
+				default:
+					dt, _ := defaultTrue(group, def, next)
+					terms = append(terms, "("+stored+" OR ("+dt+" AND "+fieldAbsent(f, next)+"))")
+				}
 				continue
 			}
 			ors := make([]string, 0, len(f.values))
@@ -524,7 +572,18 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			return err
 		}
 		read := authz.ReadListShaped(pol, p, "r", 2, shapes)
+		// ADR-009 D12: the newest backfill job, read once, decides the shape of
+		// a filter on a field it defaults.
+		if err := h.resolveWindow(ctx, tx, p.TenantID, defID, def, pl); err != nil {
+			return err
+		}
 		filt, filtArgs := pl.where(2 + len(read.Args))
+		var filt2 string
+		if pl.win != nil && pl.win.union {
+			var args2 []any
+			filt2, args2 = pl.whereSecond(2 + len(read.Args) + len(filtArgs))
+			filtArgs = append(slices.Clone(filtArgs), args2...)
+		}
 		lq := pipeline.ListQuery{
 			TenantID: p.TenantID, DefinitionID: defID,
 			Where: filt, Args: append(slices.Clone(read.Args), filtArgs...), Branches: read.Branches,
@@ -535,6 +594,13 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 			lq.Where = read.Where + " AND " + filt
 			lq.CountWhere = read.CountWhere + " AND " + filt
 		}
+		if filt2 != "" {
+			lq.UnionWhere = filt2
+			if read.Branches == nil {
+				lq.UnionWhere = read.Where + " AND " + filt2
+				lq.UnionCountWhere = read.CountWhere + " AND " + filt2
+			}
+		}
 		for _, d := range read.Drivers {
 			lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 		}
@@ -544,6 +610,11 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
 		lq.BudgetCount = pl.hasIndexFilter() || pl.hasLegacyScan()
 		lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
+		if h.listStatement != nil {
+			if stmt, stmtArgs, err := pipeline.PageStatement(lq); err == nil {
+				h.listStatement(stmt, stmtArgs)
+			}
+		}
 		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
 		if err == nil && pl.hasIndexFilter() {
@@ -572,7 +643,8 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 				}
 				fixedBy[rec.SchemaVersion] = fixed
 			}
-			out.Items = append(out.Items, shapeRecord(pol, p, rec, def.ApplyDefaults(rec.Payload(fixed)), fixed))
+			// ADR-009 D11: the effective value, then the field masks.
+			out.Items = append(out.Items, shapeRecord(pol, p, rec, pipeline.Effective(def, rec, fixed), fixed))
 		}
 		if len(page.Records) > pl.limit {
 			last := pl.limit - 1

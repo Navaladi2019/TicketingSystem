@@ -1,0 +1,25 @@
+meta {
+  name: S10.68 Alice (not an admin) lists the failures: the same 404 as an unknown type
+  type: http
+  seq: 68
+}
+
+get {
+  url: {{core_url}}/api/v1/entity-types/incident/backfill/failures
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{alice_token}}
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.status(404);
+  test('problem+json, code not_found, no instance', () => {
+    expect(N.header('Content-Type') || '').to.include('application/problem+json');
+    expect(N.json().code).to.eql('not_found');
+    expect(N.json()).to.not.have.property('instance');
+  });
+}

@@ -91,6 +91,36 @@ func (e AuditEntryDomain) Valid() bool {
 	}
 }
 
+// Defines values for BackfillStatusState.
+const (
+	Done          BackfillStatusState = "done"
+	FailedRecords BackfillStatusState = "failed_records"
+	Filling       BackfillStatusState = "filling"
+	Pending       BackfillStatusState = "pending"
+	Running       BackfillStatusState = "running"
+	Superseded    BackfillStatusState = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the BackfillStatusState enum.
+func (e BackfillStatusState) Valid() bool {
+	switch e {
+	case Done:
+		return true
+	case FailedRecords:
+		return true
+	case Filling:
+		return true
+	case Pending:
+		return true
+	case Running:
+		return true
+	case Superseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EntityTypeSummaryNumberingMode.
 const (
 	EntityTypeSummaryNumberingModeGapless EntityTypeSummaryNumberingMode = "gapless"
@@ -478,6 +508,36 @@ type AuditEntryList struct {
 	NextPageToken *string      `json:"next_page_token,omitempty"`
 }
 
+// BackfillFailure defines model for BackfillFailure.
+type BackfillFailure struct {
+	// Code A stable lower-snake code. Never a field value.
+	Code     string             `json:"code"`
+	RecordId openapi_types.UUID `json:"record_id"`
+}
+
+// BackfillFailureList defines model for BackfillFailureList.
+type BackfillFailureList struct {
+	Items []BackfillFailure `json:"items"`
+
+	// NextCursor Present when more failures follow; pass it as `cursor`.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// BackfillStatus The type's newest schema backfill job (ADR-009 D10). `remaining` is the job's pending rows plus its failure rows, counted up to 1,001: 1,001 means more than 1,000.
+type BackfillStatus struct {
+	Failed        int64               `json:"failed"`
+	FinishedAt    *time.Time          `json:"finished_at"`
+	Remaining     int64               `json:"remaining"`
+	Rewritten     int64               `json:"rewritten"`
+	Skipped       int64               `json:"skipped"`
+	StartedAt     *time.Time          `json:"started_at"`
+	State         BackfillStatusState `json:"state"`
+	TargetVersion int                 `json:"target_version"`
+}
+
+// BackfillStatusState defines model for BackfillStatus.State.
+type BackfillStatusState string
+
 // ChainReseed defines model for ChainReseed.
 type ChainReseed struct {
 	// ReseedId The id of the `audit/reseed` entry.
@@ -519,7 +579,9 @@ type EntityTypeSummaryNumberingMode string
 
 // EntityTypeVersion defines model for EntityTypeVersion.
 type EntityTypeVersion struct {
-	Compat EntityTypeVersionCompat `json:"compat"`
+	// Backfill The type's newest schema backfill job (ADR-009 D10). `remaining` is the job's pending rows plus its failure rows, counted up to 1,001: 1,001 means more than 1,000.
+	Backfill *BackfillStatus         `json:"backfill,omitempty"`
+	Compat   EntityTypeVersionCompat `json:"compat"`
 
 	// Current Whether this is the version new records are written under.
 	Current      bool              `json:"current"`
@@ -713,7 +775,9 @@ type Record struct {
 	SchemaVersion   int                    `json:"schema_version"`
 
 	// State The record's state. `""` when the state property is masked from the caller by a field mask (P3-33): it is no state of the model, so never filter, transition or display it as one.
-	State     string    `json:"state"`
+	State string `json:"state"`
+
+	// UpdatedAt The last change to the record's effective content; a schema backfill bumps `version` without changing it.
 	UpdatedAt time.Time `json:"updated_at"`
 	Version   int64     `json:"version"`
 }
@@ -927,6 +991,12 @@ type PutEntityTypeAccessParams struct {
 	IdempotencyKey string  `json:"Idempotency-Key"`
 }
 
+// ListEntityTypeBackfillFailuresParams defines parameters for ListEntityTypeBackfillFailures.
+type ListEntityTypeBackfillFailuresParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // PublishEntityTypeVersionParams defines parameters for PublishEntityTypeVersion.
 type PublishEntityTypeVersionParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -1073,6 +1143,9 @@ type ServerInterface interface {
 	// PutEntityTypeAccess Publish the next access policy version (tenant admin)
 	// (PUT /api/v1/entity-types/{key}/access)
 	PutEntityTypeAccess(w http.ResponseWriter, r *http.Request, key Key, params PutEntityTypeAccessParams)
+	// ListEntityTypeBackfillFailures The records the newest schema backfill job could not rewrite (entity-type admin)
+	// (GET /api/v1/entity-types/{key}/backfill/failures)
+	ListEntityTypeBackfillFailures(w http.ResponseWriter, r *http.Request, key Key, params ListEntityTypeBackfillFailuresParams)
 	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
 	// (POST /api/v1/entity-types/{key}/versions)
 	PublishEntityTypeVersion(w http.ResponseWriter, r *http.Request, key Key, params PublishEntityTypeVersionParams)
@@ -1713,6 +1786,61 @@ func (siw *ServerInterfaceWrapper) PutEntityTypeAccess(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutEntityTypeAccess(w, r, key, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEntityTypeBackfillFailures operation middleware
+func (siw *ServerInterfaceWrapper) ListEntityTypeBackfillFailures(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key Key
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", r.PathValue("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEntityTypeBackfillFailuresParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEntityTypeBackfillFailures(w, r, key, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2771,6 +2899,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types", wrapper.ListEntityTypes)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types", wrapper.CreateEntityType)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}", wrapper.GetEntityType)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/backfill/failures", wrapper.ListEntityTypeBackfillFailures)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions", wrapper.PublishEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/versions/{n}", wrapper.GetEntityTypeVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/entity-types/{key}/access", wrapper.GetEntityTypeAccess)
@@ -3972,6 +4101,117 @@ func (response PutEntityTypeAccess500ApplicationProblemPlusJSONResponse) VisitPu
 type PutEntityTypeAccess501ApplicationProblemPlusJSONResponse Problem
 
 func (response PutEntityTypeAccess501ApplicationProblemPlusJSONResponse) VisitPutEntityTypeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(501)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailuresRequestObject struct {
+	Key    Key `json:"key"`
+	Params ListEntityTypeBackfillFailuresParams
+}
+
+type ListEntityTypeBackfillFailuresResponseObject interface {
+	VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error
+}
+
+type ListEntityTypeBackfillFailures200JSONResponse BackfillFailureList
+
+func (response ListEntityTypeBackfillFailures200JSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response ListEntityTypeBackfillFailures400ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures401ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypeBackfillFailures401ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures404ApplicationProblemPlusJSONResponse struct {
+	ProblemNoInstanceApplicationProblemPlusJSONResponse
+}
+
+func (response ListEntityTypeBackfillFailures404ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures429ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypeBackfillFailures429ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures500ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypeBackfillFailures500ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEntityTypeBackfillFailures501ApplicationProblemPlusJSONResponse Problem
+
+func (response ListEntityTypeBackfillFailures501ApplicationProblemPlusJSONResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6605,6 +6845,9 @@ type StrictServerInterface interface {
 	// PutEntityTypeAccess Publish the next access policy version (tenant admin)
 	// (PUT /api/v1/entity-types/{key}/access)
 	PutEntityTypeAccess(ctx context.Context, request PutEntityTypeAccessRequestObject) (PutEntityTypeAccessResponseObject, error)
+	// ListEntityTypeBackfillFailures The records the newest schema backfill job could not rewrite (entity-type admin)
+	// (GET /api/v1/entity-types/{key}/backfill/failures)
+	ListEntityTypeBackfillFailures(ctx context.Context, request ListEntityTypeBackfillFailuresRequestObject) (ListEntityTypeBackfillFailuresResponseObject, error)
 	// PublishEntityTypeVersion Publish the next version of an entity type (tenant admin)
 	// (POST /api/v1/entity-types/{key}/versions)
 	PublishEntityTypeVersion(ctx context.Context, request PublishEntityTypeVersionRequestObject) (PublishEntityTypeVersionResponseObject, error)
@@ -6945,6 +7188,33 @@ func (sh *strictHandler) PutEntityTypeAccess(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutEntityTypeAccessResponseObject); ok {
 		if err := validResponse.VisitPutEntityTypeAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEntityTypeBackfillFailures operation middleware
+func (sh *strictHandler) ListEntityTypeBackfillFailures(w http.ResponseWriter, r *http.Request, key Key, params ListEntityTypeBackfillFailuresParams) {
+	var request ListEntityTypeBackfillFailuresRequestObject
+
+	request.Key = key
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEntityTypeBackfillFailures(ctx, request.(ListEntityTypeBackfillFailuresRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEntityTypeBackfillFailures")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEntityTypeBackfillFailuresResponseObject); ok {
+		if err := validResponse.VisitListEntityTypeBackfillFailuresResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

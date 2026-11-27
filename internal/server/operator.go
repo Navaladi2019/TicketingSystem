@@ -64,6 +64,8 @@ type options struct {
 	// countDelay and skipCount: list test seams, see handlers.
 	countDelay time.Duration
 	skipCount  bool
+	// listStatement: see handlers.
+	listStatement func(sql string, args []any)
 	// listDataTerm replaces the list's data-filter term; only
 	// WithListDataTerm (integration builds) sets it.
 	listDataTerm func(arg string) string
