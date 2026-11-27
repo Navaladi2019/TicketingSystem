@@ -3,7 +3,6 @@ package entitytypes
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -13,83 +12,85 @@ import (
 // stores this text.
 const nulText = `\u0000`
 
+// nulEscape is the result of escapeNUL.
+type nulEscape struct {
+	// Doc is the escaped document, or the input as given when Escaped is
+	// false. It is nil when Collided.
+	Doc json.RawMessage
+	// Escaped reports that at least one NUL was replaced. It sets
+	// audit.Entry.DiffNULEscaped (ADR-004-E10 E10-3).
+	Escaped bool
+	// Collided reports that two keys of one object escape to the same text,
+	// so the escaped document would lose a member (E10-5). Escaped is true
+	// then too.
+	Collided bool
+}
+
 // escapeNUL rewrites a stored schema so jsonb accepts it: each U+0000 in a
-// string or an object key becomes nulText (TICK-1121, option A). It reports
-// whether it replaced any. A schema with no NUL is returned as given, so its
-// bytes, and so the audit diff, are unchanged.
+// string or an object key becomes nulText (TICK-1121, option A;
+// ADR-004-E10). A schema with no NUL is returned as given, so its bytes, and
+// so the audit diff, are unchanged.
 //
 // It works on decoded values, never on the JSON text. A text replace of
 // \u0000 would also rewrite a stored literal \\u0000 (an escaped backslash
 // then u0000), which holds no NUL. Key order and formatting are not kept:
 // the caller casts the result to jsonb, which sets both.
-func escapeNUL(raw json.RawMessage) (json.RawMessage, bool, error) {
+func escapeNUL(raw json.RawMessage) (nulEscape, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		return nil, false, fmt.Errorf("entitytypes: escape NUL: %w", err)
+		return nulEscape{}, fmt.Errorf("entitytypes: escape NUL: %w", err)
 	}
-	v, escaped, err := escapeNULValue(v)
-	if err != nil {
-		return nil, false, err
-	}
-	if !escaped {
-		return raw, false, nil
+	var w nulWalk
+	v = w.value(v)
+	switch {
+	case w.collided:
+		return nulEscape{Escaped: true, Collided: true}, nil
+	case !w.escaped:
+		return nulEscape{Doc: raw}, nil
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return nil, false, fmt.Errorf("entitytypes: escape NUL: %w", err)
+		return nulEscape{}, fmt.Errorf("entitytypes: escape NUL: %w", err)
 	}
-	return json.RawMessage(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))), true, nil
+	return nulEscape{Doc: bytes.TrimSuffix(buf.Bytes(), []byte("\n")), Escaped: true}, nil
 }
 
-func escapeNULString(s string) (string, bool) {
+type nulWalk struct{ escaped, collided bool }
+
+func (w *nulWalk) string(s string) string {
 	if !strings.Contains(s, "\x00") {
-		return s, false
+		return s
 	}
-	return strings.ReplaceAll(s, "\x00", nulText), true
+	w.escaped = true
+	return strings.ReplaceAll(s, "\x00", nulText)
 }
 
-// errNULKeyCollision: an object holds both a key with a NUL and the same
-// key with the literal text in its place, so escaping would drop one. No
-// schema is known to hold this; the publish fails rather than audit a diff
-// that lost a member.
-var errNULKeyCollision = errors.New("entitytypes: escape NUL: escaped key collides with an existing key")
-
-func escapeNULValue(v any) (any, bool, error) {
+func (w *nulWalk) value(v any) any {
 	switch x := v.(type) {
 	case string:
-		s, ok := escapeNULString(x)
-		return s, ok, nil
+		return w.string(x)
 	case []any:
-		escaped := false
 		for i, e := range x {
-			e2, ok, err := escapeNULValue(e)
-			if err != nil {
-				return nil, false, err
-			}
-			x[i], escaped = e2, escaped || ok
+			x[i] = w.value(e)
 		}
-		return x, escaped, nil
+		return x
 	case map[string]any:
 		out := make(map[string]any, len(x))
-		escaped := false
 		for k, e := range x {
-			k2, kok := escapeNULString(k)
-			if _, taken := x[k2]; kok && taken {
-				return nil, false, errNULKeyCollision
+			k2 := w.string(k)
+			// The output map holds every key's escaped form, so this also
+			// catches two NUL keys that escape alike (E10-5, TA #1).
+			if _, taken := out[k2]; taken {
+				w.collided = true
 			}
-			e2, eok, err := escapeNULValue(e)
-			if err != nil {
-				return nil, false, err
-			}
-			out[k2] = e2
-			escaped = escaped || kok || eok
+			out[k2] = w.value(e)
 		}
-		return out, escaped, nil
+		return out
 	default:
-		return v, false, nil
+		return v
 	}
 }

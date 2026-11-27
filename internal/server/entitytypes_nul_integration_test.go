@@ -9,12 +9,14 @@ package server_test
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/Navaladi2019/TicketingSystem/internal/audit/verify"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 )
 
@@ -115,9 +117,23 @@ func TestStoredVersionWithNULStillReads(t *testing.T) {
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-base", etBody("incident", "INC")); rec.Code != http.StatusCreated {
 		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
 	}
-	stored := strings.Replace(etSchema, etNote, etNULCases()[0].note, 1)
+	e.storeV1(t, strings.Replace(etSchema, etNote, etNULCases()[0].note, 1))
+	for _, path := range []string{"/api/v1/entity-types/incident", "/api/v1/entity-types/incident/versions/1"} {
+		rec := e.do(t, http.MethodGet, path, "user-a", "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d: %s", path, rec.Code, rec.Body)
+		}
+		if !strings.Contains(rec.Body.String(), `x\u0000y`) {
+			t.Errorf("GET %s does not return the stored NUL escape: %s", path, rec.Body)
+		}
+	}
+}
+
+// storeV1 replaces tenant A's incident version 1 schema with stored, as a row
+// an earlier release stored: written as the superuser, triggers off.
+func (e *etEnv) storeV1(t *testing.T, stored string) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(stored))
-	// A row an earlier release stored: written as the superuser, triggers off.
 	for _, q := range []string{
 		"SET session_replication_role = replica",
 		`UPDATE entity_definition_versions SET schema = $2::text::json, schema_sha256 = $3 WHERE tenant_id = $1 AND version = 1`,
@@ -131,13 +147,71 @@ func TestStoredVersionWithNULStillReads(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	for _, path := range []string{"/api/v1/entity-types/incident", "/api/v1/entity-types/incident/versions/1"} {
-		rec := e.do(t, http.MethodGet, path, "user-a", "", "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET %s = %d: %s", path, rec.Code, rec.Body)
-		}
-		if !strings.Contains(rec.Body.String(), `x\u0000y`) {
-			t.Errorf("GET %s does not return the stored NUL escape: %s", path, rec.Body)
-		}
+}
+
+// ADR-004-E10 CI-A19 (b), (f): publishing a clean version over a stored one
+// that holds a NUL answers 201 (TICK-1121 option A). The entry has
+// diff_nul_escaped true and no NUL in its diff, and the chain, sealed and
+// exported, verifies. A key collision gives the one root replace op.
+//
+// covers: publishEntityTypeVersion 201
+func TestPublishOverStoredNULVersion(t *testing.T) {
+	const fixed = `"note": {"type": "string", "description": "fixed"}`
+	cases := []struct {
+		name, stored string
+		rootReplace  bool
+	}{
+		{"NUL in a description", etNULCases()[0].note, false},
+		// A NUL key next to the literal text of its escape: they collide.
+		{"key collision", `"note": {"type": "string", "description": "a", "examples": [{"k\u0000": 1, "k\\u0000": 2}]}`, true},
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x := newExportEnv(t)
+			if rec := x.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "k-base", etBody("incident", "INC")); rec.Code != http.StatusCreated {
+				t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+			}
+			x.storeV1(t, strings.Replace(etSchema, etNote, c.stored, 1))
+			rec := x.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", fmt.Sprintf("k-fix-%d", i), `{"definition": `+etDefinitionWith(fixed)+`}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("publish over the stored NUL version = %d: %s", rec.Code, rec.Body)
+			}
+			var (
+				escaped bool
+				diff    string
+			)
+			if err := x.super.QueryRow(t.Context(), `SELECT diff_nul_escaped, diff::text FROM audit_log
+WHERE tenant_id = $1 AND domain = 'config' AND action = 'publish' AND version_after = 2`, x.a.id).Scan(&escaped, &diff); err != nil {
+				t.Fatal(err)
+			}
+			if !escaped {
+				t.Error("diff_nul_escaped = false, want true")
+			}
+			var ops []struct {
+				Op    string          `json:"op"`
+				Path  string          `json:"path"`
+				Value json.RawMessage `json:"value"`
+			}
+			if err := json.Unmarshal([]byte(diff), &ops); err != nil {
+				t.Fatalf("diff is not a patch: %v: %s", err, diff)
+			}
+			// A NUL reaches the stored diff only as the escape \u0000 (one
+			// backslash); the escaped text is \\u0000. Drop escaped
+			// backslashes first, then look for the escape.
+			if strings.Contains(strings.ReplaceAll(diff, `\\`, ""), `\u0000`) {
+				t.Errorf("diff holds a NUL escape: %s", diff)
+			}
+			if c.rootReplace && (len(ops) != 1 || ops[0].Op != "replace" || ops[0].Path != "") {
+				t.Errorf("diff = %s, want the one root replace op", diff)
+			}
+			x.sealAll(t)
+			rec = x.export(t, "admin-a", "")
+			if rep := report(t, rec.Body.Bytes()); rec.Code != http.StatusOK || rep.Outcome != verify.OutcomePass {
+				t.Errorf("verify = %d %s, %+v", rec.Code, rep.Outcome, rep.Failure)
+			}
+			if !strings.Contains(rec.Body.String(), `"diff_nul_escaped":true`) {
+				t.Errorf("the export carries no diff_nul_escaped member")
+			}
+		})
 	}
 }

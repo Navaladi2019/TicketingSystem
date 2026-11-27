@@ -3,13 +3,13 @@ package entitytypes
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"testing"
 )
 
-// TICK-1121 option A: the previous schema of a publish audit entry is read
-// with each NUL escaped, so jsonb accepts it, and the escape is reported.
+// TICK-1121 option A, ADR-004-E10 CI-A19 (e): the previous schema of a
+// publish audit entry is read with each NUL escaped, so jsonb accepts it,
+// and the escape is reported.
 func TestEscapeNUL(t *testing.T) {
 	cases := []struct {
 		name, in string
@@ -26,36 +26,49 @@ func TestEscapeNUL(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, escaped, err := escapeNUL(json.RawMessage(c.in))
+			got, err := escapeNUL(json.RawMessage(c.in))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if escaped != c.escaped {
-				t.Errorf("escaped = %v, want %v", escaped, c.escaped)
+			if got.Escaped != c.escaped || got.Collided {
+				t.Errorf("escaped, collided = %v, %v, want %v, false", got.Escaped, got.Collided, c.escaped)
 			}
-			if !escaped && string(got) != c.in {
-				t.Errorf("unchanged input must keep its bytes: got %s, want %s", got, c.in)
-			}
-			for i := range got {
-				if got[i] == 0 {
-					t.Fatalf("output holds a NUL byte: %q", got)
-				}
+			if !got.Escaped && string(got.Doc) != c.in {
+				t.Errorf("unchanged input must keep its bytes: got %s, want %s", got.Doc, c.in)
 			}
 			var v any
-			dec := json.NewDecoder(bytes.NewReader(got))
+			dec := json.NewDecoder(bytes.NewReader(got.Doc))
 			dec.UseNumber()
 			if err := dec.Decode(&v); err != nil {
-				t.Fatalf("output is not JSON: %v: %s", err, got)
+				t.Fatalf("output is not JSON: %v: %s", err, got.Doc)
 			}
 			if !reflect.DeepEqual(v, any(c.want)) {
-				t.Errorf("got %s, want %v", got, c.want)
+				t.Errorf("got %s, want %v", got.Doc, c.want)
 			}
 		})
 	}
-	if _, _, err := escapeNUL(json.RawMessage(`{"a":`)); err == nil {
+	if _, err := escapeNUL(json.RawMessage(`{"a":`)); err == nil {
 		t.Error("malformed input: want an error")
 	}
-	if _, _, err := escapeNUL(json.RawMessage(`{"p":{"a\u0000b":1,"a\\u0000b":2}}`)); !errors.Is(err, errNULKeyCollision) {
-		t.Errorf("colliding keys: err = %v, want errNULKeyCollision", err)
+}
+
+// ADR-004-E10 E10-5, CI-A19 (f): two keys of one object whose escaped forms
+// are equal are a collision, reported and not refused, in both shapes.
+func TestEscapeNULCollision(t *testing.T) {
+	for name, in := range map[string]string{
+		"a NUL key next to a literal key":      `{"p":{"a\u0000b":1,"a\\u0000b":2}}`,
+		"two NUL keys with one escaped form":   `{"p":{"a\u0000\\u0000":1,"a\\u0000\u0000":2}}`,
+		"literal key first, then the NUL key":  `{"p":{"a\\u0000b":2,"a\u0000b":1}}`,
+		"collision nested in an array element": `{"e":[{"\u0000":1,"\\u0000":2}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := escapeNUL(json.RawMessage(in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Collided || !got.Escaped || got.Doc != nil {
+				t.Errorf("got %+v, want collided and escaped with no document", got)
+			}
+		})
 	}
 }
