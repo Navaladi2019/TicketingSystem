@@ -126,6 +126,18 @@ const FieldIndexBackfillKind = "field_index.backfill"
 // same row.
 const SchemaBackfillKind = "schema.backfill"
 
+// FieldIndexRemoveKind is the outbox kind of a field-index removal (ADR-006
+// D11, TICK-750): like a backfill row, the relay delivers it as a signal to
+// the tenant's coordinator, which runs FieldIndexRemove. Its rows go through
+// EnqueueFieldIndexRemove only.
+const FieldIndexRemoveKind = "field_index.remove"
+
+// IsFieldIndexKind reports whether kind is one of the two field-index
+// kinds, which the relay delivers to the tenant's coordinator.
+func IsFieldIndexKind(kind string) bool {
+	return kind == FieldIndexBackfillKind || kind == FieldIndexRemoveKind
+}
+
 // Delivery is the single argument the relay passes to Temporal for one row:
 // the input of a started workflow, or the body of a signal. Like the row it
 // comes from, it holds references only (CI-7). OutboxID is the id the
@@ -658,8 +670,11 @@ func validate(e Entry) (json.RawMessage, error) {
 	// kind is guarded here, not in notOwnEntryPointStart, whose rows the
 	// handbook build reads as the closed list of registered workflow kinds;
 	// the worker registers this one in P7-05.
-	if e.Kind == FieldIndexBackfillKind {
+	switch e.Kind {
+	case FieldIndexBackfillKind:
 		return nil, invalid("a %s start goes through EnqueueFieldIndexBackfill", FieldIndexBackfillKind)
+	case FieldIndexRemoveKind:
+		return nil, invalid("a %s row goes through EnqueueFieldIndexRemove", FieldIndexRemoveKind)
 	}
 	if e.RecordID == uuid.Nil {
 		return nil, invalid("no record id")
@@ -702,6 +717,7 @@ var kindPayloadKeys = map[string][]string{
 	SealKind:               {},
 	FieldIndexBackfillKind: {"tenant_id", "field_id"},
 	SchemaBackfillKind:     {"entity_definition_id"},
+	FieldIndexRemoveKind:   {"tenant_id", "field_id"},
 }
 
 // ValidateKindPayload is ValidatePayload plus the per-kind allow-list
@@ -805,7 +821,17 @@ func traceparent(ctx context.Context) *string {
 // FieldIndexBackfillDedupeKey is the dedupe_key of the backfill start row for
 // field fieldID asked for by entity definition version requestedVersion.
 func FieldIndexBackfillDedupeKey(fieldID uuid.UUID, requestedVersion int) string {
-	return fmt.Sprintf("%s:%s:%d", FieldIndexBackfillKind, fieldID, requestedVersion)
+	return fieldIndexDedupeKey(FieldIndexBackfillKind, fieldID, requestedVersion)
+}
+
+// FieldIndexRemoveDedupeKey is the dedupe_key of the removal row for field
+// fieldID asked for by entity definition version requestedVersion.
+func FieldIndexRemoveDedupeKey(fieldID uuid.UUID, requestedVersion int) string {
+	return fieldIndexDedupeKey(FieldIndexRemoveKind, fieldID, requestedVersion)
+}
+
+func fieldIndexDedupeKey(kind string, fieldID uuid.UUID, requestedVersion int) string {
+	return fmt.Sprintf("%s:%s:%d", kind, fieldID, requestedVersion)
 }
 
 // EnqueueFieldIndexBackfill writes the start row of a field-index backfill
@@ -822,6 +848,22 @@ func FieldIndexBackfillDedupeKey(fieldID uuid.UUID, requestedVersion int) string
 //
 // tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
 func EnqueueFieldIndexBackfill(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID, requestedVersion int) (uuid.UUID, error) {
+	return enqueueFieldIndex(ctx, tx, FieldIndexBackfillKind, fieldID, requestedVersion)
+}
+
+// EnqueueFieldIndexRemove writes the removal row of the registry row
+// fieldID in tx's tenant and returns its id (ADR-006 D11, TICK-750). The
+// publish transaction calls it once per field it flips to removing. The row
+// has the shape of EnqueueFieldIndexBackfill's, under FieldIndexRemoveKind:
+// payload {tenant_id, field_id}, requestedVersion in target_seq and in the
+// dedupe_key, so a retry of the same publish writes nothing more.
+//
+// tx must come from tenancy.InTenantTx. On any error the caller rolls tx back.
+func EnqueueFieldIndexRemove(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID, requestedVersion int) (uuid.UUID, error) {
+	return enqueueFieldIndex(ctx, tx, FieldIndexRemoveKind, fieldID, requestedVersion)
+}
+
+func enqueueFieldIndex(ctx context.Context, tx pgx.Tx, kind string, fieldID uuid.UUID, requestedVersion int) (uuid.UUID, error) {
 	if fieldID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("%w: no field id", ErrInvalidEntry)
 	}
@@ -836,22 +878,22 @@ func EnqueueFieldIndexBackfill(ctx context.Context, tx pgx.Tx, fieldID uuid.UUID
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("outbox: encode payload: %w", err)
 	}
-	if err := ValidateKindPayload(FieldIndexBackfillKind, payload); err != nil {
+	if err := ValidateKindPayload(kind, payload); err != nil {
 		return uuid.Nil, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("outbox: new id: %w", err)
 	}
-	dedupe := FieldIndexBackfillDedupeKey(fieldID, requestedVersion)
+	dedupe := fieldIndexDedupeKey(kind, fieldID, requestedVersion)
 	var got uuid.UUID
-	err = tx.QueryRow(ctx, insertSQL, id, tenant, FieldIndexBackfillKind, 1, dedupe,
-		FieldIndexBackfillKind+":"+id.String(), int64(requestedVersion), id, 0, string(payload), traceparent(ctx)).Scan(&got)
+	err = tx.QueryRow(ctx, insertSQL, id, tenant, kind, 1, dedupe,
+		kind+":"+id.String(), int64(requestedVersion), id, 0, string(payload), traceparent(ctx)).Scan(&got)
 	if err == nil {
 		return got, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, fmt.Errorf("outbox: insert field index backfill row: %w", err)
+		return uuid.Nil, fmt.Errorf("outbox: insert %s row: %w", kind, err)
 	}
 	var existing uuid.UUID
 	if err := tx.QueryRow(ctx, dedupeLookupSQL, dedupe).Scan(&existing); err != nil {

@@ -27,10 +27,6 @@ const (
 	RefusalFilterableTypeChange = "filterable_field_type_change"
 	// RefusalSearchableNotAvailable: x-nava-searchable appears anywhere.
 	RefusalSearchableNotAvailable = "searchable_not_available"
-	// RefusalFilterableRemovalUnavailable: the new version no longer flags a
-	// field the previous one flags, by dropping the flag or the property. It is
-	// returned by entitytypes.Publish; S22 replaces it with removal.
-	RefusalFilterableRemovalUnavailable = "filterable_field_removal_unavailable"
 )
 
 // RefusalError is returned by Compile and Classify for a definition the

@@ -432,9 +432,6 @@ func (h *handlers) responseError(a *apihttp.API) func(http.ResponseWriter, *http
 				case problem.FieldNotFilterable:
 					h.reg.Write(w, r, problem.FieldNotFilterable, pe.fields...)
 					return
-				case problem.FilterableFieldRemovalUnavailable:
-					h.reg.Write(w, r, problem.FilterableFieldRemovalUnavailable, pe.fields...)
-					return
 				case problem.IndexQuotaExceeded:
 					h.reg.Write(w, r, problem.IndexQuotaExceeded, pe.fields...)
 					return

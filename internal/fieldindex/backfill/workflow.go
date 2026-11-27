@@ -48,12 +48,13 @@ const (
 	barrierHeartbeat    = 30 * time.Second
 )
 
-// RegisterWorkflow adds the coordinator and FieldIndexBackfill to r under
-// their workflow types, with the defaults. It is the form the handbook build
+// RegisterWorkflow adds the coordinator, FieldIndexBackfill and
+// FieldIndexRemove to r under their workflow types, with the defaults. It is the form the handbook build
 // parses (docs/handbook/build/build.py GO_REGISTER_FUNCS).
 func RegisterWorkflow(r worker.WorkflowRegistry) {
 	r.RegisterWorkflowWithOptions(coordinatorRun, workflow.RegisterOptions{Name: fieldindex.CoordinatorWorkflowType})
 	r.RegisterWorkflowWithOptions(backfillRun, workflow.RegisterOptions{Name: fieldindex.BackfillWorkflowType})
+	r.RegisterWorkflowWithOptions(removeRun, workflow.RegisterOptions{Name: fieldindex.RemoveWorkflowType})
 }
 
 // coordinatorRun and backfillRun are the workflows with the defaults.
@@ -197,7 +198,7 @@ type pendingRefs struct {
 // Seen (I7, kept across continue-as-new), and on (field, requested_version)
 // within the run. Then, one item at a time, Classify reads the field's
 // registry row and the matching child runs: FieldIndexBackfill for
-// backfilling, FieldIndexRemove (TICK-750) for removing, nothing for ready
+// backfilling, FieldIndexRemove for removing, nothing for ready
 // or gone. A child that fails is logged and the queue moves on.
 //
 // After MaxItems items with more still queued the run continues as new

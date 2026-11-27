@@ -168,10 +168,6 @@ codes:
     status: 422
     title: Field not ready
     detail: The field is flagged x-nava-filterable but its existing values are still being indexed. Retry later; index_progress is the whole percentage done.
-  - code: filterable_field_removal_unavailable
-    status: 422
-    title: Filterable field removal unavailable
-    detail: The new version no longer marks a property x-nava-filterable that the current version marks, by dropping the flag or the property. Removing a filterable field is not available yet. Nothing was written. See errors for the property.
   - code: index_quota_exceeded
     status: 422
     title: Index quota exceeded

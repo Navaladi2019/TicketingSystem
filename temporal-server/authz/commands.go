@@ -259,6 +259,12 @@ func checkCommand(cmd *commandpb.Command, tenant, workflowID string) (reason, ta
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue(), workflowID); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
+		if reason, detail := checkChildOnlyParent(a.GetWorkflowType().GetName(), workflowID, tenant, false); reason != "" {
+			return reason, a.GetWorkflowId(), detail
+		}
+		if reason, detail := checkReservedID(a.GetWorkflowId(), a.GetWorkflowType().GetName()); reason != "" {
+			return reason, a.GetWorkflowId(), detail
+		}
 		if reason, detail := checkChildSchedule(a.GetCronSchedule(), a.GetRetryPolicy()); reason != "" {
 			return reason, a.GetWorkflowId(), detail
 		}
@@ -283,6 +289,12 @@ func checkCommand(cmd *commandpb.Command, tenant, workflowID string) (reason, ta
 			return ReasonTenantSearchAttr, "", ""
 		}
 		if reason, detail := checkCommandWorkload(a.GetWorkflowType(), a.GetTaskQueue(), workflowID); reason != "" {
+			return reason, "", detail
+		}
+		if reason, detail := checkChildOnlyParent(a.GetWorkflowType().GetName(), workflowID, tenant, true); reason != "" {
+			return reason, "", detail
+		}
+		if reason, detail := checkReservedID(workflowID, a.GetWorkflowType().GetName()); reason != "" {
 			return reason, "", detail
 		}
 	case enumspb.COMMAND_TYPE_FAIL_WORKFLOW_EXECUTION:
@@ -363,6 +375,56 @@ func isSchemaBackfillID(workflowID string) bool {
 	rest := strings.TrimPrefix(workflowID, "t:"+tenant+":")
 	after, ok := strings.CutPrefix(rest, schemaBackfillWorkflowType+":")
 	return ok && after != ""
+}
+
+// checkChildOnlyParent is D9c's parent rule for a child-only type (TICK-750,
+// TICK-753): only the task's tenant's field-index coordinator,
+// t:<tenant>:field_index.coordinator, may start one as a child, and only a run
+// of the same type, t:<tenant>:<type>:..., may continue as one. An interpreter
+// run of the same tenant cannot run a backfill or a removal around the
+// coordinator's one-at-a-time queue (D10.5, PLAN-007 D-7-12). Any other type
+// passes.
+func checkChildOnlyParent(name, workflowID, tenant string, continueAsNew bool) (reason, detail string) {
+	if !inSet(childOnlyWorkflowTypes(), name) {
+		return "", ""
+	}
+	if continueAsNew {
+		if strings.HasPrefix(workflowID, "t:"+tenant+":"+name+":") {
+			return "", ""
+		}
+		return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is child-only: only a run of it may continue as it"
+	}
+	if workflowID == "t:"+tenant+":"+fieldIndexCoordinatorWorkflowType {
+		return "", ""
+	}
+	return ReasonWorkflowType, "workflow type " + strconv.Quote(name) + " is child-only: only the tenant's coordinator may start it"
+}
+
+// checkReservedID binds the field-index ids to their types on every run
+// (TICK-750 security review): wherever a run is created (a start, a
+// signal-with-start, a child) and on continue-as-new, which keeps the id and
+// may name a new type. t:<tenant>:field_index.coordinator is a
+// field_index.coordinator run only, and an id under t:<tenant>:<child-only
+// type>: is a run of that type only, so checkChildOnlyParent can trust the
+// parent's id.
+// An id with no tenant prefix passes here; the callers deny it on their own.
+func checkReservedID(workflowID, name string) (reason, detail string) {
+	tenant, ok := tenantOf(workflowID)
+	if !ok {
+		return "", ""
+	}
+	rest := strings.TrimPrefix(workflowID, "t:"+tenant+":")
+	if rest == fieldIndexCoordinatorWorkflowType && name != fieldIndexCoordinatorWorkflowType {
+		return ReasonWorkflowType, "workflow id " + strconv.Quote(truncate(workflowID, maxLoggedName)) +
+			" is reserved for workflow type " + strconv.Quote(fieldIndexCoordinatorWorkflowType)
+	}
+	for wt := range childOnlyWorkflowTypes() {
+		if strings.HasPrefix(rest, wt+":") && name != wt {
+			return ReasonWorkflowType, "workflow id " + strconv.Quote(truncate(workflowID, maxLoggedName)) +
+				" is reserved for workflow type " + strconv.Quote(wt)
+		}
+	}
+	return "", ""
 }
 
 // checkCommandTaskQueue is D9c for a command's task queue: Kind NORMAL or
