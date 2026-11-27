@@ -71,12 +71,6 @@ type ListQuery struct {
 	// internal/server/export_test.go sets.
 	CountDelay time.Duration
 	SkipCount  bool
-	// CountBudgetOverride and CountParallel are test seams too (ADR-006-E2
-	// E2-4 (3e)). CountBudgetOverride > 0 replaces CountBudget in
-	// CountBudgetFor. CountParallel leaves out the count's
-	// max_parallel_workers_per_gather = 0 (arm B, "server settings").
-	CountBudgetOverride time.Duration
-	CountParallel       bool
 }
 
 // CountDriver drives one count term (authz.RegionDriver): From is a FROM
@@ -129,9 +123,8 @@ const (
 const TotalCap = 1000
 
 // CountBudget is the time a list's count may take before its total is reported
-// unknown instead (ADR-006-A2 A2-2). Not a setting. 170 ms is ADR-006-E2 E2-1:
-// 350 - 94 - 6 - 35 - 40 = 175, rounded down.
-const CountBudget = 170 * time.Millisecond
+// unknown instead (ADR-006-A2 A2-2). Not a setting.
+const CountBudget = 140 * time.Millisecond
 
 // DataFilterTimeout is the statement timeout of a list with a data filter (TICK-647).
 const DataFilterTimeout = 2 * time.Second
@@ -215,15 +208,9 @@ func countInto(ctx context.Context, tx pgx.Tx, q ListQuery, page *ListPage) erro
 		return nil
 	}
 	// One no-argument Exec: SET LOCAL cannot take a parameter and the value is
-	// whole milliseconds. The count runs serial (ADR-006-E2 E2-2): worker start
-	// and Gather cost more than they save inside the budget. ROLLBACK TO undoes
-	// both settings.
-	open := "SAVEPOINT list_count; SET LOCAL statement_timeout = '" +
-		strconv.FormatInt(CountBudgetFor(q).Milliseconds(), 10) + "'"
-	if !q.CountParallel {
-		open += "; SET LOCAL max_parallel_workers_per_gather = 0"
-	}
-	if _, err := tx.Exec(ctx, open); err != nil {
+	// whole milliseconds.
+	if _, err := tx.Exec(ctx, "SAVEPOINT list_count; SET LOCAL statement_timeout = '"+
+		strconv.FormatInt(CountBudgetFor(q).Milliseconds(), 10)+"'"); err != nil {
 		return fmt.Errorf("records/store: open count budget: %w", err)
 	}
 	countErr := tx.QueryRow(ctx, stmt, args...).Scan(&total)
@@ -258,18 +245,14 @@ func setTotal(page *ListPage, total int64) {
 // or for a legacy-scan list min(CountBudget, its Timeout), Timeout zero
 // meaning DataFilterTimeout.
 func CountBudgetFor(q ListQuery) time.Duration {
-	budget := CountBudget
-	if q.CountBudgetOverride > 0 {
-		budget = q.CountBudgetOverride
-	}
 	if !q.DataFilter {
-		return budget
+		return CountBudget
 	}
 	d := q.Timeout
 	if d <= 0 {
 		d = DataFilterTimeout
 	}
-	return min(budget, d)
+	return min(CountBudget, d)
 }
 
 // rowWithExtra scans the record columns plus one trailing text column.

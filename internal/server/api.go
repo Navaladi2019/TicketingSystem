@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, countBudgetOverride: opts.countBudgetOverride, countParallel: opts.countParallel, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -265,10 +265,6 @@ type handlers struct {
 	// WithCountDelay / WithSkipCount (export_test.go).
 	countDelay time.Duration
 	skipCount  bool
-	// countBudgetOverride and countParallel: the count-arm seams, set only
-	// through WithCountArm (export_test.go).
-	countBudgetOverride time.Duration
-	countParallel       bool
 	// listDataTerm replaces the list's data-filter term; nil in every
 	// production build (see listPlan.dataTerm).
 	listDataTerm func(arg string) string

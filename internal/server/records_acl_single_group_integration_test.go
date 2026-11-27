@@ -56,10 +56,7 @@ type sgEnv struct {
 	pol              *authz.Policy
 }
 
-func newSGEnv(t *testing.T) *sgEnv { return newSGEnvSized(t, sgRecords) }
-
-// newSGEnvSized is newSGEnv with n records: the same shape and distributions.
-func newSGEnvSized(t *testing.T, n int) *sgEnv {
+func newSGEnv(t *testing.T) *sgEnv {
 	t.Helper()
 	e := &sgEnv{etEnv: newFilterEnv(t), big: uuid.New(), small: uuid.New(), tiny: uuid.New()}
 	ctx := t.Context()
@@ -95,7 +92,7 @@ func newSGEnvSized(t *testing.T, n int) *sgEnv {
 				CASE WHEN x.hp = 0 THEN 1 WHEN x.hp = 1 THEN 2 WHEN x.hp < 50 THEN 3 ELSE 4 END)
 		FROM entity_definitions d, generate_series(1, $6::int) g,
 			LATERAL (SELECT (hashtext('g' || g) & 2147483647) % 10000 AS hg, (hashtext('p' || g) & 2147483647) % 100 AS hp) x
-		WHERE d.tenant_id = $1 AND d.key = $2`, tn, "asset", e.big, e.small, e.tiny, n); err != nil {
+		WHERE d.tenant_id = $1 AND d.key = $2`, tn, "asset", e.big, e.small, e.tiny, sgRecords); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
