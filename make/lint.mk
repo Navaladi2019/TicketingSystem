@@ -1,6 +1,6 @@
-.PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
+.PHONY: lint check-generate check-guide check-ci-steps check-openapi test-check-openapi-base tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
 
-ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi test-handbook test-handbook-coverage handbook-build vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi test-check-openapi-base test-handbook test-handbook-coverage handbook-build vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,
@@ -64,6 +64,12 @@ check-ci-steps:
 check-openapi:
 	@git rev-parse -q --verify $(BASE) >/dev/null || { echo "check-openapi: $(BASE) not found; fetch it first (git fetch origin main)"; exit 1; }
 	@sh scripts/ci/check-openapi.sh $(BASE)
+
+# check-openapi.sh on a pull_request run compares against the merge commit's
+# first parent, so a main that moved on mid-run cannot fail the PR; a real
+# removal still fails (TICK-1179). A throwaway git repo, no network.
+test-check-openapi-base:
+	sh scripts/ci/test-check-openapi-base.sh
 
 # Installs the pinned CI tools into $$(go env GOPATH)/bin.
 tools:
