@@ -44,6 +44,7 @@ func baseFiles() map[string]string {
 		".github/workflows/ci.yml":                "name: ci\n",
 		"tools/ci/cisteps/govulncheck.copy.yml":   "name: govulncheck\n",
 		"tools/ci/cisteps/main.go":                "package main\n",
+		"tools/ci/checkpins/main.go":              "package main\n",
 		"tools/ci/vulngate/gate_test.go":          "package vulngate\n",
 		"scripts/ci/vulncheck-detect.sh":          "#!/bin/sh\n",
 		"scripts/ci/vulncheck-gate.sh":            "#!/bin/sh\n",
@@ -197,11 +198,20 @@ func TestDetect(t *testing.T) {
 		{"tools/ci/cisteps/", appendTo("tools/ci/cisteps/main.go"), both},
 		{"tools/ci/cisteps/ new file", add("tools/ci/cisteps/testdata/x.yml"), both},
 		{"tools/ci/vulngate/", appendTo("tools/ci/vulngate/gate_test.go"), both},
-		{"Makefile govulncheck line", replace("Makefile", "\tgovulncheck ./...", "\tgovulncheck -show verbose ./..."), both},
-		{"Makefile GOVULNCHECK_VERSION line", replace("Makefile", "1.1.4", "1.1.5"), both},
+		// ADR-001-A7 rule 2 third row: check-pins ties the workflow's
+		// govulncheck version to Makefile and docs/pins.md (V-6), so its
+		// source is part of the gate.
+		{"tools/ci/checkpins/", appendTo("tools/ci/checkpins/main.go"), both},
+		{"tools/ci/checkpins/ new file", add("tools/ci/checkpins/testdata/x.yml"), both},
+		// ADR-001-A7: the scan jobs run no make, so a make recipe is not what
+		// the scan does. A GOVULNCHECK_VERSION edit alone is safe: V-6 fails
+		// check-pins unless the workflow's line changes with it, and a
+		// workflow change scans both.
+		{"Makefile govulncheck line", replace("Makefile", "\tgovulncheck ./...", "\tgovulncheck -show verbose ./..."), none},
+		{"Makefile GOVULNCHECK_VERSION line", replace("Makefile", "1.1.4", "1.1.5"), none},
 		{"Makefile other line", replace("Makefile", "\tgo build ./...", "\tgo build -trimpath ./..."), none},
 		{"Makefile appended unrelated line", appendTo("Makefile"), none},
-		{"make/lint.mk govulncheck line", replace("make/lint.mk", "govulncheck@v", "govulncheck@latest # v"), both},
+		{"make/lint.mk govulncheck line", replace("make/lint.mk", "govulncheck@v", "govulncheck@latest # v"), none},
 		{"make/lint.mk other line", replace("make/lint.mk", "golangci-lint run", "golangci-lint run -v"), none},
 		{"govulncheck word outside Makefile", replace("cmd/nava-core/main.go", "package main\n", "package main\n\n// govulncheck\n"), none},
 
