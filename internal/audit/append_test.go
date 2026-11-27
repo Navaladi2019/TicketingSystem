@@ -380,3 +380,24 @@ func TestAppendTruncates(t *testing.T) {
 		t.Errorf("truncated insert: flag %v, diff %q", tx.args[19], *tx.args[20].(*string))
 	}
 }
+
+// TICK-1170: DiffNULEscaped is the INSERT's last argument, into
+// diff_nul_escaped; the zero Entry leaves it false, so every existing caller
+// writes what the column default would.
+func TestAppendDiffNULEscaped(t *testing.T) {
+	for _, want := range []bool{false, true} {
+		tx := &fakeTx{tenant: testTenant().String()}
+		e := validEntry()
+		e.DiffNULEscaped = want
+		if _, err := Append(context.Background(), tx, e); err != nil {
+			t.Fatal(err)
+		}
+		ins := tx.sql[1]
+		if !strings.Contains(ins, "diff_salt, diff_nul_escaped)") || !strings.Contains(ins, "$22, $23)") {
+			t.Errorf("insert does not name diff_nul_escaped as $23:\n%s", ins)
+		}
+		if len(tx.args) != 23 || tx.args[22] != want {
+			t.Errorf("DiffNULEscaped = %v: %d args, last %v", want, len(tx.args), tx.args[len(tx.args)-1])
+		}
+	}
+}

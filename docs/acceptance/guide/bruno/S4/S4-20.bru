@@ -1,0 +1,33 @@
+meta {
+  name: S4.20 Negative: the limits route on the tenant ingress (nava-core)
+  type: http
+  seq: 21
+}
+
+put {
+  url: {{core_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{operator_token}}
+  Idempotency-Key: {{onb_key}}-limits-core
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 6,
+    "reason": "wrong ingress"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('not_implemented', 501);
+}
+
+docs {
+  nava-core is not wired for operator routes: it answers 501, as S4.5 does for onboarding.
+}

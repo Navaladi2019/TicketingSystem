@@ -6,6 +6,9 @@
   "onboardTenant": {
     "429": "Reserved, not emitted: operator routes are not rate limited (internal/server/api.go wraps tenant routes only). Spec drift tracked in TICK-516."
   },
+  "setTenantLimits": {
+    "429": "Reserved, not emitted: operator routes are not rate limited (internal/server/api.go wraps tenant routes only), as for onboardTenant (TICK-516)."
+  },
   "listEntityTypes": {
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
@@ -54,7 +57,6 @@
   },
   "listRecords": {
     "429": "Not asserted here: the limiter is route-agnostic; internal/server/write_chain_test.go drives it on tenant routes.",
-    "500": "Needs an internal failure (a dependency error mid-request); not caused through the handler against a healthy database.",
     "501": "The operation is implemented; 501 is the generated default for an unimplemented operation, or nava-core started without a database or cursor keys, which an integration test against a database never is."
   },
   "exportAuditEntries": {

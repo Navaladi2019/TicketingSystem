@@ -17,13 +17,14 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/Navaladi2019/TicketingSystem/internal/fieldindex"
+	snapshot "github.com/Navaladi2019/TicketingSystem/internal/fieldindex/barrier"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
 )
 
 // The registered activity names.
 const (
-	// BarrierActivity is fieldindex.Barrier (D9). FieldIndexRemove (TICK-750)
+	// BarrierActivity is fieldindex.Barrier (D9). FieldIndexRemove (remove.go)
 	// reuses it: it takes no argument and reads nothing but the snapshot.
 	BarrierActivity  = "field_index.Barrier"
 	ClassifyActivity = "field_index.Classify"
@@ -67,7 +68,8 @@ type Classified struct {
 	Remove   *uuid.UUID `json:"remove,omitempty"`
 }
 
-// Activities are the coordinator's and FieldIndexBackfill's activities on a
+// Activities are the coordinator's, FieldIndexBackfill's and
+// FieldIndexRemove's activities on a
 // nava_worker pool. Register them with Register. Metrics, Uncoerced and Log
 // may be nil.
 type Activities struct {
@@ -78,7 +80,8 @@ type Activities struct {
 	// (nava_field_index_uncoerced_total{entity_definition}, ADR-006 R5).
 	Uncoerced UncoercedCounter
 	Log       *slog.Logger
-	// BatchSize is the records one batch copies; 0 is DefaultBatchSize.
+	// BatchSize is the records one batch copies, and the side rows one
+	// removal batch deletes; 0 is DefaultBatchSize.
 	BatchSize int
 	// SlowAfter is the barrier's slow threshold; 0 is DefaultSlowAfter.
 	SlowAfter time.Duration
@@ -108,139 +111,39 @@ func (a *Activities) Register(r worker.ActivityRegistry) {
 	r.RegisterActivityWithOptions(a.Classify, activity.RegisterOptions{Name: ClassifyActivity})
 	r.RegisterActivityWithOptions(a.Batch, activity.RegisterOptions{Name: BatchActivity})
 	r.RegisterActivityWithOptions(a.Ready, activity.RegisterOptions{Name: ReadyActivity})
+	r.RegisterActivityWithOptions(a.RemoveBatch, activity.RegisterOptions{Name: RemoveBatchActivity})
+	r.RegisterActivityWithOptions(a.Retire, activity.RegisterOptions{Name: RetireActivity})
 }
 
-// barrierState is the barrier's heartbeat details: the bounds of the wait set
-// taken once on the first attempt (D9), when that was, and whether the slow
-// alert has fired. The wait set is XIP ∪ [Lo, Hi): the snapshot's xip, and
-// every xid from its xmax (Lo) up to the fence xid (Hi), exclusive. The range
-// is kept as its bounds, never expanded, so the details stay a fixed size
-// however many xids were handed out between the snapshot and the fence
-// (ADR-006-E1 E1-1). Lo and Hi are empty in details written before E1-1,
-// whose XIP already held the expanded range; an empty range waits on nothing.
-// Transaction ids are not tenant data.
-type barrierState struct {
-	XIP   []string  `json:"xip"`
-	Lo    string    `json:"lo,omitempty"`
-	Hi    string    `json:"hi,omitempty"`
-	Since time.Time `json:"since"`
-	Slow  bool      `json:"slow"`
-}
-
-const (
-	// snapshotSQL and fenceSQL, run in that order in one transaction, give
-	// the set of transactions in progress at the snapshot. A transaction
-	// that started after it sees every registry change committed before it
-	// (records writers run READ COMMITTED, and the trigger's registry read is
-	// a statement of a volatile plpgsql function, so it takes its own
-	// snapshot).
-	//
-	// pg_snapshot_xip alone is not that set: it lists only xids below the
-	// snapshot's xmax, and when the newest assigned xid is still running,
-	// xmax is that xid, so it is not listed (found in TICK-745 testing: a
-	// snapshot 1869:1869: with 1869 in progress). fenceSQL assigns this
-	// transaction an xid M, after the snapshot, and the barrier also waits on
-	// every xid in [xmax, M) still in progress: the xids handed out between
-	// the two statements, which include any such newest one.
-	snapshotSQL = `SELECT (SELECT coalesce(array_agg(x::text), '{}') FROM pg_snapshot_xip(s.s) x), pg_snapshot_xmax(s.s)::text
-		FROM (SELECT pg_current_snapshot() AS s) s`
-	fenceSQL = `SELECT pg_current_xact_id()::text`
-	// openSQL counts the xids of XIP ∪ [Lo, Hi) still in progress; the range
-	// is expanded here, per poll, never in Go. An empty Lo or Hi is an empty
-	// range. pg_xact_status needs no grant.
-	openSQL = `SELECT (SELECT count(*) FROM unnest($1::text[]) x WHERE pg_xact_status(x::xid8) = 'in progress')
-		+ (SELECT count(*) FROM generate_series(nullif($2, '')::bigint, nullif($3, '')::bigint - 1) g(n)
-			WHERE pg_xact_status(n::text::xid8) = 'in progress')`
-)
-
-// Barrier is the snapshot barrier (D9, R11). It takes pg_current_snapshot()
-// and a fence xid once and keeps the bounds of the wait set in the heartbeat
-// details, then polls it with pg_xact_status, once per poll, 1 s apart backing off
-// to 10 s, until none is still open. Nothing sleeps in SQL, and no
-// connection is held between polls. Past SlowAfter it raises
+// Barrier is the snapshot barrier (D9, R11), fieldindex/barrier.Wait. A backfill
+// child's barrier stops waiting once its registry row is removed, set to
+// removing, or moved to another requested_version: the next batch, or the
+// flip to ready, writes nothing then, and a removal runs its own barrier
+// (D11). So a removal or a version bump during a long wait ends it at the
+// next poll, not when the long transaction ends. Past SlowAfter it raises
 // field_index_barrier_slow once (metric and log, no tenant data) and keeps
 // waiting.
-//
-// The polls run inside one activity attempt, heartbeating after each, not as
-// failed attempts on a retry timer (TICK-745 design deviation): the worker
-// guard records a non-allow-listed activity failure as a record_data deny
-// with alert=true, so a retry-driven poll would page on every barrier. A
-// worker lost mid-wait times the heartbeat out, and the next attempt resumes
-// from the snapshot in the heartbeat details, never a new one.
 func (a *Activities) Barrier(ctx context.Context) error {
-	var st barrierState
-	if !activity.HasHeartbeatDetails(ctx) || activity.GetHeartbeatDetails(ctx, &st) != nil || st.Since.IsZero() {
-		var err error
-		if st, err = a.takeSnapshot(ctx); err != nil {
-			return fmt.Errorf("field index barrier: snapshot: %w", err)
-		}
-		activity.RecordHeartbeat(ctx, st)
-	}
-	c, isBackfill := childOf(ctx)
-	wait := barrierFirstPoll
-	for {
-		// A backfill child's barrier stops waiting once its registry row is
-		// removed, set to removing, or moved to another requested_version:
-		// the next batch, or the flip to ready, writes nothing then, and a
-		// removal runs its own barrier (D11). So a removal or a version bump
-		// during a long wait ends it at the next poll, not when the long
-		// transaction ends.
-		if isBackfill == nil {
-			gone, err := superseded(ctx, a.Pool, c)
-			if err != nil {
-				return fmt.Errorf("field index barrier: registry: %w", err)
-			}
-			if gone {
-				return nil
-			}
-		}
-		var open int64
-		if err := a.Pool.QueryRow(ctx, openSQL, st.XIP, st.Lo, st.Hi).Scan(&open); err != nil {
-			return fmt.Errorf("field index barrier: status: %w", err)
-		}
-		if open == 0 {
-			return nil
-		}
-		if waited := time.Since(st.Since); !st.Slow && waited >= a.slowAfter() {
-			st.Slow = true
+	o := snapshot.Options{SlowAfter: a.slowAfter(), AfterSnapshot: a.afterSnapshot,
+		OnSlow: func(ctx context.Context, open int64, waited time.Duration) {
 			a.Metrics.barrierSlow(ctx)
 			a.logger().WarnContext(ctx, "field index barrier slow: a transaction open at the flip is still running",
 				a.attrs(ctx, slog.Bool("alert", true), slog.String("alert_name", "field_index_barrier_slow"),
 					slog.Int64("open_transactions", open), slog.Duration("waited", waited))...)
+		}}
+	if c, err := childOf(ctx); err == nil {
+		o.StopIf = func(ctx context.Context) (bool, error) {
+			gone, err := superseded(ctx, a.Pool, c)
+			if err != nil {
+				return false, fmt.Errorf("field index barrier: registry: %w", err)
+			}
+			return gone, nil
 		}
-		activity.RecordHeartbeat(ctx, st)
-		t := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		case <-t.C:
-		}
-		wait = min(wait*2, barrierMaxPoll)
 	}
-}
-
-// takeSnapshot returns the wait set of the transactions in progress now: the
-// snapshot's xip, its xmax as Lo, and as Hi a fence xid this transaction
-// takes after it (see snapshotSQL). The transaction is rolled back; its only
-// effect is the one xid it consumed.
-func (a *Activities) takeSnapshot(ctx context.Context) (barrierState, error) {
-	tx, err := a.Pool.Begin(ctx)
-	if err != nil {
-		return barrierState{}, err
+	if err := snapshot.Wait(ctx, a.Pool, o); err != nil {
+		return fmt.Errorf("field index %w", err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	st := barrierState{Since: time.Now()}
-	if err := tx.QueryRow(ctx, snapshotSQL).Scan(&st.XIP, &st.Lo); err != nil {
-		return barrierState{}, err
-	}
-	if a.afterSnapshot != nil {
-		a.afterSnapshot(ctx)
-	}
-	if err := tx.QueryRow(ctx, fenceSQL).Scan(&st.Hi); err != nil {
-		return barrierState{}, err
-	}
-	return st, nil
+	return nil
 }
 
 // supersededSQL reads the child's registry row, if any.
@@ -263,12 +166,6 @@ func superseded(ctx context.Context, pool *pgxpool.Pool, c child) (bool, error) 
 	}
 	return fieldindex.State(state) == fieldindex.StateRemoving || (c.version != 0 && version != c.version), nil
 }
-
-// The barrier's poll interval: 1 s, doubling to 10 s (D9).
-const (
-	barrierFirstPoll = time.Second
-	barrierMaxPoll   = 10 * time.Second
-)
 
 const classifySQL = `SELECT state FROM record_index_fields WHERE tenant_id = $1 AND id = $2`
 

@@ -1,0 +1,32 @@
+meta {
+  name: S4.17 Negative: setting a limit with no token
+  type: http
+  seq: 17
+}
+
+put {
+  url: {{onboard_url}}/api/v1/operator/tenants/00000000-0000-4000-8000-0000000000a1/limits
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{onb_key}}-limits-none
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filterable_fields_per_type": 10,
+    "reason": "no token"
+  }
+}
+
+tests {
+  const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('invalid_token', 401);
+}
+
+docs {
+  401 before anything else; nothing is written.
+}

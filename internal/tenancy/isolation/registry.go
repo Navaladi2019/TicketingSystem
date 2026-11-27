@@ -654,6 +654,8 @@ func Paths() []Path {
 	paths = append(paths, cascadePaths()...)
 	paths = append(paths, workflowPaths()...)
 	paths = append(paths, fieldIndexPaths()...)
+	paths = append(paths, schemaBackfillPaths()...)
+	paths = append(paths, tenantLimitsPaths()...)
 	paths = append(paths, auditPaths()...)
 	paths = append(paths, auditReaderPaths()...)
 	paths = append(paths, aclPaths()...)

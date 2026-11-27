@@ -19,8 +19,14 @@
 # (scripts/ci/main-red.sh). Always GitHub-hosted: no Docker, nothing the
 # self-hosted runner would speed up. Every step is a make target:
 # `make tools-govulncheck vulncheck vulncheck-temporal-server` runs it locally.
-# The steps below are kept by make check-ci-steps
-# (tools/ci/cisteps/required-govulncheck.yaml).
+# make check-ci-steps compares this file, comment lines aside, with
+# tools/ci/cisteps/govulncheck.copy.yml (TICK-1149, ADR-001-E4 contract
+# rule 9): edit both together.
+# Job ids start with vulncheck- (TICK-1145): GitHub knows a check by its
+# name, not its workflow, and ci.yml has jobs temporal-server (a required
+# check of main) and main-red. A green scan named temporal-server could stand
+# in for red Authorizer tests. TestNoTwoWorkflowsReportTheSameCheck
+# (tools/ci/cisteps) fails on any name two workflows report.
 name: govulncheck
 
 on:
@@ -45,7 +51,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  root:
+  vulncheck-root:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -59,7 +65,7 @@ jobs:
       - name: govulncheck (root module)
         run: make vulncheck
 
-  temporal-server:
+  vulncheck-temporal-server:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -73,8 +79,8 @@ jobs:
       - name: govulncheck (temporal-server)
         run: make vulncheck-temporal-server
 
-  main-red:
-    needs: [root, temporal-server]
+  vulncheck-main-red:
+    needs: [vulncheck-root, vulncheck-temporal-server]
     if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -122,6 +122,14 @@ audited:
     subject_type: workflow_definition
     subject_id_column: definition_id
     attached: true
+  # TICK-751 (20261127100800): an operator's raise of a tenant's per-type
+  # filterable-field limit, one config entry per change.
+  tenant_limits:
+    writer_roles: [nava_onboard]
+    audited_columns: [filterable_fields_per_type, updated_at, updated_by]
+    subject_type: tenant_limits
+    subject_id_column: tenant_id
+    attached: true
 
 exempt:
   audit_log:
@@ -152,6 +160,14 @@ exempt:
     reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
   rfv_bool:
     reason: "Derived from records.data, rebuildable (ADR-006 D1, D3)."
+  # Schema backfill (ADR-009 D7, P10-01, TICK-916): job state. Every record
+  # the job rewrites is audited by the pipeline (D4).
+  schema_backfills:
+    reason: "Schema backfill job state; each record rewrite is audited by the pipeline (ADR-009 D4)."
+  schema_backfill_pending:
+    reason: "Schema backfill work queue of record ids; each rewrite is audited by the pipeline (ADR-009 D4, D7)."
+  schema_backfill_failures:
+    reason: "Schema backfill failure ids and codes, no values; job state (ADR-009 D7)."
   cascade_start:
     reason: "Cascade start key (A5). A suppressed or rejected cascade is audited as a cascade_key entry by the pipeline (ADR-004-E1)."
   idempotency_keys:

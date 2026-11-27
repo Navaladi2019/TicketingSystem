@@ -190,6 +190,8 @@
             label: "E1: command inspection for continue-as-new"
           - page: adr/adr-001-e3.md
             label: "E3: the onboarding role reads its own tenant row"
+          - page: adr/adr-001-e4.md
+            label: "E4: when the vulnerability scan runs, and what a failure blocks"
       - page: adr/adr-002.md
         label: "ADR-002 /me shows group paths"
         children:
@@ -220,6 +222,8 @@
             label: "E8: the reader also reads the chain columns"
           - page: adr/adr-004-e9.md
             label: "E9: the audit row for a number_space_exhausted refusal"
+          - page: adr/adr-004-e10.md
+            label: "E10: diff_nul_escaped joins the hash envelope"
       - page: adr/adr-005.md
         label: "ADR-005 Record numbering"
         children:
@@ -256,6 +260,8 @@
             label: "A2: region leaf on org_unit_closure, capped count, C3 or the walk at K*"
           - page: adr/adr-010-a3.md
             label: "A3: a concentrated type under a large subtree reads its own records (R)"
+          - page: adr/adr-010-a4.md
+            label: "A4: R's count reads a covering records_list_updated"
           - page: adr/adr-010-e1.md
             label: "E1: CI-6 SQL text equal up to two named rewrites"
           - page: adr/adr-010-e2.md

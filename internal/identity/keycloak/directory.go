@@ -296,7 +296,9 @@ func (d *Directory) rootGroup(ctx context.Context, tenantID uuid.UUID) (kcGroup,
 		return kcGroup{}, err
 	}
 	if g.Path != rootPath(tenantID) {
-		return kcGroup{}, identity.ErrNotFound
+		// A 200 that is not the root group is not Keycloak saying it is gone
+		// (a proxy's {} for example): a plain error, never ErrNotFound.
+		return kcGroup{}, errors.New("keycloak admin: root group read returned another group")
 	}
 	return g, nil
 }
@@ -735,7 +737,13 @@ func (d *Directory) SetGroupMembers(ctx context.Context, tenantID, groupID uuid.
 
 // ChangesSince returns the tenant's directory snapshot and its digest. A
 // cursor equal to the digest returns Unchanged and nothing else. A tenant with
-// no /t/<tenant_id> group yet has an empty directory.
+// no /t/<tenant_id> group yet has an empty directory, but only when Keycloak
+// itself answers that the group does not exist: a 404 without Keycloak's own
+// error string, or a 200 for another group, fails the snapshot. A user whose
+// federated-identity read answers 404 and whose own record (GET /users/{id})
+// also answers 404, both with Keycloak's own "User not found", was deleted
+// during the read: the snapshot leaves them out of the users and of every
+// member list. Any other answer fails the snapshot.
 func (d *Directory) ChangesSince(ctx context.Context, tenantID uuid.UUID, cursor string) (identity.DirectoryChanges, string, error) {
 	if err := requireTenant(tenantID); err != nil {
 		return identity.DirectoryChanges{}, "", err
@@ -812,8 +820,21 @@ func (d *Directory) snapshot(ctx context.Context, tenantID uuid.UUID) (identity.
 			snap.Groups = append(snap.Groups, dg)
 		}
 	}
+	gone := map[string]bool{}
 	for id, u := range users {
 		links, err := d.federatedLinks(ctx, id)
+		if errors.Is(err, identity.ErrNotFound) {
+			// One 404 alone never removes a user: the user's own record
+			// must answer 404 too. Any other answer fails the snapshot.
+			var raw json.RawMessage
+			switch uerr := d.api.getJSON(ctx, d.runtime, "/users/{id}", "/users/"+url.PathEscape(id), nil, &raw); {
+			case errors.Is(uerr, identity.ErrNotFound):
+				gone[id] = true
+				continue
+			case uerr != nil:
+				return snap, uerr
+			}
+		}
 		if err != nil {
 			return snap, err
 		}
@@ -833,6 +854,23 @@ func (d *Directory) snapshot(ctx context.Context, tenantID uuid.UUID) (identity.
 	}
 	byPath(snap.Groups)
 	byPath(snap.OrgUnits)
+	if len(gone) > 0 {
+		dropGone := func(gs []identity.DirectoryGroup) {
+			for i := range gs {
+				kept := make([]string, 0, len(gs[i].MemberKeycloakUserIDs))
+				for _, id := range gs[i].MemberKeycloakUserIDs {
+					if !gone[id] {
+						kept = append(kept, id)
+					}
+				}
+				gs[i].MemberKeycloakUserIDs = kept
+			}
+		}
+		dropGone(snap.Groups)
+		dropGone(snap.OrgUnits)
+		d.log.InfoContext(ctx, "directory snapshot: users deleted while it was read were left out",
+			slog.String("tenant_id", tenantID.String()), slog.Int("users_gone", len(gone)))
+	}
 	return snap, nil
 }
 

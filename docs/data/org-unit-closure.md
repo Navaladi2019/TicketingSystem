@@ -20,8 +20,11 @@ Group sync is the only writer. A rebuild deletes the tenant's rows and
 inserts them again (TICK-1033); since TICK-1054 a run that touched units
 replaces only the rows of the touched units' subtrees, and the full rebuild
 remains for the first import and for drift. The drift check (stored and live
-closure compared as sets) runs only on a run that touched no unit, so drift
-outside the touched subtrees is repaired by the next such run. The migration's backfill,
+closure compared as sets) runs on a run that touched no unit, and (TICK-1166) on
+the first cycle that holds the tenant's lock one hour or more after the last
+committed check, unchanged, applied or touched alike. Drift outside the touched
+subtrees therefore lasts at most 1 hour plus one cycle, except while that
+tenant's sync fails. The migration's backfill,
 `org_unit_closure_rebuild_all()`, runs the same recursive statement per
 tenant: live roots, then the live children of every unit reached.
 
@@ -148,14 +151,89 @@ and 111 with one orphan added.
 
 ## Rollout
 
-- The migration locks `org_units` in SHARE mode while it backfills, so no
-  sync transaction changes the tree between the read and the commit. Reads
-  continue. `lock_timeout` is 5 s.
-- Until TICK-1033 ships, nothing keeps the closure up to date after a tree
-  change. Nothing reads it before TICK-1034. If a long-lived stack needs a
-  fresh closure before then, run `SELECT org_unit_closure_rebuild_all()` as
-  `nava_migrator`.
-- Down drops the function and the table. Nothing else depends on either.
+- The migration's backfill calls `org_unit_closure_rebuild_all()`, so it takes
+  the locks in the next section: every tenant's reads of `tenants`, `org_units`
+  and `org_unit_closure` wait until the migration commits. `lock_timeout` is
+  5 s for each lock wait. Reads wait behind the migration during such a wait
+  too. 5 s is above `deadlock_timeout` (1 s), so a request or a group sync can
+  be the deadlock victim during the rollout (inferred from the cases in the
+  next section, not measured on the migration itself).
+- Down drops the function and the table. Group sync (TICK-1033) and the `under`
+  leaf (TICK-1034) use the table, so run Down only with services older than
+  both.
+
+## Run the rebuild by hand (TICK-1122)
+
+`org_unit_closure_rebuild_all()` is a maintenance-window tool. Group sync keeps
+the closure current and repairs drift, so it is needed only when that has
+failed.
+
+### Locks
+
+`CREATE POLICY` takes ACCESS EXCLUSIVE on its table until commit. The function
+creates policies on `tenants`, then `org_units`, then `org_unit_closure`, before
+`LOCK TABLE org_units IN SHARE MODE`, so that SHARE lock adds nothing.
+
+| Case | Result |
+| --- | --- |
+| A plain read of any of the three tables, by any tenant, while the function runs | Waits until the function's transaction ends. As `nava_app` with `lock_timeout` 500 ms: `55P03` on each. |
+| An insert by any service into a table with a foreign key to `tenants` | Waits too: the check reads `tenants`. |
+| A transaction that has only read the closure, and is still open | The function waits for it. It already holds `tenants` and `org_units`, and new readers of all three tables wait behind it. |
+| No `lock_timeout` (the default: no role or database sets one) | That wait has no end. |
+| Group sync has read `org_units`, then inserts a unit (foreign key check on `tenants`) | Deadlock, `40P01` on one side. |
+| A request has read the closure, then reads `tenants` | Deadlock, `40P01` on one side. |
+| Either deadlock, formed after the function has waited 1 s (`deadlock_timeout`) | The other side is rolled back: the sync's run, or the **user's request**. A session checks for a deadlock once per lock wait, 1 s into it, so the function no longer looks. |
+| Either deadlock, `lock_timeout` 500 ms, the function waits for one table | The function fails with `55P03` and rolls back. The other side finishes. |
+| The request's deadlock, `lock_timeout` 500 ms, the function waits for all three tables | **The request is rolled back (`40P01`) and the function commits.** `lock_timeout` restarts at each wait. The request has queued on `tenants` since the first wait, and its check fires 1 s after that. |
+| Either of these, with the `LOCK TABLE … NOWAIT` of the procedure | The procedure fails at once with `55P03` (4 to 11 ms, the Technical Architect's spike on TICK-1122). The other side finishes. |
+
+Measured on PostgreSQL 16.10 with the migrations at `d0178ed5`: one tenant, one
+unit, default `deadlock_timeout`, a throwaway container in a Docker VM with
+16 CPUs and 24 GiB. The rows are lock rules, so they do not depend on the row
+count. `TestTICK1122*` in
+`internal/db/dbtest/org_unit_closure_rebuild_locks_test.go` checks the rows,
+with these exceptions. `TestNoRoleOrDatabaseDefaultSetsLockTimeout` checks the
+missing default. The insert row is checked only as half of group sync's
+deadlock. The three-table `40P01` is the red proof of
+`TestTICK1122ProcedureSparesARequest`: it shows when the `LOCK TABLE` line is
+removed. `NOWAIT` is tested against the request; the group-sync case is in the
+spike only.
+
+How long readers wait once the function has its locks is its run time: the
+1.1 s and 2.7 s backfills under "Evidence", for 400 tenants and 13,310 units,
+before the unrooted-unit check was added.
+
+### Procedure
+
+1. Open a maintenance window. Stop the services that use the three tables:
+   `nava-groupsync`, `nava-core`, `nava-worker` and `nava-onboard`. Another
+   service's insert that checks a foreign key to `tenants` waits, or makes
+   step 2 fail.
+2. As `nava_migrator`:
+
+   ```sql
+   BEGIN;
+   SET LOCAL lock_timeout = '500ms';
+   LOCK TABLE tenants, org_units, org_unit_closure IN ACCESS EXCLUSIVE MODE NOWAIT;
+   SELECT org_unit_closure_rebuild_all();
+   COMMIT;
+   ```
+
+3. On an error everything is rolled back: the closure is as it was and
+   no temporary policy is left. Find what holds the tables (`pg_locks`), then
+   run it again.
+
+Keep the `LOCK TABLE` line. It takes all three locks without waiting, or fails
+with `55P03` if a transaction holds a table. The function then never waits for
+these tables, so no reader queues behind a wait, and it cannot deadlock over
+them. `lock_timeout` is a backstop for other locks.
+
+### Decision
+
+The Technical Lead decided to keep the function as it is (TICK-1122,
+2026-11-25). A per-tenant rebuild with no `CREATE POLICY` in the long
+transaction is deferred until someone needs to run it while a live tenant is
+being served.
 
 ```mermaid
 erDiagram

@@ -41,6 +41,12 @@ const (
 	// versioned), and content_sha256 is the SHA-256 of the after document,
 	// e.g. {"time_zone": "Asia/Kolkata"} (R3).
 	TenantSetting Type = "tenant_setting"
+	// TenantLimits is a tenant's limits row, tenant_limits (S22, TICK-751,
+	// ADR-006 D12; domain config): subject_id is the tenant id,
+	// version_before and version_after are NULL, and content_sha256 is the
+	// SHA-256 of the after document, e.g.
+	// {"filterable_fields_per_type": 10, "reason": "..."} (R3).
+	TenantLimits Type = "tenant_limits"
 	// WorkflowDefinition is a workflow definition and its published
 	// versions (S11b, P3-40; domain config): subject_id is the workflow
 	// definition id, version_before and version_after are its versions.
@@ -64,6 +70,7 @@ func All() []Type {
 		ACLPolicy,
 		NumberFormat,
 		TenantSetting,
+		TenantLimits,
 		WorkflowDefinition,
 		AuditExport,
 		AuditChain,

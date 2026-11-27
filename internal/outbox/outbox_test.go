@@ -284,6 +284,9 @@ func TestValidateKindPayload(t *testing.T) {
 		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `,"record_id":` + ref + `}`, false},
 		{FieldIndexBackfillKind, `{"field_id":` + ref + `}`, false},
 		{FieldIndexBackfillKind, `{"tenant_id":` + ref + `,"field_id":3}`, false},
+		{FieldIndexRemoveKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `}`, true},
+		{FieldIndexRemoveKind, `{"tenant_id":` + ref + `,"field_id":` + ref + `,"record_id":` + ref + `}`, false},
+		{FieldIndexRemoveKind, `{"field_id":` + ref + `}`, false},
 		// A kind with no allow-list keeps the pattern rule only.
 		{"ticket.approval", `{"anything":` + ref + `}`, true},
 		// The references-only rule still applies first.
@@ -338,11 +341,19 @@ func TestInterpreterEntriesRefusedBeforeAnyWrite(t *testing.T) {
 // A field-index backfill start has its own entry point: the generic enqueue
 // refuses it before any query (tx is nil, so a query would panic).
 func TestGenericEnqueueRefusesFieldIndexBackfill(t *testing.T) {
-	e := validEntry()
-	e.Kind, e.Target = FieldIndexBackfillKind, TargetStart{Kind: FieldIndexBackfillKind}
-	e.Payload = json.RawMessage(`{"tenant_id":"` + uuid.NewString() + `","field_id":"` + uuid.NewString() + `"}`)
-	if _, err := EnqueueAtVersion(context.Background(), nil, e, 1); !errors.Is(err, ErrInvalidEntry) {
-		t.Fatalf("EnqueueAtVersion of a backfill start = %v, want ErrInvalidEntry", err)
+	for _, kind := range []string{FieldIndexBackfillKind, FieldIndexRemoveKind} {
+		e := validEntry()
+		e.Kind, e.Target = kind, TargetStart{Kind: kind}
+		e.Payload = json.RawMessage(`{"tenant_id":"` + uuid.NewString() + `","field_id":"` + uuid.NewString() + `"}`)
+		if _, err := EnqueueAtVersion(context.Background(), nil, e, 1); !errors.Is(err, ErrInvalidEntry) {
+			t.Errorf("EnqueueAtVersion of a %s row = %v, want ErrInvalidEntry", kind, err)
+		}
+	}
+	if !IsFieldIndexKind(FieldIndexBackfillKind) || !IsFieldIndexKind(FieldIndexRemoveKind) || IsFieldIndexKind(SealKind) {
+		t.Error("IsFieldIndexKind does not name exactly the two field-index kinds")
+	}
+	if a, b := FieldIndexBackfillDedupeKey(uuid.Nil, 2), FieldIndexRemoveDedupeKey(uuid.Nil, 2); a == b {
+		t.Errorf("backfill and removal rows share the dedupe key %s", a)
 	}
 }
 
@@ -360,6 +371,9 @@ func TestEnqueueFieldIndexBackfillRefusesBadArgumentsBeforeAnyQuery(t *testing.T
 		// tx is nil: a query would panic.
 		if _, err := EnqueueFieldIndexBackfill(context.Background(), nil, c.field, c.version); !errors.Is(err, ErrInvalidEntry) {
 			t.Errorf("%s: err = %v, want ErrInvalidEntry", c.name, err)
+		}
+		if _, err := EnqueueFieldIndexRemove(context.Background(), nil, c.field, c.version); !errors.Is(err, ErrInvalidEntry) {
+			t.Errorf("remove, %s: err = %v, want ErrInvalidEntry", c.name, err)
 		}
 	}
 }
