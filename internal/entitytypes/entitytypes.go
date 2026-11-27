@@ -253,7 +253,7 @@ VALUES ($1, $2, $3, $4, $5, $6, 1)`, tenantID, defID, d.Key, in.Name, d.NumberPr
 	// request bytes; the table CHECK ties schema_sha256 to them.
 	if _, err := tx.Exec(ctx, `
 INSERT INTO entity_definition_versions
-  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by, published_by_system)
+  (tenant_id, id, definition_id, version, schema, schema_sha256, fixed_columns, states, compat, published_by)
 VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 		tenantID, verID, defID, string(d.Schema), sum[:], string(fixed), string(states), in.PublishedBy); err != nil {
 		return nil, fmt.Errorf("entitytypes: insert version: %w", err)
