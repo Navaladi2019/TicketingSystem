@@ -18,10 +18,9 @@
 <main>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../adr/index.html">adr</a> / <span>ADR-004-E10: diff_nul_escaped joins the hash envelope</span></nav>
 <p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md"><code>docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md</code></a>.</p>
-<p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-004-E10: diff_nul_escaped joins the hash envelope</h1>
-<p>Status on <code>main</code>: <strong>ACCEPTED</strong> (rev 1), 2026-11-27, by the Solution Architect on TICK-1169 after the Technical Architect's critique (no blocking findings; four corrections folded in; not contested). Erratum to <a href="../adr/adr-004.html">ADR-004</a> R1, R10 and R13, and to <a href="../adr/adr-004-a1.html">ADR-004-A1</a> A1-1 as corrected by <a href="../adr/adr-004-e8.html">E8</a>. Normative text: <a href="../../../docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md">the E10 record</a>; explainer: <a href="../../../docs/adr/ADR-004-E10-explained.html">E10-explained.html</a>. Code: TICK-1170 step 1, PR #936 (column, guard, grants, read field), merged 2026-11-26; TICK-1170 step 2, PR #941 (envelope member, sealer read, verifier, export, vectors, gate dropped), merged 2026-11-26; TICK-1121, PR #928 (sets the flag on publish), <strong>open</strong>. This page moves to <code>delivered</code> when PR #928 merges.</p>
+<p>Status on <code>main</code>: <strong>ACCEPTED</strong> (rev 1), 2026-11-27, by the Solution Architect on TICK-1169 after the Technical Architect's critique (no blocking findings; four corrections folded in; not contested). Erratum to <a href="../adr/adr-004.html">ADR-004</a> R1, R10 and R13, and to <a href="../adr/adr-004-a1.html">ADR-004-A1</a> A1-1 as corrected by <a href="../adr/adr-004-e8.html">E8</a>. Normative text: <a href="../../../docs/adr/ADR-004-E10-diff-nul-escaped-in-envelope.md">the E10 record</a>; explainer: <a href="../../../docs/adr/ADR-004-E10-explained.html">E10-explained.html</a>. Code: TICK-1170 step 1, PR #936 (column, guard, grants, read field), merged 2026-11-26; TICK-1170 step 2, PR #941 (envelope member, sealer read, verifier, export, vectors, gate dropped), merged 2026-11-26; TICK-1121, PR #928 (sets the flag on publish), merged 2026-11-27.</p>
 <p><em>Paraphrases: "Plain words", "Decision", "Rejected options".</em></p>
 <h2 id="problem">Problem</h2>
 <p>TICK-1121 lets an admin publish a clean ticket type over a stored version that holds a NUL character, their only repair path. The audit diff is built from the old version, and PostgreSQL <code>jsonb</code> refuses NUL, so each NUL is written as the text <code>\u0000</code> first. A reader must be able to tell that this happened, and nobody may hide or fake it.</p>
@@ -66,7 +65,7 @@
 <h3>ADR ADR-004-E10</h3><ul><li><a href="../database/audit.html">Audit log and seal chain</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
 <h3>ADR ADR-004-E8</h3><ul><li><a href="../adr/adr-004-a1.html">ADR-004-A1: only nava_audit_reader reads the raw diff</a></li><li><a href="../adr/adr-004-e8.html">ADR-004-E8: the reader also reads the chain columns</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 270498b1a85d (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ ca4cb5a01d12 (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

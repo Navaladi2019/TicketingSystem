@@ -67,7 +67,7 @@ the worker's tenant transaction of the test, which reads <code>principals</code>
 <p><strong><code>diff_nul_escaped</code> (ADR-004-E10).</strong> A <code>boolean NOT NULL DEFAULT false</code>
 column beside <code>diff_truncated</code>. It is true when the previous schema the
 entry's <code>diff</code> was built from held a NUL character, which <code>jsonb</code> cannot
-store, so each NUL was written as the text <code> </code> first (TICK-1121). Rows
+store, so each NUL was written as the text <code>\u0000</code> first (TICK-1121). Rows
 written before E10 all read false; the constant default made the column
 metadata-only on every partition (<code>20261126150000</code>). <code>audit_log_guard_update</code>
 was recreated with the column in its envelope comparison, so neither the seal
@@ -938,7 +938,7 @@ migrator generates the <code>audit_log</code> policies from <code>db/audited-tab
 <h3>ADR ADR-004-E10</h3><ul><li><a href="../adr/adr-004-e10.html">ADR-004-E10: diff_nul_escaped joins the hash envelope</a></li><li><a href="../database/roles-and-grants.html">Roles and grants</a></li><li><a href="../security/08-exports-erasure.html">8. Audit export and erasure</a></li><li><a href="../security/10-audit-chain.html">10. Audit chain and offline verify</a></li><li><a href="../workflows/audit-seal.html">Audit sealer (audit.seal)</a></li></ul>
 <h3>ADR ADR-004-E9</h3><ul><li><a href="../adr/adr-004-e9.html">ADR-004-E9: the audit row for a create refused with number_space_exhausted</a></li><li><a href="../adr/adr-004.html">ADR-004: one audit log, sealed by a per-tenant hash chain</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 270498b1a85d (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ ca4cb5a01d12 (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/mermaid.min.js"></script>

@@ -23,11 +23,13 @@ once at insert, so a record's number or a group's identity provider id cannot
 be rewritten. Only `nava_audit_reader` may read `audit_log.diff` and
 `diff_salt` (ADR-004-A1).
 
-`audit_log.diff_nul_escaped` (ADR-004-E10, TICK-1170) is granted wherever
-`diff_truncated` is: `nava_app` and `nava_worker` insert and select it,
-`nava_erasure` selects it, and `nava_audit_reader`'s `SELECT` list is now 31
-columns (A1-1 as corrected by E8, plus this one). No role has `UPDATE` on
-it; `audit_log_guard_update` also refuses any change to it.
+`audit_log.diff_nul_escaped` (ADR-004-E10, TICK-1170) is inserted by
+`nava_app`, `nava_worker` and `nava_onboard` through the generated R10
+`INSERT` grant, and by `nava_erasure` through its own list. `nava_app` and
+`nava_worker` select it. `nava_audit_reader`'s `SELECT` list is now 31
+columns (A1-1 as corrected by E8, plus this one). `nava_erasure` does not
+select it. No role has `UPDATE` on it, and `audit_log_guard_update` also
+refuses any change to it.
 
 `records.org_unit_id` is one of those set-once columns (S31). `nava_app` and
 `nava_worker` may insert and select it; no role but the owner may update it
