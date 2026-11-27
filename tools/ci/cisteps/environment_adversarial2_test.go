@@ -10,7 +10,10 @@ package main
 // skipped under AR-TICK-1167-01 (docs/security/accepted-risks.md): no rule in
 // check-ci-steps can close them, TICK-1183 does (Technical Lead, 2026-11-27).
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCopyCatchesDumpAwareEditsWithMake(t *testing.T) {
 	t.Skip("AR-TICK-1167-01: a makefile can tell the check's make calls from CI's ($(origin SHELL), CISTEPS_ENV_DUMP); closed by TICK-1183")
@@ -41,4 +44,24 @@ func TestCopyCatchesMakefileRemakeRulesWithMake(t *testing.T) {
 	runMakefileCases(t, []makefileCase{
 		{"a makefile remake rule writes a stub", pinnedMakefile + remake, ""},
 	})
+}
+
+// The skips above, and TestCopyCatchesCIVariableConditionalEditsWithMake,
+// stand only while AR-TICK-1167-01 is in the register. When TICK-1183 deletes
+// the row, this fails until the skipped tests are deleted or made to pass.
+// It is also this file's one test that runs, so the isolation-suite gate
+// (tools/ci/suiteran) sees the file run.
+func TestSkippedCasesHaveTheirAcceptedRisk(t *testing.T) {
+	register := readRepo(t, "docs/security/accepted-risks.md")
+	if !strings.Contains(register, "\n| AR-TICK-1167-01 ") {
+		t.Fatal("docs/security/accepted-risks.md has no AR-TICK-1167-01 row: delete the tests skipped under it, or make them pass")
+	}
+	for _, file := range []string{"tools/ci/cisteps/environment_adversarial_test.go", "tools/ci/cisteps/environment_adversarial2_test.go"} {
+		src := readRepo(t, file)
+		for _, line := range strings.Split(src, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "t.Skip(") && !strings.Contains(line, "AR-TICK-1167-01") {
+				t.Errorf("%s skips without naming AR-TICK-1167-01: %s", file, strings.TrimSpace(line))
+			}
+		}
+	}
 }
