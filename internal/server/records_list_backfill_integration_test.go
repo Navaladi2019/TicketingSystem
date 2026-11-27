@@ -23,6 +23,7 @@ import (
 
 	"github.com/Navaladi2019/TicketingSystem/internal/authz"
 	"github.com/Navaladi2019/TicketingSystem/internal/authz/acltest"
+	"github.com/Navaladi2019/TicketingSystem/internal/entitytypes"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/server"
 	"github.com/Navaladi2019/TicketingSystem/internal/tenancy"
@@ -537,4 +538,50 @@ func (b *bfEnv) workerPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(p.Close)
 	return p
+}
+
+// covers: listRecords 200
+//
+// While a window is open, a filter on a fixed column or on a field the job does
+// not default is answered as it always is: the window touches only the
+// defaulted field.
+func TestListFilterOutsideTheWindowIsUnchangedWhileItIsOpen(t *testing.T) {
+	b := newBFEnv(t)
+	b.flagField(t, b.a.id, "job", "tag", "text", "ready", 100)
+	if s := b.job(t, b.a.id, 2); s != "pending" {
+		t.Fatalf("job = %s, want an open window", s)
+	}
+	var closed []string
+	for i, id := range b.old {
+		if i%2 == 0 {
+			closed = append(closed, id)
+		}
+	}
+	b.wantList(t, "fixed column", "admin-a", "filter[state]=closed", closed)
+	b.wantList(t, "field with no default", "admin-a", "filter[tag]=nothing", nil)
+	if s := b.lastStatement(t); strings.Contains(s, "record_field_coerce") {
+		t.Errorf("a filter outside the window reads defaults:\n%s", s)
+	}
+}
+
+// covers: getEntityType 404
+// covers: listEntityTypeBackfillFailures 404
+//
+// A key longer than any type can have is the unknown key's 404 on both routes,
+// and the store reports no job for a key the tenant does not have.
+func TestBackfillRoutesRefuseAnImpossibleKeyAndTheStoreKnowsNoJobForAnUnknownOne(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	long := strings.Repeat("k", 80)
+	wantProblem(t, e.do(t, http.MethodGet, "/api/v1/entity-types/"+long, "user-a", "", ""), http.StatusNotFound, problem.NotFound)
+	wantProblem(t, e.do(t, http.MethodGet, "/api/v1/entity-types/"+long+"/backfill/failures", "admin-a", "", ""), http.StatusNotFound, problem.NotFound)
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		got, err := (entitytypes.Store{}).NewestBackfill(t.Context(), tx, e.a.id, "no_such_type")
+		if err != nil || got != nil {
+			t.Errorf("NewestBackfill of an unknown key = %v, %v; want nil, nil", got, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
