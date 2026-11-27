@@ -165,6 +165,7 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit` | under 5 min | | | | 10 |
 | `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021): 391 s in `ci:full` run 44771237892, so 15 is a hang guard with 130 % margin | | | | 15 (was 10) |
+| `isolation-not-needed` (check name `isolation`) | a pull request with a docs-only diff and no suite run (TICK-1193): one `make isolation-not-needed`, seconds | | | | 5 |
 | `isolation` | full runs and every `ci:run`/`ci:full` pull request run (TICK-1003, TICK-1146): the suite 148 s and `test-integration-cleanup` 50 to 76 s in run 44604840061; measured job times in the TICK-1003 pull request | | | | 15 |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
@@ -601,6 +602,7 @@ cannot read `env`, so the daily cron string is repeated where a job needs it
 | `lint`, `unit`, `temporal-server`, `commit-check-budget`, `coverage` | as the diff needs | every job |
 | `integration`: integration tests and the coverage profile | yes | yes |
 | `isolation` job: isolation suite (CI-2) and `isolation-report` | push to `main`: no (job skipped); pull request with `ci:run`: yes (TICK-1146) | yes |
+| `isolation-not-needed` job: the required `isolation` check without the suite | pull request with a docs-only diff (`docs_only=true`) and no `ci:run`, `ci:full` or story-branch base (TICK-1193, AR-TICK-1193-01) | no |
 | `isolation` job: `test-ci-isolated-down`, `test-integration-cleanup` | as the suite | yes |
 | `stack` phase 1: `tier=smoke` cases | yes, by area | yes, every area |
 | `stack` phase 1: every other case (CI-5 `identity_attacks`, CI-6 and CI-7 `sdk`, `temporal_custody`, `temporal_handshake`, `temporal_isolation`, `temporal_operator_reach`, `onboard`, `demo_outbox`, `s8_entity_types`, `s9_records`, `s14_*`, `keycloak_restart`, `trace`, `logs`, `redact`, `interpreter`, `pgbouncer`) and the `ci5-report` and `ci6-report` uploads | no (`STACK_TIER=smoke`) | yes (`STACK_TIER=all`) |
