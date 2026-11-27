@@ -29,10 +29,13 @@
 #   temporal-server/go.mod, temporal-server/go.sum     -> temporal_server
 #   .github/workflows/govulncheck.yml, its copy
 #   tools/ci/cisteps/govulncheck.copy.yml, this script,
-#   scripts/ci/vulncheck-gate.sh, anything under tools/ci/cisteps/ or
-#   tools/ci/vulngate/ (this gate's tests, PLAN-001-E4 D-E4-3), an added or
-#   removed line naming govulncheck or GOVULNCHECK_VERSION in Makefile or
-#   make/lint.mk                                       -> both
+#   scripts/ci/vulncheck-gate.sh, anything under tools/ci/cisteps/,
+#   tools/ci/checkpins/ (which ties the workflow's govulncheck version to
+#   Makefile and docs/pins.md, V-6) or tools/ci/vulngate/ (this gate's tests,
+#   PLAN-001-E4 D-E4-3)                                -> both
+#   The scan jobs run no make (ADR-001-A7), so Makefile and make/*.mk are not
+#   inputs: a GOVULNCHECK_VERSION edit alone fails check-pins (V-6), and the
+#   workflow edit that goes with it scans both.
 #   an added or removed FROM line naming golang (any case of FROM, flags such
 #   as --platform= allowed) in any file, not only a Dockerfile (wider than the
 #   contract's "FROM golang: in any Dockerfile", failing closed); a path whose
@@ -81,8 +84,6 @@ from=$(git merge-base "$BASE_SHA" "$HEAD_SHA") ||
 files=$(git -c core.quotePath=false diff --name-only --no-renames "$from" "$HEAD_SHA") ||
     die "git diff $from $HEAD_SHA failed"
 # Changed lines, not whole files: an added or removed line that matches.
-pins=$(git -c core.quotePath=false diff --name-only --no-renames -G 'govulncheck|GOVULNCHECK_VERSION' "$from" "$HEAD_SHA" -- Makefile make/lint.mk) ||
-    die "git diff -G govulncheck failed"
 golang=$(git -c core.quotePath=false diff --name-only --no-renames -G '^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]].*golang' "$from" "$HEAD_SHA") ||
     die "git diff -G 'FROM ... golang' failed"
 
@@ -104,7 +105,7 @@ while IFS= read -r f; do
             ;;
         .github/workflows/govulncheck.yml | tools/ci/cisteps/govulncheck.copy.yml | \
             scripts/ci/vulncheck-detect.sh | scripts/ci/vulncheck-gate.sh | \
-            tools/ci/cisteps/* | tools/ci/vulngate/*)
+            tools/ci/cisteps/* | tools/ci/checkpins/* | tools/ci/vulngate/*)
             say "$f changed (the gate) -> both"
             root=true
             ts=true
@@ -119,16 +120,6 @@ while IFS= read -r f; do
     esac
 done <<END
 $files
-END
-
-while IFS= read -r f; do
-    [ -z "$f" ] || {
-        say "$f: a line naming govulncheck or GOVULNCHECK_VERSION changed -> both"
-        root=true
-        ts=true
-    }
-done <<END
-$pins
 END
 
 # Any file, not only a Dockerfile* name: a compose file or docker build -f
