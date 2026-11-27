@@ -188,10 +188,11 @@ the memo, otherwise <code>store.Get</code>. The handler then calls <code>ACL.Can
 <code>authz.ReadBranches</code> for one index-ordered branch per subject) and checks
 every filter and sort field with <code>authz.CheckQueryFields</code>, before any SQL.
 <code>store.List</code> (<code>list.go</code>) counts (capped at <code>TotalCap</code>) and pages by keyset
-over a <code>listable</code> column; a data-property filter runs under
-<code>DataFilterTimeout</code> and maps a cancel to <code>ErrStatementTimeout</code>.</li>
+over a <code>listable</code> column; a data-property filter reads the field-index side
+tables, and its count runs under <code>CountBudget</code> (the JSONB scan and
+<code>DataFilterTimeout</code> are gone).</li>
 <li>Proving tests: <code>TestCompileReadAgreesWithAllows</code>, <code>TestBranchedStatements</code>,
-<code>TestTimedOutMapsOnlyADataFilterCancel</code>.</li>
+<code>TestCountBudget</code>.</li>
 </ul>
 <h2 id="errors">Errors</h2>
 <p>Written by hand from the mapping in <code>handlers.recordError</code>

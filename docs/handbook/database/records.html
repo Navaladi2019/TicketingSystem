@@ -511,8 +511,9 @@ audited.</p>
 <h2 id="filters-on-data-fields-s21-story-branch">Filters on data fields (S21, story branch)</h2>
 <p>On the <code>TICK-739/filterable-fields</code> branch (not yet on <code>main</code>), a list filter
 on a <code>data</code> field is resolved against the <a href="../database/field-index.html">field-index
-registry</a> after the masked-field check: not flagged is <code>400 field_not_filterable</code> (except <code>incident.priority</code>, <code>request.priority</code> and
-<code>change.risk</code>, which keep the JSONB scan until S22), <code>backfilling</code> is <code>422 field_not_ready</code> with <code>index_progress</code>, and <code>ready</code> compiles to one correlated
+registry</a> after the masked-field check: not flagged is <code>400 field_not_filterable</code> for every type (the seed fields <code>incident.priority</code>,
+<code>request.priority</code> and <code>change.risk</code> are flagged; the JSONB scan is gone),
+<code>backfilling</code> is <code>422 field_not_ready</code> with <code>index_progress</code>, and <code>ready</code> compiles to one correlated
 <code>EXISTS</code> per field on the typed side table, inside the list statement that
 carries the row ACL (ADR-006 D6, D7; TICK-746, TICK-989). All bounds on one
 field share the one <code>EXISTS</code>, so on an array field a single element must
