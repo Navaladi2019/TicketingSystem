@@ -18,8 +18,8 @@
 # scheduled run.
 # The job vulncheck (the gate, if: always(), rule 4) is the pull request's
 # result: it reports the check vulncheck on a pull request into main and
-# vulncheck-other on any other base or event (rule 5). Not yet a required
-# check of main (T-E4-7, TICK-1154).
+# vulncheck-other on any other base or event (rule 5). A required check of
+# main since 2026-11-27 (TICK-1154).
 # On a pull request, detect and the gate run the scripts as they are on main,
 # not the pull request's own copy (TICK-1148 security review of PR #912): a
 # pull request that edits vulncheck-detect.sh cannot make its own run scan
