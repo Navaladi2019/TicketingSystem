@@ -3,14 +3,14 @@ title: "Core: metadata engine (entity definitions and versions)"
 section: system
 status: delivered
 normative: docs/architecture/metadata-engine.md
-sources: [docs/architecture/metadata-engine.md, internal/metadata/compile.go, internal/metadata/classify.go, internal/metadata/validate.go, internal/metadata/metadata.go, internal/entitytypes/entitytypes.go, internal/entitytypes/audit.go, internal/entitytypes/secretrequired.go, internal/server/entitytypes.go]
+sources: [docs/architecture/metadata-engine.md, internal/metadata/compile.go, internal/metadata/classify.go, internal/metadata/validate.go, internal/metadata/metadata.go, internal/entitytypes/entitytypes.go, internal/entitytypes/audit.go, internal/entitytypes/secretrequired.go, internal/server/entitytypes.go, internal/entitytypes/backfill.go, internal/entitytypes/fieldindex.go, internal/tenantlimits/tenantlimits.go]
 packages: [internal/metadata, internal/entitytypes]
-adrs: [ADR-001, ADR-004-E5, ADR-006]
-stories: [S21]
+adrs: [ADR-001, ADR-004-E5, ADR-006, ADR-009]
+stories: [S21, S22, S29]
 invariants: [I4, I8]
 operations: [createEntityType, publishEntityTypeVersion, getEntityType, getEntityTypeVersion, listEntityTypes]
-tables: [entity_definitions, entity_definition_versions]
-tests: [TestCompileRefusesExternalRefs, TestCompilerLoaderDeniesEverything, TestSharedCompilerWouldLeak, TestNoDatabaseOrNetworkImports, TestCompileCapsAreInclusive, TestClassify, TestCheckSchemaSecretRequired, TestPublishRefusalsAndFailures, TestCreateRefusals, TestValidateReportsEachKindOfFailure, TestApplyDefaults, TestUpdateUnderNewVersionFillsDefaults]
+tables: [entity_definitions, entity_definition_versions, schema_backfills, tenant_limits]
+tests: [TestCompileRefusesExternalRefs, TestCompilerLoaderDeniesEverything, TestSharedCompilerWouldLeak, TestNoDatabaseOrNetworkImports, TestCompileCapsAreInclusive, TestClassify, TestCheckSchemaSecretRequired, TestPublishRefusalsAndFailures, TestCreateRefusals, TestValidateReportsEachKindOfFailure, TestApplyDefaults, TestUpdateUnderNewVersionFillsDefaults, TestClassifyRequiredWithExistingDefault, TestCompileNewRefusesDefaultWithUnique, TestPublishAddingADefaultWritesOneJobAndOneOutboxRow, TestPublishAddingNoDefaultWritesNoJob, TestPublishDefaultWithUniqueIsRefusedAndWritesNothing, TestRolledBackPublishAfterJobInsertWritesNoJobAndNoOutboxRow, TestPublishReplayWithADefaultKeepsOneVersionOneJobOneOutboxRow, TestStoredDefaultWithUniqueStillReadsAndWritesButPublishIsRefused, TestPublishUnflagFlipsToRemoving, TestPublishReflagWhileRemovingIsBusyThenBackfills, TestPublishHonoursTheTenantsRaisedLimit]
 ---
 
 ## Purpose
@@ -60,9 +60,11 @@ flowchart TD
 | 1 | Refuse a schema that marks a property secret and also requires it, or carries a secret-looking default | `entitytypes.CheckSchemaSecrets` (`audit.go`), `entitytypes.CheckSchemaSecretRequired` (`secretrequired.go`) | ADR-004-E5 D9 | `TestCheckSchemaSecretRequired`, `TestAdversarialSecretDefaultIsRefused` |
 | 2 | Scan size and depth, walk the schema (local `$ref` only, closed root), compile with a fresh `jsonschema` compiler and a deny-all loader | `metadata.Compile` (`compile.go`), `denyAllLoader`, `walker.walk`, `walker.checkRefs` | One compiler per call, so no tenant sees another's schema | `TestCompileRefusesExternalRefs`, `TestCompilerLoaderDeniesEverything`, `TestSharedCompilerWouldLeak`, `TestCompileCapsAreInclusive` |
 | 3 | Check defaults against their own schema, fixed-column types and the state enum | `metadata.Compile` | A definition the pipeline cannot satisfy never stores | `TestCompileRefusesBadStateModelsAndShapes`, `TestCompileAcceptsBaseDefinition` |
+| 3a | Create, publish and seed only: refuse a property with both `default` and `x-nava-unique` (S29, ADR-009 D13). A stored version that already has the pair still compiles on read | `metadata.CompileNew` (`compile.go`) | A backfill never writes one value into a unique field twice | `TestCompileNewRefusesDefaultWithUnique`, `TestPublishDefaultWithUniqueIsRefusedAndWritesNothing`, `TestStoredDefaultWithUniqueStillReadsAndWritesButPublishIsRefused` |
 | 4 | Create: key, then prefix uniqueness; insert type and version 1 with `compat = 'initial'`; append the config audit entry | `entitytypes.Store.Create`, `auditVersion` | Every config change is audited in the same transaction | `TestCreateRefusals` |
 | 5 | Publish: lock the type row, compile the next version, classify it against the current one | `entitytypes.Store.Publish`, `metadata.Classify` (`classify.go`) | Fail-closed classification: anything not listed is Breaking | `TestClassify`, `TestClassifyRemoveTransition`, `TestPublishRefusalsAndFailures` |
 | 6 | Insert version N+1 (number from `max(version) + 1` under the row lock), move `current_version`, audit | `entitytypes.Store.Publish` | Concurrent publishes queue and number with no gap or duplicate | `TestPublishRefusalsAndFailures` |
+| 6a | When the new version adds a top-level default, or is NeedsBackfill: insert a `pending` `schema_backfills` job and its `schema.backfill` outbox row in the same transaction (S29, ADR-009 D1). A version that adds no default writes neither | `entitytypes.queueBackfill` (`backfill.go`), `outbox.EnqueueSchemaBackfill` | I6: the job and its start commit with the version or not at all | `TestPublishAddingADefaultWritesOneJobAndOneOutboxRow`, `TestPublishAddingNoDefaultWritesNoJob`, `TestRolledBackPublishAfterJobInsertWritesNoJobAndNoOutboxRow`, `TestPublishReplayWithADefaultKeepsOneVersionOneJobOneOutboxRow` |
 | 7 | Change numbering mode (`gaps` or `gapless`) with its own audited config entry | `entitytypes.Store.SetNumberingMode` | See [core-numbering](core-numbering.md) | `TestP336fSetNumberingMode`, `TestP336fNumberingModeCrossTenant` |
 | 8 | Use at write time: defaults then validation against the **current** version; stored rows are read under the version they were written with | `metadata.Compiled.ApplyDefaults`, `metadata.Compiled.Validate` (`validate.go`), called from `pipeline.write.create` / `write.update` | I4: JSON Schema runs before every write | `TestApplyDefaults`, `TestValidateReportsEachKindOfFailure`, `TestUpdateUnderNewVersionFillsDefaults` |
 
@@ -85,10 +87,26 @@ take). See [core-tenancy](core-tenancy.md).
 The mapping is in `internal/server/entitytypes.go`; codes and statuses are in
 `api/errors.yaml`.
 
-## Filterable fields (S21, story branch)
+## Compatibility classes
 
-On the `TICK-739/filterable-fields` branch, not yet on `main` (ADR-006 D8, D12;
-TICK-743, TICK-744):
+The full lists are in the normative note. In short:
+
+| Class | Publish | Example |
+|---|---|---|
+| Compatible | accepted | add an optional property; widen an enum; add or remove `x-nava-filterable` |
+| NeedsBackfill | accepted, and a schema backfill is queued | add a required property with a default; add a default to an existing property; **make an existing property required when the next version gives it a default** (ADR-009 D14, S29) |
+| Breaking | `422 schema_breaking_change` | change a type; remove a property; change or remove a default; make a property required without a default |
+
+Adding an optional property **with** a default is Compatible, but it also
+queues a backfill, so old records get the value stored (ADR-009 D1). The job
+is described on [Schema backfill](../workflows/schema-backfill.md), and its
+tables on [Schema backfill tables](../database/schema-backfill.md).
+
+## Filterable fields (S21, S22, story branch)
+
+On the story branches `TICK-739/filterable-fields` (S21) and
+`TICK-740/search-finish` (S22), not yet on `main` (ADR-006 D8, D11, D12;
+TICK-743, TICK-744, TICK-750, TICK-751):
 
 - `metadata.Compile` accepts `"x-nava-filterable": true` only directly on a
   top-level property, and maps the property's JSON Schema type to a value type
@@ -103,15 +121,25 @@ TICK-743, TICK-744):
   passing. This is the only `nava_app` path that writes the registry. See
   [Field index](../database/field-index.md) and
   [Field-index backfill](../workflows/field-index-backfill.md).
+- **Unflag (S22).** A publish that drops the flag is accepted. In the same
+  transaction the registry row flips to `removing` and one `field_index.remove`
+  outbox row is written per unflagged field (`entitytypes.retireFilterable`).
+  A filter on the field answers `400 field_not_filterable` from that commit
+  on; flagging it again is `409 field_index_busy` until the removal ends. See
+  [removal](../workflows/field-index-backfill.md#removal).
+- **Per-tenant quota (S22).** The per-type limit is 5, or the tenant's
+  `tenant_limits.filterable_fields_per_type` (up to 10) when an operator has
+  raised it, read through `tenantlimits.PerType`. See
+  [Tenancy](../database/tenancy.md).
 
 | Error | Where | HTTP |
 |---|---|---|
 | `*metadata.RefusalError` `filterable_field_not_top_level` | `metadata.Compile` | `422` |
 | `*metadata.RefusalError` `searchable_not_available` | `metadata.Compile` | `422` |
 | `*metadata.RefusalError` `filterable_field_type_change` | `metadata.Classify` | `422` |
-| `*metadata.RefusalError` `filterable_field_removal_unavailable` (removal is S22) | `entitytypes.Store.Publish` | `422` |
-| `*entitytypes.IndexQuotaError` (5 per type, 50 per tenant) | `entitytypes.Store.Create`, `Store.Publish` | `422 index_quota_exceeded` |
+| `*entitytypes.IndexQuotaError` (5 per type, or the tenant's raised limit up to 10; 50 per tenant) | `entitytypes.Store.Create`, `Store.Publish` | `422 index_quota_exceeded` |
 | `*entitytypes.FieldIndexBusyError` (the field's index is being removed) | `entitytypes.Store.Publish` | `409 field_index_busy` |
+| Deleting a flagged property outright | `metadata.Classify` | `422 schema_breaking_change` (removing a property is breaking) |
 
 ## Notes
 
@@ -123,8 +151,8 @@ TICK-743, TICK-744):
 - Seed definitions `incident`, `request` and `change` live in
   `internal/metadata/templates/` (`metadata.Template`) and are seeded at
   onboarding by `entitytypes.Store.Seed`.
-- The compatibility classes and the caps are listed only in the normative
-  note; this page does not repeat them.
+- The caps are listed only in the normative note; this page does not repeat
+  them.
 
 ## Links
 

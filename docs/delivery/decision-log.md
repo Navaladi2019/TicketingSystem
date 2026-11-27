@@ -8,6 +8,7 @@ Delivery decisions that change a task's contract, newest first.
 
 - [2026-11-26: TICK-1146, until ADR-001-E4 lands, a merge into `main` or a story branch is checked against each required job's last executed result, not the merge button](decisions/2026-11-26-tick-1146-interim-merge-rule.md)
 - [2026-11-26: S29, the backfill outbox payload holds UUIDs only, and publish inserts the job row as `nava_app` (D-10-10, D-10-11)](decisions/2026-11-26-s29-outbox-payload-and-publish-job-row.md)
+- [2026-11-26: S22 and S29 ship together in two days on one branch; 14 tasks fold into 6, and no p95 gate, spike or bench is in scope](decisions/2026-11-26-s22-s29-two-day-consolidation.md)
 - [2026-11-26: S21 ships without the 350 ms p95 for the ≥ 40% band under a row ACL; the target moves to S21c (`AR-S21-01`)](decisions/2026-11-26-s21-40pct-acl-latency-split.md)
 - [2026-11-26: PLAN-011-A4 drafted: ADR-010-A4 lands as one core-dev task PR into main after TICK-1104 and before S21; TICK-1105 and TICK-1106 are extended](decisions/2026-11-26-plan-011-a4-adr-010-a4.md)
 - [2026-11-25: TICK-1128, CI pulls OpenObserve by one digest from ECR Public, then Docker Hub; our own copy is deferred (`AR-TICK-1128-01`)](decisions/2026-11-25-tick-1128-openobserve-two-registries.md)

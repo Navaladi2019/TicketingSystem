@@ -4,11 +4,11 @@ section: security
 status: delivered
 sources: [docs/security/temporal-ci6.md, docs/security/ci6-report.md, docs/architecture/worker-guards.md, temporal-server/authz, internal/workerguard, docs/adr/ADR-001-A1-temporal-server-1-29-7-workload-allow-list.md, docs/adr/ADR-001-A2-f2-system-workflow-reach.md, docs/security/accepted-risks.md]
 evidence: [docs/security/ci6-report.md]
-adrs: [ADR-001, ADR-001-A1, ADR-001-A2]
+adrs: [ADR-001, ADR-001-A1, ADR-001-A2, ADR-006, ADR-009]
 invariants: [I6]
-stories: [S7, S11a]
+stories: [S7, S11a, S22, S29]
 packages: [temporal-server/authz, internal/workerguard, internal/temporalstack]
-tests: [TestCI6_RogueCACertificateRejectedAtHandshake, TestCI6_UnlistedCertificateDeniedByAuthorizer, TestCI6_PlatformNetworkCannotReachInternalPorts, TestCI6_PlatformCertificateRejectedAtInternodeHandshake, TestCI6_RelayCoreWorkerOutsideAllowListDenied, TestCI6_OperatorLimitedToPinnedList, TestCI6_WorkerCrossTenantChildDeniedWithAlert, TestCI6_WorkerCrossTenantSignalExternalDeniedWithAlert, TestCI6_WorkerCrossTenantCancelExternalDeniedWithAlert, TestCI6_WorkerContinueAsNewMissingTenantHeaderDenied, TestCI6_WorkerContinueAsNewMismatchedTenantHeaderDenied, TestCI6_WorkerContinueAsNewCronScheduleDenied, TestCI6_WorkerUnlistedCommandTypeDenied, TestCI6_WorkerUndecodableTaskTokenDenied, TestCI6_WorkerTaskWithoutTenantPrefixDenied, TestCI6_WorkerStartWithMissingOrMismatchedHeaderFailsWorkflow, TestCI6_WorkerWrongTenantSignalDroppedWithAlertWorkflowKeepsRunning, TestCI6_Allowed_SameTenantChildCompletes, TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext, TestCI7_ActivityResultWithRecordDataNotRecorded, TestCI7_WorkflowFailureWithRecordDataNotRecorded, TestAllowListGolden, TestAllowListMatchesADRRules, TestAdversarialF2CoreWorkflowIDTenantPrefix, TestAdversarialF2ActivityTaskTokenTenantPrefix, TestAdversarialF2WorkerHistoryTenantPrefix, TestAdversarialWorkerCrossNamespaceCommandsDenied, TestAdversarialUnverifiedCertificateDenied, TestAdversarialChildNavaTenantIdOtherKeyType, TestAdversarialUpsertNavaTenantIdOtherKeyType, TestSignalGuard, TestChildGuard, TestContinueAsNewGuardMissingHeader, TestWorkflowRefCloseIsTenantScoped]
+tests: [TestCI6_RogueCACertificateRejectedAtHandshake, TestCI6_UnlistedCertificateDeniedByAuthorizer, TestCI6_PlatformNetworkCannotReachInternalPorts, TestCI6_PlatformCertificateRejectedAtInternodeHandshake, TestCI6_RelayCoreWorkerOutsideAllowListDenied, TestCI6_OperatorLimitedToPinnedList, TestCI6_WorkerCrossTenantChildDeniedWithAlert, TestCI6_WorkerCrossTenantSignalExternalDeniedWithAlert, TestCI6_WorkerCrossTenantCancelExternalDeniedWithAlert, TestCI6_WorkerContinueAsNewMissingTenantHeaderDenied, TestCI6_WorkerContinueAsNewMismatchedTenantHeaderDenied, TestCI6_WorkerContinueAsNewCronScheduleDenied, TestCI6_WorkerUnlistedCommandTypeDenied, TestCI6_WorkerUndecodableTaskTokenDenied, TestCI6_WorkerTaskWithoutTenantPrefixDenied, TestCI6_WorkerStartWithMissingOrMismatchedHeaderFailsWorkflow, TestCI6_WorkerWrongTenantSignalDroppedWithAlertWorkflowKeepsRunning, TestCI6_Allowed_SameTenantChildCompletes, TestCI7_RecordedHeadersCarryOnlyTenantAndTraceContext, TestCI7_ActivityResultWithRecordDataNotRecorded, TestCI7_WorkflowFailureWithRecordDataNotRecorded, TestAllowListGolden, TestAllowListMatchesADRRules, TestAdversarialF2CoreWorkflowIDTenantPrefix, TestAdversarialF2ActivityTaskTokenTenantPrefix, TestAdversarialF2WorkerHistoryTenantPrefix, TestAdversarialWorkerCrossNamespaceCommandsDenied, TestAdversarialUnverifiedCertificateDenied, TestAdversarialChildNavaTenantIdOtherKeyType, TestAdversarialUpsertNavaTenantIdOtherKeyType, TestSignalGuard, TestChildGuard, TestContinueAsNewGuardMissingHeader, TestWorkflowRefCloseIsTenantScoped, TestRelayStartsSchemaBackfill, TestSchemaBackfillOtherQueuesDenied, TestWorkerCommandsCannotUseTheSchemaBackfillQueue, TestSchemaBackfillIDAndTypeAgree, TestChildOnlyParentRule]
 ---
 
 ## Boundary
@@ -49,6 +49,18 @@ allow-list also holds `field_index.coordinator` and `field_index.backfill.run`
 (`temporal-server/authz/workload_field_index_test.go`). The relay binds the
 backfill's tenant from the outbox row, never from its payload (S21 attack row
 3b). See [Field-index backfill](../workflows/field-index-backfill.md).
+
+On the S22 and S29 story branch (`TICK-740/search-finish`, not yet on `main`)
+two more types are listed:
+
+| Type | Lists | Who may start it | Proof |
+|---|---|---|---|
+| `field_index.remove.run` (ADR-006 D11, TICK-750) | `platformWorkflowTypes`, `childOnlyWorkflowTypes` | only the tenant's `field_index.coordinator`, as a child. Neither the relay nor an interpreter can start it | `TestChildOnlyParentRule`; S22 adversarial cases in `adversarial_s22_s29_test.go` |
+| `schema.backfill` (ADR-009 D2, TICK-920) | `platformWorkflowTypes`, `startOnlyWorkflowTypes`; queue `schema-backfill` in `platformTaskQueues` | only nava-relay, with `StartWorkflowExecution`. No worker command, child or continue-as-new can name it, and the `schema-backfill` queue carries no other type | `TestRelayStartsSchemaBackfill`, `TestSchemaBackfillOtherQueuesDenied`, `TestWorkerCommandsCannotUseTheSchemaBackfillQueue`, `TestSchemaBackfillIDAndTypeAgree` |
+
+Both changes were reviewed by the Security & Multi-Tenancy Reviewer, and the
+allow-list golden file was regenerated. See [Schema
+backfill](../workflows/schema-backfill.md).
 
 The workflow id is built from the tenant of the JWT on the platform side, never
 from a client value (R-CORE); that rule is enforced in `nava-core` code and
