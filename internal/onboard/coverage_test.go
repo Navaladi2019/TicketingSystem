@@ -21,7 +21,7 @@ func TestNewRequiresEveryOption(t *testing.T) {
 	st := newStore()
 	specs := NewSpecs()
 	dir := &fakeDir{orgs: map[uuid.UUID]string{}, specs: specs}
-	full := Options{Store: st, Directory: dir, Domains: st, ACL: &fakeACL{}, Specs: specs, Resolver: okResolver,
+	full := Options{Store: st, Directory: dir, Domains: st, ACL: &fakeACL{}, Index: noIndex{}, Specs: specs, Resolver: okResolver,
 		Issuer: "https://kc/realms/nava", Log: slog.New(slog.DiscardHandler)}
 	if _, err := New(full); err != nil {
 		t.Fatal(err)
@@ -31,6 +31,7 @@ func TestNewRequiresEveryOption(t *testing.T) {
 		"dir":      func(o *Options) { o.Directory = nil },
 		"domains":  func(o *Options) { o.Domains = nil },
 		"acl":      func(o *Options) { o.ACL = nil },
+		"index":    func(o *Options) { o.Index = nil },
 		"specs":    func(o *Options) { o.Specs = nil },
 		"resolver": func(o *Options) { o.Resolver = nil },
 		"log":      func(o *Options) { o.Log = nil },
@@ -96,7 +97,7 @@ func svcWith(t *testing.T) (*Service, *errStore, *fakeDir) {
 	st := &errStore{fakeStore: newStore()}
 	specs := NewSpecs()
 	dir := &fakeDir{orgs: map[uuid.UUID]string{}, specs: specs}
-	svc, err := New(Options{Store: st, Directory: dir, Finder: dir, Domains: st, ACL: &fakeACL{}, Specs: specs, Resolver: okResolver,
+	svc, err := New(Options{Store: st, Directory: dir, Finder: dir, Domains: st, ACL: &fakeACL{}, Index: noIndex{}, Specs: specs, Resolver: okResolver,
 		Issuer: "https://kc/realms/nava", Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +161,7 @@ func TestOnboardFinderFailureCreatesNothing(t *testing.T) {
 	st := newStore()
 	specs := NewSpecs()
 	dir := &fakeDir{orgs: map[uuid.UUID]string{}, specs: specs}
-	svc, err := New(Options{Store: st, Directory: dir, Finder: failingFinder{}, Domains: st, ACL: &fakeACL{}, Specs: specs, Resolver: okResolver,
+	svc, err := New(Options{Store: st, Directory: dir, Finder: failingFinder{}, Domains: st, ACL: &fakeACL{}, Index: noIndex{}, Specs: specs, Resolver: okResolver,
 		Issuer: "https://kc/realms/nava", Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
