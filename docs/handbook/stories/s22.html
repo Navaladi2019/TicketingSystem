@@ -50,8 +50,8 @@
 <td>merged (PR #956); its I5 route-row PR #931 is still open</td>
 </tr>
 <tr>
-<td>TICK-753: adversarial isolation suite</td>
-<td>done, but rows 1b and 2b have no body and row 4 is still <code>Pending</code>: fixed by TICK-1198</td>
+<td>TICK-753: adversarial isolation suite, completed by TICK-1198 (rows 1b, 2b written; <code>Pending</code> removed from 1b, 2b, 4)</td>
+<td>merged (PRs #919, #943, #988); every row runs</td>
 </tr>
 <tr>
 <td>TICK-754: acceptance kit (Bruno S22), verified on a fresh stack</td>
@@ -154,8 +154,8 @@ types</a>.</li>
 </tr>
 <tr>
 <td>1b</td>
-<td>A crafted <code>field_index.remove</code> row naming B's field deletes nothing of B</td>
-<td><strong>no body yet</strong> (TICK-1198)</td>
+<td>A crafted <code>field_index.remove</code> row naming B's field deletes nothing of B and leaves B's registry row; a forged payload <code>tenant_id</code> fails closed and no activity runs</td>
+<td>runs</td>
 </tr>
 <tr>
 <td>2</td>
@@ -164,8 +164,8 @@ types</a>.</li>
 </tr>
 <tr>
 <td>2b</td>
-<td>The R3 race against a real removal leaves no side row</td>
-<td><strong>no body yet</strong> (TICK-1198)</td>
+<td>The R3 race against a real removal leaves no side row and no registry row; with the barrier replaced by a no-op, the side-table FK refuses <code>field_index.Retire</code> (<code>TestS22Attack2bBitesWithoutTheBarrier</code>)</td>
+<td>runs</td>
 </tr>
 <tr>
 <td>3, 3b</td>
@@ -174,8 +174,8 @@ types</a>.</li>
 </tr>
 <tr>
 <td>4</td>
-<td>No JSONB filter on <code>records.data</code> remains in non-test code</td>
-<td>body written, still marked <code>Pending</code> (TICK-1198)</td>
+<td>No JSONB filter on <code>records.data</code> remains in non-test code, and <code>DataFilterTimeout</code> and <code>LegacyScanFields</code> are gone</td>
+<td>runs</td>
 </tr>
 <tr>
 <td>authz</td>
