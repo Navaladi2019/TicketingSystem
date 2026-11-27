@@ -1,0 +1,43 @@
+ADR-001-E4 FU2 applied (TICK-1154, T-E4-7) on 2026-11-27 by the Technical Lead.
+Precondition: TICK-1153 (T-E4-6) done; preflight evidence fu2-preflight.txt merged in PR #946 (main d08a7924).
+
+-- before: gh api repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks
+strict: true
+checks (9):
+  changes	app_id 15368
+  lint	app_id 15368
+  unit	app_id 15368
+  temporal-server	app_id 15368
+  integration	app_id 15368
+  stack	app_id 15368
+  coverage	app_id 15368
+  commit-check-budget	app_id 15368
+  isolation	app_id 15368
+
+-- change: gh api -X PATCH repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks --input patch.json
+{"strict":true,"checks":[<the 9 entries above, unchanged>,{"context":"vulncheck","app_id":15368}]}
+
+-- after: same GET
+strict: true
+checks (10):
+  changes	app_id 15368
+  lint	app_id 15368
+  unit	app_id 15368
+  temporal-server	app_id 15368
+  integration	app_id 15368
+  stack	app_id 15368
+  coverage	app_id 15368
+  commit-check-budget	app_id 15368
+  isolation	app_id 15368
+  vulncheck	app_id 15368
+
+-- after: gh api repos/Navaladi2019/TicketingSystem/branches/main/protection
+enforce_admins.enabled: true
+other protection fields changed by the PATCH: none (before/after GET of the whole protection compared field by field)
+
+-- undo: the same PATCH with the before checks (drop the vulncheck entry), strict true.
+
+-- raw JSON, before
+{"url":"https://api.github.com/repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks","strict":true,"contexts":["changes","lint","unit","temporal-server","integration","stack","coverage","commit-check-budget","isolation"],"contexts_url":"https://api.github.com/repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks/contexts","checks":[{"context":"changes","app_id":15368},{"context":"lint","app_id":15368},{"context":"unit","app_id":15368},{"context":"temporal-server","app_id":15368},{"context":"integration","app_id":15368},{"context":"stack","app_id":15368},{"context":"coverage","app_id":15368},{"context":"commit-check-budget","app_id":15368},{"context":"isolation","app_id":15368}]}
+-- raw JSON, after
+{"url":"https://api.github.com/repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks","strict":true,"contexts":["changes","lint","unit","temporal-server","integration","stack","coverage","commit-check-budget","isolation","vulncheck"],"contexts_url":"https://api.github.com/repos/Navaladi2019/TicketingSystem/branches/main/protection/required_status_checks/contexts","checks":[{"context":"changes","app_id":15368},{"context":"lint","app_id":15368},{"context":"unit","app_id":15368},{"context":"temporal-server","app_id":15368},{"context":"integration","app_id":15368},{"context":"stack","app_id":15368},{"context":"coverage","app_id":15368},{"context":"commit-check-budget","app_id":15368},{"context":"isolation","app_id":15368},{"context":"vulncheck","app_id":15368}]}
