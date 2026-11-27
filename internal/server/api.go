@@ -270,9 +270,12 @@ type handlers struct {
 	// WithCountDelay / WithSkipCount (export_test.go).
 	countDelay time.Duration
 	skipCount  bool
-	store      entitytypes.Store
-	nfStore    numberformats.Store
-	tsStore    tenantsettings.Store
+	// listStatement, when set, receives the page statement and arguments of
+	// every list (a test seam, set only through export_test.go).
+	listStatement func(sql string, args []any)
+	store         entitytypes.Store
+	nfStore       numberformats.Store
+	tsStore       tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
 	// typePublishCheck is the right to publish one entity type's definition;

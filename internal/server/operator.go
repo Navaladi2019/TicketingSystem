@@ -62,6 +62,8 @@ type options struct {
 	// countDelay and skipCount: list test seams, see handlers.
 	countDelay time.Duration
 	skipCount  bool
+	// listStatement: see handlers.
+	listStatement func(sql string, args []any)
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

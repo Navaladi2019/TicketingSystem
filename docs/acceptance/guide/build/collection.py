@@ -1635,6 +1635,24 @@ test("S10.10's rules, no masks", () => {
   expect(N.json().rules).to.eql(was.rules);
   expect(N.json().masks).to.eql([]);
 });"""),
+        req("S10.67 The admin lists the schema backfill failures of the type: 200 and no values", "GET",
+            "{{core_url}}/api/v1/entity-types/incident/backfill/failures", auth="admin_a_token",
+            desc="ADR-009 D10. Entity-type admins only. An item is `{record_id, code}`, never a field value; a type with no failed record gives an empty `items`.",
+            tests="""N.status(200);
+test('items is an array of ids and codes, never values', () => {
+  expect(N.json().items).to.be.an('array');
+  N.json().items.forEach(i => expect(Object.keys(i).sort()).to.eql(['code', 'record_id']));
+});"""),
+        req("S10.68 Alice (not an admin) lists the failures: the same 404 as an unknown type", "GET",
+            "{{core_url}}/api/v1/entity-types/incident/backfill/failures", auth="alice_token",
+            tests=no404),
+        req("S10.69 The failures with limit=0: 400", "GET",
+            "{{core_url}}/api/v1/entity-types/incident/backfill/failures?limit=0", auth="admin_a_token",
+            desc="`limit` is 1 to 100.",
+            tests="N.problem('validation_failed', 400);"),
+        req("S10.70 The failures without a token: 401", "GET",
+            "{{core_url}}/api/v1/entity-types/incident/backfill/failures",
+            tests="N.problem('invalid_token', 401);"),
     ]
 
 

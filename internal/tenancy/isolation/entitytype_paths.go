@@ -388,6 +388,12 @@ func etReadOwnSeeded(ctx context.Context, e *etIso) error {
 			return fmt.Errorf("tenant B reading its own %s got fixed_columns %v states %+v, want {} and the seeded state model: %s",
 				path, got.FixedColumns, got.States, body)
 		}
+		// The current read carries the newest backfill job (ADR-009 D10), which
+		// the seed gives tenant B's ticket; the version read does not. The
+		// version itself is the same in both.
+		if i := strings.Index(body, `,"backfill":`); i >= 0 {
+			body = body[:i] + "}"
+		}
 		bodies = append(bodies, body)
 	}
 	if bodies[0] != bodies[1] {

@@ -57,6 +57,20 @@ type ListQuery struct {
 	// order. The rows are the same either way.
 	Materialize []bool
 
+	// UnionWhere, when set, is the second arm of ADR-009 D12's UNION ALL
+	// shape: the filters' predicate for the records that lack a default in
+	// storage and are still queued (or failed) for the backfill, with the ACL
+	// predicate merged in the way Where's is (Where itself when Branches is
+	// empty). The page is (the page of Where) UNION ALL (the page of
+	// UnionWhere): both arms get the same Branches, the same Keyset and the
+	// same ORDER BY, and the outer query orders and limits again. The caller
+	// makes the arms disjoint (the second one ends in AND NOT <stored>), so
+	// nothing is deduplicated. UnionCountWhere replaces UnionWhere in the
+	// count, as CountWhere replaces Where. The placeholders of UnionWhere
+	// follow those of Where in Args.
+	UnionWhere      string
+	UnionCountWhere string
+
 	// BudgetCount is set for a list with a data filter (read through its side
 	// table): its count runs under CountBudget in SAVEPOINT list_count.
 	BudgetCount bool
@@ -254,7 +268,7 @@ func PageStatement(q ListQuery) (string, []any, error) {
 		order += ", r.updated_at " + dir
 	}
 	order += ", r.id " + dir
-	if branched(q) {
+	if branched(q) || q.UnionWhere != "" {
 		return branchedPage(q, args, keyset, order), args, nil
 	}
 	if q.materialize(0) {
@@ -296,16 +310,35 @@ func CountStatement(q ListQuery) string {
 	}
 	where := ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + w
 	cap1 := fmt.Sprint(TotalCap + 1)
-	if !branched(q) {
+	if !branched(q) && q.UnionWhere == "" {
 		return `SELECT count(*) FROM ` + countArm(q.driver(0), where, cap1) + ` c`
 	}
-	branches := q.Branches
-	if len(q.CountBranches) == len(q.Branches) {
-		branches = q.CountBranches
+	// The second arm of a UNION ALL page counts apart too, each arm capped by
+	// itself, and the disjoint arms add up (D12: total uses the same shape).
+	wheres := []string{where}
+	if q.UnionWhere != "" {
+		w2 := q.UnionWhere
+		if q.UnionCountWhere != "" {
+			w2 = q.UnionCountWhere
+		}
+		wheres = append(wheres, ` WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND `+w2)
 	}
-	arms := make([]string, len(branches))
-	for i, b := range branches {
-		arms[i] = countArm(q.driver(i), where+` AND `+b, cap1)
+	branches := []string{""}
+	if branched(q) {
+		branches = q.Branches
+		if len(q.CountBranches) == len(q.Branches) {
+			branches = q.CountBranches
+		}
+	}
+	var arms []string
+	for _, wh := range wheres {
+		for i, b := range branches {
+			if b != "" {
+				arms = append(arms, countArm(q.driver(i), wh+` AND `+b, cap1))
+			} else {
+				arms = append(arms, countArm(q.driver(i), wh, cap1))
+			}
+		}
 	}
 	return `SELECT count(*) FROM (SELECT 1 FROM (` + strings.Join(arms, ` UNION ALL `) + `) u LIMIT ` + cap1 + `) c`
 }
@@ -342,16 +375,33 @@ func branchedPage(q ListQuery, args []any, keyset, order string) string {
 	cols := `r.tenant_id, r.id, r.entity_definition_id, r.version, r.schema_version, r.number, r.state,
   r.requester_id, r.assignee_id, r.assignment_group_id, r.org_unit_id, r.created_by, r.created_at, r.updated_at,
   r.data, r.causation_origin_id, r.causation_depth, r.` + q.SortColumn + ` AS sort_key`
-	arms := make([]string, len(q.Branches))
-	for i, b := range q.Branches {
-		term := `SELECT ` + cols + ` FROM records r
-WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + q.Where + ` AND ` + b + keyset
-		if q.materialize(i) {
-			// C3: the branch's rows, then sorted, never walked.
-			arms[i] = `(WITH acl_m AS MATERIALIZED (` + term + `) SELECT * FROM acl_m r ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
-			continue
+	// One arm per branch, and with a UnionWhere the same again over its
+	// predicate (ADR-009 D12). A page that is not branched has one "branch"
+	// with no predicate of its own: the ACL is in Where.
+	branches := q.Branches
+	if !branched(q) {
+		branches = []string{""}
+	}
+	wheres := []string{q.Where}
+	if q.UnionWhere != "" {
+		wheres = append(wheres, q.UnionWhere)
+	}
+	var arms []string
+	for _, w := range wheres {
+		for i, b := range branches {
+			pred := w
+			if b != "" {
+				pred += ` AND ` + b
+			}
+			term := `SELECT ` + cols + ` FROM records r
+WHERE r.tenant_id = $1 AND r.entity_definition_id = $2 AND ` + pred + keyset
+			if q.materialize(i) {
+				// C3: the branch's rows, then sorted, never walked.
+				arms = append(arms, `(WITH acl_m AS MATERIALIZED (`+term+`) SELECT * FROM acl_m r ORDER BY r.`+q.SortColumn+` `+order+` `+limit+`)`)
+				continue
+			}
+			arms = append(arms, `(`+term+` ORDER BY r.`+q.SortColumn+` `+order+` `+limit+`)`)
 		}
-		arms[i] = `(` + term + ` ORDER BY r.` + q.SortColumn + ` ` + order + ` ` + limit + `)`
 	}
 	outer := strings.NewReplacer("r.updated_at", "updated_at", "r.id", "id").Replace(order)
 	// The sort column's ORDER BY term leads; order starts with its direction.

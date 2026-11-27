@@ -337,10 +337,12 @@ ON CONFLICT DO NOTHING`, tenantID, in.VersionID, in.DefinitionID, string(d.Schem
 // the backfill, for the fields the seeded type key flags (S22 P7-12). It runs
 // as nava_app in the tenant's transaction, after Seed (nava_onboard cannot
 // write the registry). It refuses, with ErrNotOnboardingSeed, any type whose
-// current version is not 1 or whose version 1 was not written by the
-// onboarding seed, so it cannot be used to flag an API-published type outside
+// current version is not 1 or whose version 1 was published by a principal or
+// names another system, so it cannot be used to flag an API-published type outside
 // Publish. Idempotent: a field that already has a registry row adds nothing,
-// so onboarding calls it on every attempt. ErrNotFound for an unknown key.
+// so onboarding calls it on every attempt. A version 1 with no publisher at all
+// was seeded before published_by_system existed and flags nothing: it returns
+// nil. ErrNotFound for an unknown key.
 func (s Store) RegisterSeedFilterable(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, key string) error {
 	defer tenancy.Forget(tx, currentKey{key})
 	var (
@@ -363,6 +365,12 @@ func (s Store) RegisterSeedFilterable(ctx context.Context, tx pgx.Tx, tenantID u
 SELECT published_by_system, published_by FROM entity_definition_versions WHERE definition_id = $1 AND version = 1`,
 		defID).Scan(&system, &by); err != nil {
 		return fmt.Errorf("entitytypes: read seeded version: %w", err)
+	}
+	if system == nil && by == nil {
+		// Seeded by a build before published_by_system (TICK-1172): that Seed
+		// refused flagged definitions, so this version flags nothing and there
+		// is nothing to register. A retried onboarding goes on to Activate.
+		return nil
 	}
 	if system == nil || *system != OnboardingSystem || by != nil {
 		return ErrNotOnboardingSeed

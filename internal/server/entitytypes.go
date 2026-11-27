@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -108,6 +109,77 @@ func (h *handlers) GetEntityType(ctx context.Context, req api.GetEntityTypeReque
 	return r, nil
 }
 
+const (
+	listBackfillFailuresRoute = "listEntityTypeBackfillFailures"
+	maxBackfillFailuresLimit  = 100
+)
+
+// ListEntityTypeBackfillFailures serves
+// GET /api/v1/entity-types/{key}/backfill/failures (ADR-009 D10): the newest
+// job's failure rows, keyset by record_id. It needs the permission publishing
+// a version needs; a caller without it, an unknown key and another tenant's
+// key all get the one 404, so the route does not say whether a type exists.
+// It reads only, as nava_app, with SELECT.
+func (h *handlers) ListEntityTypeBackfillFailures(ctx context.Context, req api.ListEntityTypeBackfillFailuresRequestObject) (api.ListEntityTypeBackfillFailuresResponseObject, error) {
+	p, ok := identity.FromContext(ctx)
+	if !ok || p.PrincipalID == uuid.Nil {
+		return nil, errNoPrincipal
+	}
+	if h.pool == nil || h.cursors == nil {
+		return nil, notImplemented()
+	}
+	limit := defaultListLimit
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
+	}
+	if limit < 1 || limit > maxBackfillFailuresLimit {
+		return nil, listInvalid("/limit", "range")
+	}
+	claims, err := cursor.ClaimsFor(ctx, listBackfillFailuresRoute, url.Values{"_key": {req.Key}})
+	if err != nil {
+		return nil, err
+	}
+	after := uuid.Nil
+	if req.Params.Cursor != nil {
+		pos, err := h.cursors.Decode(claims, *req.Params.Cursor)
+		if err != nil {
+			return nil, &problemError{problem.InvalidCursor, nil, err}
+		}
+		if after, err = uuid.ParseBytes(pos); err != nil {
+			return nil, &problemError{problem.InvalidCursor, nil, err}
+		}
+	}
+	var rows []entitytypes.BackfillFailure
+	err = tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) (err error) {
+		if err := authz.RequireTenantAdminTx(ctx, tx, p); err != nil {
+			return err
+		}
+		if impossibleKey(req.Key) {
+			return entitytypes.ErrNotFound // cannot exist, and must not reach the database
+		}
+		rows, err = h.store.BackfillFailures(ctx, tx, p.TenantID, req.Key, after, limit+1)
+		return err
+	})
+	switch {
+	case errors.Is(err, authz.ErrForbidden), errors.Is(err, entitytypes.ErrNotFound):
+		return h.notFound(ctx), nil
+	case err != nil:
+		return nil, err
+	}
+	out := api.BackfillFailureList{Items: make([]api.BackfillFailure, 0, min(len(rows), limit))}
+	for _, r := range rows[:min(len(rows), limit)] {
+		out.Items = append(out.Items, api.BackfillFailure{RecordId: r.RecordID, Code: r.Code})
+	}
+	if len(rows) > limit {
+		next, err := h.cursors.Encode(claims, []byte(rows[limit-1].RecordID.String()))
+		if err != nil {
+			return nil, err
+		}
+		out.NextCursor = &next
+	}
+	return api.ListEntityTypeBackfillFailures200JSONResponse(out), nil
+}
+
 // GetEntityTypeVersion serves GET /api/v1/entity-types/{key}/versions/{n}.
 func (h *handlers) GetEntityTypeVersion(ctx context.Context, req api.GetEntityTypeVersionRequestObject) (api.GetEntityTypeVersionResponseObject, error) {
 	if req.N < 1 {
@@ -139,10 +211,17 @@ func (h *handlers) readVersion(ctx context.Context, key string, version int) (ve
 	if len(key) > maxKeyBytes || !utf8.ValidString(key) || strings.IndexByte(key, 0) >= 0 {
 		return h.notFound(ctx), nil // cannot exist, and must not reach the database
 	}
-	var v *entitytypes.Version
+	var (
+		v  *entitytypes.Version
+		bf *entitytypes.BackfillStatus
+	)
 	err := tenancy.InTenantTx(ctx, h.pool, p.TenantID, func(tx pgx.Tx) (err error) {
 		if version == 0 {
-			v, err = h.store.GetCurrent(ctx, tx, key)
+			if v, err = h.store.GetCurrent(ctx, tx, key); err != nil {
+				return err
+			}
+			// ADR-009 D10: the current version's read carries the newest job.
+			bf, err = h.store.NewestBackfill(ctx, tx, p.TenantID, key)
 		} else {
 			v, err = h.store.GetVersion(ctx, tx, key, version)
 		}
@@ -154,7 +233,7 @@ func (h *handlers) readVersion(ctx context.Context, key string, version int) (ve
 	case err != nil:
 		return nil, err
 	}
-	return &entityTypeResponse{status: http.StatusOK, v: v}, nil
+	return &entityTypeResponse{status: http.StatusOK, v: v, backfill: bf}, nil
 }
 
 // createRequest is the body of POST /api/v1/entity-types, field by field.
@@ -602,6 +681,9 @@ func unprocessable(fields ...problem.FieldError) *problemError {
 type entityTypeResponse struct {
 	status int
 	v      *entitytypes.Version
+	// backfill is the type's newest schema backfill job (ADR-009 D10); nil
+	// leaves the member out. Only the current-version read sets it.
+	backfill *entitytypes.BackfillStatus
 }
 
 func (r *entityTypeResponse) write(w http.ResponseWriter) error {
@@ -647,6 +729,11 @@ func (r *entityTypeResponse) write(w http.ResponseWriter) error {
 			return err
 		}
 	}
+	if r.backfill != nil {
+		if err := put("backfill", backfillJSON(r.backfill)); err != nil {
+			return err
+		}
+	}
 	b.WriteByte('}')
 	w.Header().Set("Content-Type", "application/json")
 	if v.Current {
@@ -655,6 +742,23 @@ func (r *entityTypeResponse) write(w http.ResponseWriter) error {
 	w.WriteHeader(r.status)
 	_, err := b.WriteTo(w)
 	return err
+}
+
+// backfillJSON is the backfill member of a version (ADR-009 D10).
+func backfillJSON(b *entitytypes.BackfillStatus) api.BackfillStatus {
+	return api.BackfillStatus{
+		State: api.BackfillStatusState(b.State), TargetVersion: b.TargetVersion,
+		Rewritten: b.Rewritten, Skipped: b.Skipped, Failed: b.Failed, Remaining: b.Remaining,
+		StartedAt: utcPtr(b.StartedAt), FinishedAt: utcPtr(b.FinishedAt),
+	}
+}
+
+func utcPtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // numberFormatJSON is the number_format member of a version: null for the
@@ -708,6 +812,9 @@ func (r *notFoundResponse) VisitPublishEntityTypeVersionResponse(w http.Response
 	return r.write(w)
 }
 func (r *notFoundResponse) VisitGetEntityTypeResponse(w http.ResponseWriter) error { return r.write(w) }
+func (r *notFoundResponse) VisitListEntityTypeBackfillFailuresResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func (r *notFoundResponse) VisitGetEntityTypeVersionResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
@@ -716,6 +823,8 @@ var (
 	_ api.GetEntityTypeResponseObject            = (*notFoundResponse)(nil)
 	_ api.GetEntityTypeVersionResponseObject     = (*notFoundResponse)(nil)
 	_ api.PublishEntityTypeVersionResponseObject = (*notFoundResponse)(nil)
+
+	_ api.ListEntityTypeBackfillFailuresResponseObject = (*notFoundResponse)(nil)
 )
 
 // pointerErrors names each definition-relative path under /definition.

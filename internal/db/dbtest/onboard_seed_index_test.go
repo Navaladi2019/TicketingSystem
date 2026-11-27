@@ -106,19 +106,21 @@ func TestS22OnboardingRetryAfterACrashBetweenSeedAndRegistration(t *testing.T) {
 	}
 }
 
-// RegisterSeedFilterable refuses a type that is not an onboarding seed at v1.
-func TestS22RegisterSeedFilterableRefusesATypeOnboardingDidNotSeed(t *testing.T) {
+// A v1 with no publisher at all, as a build before TICK-1172 seeded it, flags
+// nothing: RegisterSeedFilterable returns nil and writes no registry row, so a
+// retried onboarding can go on to Activate.
+func TestS22RegisterSeedFilterableIgnoresAPreColumnSeed(t *testing.T) {
 	migratedPlatform(t)
 	super := superNava(t)
 	tenant := uuid.NewString()
 	seedTenants(t, super, []string{tenant}, nil)
-	// A v1 with no system publisher, as the API's create writes it, has a
-	// current version of 1 but is not an onboarding seed.
-	exec(t, super, insertType, tenant, "apiseed", "API")
+	exec(t, super, insertType, tenant, "oldseed", "OLD")
 	exec(t, super, insertVersion, tenant, tenant, tenant, 1, testSchema, schemaSum(testSchema), "initial", nil)
-	err := onboard.IndexStore{Pool: rolePool(t, "nava_app", 2)}.RegisterSeedFilterable(t.Context(), uuid.MustParse(tenant), "apiseed")
-	if err == nil {
-		t.Fatal("RegisterSeedFilterable accepted a v1 with no onboarding publisher")
+	if err := (onboard.IndexStore{Pool: rolePool(t, "nava_app", 2)}).RegisterSeedFilterable(t.Context(), uuid.MustParse(tenant), "oldseed"); err != nil {
+		t.Fatalf("RegisterSeedFilterable of a pre-column v1 = %v, want nil", err)
+	}
+	if n := countRows(t, "SELECT count(*) FROM record_index_fields WHERE tenant_id = $1", tenant); n != 0 {
+		t.Errorf("registry rows = %d, want 0", n)
 	}
 }
 

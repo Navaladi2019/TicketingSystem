@@ -253,3 +253,14 @@ func TestKeysetNullSegments(t *testing.T) {
 		t.Error("an updated_at cursor with a tie-break updated_at was accepted")
 	}
 }
+
+// A data filter that resolveFilters left without a side table matches
+// nothing: where() fails closed instead of dropping it (S22 P7-12).
+func TestWhereFailsClosedForADataFilterWithNoSideTable(t *testing.T) {
+	t.Parallel()
+	pl := &listPlan{filters: []listFilter{{prop: "priority", op: "eq", raws: []string{"1"}}}}
+	sql, args := pl.where(0)
+	if sql != "false" || len(args) != 0 {
+		t.Errorf("where = %q %v, want false and no arguments", sql, args)
+	}
+}
