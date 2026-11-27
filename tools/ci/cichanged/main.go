@@ -4,7 +4,8 @@
 // ci-changed` runs ci-isolated with those stages.
 //
 // Every change runs ci-lint. Documentation (.md and .html outside a Go
-// package and testdata) runs nothing else. A Go package's files add ci-unit, plus
+// package and testdata, and everything under docs/handbook/, TICK-1193) runs
+// nothing else. A Go package's files add ci-unit, plus
 // ci-integration when an integration test depends on the package, plus
 // ci-stack when an image or a stack test does and the package is one of
 // stackTriggers (TICK-652): a command, the migrations and database bootstrap,
@@ -245,6 +246,15 @@ func fileStages(f string, g graph) ([]string, string) {
 		// The S13 kit's samples, expected outputs and README are checked by
 		// tools/acceptance/s13kit (TICK-426).
 		return []string{"ci-lint", "ci-unit"}, "S13 acceptance kit, checked by tools/acceptance/s13kit"
+	case strings.HasPrefix(f, "docs/handbook/") && !strings.Contains("/"+f, "/testdata/"):
+		// TICK-1193: the handbook's sources, generated pages, search index
+		// and generator are checked by the lint job alone (make
+		// test-handbook, test-handbook-coverage, handbook-build), so a
+		// handbook update is a docs-only change. Outside a Go package only,
+		// as for .md below.
+		if _, ok := packageOf(f, g.packages); !ok {
+			return lint, "handbook, checked by the lint job"
+		}
 	case (path.Ext(f) == ".md" || path.Ext(f) == ".html") && !strings.Contains("/"+f, "/testdata/"):
 		// Only outside a Go package: a package may embed or read its own
 		// .md files, which the package rule below covers.
