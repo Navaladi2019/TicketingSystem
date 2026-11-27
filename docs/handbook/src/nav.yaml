@@ -102,7 +102,9 @@
     - page: workflows/audit-seal.md
       label: "Audit sealer"
     - page: workflows/field-index-backfill.md
-      label: "Field-index backfill"
+      label: "Field-index backfill and removal"
+    - page: workflows/schema-backfill.md
+      label: "Schema backfill"
     - page: security/index.md
       label: "Security and tenant isolation"
       children:
@@ -172,6 +174,8 @@
             label: "Workflow state"
           - page: database/field-index.md
             label: "Field index (filterable fields)"
+          - page: database/schema-backfill.md
+            label: "Schema backfill tables"
     - page: adr/index.md
       label: "Decisions (ADRs)"
       children:
@@ -311,6 +315,10 @@
             label: "Number formats on ticket types"
           - page: stories/s21.md
             label: "Filter on flagged fields (in progress)"
+          - page: stories/s22.md
+            label: "Unflag fields, raise the limit (in progress)"
+          - page: stories/s29.md
+            label: "Old records get a new default (in progress)"
           - page: stories/hb2.md
             label: "Handbook v2: vision and product tour"
           - page: stories/s25.md

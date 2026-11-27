@@ -246,7 +246,16 @@ stories:
   - id: S22
     issue: TICK-740
     title: Unflag a filterable field, raise the quota with operator approval, retire the JSONB scan
-    status: planned
+    status: in-progress
+    evidence:
+      - docs/reviews/tick-753-s22-s29-isolation-attacks.md
+  - id: S29
+    issue: TICK-915
+    title: Old tickets pick up a new default value, and filters find them before the job ends
+    status: in-progress
+    evidence:
+      - docs/data/schema-backfill.md
+      - docs/reviews/tick-753-s22-s29-isolation-attacks.md
   - id: S25
     issue: TICK-801
     title: A developer installs the TypeScript SDK and lists, reads and creates records

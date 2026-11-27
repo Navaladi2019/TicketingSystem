@@ -96,8 +96,16 @@ property keeps its usual class (`integer` → `number` stays Breaking on the
 | Class | Changes |
 | --- | --- |
 | Compatible | add an optional property (with or without a default); widen an `enum`; add a state or transition; change `title`, `description`, `$comment`, `examples`; add or remove `x-nava-filterable` |
-| NeedsBackfill | add a required property that has a default; add a default to an existing property |
-| Breaking | everything else: change a `type`, narrow or add an `enum`, add a required property with no default, remove a property, change `FixedColumns` or `NumberPrefix`, change or remove a default, add or remove `x-nava-unique`, make a property required or optional, remove a state or transition, change the initial state, any other keyword change |
+| NeedsBackfill | add a required property that has a default; add a default to an existing property; make an existing property required when the next version has a default for it (ADR-009 D14) |
+| Breaking | everything else: change a `type`, narrow or add an `enum`, add a required property with no default, remove a property, change `FixedColumns` or `NumberPrefix`, change or remove a default, add or remove `x-nava-unique`, make a property required without a default, make a property optional, remove a state or transition, change the initial state, any other keyword change |
+
+A NeedsBackfill version, and any version that adds a top-level default,
+queues a schema backfill in the publish transaction (ADR-009 D1). Compile
+refuses a property that has both a `default` and `x-nava-unique` when a
+definition is created, published or seeded (`metadata.CompileNew`, ADR-009
+D13): a backfill would write the same value into every record that lacks the
+key. A stored version that already has the pair still compiles when it is
+read.
 
 Paths are JSON pointers into the definition's JSON form
 (`/schema/properties/priority/default`, `/states/initial`). Seed definitions
