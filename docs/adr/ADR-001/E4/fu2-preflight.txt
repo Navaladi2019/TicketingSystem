@@ -1,0 +1,1 @@
+Read-only preflight evidence for ADR-001-E4 FU2 (TICK-1153, T-E4-6). Collection in progress.
