@@ -481,6 +481,7 @@ func TestCreateTenantOrgRollsBackIdP(t *testing.T) {
 					return
 				}
 				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, kcIdPNotFound)
 			})
 			mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
 				madeOrg.Store(true)
@@ -532,6 +533,7 @@ func TestCreateTenantOrgRollbackSparesAnIdPLinkedElsewhere(t *testing.T) {
 		// Absent at the pre-check; by rollback time it is linked elsewhere.
 		if reads.Add(1) == 1 {
 			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, kcIdPNotFound)
 			return
 		}
 		fmt.Fprint(w, `{"organizationLinks":[{"organizationId":"someone-else"}]}`)
@@ -608,6 +610,7 @@ func TestCreateTenantOrgDomainLinked(t *testing.T) {
 			})
 			mux.HandleFunc("GET /admin/realms/nava/identity-provider/instances/"+TenantIdPAlias(dirTenantA), func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, kcIdPNotFound)
 			})
 			mux.HandleFunc("POST /admin/realms/nava/organizations", func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(c.status)
@@ -649,7 +652,8 @@ func TestEnsureAdminGroup(t *testing.T) {
 			})
 			mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/admins", func(w http.ResponseWriter, _ *http.Request) {
 				if !exists && created.Load() == 0 {
-					http.NotFound(w, nil)
+					w.WriteHeader(http.StatusNotFound)
+					fmt.Fprint(w, kcGroupNotFound)
 					return
 				}
 				fmt.Fprintf(w, `{"id":"g-admins","name":"admins","path":%q}`, rootPath(dirTenantA)+"/admins")
@@ -693,7 +697,8 @@ func TestEnsureAuditorGroupCreatesAuditorsNotAdmins(t *testing.T) {
 	})
 	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/auditors", func(w http.ResponseWriter, _ *http.Request) {
 		if created.Load() == 0 {
-			http.NotFound(w, nil)
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, kcGroupNotFound)
 			return
 		}
 		fmt.Fprintf(w, `{"id":"g-auditors","name":"auditors","path":%q}`, rootPath(dirTenantA)+"/auditors")
@@ -732,7 +737,8 @@ func adoptMux(adopted bool, members string) http.Handler {
 	})
 	mux.HandleFunc("GET /admin/realms/nava/group-by-path/t/"+dirTenantA.String()+"/auditors", func(w http.ResponseWriter, _ *http.Request) {
 		if !adopted && created.Load() == 0 {
-			http.NotFound(w, nil)
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, kcGroupNotFound)
 			return
 		}
 		fmt.Fprintf(w, `{"id":"g-auditors","name":"auditors","path":%q}`, rootPath(dirTenantA)+"/auditors")

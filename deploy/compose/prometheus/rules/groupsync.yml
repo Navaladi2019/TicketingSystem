@@ -10,8 +10,9 @@ groups:
   - name: groupsync
     rules:
       - alert: GroupsyncOrgUnitsAboveCertified
-        # 10111 is the live-unit count ADR-010-A2 is certified to (A2-7). It
-        # lives here and nowhere else.
+        # 10111 is the live-unit count ADR-010-A2 is certified to (A2-7). It is
+        # also uCert in internal/authz/shape.go (ADR-010-A3 A3-3);
+        # TestUCertIsTheAlertThreshold keeps the two equal.
         expr: groupsync_org_units_live_max > 10111
         for: 10m
         labels:
@@ -38,3 +39,48 @@ groups:
             Find the tenant in the nava-groupsync log line "live org units have
             no closure self row and are outside every region". Never refuse the
             sync.
+      - alert: GroupsyncOrgClosureDriftRepaired
+        # groupsync_org_closure_drift_repairs is an OTel counter; the exporter
+        # writes it with _total. New() adds 0 so the series starts at 0, and the
+        # second branch fires for a series that first appears already above 0
+        # (increase() sees no change there); it compares with the last value
+        # seen 15m ago, so a failed scrape does not fire it. Accepted limits: a
+        # process that restarts at 1 and repairs again before any scrape sees 0
+        # shows 1 -> 1 and fires nothing (gaps up to about 1h); a gap longer
+        # than about 1h can fire it with no repair. The WARN line (once per
+        # repair) is the trace.
+        # AR-TICK-1118-01 is looked at again when any drift is found in a live
+        # tenant; this alert is that trigger.
+        expr: >-
+          increase(groupsync_org_closure_drift_repairs_total[15m]) > 0
+          or (groupsync_org_closure_drift_repairs_total > 0
+          unless last_over_time(groupsync_org_closure_drift_repairs_total[1h] offset 15m)
+          == groupsync_org_closure_drift_repairs_total)
+        labels:
+          severity: warning
+        annotations:
+          summary: Group sync found the stored org closure different from the live org tree and repaired it.
+          description: >-
+            Find the tenant in the nava-groupsync log line "the stored org
+            closure differed from the live org tree and was repaired". Re-look
+            at AR-TICK-1118-01 (docs/security/accepted-risks.md).
+      - alert: GroupsyncTenantLagHigh
+        # TICK-1166: a tenant whose sync fails is not compared with the live org
+        # tree, so the 1-hour limit of AR-TICK-1118-01 does not hold for it.
+        # groupsync_lag_seconds has no tenant label (T01): it is one observation
+        # per tenant per cycle, so any series above 600 s is some tenant over the
+        # limit. Find it in the nava-groupsync log line "group sync lag over 10
+        # minutes" (tenant_id) and the failure line before it.
+        expr: >-
+          (sum(increase(groupsync_lag_seconds_count[10m]))
+          - sum(increase(groupsync_lag_seconds_bucket{le="600"}[10m]))) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A tenant's group sync lag has stayed over 10 minutes for 15 minutes.
+          description: >-
+            Find the tenant in the nava-groupsync log line "group sync lag over
+            10 minutes". While a tenant's sync fails its org closure is not
+            compared with the live org tree (AR-TICK-1118-01,
+            docs/security/accepted-risks.md).

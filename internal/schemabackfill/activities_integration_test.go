@@ -563,3 +563,102 @@ func TestConflictLeavesTheIDPending(t *testing.T) {
 		t.Errorf("after the next pass: %+v, pending %d; want all 3 rewritten once", s, pending(t, e, j))
 	}
 }
+
+// End's state flip and its "finished" entry commit together: when the entry
+// cannot be written (here a CHECK on audit_log refuses the job's entries for
+// this tenant), the attempt fails retryable, logs only its step, and the job
+// stays running with finished_at NULL and no entry, so it is never done
+// without its entry. Once the entry can be written, End writes exactly one.
+func TestEndRollsBackWithoutItsAuditEntry(t *testing.T) {
+	e := migrated(t)
+	f, j := jobAt(t, e, "running")
+	mustExec(t, e.super, `UPDATE schema_backfills SET rewritten = 7 WHERE tenant_id = $1`, f.tenant)
+	constraint := "it_end_audit_" + strings.ReplaceAll(f.tenant.String()[:8], "-", "")
+	mustExec(t, e.super, `ALTER TABLE audit_log ADD CONSTRAINT `+constraint+
+		` CHECK (NOT (tenant_id = '`+f.tenant.String()+`' AND actor_system = 'schema-backfill' AND subject_type = 'entity_definition')) NOT VALID`)
+	dropped := false
+	drop := func() {
+		if !dropped {
+			dropped = true
+			mustExec(t, e.super, "ALTER TABLE audit_log DROP CONSTRAINT "+constraint)
+		}
+	}
+	t.Cleanup(drop)
+
+	var log bytes.Buffer
+	_, err := runActivity(t, e, j, schemabackfill.EndActivity, probeOpts{log: &log})
+	var app *temporal.ApplicationError
+	if err == nil || (errors.As(err, &app) && app.NonRetryable()) {
+		t.Fatalf("end = %v, want a retryable failure", err)
+	}
+	line := log.String()
+	if strings.Count(line, "schema backfill activity failed") != 1 || !strings.Contains(line, `"step":"end"`) ||
+		strings.Contains(line, "violates") {
+		t.Errorf("log = %s, want one step=end line with no error text", line)
+	}
+	if s := job(t, e, j); s.state != "running" || s.finished != nil || s.rewritten != 7 {
+		t.Fatalf("job = %+v, want still running, finished_at NULL, counters unchanged", s)
+	}
+	if n := len(jobEntries(t, e, f)); n != 0 {
+		t.Fatalf("job entries = %d, want none", n)
+	}
+
+	drop()
+	if _, err := runActivity(t, e, j, schemabackfill.EndActivity, probeOpts{}); err != nil {
+		t.Fatalf("end after the fix: %v", err)
+	}
+	if s := job(t, e, j); s.state != "done" || s.finished == nil {
+		t.Errorf("job = %+v, want done", s)
+	}
+	if entries := jobEntries(t, e, f); len(entries) != 1 || !strings.Contains(entries[0], `"done"`) {
+		t.Errorf("job entries = %v, want exactly one finished entry", entries)
+	}
+}
+
+// A page that cannot take its ids from the queue (the worker's DELETE on
+// schema_backfill_pending revoked) fails retryable with nothing written,
+// counted or lost: no failure row either, since moving the id to the
+// failures needs the same DELETE. With the grant back, the page finishes.
+func TestPageWithoutQueueDeleteLosesNothing(t *testing.T) {
+	e := migrated(t)
+	f, j := jobAt(t, e, "running")
+	ids := f.insertRecords(t, e, 2, plain)
+	queue(t, e, j, ids...)
+	mustExec(t, e.super, "REVOKE DELETE ON schema_backfill_pending FROM nava_worker")
+	restored := false
+	restore := func() {
+		if !restored {
+			restored = true
+			mustExec(t, e.super, "GRANT DELETE ON schema_backfill_pending TO nava_worker")
+		}
+	}
+	t.Cleanup(restore)
+
+	var log bytes.Buffer
+	_, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{log: &log})
+	var app *temporal.ApplicationError
+	if err == nil || (errors.As(err, &app) && app.NonRetryable()) {
+		t.Fatalf("page = %v, want a retryable failure", err)
+	}
+	if !strings.Contains(log.String(), `"step":"page"`) || !strings.Contains(log.String(), `"sqlstate":"42501"`) {
+		t.Errorf("log = %s, want the page step with SQLSTATE 42501", log.String())
+	}
+	s := job(t, e, j)
+	if s.rewritten != 0 || s.skipped != 0 || s.failed != 0 || pending(t, e, j) != 2 ||
+		count(t, e.super, `SELECT count(*) FROM schema_backfill_failures WHERE tenant_id = $1`, f.tenant) != 0 {
+		t.Fatalf("job = %+v, pending %d; want nothing counted, both ids pending, no failure row", s, pending(t, e, j))
+	}
+	for _, id := range ids {
+		if materializeEntries(t, e, id) != 0 {
+			t.Fatalf("record %s was rewritten", id)
+		}
+	}
+
+	restore()
+	if _, err := runActivity(t, e, j, schemabackfill.PageActivity, probeOpts{}); err != nil {
+		t.Fatalf("page after the grant is back: %v", err)
+	}
+	if s := job(t, e, j); s.rewritten != 2 || pending(t, e, j) != 0 {
+		t.Errorf("job = %+v, pending %d; want both rewritten", s, pending(t, e, j))
+	}
+}

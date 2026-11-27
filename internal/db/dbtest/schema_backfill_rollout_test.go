@@ -21,7 +21,7 @@ import (
 // migration queues one job and one outbox row per tenant and defaulted type,
 // skips default + unique types with a notice, and never touches records.
 
-const schemaBackfillRollout = "20261126163400_schema_backfill_rollout.sql"
+const schemaBackfillRollout = "20261127100500_schema_backfill_rollout.sql"
 
 const (
 	// rolloutDefaulted: two top-level defaults, one property without.

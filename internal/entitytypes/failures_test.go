@@ -198,15 +198,16 @@ func TestCreateRefusals(t *testing.T) {
 		want  error
 		text  string
 	}{
-		{"key exists", []step{found()}, ErrKeyExists, ""},
-		{"key check fails", []step{fail(errDB)}, errDB, "check key"},
-		{"prefix taken", []step{fail(pgx.ErrNoRows), found()}, ErrPrefixTaken, ""},
-		{"prefix check fails", []step{fail(pgx.ErrNoRows), fail(errDB)}, errDB, "check prefix"},
-		{"race on key", []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg(keyConstraint))}, ErrKeyExists, ""},
-		{"race on prefix", []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg(prefixConstraint))}, ErrPrefixTaken, ""},
-		{"other unique violation", []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg("other"))}, nil, "insert entity type"},
-		{"insert definition fails", []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(errDB)}, errDB, "insert entity type"},
-		{"insert version fails", []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), {}, execFail(errDB)}, errDB, "insert version"},
+		{"key exists", []step{{}, found()}, ErrKeyExists, ""},
+		{"key check fails", []step{{}, fail(errDB)}, errDB, "check key"},
+		{"prefix taken", []step{{}, fail(pgx.ErrNoRows), found()}, ErrPrefixTaken, ""},
+		{"prefix check fails", []step{{}, fail(pgx.ErrNoRows), fail(errDB)}, errDB, "check prefix"},
+		{"race on key", []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg(keyConstraint))}, ErrKeyExists, ""},
+		{"race on prefix", []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg(prefixConstraint))}, ErrPrefixTaken, ""},
+		{"other unique violation", []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(pg("other"))}, nil, "insert entity type"},
+		{"insert definition fails", []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), execFail(errDB)}, errDB, "insert entity type"},
+		{"insert version fails", []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows), {}, execFail(errDB)}, errDB, "insert version"},
+		{"lock fails", []step{execFail(errDB)}, errDB, "serialise create"},
 	}
 	for _, tt := range tests {
 		_, err := Store{}.Create(ctx, &fakeTx{t: t, steps: tt.steps}, uuid.New(), in)
@@ -289,7 +290,7 @@ func TestEncodeFailuresWriteNothing(t *testing.T) {
 	ctx, d := t.Context(), template(t)
 	noCalls := func() *fakeTx { return &fakeTx{t: t} } // any database call fails the test
 
-	_, err := Store{}.Create(ctx, &fakeTx{t: t, steps: []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
+	_, err := Store{}.Create(ctx, &fakeTx{t: t, steps: []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
 		NewInput{Name: "n", PublishedBy: uuid.New(), Definition: d})
 	if err == nil || !strings.Contains(err.Error(), "encode fixed columns") {
 		t.Errorf("Create: %v", err)
@@ -317,7 +318,7 @@ func TestEncodeFailuresWriteNothing(t *testing.T) {
 		}
 		return nil, errors.New("cannot encode")
 	}
-	_, err = Store{}.Create(ctx, &fakeTx{t: t, steps: []step{fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
+	_, err = Store{}.Create(ctx, &fakeTx{t: t, steps: []step{{}, fail(pgx.ErrNoRows), fail(pgx.ErrNoRows)}}, uuid.New(),
 		NewInput{Name: "n", PublishedBy: uuid.New(), Definition: d})
 	if err == nil || !strings.Contains(err.Error(), "encode states") {
 		t.Errorf("Create states: %v", err)

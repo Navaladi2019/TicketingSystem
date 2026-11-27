@@ -1,0 +1,75 @@
+# The checked-in copy of .github/workflows/govulncheck.yml (TICK-1149,
+# ADR-001-E4 vulncheck contract rule 9). make check-ci-steps fails unless the
+# two are equal byte for byte once every comment line (first non-blank
+# character #) is dropped from both. Edit both files in the same change; the
+# Security & Multi-Tenancy Reviewer reviews any edit (ADR RS3).
+name: govulncheck
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - go.mod
+      - go.sum
+      - temporal-server/go.mod
+      - temporal-server/go.sum
+  schedule:
+    - cron: '17 3 */2 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('govulncheck-{0}', github.ref) || format('govulncheck-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  vulncheck-root:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      - name: govulncheck (root module)
+        run: make vulncheck
+
+  vulncheck-temporal-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: temporal-server/go.mod
+          cache: false
+      - name: Install govulncheck
+        run: make tools-govulncheck
+      - name: govulncheck (temporal-server)
+        run: make vulncheck-temporal-server
+
+  vulncheck-main-red:
+    needs: [vulncheck-root, vulncheck-temporal-server]
+    if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or update the P0 issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          WORKFLOW: govulncheck
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: sh scripts/ci/main-red.sh

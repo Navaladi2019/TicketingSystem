@@ -4,7 +4,7 @@ When a published version adds a default, a background job writes that default
 into every record of the type that lacks it. This note covers the job itself:
 the `schema.backfill` workflow in `internal/schemabackfill` (PLAN-010 P10-03,
 P10-05, P10-06; TICK-920). The tables are in
-`db/migrations/20261126163300_schema_backfill_tables.sql` (P10-01), and the
+`db/migrations/20261127100400_schema_backfill_tables.sql` (P10-01), and the
 record write is `pipeline.Write(OpMaterialize)` (P10-02).
 
 ## Who starts it
