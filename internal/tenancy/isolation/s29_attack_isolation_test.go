@@ -441,6 +441,12 @@ func (t *s29Temporal) startsOf(prefix string) []s29Start {
 //     that job finds nothing;
 //   - the control starts t:<tenant A>:…:<tenant A's definition>;
 //   - no start input names a tenant, and no start is under tenant B.
+//
+// The fixture's own publishes write real schema.backfill outbox rows now
+// (TICK-919), tenant B's among them, and the relay would start those too. So
+// every undispatched row but the attack's three is marked dispatched first,
+// as superuser, and the relay sees only the attack's rows. The "no start
+// under tenant B" check is unchanged.
 func s29Relay6(ctx context.Context, cl Cluster, e *etIso, fx *s29Fixture) error {
 	app, err := cl.Pool("nava_app")
 	if err != nil {
@@ -463,6 +469,10 @@ func s29Relay6(ctx context.Context, cl Cluster, e *etIso, fx *s29Fixture) error 
 	}
 	if _, err := e.super.Exec(ctx, `UPDATE outbox SET payload = payload || jsonb_build_object('tenant_id', $2::text) WHERE id = $1`, rowF, TenantB); err != nil {
 		return fmt.Errorf("forge the payload: %w", err)
+	}
+	if _, err := e.super.Exec(ctx, `UPDATE outbox SET dispatched_at = now() WHERE dispatched_at IS NULL AND dead_at IS NULL AND id <> ALL ($1)`,
+		[]uuid.UUID{rowB, rowA, rowF}); err != nil {
+		return fmt.Errorf("settle the fixture's own outbox rows: %w", err)
 	}
 	relayPool, err := cl.PoolSize("nava_relay", 1)
 	if err != nil {
