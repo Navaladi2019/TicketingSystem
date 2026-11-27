@@ -59,7 +59,8 @@ type perfWide struct {
 	only     identity.Principal
 	defs     map[string]uuid.UUID
 	root     uuid.UUID
-	moved    bool // the m = 500 move is done
+	moved    bool   // the m = 500 move is done
+	current  string // the cell whose set line is written
 }
 
 type perfWideCell struct {
@@ -132,7 +133,10 @@ func (e *perfEnv) wideBefore(t *testing.T, c perfWideCell) {
 		}
 		e.wide.moved = true
 	}
-	e.wideSetLine(t, c)
+	if e.wide.current != c.name {
+		e.wide.current = c.name
+		e.wideSetLine(t, c)
+	}
 }
 
 func (e *perfEnv) wideSetLine(t *testing.T, c perfWideCell) {
