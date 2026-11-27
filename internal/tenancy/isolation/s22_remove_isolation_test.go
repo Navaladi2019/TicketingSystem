@@ -87,12 +87,52 @@ func s22Untouched(ctx context.Context, e *etIso, noteA, noteB uuid.UUID, regB st
 	if b != (s22Note{registry: 1, side: sideB}) {
 		return fmt.Errorf("tenant B's note is %+v, want its registry row and %d side rows", b, sideB)
 	}
-	st, err := s21Read3b(ctx, e, noteA, noteB)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) { // no row once tenant A's note is removed
+	cross, err := s22Cross(ctx, e.super, noteB)
+	if err != nil {
+		return fmt.Errorf("count the cross rows: %w", err)
+	}
+	if cross != 0 {
+		return fmt.Errorf("%d side rows pair tenant A with tenant B's field", cross)
+	}
+	return nil
+}
+
+// s22Querier is a *pgx.Conn or a pgx.Tx.
+type s22Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// s22Cross counts the side rows, in every side table, that pair tenant A
+// with field (tenant B's), past RLS. It reads the side tables alone, so it
+// counts whether or not tenant A's own note is still registered.
+func s22Cross(ctx context.Context, q s22Querier, field uuid.UUID) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM rfv_text WHERE tenant_id = $1 AND field_id = $2)
+		+ (SELECT count(*) FROM rfv_num WHERE tenant_id = $1 AND field_id = $2)
+		+ (SELECT count(*) FROM rfv_ts WHERE tenant_id = $1 AND field_id = $2)
+		+ (SELECT count(*) FROM rfv_bool WHERE tenant_id = $1 AND field_id = $2)`, TenantA, field).Scan(&n)
+	return n, err
+}
+
+// s22CrossBites is s22Cross's control: in a superuser transaction with the
+// FKs off, one rfv_text row pairing tenant A's record with tenant B's field
+// is counted, and the transaction rolls back.
+func s22CrossBites(ctx context.Context, e *etIso, field uuid.UUID, record string) error {
+	tx, err := e.super.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	if st.cross != 0 {
-		return fmt.Errorf("%d side rows pair tenant A with tenant B's field", st.cross)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO rfv_text (tenant_id, field_id, record_id, ord, value) VALUES ($1, $2, $3, 0, 's22-cross')`,
+		TenantA, field, record); err != nil {
+		return err
+	}
+	if n, err := s22Cross(ctx, tx, field); err != nil || n != 1 {
+		return fmt.Errorf("control: the cross count saw %d of 1 planted row (%w): it cannot catch a cross row", n, s22Err(err))
 	}
 	return nil
 }
@@ -177,7 +217,7 @@ func s22Alerts(r *s3bRunner) bool { return strings.Contains(r.log(), `"alert":tr
 //     field. The workflow id and the relay header say tenant A; the
 //     coordinator fails closed, non-retryable nava.field_index.NoChild,
 //     before any activity runs, and nothing of tenant B moves.
-func s22Remove1b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture) (err error) {
+func s22Remove1b(ctx context.Context, cl Cluster, e *etIso, fx *s21Fixture) (err error) {
 	a, b := uuid.MustParse(TenantA), uuid.MustParse(TenantB)
 	ids := map[string]uuid.UUID{}
 	for _, f := range []struct{ tenant, name string }{{TenantA, "A"}, {TenantB, "B"}} {
@@ -207,6 +247,9 @@ func s22Remove1b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture) (err 
 	}
 	if nA != (s22Note{registry: 1, side: 2}) || nB != (s22Note{registry: 1, side: 2}) {
 		return fmt.Errorf("control: before the runs tenant A's note %+v and tenant B's %+v, want 1 registry row and 2 side rows each", nA, nB)
+	}
+	if err := s22CrossBites(ctx, e, noteB, fx.desk); err != nil {
+		return err
 	}
 
 	pool, err := cl.PoolSize("nava_worker", 4)
@@ -258,13 +301,13 @@ func s22Remove1b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture) (err 
 	child := backfill.ChildID(a, fieldindex.RemoveWorkflowType, noteB, s22RemoveVersion)
 	r = s22Run(a, child, acts, false)
 	if err := r.execute(fieldindex.RemoveWorkflowType, backfill.FieldRef{FieldID: noteB}); err != nil {
-		return fmt.Errorf("case 1: FieldIndexRemove %s = %w, want nil (it finds no field and deletes nothing)", child, err)
+		return fmt.Errorf("case 2: FieldIndexRemove %s = %w, want nil (it finds no field and deletes nothing)", child, err)
 	}
 	if r.count(backfill.BarrierActivity) != 1 || r.count(backfill.RemoveBatchActivity) != 1 || r.count(backfill.RetireActivity) != 1 {
-		return fmt.Errorf("control: FieldIndexRemove %s ran %v, want one barrier, one batch and one retire", child, r.counts())
+		return fmt.Errorf("control: case 2: FieldIndexRemove %s ran %v, want one barrier, one batch and one retire", child, r.counts())
 	}
 	if err := s22Untouched(ctx, e, noteA, noteB, regB, 2); err != nil {
-		return fmt.Errorf("case 1 (FieldIndexRemove under tenant A on tenant B's field): %w", err)
+		return fmt.Errorf("case 2 (FieldIndexRemove under tenant A on tenant B's field): %w", err)
 	}
 
 	// 3. The payload names tenant B, the row and the header tenant A.
@@ -277,14 +320,14 @@ func s22Remove1b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture) (err 
 	err = r.execute(fieldindex.CoordinatorWorkflowType, workerguard.RunInput{Delivery: forged.delivery})
 	var app *temporal.ApplicationError
 	if !errors.As(err, &app) || !app.NonRetryable() || !strings.Contains(r.log(), backfill.ErrTypeNoChild) {
-		return fmt.Errorf("case 2 (payload tenant_id is tenant B): the coordinator in tenant A = %w, worker log %s; want a non-retryable %s",
+		return fmt.Errorf("case 3 (payload tenant_id is tenant B): the coordinator in tenant A = %w, worker log %s; want a non-retryable %s",
 			err, r.log(), backfill.ErrTypeNoChild)
 	}
 	if n := r.counts(); len(n) != 0 {
-		return fmt.Errorf("case 2 (payload tenant_id is tenant B): activities ran %v, want none", n)
+		return fmt.Errorf("case 3 (payload tenant_id is tenant B): activities ran %v, want none", n)
 	}
 	if err := s22Untouched(ctx, e, noteA, noteB, regB, 2); err != nil {
-		return fmt.Errorf("case 2 (payload tenant_id is tenant B): %w", err)
+		return fmt.Errorf("case 3 (payload tenant_id is tenant B): %w", err)
 	}
 	return nil
 }
@@ -305,6 +348,7 @@ type s22Held struct {
 	release chan struct{}
 	done    chan error
 	once    sync.Once
+	err     error
 }
 
 func s22Hold(ctx context.Context, pool *pgxpool.Pool, role, record string, noteA uuid.UUID) (*s22Held, error) {
@@ -339,17 +383,37 @@ func s22Hold(ctx context.Context, pool *pgxpool.Pool, role, record string, noteA
 	return h, nil
 }
 
-// commit lets the writer commit and returns its result; later calls return
-// nil.
+// commit lets the writer commit, waits for it, and returns its result;
+// every call returns the first one's.
 func (h *s22Held) commit() error {
-	var err error
 	h.once.Do(func() {
 		close(h.release)
-		if err = <-h.done; err != nil {
-			err = fmt.Errorf("%s's held write: %w", h.role, err)
+		if err := <-h.done; err != nil {
+			h.err = fmt.Errorf("%s's held write: %w", h.role, err)
 		}
 	})
-	return err
+	return h.err
+}
+
+// s22RetireWaits polls, on its own superuser connection, until a backend
+// waits on a lock in Retire's registry DELETE (the side-table FK check
+// blocked on a held writer's uncommitted row), for up to 30 s.
+func s22RetireWaits(ctx context.Context, cl Cluster) error {
+	conn, err := cl.Super()
+	if err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		var n int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE wait_event_type = 'Lock' AND query LIKE 'DELETE FROM record_index_fields%'`).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil
+		}
+	}
+	return errors.New("no Retire DELETE waited on a held writer within 30 s")
 }
 
 // s22Race2b is S22 attack row 2b, CI-5 R3 (ADR-006 D9, D11): writers of every
@@ -358,7 +422,10 @@ func (h *s22Held) commit() error {
 //
 //   - One writer per role holds a transaction open across the flip: its
 //     trigger saw the note ready and holds an uncommitted side row (the
-//     control checks it). It commits 1.5 s after the removal starts.
+//     control checks it). The held writers commit at a point in the
+//     removal, never on a timer: 500 ms after the removal's barrier starts,
+//     so the barrier must wait for them, and Retire must not start before
+//     they commit.
 //   - One writer per role rewrites a noted record of tenant A in a loop,
 //     committing each time, from before the flip until after the removal.
 //
@@ -369,10 +436,11 @@ func (h *s22Held) commit() error {
 // FK. Tenant B's note, ready under the same key, keeps its registry row and
 // side rows, and no side row pairs tenant A with it.
 //
-// With barrier false (the D9 seam set to a no-op), Retire's registry DELETE
-// runs into a held writer's row and the FK refuses it: the row fails on the
-// guard's alert. TestS22Attack2bBitesWithoutTheBarrier keeps that so.
-func s22Race2b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture, barrier bool) error {
+// With barrier false (the D9 seam set to a no-op), the held writers commit
+// only once Retire's registry DELETE is seen waiting on their rows
+// (s22RetireWaits); the side-table FK then refuses it, and the row fails on
+// the guard's alert. TestS22Attack2bBitesWithoutTheBarrier keeps that so.
+func s22Race2b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture, barrier bool) (err error) {
 	writers, err := s22RecordWriters()
 	if err != nil {
 		return err
@@ -453,7 +521,6 @@ func s22Race2b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture, barrier
 		if err != nil {
 			return err
 		}
-		go func() { time.Sleep(1500 * time.Millisecond); _ = h.commit() }()
 		heldWriters = append(heldWriters, h)
 	}
 	time.Sleep(200 * time.Millisecond) // the looping writers run before the flip
@@ -470,10 +537,48 @@ func s22Race2b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture, barrier
 	if err != nil {
 		return fmt.Errorf("control: enqueue the removal of tenant A's note: %w", err)
 	}
-	defer func() { _ = s22DropRemoveRows(ctx, e, row) }()
+	defer func() {
+		if derr := s22DropRemoveRows(ctx, e, row); err == nil {
+			err = derr
+		}
+	}()
 	r := s22Run(a, fieldindex.CoordinatorWorkflowID(TenantA), &backfill.Activities{Pool: wpool, BatchSize: 1}, !barrier)
 	r.signal(s22RemoveItem(row, noteA), 0)
+
+	// The commit points. commitHeld commits every held writer once; with the
+	// barrier, Retire starting before it releases them is the barrier not
+	// waiting.
+	var trigger sync.Once
+	var released, retireEarly atomic.Bool
+	commitDone := make(chan error, 1)
+	commitHeld := func(wait func() error) {
+		werr := wait()
+		released.Store(true) // before the first commit: Retire before this cannot have waited
+		for _, h := range heldWriters {
+			if err := h.commit(); err != nil && werr == nil {
+				werr = err
+			}
+		}
+		commitDone <- werr
+	}
+	r.onStart = func(activityType string) {
+		switch {
+		case barrier && activityType == backfill.BarrierActivity:
+			trigger.Do(func() {
+				go commitHeld(func() error { time.Sleep(500 * time.Millisecond); return nil })
+			})
+		case activityType == backfill.RetireActivity:
+			if barrier && !released.Load() {
+				retireEarly.Store(true)
+			}
+			if !barrier {
+				trigger.Do(func() { go commitHeld(func() error { return s22RetireWaits(ctx, cl) }) })
+			}
+		}
+	}
+	before := writes.Load()
 	runErr := r.execute(fieldindex.CoordinatorWorkflowType, workerguard.RunInput{Delivery: row.delivery})
+	during := writes.Load() - before
 	time.Sleep(100 * time.Millisecond) // the looping writers run after the removal too
 	stop()
 	wg.Wait()
@@ -494,8 +599,19 @@ func s22Race2b(ctx context.Context, cl Cluster, e *etIso, _ *s21Fixture, barrier
 	if heldErr != nil {
 		return heldErr
 	}
-	if n := writes.Load(); n < int64(4*len(writers)) {
-		return fmt.Errorf("control: only %d looping writes: the writers did not overlap the removal", n)
+	select {
+	case err := <-commitDone:
+		if err != nil {
+			return fmt.Errorf("control: the commit point: %w", err)
+		}
+	default:
+		return fmt.Errorf("control: the removal never reached its commit point (activities %v)", r.counts())
+	}
+	if retireEarly.Load() {
+		return errors.New("R3: Retire started before the writers held across the flip committed: the barrier did not wait for them")
+	}
+	if during < int64(2*len(writers)) {
+		return fmt.Errorf("control: only %d looping writes while the removal ran: the writers did not overlap it", during)
 	}
 	want := backfill.ChildID(a, fieldindex.RemoveWorkflowType, noteA, s22RemoveVersion)
 	if got := r.childLog(); len(got) == 0 || got[len(got)-1] != "done "+want {

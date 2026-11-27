@@ -10,9 +10,9 @@ import (
 	"go/token"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -672,13 +672,26 @@ func s22JSONBAllowed(rel string) bool {
 	return false
 }
 
-// s22RepoRoot is the module root, from this file's path.
+// s22RepoRoot is the module root: the nearest directory at or above the
+// working directory (go test runs in the package's) whose go.mod declares
+// this module. Not runtime.Caller: under -trimpath (make test, TICK-1198)
+// that gives the import path, not a directory.
 func s22RepoRoot() (string, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", errors.New("no caller path")
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..", ".."), nil
+	for {
+		if raw, err := fs.ReadFile(os.DirFS(dir), "go.mod"); err == nil &&
+			strings.TrimSpace(strings.SplitN(string(raw), "\n", 2)[0]) == "module github.com/Navaladi2019/TicketingSystem" {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("no go.mod of github.com/Navaladi2019/TicketingSystem at or above the working directory")
+		}
+		dir = parent
+	}
 }
 
 // Row 4. ADR-006 D6 (TICK-752): the legacy scan is gone, so a data filter can

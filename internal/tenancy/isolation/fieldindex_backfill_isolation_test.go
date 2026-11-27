@@ -299,6 +299,9 @@ type s3bRunner struct {
 	logs     bytes.Buffer // the guard's log, which has a withheld failure's type
 	acts     map[string]int
 	children []string
+	// onStart, when set before execute, runs as each activity starts, with
+	// its type, outside the lock (row S22 2b's commit points).
+	onStart func(activityType string)
 }
 
 func s3bRun(tenant uuid.UUID, workflowID string, acts *backfill.Activities) *s3bRunner {
@@ -326,7 +329,11 @@ func s3bRun(tenant uuid.UUID, workflowID string, acts *backfill.Activities) *s3b
 	r.env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
 		r.mu.Lock()
 		r.acts[info.ActivityType.Name]++
+		onStart := r.onStart
 		r.mu.Unlock()
+		if onStart != nil {
+			onStart(info.ActivityType.Name)
+		}
 	})
 	r.env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, _ converter.EncodedValues) {
 		r.mu.Lock()
