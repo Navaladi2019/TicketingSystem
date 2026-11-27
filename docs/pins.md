@@ -137,11 +137,9 @@ this table is documentation.
 | `github.com/GoogleCloudPlatform/opentelemetry-operations-go/*` | detectors/gcp v1.33.0, exporter/metric and internal/resourcemapping v0.53.0 | Raised by MVS with otel v1.45.0. | TICK-111 |
 | `github.com/grpc-ecosystem/grpc-gateway/v2`, `github.com/envoyproxy/go-control-plane/envoy`, `github.com/envoyproxy/protoc-gen-validate`, `github.com/cncf/xds/go`, `github.com/spiffe/go-spiffe/v2`, `cel.dev/expr`, `github.com/go-logr/logr` | v2.29.0, v1.37.0, v1.3.3, v0.0.0-20260202195803-dba9d589def2, v2.7.0, v0.25.2, v1.4.4 | Raised by MVS with grpc v1.83.1. `github.com/cenkalti/backoff/v5` v5.0.3 is new (otlptrace v1.45.0). | TICK-111 |
 
-`make vulncheck-temporal-server` reports zero findings on server v1.29.7 and
-runs in the separate `govulncheck` workflow, every second day, by hand, and on every pull request as ADR-001-E4 says (a scan when the pull request changes that module's `go.mod` or `go.sum`, or the gate). The pull request's result is the check `vulncheck`, a required check of `main` (TICK-641, TICK-1150, TICK-1154).
 `make vulncheck-temporal-server` reports zero findings on server v1.29.7. The
 same command, run directly and not through `make` (the scan jobs run no make,
-ADR-001-A7), scans that module in the separate `govulncheck` workflow, every second day, by hand, and on every pull request as ADR-001-E4 says (a scan when the pull request changes that module's `go.mod` or `go.sum`, or the gate). The pull request's result is the check `vulncheck`, not yet a required check of `main` (TICK-641, TICK-1150; required from TICK-1154).
+ADR-001-A7), scans that module in the separate `govulncheck` workflow, every second day, by hand, and on every pull request as ADR-001-E4 says (a scan when the pull request changes that module's `go.mod` or `go.sum`, or the gate). The pull request's result is the check `vulncheck`, a required check of `main` (TICK-641, TICK-1150, TICK-1154).
 There is no exception and no allowlist: a new finding fails that workflow and is a new
 decision, not a pin bump.
 
