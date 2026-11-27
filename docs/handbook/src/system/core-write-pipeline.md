@@ -3,14 +3,14 @@ title: "Core: record write pipeline (write, read, list)"
 section: system
 status: delivered
 normative: docs/architecture/record-write-pipeline.md
-sources: [docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/pipeline/audit.go, internal/records/pipeline/read.go, internal/records/store/store.go, internal/records/store/batch.go, internal/records/store/unique.go, internal/records/store/list.go, internal/server/records.go, internal/server/records_patch.go, internal/server/records_list.go, api/errors.yaml, internal/records/pipeline/code.go, internal/workflow/recordports/materialize.go]
+sources: [docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/pipeline/audit.go, internal/records/pipeline/read.go, internal/records/store/store.go, internal/records/store/batch.go, internal/records/store/unique.go, internal/records/store/list.go, internal/server/records.go, internal/server/records_patch.go, internal/server/records_list.go, api/errors.yaml, internal/records/pipeline/code.go, internal/workflow/recordports/materialize.go, internal/records/pipeline/effective.go, internal/server/records_list_backfill.go]
 packages: [internal/records/pipeline, internal/records/store, internal/server]
 adrs: [ADR-001, ADR-004, ADR-005, ADR-009]
 stories: [S29]
 invariants: [I1, I4, I5, I7]
 operations: [createRecord, patchRecord, getRecord, listRecords, getRecordHistory]
 tables: [records, record_write_keys, idempotency_keys, audit_log, record_counters, record_shares, groups]
-tests: [TestWriteTakesTheTenantFromTheTransaction, TestWriteRefusesAnActorOfAnotherTenant, TestCrossTenantWritesRefused, TestIdempotencyKeyReplays, TestIdempotencyKeyIsScopedByPrincipal, TestIdempotencyKeyMismatchConflicts, TestUpdateOfAnUnreadableRecordIsNotFound, TestFieldCheckRunsBeforeValidationAndTheStateModel, TestCreateValidatesBeforeWriting, TestIncidentTransitions, TestWriteChecksTheRowBeforeAndAfter, TestUniqueConcurrentCreatesOneWins, TestEveryWriteBumpsVersionOnce, TestConcurrentUpdatesOneWins, TestAuditAndSinkInTheWriteTransaction, TestDiffIsBuiltFromStoredJSONB, TestSecretInRecordDiffIsRefused, TestInsertRecordAsExpected, TestCreateRollsBackAtEveryStage, TestPipelineKill, TestFixedColumnsOnlyInTheirColumn, TestRecordWritersOnlyInPipeline, TestCompileReadAgreesWithAllows, TestTwoWritesPerTransactionDeadlockIsRetryable, TestMaterializeWritesMissingDefaultsOnce, TestMaterializeRecordHoldingTheKeyWritesNothing, TestMaterializeRefusalsWriteNothing, TestMaterializeLosesToALiveWrite, TestMaterializeRefusesEverythingButTheBackfill, TestErrorCode]
+tests: [TestWriteTakesTheTenantFromTheTransaction, TestWriteRefusesAnActorOfAnotherTenant, TestCrossTenantWritesRefused, TestIdempotencyKeyReplays, TestIdempotencyKeyIsScopedByPrincipal, TestIdempotencyKeyMismatchConflicts, TestUpdateOfAnUnreadableRecordIsNotFound, TestFieldCheckRunsBeforeValidationAndTheStateModel, TestCreateValidatesBeforeWriting, TestIncidentTransitions, TestWriteChecksTheRowBeforeAndAfter, TestUniqueConcurrentCreatesOneWins, TestEveryWriteBumpsVersionOnce, TestConcurrentUpdatesOneWins, TestAuditAndSinkInTheWriteTransaction, TestDiffIsBuiltFromStoredJSONB, TestSecretInRecordDiffIsRefused, TestInsertRecordAsExpected, TestCreateRollsBackAtEveryStage, TestPipelineKill, TestFixedColumnsOnlyInTheirColumn, TestRecordWritersOnlyInPipeline, TestCompileReadAgreesWithAllows, TestTwoWritesPerTransactionDeadlockIsRetryable, TestMaterializeWritesMissingDefaultsOnce, TestMaterializeRecordHoldingTheKeyWritesNothing, TestMaterializeRefusalsWriteNothing, TestMaterializeLosesToALiveWrite, TestMaterializeRefusesEverythingButTheBackfill, TestErrorCode, TestEffectiveAppliesDefaultsToACopy, TestEffectiveUnderReadsTheStoredVersionOnlyWhenItIsNotCurrent, TestApplyDefaultsOnlyInHelper, TestEveryRecordSurfaceReturnsTheEffectiveValue, TestAMaskedFieldNeverShowsItsDefault]
 ---
 
 ## Purpose
@@ -117,6 +117,22 @@ during the rewrite gets one `412 version_conflict` and re-reads (R2).
   `store.List` (`list.go`) counts (capped at `TotalCap`) and pages by keyset
   over a `listable` column; a data-property filter runs under
   `DataFilterTimeout` and maps a cancel to `ErrStatementTimeout`.
+- **Effective value (S29, ADR-009 D11).** Every surface that returns a record
+  body returns its effective value: the fixed columns mapped in, the type's
+  **current** defaults applied, and then the field masks. The one place that
+  applies defaults for a read is `pipeline.Effective` / `pipeline.EffectiveUnder`
+  (`effective.go`). The single read, the list, the PATCH response and the
+  workflow `RecordReader` use it; the reader used to return stored bytes. A
+  masked field never shows its default (`TestAMaskedFieldNeverShowsItsDefault`).
+  `TestApplyDefaultsOnlyInHelper` fails on any other `ApplyDefaults` call
+  outside `internal/records/pipeline` and `internal/metadata`, so a new
+  surface has to use the helper. Audit diffs and snapshots still show the
+  stored bytes.
+- **`updated_at`** is the last change to the record's effective content. A
+  schema backfill moves `version` (and the ETag) but not `updated_at`.
+- **Filters during a backfill (S29, ADR-009 D12).** A side-table filter on a
+  field the newest job defaults also returns records that lack it, in an `OR`
+  or `UNION ALL` shape. See [Records](../database/records.md#filters-while-a-default-is-being-backfilled-s29-story-branch).
 - Proving tests: `TestCompileReadAgreesWithAllows`, `TestBranchedStatements`,
   `TestTimedOutMapsOnlyADataFilterCancel`.
 

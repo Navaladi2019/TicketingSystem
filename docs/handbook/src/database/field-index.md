@@ -3,7 +3,7 @@ title: "Field index: registry, side tables and the records trigger"
 section: database
 status: in-progress
 adrs: [ADR-006, ADR-006-E1]
-stories: [S21, S22]
+stories: [S21, S22, S29]
 tables: [record_index_fields, rfv_text, rfv_num, rfv_ts, rfv_bool]
 invariants: [I1, I3, I8]
 packages: [internal/fieldindex, internal/records/pipeline, internal/records/store]
@@ -162,6 +162,14 @@ the read, so other writes keep their statement budget. The backfill counts the
 values it skips on the same counter (TICK-974). The label is the type's opaque
 id: no tenant, no value. See [traces, logs and
 metrics](../operations/observability.md).
+
+## While a default is being backfilled (S29)
+
+A side-table filter on a field that a running schema backfill defaults also
+matches the records with no side row for that field, in an `OR` or a `UNION
+ALL` shape (ADR-009 D12). The rules are on [Records](records.md#filters-while-a-default-is-being-backfilled-s29-story-branch).
+The trigger (D4) is unchanged: it indexes what is stored, and the backfill
+stores the default through the normal write path.
 
 ## Generated: diagram and tables
 
