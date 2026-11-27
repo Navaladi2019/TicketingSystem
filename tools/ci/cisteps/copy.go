@@ -61,12 +61,13 @@ var releasedVersion = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 // recipe's environment today. None is read by go or govulncheck. A new one
 // fails check-ci-steps until it is added here, which a reviewer sees, and
 // which runs both scans (tools/ci/cisteps/ is in vulncheck-detect's gate).
-var allowedExports = map[string]bool{
-	"NAVA_IMAGE_TAG":           true, // Makefile
-	"OTEL_TAIL_SAMPLE_PERCENT": true, // make/stack.mk
-	"COMPOSE_PROFILES":         true, // make/stack.mk
-	"COMPOSE_FILE":             true, // make/stack.mk
-	"COMPOSE_PATH_SEPARATOR":   true, // make/stack.mk
+func allowedExports(name string) bool {
+	switch name {
+	case "NAVA_IMAGE_TAG", // Makefile
+		"OTEL_TAIL_SAMPLE_PERCENT", "COMPOSE_PROFILES", "COMPOSE_FILE", "COMPOSE_PATH_SEPARATOR": // make/stack.mk
+		return true
+	}
+	return false
 }
 
 // makeRunner runs make with args and returns stdout and stderr together.
@@ -296,7 +297,7 @@ func checkRecipeEnv(mk makeRunner) ([]string, error) {
 		for _, line := range d[0] {
 			if line != "" && !slices.Contains(d[1], line) {
 				name, _, _ := strings.Cut(line, "=")
-				if !allowedExports[name] {
+				if !allowedExports(name) {
 					changed[name] = true
 				}
 			}

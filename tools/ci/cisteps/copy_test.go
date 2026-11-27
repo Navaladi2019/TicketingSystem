@@ -186,7 +186,7 @@ func v3Edits() []v3Edit {
 
 func readFile(t *testing.T, p string) string {
 	t.Helper()
-	b, err := os.ReadFile(p) //nolint:gosec // a test's temporary file
+	b, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
