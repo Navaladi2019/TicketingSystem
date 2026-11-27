@@ -1,6 +1,7 @@
 package server
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -156,6 +157,10 @@ func TestBackfillJSONUsesUTC(t *testing.T) {
 // ADR-009 D12: absent is key presence. The window's term is NOT (r.data ? key)
 // with the key bound; a stored null or a non-coercible value has the key, so no
 // side-row test stands in for it, in the OR shape and in the UNION ALL arm.
+// noSideRow matches the old absent term, "no side row for the field", and not
+// the stored predicate's own NOT EXISTS, which also compares the value.
+var noSideRow = regexp.MustCompile(`NOT EXISTS \(SELECT 1 FROM rfv_\w+ v WHERE [^()]*field_id = \$\d+::uuid\)`)
+
 func TestRenderAbsentIsKeyPresenceNotNoSideRow(t *testing.T) {
 	pl := &listPlan{
 		filters: []listFilter{idxFilter("severity", fieldindex.TypeText, "eq", "low")},
@@ -171,7 +176,7 @@ func TestRenderAbsentIsKeyPresenceNotNoSideRow(t *testing.T) {
 		if !strings.Contains(c.sql, "NOT (r.data ? $") {
 			t.Errorf("%s: %s lacks the key-presence term", name, c.sql)
 		}
-		if strings.Contains(c.sql, "NOT EXISTS (SELECT 1 FROM rfv_") || strings.Contains(c.sql, "'severity'") {
+		if noSideRow.MatchString(c.sql) || strings.Contains(c.sql, "'severity'") {
 			t.Errorf("%s: side-row absence kept or key inlined: %s", name, c.sql)
 		}
 		if !slices.Contains(c.args, any("severity")) {
