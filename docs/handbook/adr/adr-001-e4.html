@@ -18,13 +18,23 @@
 <main>
 <nav class="crumbs" aria-label="Breadcrumb"><a href="../index.html">Handbook</a> / <a href="../adr/index.html">adr</a> / <span>ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</span></nav>
 <p class="banner">Summary. The normative text is the linked <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md"><code>docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md</code></a>.</p>
-<p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</h1>
-<p>Status: <strong>ACCEPTED, rev 1</strong>, 2026-11-26, by the Solution Architect (TICK-1140, PR #895). Round 1: the Technical Architect and the Security &amp; Multi-Tenancy Reviewer asked for changes (all taken); both approved the re-check. No tie-break. The page is <code>in-progress</code> because FU1 to FU3 are not on <code>main</code> yet. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
+<p>Status: <strong>ACCEPTED, rev 1</strong>, 2026-11-26, by the Solution Architect (TICK-1140, PR #895). Round 1: the Technical Architect and the Security &amp; Multi-Tenancy Reviewer asked for changes (all taken); both approved the re-check. No tie-break. Delivered on <code>main</code> by PLAN-001-E4 (TICK-1147, PR #907): FU1 by TICK-1148 (PR #912), TICK-1149 (PR #927), TICK-1150 (PR #942) and TICK-1151 (PR #913, with TICK-1164, PR #917 and TICK-1165, PR #925); FU2 by TICK-1153 (PR #946), TICK-1154 (PR #953) and TICK-1155 (PR #974, test V-4); FU3 by TICK-1152 (PR #914). <a href="../adr/adr-001-a7.html">A7</a> amends contract rules 2, 7 and 9: the scan jobs run govulncheck directly, not through make. Corrects <a href="../adr/adr-001-a1.html">A1</a> Decision 3. Normative text: <a href="../../../docs/adr/ADR-001-E4-a1-d3-vulnerability-scan-gate.md">the E4 record</a>; explainer: <a href="../../../docs/adr/ADR-001-E4-explained.html">E4-explained.html</a>; evidence: <a href="../../../docs/adr/ADR-001/E4/evidence.txt">evidence.txt</a>.</p>
 <p><em>Summary. The normative text is the linked <code>.md</code>.</em></p>
 <h2 id="problem">Problem</h2>
-<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it runs in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that change <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan is not a required check of <code>main</code>. The <code>temporal-server</code> scan shares its name with the required <code>ci.yml</code> job that tests the Authorizer. E4 assumed GitHub counts the green one. The shared name was removed by PR #900 (2026-11-25), and TICK-1146 showed a later run does replace a red check (PR #902), so neither scan reliably blocks until FU2.</p>
+<p>A1 says <code>make vulncheck-temporal-server</code> is a required <code>ci.yml</code> step. Since 10 November it ran in <code>govulncheck.yml</code>: every second day, by hand, and on pull requests that changed <code>go.mod</code> or <code>go.sum</code> of either module. The <code>root</code> scan was not a required check of <code>main</code>. The <code>temporal-server</code> scan shared its name with the required <code>ci.yml</code> job that tests the Authorizer. E4 assumed GitHub counts the green one. The shared name was removed by PR #900 (2026-11-25), and TICK-1146 showed a later run does replace a red check (PR #902), so neither scan reliably blocked until FU2.</p>
+<h2 id="what-is-built">What is built</h2>
+<ul>
+<li>Every pull request runs <code>vulncheck-detect</code>; there is no <code>paths</code> filter.</li>
+<li>The module scans (<code>vulncheck-root</code>, <code>vulncheck-temporal-server</code>) run only when detect asks for them: a module's <code>go.mod</code> or <code>go.sum</code> scans that module; <code>govulncheck.yml</code>, its copy, the two scripts, <code>tools/ci/cisteps/</code>, <code>tools/ci/checkpins/</code>, a <code>FROM golang:</code> line or a <code>go.work</code> scans both; anything else scans neither.</li>
+<li>The gate (<code>if: always()</code>) reports <code>vulncheck</code> on pull requests into <code>main</code>, and <code>vulncheck-other</code> on any other base.</li>
+<li>Detect and the gate run the scripts as they are on <code>main</code>, not the pull request's copy.</li>
+<li><code>vulncheck</code> is a required check of <code>main</code> since 2026-11-27 (TICK-1154). Test V-4 showed a red scan <code>BLOCKED</code> (TICK-1155).</li>
+<li>The schedule and a manual run scan both modules. A red scheduled run opens or updates its own <code>govulncheck is red: &lt;short sha&gt;</code> issue (TICK-1152); issue #259 is closed.</li>
+<li><code>make check-ci-steps</code> compares the whole workflow with <code>tools/ci/cisteps/govulncheck.copy.yml</code>. <code>make check-pins</code> fails when a module's <code>toolchain</code> differs from a <code>FROM golang:</code> of that module, or when a <code>go.work</code> is tracked (<code>TestScannedToolchainIsTheShippedToolchain</code>, V-5). See <a href="../operations/go-toolchain.html">Go toolchain and setup</a>.</li>
+</ul>
+<p>The full pipeline description is in <code>docs/quality/ci-pipeline.md</code>.</p>
 <h2 id="decision">Decision</h2>
 <table>
 <thead>
@@ -44,7 +54,7 @@
 </tr>
 <tr>
 <td>E4-3</td>
-<td>Until FU2, the agents' rule stops a merge: each job <code>success</code>, <code>skipped</code> or missing is red. Until TICK-1146's fix is merged, the reviewer reads every check run on the head commit, not the merge box.</td>
+<td>Until FU2, the agents' rule stopped a merge: each job <code>success</code>, <code>skipped</code> or missing is red. FU2 is done (2026-11-27): the required check <code>vulncheck</code> now blocks.</td>
 </tr>
 <tr>
 <td>E4-4</td>
@@ -63,7 +73,7 @@
 <h2 id="options-that-lost">Options that lost</h2>
 <p>Not required, as today; required with the <code>paths</code> filter kept; a scan on every pull request; a conditional job in <code>ci.yml</code>; scanning both modules on any library change; a list of required names; a copy of the <code>jobs:</code> block only; no pull request scan; no erratum.</p>
 <h2 id="accepted-risks">Accepted risks</h2>
-<p>AR-TICK-1140-01: a new flaw can stay unseen on <code>main</code> up to about 50 hours. AR-TICK-1140-02: until FU2, a red scan can be merged (the name collision was fixed by PR #900). AR-TICK-1140-03: a pull request can edit the gate that judges it.</p>
+<p>AR-TICK-1140-01: a new flaw can stay unseen on <code>main</code> up to about 50 hours. AR-TICK-1140-02: a red scan could be merged; closed by FU2 (2026-11-27), kept for the audit trail. AR-TICK-1140-03: a pull request can edit the gate that judges it.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../adr/adr-001-e3.html">&larr; ADR-001-E3: the onboarding role reads its own tenant row</a><a class="next" href="../adr/adr-001-a7.html">ADR-001-A7: the vulnerability scan runs without make &rarr;</a></nav>
 <section class="backlinks"><h2>Also named by</h2>
@@ -71,7 +81,7 @@
 <h3>ADR ADR-001-A1</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li></ul>
 <h3>ADR ADR-001-E4</h3><ul><li><a href="../adr/adr-001-a1.html">ADR-001-A1: Temporal server v1.29.7 and the workload allow-list</a></li><li><a href="../adr/adr-001-a7.html">ADR-001-A7: the vulnerability scan runs without make</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 5a2e5b05897c (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ f4cb3cd716f1 (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
