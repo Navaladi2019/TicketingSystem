@@ -866,9 +866,13 @@ pull request. All jobs run on `ubuntu-latest`:
 | schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st), both modules: a new advisory needs no change of ours (ADR-001-A1 R7) |
 | manual | both modules |
 
-`vulncheck` is the pull request's result, but it is not yet a required check
-of `main`: branch protection adds it in T-E4-7 (TICK-1154). Until then a red
-`vulncheck` does not block a merge.
+`vulncheck` is the pull request's result and a required check of `main`
+(T-E4-7, TICK-1154, 2026-11-27; before/after in
+`docs/adr/ADR-001/E4/fu2-applied.txt`). The required checks of `main`, all from
+GitHub Actions (app id 15368), with `strict` (branch up to date) and
+`enforce_admins` on: `changes`, `lint`, `unit`, `temporal-server`,
+`integration`, `stack`, `coverage`, `commit-check-budget`, `isolation`,
+`vulncheck`. A red or missing `vulncheck` blocks the merge.
 
 On a pull request, detect and the gate run the scripts as they are on `main`,
 not the pull request's own copies: detect runs
