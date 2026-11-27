@@ -656,6 +656,67 @@ func TestGroupsyncAccountFloor(t *testing.T) {
 	checkAccountRoles(t, "service-account-nava-groupsync", []string{"manage-users", "query-groups", "query-users", "view-organizations", "view-users"})
 }
 
+// TestDeletedUserReadsAre404 pins what Keycloak answers for a user that is
+// deleted: group sync's snapshot (TICK-1113) leaves a user out only when both
+// reads answer 404. No t.Parallel: another test counts the users of tenant A.
+func TestDeletedUserReadsAre404(t *testing.T) {
+	email := "gone-" + uuid.NewString()[:8] + "@tenant-a.test"
+	uid := seedTenantUser(t, tenantA, email)
+	duringNoCycle(func() {
+		if code, b := adminRealm(t, "nava", http.MethodDelete, "/users/"+uid, nil); code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s", email, code, b)
+		}
+	})
+	tok := accountToken(t, groupsyncCreds)
+	for _, p := range []string{"/users/" + uid + "/federated-identity", "/users/" + uid} {
+		code, b := admin(t, tok, http.MethodGet, p, nil)
+		if code != http.StatusNotFound {
+			t.Errorf("groupsync account GET %s = %d %s, want 404: the snapshot rule of TICK-1113 depends on it", p, code, b)
+			continue
+		}
+		if got := errorField(t, b); got != "User not found" {
+			t.Errorf("groupsync account GET %s: error = %q, want %q (TICK-1141)", p, got, "User not found")
+		}
+	}
+}
+
+// errorField decodes the "error" field of a Keycloak error body.
+func errorField(t *testing.T, body []byte) string {
+	t.Helper()
+	var e struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &e); err != nil {
+		t.Fatalf("body %q is not a JSON object: %v", body, err)
+	}
+	return e.Error
+}
+
+// TestKeycloakNotFoundBodies pins the "error" string of Keycloak's own 404 for
+// the other three routes that statusError.Is matches (TICK-1141). If a
+// Keycloak upgrade changes one, the directory reads a real "not found" as an
+// ordinary error and this test says which string moved.
+func TestKeycloakNotFoundBodies(t *testing.T) {
+	gs, ob := accountToken(t, groupsyncCreds), accountToken(t, onboardingCreds)
+	for _, c := range []struct {
+		name, path, want string
+		tok              string
+	}{
+		{"group by path", "/group-by-path/t/" + uuid.NewString(), "Group path does not exist", gs},
+		{"group by id", "/groups/" + uuid.NewString(), "Could not find group by id", gs},
+		{"identity provider", "/identity-provider/instances/nope-" + uuid.NewString()[:8], "HTTP 404 Not Found", ob},
+	} {
+		code, b := admin(t, c.tok, http.MethodGet, c.path, nil)
+		if code != http.StatusNotFound {
+			t.Errorf("%s: GET %s = %d %s, want 404", c.name, c.path, code, b)
+			continue
+		}
+		if got := errorField(t, b); got != c.want {
+			t.Errorf("%s: error = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // TestKeycloakRejectsNonCanonicalOrgPaths sends non-canonical spellings of
 // /organizations routes raw, bypassing admin.do, with the real nava-groupsync
 // token (TICK-255, AR-038). admin.do refuses them before sending; this pins

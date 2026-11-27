@@ -64,7 +64,9 @@ type OperatorResolver interface {
 // errors.Is; the text never carries an email or an id.
 var (
 	// ErrNotFound: the user or group is unknown, or is not in the tenant's
-	// subtree. The two cases are not told apart.
+	// subtree. The two cases are not told apart. The Keycloak client returns
+	// it only for a 404 whose JSON "error" is Keycloak's own for that route;
+	// any other 404 (a proxy's) is an ordinary error.
 	ErrNotFound = errors.New("directory: not found")
 	// ErrIdPNotBound: the user is federated to an IdP that is not bound to the
 	// target tenant (A.1 platform rules).

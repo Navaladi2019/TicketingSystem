@@ -153,7 +153,7 @@ func auditEntryBody(e read.Entry) api.AuditEntry {
 		VersionBefore: e.VersionBefore, VersionAfter: e.VersionAfter, ActorPrincipalId: e.ActorPrincipalID,
 		ActorSystem: e.ActorSystem, Source: e.Source, SourceRef: e.SourceRef, ChangeSetId: e.ChangeSetID,
 		CausationId: e.CausationID, CausationDepth: int(e.CausationDepth), RequestId: e.RequestID,
-		Backfilled: e.Backfilled, DiffTruncated: e.DiffTruncated, DiffRedacted: e.DiffRedacted,
+		Backfilled: e.Backfilled, DiffTruncated: e.DiffTruncated, DiffNulEscaped: e.DiffNULEscaped, DiffRedacted: e.DiffRedacted,
 		Seq: e.Seq, SealedAt: e.SealedAt, ErasedAt: e.ErasedAt,
 	}
 	b.ContentSha256 = hexOf(e.ContentSHA256)
