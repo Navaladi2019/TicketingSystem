@@ -63,7 +63,7 @@ func s22s29AttackPaths() []Path {
 			Pending: "TICK-750", DB: s22s29NotWritten("2b needs TICK-750's FieldIndexRemove and its barrier test seam")},
 		{Name: "S22 attack 3: tenant_limits, no tenant role writes its own or another tenant's row; a tenant role reads its own row only, and nothing with no tenant set; only the manifest's operator role writes, and not across tenants", Case: "CI-2", Role: "nava_app",
 			DB: s22TenantLimits},
-		{Name: "S22 attack 3b: tenant A's admin on the operator limits route, for tenant A or tenant B, is 403 and writes nothing; the operator's change of tenant B's limit, with tenant A named in the body, writes tenant B's row and one tenant B audit entry naming the operator and the reason, and nothing of tenant A", Case: "CI-2", Role: "nava_onboard",
+		{Name: "S22 attack 3b: tenant A's admin on the operator limits route, for tenant A or tenant B, is 403 and writes nothing; the operator's change of tenant B's limit, with tenant A named in the body, writes tenant B's row and one tenant B audit entry naming the operator, and nothing of tenant A", Case: "CI-2", Role: "nava_onboard",
 			API: s22OperatorLimits},
 		{Name: "S22 attack 4: with the legacy scan retired, no non-test Go code outside the allow-list evaluates a JSONB operator on records.data for a filter, and DataFilterTimeout and LegacyScanFields are gone", Case: "CI-2", Role: "nava_app",
 			Pending: "TICK-752", Check: s22NoJSONBFilter},
@@ -504,14 +504,16 @@ func s22TenantLimits(ctx context.Context, c Cluster) error {
 }
 
 // s22Limits is tenant's tenant_limits value ("none" without a row) and its
-// tenant_limits audit entries, read past RLS: actor_system and diff of each.
+// tenant_limits audit entries, read past RLS: id and actor_system of each.
+// Never the diff: only internal/audit/read reads it (ADR-004 R7), so the
+// reason's presence in the entry is TICK-751's own integration test.
 func s22Limits(ctx context.Context, super *pgx.Conn, tenant string) (string, []string, error) {
 	var stored string
 	if err := super.QueryRow(ctx, `SELECT coalesce((SELECT filterable_fields_per_type::text FROM tenant_limits WHERE tenant_id = $1), 'none')`,
 		tenant).Scan(&stored); err != nil {
 		return "", nil, err
 	}
-	rows, err := super.Query(ctx, `SELECT coalesce(actor_system, '') || ' ' || coalesce(diff::text, '') FROM audit_log
+	rows, err := super.Query(ctx, `SELECT id::text || ' ' || coalesce(actor_system, '') FROM audit_log
 		WHERE tenant_id = $1 AND subject_type = 'tenant_limits' ORDER BY occurred_at, id`, tenant)
 	if err != nil {
 		return "", nil, err
@@ -536,7 +538,7 @@ func s22RestoreLimits(ctx context.Context, super *pgx.Conn, seeded map[string][]
 	}
 	for _, tenant := range []string{TenantA, TenantB} {
 		if _, err := tx.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id = $1 AND subject_type = 'tenant_limits'
-			AND coalesce(actor_system, '') || ' ' || coalesce(diff::text, '') <> ALL($2::text[])`, tenant, seeded[tenant]); err != nil {
+			AND id::text || ' ' || coalesce(actor_system, '') <> ALL($2::text[])`, tenant, seeded[tenant]); err != nil {
 			return err
 		}
 	}
@@ -552,8 +554,8 @@ func s22RestoreLimits(ctx context.Context, super *pgx.Conn, seeded map[string][]
 //     write side of it);
 //   - the allow-listed operator raising tenant B to 7 with tenant A named in
 //     the body (tenant_id is not a member of the request) writes tenant B's
-//     row and exactly one tenant B entry whose actor is the operator and
-//     whose diff holds the reason; tenant A's row (6) and entries do not
+//     row and exactly one tenant B entry whose actor is the operator;
+//     tenant A's row (6) and entries do not
 //     move. The tenant is the path's, never the body's.
 func s22OperatorLimits(ctx context.Context, c Cluster, s Server) error {
 	super, err := c.Super()
@@ -616,8 +618,8 @@ func s22OperatorLimits(ctx context.Context, c Cluster, s Server) error {
 		return err
 	}
 	added := slices.DeleteFunc(slices.Clone(entriesB), func(e string) bool { return slices.Contains(seeded[TenantB], e) })
-	if vb != "7" || len(added) != 1 || !strings.HasPrefix(added[0], "operator:") || !strings.Contains(added[0], "iso s22 3b measured") {
-		return fmt.Errorf("the operator's change of tenant B: limit %s, new entries %v; want 7 and one entry naming the operator and the reason", vb, added)
+	if vb != "7" || len(added) != 1 || !strings.Contains(added[0], " operator:") {
+		return fmt.Errorf("the operator's change of tenant B: limit %s, new entries %v; want 7 and one entry naming the operator", vb, added)
 	}
 	va, entriesA, err := s22Limits(ctx, super, TenantA)
 	if err != nil {
