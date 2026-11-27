@@ -15,7 +15,11 @@
 // locally built nava/* images are checked like any other. Dockerfiles still
 // skip a FROM that names a build ARG.
 //
-// Usage: checkpins [-root dir] [-pins file]. It exits 1 and prints one line
+// It also enforces ADR-001-E4 rules 7 and 8 (samego.go): the Go version of
+// every FROM golang: in a tracked Dockerfile equals the toolchain of the
+// module it ships, and no go.work is tracked.
+//
+// Usage: checkpins [-root dir] [-pins file] [-same-go=false]. It exits 1 and prints one line
 // per problem when anything is out of step.
 package main
 
@@ -44,6 +48,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	fl.SetOutput(stderr)
 	root := fl.String("root", ".", "repository root")
 	pinsFile := fl.String("pins", "docs/pins.md", "pins file, relative to -root unless absolute")
+	sameGo := fl.Bool("same-go", true, "also check ADR-001-E4 rules 7 and 8 (scanned Go is shipped Go; no tracked go.work); needs root to be a git work tree")
 	if err := fl.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0 // as flag.ExitOnError does
@@ -59,6 +64,14 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "check-pins:", err)
 		return 2
+	}
+	if *sameGo {
+		ps, err := checkSameGo(*root)
+		if err != nil {
+			fmt.Fprintln(stderr, "check-pins:", err)
+			return 2
+		}
+		problems = append(problems, ps...)
 	}
 	for _, p := range problems {
 		fmt.Fprintln(stderr, "check-pins:", p)
@@ -387,7 +400,21 @@ func checkImages(path, rel string, p *pins, re *regexp.Regexp, compose bool) ([]
 	}
 	stages := map[string]bool{} // FROM <earlier stage>
 	var problems []string
-	for i, raw := range strings.Split(string(data), "\n") {
+	lines := strings.Split(string(data), "\n")
+	var starts []bool
+	if !compose {
+		// TICK-1165: only an instruction line can be a FROM, not a heredoc
+		// body or a continuation.
+		var unclosed []int
+		lines, starts, unclosed = dockerLines(string(data))
+		for _, i := range unclosed {
+			problems = append(problems, fmt.Sprintf("%s:%d: heredoc %s is never closed; its lines are read as instructions", rel, i+1, heredocWord(lines[i])))
+		}
+	}
+	for i, raw := range lines {
+		if starts != nil && !starts[i] {
+			continue
+		}
 		m := re.FindStringSubmatch(raw)
 		if m == nil {
 			continue

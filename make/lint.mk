@@ -1,6 +1,6 @@
 .PHONY: lint check-generate check-guide check-ci-steps check-openapi tools check-tools fmt-check vet vet-tags lint-fixture check-taskfile check-pins vulncheck vulncheck-ci vulncheck-temporal-server tools-govulncheck check-golangci-lint
 
-ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi test-handbook test-handbook-coverage vulncheck-ci
+ci-lint: check-tools fmt-check vet vet-tags lint lint-fixture check-taskfile check-pins check-generate check-guide check-ci-steps check-openapi test-handbook test-handbook-coverage handbook-build vulncheck-ci
 
 # golangci-lint, then the navalint analyzers (tools/navalint, its own module)
 # as go vet's tool, then workflowcheck on internal/workflow (tools/workflowcheck,
@@ -42,11 +42,14 @@ check-guide:
 # Fails when .github/workflows/ci.yml stops running a step listed in
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
 # disabled or allowed to fail.
-# ci.yml against required.yaml, and govulncheck.yml against
-# required-govulncheck.yaml (TICK-641).
+# ci.yml against required.yaml. govulncheck.yml must equal, comment lines
+# aside, its checked-in copy tools/ci/cisteps/govulncheck.copy.yml, and
+# `make -n` of the two vulncheck recipes must print exactly the pinned lines
+# (TICK-1149, ADR-001-E4 contract rule 9): edit the workflow and the copy
+# together. A deliberate edit of both passes; review catches that (RS3).
 check-ci-steps:
 	go run ./tools/ci/cisteps
-	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -required tools/ci/cisteps/required-govulncheck.yaml
+	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A
@@ -91,8 +94,11 @@ check-taskfile:
 check-pins:
 	go run ./tools/ci/checkpins
 
+# GOWORK=off (ADR-001-E4 contract rule 7): a go.work beside the module would
+# change the scanned versions without changing go.mod or go.sum. The recipe is
+# pinned by check-ci-steps; change it there too.
 vulncheck:
-	govulncheck ./...
+	GOWORK=off govulncheck ./...
 
 # ci-lint's govulncheck: both modules at once, each when its go.mod or go.sum
 # has not passed a scan today on this host (TICK-153 D2, ADR-001-A1 R7).
@@ -103,7 +109,7 @@ vulncheck-ci:
 # Required in CI (temporal-server job and ci-lint): zero findings, with no
 # exception or allowlist (ADR-001 A1 Decision 3).
 vulncheck-temporal-server:
-	cd temporal-server && govulncheck ./...
+	cd temporal-server && GOWORK=off govulncheck ./...
 
 
 # golangci-lint alone at the pinned version (docs/pins.md): check-tools, and

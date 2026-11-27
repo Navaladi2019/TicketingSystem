@@ -41,3 +41,15 @@ func RebuildClosureForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (
 func (s *Syncer) SetCountLiveForTest(f func(context.Context, pgx.Tx, uuid.UUID) (int, error)) {
 	s.countLive = f
 }
+
+// SetCompareClosureForTest replaces the due closure comparison so a test can
+// make it fail.
+func (s *Syncer) SetCompareClosureForTest(f func(context.Context, pgx.Tx, uuid.UUID) (bool, error)) {
+	s.compareClosure = f
+}
+
+// CompareAndRepairClosureForTest is the real due comparison, for a test hook
+// that wraps it.
+func CompareAndRepairClosureForTest(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (bool, error) {
+	return compareAndRepairClosure(ctx, tx, tenantID)
+}

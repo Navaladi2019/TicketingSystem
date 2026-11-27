@@ -158,5 +158,5 @@ $$;
 -- +goose Down
 
 -- The queued jobs are data, not schema: a rollback of the tables
--- (20261126163300) drops them. Nothing to undo here.
+-- (20261127100400) drops them. Nothing to undo here.
 SELECT 1;

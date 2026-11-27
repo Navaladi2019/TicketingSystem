@@ -35,9 +35,10 @@ import (
 //     internal/server/records_list.go builds it (ResolveUnder with no rows,
 //     the region count driver, the branches when the document splits), with
 //     the page shape the probe picks and with C3 and W0 forced (TICK-1036,
-//     ADR-010-A2 A2-5), the count always CC: every
-//     record on the page once, and the count statement the readable count,
-//     capped at store.TotalCap.
+//     ADR-010-A2 A2-5), the count CC, and with R forced, page and count
+//     (TICK-1104, ADR-010-A3 A3-1): every
+//     record on the page once, and total the readable count, capped at
+//     store.TotalCap.
 //
 // The sync-resilience test (a unit is removed and the sync still succeeds,
 // S31 AC 3) is TestOrgUnitRemovalEndsUnderAccessAndSyncSucceeds.
@@ -258,7 +259,8 @@ func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UU
 		}
 		// The list route, as TICK-1036 builds it: each region term's page in
 		// the shape the probe picks (ChooseListShapes, page 51), and forced
-		// C3 and W0, each with the count on CC; every one agrees with Allows.
+		// C3 and W0, each with the count on CC, and forced R; every one agrees
+		// with Allows.
 		probed, err := authz.ChooseListShapes(ctx, tx, listPol, p, def, 51)
 		if err != nil {
 			t.Fatalf("%s: ChooseListShapes: %v", what, err)
@@ -266,7 +268,8 @@ func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UU
 		for _, sh := range []struct {
 			how    string
 			shapes authz.ListShapes
-		}{{"probed", probed}, {"C3 forced", authz.FixedListShapes(authz.ShapeC3)}, {"W0 forced", authz.FixedListShapes(authz.ShapeWalk)}} {
+		}{{"probed", probed}, {"C3 forced", authz.FixedListShapes(authz.ShapeC3)}, {"W0 forced", authz.FixedListShapes(authz.ShapeWalk)},
+			{"R forced", authz.FixedListShapes(authz.ShapeRecords)}} {
 			how, shapes := sh.how, sh.shapes
 			read := authz.ReadListShaped(listPol, p, "r", 2, shapes)
 			if shared && !folded && len(read.Branches) < 2 {
@@ -281,7 +284,13 @@ func ucaCheckTx(ctx context.Context, t *testing.T, tx pgx.Tx, nameOf map[uuid.UU
 			for _, d := range read.Drivers {
 				lq.CountDrivers = append(lq.CountDrivers, pipeline.CountDriver{From: d.From, Key: d.Key})
 			}
-			if !slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }) && ucaDriven(when) && !folded {
+			if driven := slices.ContainsFunc(lq.CountDrivers, func(d pipeline.CountDriver) bool { return d.From != "" }); how == "R forced" {
+				// R reads the type's records: no driver, its own leaf text.
+				r := strings.Contains(read.Where+strings.Join(read.Branches, " "), ") IS TRUE)")
+				if driven || r != (ucaDriven(when) && !folded) {
+					t.Errorf("%s: %s, %s: driven %v, R leaf %v", what, shape, how, driven, r)
+				}
+			} else if !driven && ucaDriven(when) && !folded {
 				t.Errorf("%s: %s, %s: the region term has no count driver, so total is not read through the closure", what, shape, how)
 			}
 			page, err := pipeline.List(ctx, tx, lq)
