@@ -1,0 +1,4 @@
+checked_at: 2026-11-27T17:54:16Z
+containers: 
+go_jobs: "C:\Program Files\Git\bin\bash.exe" -c "source /c/Users/vknav/.claude-Naval/shell-snapshots/snapshot-bash-1795801832214-sadarf.sh 2>/dev/null || true && export ;"C:\Program Files\Git\bin\..\usr\bin\bash.exe" -c "source /c/Users/vknav/.claude-Naval/shell-snapshots/snapshot-bash-1795801832214-sadarf.sh 2>/dev/null || true;"C:\Program Files\Git\bin\..\usr\bin\bash.exe" -c "source /c/Users/vknav/.claude-Naval/shell-snapshots/snapshot-bash-1795801832214-sadarf.sh 2>/dev/null || true;"C:\Program Files\Go\bin\go.exe" test ./tools/ci/stackcases/ ./db/;C:\Users\vknav\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.27.4.windows-amd64\bin\go test ./tools/ci/stackcases/ ./db/
+host_at_start: busy
