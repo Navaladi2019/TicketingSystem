@@ -37,8 +37,8 @@ Still `Pending`:
 
 | Rows | Pending on |
 |---|---|
-| S22 1b, S22 2b, and the `field_index.remove.run` authz cases | TICK-750 |
-| S22 4 | TICK-752 |
+| S22 1b, S22 2b, S22 4 | none since TICK-1198 (2026-11-28): bodies written, `Pending` removed |
+| the `field_index.remove.run` authz cases | TICK-750 |
 | S29 2 and 3 | TICK-919 |
 
 ## Rows against the scope
@@ -46,14 +46,14 @@ Still `Pending`:
 | Scope item | Row | Runs today | Pending on |
 |---|---|---|---|
 | S22 1: tenant A cannot remove B's field or start a removal with B's `field_id` | S22 attack 1 (DB: every D11 statement as nava_app and nava_worker with B's field id; the publish 404) | yes | — |
-| | S22 attack 1b (crafted `field_index.remove` outbox row through the coordinator) | no body | TICK-750 |
+| | S22 attack 1b (crafted `field_index.remove` outbox row through the coordinator; `FieldIndexRemove` under tenant A on B's field id; payload `tenant_id` forged to B) | yes (TICK-1198) | — |
 | | authz `TestRelayCannotStartRemovalDirectly`, `TestInterpreterCannotStartRemoval` | yes | — |
 | | authz `TestCoordinatorRemovalKeepsTenantChecks` | skips | TICK-750 |
 | S22 2: no orphan side rows under writes from every writer role | S22 attack 2 (DB: a removing field takes no row from any manifest records writer; D11 3–5 then pass the FK; B's removal does not move A) | yes | — |
-| | S22 attack 2b (R3 race against the real workflow and barrier) | no body | TICK-750 |
+| | S22 attack 2b (R3 race: per records-writer role, one write held open across the flip and one looping writer, against the real coordinator, `FieldIndexRemove` and barrier) | yes (TICK-1198) | — |
 | S22 3: `tenant_limits` not writable by tenant roles; operator change audited | S22 attack 3 (grants manifest + SQL probes, no-tenant read) | written | TICK-916 |
 | | S22 attack 3b (audit entry with actor and reason; tenant admin 403) | no body | TICK-916 |
-| S22 4: no route evaluates `records.data` JSONB for a filter | S22 attack 4 (AST scan of non-test Go: JSONB operators on `data` in string literals; `DataFilterTimeout`, `WithDataFilterTimeout`, `LegacyScanFields`) | written | TICK-752 |
+| S22 4: no route evaluates `records.data` JSONB for a filter | S22 attack 4 (AST scan of non-test Go: JSONB operators on `data` in string literals; `DataFilterTimeout`, `WithDataFilterTimeout`, `LegacyScanFields`) | yes (TICK-1198) | — |
 | S29 CI-3 (1), (2): no-prefix start denied; child and continue-as-new denied | authz `TestWorkerCommandsCannotNameSchemaBackfill`, `TestSchemaBackfillStartedByRelayOnly`, `TestSchemaBackfillQueueIsNotASideDoor` | yes (prefix and positive cases skip) | TICK-920 |
 | S29 CI-3 (3): job `t:A:…` changes zero B rows; history has no value | S29 attack 5 | no body | TICK-920 |
 | | authz `TestSchemaBackfillRunKeepsTenantChecks` | skips | TICK-920 |
@@ -89,6 +89,7 @@ the catalogue gate refuses the migration before the suite runs.
 | V8: `OpMaterialize` accepts a patch | S29 attack 4 | Red (run 45913406847): "a non-empty patch = written" |
 | V9: the job's statements drop `tenant_id = $1`, and the worker SELECT and UPDATE policies on `schema_backfills` are open | generic probe | The generic probe is red (run 45913464508). The suite step then failed without writing its report, so S29 attack 5's own result under V9 is not confirmed |
 | V10: the relay skips `ValidateKindPayload` | S29 attack 6 | Red (run 45913509592): the forged row is dispatched |
+| V11: the D9 barrier replaced by a no-op (TICK-1198) | S22 attack 2b | Local run: red, 3 of 3: a held writer's side row commits after `NOT EXISTS`, the side-table FK refuses `field_index.Retire`, and the worker guard logs the failure. Kept as a guard by `TestS22Attack2bBitesWithoutTheBarrier` (`internal/tenancy/isolation/s22_remove_isolation_test.go`) |
 
 ## Findings
 
