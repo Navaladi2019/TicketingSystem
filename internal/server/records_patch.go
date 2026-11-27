@@ -73,11 +73,7 @@ func ifMatchVersions(v *string) (versions []int64, ok bool) {
 // (TICK-413, TICK-481): map it under that one, as create and GET do. Defaults
 // stay the current ones.
 func patchBody(ctx context.Context, tx pgx.Tx, defs entitytypes.DefinitionReader, entity string, rec *pipeline.Record, curVersion int, cur *metadata.Compiled) (map[string]any, map[string]string, error) {
-	fixed, err := fixedColumnsUnder(ctx, tx, defs, entity, rec.SchemaVersion, curVersion, cur)
-	if err != nil {
-		return nil, nil, err
-	}
-	return cur.ApplyDefaults(rec.Payload(fixed)), fixed, nil
+	return pipeline.EffectiveUnder(ctx, tx, defs, entity, rec, curVersion, cur)
 }
 
 // PatchRecord serves PATCH /api/v1/records/{entity}/{id}.

@@ -220,7 +220,7 @@ paths:
       operationId: getEntityType
       summary: The current version of an entity type
       description: >
-        Any user of the tenant. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`.
+        Any user of the tenant. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. When the type has a schema backfill job (ADR-009 D10), the body carries `backfill`, read from the type's newest job (the highest `target_version`); a type that never had a job has no `backfill` member.
 
       parameters:
         - $ref: "#/components/parameters/Key"
@@ -231,6 +231,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EntityTypeVersion"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/ProblemNoInstance"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "501":
+          $ref: "#/components/responses/Problem"
+  /api/v1/entity-types/{key}/backfill/failures:
+    get:
+      operationId: listEntityTypeBackfillFailures
+      summary: The records the newest schema backfill job could not rewrite (entity-type admin)
+      description: >
+        ADR-009 D10. Needs the entity-type admin permission, the one publishing a version needs. Lists the newest job's failure rows (the job with the highest `target_version`), keyset-paged by `record_id`: `limit` is 1 to 100 and defaults to 50. An item is a record id and a stable lower-snake `code`, never a field value. Read-only. A caller who is not that admin, an unknown key and another tenant's key all give the same 404, byte for byte, with no `instance`. A type with no job, or a job with no failures, gives an empty `items`.
+
+      parameters:
+        - $ref: "#/components/parameters/Key"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        "200":
+          description: One page of failures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillFailureList"
+        "400":
+          $ref: "#/components/responses/Problem"
         "401":
           $ref: "#/components/responses/Problem"
         "404":
@@ -1749,6 +1791,58 @@ components:
           description: >
             `{id, version}` pins a number-format version, `null` returns to the default numbering; absent keeps the pinned version. Needs `definition`.
 
+    BackfillStatus:
+      type: object
+      description: >
+        The type's newest schema backfill job (ADR-009 D10). `remaining` is the job's pending rows plus its failure rows, counted up to 1,001: 1,001 means more than 1,000.
+
+      required: [state, target_version, rewritten, skipped, failed, remaining, started_at, finished_at]
+      properties:
+        state:
+          type: string
+          enum: [pending, filling, running, done, failed_records, superseded]
+        target_version:
+          type: integer
+        rewritten:
+          type: integer
+          format: int64
+        skipped:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+        remaining:
+          type: integer
+          format: int64
+          maximum: 1001
+        started_at:
+          type: [string, "null"]
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+    BackfillFailure:
+      type: object
+      required: [record_id, code]
+      properties:
+        record_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: A stable lower-snake code. Never a field value.
+    BackfillFailureList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackfillFailure"
+        next_cursor:
+          type: string
+          description: Present when more failures follow; pass it as `cursor`.
     EntityTypeVersion:
       type: object
       required: [key, name, number_prefix, numbering_mode, version, current, schema, schema_sha256, fixed_columns, states, compat, published_at]
@@ -1795,6 +1889,8 @@ components:
         published_at:
           type: string
           format: date-time
+        backfill:
+          $ref: "#/components/schemas/BackfillStatus"
     EntityTypeSummary:
       type: object
       required: [key, name, number_prefix, numbering_mode, current_version, updated_at]
@@ -2118,6 +2214,9 @@ components:
         updated_at:
           type: string
           format: date-time
+          description: >
+            The last change to the record's effective content; a schema backfill bumps `version` without changing it.
+
     RecordAssignmentGroup:
       type: object
       description: >

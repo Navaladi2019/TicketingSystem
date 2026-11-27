@@ -45,6 +45,12 @@ func ExistsTermForTest(vt fieldindex.ValueType, fieldID uuid.UUID, op string, va
 // WithCountDelay makes every list count statement sleep d (ADR-006-A2 D-7A2-5).
 func WithCountDelay(d time.Duration) Option { return func(o *options) { o.countDelay = d } }
 
+// WithListStatement hands every list's page statement and arguments to f, so a
+// test can EXPLAIN what the request ran (ADR-009 D12).
+func WithListStatement(f func(sql string, args []any)) Option {
+	return func(o *options) { o.listStatement = f }
+}
+
 // WithSkipCount makes lists run no count; their total is unknown.
 func WithSkipCount() Option { return func(o *options) { o.skipCount = true } }
 

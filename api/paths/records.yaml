@@ -554,6 +554,9 @@ components:
         updated_at:
           type: string
           format: date-time
+          description: >
+            The last change to the record's effective content; a schema
+            backfill bumps `version` without changing it.
     RecordAssignmentGroup:
       type: object
       description: >

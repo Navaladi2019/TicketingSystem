@@ -303,12 +303,13 @@ func (h *handlers) GetRecord(ctx context.Context, req api.GetRecordRequestObject
 			return err
 		}
 		// The row was split under its own version's mapping; defaults come
-		// from the current version for what an older version never wrote.
-		fixed, err := h.fixedColumnsOf(ctx, tx, req.Entity, rec.SchemaVersion, curVersion, cur)
+		// from the current version for what an older version never wrote
+		// (ADR-009 D11: the effective value, masked after).
+		eff, fixed, err := pipeline.EffectiveUnder(ctx, tx, h.store, req.Entity, rec, curVersion, cur)
 		if err != nil {
 			return err
 		}
-		body, err = h.shapedBody(ctx, tx, p, rec, cur.ApplyDefaults(rec.Payload(fixed)), fixed)
+		body, err = h.shapedBody(ctx, tx, p, rec, eff, fixed)
 		return err
 	})
 	if errors.Is(err, pipeline.ErrNotFound) || errors.Is(err, entitytypes.ErrNotFound) {

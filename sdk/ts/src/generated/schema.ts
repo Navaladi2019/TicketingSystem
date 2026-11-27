@@ -97,9 +97,29 @@ export interface paths {
         };
         /**
          * The current version of an entity type
-         * @description Any user of the tenant. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`.
+         * @description Any user of the tenant. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. When the type has a schema backfill job (ADR-009 D10), the body carries `backfill`, read from the type's newest job (the highest `target_version`); a type that never had a job has no `backfill` member.
          */
         get: operations["getEntityType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-types/{key}/backfill/failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The records the newest schema backfill job could not rewrite (entity-type admin)
+         * @description ADR-009 D10. Needs the entity-type admin permission, the one publishing a version needs. Lists the newest job's failure rows (the job with the highest `target_version`), keyset-paged by `record_id`: `limit` is 1 to 100 and defaults to 50. An item is a record id and a stable lower-snake `code`, never a field value. Read-only. A caller who is not that admin, an unknown key and another tenant's key all give the same 404, byte for byte, with no `instance`. A type with no job, or a job with no failures, gives an empty `items`.
+         */
+        get: operations["listEntityTypeBackfillFailures"];
         put?: never;
         post?: never;
         delete?: never;
@@ -640,6 +660,35 @@ export interface components {
             /** @description `{id, version}` pins a number-format version, `null` returns to the default numbering; absent keeps the pinned version. Needs `definition`. */
             number_format?: unknown;
         };
+        /** @description The type's newest schema backfill job (ADR-009 D10). `remaining` is the job's pending rows plus its failure rows, counted up to 1,001: 1,001 means more than 1,000. */
+        BackfillStatus: {
+            /** @enum {string} */
+            state: "pending" | "filling" | "running" | "done" | "failed_records" | "superseded";
+            target_version: number;
+            /** Format: int64 */
+            rewritten: number;
+            /** Format: int64 */
+            skipped: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            remaining: number;
+            /** Format: date-time */
+            started_at: string | null;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
+        BackfillFailure: {
+            /** Format: uuid */
+            record_id: string;
+            /** @description A stable lower-snake code. Never a field value. */
+            code: string;
+        };
+        BackfillFailureList: {
+            items: components["schemas"]["BackfillFailure"][];
+            /** @description Present when more failures follow; pass it as `cursor`. */
+            next_cursor?: string;
+        };
         EntityTypeVersion: {
             key: string;
             name: string;
@@ -670,6 +719,7 @@ export interface components {
             } | null;
             /** Format: date-time */
             published_at: string;
+            backfill?: components["schemas"]["BackfillStatus"];
         };
         EntityTypeSummary: {
             key: string;
@@ -845,7 +895,10 @@ export interface components {
             assignment_group?: components["schemas"]["RecordAssignmentGroup"];
             /** Format: date-time */
             created_at: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description The last change to the record's effective content; a schema backfill bumps `version` without changing it.
+             */
             updated_at: string;
         };
         /** @description The record's assignment group, the value of the property mapped to the `assignment_group_id` fixed column. Absent when the record has none. `removed` is true once the group has been removed from the directory: the record keeps pointing at it and nothing reassigns it (ADR-004-E5 D7). */
@@ -1139,6 +1192,38 @@ export interface operations {
                     "application/json": components["schemas"]["EntityTypeVersion"];
                 };
             };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["ProblemNoInstance"];
+            429: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+        };
+    };
+    listEntityTypeBackfillFailures: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The entity type key. Its shape is not checked here, a key that cannot exist is a 404. */
+                key: components["parameters"]["Key"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of failures. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillFailureList"];
+                };
+            };
+            400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             404: components["responses"]["ProblemNoInstance"];
             429: components["responses"]["Problem"];
