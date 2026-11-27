@@ -3,7 +3,8 @@ title: "Field index: registry, side tables and the records trigger"
 section: database
 status: in-progress
 adrs: [ADR-006, ADR-006-E1]
-stories: [S21]
+stories: [S21, S22]
+tables: [record_index_fields, rfv_text, rfv_num, rfv_ts, rfv_bool]
 invariants: [I1, I3, I8]
 packages: [internal/fieldindex, internal/records/pipeline, internal/records/store]
 sources:
@@ -50,8 +51,8 @@ R12), give the planner per-tenant estimates.
 Both foreign keys are `NO ACTION`: a record cannot be deleted while it has side
 rows, and a registry row cannot be deleted while side rows remain.
 
-These tables are not yet in the [schema snapshot](schema.md): the snapshot is
-written by the integration suite on `main`, and the story is not merged.
+The generated columns, indexes and policies are at the end of this page, from
+the [schema snapshot](schema.md) of the story branch `TICK-740/search-finish`.
 
 ## Why the value types
 
@@ -128,7 +129,10 @@ sequenceDiagram
   It reads only the registry, `NEW` and `OLD`; never a side table.
 - `records_field_values_purge` (`BEFORE DELETE`) clears all four tables for the
   record, so the `NO ACTION` FKs pass.
-- A `removing` field is skipped; its rows belong to the removal workflow (S22).
+- A `removing` field is skipped; its rows belong to the removal workflow
+  (S22, `field_index.remove.run`, see [Field-index
+  backfill](../workflows/field-index-backfill.md#removal)). Nothing writes a
+  new side row for it, so the removal's batched delete always ends.
 - **READ COMMITTED only (TICK-979).** The first statement refuses a write at
   any other isolation level with SQLSTATE `25000`, naming [ADR-006-E1](../adr/adr-006-e1.md). The
   backfill's [snapshot barrier](../workflows/field-index-backfill.md) is sound
@@ -158,6 +162,12 @@ the read, so other writes keep their statement budget. The backfill counts the
 values it skips on the same counter (TICK-974). The label is the type's opaque
 id: no tenant, no value. See [traces, logs and
 metrics](../operations/observability.md).
+
+## Generated: diagram and tables
+
+<!-- gen:er area=field-index -->
+
+<!-- gen:tables area=field-index -->
 
 ## Related
 

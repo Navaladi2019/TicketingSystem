@@ -461,6 +461,12 @@
           "type": "uuid",
           "nullable": true,
           "default": ""
+        },
+        {
+          "name": "diff_nul_escaped",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
         }
       ],
       "primary_key": [
@@ -605,6 +611,26 @@
           "permissive": true,
           "using": "",
           "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "audit_log_limits_onboard_insert",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (subject_type = 'tenant_limits'::text))"
+        },
+        {
+          "name": "audit_log_limits_onboard_select",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (subject_type = 'tenant_limits'::text))",
+          "check": ""
         },
         {
           "name": "audit_log_onboard_insert",
@@ -869,6 +895,12 @@
           "type": "uuid",
           "nullable": true,
           "default": ""
+        },
+        {
+          "name": "diff_nul_escaped",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
         }
       ],
       "primary_key": [
@@ -1230,6 +1262,12 @@
         {
           "name": "number_compiled",
           "type": "jsonb",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "published_by_system",
+          "type": "text",
           "nullable": true,
           "default": ""
         }
@@ -3552,6 +3590,179 @@
       ]
     },
     {
+      "name": "record_index_fields",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "field_key",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "value_type",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "progress",
+          "type": "smallint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "requested_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "record_index_fields_entity_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "record_index_fields_key",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "field_key"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "record_index_fields_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "record_index_fields_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "record_index_fields_insert_app",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_index_fields_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "record_index_fields_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "record_index_fields_update_app",
+          "command": "UPDATE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "record_index_fields_update_worker",
+          "command": "UPDATE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
       "name": "record_shares",
       "kind": "table",
       "partition_of": "",
@@ -4166,7 +4377,9 @@
             "updated_at",
             "id"
           ],
-          "include": [],
+          "include": [
+            "org_unit_id"
+          ],
           "predicate": ""
         },
         {
@@ -4233,6 +4446,1179 @@
           "command": "UPDATE",
           "roles": [
             "nava_app",
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "name": "rfv_bool",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "field_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ord",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "value",
+          "type": "boolean",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "record_id",
+        "field_id",
+        "ord"
+      ],
+      "foreign_keys": [
+        {
+          "name": "rfv_bool_field_fk",
+          "columns": [
+            "tenant_id",
+            "field_id"
+          ],
+          "ref_table": "record_index_fields",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "rfv_bool_record_fk",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "ref_table": "records",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rfv_bool_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "record_id",
+            "field_id",
+            "ord"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "rfv_bool_value",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "field_id",
+            "value",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "rfv_bool_delete_app",
+          "command": "DELETE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_bool_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_bool_insert_app",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_bool_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_bool_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_bool_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "rfv_num",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "field_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ord",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "value",
+          "type": "double precision",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "record_id",
+        "field_id",
+        "ord"
+      ],
+      "foreign_keys": [
+        {
+          "name": "rfv_num_field_fk",
+          "columns": [
+            "tenant_id",
+            "field_id"
+          ],
+          "ref_table": "record_index_fields",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "rfv_num_record_fk",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "ref_table": "records",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rfv_num_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "record_id",
+            "field_id",
+            "ord"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "rfv_num_value",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "field_id",
+            "value",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "rfv_num_delete_app",
+          "command": "DELETE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_num_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_num_insert_app",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_num_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_num_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_num_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "rfv_text",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "field_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ord",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "value",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "record_id",
+        "field_id",
+        "ord"
+      ],
+      "foreign_keys": [
+        {
+          "name": "rfv_text_field_fk",
+          "columns": [
+            "tenant_id",
+            "field_id"
+          ],
+          "ref_table": "record_index_fields",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "rfv_text_record_fk",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "ref_table": "records",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rfv_text_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "record_id",
+            "field_id",
+            "ord"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "rfv_text_value",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "field_id",
+            "value",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "rfv_text_delete_app",
+          "command": "DELETE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_text_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_text_insert_app",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_text_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_text_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_text_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "rfv_ts",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "field_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "ord",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "value",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "record_id",
+        "field_id",
+        "ord"
+      ],
+      "foreign_keys": [
+        {
+          "name": "rfv_ts_field_fk",
+          "columns": [
+            "tenant_id",
+            "field_id"
+          ],
+          "ref_table": "record_index_fields",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "rfv_ts_record_fk",
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "ref_table": "records",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rfv_ts_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "record_id",
+            "field_id",
+            "ord"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "rfv_ts_value",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "field_id",
+            "value",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "rfv_ts_delete_app",
+          "command": "DELETE",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_ts_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_ts_insert_app",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_ts_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "rfv_ts_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "rfv_ts_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        }
+      ]
+    },
+    {
+      "name": "schema_backfill_failures",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "target_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "code",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "failed_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "entity_definition_id",
+        "target_version",
+        "record_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "schema_backfill_failures_entity_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "schema_backfill_failures_job_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version"
+          ],
+          "ref_table": "schema_backfills",
+          "ref_columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version"
+          ],
+          "on_delete": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "schema_backfill_failures_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "schema_backfill_failures_record",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "schema_backfill_failures_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_failures_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "schema_backfill_failures_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_failures_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_failures_update_worker",
+          "command": "UPDATE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "name": "schema_backfill_pending",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "target_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "record_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "entity_definition_id",
+        "target_version",
+        "record_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "schema_backfill_pending_entity_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        },
+        {
+          "name": "schema_backfill_pending_job_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version"
+          ],
+          "ref_table": "schema_backfills",
+          "ref_columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version"
+          ],
+          "on_delete": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "schema_backfill_pending_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        },
+        {
+          "name": "schema_backfill_pending_record",
+          "method": "btree",
+          "unique": false,
+          "columns": [
+            "tenant_id",
+            "record_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "schema_backfill_pending_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_pending_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "schema_backfill_pending_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_pending_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfill_pending_update_worker",
+          "command": "UPDATE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        }
+      ]
+    },
+    {
+      "name": "schema_backfills",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "entity_definition_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "target_version",
+          "type": "integer",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "state",
+          "type": "text",
+          "nullable": false,
+          "default": "'pending'::text"
+        },
+        {
+          "name": "default_keys",
+          "type": "text[]",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "causation_audit_id",
+          "type": "uuid",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "rewritten",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "skipped",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "failed",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": ""
+        },
+        {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id",
+        "entity_definition_id",
+        "target_version"
+      ],
+      "foreign_keys": [
+        {
+          "name": "schema_backfills_entity_definition_fkey",
+          "columns": [
+            "tenant_id",
+            "entity_definition_id"
+          ],
+          "ref_table": "entity_definitions",
+          "ref_columns": [
+            "tenant_id",
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "schema_backfills_one_active_per_tenant",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id"
+          ],
+          "include": [],
+          "predicate": "state = ANY (ARRAY['filling'::text, 'running'::text])"
+        },
+        {
+          "name": "schema_backfills_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id",
+            "entity_definition_id",
+            "target_version"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "schema_backfills_delete_worker",
+          "command": "DELETE",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfills_insert_app_pending",
+          "command": "INSERT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "((tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid) AND (state = 'pending'::text) AND (rewritten = 0) AND (skipped = 0) AND (failed = 0) AND (started_at IS NULL) AND (finished_at IS NULL))"
+        },
+        {
+          "name": "schema_backfills_insert_worker",
+          "command": "INSERT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "schema_backfills_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfills_select_worker",
+          "command": "SELECT",
+          "roles": [
+            "nava_worker"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "schema_backfills_update_worker",
+          "command": "UPDATE",
+          "roles": [
             "nava_worker"
           ],
           "permissive": true,
@@ -4653,6 +6039,113 @@
           "permissive": true,
           "using": "",
           "check": "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"
+        }
+      ]
+    },
+    {
+      "name": "tenant_limits",
+      "kind": "table",
+      "partition_of": "",
+      "partition_by": "",
+      "partition_bound": "",
+      "rls": {
+        "enabled": true,
+        "forced": true
+      },
+      "columns": [
+        {
+          "name": "tenant_id",
+          "type": "uuid",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "filterable_fields_per_type",
+          "type": "smallint",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_by",
+          "type": "text",
+          "nullable": false,
+          "default": ""
+        }
+      ],
+      "primary_key": [
+        "tenant_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "tenant_limits_tenant_fkey",
+          "columns": [
+            "tenant_id"
+          ],
+          "ref_table": "tenants",
+          "ref_columns": [
+            "id"
+          ],
+          "on_delete": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_limits_pkey",
+          "method": "btree",
+          "unique": true,
+          "columns": [
+            "tenant_id"
+          ],
+          "include": [],
+          "predicate": ""
+        }
+      ],
+      "policies": [
+        {
+          "name": "tenant_limits_insert_onboard",
+          "command": "INSERT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+        },
+        {
+          "name": "tenant_limits_select_app",
+          "command": "SELECT",
+          "roles": [
+            "nava_app"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "tenant_limits_select_onboard",
+          "command": "SELECT",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": ""
+        },
+        {
+          "name": "tenant_limits_update_onboard",
+          "command": "UPDATE",
+          "roles": [
+            "nava_onboard"
+          ],
+          "permissive": true,
+          "using": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)",
+          "check": "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
         }
       ]
     },

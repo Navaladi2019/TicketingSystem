@@ -3,13 +3,14 @@ title: "Core: record write pipeline (write, read, list)"
 section: system
 status: delivered
 normative: docs/architecture/record-write-pipeline.md
-sources: [docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/pipeline/audit.go, internal/records/pipeline/read.go, internal/records/store/store.go, internal/records/store/batch.go, internal/records/store/unique.go, internal/records/store/list.go, internal/server/records.go, internal/server/records_patch.go, internal/server/records_list.go, api/errors.yaml]
+sources: [docs/architecture/record-write-pipeline.md, docs/architecture/tenant-tx-batching.md, internal/records/pipeline/pipeline.go, internal/records/pipeline/batch.go, internal/records/pipeline/audit.go, internal/records/pipeline/read.go, internal/records/store/store.go, internal/records/store/batch.go, internal/records/store/unique.go, internal/records/store/list.go, internal/server/records.go, internal/server/records_patch.go, internal/server/records_list.go, api/errors.yaml, internal/records/pipeline/code.go, internal/workflow/recordports/materialize.go]
 packages: [internal/records/pipeline, internal/records/store, internal/server]
-adrs: [ADR-001, ADR-004, ADR-005]
+adrs: [ADR-001, ADR-004, ADR-005, ADR-009]
+stories: [S29]
 invariants: [I1, I4, I5, I7]
 operations: [createRecord, patchRecord, getRecord, listRecords, getRecordHistory]
 tables: [records, record_write_keys, idempotency_keys, audit_log, record_counters, record_shares, groups]
-tests: [TestWriteTakesTheTenantFromTheTransaction, TestWriteRefusesAnActorOfAnotherTenant, TestCrossTenantWritesRefused, TestIdempotencyKeyReplays, TestIdempotencyKeyIsScopedByPrincipal, TestIdempotencyKeyMismatchConflicts, TestUpdateOfAnUnreadableRecordIsNotFound, TestFieldCheckRunsBeforeValidationAndTheStateModel, TestCreateValidatesBeforeWriting, TestIncidentTransitions, TestWriteChecksTheRowBeforeAndAfter, TestUniqueConcurrentCreatesOneWins, TestEveryWriteBumpsVersionOnce, TestConcurrentUpdatesOneWins, TestAuditAndSinkInTheWriteTransaction, TestDiffIsBuiltFromStoredJSONB, TestSecretInRecordDiffIsRefused, TestInsertRecordAsExpected, TestCreateRollsBackAtEveryStage, TestPipelineKill, TestFixedColumnsOnlyInTheirColumn, TestRecordWritersOnlyInPipeline, TestCompileReadAgreesWithAllows, TestTwoWritesPerTransactionDeadlockIsRetryable]
+tests: [TestWriteTakesTheTenantFromTheTransaction, TestWriteRefusesAnActorOfAnotherTenant, TestCrossTenantWritesRefused, TestIdempotencyKeyReplays, TestIdempotencyKeyIsScopedByPrincipal, TestIdempotencyKeyMismatchConflicts, TestUpdateOfAnUnreadableRecordIsNotFound, TestFieldCheckRunsBeforeValidationAndTheStateModel, TestCreateValidatesBeforeWriting, TestIncidentTransitions, TestWriteChecksTheRowBeforeAndAfter, TestUniqueConcurrentCreatesOneWins, TestEveryWriteBumpsVersionOnce, TestConcurrentUpdatesOneWins, TestAuditAndSinkInTheWriteTransaction, TestDiffIsBuiltFromStoredJSONB, TestSecretInRecordDiffIsRefused, TestInsertRecordAsExpected, TestCreateRollsBackAtEveryStage, TestPipelineKill, TestFixedColumnsOnlyInTheirColumn, TestRecordWritersOnlyInPipeline, TestCompileReadAgreesWithAllows, TestTwoWritesPerTransactionDeadlockIsRetryable, TestMaterializeWritesMissingDefaultsOnce, TestMaterializeRecordHoldingTheKeyWritesNothing, TestMaterializeRefusalsWriteNothing, TestMaterializeLosesToALiveWrite, TestMaterializeRefusesEverythingButTheBackfill, TestErrorCode]
 ---
 
 ## Purpose
@@ -80,6 +81,29 @@ flowchart TD
 | 11 | Number (create): see [core-numbering](core-numbering.md) | `write.allocate` | I4: a refused create never moves the counter | `TestRefusedCreatesLeaveTheCounter` |
 | 12 | Write: create `INSERT` (queued at commit and asserted against the 201, or sent now); update `UPDATE ... version = version + 1 WHERE version = expected` | `write.writeCreateAtCommit`, `store.QueueInsertRecordAsExpected`, `write.writeCreate`, `store.Update` | One version bump per write (optimistic concurrency) | `TestInsertRecordAsExpected`, `TestEveryWriteBumpsVersionOnce`, `TestCreateChecksWhatTheInsertStored` |
 | 13 | Keyed write row, audit entry (diff built from the stored jsonb; secrets refused), event sink, all in the same transaction | `write.finish`, `store.InsertWriteKey`, `appendRecordEntry` -> `audit.Append`, `EventSink.RecordChanged` | I6 entry point: the sink runs in the write's transaction; the wired sink is `eventsink.Sink` (S11b), which starts and signals `nava.interpreter` runs | `TestAuditAndSinkInTheWriteTransaction`, `TestEventSink_CreateStartsTriggeredDefinitions`, `TestEventSink_SignalsOnlyWaitingRunsNeverTheWriter`, `TestDiffIsBuiltFromStoredJSONB`, `TestSecretInRecordDiffIsRefused`, `TestCreateRollsBackAtEveryStage`, `TestPipelineKill` |
+
+## OpMaterialize: the schema backfill write
+
+**S29, on the story branch `TICK-740/search-finish`** (ADR-009 D3 to D6;
+TICK-917, merged with TICK-916). The [schema backfill
+workflow](../workflows/schema-backfill.md) rewrites each record that lacks a
+new default with `pipeline.Write` and `Op: OpMaterialize`. It is the same
+pipeline, so the record is validated, versioned and audited like any other
+write (I4).
+
+| Rule | What happens |
+|---|---|
+| Command shape | The record id, an empty patch, `Source` system, `ActorSystem` `schema-backfill` (`pipeline.ActorSchemaBackfill`), and the job's causation. `Command.check` refuses a non-empty patch, another source, a principal, another `ActorSystem`, an idempotency key, a workflow ref or an expected version: the rewrite reads the current version itself (`TestMaterializeRefusesEverythingButTheBackfill`). |
+| Nothing missing | The current version's defaults are applied to the stored payload and compared **before any SQL write**. If nothing changes, nothing is written, bumped or audited, and `Result.Written` is false (`TestMaterializeRecordHoldingTheKeyWritesNothing`). |
+| Something missing | It writes through the update path: `version` + 1 (the ETag changes), `schema_version` becomes the current version, and `updated_at` is **kept**. One `update` audit entry, `actor_system = schema-backfill`, caused by the publish entry at its depth + 1, or a new origin for a rollout job (`TestMaterializeWritesMissingDefaultsOnce`). |
+| No side effects | No `EventSink` call: no `on_updated` workflow starts, no signal, no outbox row (D6). |
+| A live write wins | It runs `WHERE version = expected` like any update. A user edit that committed first makes it `ErrVersionConflict`, and the job leaves the id queued (`TestMaterializeLosesToALiveWrite`). |
+| Failure codes | `pipeline.ErrorCode(err)` (`code.go`) gives a stable code that matches `^[a-z_]{1,64}$` and names what went wrong, never a value (`TestErrorCode`). **Stored** in `schema_backfill_failures.code`: `invalid_command`, `validation_failed`, `unique_violation`, `illegal_transition`, `assignment_group_removed`, `forbidden` and `cascade_too_deep`. Any database error, from the pipeline or from the job itself, is stored as `db_error`. **Not stored:** `version_conflict` and `retryable` (the id stays queued), and `not_found` (`recordports.Materialize` turns it into "not written, no error": the record is gone and counts as `skipped`). |
+| Who may call it | Only the schema backfill, through `internal/workflow/recordports` (`materialize.go`). `internal/schemabackfill` does not import the pipeline. |
+
+Because `updated_at` is kept while `version` moves, "last updated" still means
+the last change to the record's content (ADR-009 R8). An edit form left open
+during the rewrite gets one `412 version_conflict` and re-reads (R2).
 
 ## Read and list
 

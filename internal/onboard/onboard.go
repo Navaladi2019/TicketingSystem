@@ -327,7 +327,7 @@ func SeedEntityTypes(ctx context.Context, store Store, tenantID uuid.UUID) error
 		if err != nil {
 			return fmt.Errorf("onboard: template %s: %w", key, err)
 		}
-		if _, err := metadata.Compile(d); err != nil {
+		if _, err := metadata.CompileNew(d); err != nil {
 			return fmt.Errorf("onboard: template %s: %w", key, err)
 		}
 		name := entityTypeNames[key]

@@ -167,6 +167,29 @@ func Compile(d Definition) (*Compiled, error) {
 	}, nil
 }
 
+// CompileNew is Compile for a definition being created, published or seeded:
+// it also refuses a property with both a default and x-nava-unique (ADR-009
+// D13), because a backfill would write the same default into every record that
+// lacks the key, and two records would share a unique value. Compile alone
+// does not refuse it, so a stored version that already has the pair still
+// compiles when it is read (D15 lists such types; the rollout skips them).
+func CompileNew(d Definition) (*Compiled, error) {
+	c, err := Compile(d)
+	if err != nil {
+		return nil, err
+	}
+	var bad problems
+	for _, name := range c.unique {
+		if _, ok := c.defaults[name]; ok {
+			bad.add("schema", "properties", name, "default")
+		}
+	}
+	if err := bad.err(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // decodeSchema enforces the size cap, the depth cap and the no-duplicate-keys
 // rule (TICK-360 (d), (e)) in one token pass, then decodes the document with
 // numbers kept exact. Duplicate keys are refused because Go keeps the last

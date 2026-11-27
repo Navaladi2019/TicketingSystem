@@ -3,10 +3,10 @@ title: "Field-index backfill (field_index.coordinator, field_index.backfill.run)
 section: workflows
 status: in-progress
 build: production
-workflows: [field_index.coordinator, field_index.backfill.run]
-activities: [field_index.Barrier, field_index.Classify, field_index.Batch, field_index.Ready]
+workflows: [field_index.coordinator, field_index.backfill.run, field_index.remove.run]
+activities: [field_index.Barrier, field_index.Classify, field_index.Batch, field_index.Ready, field_index.RemoveBatch, field_index.Retire]
 adrs: [ADR-006, ADR-006-E1, ADR-001]
-stories: [S21]
+stories: [S21, S22]
 invariants: [I1, I2, I6, I7]
 packages: [internal/fieldindex, internal/fieldindex/backfill, internal/relay, cmd/nava-worker]
 sources:
@@ -18,9 +18,10 @@ sources:
   - internal/fieldindex/backfill/activities.go
   - internal/fieldindex/backfill/workflow.go
   - internal/fieldindex/backfill/batch.go
+  - internal/fieldindex/backfill/remove.go
   - internal/relay/dispatch.go
   - internal/outbox/outbox.go
-tests: [TestR1WriterAcrossTheFlip, TestOtherTenantsFieldWritesNothing, TestVersionBumpMidBackfill, TestBackfillCountsUncoercedValues, TestBarrierHeartbeatKeepsWaitSetBounds, TestBarrierWaitsForTheNewestXID, TestBarrierResumesItsSnapshot, TestOnlyFieldindexNamesItsWorkflowTypes]
+tests: [TestR1WriterAcrossTheFlip, TestOtherTenantsFieldWritesNothing, TestVersionBumpMidBackfill, TestBackfillCountsUncoercedValues, TestBarrierHeartbeatKeepsWaitSetBounds, TestBarrierWaitsForTheNewestXID, TestBarrierResumesItsSnapshot, TestOnlyFieldindexNamesItsWorkflowTypes, TestRemoveEmptiesTheFieldAndDeletesItsRow, TestRemoveWaitsForTheTenantsBackfill, TestRemoveCannotReachAnotherTenantsField, TestR3WriterAcrossTheFlip, TestR3WritersAcrossTheFlipAndTheDeletes, TestRemoveShapesAreReferencesOnly]
 ---
 
 **Built on the story branch `TICK-739/filterable-fields` (S21), not yet on
@@ -101,6 +102,58 @@ exactly one record missing.
   coordinator and backfill with a forged payload (see [S21 attack
   paths](../stories/s21.md#attack-paths)).
 
+## Removal
+
+**S22, on the story branch `TICK-740/search-finish`** (ADR-006 D8, D11, R3;
+TICK-750). Normative: the removal section of
+[field-index-backfill.md](../../../data/field-index-backfill.md).
+
+A publish that drops `x-nava-filterable` from a property is accepted (`201`).
+In the publish transaction the field's registry row flips to `removing` at the
+publishing version, and one `field_index.remove` outbox row is written
+(`outbox.EnqueueFieldIndexRemove`; payload `{tenant_id, field_id}`, the version
+in `target_seq` and the dedupe key). From that commit on:
+
+- a filter on the field answers `400 field_not_filterable`;
+- the records trigger writes no side row for it;
+- flagging it again answers `409 field_index_busy` until the removal ends, and
+  is accepted with a fresh backfill afterwards.
+
+Deleting a flagged property outright is still refused, as `422
+schema_breaking_change`, because removing a property is breaking.
+
+```mermaid
+sequenceDiagram
+    participant P as publish
+    participant R as nava-relay
+    participant C as coordinator
+    participant X as remove child<br/>t:tenant:field_index.remove.run:field:version
+    participant DB as PostgreSQL (nava_worker)
+    P->>DB: registry row = removing + field_index.remove outbox row (one tx)
+    R->>C: SignalWithStart, item op: remove
+    C->>X: child, after any backfill queued ahead of it
+    X->>DB: Barrier
+    loop until a batch deletes fewer than 1,000
+        X->>DB: RemoveBatch: one InTenantTx, DELETE up to 1,000 side rows
+    end
+    X->>DB: Retire: DELETE the registry row only if NOT EXISTS a side row
+    Note over X,DB: a side row is left: back to RemoveBatch
+```
+
+- **Same coordinator.** The removal is an item on the tenant's coordinator, so
+  it never runs beside a backfill of the same tenant
+  (`TestRemoveWaitsForTheTenantsBackfill`).
+- **Child-only.** `field_index.remove.run` is on the platform allow-list and in
+  `childOnlyWorkflowTypes`: neither the relay nor an interpreter can start it.
+- **Why no side row survives (R3).** A writer that read the row as `ready`
+  before the flip holds an xid at the flip, so the barrier waits for it; every
+  later write reads `removing` and writes nothing. If a row still got through,
+  the side tables' foreign keys refuse Retire's delete and the batches run
+  again. `TestR3WriterAcrossTheFlip` shows it both ways: with the barrier
+  replaced by a no-op, Retire is refused by the foreign key.
+- **History.** Results are `{pending: <field id>}` or `{}`, references only. A
+  run continues as new after 1,000 steps.
+
 ## Measured (TICK-992, reference machine, story head `9ec4e1f5`)
 
 | Measure | Result |
@@ -116,5 +169,3 @@ exactly one record missing.
 - Progress is approximate: the type is counted once per child per worker.
 - The uncoerced count is at least once: a retried batch counts its skipped
   values again. It is an alerting rate, not a ledger.
-- Removal (`field_index.remove.run`, D11) is S22; until then a publish that
-  drops a flag is refused with `422 filterable_field_removal_unavailable`.

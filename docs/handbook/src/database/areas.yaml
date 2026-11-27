@@ -2,7 +2,7 @@
 # Every table in schema.json is in exactly one area; the build fails otherwise
 # (TICK-729), so a new table cannot land without a home in the handbook.
 # Each area has a page, docs/handbook/src/database/<area>.md.
-tenancy: [tenants]
+tenancy: [tenants, tenant_limits]
 identity: [principals, groups, group_members, tenant_identity_binding, tenant_email_domain,
            pending_invite, tenant_admin_group, tenant_auditor_group]
 entity-definitions: [entity_definitions, entity_definition_versions]
@@ -15,3 +15,5 @@ outbox: [outbox]
 workflow-state: [workflow_definitions, workflow_definition_versions, workflow_ref, workflow_cause, cascade_start]
 idempotency: [idempotency_keys]
 numbering: [record_counters, number_formats, number_format_versions, numbering_epochs]
+field-index: [record_index_fields, rfv_text, rfv_num, rfv_ts, rfv_bool]
+schema-backfill: [schema_backfills, schema_backfill_pending, schema_backfill_failures]
