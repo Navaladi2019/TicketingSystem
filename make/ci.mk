@@ -3,7 +3,9 @@
 # Gate stages. Each fragment adds its own steps to a stage with a rule that has no recipe
 # (ci-lint: my-target), so a new target never edits another fragment.
 
-# CI entry point (T05). The GitHub workflows only call targets from this file,
+# CI entry point (T05). The GitHub workflows only call targets from this file
+# (except the two scan jobs of the govulncheck workflow, which run govulncheck
+# directly, ADR-001-A7; `make vulncheck` runs the same command locally),
 # so `make ci` runs the same gates on a laptop (Linux, macOS, or Windows with
 # Git Bash and Docker). Taskfile.yml mirrors build, test and lint for local
 # use; `make check-taskfile` fails when they drift.
