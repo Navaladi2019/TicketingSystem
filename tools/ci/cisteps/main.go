@@ -16,8 +16,8 @@
 // on a skipped run (verification PR 904).
 //
 // With -copy (TICK-1149) the check is a different one: the whole workflow,
-// comment lines aside, must equal the checked-in copy, and the vulncheck make
-// recipes must be the pinned lines (copy.go).
+// comment lines aside, must equal the checked-in copy, and no step may run
+// make (ADR-001-A7 rule 9, copy.go).
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 //
@@ -41,22 +41,12 @@ import (
 )
 
 func main() {
-	if envDumpRequested() {
-		// make's SHELL in the -copy mode's environment check (envdump.go).
-		os.Exit(envDump(os.Stdout))
-	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // run returns the exit code: 0 every required step runs, 1 one does not,
 // 2 bad usage or an unreadable input.
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWith(args, stdout, stderr, "", makeIn(""))
-}
-
-// runWith is run with the -copy mode's makefile directory ("" is the current
-// directory) and the make runner that runs make there.
-func runWith(args []string, stdout, stderr io.Writer, makeDir string, mk makeRunner) int {
 	fs := flag.NewFlagSet("cisteps", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	workflow := fs.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
@@ -76,7 +66,7 @@ func runWith(args []string, stdout, stderr io.Writer, makeDir string, mk makeRun
 			fs.Usage()
 			return 2
 		}
-		return runCopy(*workflow, *copyPath, makeDir, mk, stdout, stderr)
+		return runCopy(*workflow, *copyPath, stdout, stderr)
 	}
 
 	problems, n, err := check(*workflow, *required)
@@ -96,8 +86,8 @@ func runWith(args []string, stdout, stderr io.Writer, makeDir string, mk makeRun
 }
 
 // runCopy is run's -copy mode.
-func runCopy(workflow, copyPath, makeDir string, mk makeRunner, stdout, stderr io.Writer) int {
-	problems, err := checkCopy(workflow, copyPath, makeDir, mk)
+func runCopy(workflow, copyPath string, stdout, stderr io.Writer) int {
+	problems, err := checkCopy(workflow, copyPath)
 	if err != nil {
 		fmt.Fprintln(stderr, "check-ci-steps:", err)
 		return 2
@@ -106,10 +96,10 @@ func runCopy(workflow, copyPath, makeDir string, mk makeRunner, stdout, stderr i
 		fmt.Fprintln(stderr, "check-ci-steps:", p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(stderr, "check-ci-steps: edit %s and %s together, or not at all (ADR-001-E4 contract rule 9)\n", workflow, copyPath)
+		fmt.Fprintf(stderr, "check-ci-steps: edit %s and %s together, or not at all, and run no make in it (ADR-001-E4 contract rule 9, ADR-001-A7)\n", workflow, copyPath)
 		return 1
 	}
-	fmt.Fprintf(stdout, "check-ci-steps: ok: %s equals %s and the vulncheck recipes are pinned\n", workflow, copyPath)
+	fmt.Fprintf(stdout, "check-ci-steps: ok: %s equals %s and runs no make\n", workflow, copyPath)
 	return 0
 }
 
