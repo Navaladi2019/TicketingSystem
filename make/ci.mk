@@ -12,7 +12,8 @@
 #   ci-lint         gofmt, go vet (also per build-tag set), golangci-lint
 #                   (+ fixture), check-taskfile, check-pins, check-generate,
 #                   check-guide, check-ci-steps, check-openapi,
-#                   govulncheck (both modules, once a day per dependency set).
+#                   govulncheck (both modules, once a day per dependency set;
+#                   in GitHub the govulncheck workflow, ADR-001-E4).
 #                   No containers.
 #   ci-unit         go test -race ./... (one at a time per host), temporal-server
 #                   unit tests. No containers.

@@ -44,6 +44,7 @@ func (f *findRealm) server(t *testing.T) *httptest.Server {
 	mux.HandleFunc("GET "+idpPath, func(w http.ResponseWriter, _ *http.Request) {
 		if f.idp == "" {
 			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, kcIdPNotFound)
 			return
 		}
 		fmt.Fprint(w, f.idp)

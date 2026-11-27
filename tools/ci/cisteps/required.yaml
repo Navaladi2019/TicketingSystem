@@ -33,6 +33,9 @@ steps:
   - job: lint
     run: make test-handbook-coverage
     why: unit is skipped on a docs-only change, so an ADR or story merged without its handbook page turns main red after the merge, not on the pull request (TICK-960, #711, #716)
+  - job: lint
+    run: make handbook-build
+    why: a handbook page with a broken link or a malformed stories.yaml / benchmarks.yaml row merges green, and the story handbook gate rests on the author's local run (TICK-1162)
 
   # Story work that never reaches main (TICK-322, after S6 and the S5
   # post-merge PRs, TICK-286).
@@ -138,3 +141,16 @@ outputs:
     output: full
     value: ${{ steps.stages.outputs.full }}
     why: the isolation job and full-suite read it; make ci-stages writes it from the stages step's CI_FULL, story-branch rule included. env.CI_FULL lacks that rule, so PRs 801 and 805 merged into a story branch with the tenant isolation suite skipped
+
+# Required status checks that only a job which ran may report (TICK-1146).
+# GitHub names a skipped job's check run after its unevaluated name:
+# expression when it reads a context, so a job named
+# ${{ github.event_name && 'isolation' || 'isolation' }} reports "isolation"
+# only when it ran. A constant ${{ 'isolation' }} is folded to the literal
+# even on a skipped run (verification PR 904). With a literal name, any later run on the same commit that skips the
+# job (another label, ci:run after ci:full, close and reopen) turned a red
+# isolation into a passed required check: spike PR 898, docs/quality/label-run-hides-red-check.md.
+checks:
+  - job: isolation
+    check: isolation
+    why: a run that skips the tenant isolation suite reports isolation as passed on the same commit and hides its red result (TICK-1146)

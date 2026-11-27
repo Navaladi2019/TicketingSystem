@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-004 erratum E10 explained: sealing the NUL-escaped flag into the audit hash</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--good:#1a7f37;--goodbg:#dafbe1;--bad:#cf222e;--badbg:#ffebe9}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--good:#3fb950;--goodbg:#12261a;--bad:#f85149;--badbg:#2d1214}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+</style></head><body><main>
+
+<span class="pill" style="background:var(--goodbg);color:var(--good);border-color:var(--good)">ACCEPTED · 2026-11-27</span> <span class="src">ADR-004-E10 · issue TICK-1169 · from TICK-1121 · amends ADR-004 R1, R10, R13 and A1-1 (via E8), adds CI-A19 · evidence: spike e10, Technical Architect collision spike · rev 1</span>
+
+<h1>Sealing the "NUL was escaped" flag into the audit hash</h1>
+
+<blockquote><strong>In one sentence.</strong> When an admin repairs a ticket type whose old version contains a NUL character, the audit log stores a slightly rewritten copy of the old version plus a yes/no flag saying so. That flag is sealed into the log's tamper-evident hash, but only when it is "yes", so every entry written before today still checks out exactly as it did.</blockquote>
+
+<h2>The problem in plain words</h2>
+<p>A <strong>NUL</strong> is character number zero. A few ticket-type definitions saved before 3 November 2026 contain one. The database's binary JSON type (<code>jsonb</code>) refuses NUL, so when an admin publishes a clean replacement, the platform cannot write the audit entry that describes the change, and the admin gets an error. That publish is the admin's only way to fix the type, so it must work (decided on TICK-1121).</p>
+<p>The fix writes each NUL in the old version as the six visible characters <code>\u0000</code> before computing the change list (the <em>diff</em>). An admin can also type those six characters on purpose. Without a marker, someone reading the audit log later cannot tell "this was a NUL we rewrote" from "the admin typed this". So the entry gets a flag, <code>diff_nul_escaped</code>.</p>
+<p>The audit log is a <strong>hash chain</strong>. Each entry's important columns (its <em>envelope</em>) are fingerprinted with SHA-256, and each fingerprint is linked to the previous one. Changing any envelope column afterwards breaks the chain, and the verifier reports <code>tampered</code>. A flag outside the envelope could be flipped by anyone with write access, and nobody would notice.</p>
+
+<h2>Three questions we had to answer</h2>
+<table>
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>1. Adding a column to the fingerprint changes the fingerprint. How do the entries already sealed still verify?</td><td>The flag is included in the fingerprint <strong>only when it is yes</strong>. Every old entry is "no", so its fingerprint input is byte-for-byte what it was.</td></tr>
+<tr><td>2. Who can see the flag?</td><td>Everyone who can already see <code>diff_truncated</code> (the E1 flag that works the same way): the audit reader role, the audit read API, and both export formats.</td></tr>
+<tr><td>3. Two keys of one object can become identical after rewriting: <code>a&lt;NUL&gt;b</code> next to a typed <code>a\u0000b</code>, or two keys that both hold a NUL and rewrite to the same text. Refuse the publish?</td><td><strong>No.</strong> In that rare case the diff becomes one step: "replace the whole document with the new version". It is still a correct diff, it contains nothing from the old version, and the admin's repair goes through.</td></tr>
+</table>
+
+<h2>How "only when yes" keeps old entries valid</h2>
+<figure>
+<svg viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="13">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+<rect x="10" y="20" width="250" height="90" rx="8" fill="#f6f8fa" stroke="#59636e"/>
+<text x="24" y="44" font-weight="700">Entry sealed last week</text>
+<text x="24" y="66">flag column: false (default)</text>
+<text x="24" y="88">fingerprint input: 22 members</text>
+<rect x="305" y="20" width="250" height="90" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="319" y="44" font-weight="700">Same entry, after E10</text>
+<text x="319" y="66">false: member left out</text>
+<text x="319" y="88">same 22 members, same bytes</text>
+<rect x="600" y="20" width="250" height="90" rx="8" fill="#dafbe1" stroke="#1a7f37"/>
+<text x="614" y="44" font-weight="700">Verifier</text>
+<text x="614" y="66">recomputes the same SHA-256</text>
+<text x="614" y="88" fill="#1a7f37" font-weight="700">pass</text>
+<line x1="260" y1="65" x2="303" y2="65" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="555" y1="65" x2="598" y2="65" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="10" y="150" width="250" height="90" rx="8" fill="#f6f8fa" stroke="#59636e"/>
+<text x="24" y="174" font-weight="700">Repair publish (new)</text>
+<text x="24" y="196">flag column: true</text>
+<text x="24" y="218">fingerprint input: 23 members</text>
+<rect x="305" y="150" width="250" height="90" rx="8" fill="#ffebe9" stroke="#cf222e"/>
+<text x="319" y="174" font-weight="700">Someone flips it to false</text>
+<text x="319" y="196">member disappears from the input</text>
+<text x="319" y="218">so the bytes differ</text>
+<rect x="600" y="150" width="250" height="90" rx="8" fill="#ffebe9" stroke="#cf222e"/>
+<text x="614" y="174" font-weight="700">Verifier</text>
+<text x="614" y="196">SHA-256 no longer matches</text>
+<text x="614" y="218" fill="#cf222e" font-weight="700">tampered</text>
+<line x1="260" y1="195" x2="303" y2="195" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="555" y1="195" x2="598" y2="195" stroke="#59636e" stroke-width="2" marker-end="url(#a)"/>
+</svg>
+<figcaption>Top: old entries keep their exact fingerprint. Bottom: a flipped flag, either way, breaks the fingerprint.</figcaption>
+</figure>
+<p>In an exported file, a missing member means "no", <code>true</code> means "yes", and an explicit <code>false</code> is rejected as a malformed line, so each value has exactly one written form.</p>
+
+<h2>Options considered</h2>
+<table>
+<tr><th>Option</th><th>Verdict</th><th>Why</th></tr>
+<tr><td><strong>Flag in the fingerprint, only when yes</strong></td><td class="good">Chosen</td><td>Old entries unchanged; flips detected both ways; no extra state.</td></tr>
+<tr><td>Flag always in the fingerprint (how E1 added <code>diff_truncated</code>)</td><td class="bad">Rejected</td><td>Every already-sealed entry would change its fingerprint and read as tampered. E1 could do it only because the log was empty then.</td></tr>
+<tr><td>Fingerprint the flag only after a cut-over point</td><td class="bad">Rejected</td><td>The verifier would have to trust where the cut-over is; in an exported file that value is unprotected.</td></tr>
+<tr><td>A new "envelope version" member</td><td class="bad">Rejected</td><td>It needs the same "missing means old" rule anyway, plus a second format to maintain.</td></tr>
+<tr><td>Flag outside the fingerprint (the agreed fallback)</td><td class="bad">Rejected</td><td>Anyone with write access could flip it unseen.</td></tr>
+<tr><td>Refuse the publish when keys collide</td><td class="bad">Rejected</td><td>Blocks the admin's only repair path, for data they did not just send.</td></tr>
+</table>
+
+<h2>The change to make</h2>
+<ul>
+<li><strong>Database (TICK-1170, Postgres &amp; Data Modeling Specialist):</strong> <code>audit_log.diff_nul_escaped boolean NOT NULL DEFAULT false</code>. A constant default means no table rewrite. Grants beside <code>diff_truncated</code>; no role may UPDATE it.</li>
+<li><strong>Hash code:</strong> one "emitted only when true" member in <code>internal/audit/chain</code>; the sealer reads the column; the verifier accepts the old and the new CSV header.</li>
+<li><strong>Publish path (PR #928):</strong> sets the flag when at least one NUL was rewritten, and uses the whole-document replace on a key collision.</li>
+<li><strong>Order matters, and the database enforces it:</strong> nothing may write the flag as "yes" before the hash code is live, or those entries would be sealed without it and fail verification forever. Until then, a database trigger refuses any new entry with the flag set to yes; the trigger is removed in the same change that teaches the hash code about the flag.</li>
+<li><strong>Two layers stop later edits:</strong> no role may update the column, and the existing audit guard trigger is extended to refuse any change to it.</li>
+<li><strong>CSV exports:</strong> an empty cell in the new column means "no" (the member is left out), <code>true</code> means yes, and anything else is rejected.</li>
+</ul>
+
+<h2>What is being accepted</h2>
+<table>
+<tr><th>#</th><th>Residual</th><th>Owner</th></tr>
+<tr><td>RS-E10-1</td><td>If an old NUL value was changed to the typed text <code>\u0000</code>, the diff shows no change there. The flag warns the reader; the exact old bytes remain in the ticket-type version table.</td><td>Solution Architect</td></tr>
+<tr><td>RS-E10-2</td><td>On a key collision the diff is coarse (the whole document). Expected never; logged if it happens.</td><td>Solution Architect</td></tr>
+</table>
+<p>No new security risk.</p>
+
+<h2>The evidence</h2>
+<ul>
+<li><strong>Spike e10</strong> (<code>docs/adr/ADR-004/spikes/solution-architect/e10/</code>): the "only when yes" member was patched into the real hash code. All existing golden test vectors and the verify, export and seal test suites passed unchanged. A "yes" flag changes the fingerprint, stripping it is detected, and an explicit <code>false</code> or <code>null</code> is rejected.</li>
+<li>The diff library only copies values from the <em>new</em> version, so the old version can reach the diff only through key names. That is why the whole-document replace contains no NUL.</li>
+</ul>
+
+<h2>Review and changes made</h2>
+<p>The Technical Architect found no blocking problems and asked for four corrections, all taken in revision 1:</p>
+<ul>
+<li>A collision also happens when <em>two</em> keys holding a NUL rewrite to the same text. The draft code in PR #928 missed that case and silently dropped a key (shown by the reviewer's spike, 5 of 5 runs). The rule now defines a collision as "two keys whose rewritten forms are equal", checked against the rewritten keys.</li>
+<li>The CSV verifier reads an empty cell as "null", which the new flag rejects; the rule now says an empty cell means "no".</li>
+<li>The audit guard trigger lists the protected columns by name, so it is extended to include the flag.</li>
+<li>The landing order is enforced by a database trigger instead of relying on people merging in the right order. A trigger was chosen over a table constraint because adding the constraint would scan and lock the whole audit table.</li>
+</ul>
+
+<h2>Competitive Gate</h2>
+<p><strong>Result: N/A.</strong> An internal audit integrity fix; it changes nothing a customer compares between products.</p>
+
+<h2>Status</h2>
+<p><strong>ACCEPTED</strong>, 2026-11-27, by the Solution Architect after the Technical Architect's critique (not contested, no tie-break). Delivery: TICK-1170 (column, gate trigger, hash code, grants, exports, test vectors) and PR #928 (sets the flag on the repair publish).</p>
+
+</main></body></html>
