@@ -1,7 +1,7 @@
 # Field index: the registry and the four typed side tables (P7-01)
 
 TICK-741, S21 (TICK-739). ADR-006 D2, D3, D14. Migration:
-`db/migrations/20261127163000_field_index_tables.sql`. Go names:
+`db/migrations/20261127100100_field_index_tables.sql`. Go names:
 `internal/fieldindex` (`TypeText`, `TypeNum`, `TypeTS`, `TypeBool`,
 `StateBackfilling`, `StateReady`, `StateRemoving`, `ValueType.SideTable`).
 

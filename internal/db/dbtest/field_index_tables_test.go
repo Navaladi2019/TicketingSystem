@@ -23,7 +23,7 @@ import (
 // typed side tables rfv_text, rfv_num, rfv_ts, rfv_bool.
 
 const (
-	fieldIndexMigration = "20261127163000_field_index_tables.sql"
+	fieldIndexMigration = "20261127100100_field_index_tables.sql"
 	// beforeFieldIndex is the version just before fieldIndexMigration.
 	beforeFieldIndex = 20261125164959
 

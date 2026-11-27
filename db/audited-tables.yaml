@@ -122,7 +122,7 @@ audited:
     subject_type: workflow_definition
     subject_id_column: definition_id
     attached: true
-  # TICK-751 (20261127163700): an operator's raise of a tenant's per-type
+  # TICK-751 (20261127100800): an operator's raise of a tenant's per-type
   # filterable-field limit, one config entry per change.
   tenant_limits:
     writer_roles: [nava_onboard]

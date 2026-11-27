@@ -19,7 +19,7 @@ import (
 // schema_backfill_pending and schema_backfill_failures.
 
 const (
-	schemaBackfillMigration = "20261127163300_schema_backfill_tables.sql"
+	schemaBackfillMigration = "20261127100400_schema_backfill_tables.sql"
 
 	// insertBackfill: tenant $1, entity type $2, target version $3, state $4.
 	insertBackfill = `INSERT INTO schema_backfills (tenant_id, entity_definition_id, target_version, state, default_keys)
@@ -400,7 +400,7 @@ func TestP1001Grants(t *testing.T) {
 }
 
 // tenantLimitsMigration creates tenant_limits (TICK-751).
-const tenantLimitsMigration = "20261127163700_tenant_limits.sql"
+const tenantLimitsMigration = "20261127100800_tenant_limits.sql"
 
 // beforeTenantLimits is m and a without tenant_limits when fsys stops before
 // tenantLimitsMigration. beforeNumberingMode calls it.
