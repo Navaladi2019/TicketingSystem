@@ -160,7 +160,8 @@ const (
 	// diff_salt and does not need to: the envelope holds diff_sha256.
 	unsealedSQL = `SELECT id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
     version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id,
-    causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated
+    causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
+    diff_nul_escaped
 FROM audit_log
 WHERE tenant_id = $1 AND sealed_at IS NULL
 ORDER BY occurred_at, id
@@ -316,7 +317,7 @@ func unsealed(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) ([]chain.Envelop
 		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.Domain, &e.Action, &e.SubjectType, &e.SubjectID,
 			&e.EntityDefinitionID, &e.VersionBefore, &e.VersionAfter, &e.ActorPrincipalID, &e.ActorSystem,
 			&e.Source, &e.SourceRef, &e.ChangeSetID, &e.CausationID, &e.CausationDepth, &e.RequestID,
-			&e.Backfilled, &content, &diff, &e.DiffTruncated); err != nil {
+			&e.Backfilled, &content, &diff, &e.DiffTruncated, &e.DiffNULEscaped); err != nil {
 			return nil, fmt.Errorf("seal: scan unsealed entry: %w", err)
 		}
 		if e.ContentSHA256, err = hash32(content); err != nil {

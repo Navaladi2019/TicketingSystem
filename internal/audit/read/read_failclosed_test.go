@@ -66,15 +66,15 @@ func (r *auditRows) Err() error                    { return nil }
 func (r *auditRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
 
 // Scan fills the columns of read.go's column list that mask uses: domain (2),
-// subject_type (4), entity_definition_id (6), diff (24), diff_salt (25).
+// subject_type (4), entity_definition_id (6), diff (25), diff_salt (26).
 func (r *auditRows) Scan(dest ...any) error {
 	row := r.rows[r.i]
 	*(dest[2].(*string)) = "record"
 	*(dest[4].(*string)) = "record"
 	*(dest[6].(**uuid.UUID)) = row.def
 	d := row.diff
-	*(dest[24].(**string)) = &d
-	*(dest[25].(*[]byte)) = row.salt
+	*(dest[25].(**string)) = &d
+	*(dest[26].(*[]byte)) = row.salt
 	return nil
 }
 

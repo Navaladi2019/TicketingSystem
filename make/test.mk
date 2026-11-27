@@ -1,4 +1,4 @@
-.PHONY: test test-handbook test-handbook-coverage
+.PHONY: test test-handbook test-handbook-coverage handbook-build
 
 ci-unit: test
 
@@ -36,3 +36,14 @@ test-handbook:
 # gate reads directories the test cache does not key on.
 test-handbook-coverage:
 	go test -count=1 -run '^TestHandbook' ./api/
+
+# The handbook build on the real sources (TICK-1162): docs/handbook/src with
+# every reference it checks (links, sources, stories.yaml, benchmarks.yaml,
+# ADR ids, operationIds). test-handbook only runs the generator's own tests on
+# fixtures, so a page that breaks the build merged green. The footer stamp is
+# HANDBOOK_SHA, else GITHUB_SHA (the checked-out commit in Actions), else
+# build.py's own fallback (git merge-base HEAD origin/main), so CI never needs
+# origin/main for it. It rewrites docs/handbook/**/*.html like task handbook;
+# whether the committed HTML is stale is task handbook:check, not this.
+handbook-build:
+	HANDBOOK_SHA="$${HANDBOOK_SHA:-$${GITHUB_SHA:-}}" $${PYTHON:-python3} -I docs/handbook/build/build.py

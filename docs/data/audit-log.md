@@ -1,7 +1,7 @@
 # Audit log tables (P5-10b, TICK-450)
 
 This document covers the [ADR-004](../adr/ADR-004-audit-log.md) data layer, with [E1](../adr/ADR-004-E1-cascade-entries-and-diff-truncated.md), [ADR-001-A6.1](../adr/ADR-001-A6-audit-roles-and-non-record-starts.md) and PLAN-005 D-5-3.
-- Migration: `db/migrations/20261102233600_audit_log.sql`.
+- Migration: `db/migrations/20261102233600_audit_log.sql`; `diff_nul_escaped` in `db/migrations/20261126150000_audit_log_diff_nul_escaped.sql` (TICK-1170).
 - Grants: `db/grants.yaml`.
 - Tests: `internal/db/dbtest/audit_log_test.go`.
 - Subject-type registry: `internal/audit/subjects.go`.
@@ -28,6 +28,7 @@ erDiagram
         uuid subject_id
         bigint version_after "R2 key, NULLS NOT DISTINCT"
         boolean diff_truncated "E1, in the envelope"
+        boolean diff_nul_escaped "E10, in the envelope only when true"
         json diff "never jsonb; <= 65,536 bytes"
         bytea diff_salt "16 bytes; NULL after erase"
         bigint seq "seal: worker only"
@@ -226,3 +227,26 @@ The write path has not been measured in this task:
 S1 measured the same index set on the spike schema (`docs/adr/ADR-004/spikes/postgres/s1/RESULT.md`):
 - item 3: 1,344 B of WAL per insert, plus 1,323 B per seal, so 1.98× with sealing;
 - item 1: commit-check trigger overhead within the 10% p95 bar.
+
+## diff_nul_escaped (TICK-1170)
+
+`boolean NOT NULL DEFAULT false`, next to `diff_truncated` in meaning, last in
+column order. True when the writer escaped each NUL in the previous value to
+the text `\u0000` before building the diff (jsonb refuses NUL; TICK-1121).
+Written through the R10 INSERT (`audit.Entry.DiffNULEscaped`), readable by
+every role that reads `diff_truncated`, and frozen by the R11 guard like every
+envelope column, so neither the seal nor the erase transition can flip it.
+
+The `ADD COLUMN` has a constant default, so it is metadata-only on the parent
+and the partition: `TestTICK1170DiffNULEscapedColumn` adds it to a populated
+`audit_log_default` and checks the partition's `relfilenode` is unchanged
+(no rewrite) and every existing row reads false. Storage: one byte per row
+(`boolean`); no index (nothing filters on it).
+
+ADR-004-E10 makes it an envelope member, emitted in the canonical form only
+when true, so every row sealed before it keeps its hash. Step 1 shipped the
+column behind an INSERT gate (`audit_log_nul_escaped_gate`, 23514 on true);
+step 2 (`20261127100000_audit_log_nul_escaped_gate_drop.sql`) drops the gate in
+the same change that adds the member to `internal/audit/chain`, the sealer's
+read, the verifier, the export (JSONL member, CSV column) and the audit read
+API. The export format is documented in `docs/api/audit-export-v1.md`.

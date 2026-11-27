@@ -14,7 +14,7 @@ import (
 // P7-05c (TICK-979, ADR-006-E1 E1-5): record_field_values_sync() refuses a
 // records write at any isolation level but READ COMMITTED, so a writer can
 // never slip past the D9 snapshot barrier. Migration
-// 20261126163200_field_index_sync_read_committed.sql.
+// 20261127100300_field_index_sync_read_committed.sql.
 
 // rcGuardSQLState is the guard's SQLSTATE: 25000, invalid_transaction_state.
 const rcGuardSQLState = "25000"

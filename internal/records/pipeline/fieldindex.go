@@ -15,7 +15,7 @@ import (
 
 // UncoercedSetting is the transaction-local setting in which the records
 // trigger counts the values of flagged fields that do not coerce (ADR-006
-// D5, R5; db/migrations/20261126163100_field_index_trigger.sql): a JSON
+// D5, R5; db/migrations/20261127100200_field_index_trigger.sql): a JSON
 // object of entity definition id to count. The trigger writes no side row
 // for such a value and never fails the write.
 const UncoercedSetting = "nava.field_index_uncoerced"

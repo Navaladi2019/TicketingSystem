@@ -469,7 +469,7 @@ func (a *Manifest) checkWriters(ctx context.Context, q catalog.Querier) ([]strin
 			SELECT want_cmd || ' policy' FROM unnest(ARRAY['SELECT', 'INSERT']) want_cmd
 			WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policies p
 			                  WHERE p.schemaname = 'public' AND p.tablename = $5 AND p.cmd = want_cmd AND $1 = ANY (p.roles))
-			ORDER BY 1`, w, log, ProbeColumns(), InsertColumns(), LogTable)
+			ORDER BY 1`, w, log, ProbeColumns(), a.insertColumns(), LogTable)
 		if err != nil {
 			return nil, err
 		}

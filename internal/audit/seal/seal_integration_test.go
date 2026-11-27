@@ -283,7 +283,8 @@ func assertChain(t *testing.T, e itEnv, tenant uuid.UUID) int64 {
 
 const envelopeColumns = `id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
 	version_before, version_after, actor_principal_id, actor_system, source, source_ref, change_set_id,
-	causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated`
+	causation_id, causation_depth, request_id, backfilled, content_sha256, diff_sha256, diff_truncated,
+	diff_nul_escaped`
 
 // scanEnvelope scans lead, then envelopeColumns.
 func scanEnvelope(t *testing.T, rows pgx.Rows, tenant uuid.UUID, lead ...any) chain.Envelope {
@@ -293,7 +294,7 @@ func scanEnvelope(t *testing.T, rows pgx.Rows, tenant uuid.UUID, lead ...any) ch
 	dest := append(lead, &env.ID, &env.OccurredAt, &env.Domain, &env.Action, &env.SubjectType, &env.SubjectID,
 		&env.EntityDefinitionID, &env.VersionBefore, &env.VersionAfter, &env.ActorPrincipalID, &env.ActorSystem,
 		&env.Source, &env.SourceRef, &env.ChangeSetID, &env.CausationID, &env.CausationDepth, &env.RequestID,
-		&env.Backfilled, &content, &diff, &env.DiffTruncated)
+		&env.Backfilled, &content, &diff, &env.DiffTruncated, &env.DiffNULEscaped)
 	if err := rows.Scan(dest...); err != nil {
 		t.Fatal(err)
 	}

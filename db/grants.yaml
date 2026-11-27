@@ -85,7 +85,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, seq, sealed_at, erased_at]
+                 diff_sha256, diff_truncated, diff_nul_escaped, seq, sealed_at, erased_at]
       # R14: the export lease and chain:reseed's repoint. Never seq,
       # entry_hash or version. SELECT is table-level: the R19 lease take
       # (WHERE export_lease_until IS NULL OR < now()) and its RETURNING seq,
@@ -152,7 +152,7 @@ roles:
       workflow_definitions: { SELECT: [], INSERT: [], UPDATE: [current_version, updated_at] }
       workflow_definition_versions: { SELECT: [], INSERT: [] }
       workflow_cause: { SELECT: [], INSERT: [] }
-      # Field index (ADR-006 D14, P7-01, TICK-741, 20261126163000): the side
+      # Field index (ADR-006 D14, P7-01, TICK-741, 20261127100100): the side
       # tables are written as DELETE then INSERT, never UPDATE (P7-02's trigger
       # runs as the record writer). Publish (P7-04) creates a registry row and
       # flips its state; it never rewrites the key, the field or the type.
@@ -161,14 +161,14 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
-      # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261126163300):
+      # Schema backfill (ADR-009 Grants, P10-01, TICK-916, 20261127100400):
       # reads, for D10's status and failures and D12's filter shapes, and the
       # publish transaction's INSERT of a pending job (D1, PLAN-010 D-10-11;
       # the pinned policy schema_backfills_insert_app_pending).
       schema_backfills: { SELECT: [], INSERT: [] }
       schema_backfill_pending: { SELECT: [] }
       schema_backfill_failures: { SELECT: [] }
-      # Tenant limits (TICK-751, ADR-006 D12, 20261126163700): publish reads
+      # Tenant limits (TICK-751, ADR-006 D12, 20261127100800): publish reads
       # the row. Only nava_onboard writes it (AR-TICK-916-01).
       tenant_limits: { SELECT: [] }
     # TICK-629: acl_versions' rules and masks CHECKs call these, as the
@@ -224,7 +224,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+                 diff_sha256, diff_truncated, diff_nul_escaped, diff, diff_salt, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
       # tenant_id as well as the masker's two columns: CI-2 (ADR-001) needs every
       # role that reads a tenant table's rows to read its tenant_id, so a row of
       # another tenant can be told apart.
@@ -279,7 +279,7 @@ roles:
         SELECT: [tenant_id, id, occurred_at, txid, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, backfilled, content_sha256,
-                 diff_sha256, diff_truncated, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
+                 diff_sha256, diff_truncated, diff_nul_escaped, seq, prev_hash, entry_hash, sealed_at, erased_at, erasure_ref]
         UPDATE: [seq, prev_hash, entry_hash, sealed_at]
       # R14: the sealer's columns. Never export_lease_until.
       audit_chain_head:
@@ -320,7 +320,7 @@ roles:
       rfv_num: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_ts: { SELECT: [], INSERT: [], DELETE: [] }
       rfv_bool: { SELECT: [], INSERT: [], DELETE: [] }
-      # Schema backfill (ADR-009 D2, D7, P10-01, TICK-916, 20261126163300):
+      # Schema backfill (ADR-009 D2, D7, P10-01, TICK-916, 20261127100400):
       # the backfill job owns its job row, its queue and its failures.
       schema_backfills: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
       schema_backfill_pending: { SELECT: [], INSERT: [], UPDATE: [], DELETE: [] }
@@ -384,7 +384,7 @@ roles:
     database: [CONNECT]
     schemas: { public: [USAGE] }
     tables:
-      # Tenant limits (TICK-751, AR-TICK-916-01, 20261126163700): the
+      # Tenant limits (TICK-751, AR-TICK-916-01, 20261127100800): the
       # operator route's write, in the target tenant's transaction. Never
       # DELETE, never a tenant_id change.
       tenant_limits: { SELECT: [], INSERT: [], UPDATE: [filterable_fields_per_type, updated_at, updated_by] }
@@ -435,7 +435,7 @@ roles:
         INSERT: [tenant_id, id, domain, action, subject_type, subject_id, entity_definition_id,
                  version_before, version_after, actor_principal_id, actor_system, source, source_ref,
                  change_set_id, causation_id, causation_depth, request_id, content_sha256, diff_sha256,
-                 diff_truncated, diff, diff_salt]
+                 diff_truncated, diff_nul_escaped, diff, diff_salt]
         UPDATE: [diff, diff_salt, erased_at, erasure_ref]
 
   # Writes the identity tables (T16), one transaction per tenant. UPDATE

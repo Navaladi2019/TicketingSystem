@@ -31,7 +31,7 @@ reads the index forward and an ascending list reads it backward.
 
 | Index | Key | Serves |
 | --- | --- | --- |
-| `records_list_updated` | `(tenant_id, entity_definition_id, updated_at DESC, id DESC)` | the default sort `-updated_at`, `sort=updated_at` |
+| `records_list_updated` | `(tenant_id, entity_definition_id, updated_at DESC, id DESC) INCLUDE (org_unit_id)` | the default sort `-updated_at`, `sort=updated_at`; shape R's unfiltered region count, as an Index Only Scan (ADR-010-A4, TICK-1158) |
 | `records_list_created` | `(tenant_id, entity_definition_id, created_at DESC, id DESC)` | `sort=[-]created_at` |
 | `records_list_state` | `(tenant_id, entity_definition_id, state DESC, updated_at DESC, id DESC)` | `sort=[-]state`; `filter[state]=s` under the default sort |
 | `records_list_group` | `(…, assignment_group_id DESC, updated_at DESC, id DESC)` | `filter[group]`; `sort=[-]group`; the `records_assignment_group_fkey` RI check |

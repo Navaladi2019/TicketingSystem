@@ -1,0 +1,57 @@
+package chain
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+func e10Base() Envelope {
+	return Envelope{
+		TenantID: uuid.MustParse("11111111-1111-4111-8111-111111111111"),
+		ID:       uuid.MustParse("22222222-2222-4222-8222-222222222222"),
+		OccurredAt: time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC),
+		Domain: "metadata", Action: "publish", SubjectType: "entity_definition",
+		SubjectID: uuid.MustParse("33333333-3333-4333-8333-333333333333"),
+		Source: "api",
+	}
+}
+
+func TestE10FalseIsPreE10Bytes(t *testing.T) {
+	e := e10Base()
+	b, err := CanonicalEnvelope(e)
+	if err != nil { t.Fatal(err) }
+	if bytes.Contains(b, []byte("diff_nul_escaped")) { t.Fatalf("false must be omitted: %s", b) }
+	t.Logf("false: %d members-bytes=%d", bytes.Count(b, []byte(`":`)), len(b))
+}
+
+func TestE10TrueChangesHashAndRoundTrips(t *testing.T) {
+	e := e10Base()
+	h0, _ := EnvelopeSHA256(e)
+	e.DiffNULEscaped = true
+	h1, _ := EnvelopeSHA256(e)
+	if h0 == h1 { t.Fatal("flag flip not detected") }
+	b, _ := CanonicalEnvelope(e)
+	t.Logf("true: %s", b)
+	var back Envelope
+	if err := json.Unmarshal(b, &back); err != nil || !back.DiffNULEscaped { t.Fatalf("round trip: %v %v", err, back.DiffNULEscaped) }
+	// strip the member: parses as false, and the hash is the pre-E10 hash, so a verifier sees envelope_mismatch.
+	stripped := bytes.Replace(b, []byte(`"diff_nul_escaped":true,`), nil, 1)
+	var s Envelope
+	if err := json.Unmarshal(stripped, &s); err != nil { t.Fatal(err) }
+	hs, _ := EnvelopeSHA256(s)
+	if hs == h1 { t.Fatal("stripping the member not detected") }
+}
+
+func TestE10ExplicitFalseRejected(t *testing.T) {
+	e := e10Base()
+	b, _ := CanonicalEnvelope(e)
+	withFalse := append([]byte(`{"diff_nul_escaped":false,`), b[1:]...)
+	var x Envelope
+	if err := json.Unmarshal(withFalse, &x); err == nil { t.Fatal("explicit false must be rejected (one encoding per value)") }
+	withNull := append([]byte(`{"diff_nul_escaped":null,`), b[1:]...)
+	if err := json.Unmarshal(withNull, &x); err == nil { t.Fatal("null must be rejected") }
+}

@@ -107,6 +107,8 @@ func TestP510bAuditLogShape(t *testing.T) {
 		"content_sha256 bytea", "diff_sha256 bytea", "diff_truncated boolean not null default false", "diff json",
 		"diff_salt bytea", "seq bigint", "prev_hash bytea", "entry_hash bytea", "sealed_at timestamp with time zone",
 		"erased_at timestamp with time zone", "erasure_ref uuid",
+		// TICK-1170: added by its own migration, so it is last.
+		"diff_nul_escaped boolean not null default false",
 	}, ", ")
 	if cols != want {
 		t.Errorf("audit_log columns:\n%s\nwant:\n%s", cols, want)
@@ -486,15 +488,16 @@ func TestP510bUpdateTransitions(t *testing.T) {
 	ref := uuid.NewString()
 
 	updates := map[string]string{
-		"content":    "UPDATE audit_log SET action = 'delete' WHERE tenant_id = $1 AND id = $2",
-		"tenant":     "UPDATE audit_log SET tenant_id = tenant_id WHERE tenant_id = $1 AND id = $2",
-		"seal":       sealEntry,
-		"seq only":   "UPDATE audit_log SET seq = 1 WHERE tenant_id = $1 AND id = $2",
-		"erase":      eraseEntry,
-		"diff only":  "UPDATE audit_log SET diff = NULL WHERE tenant_id = $1 AND id = $2",
-		"truncated":  "UPDATE audit_log SET diff_truncated = true WHERE tenant_id = $1 AND id = $2",
-		"occurred":   "UPDATE audit_log SET occurred_at = now() WHERE tenant_id = $1 AND id = $2",
-		"backfilled": "UPDATE audit_log SET backfilled = true WHERE tenant_id = $1 AND id = $2",
+		"content":     "UPDATE audit_log SET action = 'delete' WHERE tenant_id = $1 AND id = $2",
+		"tenant":      "UPDATE audit_log SET tenant_id = tenant_id WHERE tenant_id = $1 AND id = $2",
+		"seal":        sealEntry,
+		"seq only":    "UPDATE audit_log SET seq = 1 WHERE tenant_id = $1 AND id = $2",
+		"erase":       eraseEntry,
+		"diff only":   "UPDATE audit_log SET diff = NULL WHERE tenant_id = $1 AND id = $2",
+		"truncated":   "UPDATE audit_log SET diff_truncated = true WHERE tenant_id = $1 AND id = $2",
+		"nul escaped": "UPDATE audit_log SET diff_nul_escaped = true WHERE tenant_id = $1 AND id = $2",
+		"occurred":    "UPDATE audit_log SET occurred_at = now() WHERE tenant_id = $1 AND id = $2",
+		"backfilled":  "UPDATE audit_log SET backfilled = true WHERE tenant_id = $1 AND id = $2",
 	}
 	run := func(conn *pgx.Conn, q string) (int64, error) {
 		args := []any{tenantA, id}
@@ -517,7 +520,7 @@ func TestP510bUpdateTransitions(t *testing.T) {
 		wantSQLState(t, role+" delete", err, "42501")
 	}
 	// The trigger, not only the grants: the superuser is refused too.
-	for _, name := range []string{"content", "seal", "erase"} {
+	for _, name := range []string{"content", "nul escaped", "seal", "erase"} {
 		_, err := super.Exec(context.Background(), strings.Replace(updates[name], "$3", "'"+ref+"'", 1), tenantA, id)
 		wantSQLState(t, "superuser update "+name, err, "42501")
 	}

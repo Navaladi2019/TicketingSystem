@@ -55,7 +55,7 @@ func newSeqKC(t *testing.T, routes map[string][]kcAnswer) (*seqKC, string) {
 		k.mu.Unlock()
 		if !found {
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, `{}`)
+			fmt.Fprint(w, kcNotFoundBody(strings.TrimPrefix(r.URL.Path, "/admin/realms/nava")))
 			return
 		}
 		if a.loc != "" {
@@ -101,7 +101,7 @@ func TestCreateTenantOrgPaths(t *testing.T) {
 	orgLoc := "http://x/admin/realms/nava/organizations/org-1"
 	happy := func() map[string][]kcAnswer {
 		return map[string][]kcAnswer{
-			"GET " + idpPath: {st(404), {status: 200, body: idpJSON("", false, FirstBrokerLoginFlow)},
+			"GET " + idpPath: {gone("/identity-provider/instances/x"), {status: 200, body: idpJSON("", false, FirstBrokerLoginFlow)},
 				{status: 200, body: idpJSON("org-1", false, FirstBrokerLoginFlow)}},
 			"POST /organizations":                          one(kcAnswer{status: 201, loc: orgLoc}),
 			"POST /identity-provider/instances":            one(st(201)),
@@ -174,23 +174,23 @@ func TestCreateTenantOrgPaths(t *testing.T) {
 	for _, f := range []fail{
 		{"idp create fails", func(r map[string][]kcAnswer) { r["POST /identity-provider/instances"] = one(st(500)) }},
 		{"idp re-read fails", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), st(500)}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), st(500)}
 		}},
 		{"idp already linked", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), ok(idpJSON("org-other", false, FirstBrokerLoginFlow))}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), ok(idpJSON("org-other", false, FirstBrokerLoginFlow))}
 		}},
 		{"link call fails", func(r map[string][]kcAnswer) { r["POST /organizations/org-1/identity-providers"] = one(st(500)) }},
 		{"verify read fails", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), ok(idpJSON("", false, FirstBrokerLoginFlow)), st(500)}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), ok(idpJSON("", false, FirstBrokerLoginFlow)), st(500)}
 		}},
 		{"trustEmail set", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-1", true, FirstBrokerLoginFlow))}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-1", true, FirstBrokerLoginFlow))}
 		}},
 		{"wrong first-login flow", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-1", false, "browser"))}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-1", false, "browser"))}
 		}},
 		{"linked to a different org", func(r map[string][]kcAnswer) {
-			r["GET "+idpPath] = []kcAnswer{st(404), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-x", false, FirstBrokerLoginFlow))}
+			r["GET "+idpPath] = []kcAnswer{gone("/identity-provider/instances/x"), ok(idpJSON("", false, FirstBrokerLoginFlow)), ok(idpJSON("org-x", false, FirstBrokerLoginFlow))}
 		}},
 		{"mapper list fails", func(r map[string][]kcAnswer) { r["GET "+idpPath+"/mappers"] = one(st(500)) }},
 		{"mapper create fails", func(r map[string][]kcAnswer) { r["POST "+idpPath+"/mappers"] = one(st(500)) }},
@@ -276,7 +276,7 @@ func TestFindTenantOrgPaths(t *testing.T) {
 	// Neither exists.
 	if _, id, found, err := run(t, mut(func(r map[string][]kcAnswer) {
 		r["GET /organizations"] = one(ok(`[]`))
-		r["GET "+idpPath] = one(st(404))
+		r["GET "+idpPath] = one(gone("/identity-provider/instances/x"))
 	}), tA, "tenant-a"); err != nil || found || id != "" {
 		t.Fatalf("neither: %v %v", found, err)
 	}
@@ -285,7 +285,7 @@ func TestFindTenantOrgPaths(t *testing.T) {
 		t.Fatalf("orphan idp: %v", err)
 	}
 	// Only the organization exists: it is deleted.
-	onlyOrg := func(r map[string][]kcAnswer) { r["GET "+idpPath] = one(st(404)) }
+	onlyOrg := func(r map[string][]kcAnswer) { r["GET "+idpPath] = one(gone("/identity-provider/instances/x")) }
 	if kc, _, found, err := run(t, mut(onlyOrg), tA, "tenant-a"); err != nil || found || !kc.saw("DELETE /organizations/org-1") {
 		t.Fatalf("only org: %v %v", err, found)
 	}

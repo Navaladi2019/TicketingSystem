@@ -402,6 +402,7 @@ func buildEnvelope(r read.ExportRow) chain.Envelope {
 		ActorSystem: e.ActorSystem, Source: e.Source, SourceRef: e.SourceRef, ChangeSetID: e.ChangeSetID,
 		CausationID: e.CausationID, CausationDepth: e.CausationDepth, RequestID: e.RequestID, Backfilled: e.Backfilled,
 		ContentSHA256: hash32(e.ContentSHA256), DiffSHA256: hash32(e.DiffSHA256), DiffTruncated: e.DiffTruncated,
+		DiffNULEscaped: e.DiffNULEscaped,
 	}
 }
 

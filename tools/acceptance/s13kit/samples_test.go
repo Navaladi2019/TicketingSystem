@@ -67,6 +67,16 @@ func exportVector(name string) func() ([]byte, error) {
 	}
 }
 
+// preE10Head is the last chain vector before the ADR-004-E10 cases. The S13
+// samples stop there, so they are the files the story was accepted with.
+func preE10Head() int64 {
+	c, err := chainCase("audit-erase")
+	if err != nil {
+		panic(err)
+	}
+	return c.Seq
+}
+
 func chainCase(name string) (vectors.ChainCase, error) {
 	for _, c := range vt.Chain() {
 		if c.Name == name {
@@ -114,7 +124,7 @@ func lineDeleted() ([]byte, error) {
 // firstEntryDeleted drops seq 1, the first entry after the anchor, and
 // recounts the trailer as a careful forger would.
 func firstEntryDeleted() ([]byte, error) {
-	f := vt.Build(vt.Options{})
+	f := vt.Build(vt.Options{HeadSeq: preE10Head()})
 	f.Body = slices.Delete(f.Body, 1, 2)
 	f.Recount()
 	return f.Bytes(), nil
@@ -124,7 +134,7 @@ func firstEntryDeleted() ([]byte, error) {
 // every remaining link holds. Only the header filter (no from, no after_seq:
 // the range starts at genesis) gives it away.
 func firstEntryDeletedReanchored() ([]byte, error) {
-	f := vt.Build(vt.Options{})
+	f := vt.Build(vt.Options{HeadSeq: preE10Head()})
 	first := f.Body[1]
 	f.Body[1] = vt.Line{
 		"kind": "anchor", "genesis": false, "seq": first["seq"], "prev_hash": first["prev_hash"],
@@ -174,7 +184,7 @@ func truncatedOnly() (*vt.File, int64, error) {
 	if !c.Envelope.DiffTruncated {
 		return nil, 0, fmt.Errorf("truncated-honest vector has diff_truncated false")
 	}
-	return vt.Build(vt.Options{Match: func(x vectors.ChainCase) bool { return x.Seq == c.Seq }}), c.Seq, nil
+	return vt.Build(vt.Options{HeadSeq: preE10Head(), Match: func(x vectors.ChainCase) bool { return x.Seq == c.Seq }}), c.Seq, nil
 }
 
 // truncatedHonest: a diff cut at 64 KB with diff_truncated true (ADR-004-E1)

@@ -564,6 +564,8 @@ export interface components {
             /** @description Lowercase hex. */
             diff_sha256?: string;
             diff_truncated: boolean;
+            /** @description True when the previous value this diff was built from had each NUL character escaped to the text `\u0000` first, because the database cannot store NUL (ADR-004-E10). Sealed into the entry's hash. */
+            diff_nul_escaped: boolean;
             /** @description The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased. */
             diff?: unknown;
             /** @description True when `diff` differs from the stored diff for this reader (R7). */

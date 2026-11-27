@@ -20,6 +20,7 @@ func csvEnvelope() []string {
 		"entity_definition_id", "version_before", "version_after", "actor_principal_id",
 		"actor_system", "source", "source_ref", "change_set_id", "causation_id",
 		"causation_depth", "request_id", "backfilled", "content_sha256", "diff_sha256", "diff_truncated",
+		"diff_nul_escaped",
 	}
 }
 

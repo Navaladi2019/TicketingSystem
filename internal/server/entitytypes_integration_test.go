@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -245,7 +246,8 @@ type etEnv struct {
 	a, b   etTenant
 	super  *pgx.Conn
 	logs   *etLogBuf
-	lim    *spyLimiter // allows by default; reset(false) refuses every call
+	level  *slog.LevelVar // the handler's log level; Warn unless a test lowers it
+	lim    *spyLimiter    // allows by default; reset(false) refuses every call
 	tel    *telemetry.Telemetry
 	// noTestACL stops do from publishing the allow-all test ACL for the
 	// entity types it creates (allowTenantUsers).
@@ -275,13 +277,15 @@ func newETEnvWith(t *testing.T, extra ...server.Option) *etEnv {
 	lim := &spyLimiter{}
 	lim.reset(true)
 	logs := &etLogBuf{}
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelWarn)
 	reader := etAuditReader(t, pool)
-	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: slog.LevelWarn})), tel, tokens, stubPaths{},
+	h, err := server.NewHandler(slog.New(slog.NewTextHandler(testLogWriter{t, logs}, &slog.HandlerOptions{Level: level})), tel, tokens, stubPaths{},
 		append([]server.Option{server.WithLimiter(lim), server.WithPool(pool), server.WithAllocatorPool(etAllocPool(t, pool)), server.WithAuditReader(reader), server.WithCursors(kr)}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, lim: lim, tel: tel}
+	return &etEnv{h: h, tokens: tokens, pool: pool, a: a, b: b, super: super, logs: logs, level: level, lim: lim, tel: tel}
 }
 
 func (e *etEnv) do(t *testing.T, method, path, token, idemKey, body string) *httptest.ResponseRecorder {
@@ -701,6 +705,48 @@ func TestDefinitionReaderIsTenantScoped(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A create that starts while another create of the same key and prefix is open
+// waits on the per-tenant advisory lock, and once that one commits it reports
+// the key, never the prefix (TICK-1160). The interleaving is made, not hoped
+// for: tx A creates and stays open; tx B is seen waiting on the advisory lock
+// in pg_locks before A commits. Without the lock in Create, B passes both
+// checks and blocks on the unique index instead, so the wait is never seen and
+// the test fails.
+func TestCreateWaitsBehindOpenCreateAndReportsTheKey(t *testing.T) {
+	e := newETEnv(t)
+	in := entitytypes.NewInput{Name: "T", PublishedBy: e.a.admin.PrincipalID, Definition: etDefinition(t, "race_key", "RAC")}
+	create := func(tx pgx.Tx) error {
+		_, err := (entitytypes.Store{}).Create(t.Context(), tx, e.a.id, in)
+		return err
+	}
+	second := make(chan error, 1)
+	if err := tenancy.InTenantTx(t.Context(), e.pool, e.a.id, func(tx pgx.Tx) error {
+		if err := create(tx); err != nil {
+			return err
+		}
+		go func() { second <- tenancy.InTenantTx(t.Context(), e.pool, e.a.id, create) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting bool
+			if err := e.super.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)").Scan(&waiting); err != nil {
+				return err
+			}
+			if waiting {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return errors.New("the second create never waited on the advisory lock")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; !errors.Is(err, entitytypes.ErrKeyExists) {
+		t.Fatalf("second create = %v, want ErrKeyExists", err)
 	}
 }
 

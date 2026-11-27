@@ -36,7 +36,8 @@ const (
 type TxOption func(*txOptions)
 
 type txOptions struct {
-	beginInFirstBatch bool
+	beginInFirstBatch    bool
+	synchronousCommitOff bool
 }
 
 // BeginInFirstBatch makes InTenantTx open its transaction, and set the
