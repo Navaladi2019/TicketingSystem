@@ -5,11 +5,11 @@ status: delivered
 normative: docs/architecture/audit-verify.md
 sources: [docs/architecture/audit-verify.md, docs/architecture/audit-sealer.md, internal/audit, cmd/nava, docs/acceptance/S13/README.md, docs/adr/ADR-004-audit-log.md, docs/security/accepted-risks.md]
 evidence: [docs/acceptance/S13/README.md]
-adrs: [ADR-004]
+adrs: [ADR-004, ADR-004-E1, ADR-004-E10]
 stories: [S13, S15, S16]
 tables: [audit_log, audit_chain_head]
 packages: [internal/audit, cmd/nava]
-tests: [TestAdversarialTenantRelabelBreaksChain, TestSealTenantIsolation, TestConcurrentSealersNeverDuplicateSeq, TestChainBreaks, TestEveryFieldIsHashed, TestGoldenVectorsTampered, TestTamperedExportsFail, TestFilteredExportsVerify, TestUnfilteredExportVerifies, TestSeqDuplicateAndMissing, TestAfterSeqAnchorsOnThatSeq, TestStubsOmitted, TestExitCodes, TestHelpDocumentsExitCodes, TestImportBoundary, TestOfflineImports, TestAppendTenantFromTransaction, TestAppendNoTenant, TestUnsealedTenantMismatch]
+tests: [TestDiffNULEscapedMember, TestDiffNULEscapedEncodings, TestAdversarialTenantRelabelBreaksChain, TestSealTenantIsolation, TestConcurrentSealersNeverDuplicateSeq, TestChainBreaks, TestEveryFieldIsHashed, TestGoldenVectorsTampered, TestTamperedExportsFail, TestFilteredExportsVerify, TestUnfilteredExportVerifies, TestSeqDuplicateAndMissing, TestAfterSeqAnchorsOnThatSeq, TestStubsOmitted, TestExitCodes, TestHelpDocumentsExitCodes, TestImportBoundary, TestOfflineImports, TestAppendTenantFromTransaction, TestAppendNoTenant, TestUnsealedTenantMismatch]
 ---
 
 ## Boundary
@@ -31,6 +31,18 @@ unrecorded erasure is reported as tampered.
   `internal/audit/verify`) streams the export once and recomputes every hash.
   It links no network, database or platform package other than the chain and
   verify packages, so it runs on an auditor's machine.
+
+**The one optional envelope member (ADR-004-E10).** Every envelope member is
+always emitted except `diff_nul_escaped`, which the canonical form writes as
+`"diff_nul_escaped":true` only when the column is true and omits when it is
+false. Every row written before E10 is false, so its canonical bytes, its
+`envelope_sha256` and its `entry_hash` are unchanged and old chains verify as
+they did: no cut-over, no envelope version, no re-hash. One value has one
+encoding: absent is false, `true` is true, and `false` or `null` is
+`malformed_line`. Flipping the column or stripping the member from a line
+gives `envelope_sha256_mismatch`. Proof: `TestDiffNULEscapedMember`,
+`TestDiffNULEscapedEncodings`, and the `diff_nul_escaped` set-and-cleared
+lines in the tampered vectors.
 
 | Outcome | Exit | When |
 |---|---|---|
@@ -63,6 +75,7 @@ sequenceDiagram
 | Relabel an entry to another tenant | `TestAdversarialTenantRelabelBreaksChain`, `TestUnsealedTenantMismatch` |
 | Sealers of two tenants, or two sealers of one tenant | `TestSealTenantIsolation`, `TestConcurrentSealersNeverDuplicateSeq` |
 | Change any field | `TestEveryFieldIsHashed`, `TestChainBreaks` |
+| Flip or strip `diff_nul_escaped` (E10) | `TestDiffNULEscapedMember`, `TestDiffNULEscapedEncodings` |
 | Byte edits, deleted or duplicated lines, re-anchoring | `TestGoldenVectorsTampered`, `TestTamperedExportsFail`, `TestSeqDuplicateAndMissing`, `TestAfterSeqAnchorsOnThatSeq` |
 | Honest exports still verify | `TestFilteredExportsVerify`, `TestUnfilteredExportVerifies`, `TestStubsOmitted` |
 | Exit codes are stable and documented | `TestExitCodes`, `TestHelpDocumentsExitCodes` |
