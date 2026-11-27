@@ -51,24 +51,43 @@ type env struct {
 	g       *catalog.GlobalTables
 	tables  []catalog.TenantTable
 	report  report
+	// reportPath is NAVA_ISOLATION_REPORT; every recorded row rewrites it.
+	reportPath string
 }
 
 func password(role string) string { return "test-pw-" + role }
 
 func TestMain(m *testing.M) {
-	ctx := context.Background()
-	e, err := setup(ctx)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "isolation setup:", err)
-		os.Exit(1)
-	}
-	suite = e
-	code := m.Run()
 	path := os.Getenv("NAVA_ISOLATION_REPORT")
 	if path == "" {
 		path = "isolation-report.md"
 	}
-	if err := os.WriteFile(path, []byte(e.report.markdown(code == 0)), 0o600); err != nil {
+	// The crash test's child (report_crash_isolation_test.go): no cluster,
+	// only the report, and a test that never returns.
+	if os.Getenv(reportCrashChildEnv) != "" {
+		suite = &env{reportPath: path}
+		os.Exit(m.Run())
+	}
+	e, err := setup(context.Background())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "isolation setup:", err)
+		if werr := writeReport(path, report{}.markdown(resultFail, err.Error())); werr != nil {
+			fmt.Fprintln(os.Stderr, "isolation report:", werr)
+		}
+		os.Exit(1)
+	}
+	e.reportPath = path
+	suite = e
+	// From here every recorded row rewrites the report as INCOMPLETE, so a
+	// panic or a -timeout in m.Run still leaves every finished row (TICK-1180).
+	e.flushReport()
+	code := m.Run()
+	result := resultPass
+	if code != 0 {
+		result = resultFail
+	}
+	e.report.running = ""
+	if err := writeReport(path, e.report.markdown(result, "")); err != nil {
 		fmt.Fprintln(os.Stderr, "isolation report:", err)
 		code = 1
 	}

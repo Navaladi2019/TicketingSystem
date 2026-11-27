@@ -5,7 +5,7 @@
 # (scripts/ci/pgbouncer/isolation.ini). The suite rebuilds the roles and the
 # platform database itself, seeds tenants A and B, and writes its report to
 # ISOLATION_REPORT (default isolation-report.md at the repository root), the
-# CI artifact. Needs Docker. Extra arguments go to `go test`.
+# CI artifact, after every row, so a red or killed run still leaves one. Needs Docker. Extra arguments go to `go test`.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -27,8 +27,25 @@ labels="--label nava.ci.run=nava-iso-$id --label nava.ci.owner=${COMPOSE_PROJECT
 # INT and TERM stop the running go command and exit through the EXIT trap.
 # Never `exec` the last command: exec drops the EXIT trap (TICK-185).
 fgpid=""
-# rm -v: the cluster's anonymous data volume too (TICK-641).
-trap 'docker rm -fv "$pg" "$bouncer" >/dev/null 2>&1 || true; docker network rm "$net" >/dev/null 2>&1 || true' EXIT
+# pwd -W: a path Go on Windows (Git Bash) can open.
+NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
+export NAVA_ISOLATION_REPORT
+# The suite rewrites the report after every row, so even a panic or a
+# -timeout leaves one (TICK-1180). Remove a stale one first; if this run
+# stops before the suite writes its own (vet, the containers), leave one
+# that says so, so the artifact never silently shows an older run.
+rm -f "$NAVA_ISOLATION_REPORT"
+cleanup() {
+    rc=$?
+    # rm -v: the cluster's anonymous data volume too (TICK-641).
+    docker rm -fv "$pg" "$bouncer" >/dev/null 2>&1 || true
+    docker network rm "$net" >/dev/null 2>&1 || true
+    if [ ! -s "$NAVA_ISOLATION_REPORT" ]; then
+        printf '# Tenant isolation suite (T11)\n\nResult: **FAIL**. make isolation exited %s before the suite wrote a report (go vet, the containers or the go command failed); see the job log.\n' \
+            "$rc" >"$NAVA_ISOLATION_REPORT" || true
+    fi
+}
+trap cleanup EXIT
 trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 130' INT
 trap '[ -z "$fgpid" ] || kill "$fgpid" 2>/dev/null; exit 143' TERM
 # fgrun <command>: as in test-integration.sh, so a signal reaches the trap at once.
@@ -71,9 +88,7 @@ done
 hostport() { docker port "$1" 5432/tcp | head -n 1 | sed 's/.*://'; }
 NAVA_TEST_PG_URL="postgres://pgadmin:test-only@127.0.0.1:$(hostport "$pg")/postgres"
 NAVA_ISOLATION_PGBOUNCER_ADDR="127.0.0.1:$(hostport "$bouncer")"
-# pwd -W: a path Go on Windows (Git Bash) can open.
-NAVA_ISOLATION_REPORT="${ISOLATION_REPORT:-$(pwd -W 2>/dev/null || pwd)/isolation-report.md}"
-export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR NAVA_ISOLATION_REPORT
+export NAVA_TEST_PG_URL NAVA_ISOLATION_PGBOUNCER_ADDR
 
 # With no extra arguments, tools/ci/suiteran (TICK-230) also fails the run
 # when a registered isolation suite ran zero tests. Extra arguments (a -run
