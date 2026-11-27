@@ -59,9 +59,18 @@ mkdir -p "$(dirname "$NAVA_PERF_OUT")"
 # Every 10 s, the other database workloads on the Docker VM (integration
 # clusters, CI stacks, other benches): a scenario that ran while one was up is
 # contended, and its numbers say so (TICK-621).
+# Each docker ps has an 8 s timeout, so a slow daemon never stalls the sampler
+# (TICK-1105). A call that times out writes a DOCKER_PS_TIMEOUT line instead
+# of leaving a gap: a missing line means the host stopped (a suspend), a
+# timeout line does not.
 (
     while :; do
-        echo "$(date -u +%H:%M:%S) $(docker ps --format '{{.Names}}' | grep -E '^(nava-it-|nava-ci-|nava-aclperf-)' | grep -v "^$pg\$" | tr '\n' ' ')"
+        t0=$(date -u +%H:%M:%S)
+        if names=$(timeout 8 docker ps --format '{{.Names}}'); then
+            echo "$t0 $(printf '%s\n' "$names" | grep -E '^(nava-it-|nava-ci-|nava-aclperf-)' | grep -v "^$pg\$" | tr '\n' ' ')"
+        else
+            echo "$t0 DOCKER_PS_TIMEOUT no answer from docker ps within 8 s"
+        fi
         sleep 10
     done
 ) > "$NAVA_PERF_OUT.contention" 2>/dev/null &
