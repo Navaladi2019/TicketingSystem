@@ -351,38 +351,113 @@ func (e *perfEnv) wideSetup(t *testing.T) {
 // md5UUID is PostgreSQL's md5(s)::uuid.
 func md5UUID(s string) uuid.UUID { return uuid.UUID(md5.Sum([]byte(s))) }
 
-// perfRecordsScan matches a plan line that scans records or one of its
-// indexes.
-var perfRecordsScan = regexp.MustCompile(`(Scan using records_\w+|Scan on records\b|Bitmap Index Scan on records_\w+)`)
+// perfPlanNode is a plan line's node: its "->" column, its text and its
+// actual rows and loops.
+var (
+	perfPlanActual  = regexp.MustCompile(`actual time=[\d.]+\.\.[\d.]+ rows=(\d+) loops=(\d+)`)
+	perfPlanRemoved = regexp.MustCompile(`Rows Removed by Filter: (\d+)`)
+	perfPlanExec    = regexp.MustCompile(`Execution Time: ([\d.]+) ms`)
+	perfRecordsScan = regexp.MustCompile(`((?:Parallel )?(?:Index Only Scan|Index Scan|Seq Scan|Bitmap Heap Scan)(?: using \w+)? on records)\b`)
+)
 
-// countPlan summarises the count statements' records scans of a captured
-// request (A3-R2, A4-10): each statement whose SQL counts, with the scan
-// lines of its plan, and whether one is an Index Only Scan of
-// records_list_updated.
-func countPlan(r *perfResult) string {
-	var parts []string
-	ios := false
-	for i, s := range r.stmtSQL {
-		if i >= len(r.explains) || r.explains[i] == "" || !strings.Contains(strings.ToLower(s.SQL), "count(") {
+// perfArm is one scan of records in a count plan (A4-10 ruling, items 1-2).
+type perfArm struct {
+	class      string // e.g. "Index Scan using records_number_key on records"
+	tenantCond bool   // the Index Cond (or Recheck Cond) starts with tenant_id
+	rowsRead   int64  // (actual rows + rows removed by filter) x loops
+	regional   bool   // the arm carries the region term
+}
+
+// planArms finds the records scans of an EXPLAIN (ANALYZE) text. A node's
+// detail block is every following line indented deeper than its "->", up
+// to its first SubPlan or child node.
+func planArms(plan string) []perfArm {
+	lines := strings.Split(plan, "\n")
+	var out []perfArm
+	for i, l := range lines {
+		m := perfRecordsScan.FindStringSubmatch(l)
+		if m == nil {
 			continue
 		}
-		var scans []string
-		for _, l := range strings.Split(r.explains[i], "\n") {
-			if perfRecordsScan.MatchString(l) {
-				scans = append(scans, strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(l), "->")))
+		col := strings.Index(l, "->")
+		a := perfArm{class: m[1]}
+		var rows, loops, removed int64
+		if am := perfPlanActual.FindStringSubmatch(l); am != nil {
+			rows, _ = strconv.ParseInt(am[1], 10, 64)
+			loops, _ = strconv.ParseInt(am[2], 10, 64)
+		}
+		for _, d := range lines[i+1:] {
+			t := strings.TrimSpace(d)
+			ind := len(d) - len(strings.TrimLeft(d, " "))
+			if ind <= col || strings.HasPrefix(t, "->") || strings.HasPrefix(t, "SubPlan") || strings.HasPrefix(t, "InitPlan") {
+				break
 			}
-			if strings.Contains(l, "Index Only Scan using records_list_updated") {
-				ios = true
+			switch {
+			case strings.HasPrefix(t, "Index Cond:"), strings.HasPrefix(t, "Recheck Cond:"):
+				c := strings.TrimLeft(strings.TrimSpace(t[strings.Index(t, ":")+1:]), "(")
+				a.tenantCond = strings.HasPrefix(c, "tenant_id ")
+				if strings.Contains(t, "org_unit_id") {
+					a.regional = true
+				}
+			case strings.HasPrefix(t, "Filter:"):
+				if strings.Contains(t, "hashed SubPlan") || strings.Contains(t, "org_unit_id") {
+					a.regional = true
+				}
+			}
+			if rm := perfPlanRemoved.FindStringSubmatch(t); rm != nil && removed == 0 {
+				removed, _ = strconv.ParseInt(rm[1], 10, 64)
 			}
 		}
-		parts = append(parts, fmt.Sprintf("stmt %d: %s", i+1, strings.Join(scans, "; ")))
+		a.rowsRead = (rows + removed) * loops
+		out = append(out, a)
 	}
-	if len(parts) == 0 {
-		return "no count statement"
+	return out
+}
+
+// isListCount reports whether sql is the list's count statement, which ends
+// "LIMIT 1001) c"; the probe's count ends "acl_p" (A2) or is the folded probe.
+func isListCount(sql string) bool {
+	s := strings.TrimSpace(sql)
+	return strings.HasPrefix(s, "SELECT count(*)") && strings.HasSuffix(s, ") c")
+}
+
+// countPlan summarises the list count of a captured request for the A4-10
+// ruling: the count's execution time, whether any arm is an Index Only Scan
+// of records_list_updated, and for the regional arm its plan class, whether
+// its index condition starts with tenant_id and the rows it read against
+// N̂_e.
+func countPlan(r *perfResult, estimate int64) string {
+	for i, s := range r.stmtSQL {
+		if i >= len(r.explains) || r.explains[i] == "" || !isListCount(s.SQL) {
+			continue
+		}
+		return summariseCountPlan(r.explains[i], estimate, i+1)
 	}
-	v := "IOS records_list_updated: **no**"
-	if ios {
-		v = "IOS records_list_updated: yes"
+	return "no list count statement (A2-4: the count is skipped)"
+}
+
+func summariseCountPlan(plan string, estimate int64, stmt int) string {
+	exec := "?"
+	if m := perfPlanExec.FindStringSubmatch(plan); m != nil {
+		exec = m[1]
 	}
-	return v + " (" + strings.Join(parts, " / ") + ")"
+	ios := "no"
+	if strings.Contains(plan, "Index Only Scan using records_list_updated") {
+		ios = "yes"
+	}
+	var arms []string
+	for _, a := range planArms(plan) {
+		if !a.regional {
+			continue
+		}
+		tc := "no"
+		if a.tenantCond {
+			tc = "yes"
+		}
+		arms = append(arms, fmt.Sprintf("%s; Index Cond starts with tenant_id: %s; rows read %d (N̂_e %d)", a.class, tc, a.rowsRead, estimate))
+	}
+	if len(arms) == 0 {
+		arms = []string{"no records scan carries the region term"}
+	}
+	return fmt.Sprintf("stmt %d, count %s ms; IOS of records_list_updated: %s; regional arm: %s", stmt, exec, ios, strings.Join(arms, " / "))
 }

@@ -551,7 +551,7 @@ func (e *perfEnv) regionReport(t *testing.T, results []*perfResult, out string) 
 	b.WriteString("\n## Count plans, wide cell (A3-R2, A4-10)\n\n| Row | Count plan (captured request) |\n| --- | --- |\n")
 	for _, r := range results {
 		if strings.HasPrefix(r.sc.name, "region: wide ") {
-			fmt.Fprintf(&b, "| %s | %s |\n", mdCell(r.sc.name), mdCell(countPlan(r)))
+			fmt.Fprintf(&b, "| %s | %s |\n", mdCell(r.sc.name), mdCell(countPlan(r, perfWideType)))
 		}
 	}
 	path := strings.TrimSuffix(out, filepath.Ext(out)) + "-region.md"
