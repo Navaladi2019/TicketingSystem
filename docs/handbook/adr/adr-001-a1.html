@@ -27,7 +27,7 @@
 <h2 id="decision">Decision</h2>
 <ol>
 <li>Move the Temporal server and API pins to v1.29.7 / v1.53.0 (the SDK stays on its pin). The database schema is updated before the new binary starts.</li>
-<li>No vulnerability-gate exception: the gate must report zero findings. <a href="../adr/adr-001-e4.html">E4</a> corrects when the scan runs and what a failure blocks.</li>
+<li>No vulnerability-gate exception (Decision 3, as reworded by <a href="../adr/adr-001-e4.html">E4</a> E4-1): the scan must report zero findings, with no exception and no allow-list. It runs in <code>govulncheck.yml</code>, beside the same scan of the root module: every second day on <code>main</code>, by hand, and on pull requests as E4 says. A finding that no library update clears is a new decision for the triad, not a pre-approved exception.</li>
 <li><strong>D6-K:</strong> the server refuses to start if any of a list of dynamic-config keys breaks its rule (for example schedules, the batcher and cross-namespace commands must be off).</li>
 <li><strong>D9:</strong> a request that names a workflow type, a task queue or a workflow id is allowed only if every such field is on an allow-list. There is no deny-list. It covers relay starts and signals, worker polls (including the sticky-queue shape) and worker commands.</li>
 <li>The R7 revisit trigger is widened to any Go vulnerability advisory against the pinned server module.</li>
@@ -45,7 +45,7 @@
 <h3>ADR ADR-001-A1</h3><ul><li><a href="../adr/adr-001-a2.html">ADR-001-A2: closing system-workflow and task-queue reach (F2)</a></li><li><a href="../adr/adr-001-e4.html">ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li><li><a href="../security/05-temporal.html">5. Temporal: workflow id, worker guard, Authorizer</a></li><li><a href="../security/index.html">Security and tenant isolation</a></li><li><a href="../system/temporal-server.html">temporal-server</a></li></ul>
 <h3>ADR ADR-001-E4</h3><ul><li><a href="../adr/adr-001-a7.html">ADR-001-A7: the vulnerability scan runs without make</a></li><li><a href="../adr/adr-001-e4.html">ADR-001-E4: when the vulnerability scan runs, and what a failure blocks</a></li><li><a href="../adr/adr-001.html">ADR-001: Platform blueprint</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 5a2e5b05897c (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ f4cb3cd716f1 (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

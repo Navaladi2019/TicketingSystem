@@ -20,7 +20,7 @@
 <p class="badge">In progress: not on main yet</p>
 <article>
 <h1 class="page-title">Go toolchain and setup</h1>
-<p>The Go version every module builds with, what a developer installs to build and test without the stack, and where the version is pinned. Status: on the story branch <code>TICK-961/go-1-27-upgrade</code> until the Go 1.27 story merges to <code>main</code>; <code>main</code> is still on Go 1.26.11.</p>
+<p>The Go version every module builds with, what a developer installs to build and test without the stack, and where the version is pinned. Go 1.27.4 is on <code>main</code> (TICK-961).</p>
 <h2 id="the-version">The version</h2>
 <table>
 <thead>
@@ -54,6 +54,9 @@
 </table>
 <p><code>go 1.27.0</code> is the floor: an older Go refuses to build the module. The <code>toolchain</code> line makes Go 1.21 or later download and use go1.27.4 when the installed Go is older (<code>GOTOOLCHAIN=auto</code>, the default). The reason for every raise is in <code>docs/pins.md</code> ("Toolchain and CI tools").</p>
 <p>CI never names a version. Every Go job reads it from <code>go-version-file: go.mod</code> (or <code>temporal-server/go.mod</code>), and the pinned-tools cache key ends in <code>-go&lt;version&gt;</code>, so a toolchain bump rebuilds <code>golangci-lint</code> and <code>govulncheck</code> with the new Go. <code>.golangci.yml</code> sets <code>run.go: &quot;1.27&quot;</code>.</p>
+<h2 id="scanned-go-is-shipped-go">Scanned Go is shipped Go</h2>
+<p>The <code>toolchain</code> line of a module's <code>go.mod</code> must equal the version in every <code>FROM golang:</code> of that module: <code>temporal-server/Dockerfile</code> for <code>temporal-server</code>, the seven <code>deploy/compose/nava-*/Dockerfile</code> for the root module (ADR-001-E4 contract rule 8). govulncheck judges the standard library of the <code>toolchain</code> Go; the image ships the Go of its <code>FROM</code> line (the <code>golang</code> images set <code>GOTOOLCHAIN=local</code>). <code>make check-pins</code> fails when they differ, and <code>TestScannedToolchainIsTheShippedToolchain</code> (<code>tools/ci/checkpins</code>, V-5) is red on a lowered Dockerfile. A toolchain bump therefore edits <code>go.mod</code> and every Dockerfile of the module in one pull request.</p>
+<p>No <code>go.work</code> (or <code>go.work.sum</code>) is tracked: one changes the scanned versions without changing <code>go.mod</code> or <code>go.sum</code>, and <code>make check-pins</code> fails on it (<code>TestNoTrackedGoWork</code>). An untracked <code>go.work</code> on a laptop does not count, so the vulnerability recipes (<code>make vulncheck</code>, <code>make vulncheck-temporal-server</code>, <code>task vulncheck</code>) run with <code>GOWORK=off</code>. In CI the scan steps set <code>GOWORK=off</code> in their <code>env:</code> and run govulncheck directly (<a href="../adr/adr-001-a7.html">ADR-001-A7</a>).</p>
 <h2 id="set-up-a-machine">Set up a machine</h2>
 <table>
 <thead>
@@ -138,7 +141,7 @@ task lint                  # golangci-lint, navalint (uuidv7 among them), workfl
 <section class="backlinks"><h2>Also named by</h2>
 <h3>Story GO127</h3><ul><li><a href="../stories/go127.html">GO127: The platform builds on Go 1.27.4, mints only UUIDv7 ids and refuses ambiguous JSON bodies</a></li><li><a href="../system/api-errors.html">API errors and strict JSON bodies</a></li><li><a href="../system/id-generation.html">Id generation</a></li></ul>
 </section>
-<footer><p class="hb-footer">Content generated against main @ 5a2e5b05897c (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ f4cb3cd716f1 (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>

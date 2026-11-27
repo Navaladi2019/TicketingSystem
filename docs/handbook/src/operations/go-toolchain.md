@@ -2,12 +2,12 @@
 title: "Go toolchain and setup"
 section: operations
 status: in-progress
-sources: [go.mod, temporal-server/go.mod, tools/navalint/go.mod, tools/workflowcheck/go.mod, docs/pins.md, .github/workflows/ci.yml, .golangci.yml, deploy/compose/nava-core/Dockerfile, temporal-server/Dockerfile, Taskfile.yml, make/lint.mk, docs/delivery/decisions/2026-11-15-tick-961-go-1-27-upgrade.md]
+sources: [go.mod, temporal-server/go.mod, tools/ci/checkpins/samego.go, tools/ci/checkpins/adversarial_toolchain_test.go, tools/navalint/go.mod, tools/workflowcheck/go.mod, docs/pins.md, .github/workflows/ci.yml, .golangci.yml, deploy/compose/nava-core/Dockerfile, temporal-server/Dockerfile, Taskfile.yml, make/lint.mk, docs/delivery/decisions/2026-11-15-tick-961-go-1-27-upgrade.md]
 stories: [GO127]
 packages: [tools/navalint, tools/workflowcheck]
 ---
 
-The Go version every module builds with, what a developer installs to build and test without the stack, and where the version is pinned. Status: on the story branch `TICK-961/go-1-27-upgrade` until the Go 1.27 story merges to `main`; `main` is still on Go 1.26.11.
+The Go version every module builds with, what a developer installs to build and test without the stack, and where the version is pinned. Go 1.27.4 is on `main` (TICK-961).
 
 ## The version
 
@@ -20,6 +20,12 @@ The Go version every module builds with, what a developer installs to build and 
 `go 1.27.0` is the floor: an older Go refuses to build the module. The `toolchain` line makes Go 1.21 or later download and use go1.27.4 when the installed Go is older (`GOTOOLCHAIN=auto`, the default). The reason for every raise is in `docs/pins.md` ("Toolchain and CI tools").
 
 CI never names a version. Every Go job reads it from `go-version-file: go.mod` (or `temporal-server/go.mod`), and the pinned-tools cache key ends in `-go<version>`, so a toolchain bump rebuilds `golangci-lint` and `govulncheck` with the new Go. `.golangci.yml` sets `run.go: "1.27"`.
+
+## Scanned Go is shipped Go
+
+The `toolchain` line of a module's `go.mod` must equal the version in every `FROM golang:` of that module: `temporal-server/Dockerfile` for `temporal-server`, the seven `deploy/compose/nava-*/Dockerfile` for the root module (ADR-001-E4 contract rule 8). govulncheck judges the standard library of the `toolchain` Go; the image ships the Go of its `FROM` line (the `golang` images set `GOTOOLCHAIN=local`). `make check-pins` fails when they differ, and `TestScannedToolchainIsTheShippedToolchain` (`tools/ci/checkpins`, V-5) is red on a lowered Dockerfile. A toolchain bump therefore edits `go.mod` and every Dockerfile of the module in one pull request.
+
+No `go.work` (or `go.work.sum`) is tracked: one changes the scanned versions without changing `go.mod` or `go.sum`, and `make check-pins` fails on it (`TestNoTrackedGoWork`). An untracked `go.work` on a laptop does not count, so the vulnerability recipes (`make vulncheck`, `make vulncheck-temporal-server`, `task vulncheck`) run with `GOWORK=off`. In CI the scan steps set `GOWORK=off` in their `env:` and run govulncheck directly ([ADR-001-A7](../adr/adr-001-a7.md)).
 
 ## Set up a machine
 
