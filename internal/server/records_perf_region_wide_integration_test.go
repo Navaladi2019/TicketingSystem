@@ -99,14 +99,17 @@ func (e *perfEnv) wideExtras(t *testing.T) map[string]perfExtra {
 
 // wideReqs builds the data on first use (the requests need the tokens), then
 // interleaves each scored request with its base, scored first.
+//
+// It only names the tokens: the data and the tokens' principals are built by
+// wideBefore, when the first wide row starts. Building them here, when the
+// scenarios are listed, would put the wide tenant's 250,000 records in the
+// table before every TICK-1037 row and change how those rows are measured.
 func (e *perfEnv) wideReqs(t *testing.T, persona string) []perfReq {
 	t.Helper()
-	if e.wide == nil {
-		e.wideSetup(t)
-	}
 	path := "/api/v1/records/bench_wide?sort=-updated_at"
-	out := make([]perfReq, 0, 2*len(e.wide.agents))
-	for _, tok := range e.wide.agents {
+	out := make([]perfReq, 0, 2*perfWideActors)
+	for n := 1; n <= perfWideActors; n++ {
+		tok := "wagent-" + strconv.Itoa(n)
 		scored := "r" + tok
 		if persona == "count-only" {
 			scored = "wregion-only"
