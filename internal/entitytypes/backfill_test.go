@@ -50,8 +50,20 @@ func TestQueueBackfillWritesNothingWithoutANewDefault(t *testing.T) {
 	t.Parallel()
 	c := compiledWith(t, "")
 	tx := &fakeTx{t: t} // any database call fails the test
-	if err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 2, uuid.New(), c, c, nil); err != nil {
+	if err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 2, uuid.New(), metadata.Compatible, c, c, nil); err != nil {
 		t.Fatalf("queueBackfill = %v, want nil", err)
+	}
+}
+
+// D1: every needs_backfill publish queues a job, even one that adds no new
+// default (a property that already has one becomes required).
+func TestQueueBackfillNeedsBackfillWithoutANewDefault(t *testing.T) {
+	t.Parallel()
+	c := compiledWith(t, "")
+	tx := &fakeTx{t: t, steps: []step{{execErr: errDB}}}
+	err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 2, uuid.New(), metadata.NeedsBackfill, c, c, nil)
+	if !errors.Is(err, errDB) {
+		t.Fatalf("err = %v, want the job insert to run (and fail)", err)
 	}
 }
 
@@ -62,7 +74,7 @@ func TestQueueBackfillFailures(t *testing.T) {
 	t.Run("job insert fails", func(t *testing.T) {
 		t.Parallel()
 		tx := &fakeTx{t: t, steps: []step{{execErr: errDB}}}
-		err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 2, uuid.New(), prev, next, nil)
+		err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 2, uuid.New(), metadata.Compatible, prev, next, nil)
 		if !errors.Is(err, errDB) {
 			t.Fatalf("err = %v, want the database error", err)
 		}
@@ -71,7 +83,7 @@ func TestQueueBackfillFailures(t *testing.T) {
 		t.Parallel()
 		// Version 0 is out of range: the outbox helper refuses it before any call.
 		tx := &fakeTx{t: t, steps: []step{{tag: "INSERT 0 1"}}}
-		err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 0, uuid.New(), prev, next, nil)
+		err := queueBackfill(context.Background(), tx, uuid.New(), uuid.New(), 0, uuid.New(), metadata.Compatible, prev, next, nil)
 		if err == nil {
 			t.Fatal("err = nil, want the outbox refusal")
 		}

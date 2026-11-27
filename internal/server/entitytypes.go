@@ -531,7 +531,7 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 	// Compile runs whenever the definition decoded, so one response lists the
 	// field errors and the definition errors together.
 	if defOK {
-		if _, err := metadata.Compile(cr.def); err != nil {
+		if _, err := metadata.CompileNew(cr.def); err != nil {
 			var refused *metadata.RefusalError
 			if errors.As(err, &refused) {
 				return cr, refusalProblem(refused, "/definition", err)

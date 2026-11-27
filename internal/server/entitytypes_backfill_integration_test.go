@@ -9,8 +9,10 @@ package server_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -190,5 +192,66 @@ func TestPublishCrossTenantWithADefaultIsNotFoundAndWritesNothingInA(t *testing.
 		if got := etBackfills(t, e, tenant); got != (etBackfillState{}) {
 			t.Errorf("tenant %s rows = %+v, want none", name, got)
 		}
+	}
+}
+
+// D13 applies to a definition being published, not to one already stored
+// (ADR-009 D15 lists those types): a stored version with default +
+// x-nava-unique still compiles, so a record read and a record write on the
+// type still succeed, while a publish with the pair is refused.
+func TestStoredDefaultWithUniqueStillReadsAndWritesButPublishIsRefused(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	stored := strings.Replace(etSchema, `"note": {`, `"code": {"type": "string", "default": "X", "x-nava-unique": true}, "note": {`, 1)
+	sum := sha256.Sum256([]byte(stored))
+	e.superExec(t, `UPDATE entity_definition_versions SET schema = $1::json, schema_sha256 = $2 WHERE tenant_id = $3`, stored, sum[:], e.a.id)
+
+	if rec := e.do(t, http.MethodGet, "/api/v1/entity-types/incident", "admin-a", "", ""); rec.Code != http.StatusOK {
+		t.Fatalf("read of the stored type = %d: %s", rec.Code, rec.Body)
+	}
+	created := e.do(t, http.MethodPost, "/api/v1/records/incident", "user-a", "k-rec", `{"data": {"short_description": "write on a stored default + unique type"}}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("record write = %d: %s", created.Code, created.Body)
+	}
+	var rec struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &rec); err != nil || rec.ID == "" {
+		t.Fatalf("record body = %s (%v)", created.Body, err)
+	}
+	if got := e.do(t, http.MethodGet, "/api/v1/records/incident/"+rec.ID, "user-a", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("record read = %d: %s", got.Code, got.Body)
+	}
+	// Publishing a version that keeps the pair is refused.
+	body := fmt.Sprintf(`{"definition": {"schema": %s, %s}}`, stored, etDefTail)
+	wantProblem(t, e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-pair", body), http.StatusUnprocessableEntity, problem.InvalidDefinition)
+}
+
+// D1: every needs_backfill publish queues a job, including a property that
+// already has a default becoming required (it adds no new default).
+func TestPublishNeedsBackfillWithoutANewDefaultQueuesItsOwnJob(t *testing.T) {
+	e := newETEnv(t)
+	etCreateIncident(t, e)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-v2", etWithDefault(t, "")); rec.Code != http.StatusCreated {
+		t.Fatalf("v2 = %d: %s", rec.Code, rec.Body)
+	}
+	body := etPublishBody(t, `"note": {`, `"severity": {"type": "string", "default": "low"}, "note": {`,
+		`"required": ["short_description", "state"]`, `"required": ["short_description", "state", "severity"]`)
+	if rec := e.do(t, http.MethodPost, etVersionsPath, "admin-a", "k-v3", body); rec.Code != http.StatusCreated {
+		t.Fatalf("v3 = %d: %s", rec.Code, rec.Body)
+	}
+	var compat string
+	if err := e.super.QueryRow(t.Context(), `SELECT compat FROM entity_definition_versions WHERE tenant_id = $1 AND version = 3`, e.a.id).Scan(&compat); err != nil || compat != "needs_backfill" {
+		t.Fatalf("v3 compat = %q (%v), want needs_backfill", compat, err)
+	}
+	var jobs, rows int
+	if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM schema_backfills WHERE tenant_id = $1 AND target_version = 3`, e.a.id).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM outbox WHERE tenant_id = $1 AND kind = 'schema.backfill' AND dedupe_key LIKE '%:3'`, e.a.id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || rows != 1 {
+		t.Errorf("v3 has %d job rows and %d outbox rows, want 1 and 1", jobs, rows)
 	}
 }

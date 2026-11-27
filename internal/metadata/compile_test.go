@@ -217,16 +217,6 @@ func TestCompileRefuses(t *testing.T) {
 			want:   "/schema/default",
 		},
 		{
-			// ADR-009 D13 (CI-10): a default would give every record that
-			// lacks the key the same unique value.
-			name: "default with x-nava-unique",
-			mutate: func(_ *metadata.Definition, s map[string]any) {
-				prop(s, "code")["default"] = "X"
-				prop(s, "code")[metadata.UniqueKeyword] = true
-			},
-			want: "/schema/properties/code/default",
-		},
-		{
 			name: "nested x-nava-unique",
 			mutate: func(_ *metadata.Definition, s map[string]any) {
 				props(s)["address"] = map[string]any{"type": "object", "properties": map[string]any{
@@ -459,4 +449,23 @@ func TestCompileFixedColumnClashIsDeterministic(t *testing.T) {
 			t.Fatalf("paths = %s, want the clash after a_req: m_req and z_req", got)
 		}
 	}
+}
+
+// ADR-009 D13 (CI-10): CompileNew refuses default + x-nava-unique; Compile
+// accepts it, so a stored version with the pair still reads.
+func TestCompileNewRefusesDefaultWithUnique(t *testing.T) {
+	s := baseSchema()
+	prop(s, "code")["default"] = "X"
+	delete(prop(s, "code"), metadata.UniqueKeyword)
+	d := baseDefinition(t, s)
+	if _, err := metadata.CompileNew(d); err != nil {
+		t.Fatal(err)
+	}
+	prop(s, "code")[metadata.UniqueKeyword] = true
+	d = baseDefinition(t, s)
+	if _, err := metadata.Compile(d); err != nil {
+		t.Fatalf("Compile of a stored default + x-nava-unique = %v, want nil", err)
+	}
+	_, err := metadata.CompileNew(d)
+	wantPath(t, err, "/schema/properties/code/default")
 }

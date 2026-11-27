@@ -28,10 +28,12 @@ func addsDefault(prev, next *metadata.Compiled) bool {
 // (pending, default_keys = every top-level default of the new version,
 // causation = the publish's config audit entry) and its outbox start row
 // (ADR-009 D1, contract C3) when the new version adds a default. A version
-// that adds none writes neither. A replay of the same publish finds both rows
+// that is not needs_backfill and adds none writes neither (D1: every
+// needs_backfill publish writes the job, even one that adds no new default,
+// such as a property with a default becoming required). A replay of the same publish finds both rows
 // already there (same primary key and dedupe key) and writes nothing more.
-func queueBackfill(ctx context.Context, tx pgx.Tx, tenantID, defID uuid.UUID, version int, auditID uuid.UUID, prev, next *metadata.Compiled, after func() error) error {
-	if !addsDefault(prev, next) {
+func queueBackfill(ctx context.Context, tx pgx.Tx, tenantID, defID uuid.UUID, version int, auditID uuid.UUID, class metadata.Compat, prev, next *metadata.Compiled, after func() error) error {
+	if class != metadata.NeedsBackfill && !addsDefault(prev, next) {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `

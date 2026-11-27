@@ -260,7 +260,7 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 	}
 	// Flags in version 1 get their registry and backfill rows and count against
 	// the quota like those of a publish (ADR-006 D8, D12).
-	compiled, err := metadata.Compile(d)
+	compiled, err := metadata.CompileNew(d)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: compile created definition: %w", err)
 	}
@@ -295,7 +295,7 @@ type SeedInput struct {
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
-	if c, err := metadata.Compile(d); err != nil {
+	if c, err := metadata.CompileNew(d); err != nil {
 		return false, fmt.Errorf("entitytypes: compile seeded definition: %w", err)
 	} else if len(c.Filterable()) > 0 {
 		return false, ErrSeedFilterable
@@ -399,7 +399,7 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
 		return nil, err
 	}
-	next, err := metadata.Compile(d)
+	next, err := metadata.CompileNew(d)
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +458,7 @@ UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id 
 	if err != nil {
 		return nil, err
 	}
-	if err := queueBackfill(ctx, tx, tenantID, defID, number, auditID, prev, next, in.AfterBackfillQueued); err != nil {
+	if err := queueBackfill(ctx, tx, tenantID, defID, number, auditID, class, prev, next, in.AfterBackfillQueued); err != nil {
 		return nil, err
 	}
 	return s.GetVersion(ctx, tx, in.Key, number)
