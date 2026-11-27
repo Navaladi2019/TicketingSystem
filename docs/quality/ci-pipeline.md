@@ -164,13 +164,60 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit` | under 5 min | | | | 10 |
-| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021): 391 s in `ci:full` run 44771237892, so 15 is a hang guard with 130 % margin | | | | 15 (was 10) |
+| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021): 391 s in `ci:full` run 44771237892, so 15 is a hang guard with 130 % margin. 58 green runs on 2026-11-27: 395 s / 884 s, p50 535 s, p95 858 s; `main` alone 395 s / 682 s; run 46064898762 (PR #931) cancelled at 15 with every group `ok` (TICK-1199, see **integration budget** below) | | | | 20 (was 15, before that 10) |
 | `isolation-not-needed` (check name `isolation`) | a pull request with a docs-only diff and no suite run (TICK-1193): one `make isolation-not-needed`, seconds | | | | 5 |
 | `isolation` | full runs and every `ci:run`/`ci:full` pull request run (TICK-1003, TICK-1146): the suite 148 s and `test-integration-cleanup` 50 to 76 s in run 44604840061; measured job times in the TICK-1003 pull request | | | | 15 |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
+
+**integration budget (TICK-1199).** The `integration` job has a
+`timeout-minutes` of 20 on GitHub-hosted runners (30 self-hosted).
+
+| Line | Value | What happens |
+|---|---|---|
+| Target | p95 at most 12 min (720 s) of job wall clock | none; this is where a healthy run sits |
+| Alert | 80 % of the timeout: 16 min (960 s) of job time, i.e. tests done after 900 s in `scripts/ci/test-integration.sh` (the job spends about 45 s outside the script) | the step prints a `::warning title=integration over budget::` annotation on the run, which stays green. Whoever sees it (the PR author, the reviewer, the Quality advisor) opens an issue labelled `Performance pending` with the run id and the per-group times |
+| Timeout | 20 min | GitHub cancels the job, and the run is red. Do not rerun a red job without opening the issue as well |
+
+**What the issue does.** It rebalances the groups. It does not raise the
+timeout again unless it has new measurements. The order to try:
+
+1. Move a shared-group package that needs only `NAVA_TEST_PG_URL` to
+   `NAVA_IT_SOLO`. A package that uses the PgBouncers (`records/pipeline`)
+   cannot move.
+2. Split a solo package that is over about 70 % of the per-process Go
+   `-timeout` (11m, so about 460 s) into more processes. This is
+   `NAVA_IT_SOLO_SHARDS`, which arrives on `main` with the `TICK-740` story
+   branch.
+3. Add `DBTEST_SHARDS` when a dbtest shard becomes the longest group.
+
+**Measured for TICK-1199.** Sample: the last 100 `ci` runs, which held 58
+green `integration` jobs, all from 2026-11-27. The serial `shared` group
+(`-p 1`) is the critical path, not `internal/server`:
+
+| Run (job) | Branch kind | Job | Shared, sum | `records/pipeline` | `groupsync` | `server` (each process) | dbtest shards |
+|---|---|---|---|---|---|---|---|
+| 46054582343 (140691904264) | PR into main | 649 s | about 580 s | 277 s | 133 s | 526 s (one) | 164 to 193 s |
+| 46051156428 (140689581797) | PR into `TICK-740/search-finish` | 884 s | about 700 s | 299 s | 175 s | 479 / 503 s (two) | 224 to 266 s |
+| 46044613739 (140660783028) | PR into `TICK-740/search-finish` | 871 s | about 690 s | 291 s | 172 s | 454 / 488 s (two) | 221 to 257 s |
+
+The story branch adds `fieldindex/backfill` (about 44 s) and `schemabackfill`
+(about 17 s) to the shared group. It also starts eight containers instead of
+six, and on its runs the clusters became healthy after 60 to 115 s instead of
+about 21 s. Moving `groupsync` (130 to 175 s) to its own cluster shortens the
+chain to about 530 s on the story branch. Then `server` and `shared` are
+about equal, and the job should take about 11 to 12 min. A single
+`internal/server` process on `main` (526 to 556 s) is already over the 460 s
+split line. The story branch's `NAVA_IT_SOLO_SHARDS=2` fixes that when it
+merges.
+
+**Acceptance.** `integration` takes at most 80 % of its timeout on five
+consecutive runs on `main`. With a 20-minute timeout that is 960 s; the last
+ten green runs on `main` took 395 to 682 s. To read it:
+`gh run list --workflow ci --branch main`, then each run's `integration` job
+times (`gh api repos/<owner>/<repo>/actions/runs/<id>/jobs`).
 
 **Stack case `s28_first_routed_record` (TICK-884).** A full-tier case of the
 `stack` job: it runs on a full run (`ci:full`, the daily run, a manual run) and
@@ -299,8 +346,8 @@ production files never do (TICK-153 O1).
 
 Four kinds of group run at once (TICK-153 O3, TICK-1021): dbtest's top-level
 tests, dealt round-robin over the shard clusters, one `go test -run` each; each
-`NAVA_IT_SOLO` package (default `./internal/server`) alone on a cluster of its
-own (`[solo-server]`); the other packages that use the shared cluster
+`NAVA_IT_SOLO` package (default `./internal/server ./internal/groupsync`,
+TICK-1199) alone on a cluster of its own (`[solo-server]`, `[solo-groupsync]`); the other packages that use the shared cluster
 (`pooltest`, `tenancy`, `records/pipeline` and the rest, `-p 1`, since they
 create the same role); and the packages that use none (`health`, which starts
 its own container). A solo package must not need the PgBouncers, which front
