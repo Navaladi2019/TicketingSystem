@@ -98,11 +98,7 @@ func v3Edits() []v3Edit {
 			return []string{ind + "if: github.actor == 'nobody'", ind + run}
 		})},
 		{"b job if", insertAt(`^jobs:\s*$`, true, "  vulncheck-root-gone:", "    if: github.event_name == 'never'", "    runs-on: ubuntu-latest", "    steps:", "      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...")},
-		{"b job if on the scanning job", func(t *testing.T, wf string) string {
-			lines := strings.Split(wf, "\n")
-			j := lineIndex(t, lines, `^  vulncheck-root:\s*$`)
-			return strings.Join(append(lines[:j+1], append([]string{"    if: github.event_name == 'never'"}, lines[j+1:]...)...), "\n")
-		}},
+		{"b job if on the scanning job", replaceLine(`^    if: needs\.vulncheck-detect\.outputs\.root == 'true'\s*$`, "    if: github.event_name == 'never'")},
 		{"c exit 0 before the scan line", atScanLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + "run: |", ind + "  exit 0", ind + "  " + strings.TrimPrefix(run, "run: ")}
 		})},
@@ -135,8 +131,10 @@ func v3Edits() []v3Edit {
 		{"trailing comment changed", atScanLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + run + " # || true"}
 		})},
-		{"indentation changed", atScanLine("vulncheck", func(ind, run string) []string {
-			return []string{ind + " " + run}
+		// Still YAML (the workflow is parsed), and the same schedule.
+		{"indentation changed", replaceLine(`^    - cron: `, "  - cron: '17 3 */2 * *'")},
+		{"spacing after run: changed", atScanLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + strings.Replace(run, "run: ", "run:  ", 1)}
 		})},
 		// TICK-1187 Test 4 (ADR-001-A7 V-3): the scan's pinned environment
 		// is part of the copy; dropping GOTOOLCHAIN: local from one scan
@@ -217,7 +215,6 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 		"header comment added":   func(_ *testing.T, wf string) string { return "# a new note\n" + wf },
 		"comment removed":        func(_ *testing.T, wf string) string { return regexp.MustCompile(`(?m)^#.*\n`).ReplaceAllString(wf, "") },
 		"indented comment added": insertAt(`^\s+run: go run golang\.org/x/vuln/cmd/govulncheck@`, false, "        # the root module"),
-		"tab-indented comment":   insertAt(`^jobs:\s*$`, true, "\t# note"),
 		// TICK-1167 AC 3: a comment after a run: | block, no deeper than
 		// the block's header line, is a YAML comment.
 		"comment after a run: | block": insertAt(`^  vulncheck-root:\s*$`, false, "        # after the block"),

@@ -131,6 +131,9 @@ func TestCopyWorkflowNotYAML(t *testing.T) {
 	for name, body := range map[string]string{
 		"not yaml":          "jobs: [\n",
 		"run is a sequence": "jobs:\n  a:\n    steps:\n      - run: [make, x]\n",
+		// A tab before a comment is not YAML; GitHub would not run the
+		// workflow at all.
+		"tab-indented comment": "jobs:\n\t# note\n  a:\n    steps:\n      - run: 'true'\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			p, cp := writeBoth(t, body)

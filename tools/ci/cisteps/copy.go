@@ -14,8 +14,12 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 // checkCopy returns the problems of workflowPath against copyPath, or an
@@ -47,8 +51,26 @@ var makeWord = regexp.MustCompile(`(^|[\s;&|(])make(\s|$)`)
 
 // makeSteps returns one problem per step of workflowPath whose run: has a
 // line that runs make, by job id and 1-based step number.
+// The workflow is read as YAML, so a block scalar (run: |, run: >-) is
+// checked as the string the runner gets, line by line. A run: that is not a
+// string is an error.
 func makeSteps(workflowPath string) ([]string, error) {
-	return nil, nil // TICK-1187: red first
+	var wf struct {
+		Jobs map[string]job `yaml:"jobs"`
+	}
+	if err := decode(workflowPath, &wf); err != nil {
+		return nil, err
+	}
+	name := filepath.Base(workflowPath)
+	var problems []string
+	for _, id := range slices.Sorted(maps.Keys(wf.Jobs)) {
+		for i, s := range wf.Jobs[id].Steps {
+			if slices.ContainsFunc(strings.Split(s.Run, "\n"), makeWord.MatchString) {
+				problems = append(problems, fmt.Sprintf("%s job %s step %d: runs make (ADR-001-A7 rule 9)", name, id, i+1))
+			}
+		}
+	}
+	return problems, nil
 }
 
 // numbered is a line of a file and its 1-based line number.
