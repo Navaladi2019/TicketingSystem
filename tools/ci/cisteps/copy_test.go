@@ -34,18 +34,21 @@ func recipesWith(target, recipe string) makeRunner {
 				return []byte(globals), nil
 			}
 			db := globals
-			for _, r := range pinnedRecipes() {
+			for _, r := range append(pinnedRecipes(), envRule()) {
 				db += r.target + ":\n#  recipe to execute (from 'make/lint.mk', line 1):\n\t" + r.recipe + "\n\n"
 			}
 			return []byte(db), nil
 		}
 		t := args[len(args)-1]
+		if t == envGoal {
+			return []byte("PATH=/usr/bin\nHOME=/home/ci\n"), nil
+		}
 		if t == target {
 			return []byte(recipe + "\n"), nil
 		}
 		for _, r := range pinnedRecipes() {
 			if r.target == t {
-				return []byte(r.recipe + "\n"), nil
+				return []byte(r.dryRun() + "\n"), nil
 			}
 		}
 		return nil, errors.New("no such target")
@@ -168,6 +171,10 @@ func v3Edits() []v3Edit {
 			return []string{ind + " run: make vulncheck"}
 		})},
 		{"blank line added", insertAt(`^jobs:\s*$`, true, "")},
+		// TICK-1167 AC 3: a # line inside a run: | block is the step's
+		// input, not a YAML comment.
+		{"# line inside a run: | block", insertAt(`^\s+git show origin/main:scripts/ci/vulncheck-detect\.sh`, true, `          # sh "$RUNNER_TEMP/stub.sh"`)},
+		{"# line replaces a run: | line", replaceLine(`^\s+sh "\$RUNNER_TEMP/vulncheck-detect\.sh"`, `          # sh "$RUNNER_TEMP/vulncheck-detect.sh"`)},
 		{"last line dropped", func(t *testing.T, wf string) string {
 			return strings.TrimRight(wf, "\n")[:strings.LastIndex(strings.TrimRight(wf, "\n"), "\n")+1]
 		}},
@@ -216,13 +223,18 @@ func TestCopyCatchesWorkflowEdits(t *testing.T) {
 // V-3 (AC 2 j): `|| true` in either recipe fails, with the recipe named.
 func TestCopyCatchesRecipeEdits(t *testing.T) {
 	for _, r := range pinnedRecipes() {
-		for name, recipe := range map[string]string{
-			"or true":         r.recipe + " || true",
-			"GOWORK dropped":  strings.Replace(r.recipe, "GOWORK=off ", "", 1),
-			"a second line":   r.recipe + "\necho scanned",
-			"a make warning":  "make: warning: something\n" + r.recipe,
+		cases := map[string]string{
+			"or true":         r.dryRun() + " || true",
+			"a second line":   r.dryRun() + "\necho scanned",
+			"a make warning":  "make: warning: something\n" + r.dryRun(),
 			"nothing printed": "",
-		} {
+		}
+		if strings.Contains(r.dryRun(), "GOWORK=off ") {
+			cases["GOWORK dropped"] = strings.Replace(r.dryRun(), "GOWORK=off ", "", 1)
+		} else {
+			cases["version @latest"] = strings.Replace(r.dryRun(), "@"+govulncheckVersion, "@latest", 1)
+		}
+		for name, recipe := range cases {
 			t.Run(r.target+"/"+name, func(t *testing.T) {
 				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), recipesWith(r.target, recipe))
 				if err != nil {
@@ -287,6 +299,7 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		var mk strings.Builder
+		mk.WriteString("GOVULNCHECK_VERSION := " + govulncheckVersion + "\n")
 		for _, o := range pinnedRecipes() {
 			if o.target == target {
 				mk.WriteString(edit(o.target, o.recipe))
@@ -309,6 +322,7 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 	for _, r := range pinnedRecipes() {
 		for _, c := range makeEdits(trueBin) {
 			t.Run(r.target+"/"+c.name, func(t *testing.T) {
+				t.Parallel()
 				dir := write(t, r.target, c.edit)
 				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
 				if err != nil {
@@ -351,6 +365,9 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 		"comment removed":        func(_ *testing.T, wf string) string { return regexp.MustCompile(`(?m)^#.*\n`).ReplaceAllString(wf, "") },
 		"indented comment added": atMakeLine("vulncheck", func(ind string) []string { return []string{ind + "# the root module", ind + "run: make vulncheck"} }),
 		"tab-indented comment":   insertAt(`^jobs:\s*$`, true, "\t# note"),
+		// TICK-1167 AC 3: a comment after a run: | block, no deeper than
+		// the block's header line, is a YAML comment.
+		"comment after a run: | block": insertAt(`^  vulncheck-root:\s*$`, false, "        # after the block"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			edited := e(t, wf)
@@ -377,6 +394,12 @@ func TestCompareUncommentedNamesTheLines(t *testing.T) {
 		{"x\ny", "x\n", `workflow line 2 is "y", copy ends`},
 		{"x\n", "x", `workflow line 1 is "x\n", copy line 1 is "x"`},
 		{"x\r\n", "x\n", `workflow line 1 is "x\r\n", copy line 1 is "x\n"`},
+		// TICK-1167 AC 3: # lines inside block scalars count.
+		{"run: |\n  a\n  # b\n", "run: |\n  a\n", `workflow line 3 is "  # b\n", copy ends`},
+		{"- run: |\n    a\n\n    # b\nk: v\n", "- run: |\n    a\n\nk: v\n", `workflow line 4 is "    # b\n", copy line 4 is "k: v\n"`},
+		{"run: | # note\n  # b\n", "run: | # note\n", `workflow line 2 is "  # b\n", copy ends`},
+		{"run: >-\n  a\n# top\nk: v\n", "run: >-\n  a\nk: v\n", ""},
+		{"run: echo a | b\n  # c\n", "run: echo a | b\n", ""},
 	}
 	for _, c := range cases {
 		if got := compareUncommented([]byte(c.a), []byte(c.b)); got != c.want {
