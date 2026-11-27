@@ -159,6 +159,11 @@ tasks:
     cmds:
       - sh scripts/ci/check-openapi.sh origin/main
 
+  test:check-openapi-base:
+    desc: Check that check-openapi on a pull_request compares against the merge commit's first parent, the same as make test-check-openapi-base (TICK-1179)
+    cmds:
+      - sh scripts/ci/test-check-openapi-base.sh
+
   ci:isolated:
     desc: "Run make ci on a stack of its own (project nava-ID, image tag ID, own ports), the same as make ci-isolated; task ci:isolated ID=<pr-or-sha>"
     requires:
