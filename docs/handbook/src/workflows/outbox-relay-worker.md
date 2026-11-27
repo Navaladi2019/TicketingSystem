@@ -78,12 +78,26 @@ tests:
 
 Every Temporal workflow on `main` is started or signalled from one place: an `outbox` row written in the same tenant transaction as the change that caused it (I6). `nava-relay` is the only process that turns a row into a Temporal call, and `nava-worker` runs the workflow behind the `workerguard` interceptor. `nava-core` never starts a workflow; it talks to Temporal only for its readiness probe.
 
-There are exactly two workflow kinds, both listed in `internal/outbox/outbox.go`. Each has one entry point that may enqueue its start (`outbox.go:300`):
+On `main` there are two workflow start kinds, both listed in `internal/outbox/outbox.go`. Each has one entry point that may enqueue its start:
 
 | Kind | Start goes through | Registered in | Page |
 |---|---|---|---|
 | `audit.seal` | `outbox.EnqueueSeal` | production build, runs in the stack | [Audit sealer](audit-seal.md) |
 | `nava.interpreter` | `outbox.EnqueueStart`, under a `cascade.Claim` | production build, runs in the stack since S11b | [Workflow interpreter](nava-interpreter.md) |
+
+The story branches add three outbox kinds (S21, S22 and S29; not yet on `main`):
+
+| Kind | Written by | What the relay does | Page |
+|---|---|---|---|
+| `field_index.backfill` | `outbox.EnqueueFieldIndexBackfill`, in the publish that flags a field | SignalWithStart of the tenant's `field_index.coordinator` | [Field-index backfill](field-index-backfill.md) |
+| `field_index.remove` | `outbox.EnqueueFieldIndexRemove`, in the publish that unflags a field | the same SignalWithStart, with an `op: remove` item | [Field-index removal](field-index-backfill.md#removal) |
+| `schema.backfill` | the publish that adds a default (`outbox.EnqueueSchemaBackfill`), or the rollout migration | StartWorkflow `t:<tenant>:schema.backfill:<def>:<version>` on queue `schema-backfill` | [Schema backfill](schema-backfill.md) |
+
+All three carry UUID values only in the payload (`outbox_payload_check`), so a
+version goes in `target_seq` and the dedupe key. The relay takes the tenant
+from the outbox row. A field-index payload's `tenant_id` must equal the row's,
+and a `schema.backfill` payload may not name a tenant at all; any other row is
+marked dead before a Temporal call.
 
 ## The path
 

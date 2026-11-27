@@ -72,15 +72,15 @@ const (
 	FieldNotFilterable Code = "field_not_filterable"
 	FieldNotReady      Code = "field_not_ready"
 	// ADR-006 D8, D12 (P7-04): publish refusals for the field-index registry.
-	FilterableFieldRemovalUnavailable Code = "filterable_field_removal_unavailable"
-	IndexQuotaExceeded                Code = "index_quota_exceeded"
-	FieldIndexBusy                    Code = "field_index_busy"
+	IndexQuotaExceeded Code = "index_quota_exceeded"
+	FieldIndexBusy     Code = "field_index_busy"
 	// ADR-005 (S18): number formats.
 	NumberFormatExists            Code = "number_format_exists"
 	NumberFormatPrefixRequired    Code = "number_format_prefix_required"
 	NumberFormatInvalid           Code = "number_format_invalid"
 	NumberingTemplatesUnavailable Code = "numbering_templates_unavailable"
 	InvalidTimeZone               Code = "invalid_time_zone"
+	InvalidTenantLimits           Code = "invalid_tenant_limits"
 	NumberFormatOverlap           Code = "number_format_overlap"
 	NumberFormatNotFound          Code = "number_format_not_found"
 	NumberSpaceExhausted          Code = "number_space_exhausted"
@@ -96,8 +96,8 @@ func Codes() []Code {
 		MaskedField, FilterTooExpensive, FieldNotWritable, InvalidAccessPolicy,
 		FilterableFieldNotTopLevel, FilterableFieldTypeChange, SearchableNotAvailable,
 		FieldNotFilterable, FieldNotReady,
-		FilterableFieldRemovalUnavailable, IndexQuotaExceeded, FieldIndexBusy,
-		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone,
+		IndexQuotaExceeded, FieldIndexBusy,
+		NumberFormatExists, NumberFormatPrefixRequired, NumberFormatInvalid, NumberingTemplatesUnavailable, InvalidTimeZone, InvalidTenantLimits,
 		NumberFormatOverlap, NumberFormatNotFound, NumberSpaceExhausted,
 	}
 }

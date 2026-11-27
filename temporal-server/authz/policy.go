@@ -245,25 +245,62 @@ var deniedByDefault = []string{
 // childOnlyWorkflowTypes: the coordinator starts it as a child, one at a time
 // per tenant, and no relay start or signal-with-start may name it, so nothing
 // runs a backfill around the coordinator's one-per-tenant rule (D10.5).
+// field_index.remove.run is FieldIndexRemove (ADR-006 D11, TICK-750), the
+// removal of an unflagged field's index: the coordinator starts it the same
+// way, and it is child-only for the same reason, so a removal never runs
+// beside a backfill of its tenant (PLAN-007 D-7-12).
+//
+// schema.backfill is the ADR-009 schema backfill (D2, PLAN-010 P10-03,
+// TICK-920). nava-relay starts it from a schema.backfill outbox row under a
+// `t:<tenant>:schema.backfill:<entity_definition_id>:<target_version>` id,
+// on its own queue, schema-backfill, so the worker that polls that queue caps
+// how many tenants' pages run at once (D7, D-10-4). It is in
+// startOnlyWorkflowTypes: it never continues as new (R9) and no worker
+// command may start it as a child, so every job is a relay start of a row the
+// publish or the rollout migration wrote under RLS.
 //
 // The sets are built by functions, not held in package variables
 // (gochecknoglobals, TICK-610): each call returns a fresh set, so no caller can
 // widen the allow-list for another.
-func platformTaskQueues() map[string]struct{} { return set("nava-tq") }
+func platformTaskQueues() map[string]struct{} { return set("nava-tq", "schema-backfill") }
+
+// workflowTypeQueue is the one queue each platform type runs on: schema.backfill
+// on schema-backfill, every other type on nava-tq. A start, child or
+// continue-as-new that names another queue is denied (task_queue_not_allowed),
+// so schema-backfill is no side door for another type, and schema.backfill
+// never runs outside the worker that caps it (TICK-920, TICK-753 S29).
+func workflowTypeQueue(workflowType string) string {
+	if workflowType == schemaBackfillWorkflowType {
+		return "schema-backfill"
+	}
+	return "nava-tq"
+}
+
+// schemaBackfillWorkflowType is the one type bound to its own queue.
+const schemaBackfillWorkflowType = "schema.backfill"
 
 func platformWorkflowTypes() map[string]struct{} {
-	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run")
+	return set("nava.interpreter", "audit.seal", "field_index.coordinator", "field_index.backfill.run", "field_index.remove.run",
+		"schema.backfill")
 }
 
 // startOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // relay start may name; a child or continue-as-new of one is denied.
-func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal") }
+func startOnlyWorkflowTypes() map[string]struct{} { return set("audit.seal", "schema.backfill") }
 
 // childOnlyWorkflowTypes is a subset of platformWorkflowTypes that only a
 // worker command (a child or continue-as-new) may name; a relay start or
 // signal-with-start of one is denied. It is disjoint from
-// startOnlyWorkflowTypes.
-func childOnlyWorkflowTypes() map[string]struct{} { return set("field_index.backfill.run") }
+// startOnlyWorkflowTypes. Its parent is the tenant's field_index.coordinator
+// and nothing else, and only a run of the type may continue as it
+// (checkChildOnlyParent, TICK-750).
+// fieldIndexCoordinatorWorkflowType is the one parent a child-only type may
+// have (checkChildOnlyParent).
+const fieldIndexCoordinatorWorkflowType = "field_index.coordinator"
+
+func childOnlyWorkflowTypes() map[string]struct{} {
+	return set("field_index.backfill.run", "field_index.remove.run")
+}
 
 // stickyQueueName is the SDK's own sticky queue name, `<host>:<uuid>`
 // (sdk-go v1.49.0 getWorkerTaskQueue). At server v1.29.7 a sticky partition and

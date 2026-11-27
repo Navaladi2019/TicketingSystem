@@ -1,0 +1,54 @@
+go version go1.27.4 windows/amd64
+base commit: d2cc513f
+$ go test ./internal/audit/chain -count=1 -v | grep -E "^(--- |ok|FAIL)"
+--- PASS: TestE10FalseIsPreE10Bytes (0.00s)
+--- PASS: TestE10TrueChangesHashAndRoundTrips (0.00s)
+--- PASS: TestE10ExplicitFalseRejected (0.00s)
+--- PASS: TestCanonicalEnvelopeLiteral (0.00s)
+    envelope_test.go:96: Envelope has 23 fields, 22 mutators, 23 canonical members; add the new field to all three
+--- FAIL: TestEveryFieldIsHashed (0.00s)
+    envelope_test.go:142: 22 members, want 23 (NULL is emitted, never omitted)
+--- FAIL: TestCanonicalKeysAreSortedAndComplete (0.00s)
+--- PASS: TestSortByUTF16 (0.00s)
+--- PASS: TestJCSStrings (0.00s)
+--- PASS: TestNumberForms (0.00s)
+--- PASS: TestTimestamps (0.00s)
+--- PASS: TestTextRules (0.00s)
+--- PASS: TestRoundTrip (0.00s)
+--- PASS: TestUnmarshalRejectsTrailingData (0.00s)
+--- PASS: TestGenesisIsZero (0.00s)
+--- PASS: TestEntryHash (0.00s)
+--- PASS: TestDiffSHA256 (0.00s)
+--- PASS: TestParseHex (0.00s)
+--- PASS: TestImportBoundary (0.00s)
+--- PASS: TestUnmarshalRejectsWithReason (0.00s)
+--- PASS: TestEnvelopeSHA256RejectsUnencodable (0.00s)
+--- PASS: TestParseSalt16Rejects (0.00s)
+--- PASS: TestTrailerVerifiable (0.00s)
+--- PASS: TestTrailerVerifiableLastSeqIsTheHead (0.00s)
+--- PASS: TestAdversarialTenantRelabelBreaksChain (0.01s)
+--- PASS: TestAdversarialEscapedKeyCannotSmuggleDuplicate (0.01s)
+--- PASS: TestAdversarialParserRejectsLossyStrings (0.00s)
+--- PASS: TestGoldenVectorsExports (0.02s)
+--- PASS: TestVectorsFileIsCurrent (0.02s)
+--- PASS: TestGoldenVectorsChain (0.01s)
+--- PASS: TestGoldenVectorsTampered (0.01s)
+--- PASS: TestGoldenVectorsDiffs (0.01s)
+--- PASS: TestGoldenVectorsInvalid (0.01s)
+--- PASS: TestGoldenVectorPinned (0.00s)
+--- PASS: TestMarshalJSONLRejectsInvalidEnvelope (0.00s)
+--- PASS: TestMarshalJSONLWritesEnvelopeVerbatim (0.00s)
+--- PASS: TestMarshalJSONLRefusesWhatItCannotMirror (0.00s)
+--- PASS: TestMarshalJSONLMatchesEncoderWithoutEnvelopes (0.00s)
+--- PASS: TestMarshalIndentJSONLKeepsEnvelopeRaw (0.00s)
+--- PASS: TestMarshalJSONLMapsAndLists (0.00s)
+--- PASS: TestEnvelopeWritersKeepEscapeProneTextRaw (0.01s)
+--- PASS: TestVectorsGeneratorKeepsEnvelopesCanonical (0.03s)
+--- PASS: TestEnvelopeWritersAreDeterministic (0.48s)
+FAIL
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/audit/chain	3.590s
+FAIL
+$ go test ./internal/audit/verify ./internal/audit/export ./internal/audit/seal -count=1
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/verify	23.759s
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/export	0.637s
+ok  	github.com/Navaladi2019/TicketingSystem/internal/audit/seal	0.890s

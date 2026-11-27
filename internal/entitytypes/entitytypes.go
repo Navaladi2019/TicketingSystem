@@ -197,11 +197,16 @@ type NewInput struct {
 
 // Create inserts the entity type and its version 1 and returns the stored
 // version. It returns ErrKeyExists or ErrPrefixTaken; the key is checked
-// first, so a request that clashes on both reports the key. The caller's
-// transaction is unusable after an error.
+// first, so a request that clashes on both reports the key, also when two
+// creates race (TICK-1160): a transaction-scoped advisory lock per tenant makes
+// the second one wait for the first to commit, so its key check sees the row.
+// The caller's transaction is unusable after an error.
 func (s Store) Create(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in NewInput) (*Version, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('entity_definitions:create:' || $1::text, 0))`, tenantID); err != nil {
+		return nil, fmt.Errorf("entitytypes: serialise create: %w", err)
+	}
 	var one int
 	switch err := tx.QueryRow(ctx, `SELECT 1 FROM entity_definitions WHERE key = $1`, d.Key).Scan(&one); {
 	case err == nil:
@@ -255,14 +260,14 @@ VALUES ($1, $2, $3, 1, $4::json, $5, $6::jsonb, $7::jsonb, 'initial', $8)`,
 	}
 	// Flags in version 1 get their registry and backfill rows and count against
 	// the quota like those of a publish (ADR-006 D8, D12).
-	compiled, err := metadata.Compile(d)
+	compiled, err := metadata.CompileNew(d)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: compile created definition: %w", err)
 	}
 	if err := registerFilterable(ctx, tx, tenantID, defID, 1, compiled.Filterable()); err != nil {
 		return nil, err
 	}
-	if err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
+	if _, err := auditVersion(ctx, tx, defID, 1, sum, in.PublishedBy); err != nil {
 		return nil, err
 	}
 	return s.GetVersion(ctx, tx, d.Key, 1)
@@ -290,7 +295,7 @@ type SeedInput struct {
 func (Store) Seed(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, in SeedInput) (bool, error) {
 	defer tenancy.Forget(tx, currentKey{in.Definition.Key})
 	d := in.Definition
-	if c, err := metadata.Compile(d); err != nil {
+	if c, err := metadata.CompileNew(d); err != nil {
 		return false, fmt.Errorf("entitytypes: compile seeded definition: %w", err)
 	} else if len(c.Filterable()) > 0 {
 		return false, ErrSeedFilterable
@@ -342,6 +347,10 @@ type PublishInput struct {
 	// publish on (its If-Match); the type's current version must be one of
 	// them, else *ConflictError.
 	ExpectedVersion []int
+	// AfterBackfillQueued is a test seam: when set and the publish queued a
+	// schema backfill job, it runs after the job row and its outbox row are
+	// written, and its error fails the publish (ADR-009 CI-1). Nil in production.
+	AfterBackfillQueued func() error
 }
 
 // Publish writes version N+1 of the entity type and makes it current, and
@@ -390,16 +399,13 @@ SELECT id, number_prefix, numbering_mode, current_version FROM entity_definition
 	if err := CheckSchemaSecretRequired(d.Schema); err != nil {
 		return nil, err
 	}
-	next, err := metadata.Compile(d)
+	next, err := metadata.CompileNew(d)
 	if err != nil {
 		return nil, err
 	}
 	class, paths, err := metadata.Classify(prev, next)
 	if err != nil {
 		return nil, fmt.Errorf("entitytypes: classify: %w", err)
-	}
-	if err := removedFilterable(prev, next); err != nil {
-		return nil, err
 	}
 	if class == metadata.Breaking {
 		return nil, &BreakingError{Paths: paths}
@@ -420,6 +426,9 @@ SELECT coalesce(max(version), 0) + 1 FROM entity_definition_versions WHERE defin
 		return nil, fmt.Errorf("entitytypes: next version: %w", err)
 	}
 	if err := registerFilterable(ctx, tx, tenantID, defID, number, addedFilterable(prev, next)); err != nil {
+		return nil, err
+	}
+	if err := retireFilterable(ctx, tx, tenantID, defID, number, removedFilterable(prev, next)); err != nil {
 		return nil, err
 	}
 	// The epoch is taken after the row lock above, in this transaction (C10).
@@ -445,7 +454,11 @@ VALUES ($1, $2, $3, $4, $5::json, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $
 UPDATE entity_definitions SET current_version = $1, updated_at = now() WHERE id = $2`, number, defID); err != nil {
 		return nil, fmt.Errorf("entitytypes: set current version: %w", err)
 	}
-	if err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy); err != nil {
+	auditID, err := auditVersion(ctx, tx, defID, number, sum, in.PublishedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err := queueBackfill(ctx, tx, tenantID, defID, number, auditID, class, prev, next, in.AfterBackfillQueued); err != nil {
 		return nil, err
 	}
 	return s.GetVersion(ctx, tx, in.Key, number)

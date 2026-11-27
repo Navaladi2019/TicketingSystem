@@ -326,6 +326,14 @@ func TestPolicyProblemsComparesPinnedForms(t *testing.T) {
 	if slices.ContainsFunc(problems, func(p string) bool { return strings.HasPrefix(p, "public.tenants.tenants_onboard_insert is missing") }) {
 		t.Error("a drifted pinned policy is reported missing; it exists")
 	}
+	// A listed policy on a table with no policy at all (not created yet on an
+	// older-schema run) is not reported missing; one on a table that has
+	// other policies is (outbox_purge, above).
+	if slices.ContainsFunc(problems, func(p string) bool {
+		return strings.HasPrefix(p, "public.schema_backfills.schema_backfills_insert_app_pending is missing")
+	}) {
+		t.Error("a pinned policy on a table with no policies is reported missing")
+	}
 	// The allow-listed policy does not test the tenant; the TO PUBLIC one does.
 	if !slices.Equal(untested, []string{allowKey}) {
 		t.Errorf("untested = %v, want [%s]", untested, allowKey)

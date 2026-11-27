@@ -141,7 +141,7 @@ func TestOperatorServicesNeedTheProfile(t *testing.T) {
 // as on a laptop; the temporal_* two check temporal-ui itself. All five are
 // full-tier, so a fast run starts none of the three services.
 func TestRealOperatorCases(t *testing.T) {
-	want := []string{"logs", "redact", "temporal_custody", "temporal_operator_reach", "trace"}
+	want := []string{"logs", "redact", "s22_s29_acceptance", "temporal_custody", "temporal_operator_reach", "trace"}
 	out, code := run(t, casesDir, nil, "registry")
 	if code != 0 {
 		t.Fatalf("registry failed (%d): %s", code, out)

@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/tenants/{tenant}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a tenant's limits (operator token only)
+         * @description Sets the tenant's per-type filterable-field limit, from the default 5 up to 10 (ADR-006 D12), with no per-tenant DDL (I8). Requires an operator token (realm role nava-operator, audience nava-operator-api); a tenant token is refused with 403. The change is one audited tenant_limits row (subject tenant_limits, the operator as actor, the reason in the entry); setting the value already in force writes nothing, so a retry is one audit entry. Publish enforces the limit from the next publish on. An unknown tenant is 404. A body with a duplicate member name or invalid UTF-8 is 422 invalid_tenant_limits.
+         */
+        put: operations["setTenantLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-types": {
         parameters: {
             query?: never;
@@ -99,7 +119,7 @@ export interface paths {
         put?: never;
         /**
          * Publish the next version of an entity type (tenant admin)
-         * @description Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. A definition that adds `x-nava-filterable` writes, in the same transaction, one field-index registry row (`backfilling`) and one `field_index.backfill` outbox row per new field. It answers 422 `index_quota_exceeded` above 5 flagged fields on the type or 50 in the tenant, 422 `filterable_field_removal_unavailable` when a flag or a flagged property is removed, 422 `filterable_field_not_top_level`, `filterable_field_type_change` or `searchable_not_available` for the ADR-006 D8 refusals, and 409 `field_index_busy` when a field to flag has an index being removed. Each adds nothing; `errors[].pointer` names the properties. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
+         * @description Publishes immutable version N+1 and makes it the current version. Tenant admins only; the check runs before the body is read any further than as well-formed JSON. The body is `{definition: {schema, fixed_columns, states}}`; a `number_prefix` field answers 422 `invalid_definition`, because the prefix never changes after create. The new definition is classified against the current version (D-3-5): a breaking change answers 422 `schema_breaking_change` with `errors[].pointer` naming each offending path, and adds nothing. A definition that requires a marked (`x-nava-secret` or `writeOnly`) property answers 422 `definition_secret_required`, with `errors[].pointer` naming the offending `required` entry, and adds nothing. A definition that adds `x-nava-filterable` writes, in the same transaction, one field-index registry row (`backfilling`) and one `field_index.backfill` outbox row per new field. A definition that drops the flag from a property sets that field's registry row to `removing` and writes one `field_index.remove` outbox row per field, in the same transaction; from then on a filter on the field answers 400 `field_not_filterable`, and the index is deleted in the background. It answers 422 `index_quota_exceeded` above 5 flagged fields on the type or 50 in the tenant, 422 `filterable_field_not_top_level`, `filterable_field_type_change` or `searchable_not_available` for the ADR-006 D8 refusals, and 409 `field_index_busy` when a field to flag has an index still being removed. Each adds nothing; `errors[].pointer` names the properties. Compatible and needs-backfill changes publish. An unknown key and another tenant's key give the same 404, byte for byte, with no `instance`. `numbering_mode` (`gaps` or `gapless`, D-3-9) may be sent with or instead of `definition`; alone it changes the mode, publishes no version and answers the current version. Any other value answers 422 `invalid_definition` at `/numbering_mode`. Numbering carries on from the type's counter. `Idempotency-Key` is required.
          *     `number_format` (ADR-005 §3.2, §3.3) pins a number-format version to the new definition version: `{id, version}`, or `null` for the default numbering. It needs `definition`. **A publish without the field keeps the pinned version**; only an explicit value changes it. The publish takes or reuses the type's numbering epoch in its own transaction: a format already used by the type reuses its epoch; a new one is checked against every earlier epoch of the type, epoch 0 included, and answers 422 `number_format_overlap` (`errors[].rule` is `overlap:<the clashing template>`) when it could render a number the type already issued. A format that is not in the tenant, and another tenant's, give the same 422 `number_format_not_found`.
          *     `If-Match`, when sent, carries the `ETag` of the type's current version (`W/"<current version>"`); a stale one answers 412 `version_conflict` and writes nothing. It also applies to a mode-only call (`numbering_mode` without `definition`): a stale one answers 412 and leaves the numbering mode unchanged.
          */
@@ -544,6 +564,8 @@ export interface components {
             /** @description Lowercase hex. */
             diff_sha256?: string;
             diff_truncated: boolean;
+            /** @description True when the previous value this diff was built from had each NUL character escaped to the text `\u0000` first, because the database cannot store NUL (ADR-004-E10). Sealed into the entry's hash. */
+            diff_nul_escaped: boolean;
             /** @description The RFC 6902 patch as this reader may see it. Absent when the entry has none or it was erased. */
             diff?: unknown;
             /** @description True when `diff` differs from the stored diff for this reader (R7). */
@@ -748,6 +770,15 @@ export interface components {
             items: components["schemas"]["NumberFormatSummary"][];
             /** @description Present when more formats follow; pass it as `cursor`. */
             next_cursor?: string;
+        };
+        SetTenantLimitsRequest: {
+            /** @description The most filterable fields one entity type of the tenant may flag. */
+            filterable_fields_per_type: number;
+            /** @description Why the limit changes (for example, the measured cost check). Recorded in the audit entry. */
+            reason: string;
+        };
+        TenantLimits: {
+            filterable_fields_per_type: number;
         };
         OnboardTenantRequest: {
             /** @description The first tenant admin. Its domain must be one of email_domains. */
@@ -983,6 +1014,42 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            500: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+        };
+    };
+    setTenantLimits: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTenantLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description The limits now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLimits"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             500: components["responses"]["Problem"];

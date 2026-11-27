@@ -253,6 +253,8 @@ const (
 // grants manifest alike. Otherwise m and a are returned unchanged. Tests that
 // migrate to an earlier version use it.
 func beforeACLTables(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
+	m = beforePublishedBySystem(fsys, m)
+	m, a = beforeDiffNULEscaped(fsys, m, a)
 	m = beforeFormat2Checks(fsys, m)
 	m = beforeUnderSetsCap(fsys, m)
 	m, a = beforeOrgUnits(fsys, m, a)
@@ -335,6 +337,8 @@ func TestP335ACLPublishWithoutAnAuditEntryIsRefused(t *testing.T) {
 func beforeNumberingMode(fsys fs.FS, m *grants.Manifest, a *audited.Manifest) (*grants.Manifest, *audited.Manifest) {
 	m, a = beforeWorkflowTables(fsys, m, a)
 	m, a = beforeFieldIndexTables(fsys, m, a)
+	m, a = beforeSchemaBackfillTables(fsys, m, a)
+	m, a = beforeTenantLimits(fsys, m, a)
 	m = beforeFieldIndexTrigger(fsys, m)
 	if _, err := fs.Stat(fsys, numberingModeMigration); err == nil {
 		return m, a

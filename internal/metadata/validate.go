@@ -162,6 +162,17 @@ func (c *Compiled) AllowsTransition(from, to string) bool {
 // States returns a copy of the state model's states.
 func (c *Compiled) States() []string { return slices.Clone(c.states.States) }
 
+// DefaultKeys returns the top-level properties that have a default, sorted
+// (ADR-009 D1: the keys a schema backfill writes).
+func (c *Compiled) DefaultKeys() []string {
+	keys := make([]string, 0, len(c.defaults))
+	for k := range c.defaults {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
 // PropertyTypes returns each top-level property's JSON Schema "type" when it
 // is a single string ("" otherwise, e.g. a union or none). The list route
 // builds its filter and masked-field checks from these names only (TICK-619).

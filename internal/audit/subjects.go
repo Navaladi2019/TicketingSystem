@@ -20,6 +20,7 @@ const (
 	SubjectWorkflowDefinition = subjects.WorkflowDefinition
 	SubjectNumberFormat       = subjects.NumberFormat
 	SubjectTenantSetting      = subjects.TenantSetting
+	SubjectTenantLimits       = subjects.TenantLimits
 	SubjectAuditExport        = subjects.AuditExport
 	SubjectAuditChain         = subjects.AuditChain
 	SubjectErasureRequest     = subjects.ErasureRequest

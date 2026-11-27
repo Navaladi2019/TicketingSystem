@@ -450,3 +450,22 @@ func TestCompileFixedColumnClashIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// ADR-009 D13 (CI-10): CompileNew refuses default + x-nava-unique; Compile
+// accepts it, so a stored version with the pair still reads.
+func TestCompileNewRefusesDefaultWithUnique(t *testing.T) {
+	s := baseSchema()
+	prop(s, "code")["default"] = "X"
+	delete(prop(s, "code"), metadata.UniqueKeyword)
+	d := baseDefinition(t, s)
+	if _, err := metadata.CompileNew(d); err != nil {
+		t.Fatal(err)
+	}
+	prop(s, "code")[metadata.UniqueKeyword] = true
+	d = baseDefinition(t, s)
+	if _, err := metadata.Compile(d); err != nil {
+		t.Fatalf("Compile of a stored default + x-nava-unique = %v, want nil", err)
+	}
+	_, err := metadata.CompileNew(d)
+	wantPath(t, err, "/schema/properties/code/default")
+}

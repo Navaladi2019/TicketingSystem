@@ -25,10 +25,10 @@ import (
 
 // P7-02 (TICK-742, ADR-006 D1, D4, D5, R5): record_field_coerce and the
 // records triggers that keep the side tables equal to a recompute from
-// records.data. Migration 20261125165100_field_index_trigger.sql.
+// records.data. Migration 20261127100200_field_index_trigger.sql.
 
 const (
-	fieldIndexTrigger = 20261125165100
+	fieldIndexTrigger = 20261127100200
 	// uncoercedSetting is the transaction-local setting the trigger counts
 	// non-coercing values in, per entity definition.
 	uncoercedSetting = "nava.field_index_uncoerced"
@@ -48,7 +48,7 @@ const (
 // fieldIndexTriggerMigration is the P7-02 migration, and coerceFunction the
 // grant it adds to db/grants.yaml.
 const (
-	fieldIndexTriggerMigration = "20261125165100_field_index_trigger.sql"
+	fieldIndexTriggerMigration = "20261127100200_field_index_trigger.sql"
 	coerceFunction             = "public.record_field_coerce(jsonb,text)"
 )
 

@@ -124,60 +124,73 @@ func closureRowCount(ctx context.Context, tx pgx.Tx, tid string) (int, error) {
 // replaced. With none it checks the stored closure against the live one as
 // sets and, on any difference, repairs it by a full rebuild (that repairs a
 // closure left stale before this code shipped, or by hand). An empty stored
-// closure (first import) also takes the full rebuild. A run that touched units
+// closure also takes the full rebuild. A run that touched units
 // does not check the rest of the closure for drift; the next run that touches
 // none does. It returns the closure's
-// row count after the call and whether it wrote any row.
-func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt bool, err error) {
+// row count after the call, whether it wrote any row, and whether it repaired
+// drift (TICK-1124). Drift is: the set check on a run that touched no unit
+// found the stored closure different from the live one, or that run found the
+// closure empty and wrote rows for live units. A delta, a first import (units
+// added, closure empty), a clean check and a tenant with no live units are not
+// drift.
+func rebuildClosure(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, touched []string) (rows int, rebuilt, repaired bool, err error) {
 	tid := tenantID.String()
 	have, err := closureRowCount(ctx, tx, tid)
 	if err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
 	if len(touched) == 0 && have == 0 {
 		// Empty stored closure: nothing to compare, rebuild without the set check.
-		return fullRebuildClosure(ctx, tx, tid)
+		// A run that touched no unit is not a first import (a first import adds
+		// units), so a closure that is empty while the tenant has live units is
+		// drift. A tenant with no live units writes no row and reports none.
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, err == nil && rows > 0, err
 	}
 	if len(touched) == 0 {
 		var drift bool
 		if err := withHashPlan(ctx, tx, func() error {
 			return tx.QueryRow(ctx, closureDriftSQL, tid).Scan(&drift)
 		}); err != nil {
-			return 0, false, fmt.Errorf("compare closure: %w", err)
+			return 0, false, false, fmt.Errorf("compare closure: %w", err)
 		}
 		if !drift {
-			return have, false, nil
+			return have, false, false, nil
 		}
-		return fullRebuildClosure(ctx, tx, tid)
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, err == nil, err
 	}
 	if have == 0 {
-		return fullRebuildClosure(ctx, tx, tid)
+		// Not counted: a first import and a closure wiped in the same run as a
+		// unit change look the same here. Accepted limit (TICK-1124).
+		rows, rebuilt, err = fullRebuildClosure(ctx, tx, tid)
+		return rows, rebuilt, false, err
 	}
 	ar, err := tx.Query(ctx, closureAffectedSQL, tid, touched)
 	if err != nil {
-		return 0, false, fmt.Errorf("find affected units: %w", err)
+		return 0, false, false, fmt.Errorf("find affected units: %w", err)
 	}
 	var affected []string
 	for ar.Next() {
 		var id uuid.UUID
 		if err := ar.Scan(&id); err != nil {
 			ar.Close()
-			return 0, false, fmt.Errorf("find affected units: %w", err)
+			return 0, false, false, fmt.Errorf("find affected units: %w", err)
 		}
 		affected = append(affected, id.String())
 	}
 	ar.Close()
 	if err := ar.Err(); err != nil {
-		return 0, false, fmt.Errorf("find affected units: %w", err)
+		return 0, false, false, fmt.Errorf("find affected units: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM org_unit_closure WHERE tenant_id = $1::uuid AND descendant_id = ANY($2::uuid[])`, tid, affected); err != nil {
-		return 0, false, fmt.Errorf("clear affected closure rows: %w", err)
+		return 0, false, false, fmt.Errorf("clear affected closure rows: %w", err)
 	}
 	if _, err := tx.Exec(ctx, closureDeltaInsertSQL, tid, affected); err != nil {
-		return 0, false, fmt.Errorf("write closure delta: %w", err)
+		return 0, false, false, fmt.Errorf("write closure delta: %w", err)
 	}
 	rows, err = closureRowCount(ctx, tx, tid)
-	return rows, true, err
+	return rows, true, false, err
 }
 
 // withHashPlan runs fn with nested loops off, in tx, then turns them back on.

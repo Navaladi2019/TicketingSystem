@@ -54,12 +54,13 @@ func (c *classifier) result() (Compat, []string) {
 // (title, description, $comment, examples).
 //
 // NeedsBackfill: adding a required property that has a default; adding a
-// default to an existing property.
+// default to an existing property; making an existing property required when
+// the next version has a default for it (ADR-009 D14).
 //
 // Breaking: everything else, including changing a type, narrowing an enum,
 // adding a required property with no default, removing a property, changing
 // FixedColumns, NumberPrefix or an existing default, removing a default,
-// adding or removing x-nava-unique, making a property required or optional,
+// adding or removing x-nava-unique, making a property required without a default, making a property optional,
 // removing a state or transition, changing the initial state, widening
 // maxLength, dropping a pattern, and changing any unknown keyword.
 //
@@ -140,11 +141,27 @@ func classifySchema(prev, next map[string]any, c *classifier) {
 		case !inPrev:
 			classifyNewProperty(name, n, nextReq[name], c)
 		default:
-			if prevReq[name] != nextReq[name] {
-				c.breaks("schema", "required")
-			}
+			classifyRequired(name, n, prevReq[name], nextReq[name], c)
 			classifyProperty(name, p, n, c)
 		}
+	}
+}
+
+// classifyRequired: making an existing property required needs a backfill
+// when the next version has a default for it (ADR-009 D14: old rows start
+// reading the default, and the backfill writes it), and is Breaking without
+// one. Making a required property optional is Breaking.
+func classifyRequired(name string, next map[string]any, wasRequired, isRequired bool, c *classifier) {
+	switch {
+	case wasRequired == isRequired:
+	case isRequired:
+		if _, ok := next["default"]; ok {
+			c.backfills("schema", "properties", name)
+		} else {
+			c.breaks("schema", "required")
+		}
+	default:
+		c.breaks("schema", "required")
 	}
 }
 

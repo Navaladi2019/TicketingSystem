@@ -682,14 +682,15 @@ test('s29_tier standard, version + 1, same updated_at, exactly one new history e
 const b = N.json();
 test("no backfill on tenant B's type", () => expect(b.backfill == null).to.eql(true));
 test("tenant B's priority has no s29 version: no s29_tier", () => expect(b.schema.properties).to.not.have.property('s29_tier'));"""),
-            req("S29.22 AC6: tenant B's failures route: 404, the same as a missing type", "GET", et + "/backfill/failures", auth="admin_b_token",
+            req("S29.22 AC6: tenant B's failures route on its own incident type: none of tenant A's failures", "GET", et + "/backfill/failures", auth="admin_b_token",
                 pre=KIT + """
 const r = await T.call('admin_b_token', 'GET', '/api/v1/entity-types/s29_no_such_type/backfill/failures');
 bru.setVar('s29_b_missing', JSON.stringify({ status: r.status, code: r.data && r.data.code }));""",
-                desc="Tenant B has no job on its incident type, and tenant A's failures are not visible to it. The answer is the 404 a type nobody has gives.",
-                tests="""N.problem('not_found', 404);
+                desc="Tenant B has its own `incident` type (the same key) and no job on it. Its admin may read that type's failures: PR #960 (TICK-1192) answers a type with no job 200 with empty `items`. It must never show tenant A's failure. A type B does not have answers the 404 a type nobody has gives, as an A-only key would.",
+                tests="""test('200 with no items (no job on B\\'s own type), or 404', () => expect([200, 404]).to.include(res.getStatus()));
+if (res.getStatus() === 200) test('no failure listed', () => expect(N.json().items).to.eql([]));
 const m = JSON.parse(bru.getVar('s29_b_missing'));
-test('a missing type answers the same 404', () => { expect(m.status).to.eql(404); expect(m.code).to.eql('not_found'); });
+test('a type tenant B does not have: 404 not_found', () => { expect(m.status).to.eql(404); expect(m.code).to.eql('not_found'); });
 test("never tenant A's poison id", () => expect(JSON.stringify(N.json())).to.not.include(N.v('s29_poison_id')));"""),
             problem_req("S29.23 AC6: tenant B reads a tenant A ticket: 404", "GET", inc + "/{{s29_poison_id}}", "not_found", 404, auth="admin_b_token",
                         desc="The poison record, by id, as tenant B's admin: the same 404 as a record that does not exist."),

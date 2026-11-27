@@ -20,7 +20,9 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/api/workflowservice/v1"
@@ -38,7 +40,9 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/logging"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/telemetry"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/temporaltls"
+	"github.com/Navaladi2019/TicketingSystem/internal/schemabackfill"
 	"github.com/Navaladi2019/TicketingSystem/internal/workerguard"
+	"github.com/Navaladi2019/TicketingSystem/internal/workflow/recordports"
 )
 
 // The namespace and the only task queue on the Authorizer's allow-list
@@ -267,12 +271,109 @@ func newWorker(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, 
 
 	// The sealer is registered unless WorkflowsEnv is off (a stack-only
 	// activity worker), so the worker polls workflow tasks on nava-tq.
+	// The schema backfill (ADR-009, TICK-920) runs on its own queue, so this
+	// worker's activity slots cap how many tenants' pages run at once per
+	// replica (D7, PLAN-010 D-10-4).
+	sb, err := schemaBackfillConfig(lookup)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
+	}
+	bm, err := schemabackfill.NewMetrics(tel.MeterProvider)
+	if err != nil {
+		closeAll()
+		return nil, nil, nil, nil, err
+	}
+
 	w := worker.New(c, taskQueue, workerOptions(g, workflows, fatal))
 	(&workerguard.Activities{Pool: pool}).Register(w)
 	registerSealer(w, &seal.Activities{Pool: pool, Metrics: sm, Log: log}, workflows)
 	registerFieldIndex(w, &backfill.Activities{Pool: pool, Metrics: fm, Uncoerced: um, Log: log}, workflows)
 	registerInterpreter(w, acts)
-	return w, mon, refresher, closeAll, nil
+	bo := workerOptions(g, workflows, fatal)
+	bo.MaxConcurrentActivityExecutionSize = sb.concurrency
+	bw := worker.New(c, schemabackfill.TaskQueue, bo)
+	registerSchemaBackfill(bw, &schemabackfill.Activities{Pool: pool, Materializer: recordports.NewMaterializer(pipePool),
+		Metrics: bm, Log: log}, &schemabackfill.Workflow{R6After: sb.r6After}, workflows)
+	return workerGroup{Worker: w, others: []worker.Worker{bw}}, mon, refresher, closeAll, nil
+}
+
+// workerGroup is the worker on nava-tq plus the others the process runs (the
+// schema backfill's, on schema-backfill). Its Registry is nava-tq's; Start
+// starts them all, stopping the ones it started if one fails; Stop stops
+// them all. They share the client, so a fatal poll error on any of them
+// reaches OnFatalError, and serve stops the group.
+type workerGroup struct {
+	worker.Worker
+	others []worker.Worker
+}
+
+func (g workerGroup) Start() error {
+	started := []worker.Worker{}
+	for _, w := range append([]worker.Worker{g.Worker}, g.others...) {
+		if err := w.Start(); err != nil {
+			for _, s := range started {
+				s.Stop()
+			}
+			return err
+		}
+		started = append(started, w)
+	}
+	return nil
+}
+
+func (g workerGroup) Stop() {
+	for _, w := range g.others {
+		w.Stop()
+	}
+	g.Worker.Stop()
+}
+
+// registerSchemaBackfill registers schema.backfill (ADR-009, TICK-920) on w,
+// the worker that polls schema-backfill, when workflows is set, and its
+// activities always, like registerSealer.
+func registerSchemaBackfill(w worker.Registry, acts *schemabackfill.Activities, wf *schemabackfill.Workflow, workflows bool) {
+	if workflows {
+		wf.Register(w)
+	}
+	acts.Register(w)
+}
+
+// The schema backfill's settings.
+const (
+	// SchemaBackfillConcurrencyEnv caps the schema backfill activities one
+	// worker replica runs at once: about how many tenants' jobs page at
+	// once (D7: at most 4 per worker pool, PLAN-010 D-10-4). Default 4.
+	SchemaBackfillConcurrencyEnv = "NAVA_SCHEMA_BACKFILL_CONCURRENCY"
+	// SchemaBackfillR6AfterEnv is how long a failed_records job waits before
+	// its R6 check (D-10-3), a Go duration. Default 168h.
+	SchemaBackfillR6AfterEnv = "NAVA_SCHEMA_BACKFILL_R6_AFTER"
+)
+
+type schemaBackfillSettings struct {
+	concurrency int
+	r6After     time.Duration
+}
+
+// schemaBackfillConfig reads the schema backfill's settings; a malformed
+// value is an error, never a silent default.
+func schemaBackfillConfig(lookup config.LookupFunc) (schemaBackfillSettings, error) {
+	s := schemaBackfillSettings{concurrency: 4, r6After: schemabackfill.DefaultR6After}
+	if v, ok := lookup(SchemaBackfillConcurrencyEnv); ok && v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 64 {
+			return s, errors.New("config: " + SchemaBackfillConcurrencyEnv + " must be an integer from 1 to 64")
+		}
+		s.concurrency = n
+	}
+	if v, ok := lookup(SchemaBackfillR6AfterEnv); ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < time.Second {
+			return s, errors.New("config: " + SchemaBackfillR6AfterEnv + " must be a duration of at least 1s")
+		}
+		s.r6After = d
+	}
+	return s, nil
 }
 
 // clientOptions is the worker's Temporal client: namespace nava over mTLS,

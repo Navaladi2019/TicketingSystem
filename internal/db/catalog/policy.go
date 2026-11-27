@@ -81,7 +81,29 @@ func AllowList() map[string]Policy {
 // tenant_auditor_group_insert_active (P5-23, TICK-568) let onboarding's
 // upgrade reconcile write an active tenant's auditors group and pointer
 // once, and read only that group.
+// audit_log_limits_onboard_insert and audit_log_limits_onboard_select
+// (TICK-751, AR-TICK-916-01) let the operator route, as nava_onboard, write
+// and read back the tenant_limits entries of an active tenant, whose limits
+// row only nava_onboard writes.
+// schema_backfills_insert_app_pending (PLAN-010 D-10-11, TICK-916) lets the
+// publish transaction insert its tenant's schema backfill job only as a fresh
+// pending row: no counts, never started or finished.
 func PinnedTenantPolicies() map[string]Policy {
+	return pinnedTenantPolicies()
+}
+
+// pinnedRequires names, for a pinned policy that a later table's migration
+// creates on an older table, that later table: the policy is due once the
+// later table has policies, so a run that stops before that migration does
+// not report it missing.
+//
+//nolint:gochecknoglobals // read-only, set once
+var pinnedRequires = map[string]string{
+	"public.audit_log.audit_log_limits_onboard_insert": "public.tenant_limits",
+	"public.audit_log.audit_log_limits_onboard_select": "public.tenant_limits",
+}
+
+func pinnedTenantPolicies() map[string]Policy {
 	own := TenantPred("id")
 	and := func(state string) string { return "(" + own + " AND (state = '" + state + "'::text))" }
 	provisioning := "(tenant_id IN ( SELECT tenants.id\n   FROM tenants\n  WHERE (tenants.state = 'provisioning'::text)))"
@@ -101,6 +123,16 @@ func PinnedTenantPolicies() map[string]Policy {
 		"public.groups.groups_select_onboard_auditors": {"SELECT", "nava_onboard", "(" + auditorsActive + ")", ""},
 		"public.tenant_auditor_group.tenant_auditor_group_insert_active": {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") + active +
 			" AND (EXISTS ( SELECT 1\n   FROM groups g\n  WHERE ((g.tenant_id = tenant_auditor_group.tenant_id) AND (g.id = tenant_auditor_group.group_id) AND (g.deleted_at IS NULL)))))"},
+		// TICK-751, AR-TICK-916-01: the operator route writes and reads back
+		// the tenant_limits entries of its transaction's tenant, any state.
+		"public.audit_log.audit_log_limits_onboard_insert": {"INSERT", "nava_onboard", "", "(" + TenantPred("tenant_id") +
+			" AND (subject_type = 'tenant_limits'::text))"},
+		"public.audit_log.audit_log_limits_onboard_select": {"SELECT", "nava_onboard", "(" + TenantPred("tenant_id") +
+			" AND (subject_type = 'tenant_limits'::text))", ""},
+		// PLAN-010 D-10-11 (TICK-916): publish queues a fresh schema backfill
+		// job as nava_app, and only a fresh one (ADR-009 D1).
+		"public.schema_backfills.schema_backfills_insert_app_pending": {"INSERT", "nava_app", "", "(" + TenantPred("tenant_id") +
+			" AND (state = 'pending'::text) AND (rewritten = 0) AND (skipped = 0) AND (failed = 0) AND (started_at IS NULL) AND (finished_at IS NULL))"},
 		"public.tenants.tenants_onboard_insert":                                {"INSERT", "nava_onboard", "", and("provisioning")},
 		"public.tenants.tenants_activate":                                      {"UPDATE", "nava_onboard", and("provisioning"), and("active")},
 		"public.tenant_email_domain.email_domain_onboard":                      {"INSERT", "nava_onboard", "", ownProvisioning},
@@ -205,9 +237,29 @@ func PolicyProblems(ctx context.Context, q Querier) (problems, untested []string
 			problems = append(problems, fmt.Sprintf("%s is used by more than one policy, on %s", name, strings.Join(tables, ", ")))
 		}
 	}
+	// A listed policy is missing when its table has policies but not this
+	// one. A table with none is not there yet (a run that stops before the
+	// migration that creates it, TICK-916) or, under the forced RLS CI-1
+	// requires, refuses every role: neither opens a path to tenant rows.
+	withPolicies := map[string]bool{}
+	for _, tables := range tablesOf {
+		for _, tbl := range tables {
+			withPolicies[tbl] = true
+		}
+	}
 	for _, m := range []map[string]Policy{allow, pinned} {
 		for key := range m {
-			if !seen[key] {
+			parts := strings.SplitN(key, ".", 3)
+			table := ""
+			if len(parts) == 3 {
+				table = parts[0] + "." + parts[1]
+			}
+			// A policy the migration of another table creates is due once
+			// that table has policies.
+			if dep, ok := pinnedRequires[key]; ok {
+				table = dep
+			}
+			if !seen[key] && withPolicies[table] {
 				problems = append(problems, key+" is missing")
 			}
 		}

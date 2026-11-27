@@ -130,12 +130,15 @@ func warnDevIdPHosts(ctx context.Context, log *slog.Logger, hosts []string) {
 // API and the upgrade reconcile use.
 type backends struct {
 	appPool *pgxpool.Pool
-	store   *onboard.PGStore
-	dir     *keycloak.Directory
-	adapter *keycloak.Adapter
-	reg     *onboard.Registry
-	specs   *onboard.Specs
-	close   func()
+	// onboardPool (nava_onboard) also serves the operator's tenant limits
+	// route, tenant_limits' only writer (AR-TICK-916-01).
+	onboardPool *pgxpool.Pool
+	store       *onboard.PGStore
+	dir         *keycloak.Directory
+	adapter     *keycloak.Adapter
+	reg         *onboard.Registry
+	specs       *onboard.Specs
+	close       func()
 }
 
 // newBackends opens a nava_app pool (tenant-token refusal, the invite's
@@ -150,7 +153,7 @@ func newBackends(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry
 		appPool.Close()
 		return nil, err
 	}
-	b := &backends{appPool: appPool}
+	b := &backends{appPool: appPool, onboardPool: onboardPool}
 	b.close = func() {
 		if b.adapter != nil {
 			_ = b.adapter.Close(context.Background())
@@ -219,7 +222,7 @@ func build(ctx context.Context, log *slog.Logger, tel *telemetry.Telemetry, cfg 
 		b.close()
 		return nil, nil, nil, err
 	}
-	h, err := server.NewHandler(log, tel, b.adapter, nil, server.WithOperator(b.adapter, svc), server.OperatorOnly())
+	h, err := server.NewHandler(log, tel, b.adapter, nil, server.WithOperator(b.adapter, svc), server.WithOperatorLimits(b.onboardPool), server.OperatorOnly())
 	if err != nil {
 		b.close()
 		return nil, nil, nil, err

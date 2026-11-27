@@ -66,6 +66,12 @@ func recordAuditEntry(ctx context.Context, cmd Command, e recordEntry) (audit.En
 	}
 	defID := e.rec.EntityDefinitionID
 	va := e.rec.Version
+	who := actor(cmd.Actor.PrincipalID, cmd.Source)
+	if cmd.ActorSystem != "" {
+		// OpMaterialize: actor_system schema-backfill (ADR-009 D2).
+		sys := cmd.ActorSystem
+		who = audit.Actor{System: &sys}
+	}
 	return audit.Entry{
 		ID:                 e.id,
 		Domain:             audit.DomainRecord,
@@ -75,7 +81,7 @@ func recordAuditEntry(ctx context.Context, cmd Command, e recordEntry) (audit.En
 		EntityDefinitionID: &defID,
 		VersionBefore:      e.versionBefore,
 		VersionAfter:       &va,
-		Actor:              actor(cmd.Actor.PrincipalID, cmd.Source),
+		Actor:              who,
 		Source:             audit.Source(cmd.Source),
 		SourceRef:          cmd.SourceRef,
 		CausationID:        e.rec.CausationOriginID,

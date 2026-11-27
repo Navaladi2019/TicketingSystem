@@ -192,10 +192,11 @@ func TestTICK1070EstimatesRegistered(t *testing.T) {
 }
 
 // TestCursorPathsHold runs the CI-8 cursor checks without a database, so
-// ci-unit catches a cursor regression before the isolation stage.
+// ci-unit catches a cursor regression before the isolation stage. A pending
+// check is listed, not run, as in TestRegisteredPaths.
 func TestCursorPathsHold(t *testing.T) {
 	for _, p := range Paths() {
-		if p.Check == nil {
+		if p.Check == nil || p.Pending != "" {
 			continue
 		}
 		if err := p.Check(t.Context()); err != nil {
