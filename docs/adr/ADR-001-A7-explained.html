@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-001 amendment A7 explained: the security-flaw scan runs without make</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--good:#3fb950;--goodbg:#12261e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--goodbg);color:var(--good);border:1px solid var(--good)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+pre{background:var(--soft);padding:12px;border-radius:6px;overflow-x:auto;font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+</style></head><body><main>
+
+<span class="pill" id="status">ACCEPTED · REV 1 · 2026-11-27</span> <span class="src">ADR-001-A7 · issue TICK-1183 · amends ADR-001-E4 contract rules 2, 7 and 9 · RFC-024 · Technical Architect round 1 CHANGES, re-check APPROVE · accepted by the Solution Architect</span>
+
+<h1>The security-flaw check stops going through make, so no other file can quietly change what it checks</h1>
+
+<h2>In plain words</h2>
+<dl>
+<dt>Goal</dt><dd>Our check for known security flaws (<code>govulncheck</code>, which compares the third-party code we use with a public list of known flaws) must mean what it says when it is green: the code we ship, built with the Go version we ship, has no known flaw it can reach. Nothing outside the check's own file should be able to change that without anyone noticing.</dd>
+<dt>Today</dt><dd>The check runs a command through <em>make</em>, a build tool that reads about twenty small files in our repository. Any of those files can change what the check really does while the line we compare against still looks right. Three review rounds each found and closed one such trick, and then found another. The last one only takes effect inside the CI job (the automated run on GitHub), so a check run anywhere else cannot see it at all.</dd>
+<dt>What's new</dt><dd>The check runs one command directly, with every Go setting that matters written next to it in the workflow file (the file that tells GitHub what to run). That file is already compared character for character with a reference copy we keep, so the command and its settings are now covered by that one comparison. The make commands stay for engineers who run the check on their own machines; they no longer decide anything.</dd>
+<dt>Who is affected</dt><dd>Customers: no change. Engineers: no change in what they see on a pull request (a proposed change). Fewer special checks to maintain.</dd>
+<dt>Risks</dt><dd>Someone who deliberately edits both the workflow file and its reference copy can still make the check pass without checking anything; only review stops that, as before. Three small tool modules (sets of Go code with their own library list) that we never ship are not checked. A change to a checked module's library list can narrow what is checked; such a change always triggers the check and is reviewed.</dd>
+<dt>How we'll know it worked</dt><dd>A trial run on GitHub prints the expected Go version and empty settings. New tests fail first on a bad edit and then pass. The workflow file contains no <code>make</code>.</dd>
+</dl>
+
+<h2>1. The problem we faced</h2>
+<p>A <em>required check</em> is a named result GitHub insists on before a change is merged into <code>main</code>. Ours is called <code>vulncheck</code>. Its two scan jobs ran <code>make vulncheck</code> and <code>make vulncheck-temporal-server</code>. We already protect the workflow file with a byte-for-byte reference copy, and we checked that make <em>printed</em> the expected command. But make is a small programming language, and printing the right command is not the same as running it in the right way.</p>
+<table><thead><tr><th>Trick, in one makefile</th><th>Effect</th><th>Caught before this decision?</th></tr></thead><tbody>
+<tr><td>Set <code>GOFLAGS</code> or <code>PATH</code> for the scan</td><td>Scan different code, or run a fake scanner</td><td>Yes, from PR #950</td></tr>
+<tr><td>Run code while make reads its files (<code>$(shell …)</code>)</td><td>Anything</td><td>Yes, from PR #950, by an allow-list</td></tr>
+<tr><td>Change things only when the CI job's name matches</td><td>Anything, only in CI</td><td class="bad">No: the check runs outside that job (accepted risk AR-TICK-1167-01)</td></tr>
+<tr><td>The next make feature nobody has tried yet</td><td>Unknown</td><td class="bad">No</td></tr>
+</tbody></table>
+
+<figure><svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+<text x="10" y="18" font-weight="700" fill="#1f2328">Before</text>
+<rect x="10" y="28" width="200" height="50" rx="6" fill="#ddf4ff" stroke="#0969da"/><text x="110" y="58" text-anchor="middle" fill="#1f2328">govulncheck.yml (pinned)</text>
+<rect x="260" y="28" width="200" height="50" rx="6" fill="#ffebe9" stroke="#cf222e"/><text x="360" y="50" text-anchor="middle" fill="#1f2328">make + ~20 makefiles</text><text x="360" y="68" text-anchor="middle" fill="#cf222e">not pinned</text>
+<rect x="510" y="28" width="200" height="50" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="610" y="58" text-anchor="middle" fill="#1f2328">govulncheck</text>
+<line x1="210" y1="53" x2="260" y2="53" stroke="#59636e" marker-end="url(#a)"/><line x1="460" y1="53" x2="510" y2="53" stroke="#59636e" marker-end="url(#a)"/>
+<text x="10" y="128" font-weight="700" fill="#1f2328">After</text>
+<rect x="10" y="138" width="450" height="60" rx="6" fill="#dafbe1" stroke="#1a7f37"/><text x="235" y="162" text-anchor="middle" fill="#1f2328">govulncheck.yml (pinned): command + Go settings</text><text x="235" y="182" text-anchor="middle" fill="#59636e">go run govulncheck@v1.9.0 ./...</text>
+<rect x="510" y="143" width="200" height="50" rx="6" fill="#f6f8fa" stroke="#59636e"/><text x="610" y="173" text-anchor="middle" fill="#1f2328">govulncheck</text>
+<line x1="460" y1="168" x2="510" y2="168" stroke="#59636e" marker-end="url(#a)"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+</svg><figcaption>The unpinned middle step disappears. Only the scanned module's own library list still shapes the scan, and that is what we want it to read.</figcaption></figure>
+
+<h2>2. Options considered</h2>
+<table><thead><tr><th>Option</th><th>Verdict</th></tr></thead><tbody>
+<tr><td><strong>Run govulncheck directly with <code>go run</code>, settings in the workflow</strong></td><td class="good">Chosen: one step, everything it depends on sits in the one pinned file.</td></tr>
+<tr><td>Install govulncheck, then call it by full path</td><td>Sound, two steps. Kept as the fallback; the spikes showed it is not needed.</td></tr>
+<tr><td>Keep make and keep adding rules</td><td class="bad">Rejected: never finished, and one trick cannot be seen from outside the CI job at all.</td></tr>
+<tr><td>A separate, pinned makefile just for the scan</td><td class="bad">Rejected: make still reads settings from its environment; a second pinned file for no gain.</td></tr>
+<tr><td>Google's ready-made GitHub Action for govulncheck</td><td class="bad">Rejected: another outside dependency that installs its own Go its own way.</td></tr>
+</tbody></table>
+
+<h2>3. The decision</h2>
+<pre>      - name: govulncheck (root module)
+        env:
+          GOENV: 'off'          # ignore any saved Go settings file
+          GOWORK: 'off'         # ignore a go.work that would swap library versions
+          GOFLAGS: ''           # no extra build flags
+          GOTOOLCHAIN: local    # use exactly the Go that setup-go installed
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...</pre>
+<ul>
+<li><strong>The right Go.</strong> <code>actions/setup-go@v6</code> installs the exact Go version written in the module's <code>go.mod</code> (go1.27.4), the same one our Docker images use. <code>GOTOOLCHAIN: local</code> stops Go from switching to another. With the older v5 the scan would use go1.27.0 and fail on flaws already fixed.</li>
+<li><strong>One version number.</strong> <code>make check-pins</code> fails unless the workflow, the <code>Makefile</code> and <code>docs/pins.md</code> name the same govulncheck version, with exactly one such line in each scan job.</li>
+<li><strong>No make in the gate.</strong> A new check fails if any step of the workflow runs <code>make</code>. The old checks of make's recipes and settings are deleted.</li>
+<li><strong>The module layout is bounded.</strong> The build fails on a tracked <code>go.work</code>, a tracked <code>vendor/</code> folder (a hand-editable copy of libraries), or a new <code>go.mod</code> outside the known five. A new <code>go.mod</code> inside the code would quietly take its folder out of the scan.</li>
+</ul>
+
+<h2>4. The fix and migration</h2>
+<table><thead><tr><th>Step</th><th>What</th></tr></thead><tbody>
+<tr><td>S4 (first)</td><td>One trial workflow run at the pinned versions; records the evidence below. Does not hold up this decision.</td></tr>
+<tr><td>Workflow</td><td>Replace the make steps in <code>govulncheck.yml</code> and its copy; setup-go v5 to v6.</td></tr>
+<tr><td>Checks</td><td>Add the no-make check, the version check and the module-layout check, each failing red first. Delete the make recipe and environment checks.</td></tr>
+<tr><td>Make, docs</td><td>Local make targets run the same command; <code>docs/pins.md</code> records the exception to "every gate runs through make".</td></tr>
+<tr><td>Last</td><td>Close accepted risk AR-TICK-1167-01. PR #950 gets no more review rounds: merged if already approved, otherwise closed.</td></tr>
+</tbody></table>
+
+<h2>5. What is being accepted</h2>
+<table><thead><tr><th>Risk</th><th>Why it is acceptable</th></tr></thead><tbody>
+<tr><td>A deliberate edit of both the workflow and its copy passes (AR-TICK-1140-03, unchanged)</td><td>Review; no GitHub setting we have stops it</td></tr>
+<tr><td>Three tool modules (<code>docs</code>, <code>tools/navalint</code>, <code>tools/workflowcheck</code>) are never scanned (AR-TICK-1183-01)</td><td>They are in no shipped image; adding a module is a reviewed edit</td></tr>
+<tr><td>A checked module's <code>go.mod</code> can narrow its own scan (AR-TICK-1183-02)</td><td>That edit always triggers the scan and is reviewed</td></tr>
+<tr><td>Local <code>make vulncheck</code> and CI could drift</td><td>Same command and one checked version; CI is the gate</td></tr>
+</tbody></table>
+
+<h2>6. Evidence</h2>
+<table><thead><tr><th>Question</th><th>Answer</th><th>Source</th></tr></thead><tbody>
+<tr><td>Does <code>go run</code> fail the job when govulncheck finds a flaw?</td><td class="good">Yes, it exits 1 (govulncheck's own code is 3)</td><td>Spike S2, Technical Architect</td></tr>
+<tr><td>Can a <code>replace</code> line in our <code>go.mod</code> swap in a fake scanner?</td><td class="good">No: <code>go run tool@version</code> ignores the local <code>go.mod</code></td><td>Spike S3</td></tr>
+<tr><td>Does an empty setting override a saved Go settings file?</td><td class="bad">No</td><td>Spike S1; hence <code>GOENV: 'off'</code></td></tr>
+<tr><td>Right Go version, empty settings, build time on GitHub</td><td>To record</td><td>S4, first delivery task</td></tr>
+</tbody></table>
+<p class="src">Spike commands: <code>docs/adr/ADR-001/A7/critique/technical-architect-round1.md</code>. RFC: <code>docs/adr/ADR-001/rfc/RFC-024-vulncheck-direct-scan.md</code>. Binding contract: <code>docs/adr/ADR-001/E4/vulncheck-contract.md</code>.</p>
+
+</main></body></html>

@@ -42,6 +42,7 @@ func TestRegisteredPaths(t *testing.T) {
 	}
 	for _, p := range Paths() {
 		res := pathResult{Path: p, Status: statusPass}
+		suite.startPath(p.Name)
 		t.Run(p.Name, func(t *testing.T) {
 			switch {
 			case p.Pending != "":
@@ -77,7 +78,7 @@ func TestRegisteredPaths(t *testing.T) {
 				t.Error(res.Detail)
 			}
 		})
-		suite.report.paths = append(suite.report.paths, res)
+		suite.addPath(res)
 	}
 }
 

@@ -41,17 +41,22 @@ import (
 )
 
 func main() {
+	if envDumpRequested() {
+		// make's SHELL in the -copy mode's environment check (envdump.go).
+		os.Exit(envDump(os.Stdout))
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // run returns the exit code: 0 every required step runs, 1 one does not,
 // 2 bad usage or an unreadable input.
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWith(args, stdout, stderr, makeIn(""))
+	return runWith(args, stdout, stderr, "", makeIn(""))
 }
 
-// runWith is run with the make runner of the -copy mode's recipe check.
-func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
+// runWith is run with the -copy mode's makefile directory ("" is the current
+// directory) and the make runner that runs make there.
+func runWith(args []string, stdout, stderr io.Writer, makeDir string, mk makeRunner) int {
 	fs := flag.NewFlagSet("cisteps", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	workflow := fs.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
@@ -71,7 +76,7 @@ func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 			fs.Usage()
 			return 2
 		}
-		return runCopy(*workflow, *copyPath, mk, stdout, stderr)
+		return runCopy(*workflow, *copyPath, makeDir, mk, stdout, stderr)
 	}
 
 	problems, n, err := check(*workflow, *required)
@@ -91,8 +96,8 @@ func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 }
 
 // runCopy is run's -copy mode.
-func runCopy(workflow, copyPath string, mk makeRunner, stdout, stderr io.Writer) int {
-	problems, err := checkCopy(workflow, copyPath, mk)
+func runCopy(workflow, copyPath, makeDir string, mk makeRunner, stdout, stderr io.Writer) int {
+	problems, err := checkCopy(workflow, copyPath, makeDir, mk)
 	if err != nil {
 		fmt.Fprintln(stderr, "check-ci-steps:", err)
 		return 2

@@ -136,7 +136,7 @@ func TestCI9FixturesMakePathsFail(t *testing.T) {
 			default:
 				t.Logf("caught: %v", err)
 			}
-			suite.report.fixtures = append(suite.report.fixtures, fixtureResult{
+			suite.addFixture(fixtureResult{
 				Case: "CI-9", Name: f.name, Role: p.Role, Table: f.table, Before: before, After: after,
 			})
 		})
