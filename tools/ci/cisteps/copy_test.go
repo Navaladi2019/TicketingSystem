@@ -103,9 +103,11 @@ func insertAt(re string, after bool, add ...string) edit {
 
 // atMakeLine replaces the scan line of the job that scans target's module (the
 // make target the job ran before ADR-001-A7: vulncheck is vulncheck-root,
-// vulncheck-temporal-server is itself) by f(indent of run:). The scan jobs now
-// run govulncheck directly (TICK-1186); TICK-1187 rewrites V-3 for that.
-func atMakeLine(target string, f func(ind string) []string) edit {
+// vulncheck-temporal-server is itself) by f(indent of run:, the line without
+// its indent), so an edit can keep the command and change only what it tests.
+// The scan jobs now run govulncheck directly (TICK-1186); TICK-1187 rewrites
+// V-3 for that.
+func atMakeLine(target string, f func(ind, run string) []string) edit {
 	job := target
 	if target == "vulncheck" {
 		job = "vulncheck-root"
@@ -116,7 +118,7 @@ func atMakeLine(target string, f func(ind string) []string) edit {
 		j := lineIndex(t, lines, `^  `+regexp.QuoteMeta(job)+`:\s*$`)
 		i := j + 1 + lineIndex(t, lines[j+1:], `^\s+run: go run golang\.org/x/vuln/cmd/govulncheck@\S+ \./\.\.\.\s*$`)
 		ind := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " "))]
-		return strings.Join(append(lines[:i], append(f(ind), lines[i+1:]...)...), "\n")
+		return strings.Join(append(lines[:i], append(f(ind, strings.TrimLeft(lines[i], " ")), lines[i+1:]...)...), "\n")
 	}
 }
 
@@ -139,8 +141,8 @@ type v3Edit struct {
 
 func v3Edits() []v3Edit {
 	return []v3Edit{
-		{"a step if", atMakeLine("vulncheck", func(ind string) []string {
-			return []string{ind + "if: github.actor == 'nobody'", ind + "run: make vulncheck"}
+		{"a step if", atMakeLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + "if: github.actor == 'nobody'", ind + run}
 		})},
 		{"b job if", insertAt(`^jobs:\s*$`, true, "  vulncheck-root-gone:", "    if: github.event_name == 'never'", "    runs-on: ubuntu-latest", "    steps:", "      - run: make vulncheck")},
 		{"b job if on the scanning job", func(t *testing.T, wf string) string {
@@ -148,13 +150,13 @@ func v3Edits() []v3Edit {
 			j := lineIndex(t, lines, `^  vulncheck-root:\s*$`)
 			return strings.Join(append(lines[:j+1], append([]string{"    if: github.event_name == 'never'"}, lines[j+1:]...)...), "\n")
 		}},
-		{"c exit 0 before the make line", atMakeLine("vulncheck", func(ind string) []string {
+		{"c exit 0 before the make line", atMakeLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + "run: |", ind + "  exit 0", ind + "  make vulncheck"}
 		})},
-		{"d step shell", atMakeLine("vulncheck-temporal-server", func(ind string) []string {
-			return []string{ind + "shell: 'true {0}'", ind + "run: make vulncheck-temporal-server"}
+		{"d step shell", atMakeLine("vulncheck-temporal-server", func(ind, run string) []string {
+			return []string{ind + "shell: 'true {0}'", ind + run}
 		})},
-		{"e make line in a printed heredoc", atMakeLine("vulncheck", func(ind string) []string {
+		{"e make line in a printed heredoc", atMakeLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + "run: |", ind + "  cat <<'EOF'", ind + "  make vulncheck", ind + "  EOF"}
 		})},
 		{"f another job named vulncheck", insertAt(`^jobs:\s*$`, true, "  vulncheck-other:", "    name: vulncheck", "    runs-on: ubuntu-latest", "    steps:", "      - run: 'true'", "")},
@@ -174,14 +176,14 @@ func v3Edits() []v3Edit {
 		{"gate checks out the pull request", replaceLine(`^          ref: main\s*$`, "          ref: ${{ github.head_ref }}")},
 		{"detect runs the pull request's script", replaceLine(`^\s+git show origin/main:scripts/ci/vulncheck-detect\.sh`, "          cp scripts/ci/vulncheck-detect.sh \"$RUNNER_TEMP/vulncheck-detect.sh\"")},
 		{"detect shallow", replaceLine(`^          fetch-depth: 0\s*$`, "          fetch-depth: 1")},
-		{"make line commented out", atMakeLine("vulncheck", func(ind string) []string {
+		{"make line commented out", atMakeLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + "run: 'true'", ind + "# run: make vulncheck"}
 		})},
-		{"trailing comment changed", atMakeLine("vulncheck", func(ind string) []string {
-			return []string{ind + "run: make vulncheck # || true"}
+		{"trailing comment changed", atMakeLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + run + " # || true"}
 		})},
-		{"indentation changed", atMakeLine("vulncheck", func(ind string) []string {
-			return []string{ind + " run: make vulncheck"}
+		{"indentation changed", atMakeLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + " " + run}
 		})},
 		{"blank line added", insertAt(`^jobs:\s*$`, true, "")},
 		// TICK-1167 AC 3: a # line inside a run: | block is the step's
