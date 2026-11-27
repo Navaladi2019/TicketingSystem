@@ -899,22 +899,22 @@ second workflow with a job called `vulncheck-other` fails too (ADR-001-E4
 E4-5). Any other expression in a job name fails the test.
 
 `make check-ci-steps` compares the whole workflow, comment lines aside, with
-its checked-in copy `tools/ci/cisteps/govulncheck.copy.yml`, and requires
-`make -n` of the two recipes to print exactly `GOWORK=off govulncheck ./...`
-and `cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149,
-ADR-001-E4 contract rule 9). It also reads make's database (`make -pn`): each
-rule must be exactly the target with that one recipe line, and `.IGNORE`,
-`.ONESHELL`, a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global
-`SHELL`, `.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
-`make -n` shows none of them, nor a `-`, `@` or `+` prefix (TICK-1149 review
-finding 1). An edit of only one of the two files fails `lint`; a deliberate
-edit of both passes and is the reviewer's to catch (RS3). Both scans run with
+its checked-in copy `tools/ci/cisteps/govulncheck.copy.yml` (TICK-1149,
+ADR-001-E4 contract rule 9), and fails when any `run:` line of the workflow
+runs make (ADR-001-A7 rule 9, TICK-1187). The scan jobs run
+`go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` with their Go settings
+in the step `env:`, so no makefile can change what they scan; `make
+check-pins` (V-6) requires one govulncheck version in `Makefile`,
+`docs/pins.md` and the workflow (TICK-1188). An edit of only one of the
+workflow and its copy fails `lint`; a deliberate edit of both that adds no make
+passes and is the reviewer's to catch (RS3). Both scans run with
 `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
 `task vulncheck`. The trade-off of scanning only the module whose library list
 changed (rule 3): a code-only change that starts calling an already-listed
 vulnerable symbol, or an advisory published after a merge, is caught by the
 next scheduled run, up to two days later. Locally:
-`make tools-govulncheck vulncheck vulncheck-temporal-server`, or
+`make vulncheck vulncheck-temporal-server` (the workflow's command; the
+installed Go must be at least the module's `go` line, TICK-1189), or
 `make vulncheck-ci` as part of `make ci-lint`. `go test ./tools/ci/vulngate`
 runs the detect and gate tables (V-1, V-2).
 
