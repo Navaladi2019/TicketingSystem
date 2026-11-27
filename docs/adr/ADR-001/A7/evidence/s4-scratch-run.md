@@ -40,7 +40,7 @@ Whole jobs: `root` 13:34:51 to 13:35:37 (46 s), `temporal-server` 13:34:50 to 13
 `root`, step B:
 
 ```
-2026-11-27T13:34:58.8857120Z   GOFLAGS: 
+2026-11-27T13:34:58.8857120Z   GOFLAGS:
 2026-11-27T13:34:58.8958963Z GOFLAGS=[]
 2026-11-27T13:34:58.8989300Z 
 2026-11-27T13:34:58.9023276Z go version go1.27.4 linux/amd64
@@ -54,7 +54,7 @@ Whole jobs: `root` 13:34:51 to 13:35:37 (46 s), `temporal-server` 13:34:50 to 13
 `temporal-server`, step B:
 
 ```
-2026-11-27T13:34:55.0918641Z   GOFLAGS: 
+2026-11-27T13:34:55.0918641Z   GOFLAGS:
 2026-11-27T13:34:55.0999090Z GOFLAGS=[]
 2026-11-27T13:34:55.1026412Z 
 2026-11-27T13:34:55.1048784Z go version go1.27.4 linux/amd64
@@ -76,7 +76,7 @@ Whole jobs: `root` 13:34:51 to 13:35:37 (46 s), `temporal-server` 13:34:50 to 13
 2026-11-27T13:35:35.3627976Z exit=1
 ```
 
-The `GOFLAGS: ` lines are the step's `env:` listing printed by the runner. The empty line after `GOFLAGS=[]` is the plain `go env GOFLAGS` output.
+The `GOFLAGS:` lines (trailing space trimmed here) are the step's `env:` listing printed by the runner. The empty line after `GOFLAGS=[]` is the plain `go env GOFLAGS` output.
 
 ## Notes
 
