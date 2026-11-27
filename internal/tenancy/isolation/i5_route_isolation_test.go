@@ -273,6 +273,19 @@ func i5rList(ctx context.Context, h *etIso, token, query string) (ci8Resp, i5rLi
 	return r, p, nil
 }
 
+// i5rListOK is i5rList for a request that must answer 200: any other answer
+// is an error, so a wrong status fails the row instead of reaching a nil page.
+func i5rListOK(ctx context.Context, h *etIso, token, query string) (i5rListPage, error) {
+	r, p, err := i5rList(ctx, h, token, query)
+	if err != nil {
+		return p, err
+	}
+	if r.code != http.StatusOK {
+		return p, fmt.Errorf("?%s = %d %s, want 200", query, r.code, r.body)
+	}
+	return p, nil
+}
+
 // i5rCounts is how much the list route and masked-field rows discriminated.
 type i5rCounts struct {
 	pages, proper, masked, open int
@@ -458,6 +471,10 @@ func (run *i5rRun) lists(ctx context.Context, ci int, c i5rCase, pol *authz.Poli
 // item but for id and number, and one page each at limit 1.
 func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Policy, st *i5rCounts) error {
 	a := run.twins[0]
+	// tag is an unflagged data field, so the twins are selected by the fixed
+	// columns they share, requester and group; other records may match too, so
+	// the expected set is computed by the Go check, per caller.
+	twinSel := fmt.Sprintf("filter[requester]=%s&filter[group]=%s&limit=200", a.Requester, a.Group)
 	for k, p := range c.Principals {
 		_, _, readsA := authz.Allows(pol, p, authz.OpRead, a.row(p))
 		if !readsA {
@@ -468,12 +485,21 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		if authz.Readable(pol, p, "cost") {
 			// The positive control: a caller the mask admits tells the twins
 			// apart, so the masked caller's sameness is the mask's doing.
-			_, page, err := i5rList(ctx, run.e, tok, "filter[tag]=twin&filter[cost]=1")
+			// cost is an unflagged data field, so the positive control reads
+			// it instead of filtering on it: a caller the mask admits sees
+			// the twins' costs, 1 and 900, in the twins' own items.
+			page, err := i5rListOK(ctx, run.e, tok, twinSel)
 			if err != nil {
-				return err
+				return fmt.Errorf("control: %s: %w", where, err)
 			}
-			if ids := page.ids(); len(ids) != 1 || ids[0] != a.ID.String() {
-				return fmt.Errorf("control: %s: ?filter[tag]=twin&filter[cost]=1 = %v, want only twin %s", where, ids, a.ID)
+			costs := map[string]string{}
+			for _, it := range page.Items {
+				id, _ := it["id"].(string)
+				d, _ := it["data"].(map[string]any)
+				costs[id] = fmt.Sprint(d["cost"])
+			}
+			if costs[a.ID.String()] != "1" || costs[run.twins[1].ID.String()] != "900" {
+				return fmt.Errorf("control: %s: ?%s shows costs %v, want twin %s at 1 and twin %s at 900", where, twinSel, costs, a.ID, run.twins[1].ID)
 			}
 			st.open++
 			continue
@@ -481,7 +507,7 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		st.masked++
 		var first string
 		for _, q := range []string{"filter[cost]=1", "filter[cost]=900", "filter[cost]=5", "filter[cost][in]=1,900", "filter[cost][in]=5,6",
-			"filter[tag]=twin&filter[cost]=1", "filter[tag]=twin&filter[cost]=5", "sort=cost", "sort=-cost"} {
+			twinSel + "&filter[cost]=1", twinSel + "&filter[cost]=5", "sort=cost", "sort=-cost"} {
 			r := run.e.ci8Do(ctx, run.e.h, http.MethodGet, i5rPath+"?"+q, tok, "", nil)
 			body, code, err := s10Problem(r)
 			if err != nil || r.code != http.StatusBadRequest || (code != "masked_field" && !strings.HasPrefix(q, "sort=")) {
@@ -499,13 +525,36 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 				return fmt.Errorf("%s: the 400 of ?%s differs from the first:\n%s\n%s", where, q, body, first)
 			}
 		}
-		_, page, err := i5rList(ctx, run.e, tok, "filter[tag]=twin")
+		want := map[string]bool{}
+		for _, rec := range run.all {
+			if rec.Requester != nil && rec.Group != nil && *rec.Requester == *a.Requester && *rec.Group == *a.Group {
+				if _, _, ok := authz.Allows(pol, p, authz.OpRead, rec.row(p)); ok {
+					want[rec.ID.String()] = true
+				}
+			}
+		}
+		page, err := i5rListOK(ctx, run.e, tok, twinSel)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", where, err)
 		}
-		if len(page.Items) != 2 || *page.Total != 2 {
-			return fmt.Errorf("%s: ?filter[tag]=twin = %v total %d, want both twins", where, page.ids(), *page.Total)
+		got := map[string]bool{}
+		var twinItems []map[string]any
+		for _, it := range page.Items {
+			id, _ := it["id"].(string)
+			got[id] = true
+			if id == a.ID.String() || id == run.twins[1].ID.String() {
+				twinItems = append(twinItems, it)
+			}
 		}
+		if *page.Total != len(want) || len(got) != len(want) || len(twinItems) != 2 {
+			return fmt.Errorf("%s: ?%s = %v total %d, want %d records including both twins", where, twinSel, page.ids(), *page.Total, len(want))
+		}
+		for id := range want {
+			if !got[id] {
+				return fmt.Errorf("%s: ?%s lacks readable record %s", where, twinSel, id)
+			}
+		}
+		page.Items = twinItems
 		strip := func(it map[string]any) string {
 			it = mapsClone(it)
 			for _, f := range []string{"id", "number"} {
@@ -518,16 +567,16 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 		}
 		cursor, n := "", 0
 		for {
-			q := "filter[tag]=twin&limit=1"
+			q := fmt.Sprintf("filter[requester]=%s&filter[group]=%s&limit=1", a.Requester, a.Group)
 			if cursor != "" {
 				q += "&cursor=" + url.QueryEscape(cursor)
 			}
-			_, pg, err := i5rList(ctx, run.e, tok, q)
+			pg, err := i5rListOK(ctx, run.e, tok, q)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s: %w", where, err)
 			}
-			if len(pg.Items) != 1 || *pg.Total != 2 {
-				return fmt.Errorf("%s: page %d of ?%s = %v total %d, want one twin and total 2", where, n+1, q, pg.ids(), *pg.Total)
+			if len(pg.Items) != 1 || *pg.Total != len(want) {
+				return fmt.Errorf("%s: page %d of ?%s = %v total %d, want one record and total %d", where, n+1, q, pg.ids(), *pg.Total, len(want))
 			}
 			n++
 			if pg.NextCursor == nil {
@@ -535,8 +584,8 @@ func (run *i5rRun) masked(ctx context.Context, ci int, c i5rCase, pol *authz.Pol
 			}
 			cursor = *pg.NextCursor
 		}
-		if n != 2 {
-			return fmt.Errorf("%s: the twins took %d pages at limit 1, want 2", where, n)
+		if n != len(want) {
+			return fmt.Errorf("%s: the twin selection took %d pages at limit 1, want %d", where, n, len(want))
 		}
 	}
 	return nil
