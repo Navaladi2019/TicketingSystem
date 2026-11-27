@@ -31,6 +31,14 @@ type makefileCase struct {
 	want string
 }
 
+// fileMarker starts another file of a makefileCase's mk: the text before the
+// first marker is the Makefile; each marker is followed by a file name, a
+// newline and that file's text.
+const fileMarker = "\n#--- cisteps test file: "
+
+// withFile is mk with another file, name, beside the Makefile.
+func withFile(mk, name, body string) string { return mk + fileMarker + name + "\n" + body }
+
 func withInstaller(line string) string {
 	return strings.Replace(pinnedMakefile, installerLine, "\t"+line+"\n", 1)
 }
@@ -41,8 +49,15 @@ func checkMakefile(t *testing.T, mk string) []string {
 		t.Skip("no make on PATH")
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(mk), 0o600); err != nil {
+	files := strings.Split(mk, fileMarker)
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(files[0]), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	for _, f := range files[1:] {
+		name, body, _ := strings.Cut(f, "\n")
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
 	if err != nil {
