@@ -118,15 +118,19 @@ func TestA2Gate(t *testing.T) {
 	dir := filepath.Dir(out)
 	_ = os.MkdirAll(dir, 0o750)
 	var buf strings.Builder
+	smoke := os.Getenv("NAVA_E3_SMOKE") == "1"
 	w := func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
+		if smoke {
+			line = e3SmokeLine(line)
+		}
 		buf.WriteString(line + "\n")
 		t.Log(line)
 		_ = os.WriteFile(out, []byte(buf.String()), 0o600)
 	}
 	var plans []string
 	writePlans := func() {
-		_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte("# TICK-1048 plans (EXPLAIN (ANALYZE, BUFFERS, SETTINGS) as nava_app)\n\n"+strings.Join(plans, "\n\n")+"\n"), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte("# TICK-1048 / TICK-1083 / TICK-1098 plans (EXPLAIN (ANALYZE, BUFFERS, SETTINGS) as nava_app)\n\n"+strings.Join(plans, "\n\n")+"\n"), 0o600)
 	}
 	keepPlans := func(r *perfResult) {
 		for i, s := range r.stmtSQL {
@@ -155,6 +159,12 @@ func TestA2Gate(t *testing.T) {
 		WHERE name IN ('shared_buffers','effective_cache_size','work_mem','random_page_cost','max_parallel_workers_per_gather','jit','fsync','synchronous_commit','default_statistics_target')`))
 	w("- nava_app: %s", e.scalar(t, `SELECT coalesce((SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole WHERE r.rolname = 'nava_app'), 'default')`))
 	w("- CountBudget %s; other containers at start: %v", store.CountBudget, foreignContainers(t.Context()))
+	w("- parallel settings (server): %s", e.scalar(t, `SELECT string_agg(name || ' = ' || setting, ', ' ORDER BY name) FROM pg_settings
+		WHERE name IN ('max_parallel_workers_per_gather', 'max_parallel_workers', 'max_worker_processes')`))
+	want := map[string]bool{}
+	for _, c := range strings.Split(cmp.Or(os.Getenv("NAVA_PERF_SPIKE_CELLS"), "base,spill,parallel"), ",") {
+		want[strings.TrimSpace(c)] = true
+	}
 	if err := e.super.QueryRow(t.Context(), `SELECT d.id FROM entity_definitions d JOIN perf_tenant p ON p.tenant_id = d.tenant_id
 		WHERE p.tn = 0 AND d.key = 'ticket'`).Scan(&e.largeDef); err != nil {
 		t.Fatal(err)
@@ -168,6 +178,10 @@ func TestA2Gate(t *testing.T) {
 
 	// ---- (2), (2a) ----
 	d := time.Duration(perfEnvInt("NAVA_PERF_LIST_SECONDS", 15)) * time.Second
+	if smoke {
+		w("- SMOKE, no verdict: 2 s blocks and controls, gates recorded and ignored")
+		d = 2 * time.Second
+	}
 	attempts := 2
 	if v, err := strconv.Atoi(os.Getenv("NAVA_PERF_GATE_ATTEMPTS")); err == nil && v >= 0 {
 		attempts = v
@@ -228,6 +242,26 @@ func TestA2Gate(t *testing.T) {
 	}
 	w("")
 	w("**(2) verdict: %s**", verdict)
+
+	// ---- (3e) serial-count check, band (ii) cell (TICK-1098) ----
+	// It runs before the S-A2-cancel fixture, which reassigns every large-
+	// tenant record to the fixture's groups and so empties the agents' view.
+	var serial *e3Serial
+	if want["serial"] {
+		serial = &e3Serial{e: e, tenant: large, clients: clients, d: d, host: host, w: w, plans: &plans, onPlans: writePlans, smoke: smoke,
+			arms: map[string]e3Arm{
+				"A": {key: "A", desc: fmt.Sprintf("shipped: CountBudget %s, workers off in the savepoint Exec", store.CountBudget), h: normal},
+				"B": {key: "B", desc: "WithCountArm(140 ms, true): server settings", h: e.handlerWith(t, server.WithCountArm(140*time.Millisecond, true))},
+			}}
+		w("")
+		w("## (3e) serial-count check (ADR-006-E2 E2-4)")
+		w("")
+		w("- arm A: %s; arm B: %s. Both on e.pool (perfTracer only): no gateCountTracer, no forced GUC.", serial.arms["A"].desc, serial.arms["B"].desc)
+		w("- %d clients, blocks of %s, order A, B, B, A per cell; each cell is its own ABBA (band (ii) before the S-A2-cancel fixture, a50 after it). The (2a) host gate runs before and after each block; adjacent blocks share the reading between them. A block with a failed gate is rerun, up to 2 reruns.", clients, d)
+		w("- band (ii) is TestA2Gate's: `filter[kp]=3` (48%% of the type) round robin over P3-36's 200 agents (about 6%% of the type each). The kit's Alice sees about 5%% through one group; this ACL is the harness's documented stand-in (docs/data/adr-006-a2-gate.md).")
+		serial.cell(t, "band (ii) kp = 3, agents", listReqs(e.agents, band), true)
+		serial.planReported(t, "band (ii) kp = 3, agent-1 (reported only)", "agent-1", band)
+	}
 
 	// ---- (3a) S-A2-cancel ----
 	w("")
@@ -310,6 +344,37 @@ func TestA2Gate(t *testing.T) {
 	w("- visibility map: %s (the kp rows of rfv_num were vacuumed before the fixture; the pk rows were not)",
 		e.scalar(t, `SELECT string_agg(relname || ' ' || round(100.0 * relallvisible / nullif(relpages, 0)) || '% all-visible', ', ' ORDER BY relname)
 			FROM pg_class WHERE relname IN ('rfv_num', 'rfv_text', 'rfv_bool')`))
+
+	if serial != nil {
+		c := serial.cell(t, "a50, pk = 3", listReqs([]string{"a50"}, "filter%5Bpk%5D=3"), false)
+		serial.planCheck(t, c, "a50", "filter%5Bpk%5D=3")
+		_ = os.WriteFile(filepath.Join(dir, "serial-samples.csv"), []byte(e3CSVHeader+serial.csv.String()), 0o600)
+		overall, kind := serial.report()
+		ta := gateTemp(t, e.super)
+		w("")
+		w("(3a) leak check after (3e) (ADR-006-E2 E2-3: the verdict reads pg_ls_tmpdir() only):")
+		w("")
+		time.Sleep(60 * time.Second)
+		t60 := gateTemp(t, e.super)
+		leakOK := gateLeak(w, "(3e)", ta, t60)
+		if files, bytes := serial.tempRise(); files > 0 {
+			w("- temp_files rose by %d (%d bytes) over the (3e) blocks alone (gates and fixture left out): above 0, so the leak reading covered blocks that spilled.", files, bytes)
+		} else {
+			w("- temp_files was 0 over the (3e) blocks: the (3a) leak reading did not see a spill; D-7E2-7 relies on runs 5 and 6 for the spill reading.")
+		}
+		lv := "FAIL"
+		if leakOK {
+			lv = "PASS (no pgsql_tmp file after the run or 60 s later)"
+		}
+		w("")
+		w("**(3a) leak verdict after (3e): %s**", lv)
+		w("")
+		w("(3e) %s", overall)
+		if kind != "" {
+			w("")
+			w("%s", kind)
+		}
+	}
 
 	// TICK-1083 (T-A2-4b): the spike runs on up to three cells, each picked
 	// from its own candidate list. "base" is TICK-1048's: the slowest plain
@@ -396,11 +461,6 @@ func TestA2Gate(t *testing.T) {
 			return ""
 		}},
 	}
-	want := map[string]bool{}
-	for _, c := range strings.Split(cmp.Or(os.Getenv("NAVA_PERF_SPIKE_CELLS"), "base,spill,parallel"), ",") {
-		want[strings.TrimSpace(c)] = true
-	}
-
 	// setOf is the SET LOCAL statements a cell's settings take.
 	setOf := func(params map[string]string) string {
 		var ss []string
@@ -509,33 +569,9 @@ func TestA2Gate(t *testing.T) {
 		}
 		return ms
 	}
-	// temp reads pg_stat_database's cumulative counters, which only show that
-	// a spill happened, and what is in pgsql_tmp now, which shows a leak:
-	// pg_ls_tmpdir() lists its files; pg_ls_dir also lists a parallel hash's
-	// shared fileset directories, which pg_ls_tmpdir() skips.
-	type tempReading struct {
-		files, bytes, tmpFiles, tmpBytes, tmpEntries, workers int64
-	}
-	temp := func() tempReading {
-		var r tempReading
-		if err := e.super.QueryRow(t.Context(), `SELECT temp_files, temp_bytes FROM pg_stat_database WHERE datname = current_database()`).Scan(&r.files, &r.bytes); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.super.QueryRow(t.Context(), `SELECT count(*), coalesce(sum(size), 0) FROM pg_ls_tmpdir()`).Scan(&r.tmpFiles, &r.tmpBytes); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_ls_dir('base/pgsql_tmp', true, false)`).Scan(&r.tmpEntries); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.super.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'parallel worker'`).Scan(&r.workers); err != nil {
-			t.Fatal(err)
-		}
-		return r
-	}
-	tempStr := func(label string, r tempReading) string {
-		return fmt.Sprintf("%s: temp_files %d, temp_bytes %d; pg_ls_tmpdir() %d files (%d bytes); base/pgsql_tmp entries %d; parallel workers running %d",
-			label, r.files, r.bytes, r.tmpFiles, r.tmpBytes, r.tmpEntries, r.workers)
-	}
+	// temp is gateTemp: pg_ls_tmpdir() is the leak reading (E2-3);
+	// temp_files / temp_bytes only show that a spill happened.
+	temp := func() gateTempReading { return gateTemp(t, e.super) }
 
 	// P3-36's host gates around each cell (TICK-1083): a cell scored beside
 	// a busy host is not evidence.
@@ -664,10 +700,9 @@ func TestA2Gate(t *testing.T) {
 		time.Sleep(60 * time.Second)
 		t60 := temp()
 		w("- transport floor before the spike: p50 %.2f ms; other containers: %v", pct(floorSpike, .5), foreignContainers(t.Context()))
-		w("- %s", tempStr("before", tb))
-		w("- %s", tempStr("after", ta))
-		w("- %s", tempStr("after 60 s", t60))
-		w("- temp files written during the spike (cumulative counter; it shows the spill, not a leak): %d files, %d bytes", ta.files-tb.files, ta.bytes-tb.bytes)
+		w("- before: %s", tb)
+		w("- temp files written during the spike (spill context only: proves a spill happened, never a leak): %d files, %d bytes", ta.files-tb.files, ta.bytes-tb.bytes)
+		leakOK := gateLeak(w, "cell "+c.name, ta, t60)
 
 		name := "spike-samples.csv"
 		if c.name != "base" {
@@ -749,19 +784,15 @@ func TestA2Gate(t *testing.T) {
 			pass = false
 			notes = append(notes, "the harness's SET LOCAL failed")
 		}
-		if c.name == "spill" {
-			if ta.files <= tb.files {
-				pass = false
-				notes = append(notes, "no temp file written during the spike: the cell did not spill")
-			}
-			if ta.tmpFiles != 0 || ta.tmpEntries != 0 || t60.tmpFiles != 0 || t60.tmpEntries != 0 {
-				pass = false
-				notes = append(notes, "pgsql_tmp not empty after the run")
-			}
-		}
-		if ta.workers != 0 || t60.workers != 0 {
+		// ADR-006-E2 E2-3: the leak verdict is pg_ls_tmpdir() alone.
+		// temp_files, the pg_ls_dir listing and the worker count are
+		// reported above and gate nothing.
+		if !leakOK {
 			pass = false
-			notes = append(notes, "parallel workers still running after the run")
+			notes = append(notes, "pg_ls_tmpdir() lists pgsql_tmp files after the run")
+		}
+		if c.name == "spill" && ta.files <= tb.files {
+			notes = append(notes, "reported: temp_files did not rise, so the cell may not have spilled")
 		}
 		v := "PASS"
 		if !pass {
@@ -776,9 +807,12 @@ func TestA2Gate(t *testing.T) {
 		allPass = allPass && pass
 	}
 	w("")
-	if allPass {
+	switch {
+	case len(verdicts) == 0:
+		w("(3a) S-A2-cancel cells: none selected (NAVA_PERF_SPIKE_CELLS)")
+	case allPass:
 		w("**(3a) verdict: PASS** (%s)", strings.Join(verdicts, "; "))
-	} else {
+	default:
 		w("**(3a) verdict: FAIL or not scored** (%s)", strings.Join(verdicts, "; "))
 	}
 	writePlans()

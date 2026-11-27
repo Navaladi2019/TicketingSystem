@@ -1,0 +1,13 @@
+02:47:21 load 0.08 0.07 0.05 multica-backend-1=0.19% multica-frontend-1=0.00% multica-postgres-1=0.18%  host: go.exe=2 
+02:47:35 load 0.22 0.10 0.06 multica-backend-1=0.36% multica-frontend-1=0.00% multica-postgres-1=0.29%  host: go.exe=2 server.test.exe=1 
+02:47:49 load 0.27 0.11 0.07 multica-backend-1=0.11% multica-frontend-1=0.06% multica-postgres-1=0.19%  host: go.exe=2 server.test.exe=1 
+02:48:02 load 0.35 0.14 0.08 multica-backend-1=0.13% multica-frontend-1=0.00% multica-postgres-1=0.12%  host: go.exe=2 server.test.exe=1 
+02:48:15 load 0.35 0.15 0.08 multica-backend-1=0.21% multica-frontend-1=0.00% multica-postgres-1=9.60%  host: go.exe=2 server.test.exe=1 
+02:48:29 load 0.45 0.18 0.10 multica-backend-1=0.34% multica-frontend-1=0.00% multica-postgres-1=0.18%  host: go.exe=2 server.test.exe=1 
+02:48:43 load 0.57 0.22 0.11 multica-backend-1=0.15% multica-frontend-1=0.09% multica-postgres-1=0.10%  host: go.exe=2 server.test.exe=1 
+02:48:56 load 0.66 0.26 0.12 multica-backend-1=0.60% multica-frontend-1=0.00% multica-postgres-1=5.34%  host: go.exe=2 server.test.exe=1 
+02:49:10 load 0.74 0.30 0.14 multica-backend-1=0.56% multica-frontend-1=0.00% multica-postgres-1=5.67%  host: go.exe=2 server.test.exe=1 
+02:49:24 load 0.78 0.32 0.15 multica-backend-1=0.16% multica-frontend-1=0.00% multica-postgres-1=0.14%  host: go.exe=2 server.test.exe=1 
+02:49:38 load 0.92 0.37 0.17 multica-backend-1=0.27% multica-frontend-1=0.00% multica-postgres-1=0.15%  host: go.exe=2 server.test.exe=1 
+02:49:51 load 1.09 0.43 0.19 multica-backend-1=1.60% multica-frontend-1=0.00% multica-postgres-1=0.49%  host: go.exe=2 server.test.exe=1 
+02:50:04 load 1.30 0.50 0.22 multica-backend-1=0.22% multica-frontend-1=0.00% multica-postgres-1=0.12%  host: go.exe=2 server.test.exe=1 

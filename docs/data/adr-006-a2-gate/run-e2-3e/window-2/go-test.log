@@ -1,0 +1,109 @@
+### 2026-11-22T17:52:24Z postgres:16.10, commit ce1aa6ea
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: multica-backend-1 multica-frontend-1 multica-postgres-1 
+### NAVA_PERF_SPIKE_CELLS=serial NAVA_PERF_GATE_ATTEMPTS=0
+=== RUN   TestA2Gate
+    records_a2_gate_perf_integration_test.go:124: # TICK-1048 / TICK-1083 A2-8 (2), (2a), (3a), raw (2026-11-22T17:52:41Z)
+    records_a2_gate_perf_integration_test.go:124: 
+    records_a2_gate_perf_integration_test.go:149: perf: 400 tenants, types and ACLs created through the API
+    records_a2_gate_perf_integration_test.go:149: perf: seeded in 1m58s
+panic: test timed out after 2h0m0s
+	running tests:
+		TestA2Gate (2h0m0s)
+
+goroutine 347 [running]:
+testing.(*M).startAlarm.func1()
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2961 +0x34a
+created by time.goFunc
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/time/sleep.go:182 +0x2d
+
+goroutine 1 [chan receive, 120 minutes]:
+testing.(*T).Run(0x3e833c12e00, {0x7ff6755cea9e?, 0x3e833f1faa8?}, 0x7ff676d50300)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2268 +0x4d2
+testing.runTests.func1(0x3e833c12e00)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2744 +0x37
+testing.tRunner(0x3e833c12e00, 0x3e833f1fbc8)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2195 +0xc3
+testing.runTests({0x7ff675616d24, 0x27}, {0x7ff67563cda8, 0x37}, 0x3e833c1a2e8, {0x7ff676e2acb0, 0x194, 0x194}, {0xc2b8efe01240fad0, 0x68c62aeef59, ...})
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2742 +0x505
+testing.(*M).Run(0x3e833f8d5e0)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2602 +0x6af
+main.main()
+	_testmain.go:854 +0x9b
+
+goroutine 21 [IO wait, 116 minutes]:
+internal/poll.runtime_pollWait(0x1a500023e00, 0x72)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x7ff674342301?, 0x7ff600000001?, 0x0)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*FD).waitIO(0x3e833d70700, 0x3e83409f500)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/internal/poll/fd_windows.go:233 +0x45
+internal/poll.(*FD).execIO(0x3e833d70700, 0x72, 0x3e836c35000, {0x3e836c34fc0, 0x1, 0xd5c4f68daa181bb3?})
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/internal/poll/fd_windows.go:310 +0x27e
+internal/poll.(*FD).Read(0x3e833d70700, {0x3e836a2e000, 0x2000, 0x2000})
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/internal/poll/fd_windows.go:633 +0x227
+net.(*netFD).Read(0x3e833d70700, {0x3e836a2e000?, 0x7ff6742f41bd?, 0x0?})
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x3e833c16410, {0x3e836a2e000?, 0x3e836c35190?, 0x400000?})
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/net/net.go:196 +0x45
+github.com/jackc/pgx/v5/pgconn/internal/bgreader.(*BGReader).Read(0x3e8369807c0, {0x3e836a2e000, 0x2000, 0x2000})
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgconn/internal/bgreader/bgreader.go:100 +0xcb
+io.ReadAtLeast({0x7ff676d258f0, 0x3e8369807c0}, {0x3e836a2e000, 0x2000, 0x2000}, 0x5)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/io/io.go:335 +0x83
+github.com/jackc/pgx/v5/pgproto3.(*chunkReader).Next(0x3e833c29e90, 0x5)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgproto3/chunkreader.go:80 +0x289
+github.com/jackc/pgx/v5/pgproto3.(*Frontend).Receive(0x3e836a28488)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgproto3/frontend.go:313 +0x3c
+github.com/jackc/pgx/v5/pgconn.(*PgConn).peekMessage(0x3e833ed3088)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgconn/pgconn.go:643 +0x155
+github.com/jackc/pgx/v5/pgconn.(*MultiResultReader).NextResult(0x3e833ed31c0)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgconn/pgconn.go:1638 +0x47
+github.com/jackc/pgx/v5.(*Conn).execSimpleProtocol(0x7ff6769c9048?, {0x7ff676d45800?, 0x3e833d4d860?}, {0x7ff6755ceecc?, 0x3e836c355e0?}, {0x0?, 0x7ff6755f4749?, 0x1b?})
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/conn.go:598 +0xb0
+github.com/jackc/pgx/v5.(*Conn).exec(0x3e833ec4140, {0x7ff676d45800, 0x3e833d4d860}, {0x7ff6755ceecc, 0xa}, {0x0?, 0x0?, 0x3e836c35708?})
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/conn.go:583 +0x8d3
+github.com/jackc/pgx/v5.(*Conn).Exec(0x3e833ec4140, {0x7ff676d45800?, 0x3e833d4d860?}, {0x7ff6755ceecc, 0xa}, {0x0, 0x0, 0x0})
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/conn.go:490 +0x178
+github.com/Navaladi2019/TicketingSystem/internal/server_test.(*perfEnv).exec(0x3e834165400, 0x3e833c13000, {0x7ff6755ceecc, 0xa}, {0x0, 0x0, 0x0})
+	C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1098-b98e78cf9186/workdir/TicketingSystem/internal/server/records_perf_integration_test.go:339 +0xb1
+github.com/Navaladi2019/TicketingSystem/internal/server_test.TestA2Gate(0x3e833c13000)
+	C:/Users/vknav/multica_workspaces/ticket-4c6f7183f414/tick-1098-b98e78cf9186/workdir/TicketingSystem/internal/server/records_a2_gate_perf_integration_test.go:151 +0x545
+testing.tRunner(0x3e833c13000, 0x7ff676d50300)
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2195 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Users/vknav/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.4.windows-amd64/src/testing/testing.go:2260 +0x4b4
+
+goroutine 376 [select]:
+github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck(0x3e836b021c0)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:510 +0xc8
+github.com/jackc/pgx/v5/pgxpool.NewWithConfig.func5()
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:337 +0x3d
+created by github.com/jackc/pgx/v5/pgxpool.NewWithConfig in goroutine 21
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:334 +0x465
+
+goroutine 345 [select]:
+github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck(0x3e834332460)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:510 +0xc8
+github.com/jackc/pgx/v5/pgxpool.NewWithConfig.func5()
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:337 +0x3d
+created by github.com/jackc/pgx/v5/pgxpool.NewWithConfig in goroutine 21
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:334 +0x465
+
+goroutine 344 [select]:
+github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck(0x3e834332380)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:510 +0xc8
+github.com/jackc/pgx/v5/pgxpool.NewWithConfig.func5()
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:337 +0x3d
+created by github.com/jackc/pgx/v5/pgxpool.NewWithConfig in goroutine 21
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:334 +0x465
+
+goroutine 343 [select]:
+github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck(0x3e8343322a0)
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:510 +0xc8
+github.com/jackc/pgx/v5/pgxpool.NewWithConfig.func5()
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:337 +0x3d
+created by github.com/jackc/pgx/v5/pgxpool.NewWithConfig in goroutine 21
+	C:/Users/vknav/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/pool.go:334 +0x465
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/server	7200.774s
+FAIL

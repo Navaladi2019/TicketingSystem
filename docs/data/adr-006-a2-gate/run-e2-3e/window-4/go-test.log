@@ -1,0 +1,14 @@
+### 2026-11-23T02:52:02Z postgres:16.10, commit d1cd0a52
+### host: MINGW64_NT-10.0-26300; docker 29.9.2
+### docker VM: 16 CPUs, 26260877312 bytes, kernel 5.15.167.4-microsoft-standard-WSL2
+### other containers at start: multica-backend-1 multica-frontend-1 multica-postgres-1 
+### NAVA_PERF_SPIKE_CELLS=serial NAVA_PERF_GATE_ATTEMPTS=0
+=== RUN   TestA2Gate
+    records_a2_gate_perf_integration_test.go:140: failed to connect to `user=pgadmin database=postgres`:
+        	127.0.0.1:53065 (127.0.0.1): dial error: dial tcp 127.0.0.1:53065: connectex: No connection could be made because the target machine actively refused it.
+        	127.0.0.1:53065 (127.0.0.1): dial error: dial tcp 127.0.0.1:53065: connectex: No connection could be made because the target machine actively refused it.
+--- FAIL: TestA2Gate (0.01s)
+FAIL
+FAIL	github.com/Navaladi2019/TicketingSystem/internal/server	4.969s
+FAIL
+exit=1
