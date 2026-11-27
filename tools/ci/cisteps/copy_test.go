@@ -101,12 +101,20 @@ func insertAt(re string, after bool, add ...string) edit {
 	}
 }
 
-// atMakeLine replaces the `run: make <target>` line by f(indent of run:).
+// atMakeLine replaces the scan line of the job that scans target's module (the
+// make target the job ran before ADR-001-A7: vulncheck is vulncheck-root,
+// vulncheck-temporal-server is itself) by f(indent of run:). The scan jobs now
+// run govulncheck directly (TICK-1186); TICK-1187 rewrites V-3 for that.
 func atMakeLine(target string, f func(ind string) []string) edit {
+	job := target
+	if target == "vulncheck" {
+		job = "vulncheck-root"
+	}
 	return func(t *testing.T, wf string) string {
 		t.Helper()
 		lines := strings.Split(wf, "\n")
-		i := lineIndex(t, lines, `^\s+run: make `+regexp.QuoteMeta(target)+`\s*$`)
+		j := lineIndex(t, lines, `^  `+regexp.QuoteMeta(job)+`:\s*$`)
+		i := j + 1 + lineIndex(t, lines[j+1:], `^\s+run: go run golang\.org/x/vuln/cmd/govulncheck@\S+ \./\.\.\.\s*$`)
 		ind := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " "))]
 		return strings.Join(append(lines[:i], append(f(ind), lines[i+1:]...)...), "\n")
 	}
@@ -368,7 +376,7 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 	for name, e := range map[string]edit{
 		"header comment added":   func(_ *testing.T, wf string) string { return "# a new note\n" + wf },
 		"comment removed":        func(_ *testing.T, wf string) string { return regexp.MustCompile(`(?m)^#.*\n`).ReplaceAllString(wf, "") },
-		"indented comment added": atMakeLine("vulncheck", func(ind string) []string { return []string{ind + "# the root module", ind + "run: make vulncheck"} }),
+		"indented comment added": insertAt(`^\s+run: go run golang\.org/x/vuln/cmd/govulncheck@`, false, "        # the root module"),
 		"tab-indented comment":   insertAt(`^jobs:\s*$`, true, "\t# note"),
 		// TICK-1167 AC 3: a comment after a run: | block, no deeper than
 		// the block's header line, is a YAML comment.
