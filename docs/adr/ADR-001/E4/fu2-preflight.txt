@@ -1,1 +1,84 @@
-Read-only preflight evidence for ADR-001-E4 FU2 (TICK-1153, T-E4-6). Collection in progress.
+Read-only preflight evidence for ADR-001-E4 FU2 (TICK-1153, T-E4-6), collected 2026-11-27T01:29:20Z.
+main at d7296372fb5ad64f7ea2a41ba772c95ea3b834c3 (TICK-1150, PR #942, merged 2026-11-27T01:04Z). Both PRs were opened after that merge.
+Workflow-file check (criterion 3): only .github/workflows/govulncheck.yml has a job that reports vulncheck (job id vulncheck,
+name ${{ github.base_ref == 'main' && 'vulncheck' || 'vulncheck-other' }}). .github/workflows/ci.yml names govulncheck only in comments
+(lines 10-12, 433, 545, 1182-1183); TestNoTwoWorkflowsReportTheSameCheck (tools/ci/cisteps) guards this on main.
+On both head commits below exactly one check run is named vulncheck, from workflow run govulncheck, app id 15368 (GitHub Actions).
+Case 1 is this evidence PR's first head commit (3fe23b9e, the stub file); later commits of #946 touch only this file and are also docs-only.
+
+== PR #946 (case 1, docs-only: this evidence PR, first head commit) head 3fe23b9ed44f54073156c1648c3c9154efa0e4c0
+govulncheck run: https://github.com/Navaladi2019/TicketingSystem/actions/runs/45922964886
+-- files changed: gh pr view 946 --json files
+docs/adr/ADR-001/E4/fu2-preflight.txt
+-- every check run on the head commit: gh api repos/Navaladi2019/TicketingSystem/commits/3fe23b9ed44f54073156c1648c3c9154efa0e4c0/check-runs --paginate (name, conclusion, app id, workflow run)
+changes	success	15368	45922964825
+commit-check-budget	skipped	15368	45922964825
+coverage	skipped	15368	45922964825
+github.event_name && 'isolation' || 'isolation'	skipped	15368	45922964825
+integration	skipped	15368	45922964825
+lint	in_progress	15368	45922964825
+runner	success	15368	45922964825
+sdk	skipped	15368	45922964825
+self-hosted-cleanup	skipped	15368	45922964825
+stack	skipped	15368	45922964825
+story-branches	success	15368	45922964825
+temporal-server	skipped	15368	45922964825
+unit	skipped	15368	45922964825
+vulncheck	success	15368	45922964886
+vulncheck-detect	success	15368	45922964886
+vulncheck-main-red	skipped	15368	45922964886
+vulncheck-root	skipped	15368	45922964886
+vulncheck-temporal-server	skipped	15368	45922964886
+-- filtered to the govulncheck jobs (run 45922964886)
+vulncheck	success	15368
+vulncheck-detect	success	15368
+vulncheck-main-red	skipped	15368
+vulncheck-root	skipped	15368
+vulncheck-temporal-server	skipped	15368
+-- checks named vulncheck on the head commit (expect exactly 1)
+1
+-- gh pr view 946 --json statusCheckRollup, entry for vulncheck
+{"conclusion":"SUCCESS","detailsUrl":"https://github.com/Navaladi2019/TicketingSystem/actions/runs/45922964886/job/140257803195","name":"vulncheck","status":"COMPLETED","workflowName":"govulncheck"}
+
+== PR #945 (case 2, library: throwaway, jackc/puddle/v2 v2.2.3 -> v2.2.4, closed unmerged) head a9a0b8716988f2172337606e0e5511bcdffc85ca
+govulncheck run: https://github.com/Navaladi2019/TicketingSystem/actions/runs/45922855946
+-- files changed: gh pr view 945 --json files
+go.mod
+go.sum
+-- every check run on the head commit: gh api repos/Navaladi2019/TicketingSystem/commits/a9a0b8716988f2172337606e0e5511bcdffc85ca/check-runs --paginate (name, conclusion, app id, workflow run)
+changes	success	15368	45922855984
+commit-check-budget	skipped	15368	45922855984
+coverage	skipped	15368	45922855984
+github.event_name && 'isolation' || 'isolation'	skipped	15368	45922855984
+integration	skipped	15368	45922855984
+lint	in_progress	15368	45922855984
+runner	success	15368	45922855984
+sdk	skipped	15368	45922855984
+self-hosted-cleanup	skipped	15368	45922855984
+stack	skipped	15368	45922855984
+story-branches	success	15368	45922855984
+temporal-server	skipped	15368	45922855984
+unit	skipped	15368	45922855984
+vulncheck	success	15368	45922855946
+vulncheck-detect	success	15368	45922855946
+vulncheck-main-red	skipped	15368	45922855946
+vulncheck-root	success	15368	45922855946
+vulncheck-temporal-server	skipped	15368	45922855946
+-- filtered to the govulncheck jobs (run 45922855946)
+vulncheck	success	15368
+vulncheck-detect	success	15368
+vulncheck-main-red	skipped	15368
+vulncheck-root	success	15368
+vulncheck-temporal-server	skipped	15368
+-- checks named vulncheck on the head commit (expect exactly 1)
+1
+-- gh pr view 945 --json statusCheckRollup, entry for vulncheck
+{"conclusion":"SUCCESS","detailsUrl":"https://github.com/Navaladi2019/TicketingSystem/actions/runs/45922855946/job/140257677506","name":"vulncheck","status":"COMPLETED","workflowName":"govulncheck"}
+
+
+== Result
+Case 1 (docs-only, PR #946 @ 3fe23b9e): vulncheck success app 15368; vulncheck-root skipped; vulncheck-temporal-server skipped. PASS
+Case 2 (library, PR #945 @ a9a0b871): vulncheck-root success (ran, zero findings); vulncheck-temporal-server skipped; vulncheck success. PASS
+Criterion 3: one vulncheck check run per head commit, from govulncheck only. PASS
+ci.yml lint was still in_progress at collection time and is out of scope (criterion 2).
+PR #945 closed unmerged and branch TICK-1153/preflight-library deleted after this collection.
