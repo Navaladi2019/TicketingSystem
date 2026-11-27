@@ -62,7 +62,7 @@ func TestI5Format2Agreement(t *testing.T) {
 		}
 	}
 	add := func(name, status, detail string) {
-		suite.report.paths = append(suite.report.paths, pathResult{Path: Path{Name: name, Case: "I5"}, Status: status, Detail: detail})
+		suite.addPath(pathResult{Path: Path{Name: name, Case: "I5"}, Status: status, Detail: detail})
 		if status == statusFail {
 			t.Errorf("%s: %s", name, detail)
 		}

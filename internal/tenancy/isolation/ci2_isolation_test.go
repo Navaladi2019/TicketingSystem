@@ -47,7 +47,7 @@ const (
 // reaches 0 rows or fails; with tenant A set it reaches none of tenant B's.
 func TestCI2EveryRoleEveryTenantTable(t *testing.T) {
 	lines := runCI2(t, ci2Opts{})
-	suite.report.ci2 = lines
+	suite.setCI2(lines)
 	ownRecords := int64(-1)
 	for _, l := range lines {
 		if l.Status == statusFail {
