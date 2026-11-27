@@ -195,7 +195,7 @@ write (I4).</p>
 <tbody>
 <tr>
 <td>Command shape</td>
-<td>The record id, an empty patch, <code>Source</code> system, <code>ActorSystem</code> <code>schema-backfill</code> (<code>pipeline.ActorSchemaBackfill</code>), and the job's causation. <code>Command.check</code> refuses a non-empty patch, another source, a principal, another <code>ActorSystem</code>, an idempotency key or a workflow ref (<code>TestMaterializeRefusesEverythingButTheBackfill</code>).</td>
+<td>The record id, an empty patch, <code>Source</code> system, <code>ActorSystem</code> <code>schema-backfill</code> (<code>pipeline.ActorSchemaBackfill</code>), and the job's causation. <code>Command.check</code> refuses a non-empty patch, another source, a principal, another <code>ActorSystem</code>, an idempotency key, a workflow ref or an expected version: the rewrite reads the current version itself (<code>TestMaterializeRefusesEverythingButTheBackfill</code>).</td>
 </tr>
 <tr>
 <td>Nothing missing</td>
@@ -215,7 +215,7 @@ write (I4).</p>
 </tr>
 <tr>
 <td>Failure codes</td>
-<td><code>pipeline.ErrorCode(err)</code> (<code>code.go</code>) gives the stable code stored in <code>schema_backfill_failures.code</code>: <code>validation_failed</code>, <code>unique_violation</code>, <code>illegal_transition</code>, <code>assignment_group_removed</code>, <code>forbidden</code>, <code>not_found</code>, <code>cascade_too_deep</code>, <code>database_error</code>, and so on. Each matches <code>^[a-z_]{1,64}$</code> and names what went wrong, never a value. <code>version_conflict</code> and <code>retryable</code> are not stored: the id stays queued (<code>TestErrorCode</code>).</td>
+<td><code>pipeline.ErrorCode(err)</code> (<code>code.go</code>) gives a stable code that matches <code>^[a-z_]{1,64}$</code> and names what went wrong, never a value (<code>TestErrorCode</code>). <strong>Stored</strong> in <code>schema_backfill_failures.code</code>: <code>invalid_command</code>, <code>validation_failed</code>, <code>unique_violation</code>, <code>illegal_transition</code>, <code>assignment_group_removed</code>, <code>forbidden</code>, <code>cascade_too_deep</code> and <code>database_error</code>; the job writes <code>db_error</code> for its own database errors. <strong>Not stored:</strong> <code>version_conflict</code> and <code>retryable</code> (the id stays queued), and <code>not_found</code> (<code>recordports.Materialize</code> turns it into "not written, no error": the record is gone and counts as <code>skipped</code>).</td>
 </tr>
 <tr>
 <td>Who may call it</td>

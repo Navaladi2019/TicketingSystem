@@ -85,7 +85,7 @@ full state diagram is in the normative note.</p>
 </tr>
 <tr>
 <td>Supersede</td>
-<td>Admission and every page check for a newer job of the type (D8). If one exists, this job becomes <code>superseded</code>, its queue and failures are deleted, and the workflow ends. A publish never waits on a running job.</td>
+<td>Admission and every page check for a newer job of the type (D8). If one exists, this job becomes <code>superseded</code>, its queue and failures are deleted, a "finished" audit entry with state <code>superseded</code> is written, and the workflow ends. A publish never waits on a running job.</td>
 </tr>
 <tr>
 <td>End</td>
@@ -114,7 +114,8 @@ later.</p>
 <li>1). A rollout job has no publish, so its entries start a new origin.</li>
 </ul></li>
 <li>Two entries on the entity type: "started" in the admission transaction and
-"finished" with the counts. Both use domain <code>config</code>, action <code>update</code>,
+"finished" with the counts, written by End or, for a superseded job, by the
+supersede transaction. Both use domain <code>config</code>, action <code>update</code>,
 subject the entity definition, and a diff of <code>{&quot;backfill&quot;: {state, target_version, counts}}</code>, following the numbering-mode precedent. No new
 audit action was added. No entity-type version moves.</li>
 </ul>

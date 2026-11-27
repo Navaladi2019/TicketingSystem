@@ -67,7 +67,7 @@ full state diagram is in the normative note.
 | Fill | One transaction: inserts every record of the type with `NOT (data ?& default_keys)` into the queue and sets `running`. |
 | Page | Reads up to 100 queued ids, with no row lock. Each id gets its own `InTenantTx` with `SET LOCAL synchronous_commit = off`, which deletes the queue row, rewrites the record through `pipeline.Write(OpMaterialize)` and adds one to `rewritten` or `skipped`, all committing together. A version conflict or deadlock rolls back and leaves the id queued for a later pass. A refusal or database error rolls back, then a separate transaction moves the id to the failures with its code. No savepoints. |
 | Pause | The ADR-006 D10 pacer (`fieldindex.Pacer`), driven by the page duration. |
-| Supersede | Admission and every page check for a newer job of the type (D8). If one exists, this job becomes `superseded`, its queue and failures are deleted, and the workflow ends. A publish never waits on a running job. |
+| Supersede | Admission and every page check for a newer job of the type (D8). If one exists, this job becomes `superseded`, its queue and failures are deleted, a "finished" audit entry with state `superseded` is written, and the workflow ends. A publish never waits on a running job. |
 | End | `done`, or `failed_records` when any failure row remains. Writes the "finished" audit entry with the counts. |
 | CheckR6 | After `failed_records`, sleeps `NAVA_SCHEMA_BACKFILL_R6_AFTER` (default 168 h). If the job is still `failed_records` and still the newest of its type, it increments `nava_schema_backfill_r6_tripped_total` and logs one WARN line (ADR-009 R6). |
 
@@ -88,7 +88,8 @@ later.
 - One `update` entry per rewritten record, caused by the publish entry (depth
   + 1). A rollout job has no publish, so its entries start a new origin.
 - Two entries on the entity type: "started" in the admission transaction and
-  "finished" with the counts. Both use domain `config`, action `update`,
+  "finished" with the counts, written by End or, for a superseded job, by the
+  supersede transaction. Both use domain `config`, action `update`,
   subject the entity definition, and a diff of `{"backfill": {state,
   target_version, counts}}`, following the numbering-mode precedent. No new
   audit action was added. No entity-type version moves.
