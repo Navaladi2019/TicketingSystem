@@ -3,7 +3,7 @@ title: "Roles and grants"
 section: database
 status: delivered
 sources: [db/grants.yaml, db/audited-tables.yaml, db/pg_hba.conf, docs/data/roles-and-grants.md, docs/adr/ADR-001-platform-blueprint.md, docs/adr/ADR-004-A1-diff-read-role.md]
-adrs: [ADR-001, ADR-004, ADR-004-A1, ADR-010-A1]
+adrs: [ADR-001, ADR-004, ADR-004-A1, ADR-004-E10, ADR-010-A1]
 ---
 
 `db/grants.yaml` is the only place a privilege is granted. Two jobs read it:
@@ -22,6 +22,12 @@ Column lists matter. `UPDATE` never includes a key or a column that is set
 once at insert, so a record's number or a group's identity provider id cannot
 be rewritten. Only `nava_audit_reader` may read `audit_log.diff` and
 `diff_salt` (ADR-004-A1).
+
+`audit_log.diff_nul_escaped` (ADR-004-E10, TICK-1170) is granted wherever
+`diff_truncated` is: `nava_app` and `nava_worker` insert and select it,
+`nava_erasure` selects it, and `nava_audit_reader`'s `SELECT` list is now 31
+columns (A1-1 as corrected by E8, plus this one). No role has `UPDATE` on
+it; `audit_log_guard_update` also refuses any change to it.
 
 `records.org_unit_id` is one of those set-once columns (S31). `nava_app` and
 `nava_worker` may insert and select it; no role but the owner may update it
