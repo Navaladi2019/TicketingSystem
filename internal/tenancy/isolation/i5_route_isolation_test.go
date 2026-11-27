@@ -191,6 +191,15 @@ func i5rSetup(ctx context.Context, cl Cluster, seed uint64) (*i5rRun, func() err
 	if err := i5rSeed(ctx, e, run.all); err != nil {
 		return nil, stop, fmt.Errorf("seed: %w", err)
 	}
+	// Before the flags: a filter on a data field no version flags is
+	// 400 field_not_filterable on the list route, whatever the records hold
+	// (ADR-006 D6 step 2; the JSONB scan is gone).
+	for _, q := range []string{"filter[prio]=" + i5rDefaultPrio, "filter[kind]=1", "filter[tag][in]=x,y"} {
+		r := e.ci8Do(ctx, e.h, http.MethodGet, i5rPath+"?"+q, s10Admin, "", nil)
+		if _, code, perr := s10Problem(r); perr != nil || r.code != http.StatusBadRequest || code != "field_not_filterable" {
+			return nil, stop, fmt.Errorf("control: ?%s on the unflagged type = %d %s, want 400 field_not_filterable", q, r.code, r.body)
+		}
+	}
 	if code, out := e.do(ctx, http.MethodPost, "/api/v1/entity-types/"+i5rKey+"/versions", s10Admin, `{"definition": `+i5rDefinition(i5rFlaggedVersion)+`}`, nil); code != http.StatusCreated {
 		return nil, stop, fmt.Errorf("control: publishing v%d of %s (the flags) = %d %s, want 201", i5rFlaggedVersion, i5rKey, code, out)
 	}
