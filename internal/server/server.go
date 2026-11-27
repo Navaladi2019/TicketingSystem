@@ -63,3 +63,4 @@ func New(addr string, cfg config.HTTP, h http.Handler, log *slog.Logger) *http.S
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 }
+// TICK-1193 verify (throwaway).
