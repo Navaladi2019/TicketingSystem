@@ -67,6 +67,8 @@ deciders: "Solution Architect (author; verdict ACCEPTED); Technical Architect (r
 
 **A7.6 Closure.** The plan's last task closes `AR-TICK-1167-01`: with no make in the scan job, a CI-only makefile conditional has nothing to act on.
 
+`AR-TICK-1167-01` closed by ADR-001-A7 (TICK-1183, PLAN-001-A7): the scan jobs of `govulncheck.yml` run no make and `make check-ci-steps` refuses a `run:` that does (rule 9). Verified on `main` at `f581b5684734efa8e871b03a5acd1ed1fa65f9bd`. Row deleted from `docs/security/accepted-risks.md` by TICK-1190.
+
 ## Rejected options
 
 | Option | Why not |
