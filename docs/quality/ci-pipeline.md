@@ -854,7 +854,7 @@ pull request. All jobs run on `ubuntu-latest`:
 
 | Job | What it does |
 | --- | --- |
-| `vulncheck-detect` | `scripts/ci/vulncheck-detect.sh` (contract rule 2): on a pull request, diffs the merge base with the head and says which module needs a scan. A library list of the root module (`go.mod`, `go.sum`) scans the root, one of `temporal-server/` scans that module; a change to the gate itself (the workflow, its copy, the two scripts, `tools/ci/cisteps/`, `tools/ci/vulngate/`, a `govulncheck` line in `Makefile` or `make/lint.mk`), a `FROM ... golang` line or a `go.work` scans both; anything else neither. On `schedule` and `workflow_dispatch`, both. A short SHA or a ref name fails (TICK-1150) |
+| `vulncheck-detect` | `scripts/ci/vulncheck-detect.sh` (contract rule 2): on a pull request, diffs the merge base with the head and says which module needs a scan. A library list of the root module (`go.mod`, `go.sum`) scans the root, one of `temporal-server/` scans that module; a change to the gate itself (the workflow, its copy, the two scripts, `tools/ci/cisteps/`, `tools/ci/vulngate/`, `Makefile` or any file under `make/`, whole files since TICK-1178), a `FROM ... golang` line or a `go.work` scans both; anything else neither. On `schedule` and `workflow_dispatch`, both. A short SHA or a ref name fails (TICK-1150) |
 | `vulncheck-root`, `vulncheck-temporal-server` | `make vulncheck` / `make vulncheck-temporal-server` after `make tools-govulncheck`, no Actions cache (about a minute each), only when detect asks for that module |
 | `vulncheck` (the gate) | `if: always()`; `scripts/ci/vulncheck-gate.sh` (contract rule 4) passes only when detect succeeded and each module either ran and succeeded, or was skipped because detect said it was not needed. It reports the check `vulncheck` on a pull request into `main` and `vulncheck-other` on any other base or event (rule 5) |
 | `vulncheck-main-red` | a failed scheduled run on `main` opens or updates a P0 issue `govulncheck is red: <short sha>` (`scripts/ci/main-red.sh`, `WORKFLOW=govulncheck`, TICK-1152) |
@@ -877,10 +877,13 @@ out `main`. A pull request that edits `vulncheck-detect.sh` so that it says
 "none" therefore still gets the scans `main`'s detect asks for (both, since the
 script is part of the gate). This answers the TICK-1148 security review of
 PR #912. It does not stop a pull request that edits `govulncheck.yml` and its
-copy together to run its own script: that is RS3, caught by review. The cost:
-a change to either script takes effect on pull requests opened after it
-merges, and a change to the interface between the workflow and a script (a
-new input) needs the script change merged first.
+copy together to run its own script: that is RS3, caught by review. Because
+both read `main` on every run, a change to either script takes effect as soon
+as it merges, on the next run of any pull request: one opened later, and the
+next push to one that is already open (TICK-1178). The cost: a change to the
+interface between the workflow and a script (a new input) needs the script
+change merged first, and a script change on `main` can turn an open pull
+request's next run red without a change of its own.
 
 The job ids start with `vulncheck-` (TICK-1145) because GitHub knows a check
 by its name, not by its workflow: while the scan's job was also called
@@ -900,7 +903,23 @@ rule must be exactly the target with that one recipe line, and `.IGNORE`,
 `.ONESHELL`, a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global
 `SHELL`, `.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
 `make -n` shows none of them, nor a `-`, `@` or `+` prefix (TICK-1149 review
-finding 1). An edit of only one of the two files fails `lint`; a deliberate
+finding 1). Since TICK-1178 the third target the scan jobs run is pinned the
+same way: `tools-govulncheck` must be exactly
+`go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)`, and
+`GOVULNCHECK_VERSION` must be set once, as `:= vX.Y.Z`, because a recipe that
+installs a fake `govulncheck` makes both scans pass with their own recipes
+untouched. make passes a variable the makefile sets to its recipes when the
+variable came from the environment (`PATH`) or is exported, and neither
+`make -n` nor the rule shows it, so the check also compares the environment a
+recipe of the makefile gets with that of an empty makefile, run the same way:
+any variable that differs fails, except the exports listed in
+`allowedExports` (`tools/ci/cisteps/copy.go`), today `NAVA_IMAGE_TAG` and the
+four `make/stack.mk` exports. A target- or pattern-specific variable on any of
+the three targets fails too. A new export in a makefile therefore fails `lint`
+until it is added to that list, which a reviewer sees. A change to `Makefile`
+or any file under `make/` scans both modules, as a whole file: the root
+`Makefile` includes `make/*.mk`, so any fragment can redefine the three
+recipes. An edit of only one of the two files fails `lint`; a deliberate
 edit of both passes and is the reviewer's to catch (RS3). Both scans run with
 `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
 `task vulncheck`. The trade-off of scanning only the module whose library list

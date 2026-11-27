@@ -44,8 +44,11 @@ check-guide:
 # disabled or allowed to fail.
 # ci.yml against required.yaml. govulncheck.yml must equal, comment lines
 # aside, its checked-in copy tools/ci/cisteps/govulncheck.copy.yml, and
-# `make -n` of the two vulncheck recipes must print exactly the pinned lines
-# (TICK-1149, ADR-001-E4 contract rule 9): edit the workflow and the copy
+# `make -n` of the three targets the scan jobs run (tools-govulncheck,
+# vulncheck, vulncheck-temporal-server) must print exactly the pinned lines,
+# with GOVULNCHECK_VERSION a released version and the recipes' environment
+# make's own plus allowedExports in tools/ci/cisteps/copy.go (TICK-1149,
+# TICK-1178, ADR-001-E4 contract rule 9): edit the workflow and the copy
 # together. A deliberate edit of both passes; review catches that (RS3).
 check-ci-steps:
 	go run ./tools/ci/cisteps
@@ -63,7 +66,8 @@ tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION)
 	$(MAKE) --no-print-directory tools-govulncheck
 
-# govulncheck alone, for the scan jobs of the govulncheck workflow.
+# govulncheck alone, for the scan jobs of the govulncheck workflow. The recipe
+# is pinned by check-ci-steps (TICK-1178); change it there too.
 tools-govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 

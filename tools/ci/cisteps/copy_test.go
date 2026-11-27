@@ -18,6 +18,13 @@ const (
 	repoCopy     = "tools/ci/cisteps/govulncheck.copy.yml"
 )
 
+// testVersion is GOVULNCHECK_VERSION in the fake and temporary makefiles.
+const testVersion = "v1.9.0"
+
+// isEnvProbe is the argument of the make run that prints a recipe's
+// environment.
+func isEnvProbe(arg string) bool { return strings.HasPrefix(arg, "--eval="+envGoalPrefix) }
+
 // pinned is a make runner for a makefile with exactly the pinned rules.
 func pinned(args ...string) ([]byte, error) {
 	return recipesWith("", "")(args...)
@@ -28,7 +35,10 @@ func pinned(args ...string) ([]byte, error) {
 // pinned rules and make's defaults: the dry run alone is wrong.
 func recipesWith(target, recipe string) makeRunner {
 	return func(args ...string) ([]byte, error) {
-		const globals = "# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n\n"
+		const globals = "# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n# makefile (from 'Makefile', line 1)\nGOVULNCHECK_VERSION := " + testVersion + "\n\n"
+		if slices.ContainsFunc(args, isEnvProbe) {
+			return []byte("HOME=/home/ci\nPATH=/usr/bin:/bin\n"), nil
+		}
 		if slices.Contains(args, "-pn") {
 			if slices.Contains(args, "-f") {
 				return []byte(globals), nil
@@ -45,7 +55,7 @@ func recipesWith(target, recipe string) makeRunner {
 		}
 		for _, r := range pinnedRecipes() {
 			if r.target == t {
-				return []byte(r.recipe + "\n"), nil
+				return []byte(r.dryRun(testVersion) + "\n"), nil
 			}
 		}
 		return nil, errors.New("no such target")
@@ -174,6 +184,15 @@ func v3Edits() []v3Edit {
 	}
 }
 
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p) //nolint:gosec // a test's temporary file
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func readRepo(t *testing.T, p string) string {
 	t.Helper()
 	b, err := os.ReadFile(repo(p))
@@ -213,16 +232,23 @@ func TestCopyCatchesWorkflowEdits(t *testing.T) {
 	}
 }
 
-// V-3 (AC 2 j): `|| true` in either recipe fails, with the recipe named.
+// V-3 (AC 2 j): `|| true` in any pinned recipe fails, with the recipe named.
+// TICK-1178 AC 1: so does a recipe replaced by `true`.
 func TestCopyCatchesRecipeEdits(t *testing.T) {
 	for _, r := range pinnedRecipes() {
+		dry := r.dryRun(testVersion)
 		for name, recipe := range map[string]string{
-			"or true":         r.recipe + " || true",
-			"GOWORK dropped":  strings.Replace(r.recipe, "GOWORK=off ", "", 1),
-			"a second line":   r.recipe + "\necho scanned",
-			"a make warning":  "make: warning: something\n" + r.recipe,
-			"nothing printed": "",
+			"or true":              dry + " || true",
+			"replaced by true":     "true",
+			"GOWORK dropped":       strings.Replace(dry, "GOWORK=off ", "", 1),
+			"a second line":        dry + "\necho scanned",
+			"a make warning":       "make: warning: something\n" + dry,
+			"nothing printed":      "",
+			"version not expanded": r.recipe + " #",
 		} {
+			if recipe == dry {
+				continue // GOWORK dropped from a recipe without it
+			}
 			t.Run(r.target+"/"+name, func(t *testing.T) {
 				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), recipesWith(r.target, recipe))
 				if err != nil {
@@ -268,8 +294,33 @@ func makeEdits(trueBin string) []makeEdit {
 		{"MAKEFLAGS -i", func(t, r string) string { return "MAKEFLAGS += -i\n" + rule(t, r) }, "make sets MAKEFLAGS to"},
 		{"a prerequisite", func(t, r string) string { return t + ": quiet\nquiet:\n" + rule(t, r) }, "make -pn %s: rule is"},
 		{"double-colon rule", func(t, r string) string { return t + "::\n\t" + r + "\n" }, "make -pn %s: want one rule, found 0"},
+		// TICK-1178 AC 1: the recipe replaced by `true`, and by a fake
+		// govulncheck that exits 0 (tools-govulncheck installs the binary
+		// the two scans run).
+		{"replaced by true", func(t, _ string) string { return rule(t, "true") }, "make -pn %s: recipe is"},
+		{"fake govulncheck", func(t, _ string) string {
+			return rule(t, `printf '#!/bin/sh\n' >"$$(go env GOPATH)/bin/govulncheck"`)
+		}, "make -pn %s: recipe is"},
+		// TICK-1178: make passes a variable the makefile sets to its recipes'
+		// environment when the variable came from the environment (PATH) or
+		// is exported. A PATH with a fake govulncheck first, or a GOFLAGS
+		// with build tags that hide the vulnerable import, makes the pinned
+		// line scan nothing; make -n and the rule show neither.
+		{"global PATH", func(t, r string) string { return "PATH := /fake:$(PATH)\n" + rule(t, r) }, "make changes the environment of its recipes: PATH"},
+		{"export GOFLAGS", func(t, r string) string { return "export GOFLAGS := -tags=novuln\n" + rule(t, r) }, "make changes the environment of its recipes: GOFLAGS"},
+		{"export GOENV", func(t, r string) string { return "export GOENV := /tmp/fake-go.env\n" + rule(t, r) }, "make changes the environment of its recipes: GOENV"},
+		// Exports CURDIR, MAKEFILE_LIST and GOVULNCHECK_VERSION, among others.
+		{".EXPORT_ALL_VARIABLES", func(t, r string) string { return ".EXPORT_ALL_VARIABLES:\n" + rule(t, r) }, "GOVULNCHECK_VERSION"},
+		{"target PATH", func(t, r string) string { return t + ": PATH := /fake:$(PATH)\n" + rule(t, r) }, "make sets a target-specific variable for %s"},
+		{"target export GOFLAGS", func(t, r string) string { return t + ": export GOFLAGS := -tags=novuln\n" + rule(t, r) }, "make sets a target-specific variable for %s"},
+		{"target GOVULNCHECK_VERSION", func(t, r string) string { return t + ": GOVULNCHECK_VERSION := latest\n" + rule(t, r) }, "make sets a target-specific variable for %s"},
+		{"pattern PATH", func(t, r string) string { return "%: PATH := /fake:$(PATH)\n" + rule(t, r) }, "make sets a pattern-specific variable"},
 	}
 }
+
+// makefileHead is the start of every temporary Makefile: the variable the
+// tools-govulncheck recipe names.
+const makefileHead = "GOVULNCHECK_VERSION := " + testVersion + "\n"
 
 // V-3 (AC 2 j) and TICK-1149 review finding 1, through real make on a
 // temporary Makefile: each edit of either recipe's rule fails the check, and
@@ -287,6 +338,7 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		var mk strings.Builder
+		mk.WriteString(makefileHead)
 		for _, o := range pinnedRecipes() {
 			if o.target == target {
 				mk.WriteString(edit(o.target, o.recipe))
@@ -306,9 +358,42 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 			t.Fatalf("err %v, problems %q; want none", err, problems)
 		}
 	})
+	// An export on the allow list (one the repository's makefiles have) passes.
+	t.Run("allowed export", func(t *testing.T) {
+		dir := write(t, "vulncheck", func(t, r string) string {
+			return "export NAVA_IMAGE_TAG ?= dev\n" + t + ":\n\t" + r + "\n"
+		})
+		problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+		if err != nil || len(problems) > 0 {
+			t.Fatalf("err %v, problems %q; want none", err, problems)
+		}
+	})
+	// TICK-1178: GOVULNCHECK_VERSION is one released version, set once.
+	for name, head := range map[string]string{
+		"version latest":    "GOVULNCHECK_VERSION := latest\n",
+		"version recursive": "GOVULNCHECK_VERSION = $(shell echo " + testVersion + ")\n",
+		"version missing":   "",
+		"version with more": "GOVULNCHECK_VERSION := " + testVersion + " -v\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := write(t, "", nil)
+			body := strings.TrimPrefix(readFile(t, filepath.Join(dir, "Makefile")), makefileHead)
+			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(head+body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, "GOVULNCHECK_VERSION") }) {
+				t.Fatalf("want a problem naming GOVULNCHECK_VERSION, got %q", problems)
+			}
+		})
+	}
 	for _, r := range pinnedRecipes() {
 		for _, c := range makeEdits(trueBin) {
 			t.Run(r.target+"/"+c.name, func(t *testing.T) {
+				t.Parallel()
 				dir := write(t, r.target, c.edit)
 				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
 				if err != nil {
@@ -412,7 +497,7 @@ func TestRunCopyMode(t *testing.T) {
 				return []byte("make: *** No rule to make target 'vulncheck'.  Stop."), errors.New("exit status 2")
 			}
 			return pinned(args...)
-		}, 2, "make -n vulncheck: exit status 2: make: *** No rule", ""},
+		}, 2, "make -n tools-govulncheck: exit status 2: make: *** No rule", ""},
 		{"recipe edited", []string{"-workflow", wf, "-copy", cp}, recipesWith("vulncheck", "GOWORK=off govulncheck ./... || true"), 1, "edit " + wf + " and " + cp + " together", ""},
 	}
 	for _, c := range cases {

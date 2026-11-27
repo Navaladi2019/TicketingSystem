@@ -8,29 +8,65 @@ package main
 // `|| true` or a - prefix in a recipe, .IGNORE, a changed SHELL) fails lint.
 // A deliberate edit of the workflow and the copy together passes: that is
 // ADR RS3, caught by review, not by this.
+//
+// TICK-1178: tools-govulncheck, which installs the binary the two scans run,
+// is pinned too, and so is GOVULNCHECK_VERSION. The makefile may not change
+// the environment its recipes run with (a PATH with a fake govulncheck first,
+// an exported GOFLAGS, GOENV or LD_PRELOAD), globally or for a pinned target.
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
-// pinnedRecipe is a make target the govulncheck workflow runs and the exact
-// recipe `make -n --no-print-directory <target>` must print. Its rule in
-// make's database must be `<target>:` with that one recipe line.
+// pinnedRecipe is a make target the govulncheck workflow runs and its one
+// recipe line as make's database holds it. `make -n --no-print-directory
+// <target>` must print the same line with $(GOVULNCHECK_VERSION) expanded.
 type pinnedRecipe struct{ target, recipe string }
 
-// pinnedRecipes are contract rule 9's two recipes, with rule 7's GOWORK=off.
+// versionVar is the make variable that pins govulncheck (docs/pins.md).
+const versionVar = "GOVULNCHECK_VERSION"
+
+// pinnedRecipes are the three targets the workflow's scan jobs run: contract
+// rule 9's two scans, with rule 7's GOWORK=off, and the install of the
+// govulncheck binary they run (TICK-1178).
 func pinnedRecipes() []pinnedRecipe {
 	return []pinnedRecipe{
+		{"tools-govulncheck", "go install golang.org/x/vuln/cmd/govulncheck@$(" + versionVar + ")"},
 		{"vulncheck", "GOWORK=off govulncheck ./..."},
 		{"vulncheck-temporal-server", "cd temporal-server && GOWORK=off govulncheck ./..."},
 	}
+}
+
+// dryRun is what `make -n` prints for r when GOVULNCHECK_VERSION is version.
+func (r pinnedRecipe) dryRun(version string) string {
+	return strings.ReplaceAll(r.recipe, "$("+versionVar+")", version)
+}
+
+// releasedVersion is the only value GOVULNCHECK_VERSION may have: a release
+// tag, never latest, a branch, an expression or a second word.
+var releasedVersion = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// allowedExports are the variables the repository's makefiles add to every
+// recipe's environment today. None is read by go or govulncheck. A new one
+// fails check-ci-steps until it is added here, which a reviewer sees, and
+// which runs both scans (tools/ci/cisteps/ is in vulncheck-detect's gate).
+var allowedExports = map[string]bool{
+	"NAVA_IMAGE_TAG":           true, // Makefile
+	"OTEL_TAIL_SAMPLE_PERCENT": true, // make/stack.mk
+	"COMPOSE_PROFILES":         true, // make/stack.mk
+	"COMPOSE_FILE":             true, // make/stack.mk
+	"COMPOSE_PATH_SEPARATOR":   true, // make/stack.mk
 }
 
 // makeRunner runs make with args and returns stdout and stderr together.
@@ -71,11 +107,16 @@ func checkCopy(workflowPath, copyPath string, mk makeRunner) ([]string, error) {
 	if p := compareUncommented(wf, cp); p != "" {
 		problems = append(problems, fmt.Sprintf("%s differs from %s, comment lines aside: %s", workflowPath, copyPath, p))
 	}
-	dbProblems, bad, err := checkMakeDatabase(mk)
+	dbProblems, bad, version, err := checkMakeDatabase(mk)
 	if err != nil {
 		return nil, err
 	}
 	problems = append(problems, dbProblems...)
+	envProblems, err := checkRecipeEnv(mk)
+	if err != nil {
+		return nil, err
+	}
+	problems = append(problems, envProblems...)
 	for _, r := range pinnedRecipes() {
 		// make runs a +-prefixed recipe line even under -n: dry-run only a
 		// rule whose recipe in the database is the pinned line.
@@ -86,8 +127,8 @@ func checkCopy(workflowPath, copyPath string, mk makeRunner) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("make -n %s: %w: %s", r.target, err, strings.TrimSpace(string(out)))
 		}
-		if got := strings.TrimSuffix(normalize(out), "\n"); got != r.recipe {
-			problems = append(problems, fmt.Sprintf("make -n %s prints %q, want exactly %q", r.target, got, r.recipe))
+		if want := r.dryRun(version); strings.TrimSuffix(normalize(out), "\n") != want {
+			problems = append(problems, fmt.Sprintf("make -n %s prints %q, want exactly %q", r.target, strings.TrimSuffix(normalize(out), "\n"), want))
 		}
 	}
 	return problems, nil
@@ -114,16 +155,17 @@ func normalize(out []byte) string {
 // SHELL, .SHELLFLAGS and MAKEFLAGS with those of a makefile that sets
 // nothing, run the same way: GNU make reports SHELL as set by the makefile
 // even when nothing sets it, so the origin cannot tell.
-// It also returns the targets whose rule is not the pinned one.
-func checkMakeDatabase(mk makeRunner) ([]string, map[string]bool, error) {
+// It also returns the targets whose rule is not the pinned one, and
+// GOVULNCHECK_VERSION when it is a released version.
+func checkMakeDatabase(mk makeRunner) ([]string, map[string]bool, string, error) {
 	out, err := mk(databaseArgs()...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("make -pn: %w: %s", err, lastLine(out))
+		return nil, nil, "", fmt.Errorf("make -pn: %w: %s", err, lastLine(out))
 	}
 	db := normalize(out)
 	base, err := baselineDatabase(mk)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
 	var problems []string
@@ -141,6 +183,7 @@ func checkMakeDatabase(mk makeRunner) ([]string, map[string]bool, error) {
 			problems = append(problems, fmt.Sprintf("make sets a target- or pattern-specific SHELL or .SHELLFLAGS: %q", line))
 		}
 	}
+	problems = append(problems, scopedVariables(db)...)
 	bad := map[string]bool{}
 	for _, r := range pinnedRecipes() {
 		if p := recipeInDatabase(db, r); p != "" {
@@ -148,7 +191,122 @@ func checkMakeDatabase(mk makeRunner) ([]string, map[string]bool, error) {
 			bad[r.target] = true
 		}
 	}
-	return problems, bad, nil
+	version, p := pinnedVersion(db)
+	if p != "" {
+		problems = append(problems, p)
+		for _, r := range pinnedRecipes() {
+			if r.dryRun("") != r.recipe {
+				bad[r.target] = true
+			}
+		}
+	}
+	return problems, bad, version, nil
+}
+
+// pinnedVersion returns GOVULNCHECK_VERSION from db, or why it is not one
+// simply expanded variable set to a released version.
+func pinnedVersion(db string) (string, string) {
+	var values []string
+	for line := range strings.SplitSeq(db, "\n") {
+		if name, value, ok := strings.Cut(line, " "); ok && name == versionVar {
+			values = append(values, value)
+		}
+	}
+	if len(values) != 1 {
+		return "", fmt.Sprintf("make sets %s %d times, want once as %s := vX.Y.Z", versionVar, len(values), versionVar)
+	}
+	v, ok := strings.CutPrefix(values[0], ":= ")
+	if !ok || !releasedVersion.MatchString(v) {
+		return "", fmt.Sprintf("make sets %s %s, want %s := vX.Y.Z, a released version", versionVar, values[0], versionVar)
+	}
+	return v, ""
+}
+
+// scopedVariables returns a problem for each target- or pattern-specific
+// variable that applies to a pinned target: make passes such a PATH or an
+// exported GOFLAGS to the recipe, and neither `make -n` nor the rule shows it.
+// make prints a target-specific variable as `<target>: NAME := value`, and a
+// pattern-specific one as a `<pattern> :` line followed by `# NAME := value`.
+func scopedVariables(db string) []string {
+	var problems []string
+	lines := strings.Split(db, "\n")
+	for i, line := range lines {
+		for _, r := range pinnedRecipes() {
+			if strings.HasPrefix(line, r.target+": ") && !isRuleLine(line, r.target) {
+				problems = append(problems, fmt.Sprintf("make sets a target-specific variable for %s: %q", r.target, line))
+			}
+			if pat, ok := strings.CutSuffix(line, " :"); ok && strings.Contains(pat, "%") && !strings.HasPrefix(pat, "#") &&
+				i+2 < len(lines) && strings.HasPrefix(lines[i+1], "# ") && strings.Contains(lines[i+2], "=") && patternMatches(pat, r.target) {
+				problems = append(problems, fmt.Sprintf("make sets a pattern-specific variable for %s (pattern %s): %q", r.target, pat, strings.TrimPrefix(lines[i+2], "# ")))
+			}
+		}
+	}
+	return problems
+}
+
+// patternMatches reports whether make's pattern (one %) matches target.
+func patternMatches(pattern, target string) bool {
+	pre, suf, _ := strings.Cut(pattern, "%")
+	return len(target) >= len(pre)+len(suf) && strings.HasPrefix(target, pre) && strings.HasSuffix(target, suf)
+}
+
+// envGoalPrefix starts the goal checkRecipeEnv adds with --eval. The rest is
+// random, so that no makefile can define a rule of that name in advance.
+const envGoalPrefix = "cisteps-env-"
+
+// checkRecipeEnv compares the environment a recipe of the makefile gets with
+// the one a recipe of an empty makefile gets, both run the same way. Every
+// variable that differs and is not in allowedExports is a problem: a changed
+// PATH, an exported GOFLAGS, GOENV or LD_PRELOAD, .EXPORT_ALL_VARIABLES, an
+// unexport. The probe runs `env` through make's SHELL, so a changed SHELL
+// also shows here, besides checkMakeDatabase's own problem.
+func checkRecipeEnv(mk makeRunner) ([]string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, err
+	}
+	goal := envGoalPrefix + hex.EncodeToString(b[:])
+	probe := func(extra ...string) ([]string, error) {
+		args := append(append([]string{"--no-print-directory"}, extra...), "--eval="+goal+":\n\t@env", goal)
+		out, err := mk(args...)
+		if err != nil {
+			return nil, fmt.Errorf("make %s (env): %w: %s", goal, err, lastLine(out))
+		}
+		return strings.Split(normalize(out), "\n"), nil
+	}
+	got, err := probe()
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "cisteps-env")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	empty := filepath.Join(dir, "baseline.mk")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		return nil, err
+	}
+	want, err := probe("-f", empty)
+	if err != nil {
+		return nil, err
+	}
+	changed := map[string]bool{}
+	for _, d := range [][2][]string{{got, want}, {want, got}} {
+		for _, line := range d[0] {
+			if line != "" && !slices.Contains(d[1], line) {
+				name, _, _ := strings.Cut(line, "=")
+				if !allowedExports[name] {
+					changed[name] = true
+				}
+			}
+		}
+	}
+	if len(changed) == 0 {
+		return nil, nil
+	}
+	names := slices.Sorted(maps.Keys(changed))
+	return []string{fmt.Sprintf("make changes the environment of its recipes: %s (the vulncheck recipes must run with the job's environment; a deliberate export that go and govulncheck do not read goes in allowedExports)", strings.Join(names, ", "))}, nil
 }
 
 // baselineDatabase is make's database for a makefile that sets nothing.

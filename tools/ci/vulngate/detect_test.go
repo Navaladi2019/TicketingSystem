@@ -199,10 +199,16 @@ func TestDetect(t *testing.T) {
 		{"tools/ci/vulngate/", appendTo("tools/ci/vulngate/gate_test.go"), both},
 		{"Makefile govulncheck line", replace("Makefile", "\tgovulncheck ./...", "\tgovulncheck -show verbose ./..."), both},
 		{"Makefile GOVULNCHECK_VERSION line", replace("Makefile", "1.1.4", "1.1.5"), both},
-		{"Makefile other line", replace("Makefile", "\tgo build ./...", "\tgo build -trimpath ./..."), none},
-		{"Makefile appended unrelated line", appendTo("Makefile"), none},
+		// TICK-1178 AC 2: Makefile and make/*.mk are the gate as whole files.
+		// A recipe replaced by `true`, a PATH or an export names no
+		// govulncheck, yet changes what the scans run.
+		{"Makefile other line", replace("Makefile", "\tgo build ./...", "\tgo build -trimpath ./..."), both},
+		{"Makefile appended unrelated line", appendTo("Makefile"), both},
 		{"make/lint.mk govulncheck line", replace("make/lint.mk", "govulncheck@v", "govulncheck@latest # v"), both},
-		{"make/lint.mk other line", replace("make/lint.mk", "golangci-lint run", "golangci-lint run -v"), none},
+		{"make/lint.mk only", replace("make/lint.mk", "golangci-lint run", "golangci-lint run -v"), both},
+		{"make/lint.mk recipe replaced by true", replace("make/lint.mk", "\tgo install golang.org/x/vuln/cmd/govulncheck@v$(GOVULNCHECK_VERSION)", "\ttrue"), both},
+		{"new make/*.mk", create("make/zz.mk", "export PATH := /fake:$(PATH)\n"), both},
+		{"make/lint.mk deleted", remove("make/lint.mk"), both},
 		{"govulncheck word outside Makefile", replace("cmd/nava-core/main.go", "package main\n", "package main\n\n// govulncheck\n"), none},
 
 		// Row 4: the Go toolchain and go.work.
