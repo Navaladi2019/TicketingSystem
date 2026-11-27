@@ -1267,6 +1267,15 @@ recorded mitigation does not hold as written; re-decide).</p>
 <td>A merged Dockerfile that installs or builds Go outside a <code>golang:</code> stage; or the first image shipped to a real tenant</td>
 <td><a href="../../../docs/reviews/tick-1164-check-pins-unreadable-go-image.md">tick-1164 review</a></td>
 </tr>
+<tr>
+<td>AR-TICK-1167-01 (a makefile can act differently under <code>make check-ci-steps</code> than in the scan jobs)</td>
+<td>🟠 Medium</td>
+<td><code>make check-ci-steps</code> runs make itself, in the lint job, and a makefile can tell those calls apart from the scan jobs' <code>make tools-govulncheck</code> and <code>make vulncheck</code>. A one-file edit of <code>Makefile</code> or <code>make/*.mk</code> that acts only on such a difference narrows or skips the scan, or writes a stub <code>govulncheck</code> that exits 0, and leaves the gate green. Known forms: a condition on a variable only the scan jobs set, such as <code>ifneq ($(filter vulncheck-root,$(GITHUB_JOB)),)</code> around <code>export GOFLAGS := -tags=nothing</code>; a condition on what the check puts on make's command line, <code>$(origin SHELL)</code> or <code>CISTEPS_ENV_DUMP</code>, around <code>export CGO_ENABLED := 0</code>; a condition on <code>n</code> in <code>MAKEFLAGS</code>; and a rule that remakes <code>Makefile</code> (or an included makefile), which make runs before any goal, guarded by those conditions. These are examples, not a closed list: any condition that tells the two apart is in this row. The control until the fix lands is RS3 review of every <code>Makefile</code> and <code>make/*.mk</code> change. No tenant data is involved.</td>
+<td>Accepted</td>
+<td>Solution Architect</td>
+<td>TICK-1183: the workflow calls <code>govulncheck</code> directly with a pinned environment, so no make recipe is left to pin; then delete this row and the skipped <code>TestCopyCatchesCIVariableConditionalEditsWithMake</code>, <code>TestCopyCatchesDumpAwareEditsWithMake</code> and <code>TestCopyCatchesMakefileRemakeRulesWithMake</code>. Before that: any merged makefile change not reviewed under RS3</td>
+<td><a href="../../../tools/ci/cisteps/environment_adversarial_test.go">TICK-1167 decision (Technical Lead, 2026-11-27)</a>, <a href="../../../tools/ci/cisteps/environment_adversarial2_test.go">security re-review cases</a>, <a href="../../../docs/adr/ADR-001/E4/vulncheck-contract.md">ADR-001-E4 vulncheck contract rule 9</a></td>
+</tr>
 </tbody>
 </table>
 <h2 id="adding-a-row">Adding a row</h2>
@@ -1276,7 +1285,7 @@ fix deletes the row and notes the fix at the source. Rebuild the handbook
 with <code>task handbook</code>.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../security/10-audit-chain.html">&larr; 10. Audit chain and offline verify</a><a class="next" href="../vision/invariants.html">The nine invariants &rarr;</a></nav>
-<footer><p class="hb-footer">Content generated against main @ ca4cb5a01d12 (2026-11-27)</p></footer>
+<footer><p class="hb-footer">Content generated against main @ 5a2e5b05897c (2026-11-27)</p></footer>
 </main>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/handbook.js"></script>
