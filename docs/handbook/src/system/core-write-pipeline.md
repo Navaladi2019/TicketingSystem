@@ -115,10 +115,11 @@ during the rewrite gets one `412 version_conflict` and re-reads (R2).
   `authz.ReadBranches` for one index-ordered branch per subject) and checks
   every filter and sort field with `authz.CheckQueryFields`, before any SQL.
   `store.List` (`list.go`) counts (capped at `TotalCap`) and pages by keyset
-  over a `listable` column; a data-property filter runs under
-  `DataFilterTimeout` and maps a cancel to `ErrStatementTimeout`.
+  over a `listable` column; a data-property filter reads the field-index side
+  tables, and its count runs under `CountBudget` (the JSONB scan and
+  `DataFilterTimeout` are gone).
 - Proving tests: `TestCompileReadAgreesWithAllows`, `TestBranchedStatements`,
-  `TestTimedOutMapsOnlyADataFilterCancel`.
+  `TestCountBudget`.
 
 ## Errors
 

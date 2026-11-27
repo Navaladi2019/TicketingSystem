@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -679,7 +678,7 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 			q := store.ListQuery{
 				TenantID: e.a.id, DefinitionID: def, Where: filt, Args: append(slices.Clone(readArgs), filtArgs...),
 				Branches: branches, SortColumn: "updated_at", Desc: true, Limit: 2,
-				DataFilter: true, BudgetCount: false,
+				BudgetCount: false,
 			}
 			if branches == nil {
 				q.Where = readSQL + " AND " + filt
@@ -697,75 +696,6 @@ func TestListRecordsTotalIsCappedAt1000UnderTheACL(t *testing.T) {
 			t.Fatalf("store.List %s: %v", c.name, err)
 		}
 	}
-}
-
-// covers: listRecords 422
-//
-// TICK-647: a legacy-scan list (a seed type's unflagged allow-listed field,
-// PLAN-007 D-7-6) runs under a statement timeout. A superuser
-// connection holds ACCESS EXCLUSIVE on records, so the list blocks until the
-// timeout (a lock wait counts) and answers 422 filter_too_expensive. A list
-// without a data filter is not bound by it, and the pool serves the next
-// request once the lock is released.
-func TestListDataFilterTimeoutAnswers422(t *testing.T) {
-	e := newETEnvWith(t)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", incidentTypeBody()); rec.Code != http.StatusCreated {
-		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
-	}
-	e.mustCreateRec(t, "admin-a", "incident", "k1", `{"short_description": "x", "priority": 1}`)
-	// One connection: the setting the timed-out request leaves on it shows below.
-	e.onOneConn(t, server.WithDataFilterTimeout(300*time.Millisecond))
-	baseline := e.showStatementTimeout(t)
-
-	lock, err := e.super.Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	released := false
-	defer func() {
-		if !released {
-			_ = lock.Rollback(context.Background())
-		}
-	}()
-	if _, err := lock.Exec(t.Context(), "LOCK TABLE records IN ACCESS EXCLUSIVE MODE"); err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	rec, _ := e.list(t, "admin-a", "incident", "filter[priority]=1")
-	listCode(t, rec, http.StatusUnprocessableEntity, "filter_too_expensive")
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("timed-out list took %s, want about the 300 ms timeout", d)
-	}
-	// Right after the timed-out request, before any later data-filter list
-	// (whose own restore would write the old value back and hide a leak): SET
-	// LOCAL ended with the rolled-back transaction, so the one connection still
-	// carries the baseline.
-	if got := e.showStatementTimeout(t); got != baseline {
-		t.Errorf("statement_timeout right after the 422 = %q, want the baseline %q", got, baseline)
-	}
-	if err := lock.Rollback(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	released = true
-
-	p := e.mustList(t, "admin-a", "incident", "filter[priority]=1")
-	if p.Total != 1 {
-		t.Errorf("list after the timeout: total %d, want 1", p.Total)
-	}
-	if got := e.showStatementTimeout(t); got != baseline {
-		t.Errorf("statement_timeout after the next data-filter list = %q, want the baseline %q", got, baseline)
-	}
-}
-
-// showStatementTimeout reads statement_timeout on e's pool, which onOneConn
-// limits to one connection, so it is the connection the requests used.
-func (e *etEnv) showStatementTimeout(t *testing.T) string {
-	t.Helper()
-	var got string
-	if err := e.pool.QueryRow(t.Context(), "SHOW statement_timeout").Scan(&got); err != nil {
-		t.Fatal(err)
-	}
-	return got
 }
 
 // onOneConn serves e's handler from a pool of the same database that has one
@@ -796,10 +726,9 @@ func (e *etEnv) onOneConn(t *testing.T, extra ...server.Option) {
 
 // covers: listRecords 422
 //
-// TICK-649: only a data-filter list that ran past its timeout answers
-// filter_too_expensive. A list without a data filter that Postgres cancels
-// (here the role's own statement_timeout) is a server error, not advice to
-// narrow a filter it does not have.
+// TICK-649, S22 P7-12: no list answers filter_too_expensive any more. A list
+// that Postgres cancels (here the role's own statement_timeout) is a server
+// error.
 func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 	e := newETEnvWith(t)
 	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "t-a", recTypeBody("ticket", "TKT")); rec.Code != http.StatusCreated {
@@ -832,76 +761,8 @@ func TestListCancelWithoutDataFilterIsNotFilterTooExpensive(t *testing.T) {
 }
 
 // incidentTypeBody is the seed type key incident with an integer priority, the
-// shape of the seed template: priority is on fieldindex.LegacyScanFields, so
-// an unflagged filter on it still takes the JSONB scan and its timeout.
+// shape of the seed template, left unflagged.
 func incidentTypeBody() string {
 	return strings.Replace(recTypeBody("incident", "INC"), `"requester": {"type": "string", "format": "uuid"}`,
 		`"requester": {"type": "string", "format": "uuid"}, "priority": {"type": "integer"}`, 1)
-}
-
-// I5 (TICK-912): a filter on a field's default matches the records that leave
-// the field out (v1 rows, v2 rows), not the ones holding null; items and
-// total are what GET shows. The type is the seed key incident: priority is on
-// fieldindex.LegacyScanFields, so the unflagged filter takes the JSONB scan
-// (ADR-006 D6); a ticket field would be 400 field_not_filterable.
-func TestListDataFilterOnDefaultMatchesAbsentField(t *testing.T) {
-	e := newRecEnv(t)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types", "admin-a", "df-type", recTypeBody("incident", "INC")); rec.Code != http.StatusCreated {
-		t.Fatalf("seed type = %d: %s", rec.Code, rec.Body)
-	}
-	absent := e.mustCreateRec(t, "admin-a", "incident", "df1", `{"short_description": "v1 absent"}`)
-	nulled := e.mustCreateRec(t, "admin-a", "incident", "df2", `{"short_description": "v1 null"}`)
-	v2 := strings.Replace(recSchema, `"requester": {"type": "string", "format": "uuid"}`,
-		`"requester": {"type": "string", "format": "uuid"},
-    "priority": {"type": "string", "enum": ["low", "high"], "default": "low"}`, 1)
-	body := fmt.Sprintf(`{"definition": {"schema": %s,
-  "fixed_columns": {"state": "state", "group": "assignment_group_id", "assignee": "assignee_id", "requester": "requester_id"},
-  "states": {"initial": "new", "states": ["new", "closed"], "transitions": [{"from": "new", "to": "closed"}]}}}`, v2)
-	if rec := e.do(t, http.MethodPost, "/api/v1/entity-types/incident/versions", "admin-a", "df-pub", body); rec.Code != http.StatusCreated {
-		t.Fatalf("publish v2 = %d: %s", rec.Code, rec.Body)
-	}
-	absent2 := e.mustCreateRec(t, "admin-a", "incident", "df3", `{"short_description": "v2 absent"}`)
-	explicit := e.mustCreateRec(t, "admin-a", "incident", "df4", `{"short_description": "v2 low", "priority": "low"}`)
-	high := e.mustCreateRec(t, "admin-a", "incident", "df5", `{"short_description": "v2 high", "priority": "high"}`)
-	// The API refuses a null for an enum, so the row is written directly,
-	// with the audit trigger off for this one transaction.
-	tx, err := e.super.Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(t.Context()) //nolint:errcheck // rollback after a read-only check; the error adds nothing
-	for _, q := range []string{"SET LOCAL session_replication_role = replica"} {
-		if _, err := tx.Exec(t.Context(), q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(t.Context(), `UPDATE records SET data = data || '{"priority": null}'::jsonb WHERE tenant_id = $1 AND id = $2`, e.a.id, nulled.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	// What GET shows for each record decides what the filter must return.
-	for _, r := range []recBody{absent, absent2, explicit} {
-		rec := e.do(t, http.MethodGet, "/api/v1/records/incident/"+r.ID, "admin-a", "", "")
-		var g recBody
-		if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil || g.Data["priority"] != "low" {
-			t.Fatalf("GET %s = %d %s, want priority low", r.ID, rec.Code, rec.Body)
-		}
-	}
-	p := e.mustList(t, "admin-a", "incident", "filter[priority]=low&limit=200")
-	wantIDs(t, "priority=low", p.Items, absent, absent2, explicit)
-	if p.Total != 3 {
-		t.Errorf("total = %d, want 3", p.Total)
-	}
-	p = e.mustList(t, "admin-a", "incident", "filter[priority][in]=high,low&limit=200")
-	wantIDs(t, "priority in", p.Items, absent, absent2, explicit, high)
-	if p.Total != 4 {
-		t.Errorf("in total = %d, want 4", p.Total)
-	}
-	p = e.mustList(t, "admin-a", "incident", "filter[priority]=high&limit=200")
-	wantIDs(t, "priority=high", p.Items, high)
-	if p.Total != 1 {
-		t.Errorf("high total = %d, want 1", p.Total)
-	}
 }

@@ -130,11 +130,11 @@ describe(`SDK against the stack (run ${RUN})`, { concurrency: 1 }, () => {
     assert.equal(e.status, 404);
     assert.equal(e.code, "not_found");
 
-    // Tenant B has no flagged data field (flags are per tenant, ADR-006), so the filter is the legacy
-    // allow-listed priority, which matches alicesRecord's priority. The iterator walks every page,
-    // so a leak on any page fails this.
+    // The filter is the fixed column state: a new incident is in state "new", which matches
+    // alicesRecord's state (a data filter would need a flagged field, ADR-006). The iterator walks
+    // every page, so a leak on any page fails this.
     const seen: string[] = [];
-    for await (const r of client.records.list(ENTITY, { filter: { priority: 2 }, pageSize: 200 })) seen.push(r.id);
+    for await (const r of client.records.list(ENTITY, { filter: { state: "new" }, pageSize: 200 })) seen.push(r.id);
     assert.ok(!seen.includes(alicesRecord.id), "tenant A's record is not in any page of tenant B's list");
   });
 

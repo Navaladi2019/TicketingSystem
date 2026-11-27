@@ -84,6 +84,12 @@ func (e2eResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, e
 
 func onboardService(t *testing.T) (*onboard.Service, *e2eDir) {
 	t.Helper()
+	return onboardServiceWithIndex(t, onboard.IndexStore{Pool: rolePool(t, "nava_app", 2)})
+}
+
+// onboardServiceWithIndex is onboardService with its SeedIndexer replaced.
+func onboardServiceWithIndex(t *testing.T, idx onboard.SeedIndexer) (*onboard.Service, *e2eDir) {
+	t.Helper()
 	specs := onboard.NewSpecs()
 	dir := &e2eDir{orgs: map[uuid.UUID]string{}}
 	svc, err := onboard.New(onboard.Options{
@@ -92,6 +98,7 @@ func onboardService(t *testing.T) (*onboard.Service, *e2eDir) {
 		Finder:    dir,
 		Domains:   onboard.NewRegistry(rolePool(t, "nava_app", 2)),
 		ACL:       onboard.ACLStore{Pool: rolePool(t, "nava_app", 2)},
+		Index:     idx,
 		Specs:     specs,
 		Resolver:  e2eResolver{},
 		Issuer:    "https://kc/realms/nava",

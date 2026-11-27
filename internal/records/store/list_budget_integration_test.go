@@ -9,7 +9,6 @@ package store_test
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -254,19 +253,6 @@ func TestBudgetedCount(t *testing.T) {
 		}
 	})
 
-	// A legacy scan: min(CountBudget, Timeout), proven in the statement text.
-	t.Run("legacy scan budget is the smaller timeout", func(t *testing.T) {
-		e.log.reset()
-		q := query(tenantA, defA, 10)
-		q.DataFilter, q.Timeout, q.CountDelay = true, 120*time.Millisecond, 150*time.Millisecond
-		if p := e.list(t, q); p.TotalState != store.TotalUnknown {
-			t.Errorf("state %q, want unknown", p.TotalState)
-		}
-		if n := e.log.matching("SAVEPOINT list_count; SET LOCAL statement_timeout = '120'"); n != 1 {
-			t.Errorf("SET LOCAL '120' sent %d times, want once", n)
-		}
-	})
-
 	// No data filter: today's count, no savepoint, no budget.
 	t.Run("a list with no data filter keeps its count", func(t *testing.T) {
 		e.log.reset()
@@ -292,9 +278,6 @@ func TestBudgetedCount(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatal("a cancelled request returned a page")
-		}
-		if errors.Is(err, store.ErrStatementTimeout) {
-			t.Errorf("a cancelled request is not a statement timeout: %v", err)
 		}
 	})
 

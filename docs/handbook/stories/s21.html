@@ -56,7 +56,7 @@ or edited during or after indexing are found.</p>
 </tr>
 <tr>
 <td>The field is not flagged</td>
-<td><code>400 field_not_filterable</code>, except the three seed fields that keep the old JSONB scan until S22: <code>incident.priority</code>, <code>request.priority</code>, <code>change.risk</code></td>
+<td><code>400 field_not_filterable</code> (S22: the three seed fields <code>incident.priority</code>, <code>request.priority</code>, <code>change.risk</code> are now flagged and the JSONB scan is removed)</td>
 </tr>
 <tr>
 <td>The field is flagged and indexing</td>

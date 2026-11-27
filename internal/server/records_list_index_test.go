@@ -165,18 +165,6 @@ func TestNotReadyResponseCarriesOnlyTheProgress(t *testing.T) {
 	}
 }
 
-func TestLegacyScanIsKeyedByTypeAndField(t *testing.T) {
-	t.Parallel()
-	if !fieldindex.LegacyScan("incident", "priority") {
-		t.Error("incident priority must stay on the scan until P7-12")
-	}
-	for _, c := range [][2]string{{"ticket", "priority"}, {"incident", "site"}, {"change", "priority"}, {"", "priority"}} {
-		if fieldindex.LegacyScan(c[0], c[1]) {
-			t.Errorf("%v must not reach the legacy scan", c)
-		}
-	}
-}
-
 func TestSelectivityBand(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

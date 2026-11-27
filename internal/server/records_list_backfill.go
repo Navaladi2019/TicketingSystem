@@ -36,7 +36,7 @@ const unionRemainingMax = 1000
 //     them, never a UNION ALL (each field would need its own arm).
 //
 // A request with no data filter on the side tables reads nothing here. The
-// legacy JSONB scan keeps its own absent-matches rule (I5).
+// JSONB scan is gone (S22 P7-12).
 func (h *handlers) resolveWindow(ctx context.Context, tx pgx.Tx, tenantID, defID uuid.UUID, def *metadata.Compiled, pl *listPlan) error {
 	if !pl.hasIndexFilter() {
 		return nil
