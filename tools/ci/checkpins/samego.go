@@ -66,6 +66,7 @@ func checkSameGo(root string) ([]string, error) {
 			problems = append(problems, fmt.Sprintf("%s: a tracked %s changes the scanned module versions; remove it (ADR-001-E4 rule 7)", f, b))
 		}
 	}
+	problems = append(problems, checkLayout(tracked)...) // rule 7 as amended by ADR-001-A7 (V-7)
 
 	want := map[string]string{} // Dockerfile -> toolchain version
 	wantMod := map[string]string{}

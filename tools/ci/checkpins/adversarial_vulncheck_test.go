@@ -108,6 +108,17 @@ func TestOneGovulncheckVersion(t *testing.T) {
 		replaceOnce(t, dir, "docs/pins.md", "| `govulncheck` (", "| `govuln-check` (")
 		mustCLI(t, dir, 1, "docs/pins.md: 0 govulncheck rows, want exactly 1", "ADR-001-A7 V-6")
 	})
+	// A missing copy cannot be compared: the check cannot run (exit 2), it
+	// never passes.
+	for _, f := range []string{"Makefile", vulnWorkflow} {
+		t.Run(f+" missing", func(t *testing.T) {
+			dir := vulnCopy(t)
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
+				t.Fatal(err)
+			}
+			mustCLI(t, dir, 2, "check-pins: ")
+		})
+	}
 	t.Run("workflow not YAML", func(t *testing.T) {
 		dir := vulnCopy(t)
 		put(t, dir, vulnWorkflow, "jobs: [\n")
