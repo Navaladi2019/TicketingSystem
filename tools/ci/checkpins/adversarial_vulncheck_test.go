@@ -24,6 +24,9 @@ import (
 const (
 	vulnWorkflow = ".github/workflows/govulncheck.yml"
 	vulnLine     = "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./..."
+	// vulnPinsRow is the stable start of the docs/pins.md govulncheck row: the
+	// name and version cells only, so rewording the usage cell breaks no test.
+	vulnPinsRow = "| `govulncheck` (`golang.org/x/vuln`) | v1.9.0 |"
 )
 
 func TestOneGovulncheckVersion(t *testing.T) {
@@ -33,10 +36,15 @@ func TestOneGovulncheckVersion(t *testing.T) {
 	t.Run("copy in step", func(t *testing.T) {
 		mustCLI(t, vulnCopy(t), 0, "")
 	})
+	t.Run("usage cell reworded", func(t *testing.T) {
+		dir := vulnCopy(t)
+		replaceOnce(t, dir, "docs/pins.md", vulnPinsRow+" ", vulnPinsRow+" Reworded usage prose. |")
+		mustCLI(t, dir, 0, "")
+	})
 	for _, tc := range []struct{ name, file, old, new, want string }{
 		{"only in the workflow", vulnWorkflow, "govulncheck@v1.9.0", "govulncheck@v1.9.1", vulnWorkflow + ": job vulncheck-root runs govulncheck@v1.9.1"},
 		{"only in Makefile", "Makefile", "GOVULNCHECK_VERSION := v1.9.0", "GOVULNCHECK_VERSION := v1.9.1", "Makefile: GOVULNCHECK_VERSION is v1.9.1"},
-		{"only in docs/pins.md", "docs/pins.md", "| v1.9.0 | `make vulncheck`", "| v1.9.1 | `make vulncheck`", "docs/pins.md: the govulncheck row pins v1.9.1"},
+		{"only in docs/pins.md", "docs/pins.md", vulnPinsRow, "| `govulncheck` (`golang.org/x/vuln`) | v1.9.1 |", "docs/pins.md: the govulncheck row pins v1.9.1"},
 		{"workflow on latest", vulnWorkflow, "govulncheck@v1.9.0", "govulncheck@latest", "runs govulncheck@latest"},
 		{"version from an expression", vulnWorkflow, "govulncheck@v1.9.0", "govulncheck@${{ env.V }}", "runs govulncheck@${{"},
 	} {
