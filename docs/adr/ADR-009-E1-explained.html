@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADR-009 erratum E1 explained: one error code for a rejected definition</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:900px;margin:0 auto;padding:32px 28px 90px}
+.pill{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.06em;padding:4px 10px;border-radius:999px;background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0 20px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}
+th{background:var(--soft)}
+h1{font-size:28px;border-bottom:1px solid var(--bd);padding-bottom:8px}
+h2{font-size:22px;border-bottom:1px solid var(--bd);padding-bottom:6px;margin-top:40px}
+code{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+blockquote{margin:12px 0;padding:8px 14px;border-left:4px solid var(--acc);background:var(--soft)}
+.bad{color:var(--bad);font-weight:600}.good{color:var(--good);font-weight:600}
+figure{margin:16px 0;padding:12px;background:#fff;border:1px solid var(--bd);border-radius:8px;overflow-x:auto}
+figure svg{width:100%;min-width:640px;height:auto;display:block}
+figcaption{color:#59636e;font-size:13px;margin-top:8px;text-align:center}
+dl dt{font-weight:700;margin-top:8px}dl dd{margin-left:18px}
+
+<span class="pill" id="status">PROPOSED · 2026-11-28</span> <span class="src">ADR-009-E1 · issue TICK-915 (S29) · amends ADR-009 D13 · source: TICK-754 S29 acceptance kit, criterion 4</span>
+
+<h1>A unique field with a default is refused with <code>invalid_definition</code></h1>
+
+<blockquote><strong>In three sentences.</strong>
+(1) ADR-009 says that publishing a record type where a unique field has a default value is refused, and names the error code <code>invalid_schema</code>.
+(2) That code was never registered; the platform answers every rejected record-type definition with <code>invalid_definition</code>, and the code that was built does exactly that.
+(3) We correct the document, not the code: the refusal, the 422 status and "nothing is stored" all stay as decided.</blockquote>
+
+<h2>1. The problem in plain words</h2>
+<p>A <em>record type</em> (for example "incident") is defined by a JSON Schema that a tenant admin publishes. A field marked <code>x-nava-unique</code> must hold a different value on every record. ADR-009 decision D13 forbids giving such a field a <em>default</em> (a value filled in when none is given), because the background backfill would then write the same value into every old record and break uniqueness.</p>
+<p>When a publish is refused, the response carries an <em>error code</em>: a fixed machine-readable string that client programs check to decide what to do. The platform keeps one list of these codes, the <em>error catalogue</em> (<code>api/errors.yaml</code>). D13 named a code, <code>invalid_schema</code>, that is not in the catalogue. The implementation used the catalogue's code for this whole family of mistakes, <code>invalid_definition</code>. The S29 acceptance test followed the document and failed on that one string, although the behaviour was right.</p>
+
+<figure><svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Arial,sans-serif" font-size="13">
+<rect x="10" y="55" width="170" height="60" rx="8" fill="#ddf4ff" stroke="#0969da"/><text x="95" y="80" text-anchor="middle">Admin publishes</text><text x="95" y="98" text-anchor="middle">unique field + default</text>
+<line x1="180" y1="85" x2="260" y2="85" stroke="#59636e" marker-end="url(#a)"/>
+<rect x="260" y="55" width="180" height="60" rx="8" fill="#f6f8fa" stroke="#59636e"/><text x="350" y="80" text-anchor="middle">Definition check</text><text x="350" y="98" text-anchor="middle">(CompileNew)</text>
+<line x1="440" y1="70" x2="520" y2="35" stroke="#1a7f37" marker-end="url(#a)"/><line x1="440" y1="100" x2="520" y2="135" stroke="#cf222e" marker-end="url(#a)"/>
+<rect x="520" y="10" width="230" height="50" rx="8" fill="#dafbe1" stroke="#1a7f37"/><text x="635" y="31" text-anchor="middle">422 invalid_definition, pointer</text><text x="635" y="49" text-anchor="middle">code today = corrected ADR</text>
+<rect x="520" y="110" width="230" height="50" rx="8" fill="#ffebe9" stroke="#cf222e"/><text x="635" y="131" text-anchor="middle">422 invalid_schema</text><text x="635" y="149" text-anchor="middle">old ADR text, never registered</text>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#59636e"/></marker></defs>
+</svg><figcaption>Same refusal, same status, nothing stored. Only the code string in the document was wrong.</figcaption></figure>
+
+<h2>2. Options considered</h2>
+<table><tr><th>Option</th><th>Effect</th><th>Verdict</th></tr>
+<tr><td>Correct the document to <code>invalid_definition</code></td><td>Text change only. One code for every rejected definition; the <code>errors[].pointer</code> field already says which rule failed (here <code>/definition/schema/properties/&lt;name&gt;/default</code>).</td><td class="good">Chosen</td></tr>
+<tr><td>Register <code>invalid_schema</code> and change the code</td><td>A new catalogue entry used by one rule; clients must handle two codes for the same kind of mistake; code change, regenerated catalogue and a kit rerun.</td><td class="bad">Rejected</td></tr>
+<tr><td>Keep both names as aliases</td><td>Two names for one thing; the catalogue, <code>problem.go</code> and the test registry would drift apart.</td><td class="bad">Rejected</td></tr></table>
+
+<h2>3. The decision</h2>
+<ul>
+<li><b>E1-1</b> D13 reads: refused with 422 <code>invalid_definition</code>, pointer <code>/definition/schema/properties/&lt;name&gt;/default</code>, rule <code>invalid</code>.</li>
+<li><b>E1-2</b> The publish test scenario, RFC-021 D13 and CI-9 read the same way; creating a type with the pair is refused the same way.</li>
+<li><b>E1-3</b> S29 acceptance criterion 4 reads <code>invalid_definition</code>; the kit asserts it. No code change.</li>
+<li><b>E1-4</b> <code>invalid_schema</code> is not added to the catalogue.</li>
+</ul>
+
+<h2>4. Fix and migration</h2>
+<p>None in code. Nothing ever answered <code>invalid_schema</code>, so no client can depend on it. The story text, the S29 kit and the handbook page are updated to the corrected code.</p>
+
+<h2>5. What is being accepted</h2>
+<p>No residual risk. The refusal still exposes no field value (only a pointer and a rule), and tenant isolation is untouched. No row in the accepted-risks register.</p>
+
+<h2>6. Evidence</h2>
+<ul>
+<li>Catalogue: <code>api/errors.yaml</code> registers <code>invalid_definition</code> (422, "Invalid entity definition"); <code>invalid_schema</code> appears nowhere in code.</li>
+<li>Implementation: <code>metadata.CompileNew</code> (TICK-919, PR #932) and its unit test.</li>
+<li>Fresh-stack run, 2026-11-27 (S29 kit, request S29.5): <code>422</code>, <code>code: invalid_definition</code>, pointer <code>/definition/schema/properties/s29_tier/default</code>; S29.8 shows the type still at its previous version, so nothing was stored. Red only on the string; green once the kit asserts the corrected code.</li>
+</ul>
+</main></body></html>
