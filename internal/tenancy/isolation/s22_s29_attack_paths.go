@@ -706,7 +706,6 @@ func s22NoJSONBFilter(context.Context) error {
 	if err != nil {
 		return err
 	}
-	retired := []string{"DataFilterTimeout", "WithDataFilterTimeout", "LegacyScanFields"}
 	var problems []string
 	sawList := false
 	for _, top := range []string{"internal", "cmd"} {
@@ -728,31 +727,15 @@ func s22NoJSONBFilter(context.Context) error {
 			if rel == "internal/server/records_list.go" {
 				sawList = true
 			}
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+			src, err := os.ReadFile(p) //nolint:gosec // p comes from the repo walk above
 			if err != nil {
 				return err
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.BasicLit:
-					if x.Kind != token.STRING || s22JSONBAllowed(rel) {
-						return true
-					}
-					s, err := strconv.Unquote(x.Value)
-					if err != nil {
-						s = x.Value
-					}
-					if m := s22JSONBOnData.FindString(s); m != "" {
-						problems = append(problems, fmt.Sprintf("%s: %q applies a JSONB operator to data", fset.Position(x.Pos()), m))
-					}
-				case *ast.Ident:
-					if slices.Contains(retired, x.Name) {
-						problems = append(problems, fmt.Sprintf("%s: %s is retired (ADR-006 D6)", fset.Position(x.Pos()), x.Name))
-					}
-				}
-				return true
-			})
+			ps, err := s22ScanSource(rel, p, src)
+			if err != nil {
+				return err
+			}
+			problems = append(problems, ps...)
 			return nil
 		})
 		if err != nil {
@@ -766,6 +749,61 @@ func s22NoJSONBFilter(context.Context) error {
 		return fmt.Errorf("the legacy JSONB filter path is still there (%d sites):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 	return nil
+}
+
+// s22AbsentSite is the one allowlisted JSONB read of records.data outside
+// s22JSONBAllowed (ADR-009 D12, TICK-1200): the window's "absent" term, in
+// this function of this file, with exactly this fragment. Any other operator in
+// the function, or this fragment anywhere else, is a finding.
+const (
+	s22AbsentFile     = "internal/server/records_list_index.go"
+	s22AbsentFunc     = "fieldAbsent"
+	s22AbsentFragment = "NOT (r.data ? "
+)
+
+// s22ScanSource returns the findings of one non-test Go file: string literals
+// applying a JSONB operator to data outside the allow-list, and retired names.
+func s22ScanSource(rel, name string, src []byte) ([]string, error) {
+	retired := []string{"DataFilterTimeout", "WithDataFilterTimeout", "LegacyScanFields"}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	var walk func(n ast.Node, fn string)
+	walk = func(root ast.Node, fn string) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.FuncDecl:
+				if x != root && x.Body != nil {
+					walk(x.Body, x.Name.Name)
+					return false
+				}
+			case *ast.BasicLit:
+				if x.Kind != token.STRING || s22JSONBAllowed(rel) {
+					return true
+				}
+				s, err := strconv.Unquote(x.Value)
+				if err != nil {
+					s = x.Value
+				}
+				if rel == s22AbsentFile && fn == s22AbsentFunc {
+					s = strings.Replace(s, s22AbsentFragment, "", 1)
+				}
+				if m := s22JSONBOnData.FindString(s); m != "" {
+					problems = append(problems, fmt.Sprintf("%s: %q applies a JSONB operator to data", fset.Position(x.Pos()), m))
+				}
+			case *ast.Ident:
+				if slices.Contains(retired, x.Name) {
+					problems = append(problems, fmt.Sprintf("%s: %s is retired (ADR-006 D6)", fset.Position(x.Pos()), x.Name))
+				}
+			}
+			return true
+		})
+	}
+	walk(f, "")
+	return problems, nil
 }
 
 // s29TableNames are ADR-009's three tables (contract C1).
