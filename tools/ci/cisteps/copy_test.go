@@ -2,14 +2,9 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -19,51 +14,11 @@ const (
 	repoCopy     = "tools/ci/cisteps/govulncheck.copy.yml"
 )
 
-// pinned is a make runner for a makefile with exactly the pinned rules.
-func pinned(args ...string) ([]byte, error) {
-	return recipesWith("", "")(args...)
-}
-
-// recipesWith is a make runner whose `make -pn <goal>` dry run prints the
-// pinned recipes, target's replaced by recipe, then a database that holds the
-// pinned rules and make's defaults: the dry run alone is wrong. Through the
-// environment dump (SHELL=) it reports one shell call of the pinned line.
-func recipesWith(target, recipe string) makeRunner {
-	return func(args ...string) ([]byte, error) {
-		const globals = "# GNU Make 4.4.1\n# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n\n"
-		goal := args[len(args)-1]
-		var r *pinnedRecipe
-		for _, p := range pinnedRecipes() {
-			if p.target == goal {
-				r = &p
-			}
-		}
-		if r == nil {
-			return nil, errors.New("no such target")
-		}
-		if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "SHELL=") }) {
-			b, err := json.Marshal(envRecord{Args: []string{"-c", r.dryRun()}, Env: []string{"PATH=/usr/bin", "HOME=/home/ci"}})
-			return []byte(envDumpPrefix + string(b) + "\n"), err
-		}
-		if slices.Contains(args, "-f") {
-			return []byte(globals), nil
-		}
-		dry := r.dryRun() + "\n"
-		if goal == target {
-			dry = recipe + "\n"
-		}
-		db := globals
-		for _, p := range pinnedRecipes() {
-			db += p.target + ":\n#  recipe to execute (from 'make/lint.mk', line 1):\n\t" + p.recipe + "\n\n"
-		}
-		return []byte(dry + db), nil
-	}
-}
-
-// AC 1 (TICK-1149): the committed workflow, its copy and the real make
-// recipes pass the -copy check. TestRepository covers ci.yml only.
+// AC 1 (TICK-1149), TICK-1187 Test 5: the committed workflow and its copy
+// pass the -copy check, and no step runs make. TestRepository covers ci.yml
+// only.
 func TestRepositoryGovulncheckCopy(t *testing.T) {
-	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), repo(""), makeIn(repo("")))
+	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,13 +56,11 @@ func insertAt(re string, after bool, add ...string) edit {
 	}
 }
 
-// atMakeLine replaces the scan line of the job that scans target's module (the
-// make target the job ran before ADR-001-A7: vulncheck is vulncheck-root,
-// vulncheck-temporal-server is itself) by f(indent of run:, the line without
-// its indent), so an edit can keep the command and change only what it tests.
-// The scan jobs now run govulncheck directly (TICK-1186); TICK-1187 rewrites
-// V-3 for that.
-func atMakeLine(target string, f func(ind, run string) []string) edit {
+// atScanLine replaces the govulncheck line of the job that scans target's
+// module (vulncheck is vulncheck-root, vulncheck-temporal-server is itself)
+// by f(indent of run:, the line without its indent), so an edit can keep the
+// command and change only what it tests.
+func atScanLine(target string, f func(ind, run string) []string) edit {
 	job := target
 	if target == "vulncheck" {
 		job = "vulncheck-root"
@@ -141,23 +94,19 @@ type v3Edit struct {
 
 func v3Edits() []v3Edit {
 	return []v3Edit{
-		{"a step if", atMakeLine("vulncheck", func(ind, run string) []string {
+		{"a step if", atScanLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + "if: github.actor == 'nobody'", ind + run}
 		})},
-		{"b job if", insertAt(`^jobs:\s*$`, true, "  vulncheck-root-gone:", "    if: github.event_name == 'never'", "    runs-on: ubuntu-latest", "    steps:", "      - run: make vulncheck")},
-		{"b job if on the scanning job", func(t *testing.T, wf string) string {
-			lines := strings.Split(wf, "\n")
-			j := lineIndex(t, lines, `^  vulncheck-root:\s*$`)
-			return strings.Join(append(lines[:j+1], append([]string{"    if: github.event_name == 'never'"}, lines[j+1:]...)...), "\n")
-		}},
-		{"c exit 0 before the make line", atMakeLine("vulncheck", func(ind, run string) []string {
-			return []string{ind + "run: |", ind + "  exit 0", ind + "  make vulncheck"}
+		{"b job if", insertAt(`^jobs:\s*$`, true, "  vulncheck-root-gone:", "    if: github.event_name == 'never'", "    runs-on: ubuntu-latest", "    steps:", "      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...")},
+		{"b job if on the scanning job", replaceLine(`^    if: needs\.vulncheck-detect\.outputs\.root == 'true'\s*$`, "    if: github.event_name == 'never'")},
+		{"c exit 0 before the scan line", atScanLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + "run: |", ind + "  exit 0", ind + "  " + strings.TrimPrefix(run, "run: ")}
 		})},
-		{"d step shell", atMakeLine("vulncheck-temporal-server", func(ind, run string) []string {
+		{"d step shell", atScanLine("vulncheck-temporal-server", func(ind, run string) []string {
 			return []string{ind + "shell: 'true {0}'", ind + run}
 		})},
-		{"e make line in a printed heredoc", atMakeLine("vulncheck", func(ind, run string) []string {
-			return []string{ind + "run: |", ind + "  cat <<'EOF'", ind + "  make vulncheck", ind + "  EOF"}
+		{"e scan line in a printed heredoc", atScanLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + "run: |", ind + "  cat <<'EOF'", ind + "  " + strings.TrimPrefix(run, "run: "), ind + "  EOF"}
 		})},
 		{"f another job named vulncheck", insertAt(`^jobs:\s*$`, true, "  vulncheck-other:", "    name: vulncheck", "    runs-on: ubuntu-latest", "    steps:", "      - run: 'true'", "")},
 		{"g top-level defaults.run.shell", insertAt(`^jobs:\s*$`, false, "defaults:", "  run:", "    shell: 'true {0}'", "")},
@@ -176,15 +125,22 @@ func v3Edits() []v3Edit {
 		{"gate checks out the pull request", replaceLine(`^          ref: main\s*$`, "          ref: ${{ github.head_ref }}")},
 		{"detect runs the pull request's script", replaceLine(`^\s+git show origin/main:scripts/ci/vulncheck-detect\.sh`, "          cp scripts/ci/vulncheck-detect.sh \"$RUNNER_TEMP/vulncheck-detect.sh\"")},
 		{"detect shallow", replaceLine(`^          fetch-depth: 0\s*$`, "          fetch-depth: 1")},
-		{"make line commented out", atMakeLine("vulncheck", func(ind, run string) []string {
-			return []string{ind + "run: 'true'", ind + "# run: make vulncheck"}
+		{"scan line commented out", atScanLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + "run: 'true'", ind + "# " + run}
 		})},
-		{"trailing comment changed", atMakeLine("vulncheck", func(ind, run string) []string {
+		{"trailing comment changed", atScanLine("vulncheck", func(ind, run string) []string {
 			return []string{ind + run + " # || true"}
 		})},
-		{"indentation changed", atMakeLine("vulncheck", func(ind, run string) []string {
-			return []string{ind + " " + run}
+		// Still YAML (the workflow is parsed), and the same schedule.
+		{"indentation changed", replaceLine(`^    - cron: `, "  - cron: '17 3 */2 * *'")},
+		{"spacing after run: changed", atScanLine("vulncheck", func(ind, run string) []string {
+			return []string{ind + strings.Replace(run, "run: ", "run:  ", 1)}
 		})},
+		// TICK-1187 Test 4 (ADR-001-A7 V-3): the scan's pinned environment
+		// is part of the copy; dropping GOTOOLCHAIN: local from one scan
+		// step lets go download a newer toolchain than go.mod's.
+		{"scan step without GOTOOLCHAIN: local", replaceLine(`^\s+GOTOOLCHAIN: local\s*$`)},
+		{"scan step GOFLAGS set", replaceLine(`^\s+GOFLAGS: ''\s*$`, "          GOFLAGS: -tags=nothing")},
 		{"blank line added", insertAt(`^jobs:\s*$`, true, "")},
 		// TICK-1167 AC 3: a # line inside a run: | block is the step's
 		// input, not a YAML comment.
@@ -219,7 +175,7 @@ func TestCopyCatchesWorkflowEdits(t *testing.T) {
 			}
 			p := writeTemp(t, edited)
 			var stdout, stderr bytes.Buffer
-			if code := runWith([]string{"-workflow", p, "-copy", cp}, &stdout, &stderr, repo(""), pinned); code != 1 {
+			if code := run([]string{"-workflow", p, "-copy", cp}, &stdout, &stderr); code != 1 {
 				t.Fatalf("exit %d, want 1; stderr %q", code, stderr.String())
 			}
 			if !strings.Contains(stderr.String(), "differs from") || !strings.Contains(stderr.String(), "workflow line") && !strings.Contains(stderr.String(), "workflow ends") {
@@ -235,133 +191,13 @@ func TestCopyCatchesWorkflowEdits(t *testing.T) {
 	}
 }
 
-// V-3 (AC 2 j): `|| true` in either recipe fails, with the recipe named.
-func TestCopyCatchesRecipeEdits(t *testing.T) {
-	for _, r := range pinnedRecipes() {
-		cases := map[string]string{
-			"or true":         r.dryRun() + " || true",
-			"a second line":   r.dryRun() + "\necho scanned",
-			"a make warning":  "make: warning: something\n" + r.dryRun(),
-			"nothing printed": "",
-		}
-		if strings.Contains(r.dryRun(), "GOWORK=off ") {
-			cases["GOWORK dropped"] = strings.Replace(r.dryRun(), "GOWORK=off ", "", 1)
-		} else {
-			cases["version @latest"] = strings.Replace(r.dryRun(), "@"+govulncheckVersion, "@latest", 1)
-		}
-		for name, recipe := range cases {
-			t.Run(r.target+"/"+name, func(t *testing.T) {
-				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), repo(""), recipesWith(r.target, recipe))
-				if err != nil {
-					t.Fatal(err)
-				}
-				want := "make -n " + r.target + " prints "
-				if len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
-					t.Fatalf("want one problem starting %q, got %q", want, problems)
-				}
-			})
-		}
-	}
-}
-
-// makeEdit is a temporary Makefile: the pinned rule of every target but
-// target, and edit's text for target (rule is "<target>:\n\t<recipe>\n").
-type makeEdit struct {
-	name string
-	edit func(target, recipe string) string
-	want string // a substring of a problem; %s is the target
-}
-
-// trueBin is a shell that runs nothing and exits 0, as a path make accepts
-// (on Windows make ignores a SHELL that does not exist, such as /bin/true).
-func makeEdits(trueBin string) []makeEdit {
-	rule := func(t, r string) string { return t + ":\n\t" + r + "\n" }
-	return []makeEdit{
-		// V-3 (j).
-		{"or true", func(t, r string) string { return rule(t, r+" || true") }, "make -pn %s: recipe is"},
-		// TICK-1149 review finding 1: make -n prints each of these as the
-		// pinned line, yet a failing scan exits 0 or is not run.
-		{"dash prefix", func(t, r string) string { return rule(t, "-"+r) }, "make -pn %s: recipe is"},
-		{"at prefix", func(t, r string) string { return rule(t, "@"+r) }, "make -pn %s: recipe is"},
-		{"plus prefix", func(t, r string) string { return rule(t, "+"+r) }, "make -pn %s: recipe is"},
-		{".IGNORE with the target", func(t, r string) string { return ".IGNORE: " + t + "\n" + rule(t, r) }, `make has ".IGNORE: %s"`},
-		{".IGNORE bare", func(t, r string) string { return ".IGNORE:\n" + rule(t, r) }, `make has ".IGNORE:`},
-		{"target SHELL", func(t, r string) string { return t + ": SHELL := " + trueBin + "\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
-		{"target .SHELLFLAGS", func(t, r string) string { return t + ": .SHELLFLAGS := -c true\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
-		{"pattern SHELL", func(t, r string) string { return "vulncheck%: SHELL := " + trueBin + "\n" + rule(t, r) }, "target- or pattern-specific SHELL or .SHELLFLAGS"},
-		{"global SHELL", func(t, r string) string { return "SHELL := " + trueBin + "\n" + rule(t, r) }, "make sets SHELL to"},
-		{"global .SHELLFLAGS", func(t, r string) string { return ".SHELLFLAGS := -c true\n" + rule(t, r) }, "make sets .SHELLFLAGS to"},
-		{".ONESHELL", func(t, r string) string { return ".ONESHELL:\n" + rule(t, r) }, `make has ".ONESHELL:`},
-		{"MAKEFLAGS -i", func(t, r string) string { return "MAKEFLAGS += -i\n" + rule(t, r) }, "make sets MAKEFLAGS to"},
-		{"a prerequisite", func(t, r string) string { return t + ": quiet\nquiet:\n" + rule(t, r) }, "make -pn %s: rule is"},
-		{"double-colon rule", func(t, r string) string { return t + "::\n\t" + r + "\n" }, "make -pn %s: want one rule, found 0"},
-	}
-}
-
-// V-3 (AC 2 j) and TICK-1149 review finding 1, through real make on a
-// temporary Makefile: each edit of either recipe's rule fails the check, and
-// the unedited Makefile passes.
-func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
-	if _, err := exec.LookPath("make"); err != nil {
-		t.Skip("no make on PATH")
-	}
-	trueBin, err := exec.LookPath("true")
-	if err != nil {
-		t.Fatal("no true on PATH:", err)
-	}
-	trueBin = filepath.ToSlash(trueBin)
-	write := func(t *testing.T, target string, edit func(t, r string) string) string {
-		t.Helper()
-		dir := t.TempDir()
-		var mk strings.Builder
-		mk.WriteString("GOVULNCHECK_VERSION := " + govulncheckVersion + "\n")
-		for _, o := range pinnedRecipes() {
-			if o.target == target {
-				mk.WriteString(edit(o.target, o.recipe))
-			} else {
-				mk.WriteString(o.target + ":\n\t" + o.recipe + "\n")
-			}
-		}
-		if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(mk.String()), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return dir
-	}
-	t.Run("pinned", func(t *testing.T) {
-		dir := write(t, "", nil)
-		problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), dir, makeIn(dir))
-		if err != nil || len(problems) > 0 {
-			t.Fatalf("err %v, problems %q; want none", err, problems)
-		}
-	})
-	for _, r := range pinnedRecipes() {
-		for _, c := range makeEdits(trueBin) {
-			t.Run(r.target+"/"+c.name, func(t *testing.T) {
-				t.Parallel()
-				dir := write(t, r.target, c.edit)
-				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), dir, makeIn(dir))
-				if err != nil {
-					t.Fatal(err)
-				}
-				want := c.want
-				if strings.Contains(want, "%s") {
-					want = fmt.Sprintf(want, r.target)
-				}
-				if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, want) }) {
-					t.Fatalf("want a problem containing %q, got %q", want, problems)
-				}
-			})
-		}
-	}
-}
-
 // V-3 (AC 2 k) documents RS3: the same edit of the workflow and the copy
 // passes. The check stops an edit of one file, not a deliberate edit of both.
 func TestCopyPassesTheSameEditOfBoth(t *testing.T) {
 	wf, cp := readRepo(t, repoWorkflow), readRepo(t, repoCopy)
 	for _, c := range v3Edits() {
 		t.Run(c.name, func(t *testing.T) {
-			problems, err := checkCopy(writeTemp(t, c.edit(t, wf)), writeTemp(t, c.edit(t, cp)), repo(""), pinned)
+			problems, err := checkCopy(writeTemp(t, c.edit(t, wf)), writeTemp(t, c.edit(t, cp)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -379,7 +215,6 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 		"header comment added":   func(_ *testing.T, wf string) string { return "# a new note\n" + wf },
 		"comment removed":        func(_ *testing.T, wf string) string { return regexp.MustCompile(`(?m)^#.*\n`).ReplaceAllString(wf, "") },
 		"indented comment added": insertAt(`^\s+run: go run golang\.org/x/vuln/cmd/govulncheck@`, false, "        # the root module"),
-		"tab-indented comment":   insertAt(`^jobs:\s*$`, true, "\t# note"),
 		// TICK-1167 AC 3: a comment after a run: | block, no deeper than
 		// the block's header line, is a YAML comment.
 		"comment after a run: | block": insertAt(`^  vulncheck-root:\s*$`, false, "        # after the block"),
@@ -389,7 +224,7 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 			if edited == wf {
 				t.Fatal("the edit changed nothing")
 			}
-			problems, err := checkCopy(writeTemp(t, edited), repo(repoCopy), repo(""), pinned)
+			problems, err := checkCopy(writeTemp(t, edited), repo(repoCopy))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -424,39 +259,31 @@ func TestCompareUncommentedNamesTheLines(t *testing.T) {
 }
 
 // The -copy flag's usage: with -required, or without -workflow, is exit 2;
-// an unreadable file or a failing make is exit 2; the repository passes.
+// an unreadable file is exit 2; a step that runs make is exit 1; the
+// repository passes.
 func TestRunCopyMode(t *testing.T) {
 	wf, cp := repo(repoWorkflow), repo(repoCopy)
 	missing := filepath.Join(t.TempDir(), "nope.yml")
+	withMake, withMakeCopy := writeBoth(t, strings.Replace(readRepo(t, repoWorkflow), "run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...", "run: make vulncheck", 1))
 	cases := []struct {
 		name    string
 		args    []string
-		mk      makeRunner
 		code    int
 		wantErr string
 		wantOut string
 	}{
-		{"ok", []string{"-workflow", wf, "-copy", cp}, pinned, 0, "", "check-ci-steps: ok: " + wf + " equals " + cp + " and the vulncheck recipes are pinned\n"},
-		{"copy with required", []string{"-workflow", wf, "-copy", cp, "-required", "tools/ci/cisteps/required.yaml"}, pinned, 2, "-copy needs -workflow and excludes -required", ""},
-		{"copy without workflow", []string{"-copy", cp}, pinned, 2, "-copy needs -workflow and excludes -required", ""},
-		{"empty copy", []string{"-workflow", wf, "-copy", ""}, pinned, 2, "-copy needs -workflow", ""},
-		{"copy unreadable", []string{"-workflow", wf, "-copy", missing}, pinned, 2, "check-ci-steps: open " + missing, ""},
-		{"workflow unreadable", []string{"-workflow", missing, "-copy", cp}, pinned, 2, "check-ci-steps: open " + missing, ""},
-		{"make fails", []string{"-workflow", wf, "-copy", cp}, func(...string) ([]byte, error) {
-			return []byte("make: *** missing separator.  Stop."), errors.New("exit status 2")
-		}, 2, "make -pn (baseline): exit status 2: make: *** missing separator", ""},
-		{"make -pn of a target fails", []string{"-workflow", wf, "-copy", cp}, func(args ...string) ([]byte, error) {
-			if slices.Contains(args, "-pn") && !slices.Contains(args, "-f") {
-				return []byte("make: *** No rule to make target 'vulncheck'.  Stop."), errors.New("exit status 2")
-			}
-			return pinned(args...)
-		}, 2, "make -pn vulncheck: exit status 2: make: *** No rule", ""},
-		{"recipe edited", []string{"-workflow", wf, "-copy", cp}, recipesWith("vulncheck", "GOWORK=off govulncheck ./... || true"), 1, "edit " + wf + " and " + cp + " together", ""},
+		{"ok", []string{"-workflow", wf, "-copy", cp}, 0, "", "check-ci-steps: ok: " + wf + " equals " + cp + " and runs no make\n"},
+		{"copy with required", []string{"-workflow", wf, "-copy", cp, "-required", "tools/ci/cisteps/required.yaml"}, 2, "-copy needs -workflow and excludes -required", ""},
+		{"copy without workflow", []string{"-copy", cp}, 2, "-copy needs -workflow and excludes -required", ""},
+		{"empty copy", []string{"-workflow", wf, "-copy", ""}, 2, "-copy needs -workflow", ""},
+		{"copy unreadable", []string{"-workflow", wf, "-copy", missing}, 2, "check-ci-steps: open " + missing, ""},
+		{"workflow unreadable", []string{"-workflow", missing, "-copy", cp}, 2, "check-ci-steps: open " + missing, ""},
+		{"runs make", []string{"-workflow", withMake, "-copy", withMakeCopy}, 1, "edit " + withMake + " and " + withMakeCopy + " together, or not at all, and run no make in it", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := runWith(c.args, &stdout, &stderr, repo(""), c.mk); code != c.code {
+			if code := run(c.args, &stdout, &stderr); code != c.code {
 				t.Fatalf("exit %d, want %d; stderr %q", code, c.code, stderr.String())
 			}
 			if stdout.String() != c.wantOut {
