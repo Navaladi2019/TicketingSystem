@@ -286,8 +286,8 @@ func s21FieldID(ctx context.Context, e *etIso, tenant, key string) (string, erro
 }
 
 // s21Cleanup deletes what the rows write past etIso.cleanup: the side rows,
-// backfill outbox rows and registry rows of every iso_et_* type. Triggers are
-// off, as in s10Cleanup.
+// field-index outbox rows (backfill and remove) and registry rows of every
+// iso_et_* type. Triggers are off, as in s10Cleanup.
 func s21Cleanup(ctx context.Context, e *etIso) error {
 	tx, err := e.super.Begin(ctx)
 	if err != nil {
@@ -301,7 +301,7 @@ func s21Cleanup(ctx context.Context, e *etIso) error {
 		stmts = append(stmts, `DELETE FROM `+t+` v WHERE (v.tenant_id, v.field_id) IN (`+iso+`)`)
 	}
 	stmts = append(stmts,
-		`DELETE FROM outbox WHERE kind = '`+outbox.FieldIndexBackfillKind+`' AND (payload->>'field_id')::uuid IN (SELECT id FROM (`+iso+`) i)`,
+		`DELETE FROM outbox WHERE kind IN ('`+outbox.FieldIndexBackfillKind+`', '`+outbox.FieldIndexRemoveKind+`') AND (payload->>'field_id')::uuid IN (SELECT id FROM (`+iso+`) i)`,
 		`DELETE FROM record_index_fields WHERE (tenant_id, id) IN (`+iso+`)`)
 	for _, q := range stmts {
 		if _, err := tx.Exec(ctx, q); err != nil {

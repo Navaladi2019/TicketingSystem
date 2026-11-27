@@ -5,7 +5,7 @@ status: delivered
 tables: [records, record_write_keys]
 adrs: [ADR-001, ADR-004, ADR-010]
 stories: [S31, S21, S29]
-tests: [TestListFilterOnADefaultFindsUnrewrittenRecordsWhilePending, TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape, TestListFilterOnADefaultAfterDoneAndWithFailedRecords, TestListFilterWindowIsPerTenantAndRefusesABadValue, TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords]
+tests: [TestListFilterOnADefaultFindsUnrewrittenRecordsWhilePending, TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape, TestListFilterOnADefaultAfterDoneAndWithFailedRecords, TestListFilterWindowIsPerTenantAndRefusesABadValue, TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords, TestListFilterWindowDoesNotReturnAStoredNullOrANonCoercibleValue]
 sources: [internal/server/records_list_backfill.go, docs/data/org-units.md, docs/data/org-unit-closure.md, docs/data/records-list-indexes.md, docs/data/records-list-bench.md, docs/data/record-write-keys-per-principal.md]
 ---
 
@@ -80,9 +80,11 @@ newest job defaults also returns the records that still lack the field
 (ADR-009 D12, S29, TICK-1192). The window is open from the publish until the
 type's newest `schema_backfills` row (highest `target_version`) is `done`, and
 it applies only when the filter is true for the default (the test runs inline
-in SQL through `record_field_coerce`). "Lacks the field" means no side-table
-row for it, so a stored value that does not coerce also counts as absent while
-the window is open.
+in SQL through `record_field_coerce`). "Lacks the field" means the key is
+not in the stored JSON (`NOT (r.data ? key)`, the test the queue fill and
+`ApplyDefaults` use), so a stored `null` or a value that does not coerce is
+not absent: it has the key, the default does not stand in for it, and the list
+agrees with GET (TICK-1200).
 
 | Newest job | Shape |
 |---|---|
@@ -102,5 +104,6 @@ request filters on a side-table field (`resolveWindow`,
 `TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape`,
 `TestListFilterOnADefaultAfterDoneAndWithFailedRecords`,
 `TestListFilterWindowIsPerTenantAndRefusesABadValue`,
-`TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords`. S29 attack
+`TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords`,
+`TestListFilterWindowDoesNotReturnAStoredNullOrANonCoercibleValue`. S29 attack
 row 3 checks both shapes across tenants and the ACL in the `UNION ALL` arm.

@@ -524,9 +524,11 @@ newest job defaults also returns the records that still lack the field
 (ADR-009 D12, S29, TICK-1192). The window is open from the publish until the
 type's newest <code>schema_backfills</code> row (highest <code>target_version</code>) is <code>done</code>, and
 it applies only when the filter is true for the default (the test runs inline
-in SQL through <code>record_field_coerce</code>). "Lacks the field" means no side-table
-row for it, so a stored value that does not coerce also counts as absent while
-the window is open.</p>
+in SQL through <code>record_field_coerce</code>). "Lacks the field" means the key is
+not in the stored JSON (<code>NOT (r.data ? key)</code>, the test the queue fill and
+<code>ApplyDefaults</code> use), so a stored <code>null</code> or a value that does not coerce is
+not absent: it has the key, the default does not stand in for it, and the list
+agrees with GET (TICK-1200).</p>
 <table>
 <thead>
 <tr>
@@ -566,7 +568,8 @@ request filters on a side-table field (<code>resolveWindow</code>,
 <code>TestListFilterOnADefaultIsTheSameInTheORShapeAndTheUnionShape</code>,
 <code>TestListFilterOnADefaultAfterDoneAndWithFailedRecords</code>,
 <code>TestListFilterWindowIsPerTenantAndRefusesABadValue</code>,
-<code>TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords</code>. S29 attack
+<code>TestListFilterUnionShapePlanReadsTheQueueAndNoSeqScanOnRecords</code>,
+<code>TestListFilterWindowDoesNotReturnAStoredNullOrANonCoercibleValue</code>. S29 attack
 row 3 checks both shapes across tenants and the ACL in the <code>UNION ALL</code> arm.</p>
 </article>
 <nav class="pager" aria-label="Previous and next page"><a class="prev" href="../database/entity-definitions.html">&larr; Entity definitions</a><a class="next" href="../database/org-units.html">Org units, membership and the closure &rarr;</a></nav>

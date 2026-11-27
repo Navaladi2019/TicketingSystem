@@ -44,6 +44,13 @@ state. They hold ids, counts and codes, never a record's values.
   and moves on.
 - `(tenant_id, record_id)` indexes on the queue and the failures serve the
   ADR-009 D12 filter shape, which joins records to them while a job is open.
+- **"Lacks the field" in a D12 filter means the key is not in the stored
+  JSON** (`NOT (r.data ? key)`), the same test the queue fill and
+  `ApplyDefaults` use. A record that stores an explicit `null`, or a value that
+  does not coerce to the field's type, **has** the key: inside the window a
+  filter that only the default satisfies does not return it, and its GET shows
+  that stored value, not the default. The key comes from the compiled schema,
+  never from the request (TICK-1200).
 - **One active job per tenant (D7).** The partial unique index
   `schema_backfills_one_active_per_tenant ON (tenant_id) WHERE state IN
   ('filling', 'running')` is the admission rule. A second job of the same

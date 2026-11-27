@@ -10,9 +10,9 @@ import (
 	"go/token"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,10 +41,10 @@ import (
 // The rows were written from the contracts on 2026-11-26 (day 1 of the S22
 // and S29 consolidation). A row whose code has not landed names its task in
 // Pending; the PR that lands that task removes the Pending field (or the
-// TICK-753 follow-up does), and the row must then pass. A row with no
-// test body yet fails loudly if Pending is removed before the body is
-// written (s22s29NotWritten). The broken variants each row was shown red
-// against are listed in docs/reviews/tick-753-s22-s29-isolation-attacks.md.
+// TICK-753 follow-up does), and the row must then pass. TICK-1198 wrote
+// rows 1b and 2b and removed the last Pending (1b, 2b, 4). The broken
+// variants each row was shown red against are listed in
+// docs/reviews/tick-753-s22-s29-isolation-attacks.md.
 //
 // The Temporal halves (schema.backfill start-only, field_index.remove.run
 // child-only) are temporal-server/authz/adversarial_s22_s29_test.go.
@@ -57,16 +57,16 @@ func s22s29AttackPaths() []Path {
 	return []Path{
 		s21("CI-2", "1: removal's statements (flip, batched delete, NOT EXISTS, registry delete), run as nava_app and nava_worker in tenant A with tenant B's field id, reach no row; a publish dropping a flag on tenant B's key is the unknown key's 404", s22RemoveAcrossTenants),
 		{Name: "S22 attack 1b: a field_index.remove outbox row of tenant A naming tenant B's field id starts a removal that deletes nothing of tenant B and leaves its registry row", Case: "CI-2", Role: "nava_worker",
-			Pending: "TICK-750", DB: s22s29NotWritten("1b drives TICK-750's FieldIndexRemove through the coordinator, as row 3b drives FieldIndexBackfill")},
+			DB: s22RemoveRow(func(a s22Remover) s22Fn { return a.S22Remove1b })},
 		s21("CI-2", "2: a field in removing takes no new side row from any records writer (every manifest role with INSERT or UPDATE on records), so the removal's NOT EXISTS holds and the registry delete passes the FK; tenant B's removal does not stop tenant A's indexing", s22RemovingTakesNoWrites),
 		{Name: "S22 attack 2b: R3 race, writers of every records-writer role across the flip and the batched deletes of a real FieldIndexRemove leave 0 side rows and no registry row; with the barrier disabled the row can fail", Case: "CI-5", Role: "nava_worker",
-			Pending: "TICK-750", DB: s22s29NotWritten("2b needs TICK-750's FieldIndexRemove and its barrier test seam")},
+			DB: s22RemoveRow(func(a s22Remover) s22Fn { return a.S22Race2b })},
 		{Name: "S22 attack 3: tenant_limits, no tenant role writes its own or another tenant's row; a tenant role reads its own row only, and nothing with no tenant set; only the manifest's operator role writes, and not across tenants", Case: "CI-2", Role: "nava_app",
 			DB: s22TenantLimits},
 		{Name: "S22 attack 3b: tenant A's admin on the operator limits route, for tenant A or tenant B, is 403 and writes nothing; the operator's change of tenant B's limit, with tenant A named in the body, writes tenant B's row and one tenant B audit entry naming the operator, and nothing of tenant A", Case: "CI-2", Role: "nava_onboard",
 			API: s22OperatorLimits},
 		{Name: "S22 attack 4: with the legacy scan retired, no non-test Go code outside the allow-list evaluates a JSONB operator on records.data for a filter, and DataFilterTimeout and LegacyScanFields are gone", Case: "CI-2", Role: "nava_app",
-			Pending: "TICK-752", Check: s22NoJSONBFilter},
+			Check: s22NoJSONBFilter},
 		{Name: "S29 attack 1: the three backfill tables, as nava_app and nava_worker in tenant A, show no tenant B row, refuse a tenant B insert, and nava_app writes nothing; with no tenant set each reads zero rows; failures has no value column; tenant B's active job does not hold tenant A's admission (CI-3 (5), (6))", Case: "CI-2", Role: "nava_app",
 			DB: s29Tables},
 		{Name: "S29 attack 2: getEntityType, .../backfill/failures and a default-adding publish on tenant B's key are the unknown key's 404 for tenant A and write nothing; a plain user's failures read is the same 404; tenant A's backfill and failures show tenant A's job only under a shared key; the publish's job and outbox rows are tenant A's, with no tenant in the payload (CI-3 (7))", Case: "CI-2", Role: "nava_app",
@@ -107,6 +107,29 @@ func s29AttackRow(pick func(s29Attacker) s29Fn) func(context.Context, Cluster) e
 	}
 }
 
+// s22Fn is the body of an S22 row that drives FieldIndexRemove.
+type s22Fn = func(context.Context, *etIso, *s21Fixture) error
+
+// s22Remover is the suite's Cluster when it can run rows S22 1b and 2b: they
+// drive the real coordinator and FieldIndexRemove on the Temporal SDK test
+// environment, so the bodies live in s22_remove_isolation_test.go
+// (integration tag), as row 3b's do (TICK-1198).
+type s22Remover interface {
+	S22Remove1b(context.Context, *etIso, *s21Fixture) error
+	S22Race2b(context.Context, *etIso, *s21Fixture) error
+}
+
+// s22RemoveRow runs the s22Remover method pick chooses on the S21 fixture.
+func s22RemoveRow(pick func(s22Remover) s22Fn) func(context.Context, Cluster) error {
+	return func(ctx context.Context, cl Cluster) error {
+		a, ok := cl.(s22Remover)
+		if !ok {
+			return errors.New("rows S22 1b and 2b are not linked: s22_remove_isolation_test.go builds only under the integration tag")
+		}
+		return withS21Fixture(ctx, cl, pick(a))
+	}
+}
+
 // s22Err is err for a message that may be built with a nil err, so it reads
 // "no error" and not %!w(<nil>).
 func s22Err(err error) error {
@@ -114,14 +137,6 @@ func s22Err(err error) error {
 		return errors.New("no error")
 	}
 	return err
-}
-
-// s22s29NotWritten is the body of a row whose test needs Go code that has
-// not landed: removing Pending without writing the row fails it.
-func s22s29NotWritten(what string) func(context.Context, Cluster) error {
-	return func(context.Context, Cluster) error {
-		return errors.New("row not written yet: " + what + " (TICK-753)")
-	}
 }
 
 // withS21Fixture runs fn on the S21 fixture (s21Setup: iso_et_s21 in both
@@ -657,13 +672,26 @@ func s22JSONBAllowed(rel string) bool {
 	return false
 }
 
-// s22RepoRoot is the module root, from this file's path.
+// s22RepoRoot is the module root: the nearest directory at or above the
+// working directory (go test runs in the package's) whose go.mod declares
+// this module. Not runtime.Caller: under -trimpath (make test, TICK-1198)
+// that gives the import path, not a directory.
 func s22RepoRoot() (string, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", errors.New("no caller path")
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..", ".."), nil
+	for {
+		if raw, err := fs.ReadFile(os.DirFS(dir), "go.mod"); err == nil &&
+			strings.TrimSpace(strings.SplitN(string(raw), "\n", 2)[0]) == "module github.com/Navaladi2019/TicketingSystem" {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("no go.mod of github.com/Navaladi2019/TicketingSystem at or above the working directory")
+		}
+		dir = parent
+	}
 }
 
 // Row 4. ADR-006 D6 (TICK-752): the legacy scan is gone, so a data filter can
@@ -678,7 +706,6 @@ func s22NoJSONBFilter(context.Context) error {
 	if err != nil {
 		return err
 	}
-	retired := []string{"DataFilterTimeout", "WithDataFilterTimeout", "LegacyScanFields"}
 	var problems []string
 	sawList := false
 	for _, top := range []string{"internal", "cmd"} {
@@ -700,31 +727,15 @@ func s22NoJSONBFilter(context.Context) error {
 			if rel == "internal/server/records_list.go" {
 				sawList = true
 			}
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+			src, err := os.ReadFile(p) //nolint:gosec // p comes from the repo walk above
 			if err != nil {
 				return err
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.BasicLit:
-					if x.Kind != token.STRING || s22JSONBAllowed(rel) {
-						return true
-					}
-					s, err := strconv.Unquote(x.Value)
-					if err != nil {
-						s = x.Value
-					}
-					if m := s22JSONBOnData.FindString(s); m != "" {
-						problems = append(problems, fmt.Sprintf("%s: %q applies a JSONB operator to data", fset.Position(x.Pos()), m))
-					}
-				case *ast.Ident:
-					if slices.Contains(retired, x.Name) {
-						problems = append(problems, fmt.Sprintf("%s: %s is retired (ADR-006 D6)", fset.Position(x.Pos()), x.Name))
-					}
-				}
-				return true
-			})
+			ps, err := s22ScanSource(rel, p, src)
+			if err != nil {
+				return err
+			}
+			problems = append(problems, ps...)
 			return nil
 		})
 		if err != nil {
@@ -738,6 +749,61 @@ func s22NoJSONBFilter(context.Context) error {
 		return fmt.Errorf("the legacy JSONB filter path is still there (%d sites):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 	return nil
+}
+
+// s22AbsentSite is the one allowlisted JSONB read of records.data outside
+// s22JSONBAllowed (ADR-009 D12, TICK-1200): the window's "absent" term, in
+// this function of this file, with exactly this fragment. Any other operator in
+// the function, or this fragment anywhere else, is a finding.
+const (
+	s22AbsentFile     = "internal/server/records_list_index.go"
+	s22AbsentFunc     = "fieldAbsent"
+	s22AbsentFragment = "NOT (r.data ? "
+)
+
+// s22ScanSource returns the findings of one non-test Go file: string literals
+// applying a JSONB operator to data outside the allow-list, and retired names.
+func s22ScanSource(rel, name string, src []byte) ([]string, error) {
+	retired := []string{"DataFilterTimeout", "WithDataFilterTimeout", "LegacyScanFields"}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	var walk func(n ast.Node, fn string)
+	walk = func(root ast.Node, fn string) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.FuncDecl:
+				if x != root && x.Body != nil {
+					walk(x.Body, x.Name.Name)
+					return false
+				}
+			case *ast.BasicLit:
+				if x.Kind != token.STRING || s22JSONBAllowed(rel) {
+					return true
+				}
+				s, err := strconv.Unquote(x.Value)
+				if err != nil {
+					s = x.Value
+				}
+				if rel == s22AbsentFile && fn == s22AbsentFunc {
+					s = strings.Replace(s, s22AbsentFragment, "", 1)
+				}
+				if m := s22JSONBOnData.FindString(s); m != "" {
+					problems = append(problems, fmt.Sprintf("%s: %q applies a JSONB operator to data", fset.Position(x.Pos()), m))
+				}
+			case *ast.Ident:
+				if slices.Contains(retired, x.Name) {
+					problems = append(problems, fmt.Sprintf("%s: %s is retired (ADR-006 D6)", fset.Position(x.Pos()), x.Name))
+				}
+			}
+			return true
+		})
+	}
+	walk(f, "")
+	return problems, nil
 }
 
 // s29TableNames are ADR-009's three tables (contract C1).

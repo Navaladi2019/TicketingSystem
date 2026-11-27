@@ -25,3 +25,31 @@ func TestS22JSONBOnDataForms(t *testing.T) {
 		}
 	}
 }
+
+// TestS22AbsentSiteAllowlist: the window's absent term is allowed in
+// fieldAbsent of records_list_index.go and nowhere else; any other JSONB
+// operator on data in that function stays red.
+func TestS22AbsentSiteAllowlist(t *testing.T) {
+	src := func(fn, lit string) string {
+		return "package p\nfunc " + fn + "() string { return `" + lit + "` }\n"
+	}
+	const frag = "NOT (r.data ? $1::text)"
+	for _, c := range []struct {
+		name, rel, src string
+		want           int
+	}{
+		{"allowed site", s22AbsentFile, src("fieldAbsent", frag), 0},
+		{"same fragment, other function", s22AbsentFile, src("other", frag), 1},
+		{"same fragment, other file", "internal/server/records_list.go", src("fieldAbsent", frag), 1},
+		{"other operator in the allowed function", s22AbsentFile, src("fieldAbsent", "r.data @> $1"), 1},
+		{"second operator beside the fragment", s22AbsentFile, src("fieldAbsent", frag+" AND r.data ->> 'a' = 'b'"), 1},
+	} {
+		got, err := s22ScanSource(c.rel, c.rel, []byte(c.src))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if len(got) != c.want {
+			t.Errorf("%s: %d findings %v, want %d", c.name, len(got), got, c.want)
+		}
+	}
+}
