@@ -23,6 +23,9 @@
 #                    ci-isolated --down tag check and the integration cleanup
 #                    check (TICK-652); its own job since TICK-1003, in
 #                    parallel with integration, which it overran at 15 min
+#   isolation-not-needed  the isolation check, without the suite, for a
+#                    pull request whose diff is docs-only and that runs no
+#                    isolation suite (TICK-1193)
 #   commit-check-budget  TestCommitCheckBudget alone on its own runner
 #                    (ADR-004-E3 budget rows, TICK-509)
 #   stack            one image build (make image-ci, once per run; thin images
@@ -251,6 +254,10 @@ jobs:
       # branch rule, so #801 and #805 merged with isolation skipped.
       # check-ci-steps (tools/ci/cisteps/required.yaml) pins this wiring.
       full: ${{ steps.stages.outputs.full }}
+      # true when the diff alone needs lint and nothing else (TICK-1193):
+      # gates isolation-not-needed. From the head commit's diff only, never
+      # the labels, so every run of one head agrees. check-ci-steps pins it.
+      docs_only: ${{ steps.stages.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -696,6 +703,30 @@ jobs:
           name: isolation-report
           path: isolation-report.md
           if-no-files-found: error
+
+  isolation-not-needed:
+    # TICK-1193: the required check isolation for a pull request whose diff
+    # is docs-only (make ci-stages docs_only=true: .md and .html outside a Go
+    # package, the handbook) and that runs no isolation suite (no ci:run or
+    # ci:full, not into a story branch). Without it such a pull request into
+    # main never reported isolation and could not merge without a labelled
+    # run (PR 954). The same computed name as isolation (TICK-1146): a skipped
+    # run reports no isolation. docs_only depends on the head commit alone,
+    # so no later run of a code change's head can run this job and turn its
+    # red isolation green; on a docs-only head it can, which tests nothing
+    # the diff touched (AR-TICK-1193-01). Never runs beside isolation: its if:
+    # is the negation of isolation's on a pull request.
+    name: ${{ github.event_name && 'isolation' || 'isolation' }}
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs_only == 'true' && needs.changes.outputs.full != 'true' && !contains(github.event.pull_request.labels.*.name, 'ci:run') && !contains(github.event.pull_request.labels.*.name, 'ci:full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docs-only diff, isolation suite not needed
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: make isolation-not-needed DOCS_ONLY="$DOCS_ONLY"
 
   commit-check-budget:
     # ADR-004-E3's commit-check budget rows (D-E3-4, TICK-509):
