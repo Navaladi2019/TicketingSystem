@@ -54,15 +54,18 @@ git update-ref refs/remotes/origin/main HEAD
 
 # run <name> <event> <base> <expect: pass|fail> <property>...: the PR
 # branch, cut from the old base, sets the Item properties; HEAD is its merge
-# into the old base, as actions/checkout gives a pull_request run.
+# into the old base, as actions/checkout gives a pull_request run. With
+# head=tip HEAD is the PR branch tip itself (a checkout with ref: head.sha).
 run() {
 	name=$1 event=$2 base=$3 want=$4
 	shift 4
 	git checkout -q -B "pr-$name" "$old"
 	spec api/openapi.bundled.yaml "$@"
 	git commit -qam "pr $name" --allow-empty
-	git checkout -q --detach "$old"
-	git merge -q --no-ff --no-edit "pr-$name"
+	if [ "${head:-merge}" = merge ]; then
+		git checkout -q --detach "$old"
+		git merge -q --no-ff --no-edit "pr-$name"
+	fi
 	if GITHUB_EVENT_NAME=$event sh scripts/ci/check-openapi.sh "$base" >"$tmp/$name.log" 2>&1; then got=pass; else got=fail; fi
 	check "$name: $want" '[ "$got" = "$want" ] || { sed "s/^/      /" "$tmp/$name.log" >&2; false; }'
 }
@@ -72,6 +75,10 @@ run pr-removes pull_request origin/main fail other
 # A push to main compares against the base it is given (github.event.before).
 run push-removes push origin/main fail id
 run push-same push "$old" pass id
+# HEAD is the PR tip, not a merge, and origin/main is ahead: the base is the
+# merge-base with origin/main, the commit the PR is built on (TICK-1179 round 1).
+head=tip run pr-tip-unrelated pull_request origin/main pass id other
+head=tip run pr-tip-removes pull_request origin/main fail other
 
 cd "$root"
 [ "$fail" -eq 0 ] && echo "test-check-openapi-base: ok"
