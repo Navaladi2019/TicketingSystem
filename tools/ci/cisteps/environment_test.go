@@ -31,6 +31,10 @@ type makefileCase struct {
 	want string
 }
 
+// envOnly ends the name of a case that only the environment dump catches:
+// it is skipped where !envCaptured().
+const envOnly = " (env)"
+
 // fileMarker starts another file of a makefileCase's mk: the text before the
 // first marker is the Makefile; each marker is followed by a file name, a
 // newline and that file's text.
@@ -59,7 +63,7 @@ func checkMakefile(t *testing.T, mk string) []string {
 			t.Fatal(err)
 		}
 	}
-	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), dir, makeIn(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +81,9 @@ func runMakefileCases(t *testing.T, cases []makefileCase) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
+			if strings.HasSuffix(c.name, envOnly) && !envCaptured() {
+				t.Skip("only the environment of the recipe shows this edit; make on Windows does not run every line through SHELL (envdump.go)")
+			}
 			if c.mk == pinnedMakefile {
 				t.Fatal("the edit changed nothing")
 			}
@@ -113,8 +120,8 @@ func TestCopyCatchesEnvironmentEditsWithMake(t *testing.T) {
 		{"GOOS assigned, not exported", "GOOS := plan9\n" + pinnedMakefile, `make assigns GOOS`},
 		{"export GOPROXY", "export GOPROXY := https://proxy.example\n" + pinnedMakefile, `GOPROXY`},
 		{"PATH assigned", "PATH := /tmp/fake\n" + pinnedMakefile, `PATH`},
-		{"export HOME", "export HOME := /tmp/fake\n" + pinnedMakefile, `recipes get HOME`},
-		{"export of another name", "export CGO_ENABLED := 0\n" + pinnedMakefile, `recipes get CGO_ENABLED`},
+		{"export HOME" + envOnly, "export HOME := /tmp/fake\n" + pinnedMakefile, `recipes get HOME`},
+		{"export of another name" + envOnly, "export CGO_ENABLED := 0\n" + pinnedMakefile, `recipes get CGO_ENABLED`},
 		{".EXPORT_ALL_VARIABLES", ".EXPORT_ALL_VARIABLES:\n" + pinnedMakefile, `.EXPORT_ALL_VARIABLES`},
 		{"GNUMAKEFLAGS -i", "GNUMAKEFLAGS := -i\n" + pinnedMakefile, "make sets MAKEFLAGS to"},
 		{"pattern-specific export GOFLAGS", "vuln%: export GOFLAGS := -tags=nothing\n" + pinnedMakefile, "pattern-specific variable"},

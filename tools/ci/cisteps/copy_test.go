@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,42 +24,46 @@ func pinned(args ...string) ([]byte, error) {
 	return recipesWith("", "")(args...)
 }
 
-// recipesWith is a make runner whose `make -n` prints the pinned recipes,
-// target's replaced by recipe, and whose database (`make -pn`) holds the
-// pinned rules and make's defaults: the dry run alone is wrong.
+// recipesWith is a make runner whose `make -pn <goal>` dry run prints the
+// pinned recipes, target's replaced by recipe, then a database that holds the
+// pinned rules and make's defaults: the dry run alone is wrong. Through the
+// environment dump (SHELL=) it reports one shell call of the pinned line.
 func recipesWith(target, recipe string) makeRunner {
 	return func(args ...string) ([]byte, error) {
-		const globals = "# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n\n"
-		if slices.Contains(args, "-pn") {
-			if slices.Contains(args, "-f") {
-				return []byte(globals), nil
-			}
-			db := globals
-			for _, r := range append(pinnedRecipes(), envRule()) {
-				db += r.target + ":\n#  recipe to execute (from 'make/lint.mk', line 1):\n\t" + r.recipe + "\n\n"
-			}
-			return []byte(db), nil
-		}
-		t := args[len(args)-1]
-		if t == envGoal {
-			return []byte("PATH=/usr/bin\nHOME=/home/ci\n"), nil
-		}
-		if t == target {
-			return []byte(recipe + "\n"), nil
-		}
-		for _, r := range pinnedRecipes() {
-			if r.target == t {
-				return []byte(r.dryRun() + "\n"), nil
+		const globals = "# GNU Make 4.4.1\n# default\nMAKEFLAGS = np\n# default\n.SHELLFLAGS := -c\n# makefile\nSHELL = /bin/sh\n\n"
+		goal := args[len(args)-1]
+		var r *pinnedRecipe
+		for _, p := range pinnedRecipes() {
+			if p.target == goal {
+				r = &p
 			}
 		}
-		return nil, errors.New("no such target")
+		if r == nil {
+			return nil, errors.New("no such target")
+		}
+		if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "SHELL=") }) {
+			b, err := json.Marshal(envRecord{Args: []string{"-c", r.dryRun()}, Env: []string{"PATH=/usr/bin", "HOME=/home/ci"}})
+			return []byte(envDumpPrefix + string(b) + "\n"), err
+		}
+		if slices.Contains(args, "-f") {
+			return []byte(globals), nil
+		}
+		dry := r.dryRun() + "\n"
+		if goal == target {
+			dry = recipe + "\n"
+		}
+		db := globals
+		for _, p := range pinnedRecipes() {
+			db += p.target + ":\n#  recipe to execute (from 'make/lint.mk', line 1):\n\t" + p.recipe + "\n\n"
+		}
+		return []byte(dry + db), nil
 	}
 }
 
 // AC 1 (TICK-1149): the committed workflow, its copy and the real make
 // recipes pass the -copy check. TestRepository covers ci.yml only.
 func TestRepositoryGovulncheckCopy(t *testing.T) {
-	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(repo("")))
+	problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), repo(""), makeIn(repo("")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +209,7 @@ func TestCopyCatchesWorkflowEdits(t *testing.T) {
 			}
 			p := writeTemp(t, edited)
 			var stdout, stderr bytes.Buffer
-			if code := runWith([]string{"-workflow", p, "-copy", cp}, &stdout, &stderr, pinned); code != 1 {
+			if code := runWith([]string{"-workflow", p, "-copy", cp}, &stdout, &stderr, repo(""), pinned); code != 1 {
 				t.Fatalf("exit %d, want 1; stderr %q", code, stderr.String())
 			}
 			if !strings.Contains(stderr.String(), "differs from") || !strings.Contains(stderr.String(), "workflow line") && !strings.Contains(stderr.String(), "workflow ends") {
@@ -236,7 +241,7 @@ func TestCopyCatchesRecipeEdits(t *testing.T) {
 		}
 		for name, recipe := range cases {
 			t.Run(r.target+"/"+name, func(t *testing.T) {
-				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), recipesWith(r.target, recipe))
+				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), repo(""), recipesWith(r.target, recipe))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -314,7 +319,7 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 	}
 	t.Run("pinned", func(t *testing.T) {
 		dir := write(t, "", nil)
-		problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+		problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), dir, makeIn(dir))
 		if err != nil || len(problems) > 0 {
 			t.Fatalf("err %v, problems %q; want none", err, problems)
 		}
@@ -324,7 +329,7 @@ func TestCopyCatchesRecipeEditsWithMake(t *testing.T) {
 			t.Run(r.target+"/"+c.name, func(t *testing.T) {
 				t.Parallel()
 				dir := write(t, r.target, c.edit)
-				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), makeIn(dir))
+				problems, err := checkCopy(repo(repoWorkflow), repo(repoCopy), dir, makeIn(dir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -346,7 +351,7 @@ func TestCopyPassesTheSameEditOfBoth(t *testing.T) {
 	wf, cp := readRepo(t, repoWorkflow), readRepo(t, repoCopy)
 	for _, c := range v3Edits() {
 		t.Run(c.name, func(t *testing.T) {
-			problems, err := checkCopy(writeTemp(t, c.edit(t, wf)), writeTemp(t, c.edit(t, cp)), pinned)
+			problems, err := checkCopy(writeTemp(t, c.edit(t, wf)), writeTemp(t, c.edit(t, cp)), repo(""), pinned)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -374,7 +379,7 @@ func TestCopyIgnoresCommentLines(t *testing.T) {
 			if edited == wf {
 				t.Fatal("the edit changed nothing")
 			}
-			problems, err := checkCopy(writeTemp(t, edited), repo(repoCopy), pinned)
+			problems, err := checkCopy(writeTemp(t, edited), repo(repoCopy), repo(""), pinned)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -429,19 +434,19 @@ func TestRunCopyMode(t *testing.T) {
 		{"workflow unreadable", []string{"-workflow", missing, "-copy", cp}, pinned, 2, "check-ci-steps: open " + missing, ""},
 		{"make fails", []string{"-workflow", wf, "-copy", cp}, func(...string) ([]byte, error) {
 			return []byte("make: *** missing separator.  Stop."), errors.New("exit status 2")
-		}, 2, "make -pn: exit status 2: make: *** missing separator", ""},
-		{"dry run fails", []string{"-workflow", wf, "-copy", cp}, func(args ...string) ([]byte, error) {
-			if slices.Contains(args, "-n") {
+		}, 2, "make -pn (baseline): exit status 2: make: *** missing separator", ""},
+		{"make -pn of a target fails", []string{"-workflow", wf, "-copy", cp}, func(args ...string) ([]byte, error) {
+			if slices.Contains(args, "-pn") && !slices.Contains(args, "-f") {
 				return []byte("make: *** No rule to make target 'vulncheck'.  Stop."), errors.New("exit status 2")
 			}
 			return pinned(args...)
-		}, 2, "make -n vulncheck: exit status 2: make: *** No rule", ""},
+		}, 2, "make -pn vulncheck: exit status 2: make: *** No rule", ""},
 		{"recipe edited", []string{"-workflow", wf, "-copy", cp}, recipesWith("vulncheck", "GOWORK=off govulncheck ./... || true"), 1, "edit " + wf + " and " + cp + " together", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := runWith(c.args, &stdout, &stderr, c.mk); code != c.code {
+			if code := runWith(c.args, &stdout, &stderr, repo(""), c.mk); code != c.code {
 				t.Fatalf("exit %d, want %d; stderr %q", code, c.code, stderr.String())
 			}
 			if stdout.String() != c.wantOut {

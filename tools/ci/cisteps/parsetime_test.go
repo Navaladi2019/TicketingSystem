@@ -27,9 +27,21 @@ func TestCopyCatchesParseTimeCodeWithMake(t *testing.T) {
 	})
 }
 
-// $$( is the shell's command substitution in a recipe, not make's: it passes.
+// $$( is the shell's command substitution in a recipe, not make's, and make
+// expands no comment line: both pass.
 func TestParseTimeScanSkipsShellSubstitution(t *testing.T) {
-	if problems := checkMakefile(t, pinnedMakefile+"other:\n\techo $$(go env GOPATH) $$(shell)\n"); len(problems) > 0 {
+	if problems := checkMakefile(t, "# uses no $(shell or $(file\n"+pinnedMakefile+"other:\n\techo $$(go env GOPATH) $$(shell)\n"); len(problems) > 0 {
 		t.Fatalf("want none, got %q", problems)
+	}
+}
+
+// make expands a recipe line, # and all, when it runs the recipe.
+func TestParseTimeScanReadsRecipeComments(t *testing.T) {
+	problems, _, err := scanMakefile(".", "Makefile", []byte("other:\n\t# $(shell echo stub)\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 1 {
+		t.Fatalf("want one problem, got %q", problems)
 	}
 }
