@@ -4242,7 +4242,9 @@ const cells = [
   ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150, null],
   ['admin', 'admin_a_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150, null],
   ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350, null],
-  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL', 350, ['capped', 'unknown']],
+  // p95 recorded, not asserted (null): the 350 ms target moved to S21c
+  // (TICK-1159, owner-approved 2026-11-26); rows and total_state still gate.
+  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL, p95 recorded only (S21c)', null, ['capped', 'unknown']],
   ['Alice', 'alice_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150, null],
   ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null, null],
   ['Alice', 'alice_token', '', 'no filter (control, reported only)', null, null],
@@ -4254,7 +4256,7 @@ for (const [who, v, q, band, limit, allowed] of cells) {
   console.log(`S21.19 ${who} ${q || '(none)'}: p50 ${r.p50} p95 ${r.p95} max ${r.max} ms, ${r.n} requests (${r.rps}/s), ${JSON.stringify(r.statuses)}, total_state ${JSON.stringify(r.total_states)}, unknown ${r.unknown_share}%`);
 }
 bru.setVar('s21_p95', JSON.stringify(out));""",
-                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL and for the >= 40% band with one (Alice); 150 ms for every other filter. No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).",
+                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL; 150 ms for every other filter except the >= 40% band with a narrowing ACL (Alice `priority=3`), whose p95 is recorded, not asserted: its 350 ms target moved to S21c (TICK-1159, 2026-11-26). No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).",
                 tests="""N.status(200);
 const cells = JSON.parse(bru.getVar('s21_p95'));
 cells.forEach(c => {
