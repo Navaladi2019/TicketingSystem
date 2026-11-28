@@ -14,7 +14,7 @@ supersedes: "the metadata-engine compatibility-class row 'make a property requir
 
 **Status: ACCEPTED** on 2026-11-15 by the Solution Architect, after the comprehension Goldfish check (TICK-897). No human sign-off is needed under the merge policy set by vknavaladi. Round 1: Security, Postgres and the Technical Architect all returned `CHANGES`, and RFC rev 1 resolved every blocking item. Round 2: the Technical Architect and Security returned `APPROVE`. Postgres returned `CHANGES` on one line: the filter must not trust the remaining count before the job has filled its queue. It approves with that fix (D12, first bullet). The CTO ruled the RFC approved with that fix as written (comment `01a1df42-e46c`). Verdict on TICK-897, PR #711.
 
-> **Erratum E1 (PROPOSED 2026-11-28, TICK-915):** D13's refusal answers the registered code `invalid_definition` (with `errors[].pointer`), not `invalid_schema`, which was never registered. The same reading applies to the test-scenario row below and to RFC-021 D13 / CI-9. See [[ADR-009-E1-d13-invalid-definition]].
+> **Erratum E1 (ACCEPTED 2026-11-28, TICK-915):** D13's refusal answers the registered code `invalid_definition` (with `errors[].pointer`), not `invalid_schema`, which was never registered. The same reading applies to the test-scenario row below and to RFC-021 D13 / CI-9. See [[ADR-009-E1-d13-invalid-definition]].
 >
 > **Invariants source.** The project description, where a project-specific list of eight invariants would live, is empty. This ADR is therefore checked against the platform's nine invariants in [[ADR-001-platform-blueprint]] §1, I1–I9, which govern. If a separate project list is ever added, this check is incomplete against it.
 

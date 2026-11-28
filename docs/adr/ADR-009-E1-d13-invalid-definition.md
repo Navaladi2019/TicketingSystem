@@ -2,7 +2,8 @@
 type: adr-erratum
 id: ADR-009-E1
 title: "Erratum E1 to ADR-009: D13's refusal answers the registered code `invalid_definition`, not `invalid_schema`"
-status: PROPOSED
+status: ACCEPTED
+accepted: 2026-11-28
 date: 2026-11-28
 issue: TICK-915
 rfc: none (erratum from an acceptance-kit finding; decision thread under TICK-915 comment 01a21f59-6946-7ef9-a477-1ce40545bc7f)
@@ -14,7 +15,7 @@ deciders: Technical Lead (raised it, offered both rulings); QA (proposed fixing 
 
 # ADR-009 erratum E1: D13 answers `invalid_definition`
 
-> **Status: PROPOSED** (2026-11-28). Awaiting the Technical Architect critique; the Solution Architect gives the verdict after it.
+> **Status: ACCEPTED** (2026-11-28). Technical Architect critique (TICK-915 comment 01a21f5d-d4e1-7293-8dcb-edf5f75ed786): CHANGES on one HTML rendering fix, APPROVE once fixed, no second round. Fixed in this PR; verdict by the Solution Architect.
 >
 > **Invariants source.** The project description defines no invariants; checked against [[ADR-001-platform-blueprint]] §1, I1–I9, as ADR-009 is.
 
@@ -48,9 +49,13 @@ The code built by TICK-919 (PR #932, `metadata.CompileNew`) answers `invalid_def
 
 None beyond the text. Not a security or tenant risk, so no row in `docs/security/accepted-risks.md`. The response carries a pointer and a rule, never a field value (unchanged from D13).
 
+## Competitive Gate (ADR-008)
+
+**Result:** N/A. Corrects an error-code name in the text: no axis, limit, API shape, configuration surface or upgrade path changes. Parity: I1–I9 unchanged.
+
 ## Evidence
 
-- **Catalogue:** `api/errors.yaml` (`invalid_definition`, 422); `internal/platform/problem/problem.go:46`. `invalid_schema` appears nowhere outside ADR-009, RFC-021 and their handbook page.
+- **Catalogue:** `api/errors.yaml` (`invalid_definition`, 422); `internal/platform/problem/problem.go:46`. `invalid_schema` appears nowhere outside ADR-009, RFC-021, their handbook page and the S29 kit assertion in `S29-5.bru` (PR #918, until E1-3 lands); no code answers it.
 - **Code:** `metadata.CompileNew` (TICK-919, PR #932) adds a problem at `schema/properties/<name>/default`; unit test `internal/metadata/compile_test.go` (CI-10 comment).
 - **Fresh-stack run:** S29 kit, stack `nava-s22s29`, 2026-11-27, `docs/acceptance/S29/evidence/S29-5.json`: `422`, `code: invalid_definition`, `errors: [{pointer: /definition/schema/properties/s29_tier/default, rule: invalid}]`; S29.8 confirms the type is still at the prior version (nothing stored).
 
