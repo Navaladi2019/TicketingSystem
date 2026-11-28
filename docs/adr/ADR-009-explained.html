@@ -43,6 +43,7 @@
 <li><b>A background job writes the default into every old record</b>, using the same write path as a normal edit, so each change is checked and recorded in the audit log. It first makes a list of the records that need it. Then it updates them <b>one record at a time</b>, each in its own small database step, so a person editing a record never waits for more than one record's update. It covers one tenant and one record type, and pauses between groups of records.</li>
 <li><b>Until the job finishes, searches count the default as a match.</b> Results are correct from the moment the admin publishes, not hours later (one exception: sorting by that field, see the risks). Before the job has built its list, the search checks every record for the missing field. Once the list exists and only a few records are left, the search uses the list, so it stays fast.</li>
 <li><b>A field that must be unique cannot have a default.</b> A default would give every record the same value, and the second record would already be a duplicate.</li>
+<li><i>Erratum E1 (accepted 2026-11-28):</i> such a publish is refused with the error code <code>invalid_definition</code>, the one code the platform uses for every rejected record-type definition. See <a href="ADR-009-E1-explained.html">ADR-009-E1</a>.</li>
 </ol>
 We expect this to work because the normal edit path already fills in defaults on every edit. The job is just an edit with nothing changed, applied to every record that was never edited.</div>
 
