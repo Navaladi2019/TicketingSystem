@@ -43,21 +43,19 @@ check-guide:
 # tools/ci/cisteps/required.yaml (TICK-297): a suite or report upload removed,
 # disabled or allowed to fail.
 # ci.yml against required.yaml. govulncheck.yml must equal, comment lines
-# aside, its checked-in copy tools/ci/cisteps/govulncheck.copy.yml, and
-# `make -n` of the two vulncheck recipes and of tools-govulncheck must print
-# exactly the pinned lines (TICK-1149, ADR-001-E4 contract rule 9; TICK-1167):
-# edit the workflow and the copy together. Each target is read as the goal CI
-# runs it: no makefile may set PATH or a GO* variable, a target- or
-# pattern-specific variable of those targets, or an export other than those
-# tools/ci/cisteps/copy.go allows, and no makefile line may run code at parse
-# time ($(shell, $(file, $(eval, !=, load, include) outside the allow-list in
-# tools/ci/cisteps/parsetime.go (TICK-1167). A deliberate edit of both passes;
-# review catches that (RS3). An edit that acts only when make runs in a scan
-# job, not under this check ($(GITHUB_JOB), $(origin SHELL), n in MAKEFLAGS,
-# a rule that remakes a makefile), is not caught: AR-TICK-1167-01, TICK-1183.
+# aside, its checked-in copy tools/ci/cisteps/govulncheck.copy.yml (TICK-1149,
+# ADR-001-E4 contract rule 9): edit the workflow and the copy together. No
+# step of govulncheck.yml may run make: a run: line with make as a word fails
+# (ADR-001-A7 rule 9, TICK-1187), so no makefile can change what the scan
+# jobs scan, and this check reads no makefile. A deliberate edit of both
+# files that adds no make passes; review catches that (RS3).
+# Every uses: of every workflow and copy names its action by full commit SHA
+# with the version tag in a trailing comment (TICK-1194): a moved tag cannot
+# change what CI runs.
 check-ci-steps:
 	go run ./tools/ci/cisteps
 	go run ./tools/ci/cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml
+	go run ./tools/ci/cisteps -pins $(wildcard .github/workflows/*.yml .github/workflows/*.yaml) $(wildcard tools/ci/cisteps/*.copy.yml)
 
 # Additive-only rule for /api/v1: fails when api/openapi.yaml removes or
 # narrows anything the base branch (BASE, default origin/main) offers. A
@@ -77,9 +75,11 @@ tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION)
 	$(MAKE) --no-print-directory tools-govulncheck
 
-# govulncheck alone, for the scan jobs of the govulncheck workflow. The recipe
-# and the version it installs are pinned by check-ci-steps (TICK-1167): a
-# version bump edits Makefile, docs/pins.md and tools/ci/cisteps/copy.go.
+# govulncheck alone, installed for ci-lint (vulncheck-ci) and check-tools. A
+# version bump edits GOVULNCHECK_VERSION in Makefile, the govulncheck row of
+# docs/pins.md, both govulncheck@ lines of the govulncheck workflow and its
+# copy, and Taskfile.yml's vulncheck task; check-pins (V-6) fails on the first
+# three disagreeing (ADR-001-A7 A7.2).
 tools-govulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
@@ -110,11 +110,15 @@ check-taskfile:
 check-pins:
 	go run ./tools/ci/checkpins
 
+# Local use; the workflow runs the same command directly (ADR-001-A7), with
+# its other Go settings pinned in the step's env: (CI is the gate, R-A7-3).
+# Local targets need the installed Go to be at least the module's go line
+# (go1.27); go run otherwise picks govulncheck's own toolchain and fails to
+# load our packages.
 # GOWORK=off (ADR-001-E4 contract rule 7): a go.work beside the module would
-# change the scanned versions without changing go.mod or go.sum. The recipe is
-# pinned by check-ci-steps; change it there too.
+# change the scanned versions without changing go.mod or go.sum.
 vulncheck:
-	GOWORK=off govulncheck ./...
+	GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # ci-lint's govulncheck: both modules at once, each when its go.mod or go.sum
 # has not passed a scan today on this host (TICK-153 D2, ADR-001-A1 R7).
@@ -122,11 +126,15 @@ vulncheck:
 vulncheck-ci:
 	sh scripts/ci/vulncheck.sh
 
-# Run by the govulncheck workflow (job vulncheck-temporal-server, whose result
-# the pull request's vulncheck check reports) and by ci-lint (vulncheck-ci):
-# zero findings, with no exception or allowlist (ADR-001 A1 Decision 3).
+# Local use; the workflow runs the same command directly (ADR-001-A7, job
+# vulncheck-temporal-server, whose result the pull request's vulncheck check
+# reports). Zero findings, with no exception or allowlist (ADR-001 A1
+# Decision 3).
+# Local targets need the installed Go to be at least the module's go line
+# (go1.27); go run otherwise picks govulncheck's own toolchain and fails to
+# load our packages.
 vulncheck-temporal-server:
-	cd temporal-server && GOWORK=off govulncheck ./...
+	cd temporal-server && GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 
 # golangci-lint alone at the pinned version (docs/pins.md): check-tools, and

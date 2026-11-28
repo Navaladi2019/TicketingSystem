@@ -17,7 +17,10 @@
 //
 // It also enforces ADR-001-E4 rules 7 and 8 (samego.go): the Go version of
 // every FROM golang: in a tracked Dockerfile equals the toolchain of the
-// module it ships, and no go.work is tracked.
+// module it ships, and no go.work is tracked; and ADR-001-A7 (vulncheck.go):
+// one govulncheck version across docs/pins.md, Makefile and the govulncheck
+// workflow (V-6), and no tracked go.mod or vendor/ path that takes code out
+// of the scan (V-7).
 //
 // Usage: checkpins [-root dir] [-pins file] [-same-go=false]. It exits 1 and prints one line
 // per problem when anything is out of step.
@@ -48,7 +51,7 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	fl.SetOutput(stderr)
 	root := fl.String("root", ".", "repository root")
 	pinsFile := fl.String("pins", "docs/pins.md", "pins file, relative to -root unless absolute")
-	sameGo := fl.Bool("same-go", true, "also check ADR-001-E4 rules 7 and 8 (scanned Go is shipped Go; no tracked go.work); needs root to be a git work tree")
+	sameGo := fl.Bool("same-go", true, "also check ADR-001-E4 rules 7 and 8 and ADR-001-A7 V-6 and V-7 (scanned Go is shipped Go; one govulncheck version; no tracked go.work, nested go.mod or vendor/); needs root to be a git work tree")
 	if err := fl.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0 // as flag.ExitOnError does
@@ -68,6 +71,11 @@ func cli(args []string, stdout, stderr io.Writer) int {
 	if *sameGo {
 		ps, err := checkSameGo(*root)
 		if err != nil {
+			fmt.Fprintln(stderr, "check-pins:", err)
+			return 2
+		}
+		problems = append(problems, ps...)
+		if ps, err = checkVulnVersion(*root, pinsPath); err != nil {
 			fmt.Fprintln(stderr, "check-pins:", err)
 			return 2
 		}

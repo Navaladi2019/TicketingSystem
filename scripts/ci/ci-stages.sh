@@ -27,6 +27,14 @@
 # isolation job and full-suite's isolation exception, so a pull request into
 # a TICK-* story branch (CI_FULL=1 here, TICK-638) runs the isolation suite
 # with no label. One expression decides both, so they cannot drift apart.
+# And docs_only (TICK-1193): true when the diff against BASE alone needs
+# ci-lint and nothing else (cichanged's rules, no .github/workflows change),
+# whatever CI_LINT_ONLY, CI_FULL or the labels say; false with CI_ALL=1 or
+# without a merge base. It depends on the head commit only, never on the
+# run's trigger, so the isolation-not-needed job it gates reports the
+# required isolation check on every run of a docs-only head and on no run of
+# any other head: a later run cannot turn a code change's red isolation green
+# (TICK-1146).
 set -eu
 
 all="ci-lint ci-unit ci-integration ci-stack"
@@ -63,6 +71,7 @@ else
     else
         stages=$(go run ./tools/ci/cichanged -v -base "$base")
     fi
+    diffstages=$stages
 fi
 # The coverage job merges the unit and the integration profile (TICK-518), so
 # a change that runs unit tests runs the integration tests too: coverage then
@@ -114,6 +123,22 @@ else
 fi
 echo "ci-stages: stack images: $images" >&2
 
+docs_only=false
+if [ "${CI_ALL:-}" != 1 ]; then
+    if [ -z "${diffstages+set}" ]; then
+        if ! mb=$(git merge-base "$base" HEAD 2>/dev/null); then
+            diffstages=$all
+            echo "ci-stages: no merge base with $base, so not docs-only" >&2
+        elif [ -n "$(git diff --name-only --no-renames "$mb" -- .github/workflows)" ]; then
+            diffstages=$all
+        else
+            diffstages=$(go run ./tools/ci/cichanged -base "$base") || diffstages=$all
+        fi
+    fi
+    if [ "$diffstages" = ci-lint ]; then docs_only=true; fi
+fi
+echo "ci-stages: docs-only diff (isolation not needed): $docs_only" >&2
+
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
     for s in unit integration stack; do
         case " $stages " in
@@ -124,4 +149,5 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "areas=$areas" >>"$GITHUB_OUTPUT"
     echo "images=$images" >>"$GITHUB_OUTPUT"
     if [ "${CI_FULL:-}" = 1 ]; then echo full=true; else echo full=false; fi >>"$GITHUB_OUTPUT"
+    echo "docs_only=$docs_only" >>"$GITHUB_OUTPUT"
 fi
