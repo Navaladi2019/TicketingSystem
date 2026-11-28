@@ -82,6 +82,14 @@ if grep '^check|' "$EV/verify.txt" | grep -qv '|ok$' || ! grep -q '^check|' "$EV
 fi
 docker compose logs --no-log-prefix nava-worker 2>/dev/null | grep -iE 'schema.backfill|schema_backfill' | tail -n 200 > "$EV/worker-backfill-log.txt" || true
 
+# 5. The four TICK-920 stack checks (CI-4 wait bound, CI-11 worker kill,
+# concurrency 1 across two tenants, R9 history length), after verify.sql
+# because they start more jobs, one in tenant B. S29_EXTRAS=0 skips them.
+if [ "${S29_EXTRAS:-1}" != 0 ]; then
+  echo "s29: 5. TICK-920 stack checks: CI-4, CI-11, concurrency 1, R9 ($(stamp))"
+  node "$T/extras.mjs" "$EV" || FAILED="$FAILED extras"
+fi
+
 node docs/acceptance/S15/tools/evidence.mjs "$EV" || true
 { git rev-parse HEAD; git status --porcelain --untracked-files=no | sed 's/^/modified: /'; } > "$EV/build.txt"
 docker compose images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep '^nava/' | sort -u >> "$EV/build.txt" || true

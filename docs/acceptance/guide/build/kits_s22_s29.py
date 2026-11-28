@@ -484,10 +484,11 @@ test('s29_level is flagged with no default; s29_tier is optional with no default
 test('no backfill job before the publish', () => expect(b.backfill == null).to.eql(true));
 bru.setVar('s29_prev', String(b.version));
 bru.setVar('s29_def', JSON.stringify({ schema: b.schema, fixed_columns: b.fixed_columns, states: b.states }));"""),
-            publish("S29.5 AC4: a default on a field that is x-nava-unique: 422 invalid_schema", "unique-default",
+            publish("S29.5 AC4: a default on a field that is x-nava-unique: 422 invalid_definition", "unique-default",
                     "d.schema.properties.s29_tier['x-nava-unique'] = true;\nd.schema.properties.s29_tier.default = 'standard';",
-                    "ADR-009 D13: uniqueness checks stored values, so a unique field cannot have a default. Nothing is stored: S29.6 publishes on the same version.",
-                    """N.problem('invalid_schema', 422);"""),
+                    "ADR-009 D13 as amended by ADR-009-E1 (PR #992): uniqueness checks stored values, so a unique field cannot have a default. The refusal is the code this endpoint uses for every compile refusal, 422 `invalid_definition`, with `errors[]` at the property's `default`. Nothing is stored: S29.8 reads the same version.",
+                    """N.problem('invalid_definition', 422);
+N.fieldError('/definition/schema/properties/s29_tier/default');"""),
             publish("S29.6 AC5: s29_tier made required without a default: 422 schema_breaking_change", "required-no-default",
                     "d.schema.required = [...(d.schema.required || []), 's29_tier'];",
                     "ADR-009 D14: making an existing property required is breaking unless the same version gives it a default.",

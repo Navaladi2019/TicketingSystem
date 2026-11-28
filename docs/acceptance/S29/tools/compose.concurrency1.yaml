@@ -1,0 +1,7 @@
+# S29 kit, extras E3 (TICK-754): the worker with one schema backfill slot,
+# so two tenants' jobs must run one after the other. Used only by extras.mjs:
+#   docker compose -f compose.yaml -f docs/acceptance/S29/tools/compose.concurrency1.yaml up -d --no-deps nava-worker
+services:
+  nava-worker:
+    environment:
+      NAVA_SCHEMA_BACKFILL_CONCURRENCY: "1"
