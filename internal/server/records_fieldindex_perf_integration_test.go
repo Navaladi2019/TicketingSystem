@@ -34,7 +34,9 @@
 // NAVA_PERF_LIST_SECONDS (20) per list scenario, NAVA_PERF_WRITE_SECONDS
 // (60) per insert round, NAVA_PERF_WRITE_ROUNDS (3), NAVA_PERF_LIVE_SECONDS
 // (180) per live-mix control, NAVA_PERF_LIVE_MAX (1200) cap on the live mix
-// under the backfill, NAVA_PERF_PHASES (lists,guard,writes,backfill),
+// under the backfill, NAVA_PERF_PHASES (lists,guard,writes,backfill; edges
+// and arms are the TICK-1009 and TICK-1039 spikes, see
+// records_fieldindex_spikes_perf_integration_test.go),
 // NAVA_PERF_ASIS_BATCHES (40) and NAVA_PERF_FIX_BATCHES (60) batches of each
 // as-merged and fix-candidate backfill sample (0 runs to the end),
 // NAVA_PERF_TEMPORAL_CLI (an existing temporal CLI binary; empty downloads
@@ -90,6 +92,7 @@ const fiSchemaExtra = `"tier": {"type": "string", "maxLength": 10},
     "score": {"type": "number"},
     "opened": {"type": "string", "format": "date-time"},
     "b40": {"type": "boolean"}, "b2": {"type": "boolean"}, "b025": {"type": "boolean"}, "b001": {"type": "boolean"},
+    "pk": {"type": "number"},
     `
 
 // fiU is a uniform draw in [0, 1,000,000) from md5(<k>tn/n): no random()
@@ -99,7 +102,8 @@ func fiU(k string) string {
 }
 
 // fiDataExtra builds the band values. tier: v40 40%, v2 2%, v025 0.25%, v001
-// 0.01%, else one of 97 others (about 0.6% each). zone: the same bands split
+// 0.01%, and for the S1 band edge (TICK-1009) v5 5%, v10 10%, v20 20%, taken
+// from the 97 others, which keep the remaining 22.74% (about 0.23% each). zone: the same bands split
 // into an a and b value, filtered with in. score: u/100, so lt 4000, 200, 25,
 // 1. opened: 2024-01-01 plus u minutes, ranges from u = 300,000. bools: true
 // under 400,000, 20,000, 2,500 and 100.
@@ -107,7 +111,8 @@ func fiDataExtra() string {
 	u1, u2, u3, u4, u5 := fiU("t"), fiU("z"), fiU("s"), fiU("o"), fiU("b")
 	return fmt.Sprintf(`,
 		'tier', CASE WHEN %[1]s < 400000 THEN 'v40' WHEN %[1]s < 420000 THEN 'v2' WHEN %[1]s < 422500 THEN 'v025'
-		             WHEN %[1]s < 422600 THEN 'v001' ELSE 'o' || (%[1]s %% 97) END,
+		             WHEN %[1]s < 422600 THEN 'v001' WHEN %[1]s < 472600 THEN 'v5' WHEN %[1]s < 572600 THEN 'v10'
+		             WHEN %[1]s < 772600 THEN 'v20' ELSE 'o' || (%[1]s %% 97) END,
 		'zone', CASE WHEN %[2]s < 200000 THEN 'p40a' WHEN %[2]s < 400000 THEN 'p40b' WHEN %[2]s < 410000 THEN 'p2a'
 		             WHEN %[2]s < 420000 THEN 'p2b' WHEN %[2]s < 421250 THEN 'p025a' WHEN %[2]s < 422500 THEN 'p025b'
 		             WHEN %[2]s < 422550 THEN 'p001a' WHEN %[2]s < 422600 THEN 'p001b' ELSE 'q' || (%[2]s %% 97) END,
@@ -255,7 +260,7 @@ func TestFieldIndexPerf800k(t *testing.T) {
 
 	ph := e.phases()
 	switch {
-	case ph["lists"] || ph["writes"]:
+	case ph["lists"] || ph["writes"] || ph["edges"] || ph["arms"]:
 		e.flagForLists(t, fiListFields(), false)
 	case ph["backfill"] || ph["probe"]:
 		// A backfill-only run flags the live mix's four fields on the large
@@ -264,6 +269,15 @@ func TestFieldIndexPerf800k(t *testing.T) {
 	}
 	if ph["lists"] {
 		e.lists(t, clients)
+	}
+	if ph["edges"] || ph["arms"] {
+		e.broadAgents(t)
+	}
+	if ph["edges"] {
+		e.edges(t, clients)
+	}
+	if ph["arms"] {
+		e.arms(t, clients)
 	}
 	if ph["guard"] {
 		e.guard(t)

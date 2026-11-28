@@ -67,6 +67,9 @@ type options struct {
 	// legacyScan widens the legacy-scan allow-list; only WithLegacyScan
 	// (integration builds) sets it.
 	legacyScan func(typeKey, field string) bool
+	// listIndexTerm replaces the list's field-index EXISTS; only
+	// WithListIndexTerm (integration builds) sets it.
+	listIndexTerm IndexTermFunc
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

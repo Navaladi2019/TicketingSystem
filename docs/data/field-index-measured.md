@@ -11,6 +11,116 @@ Harness: `TestFieldIndexPerf800k`
 `integration perf`), run by `scratch/field-index-measured/run.sh`. Raw
 output: `docs/data/field-index-measured/`.
 
+## TICK-1009 and TICK-1039: scored on a fully idle host (2026-11-28)
+
+**Host:** fully idle. The only other containers were the `multica-*` platform's: `multica-postgres-1` peaked at 15.9% CPU and the others stayed under 7%. There were no `nava`, `nava-*`, `nava-it-*` or bench containers, and no other agent's Go work. The transport floor read p50 0.54 ms after the seed, 0.61 / 1.68 ms before and after TICK-1009, and 0.69 / 1.52 ms before and after TICK-1039, so the p50 ≤ 3 ms gate passed at every check. The no-filter controls read 46.3–82.7 ms p95. The raw report's gate lines list `other containers: [nava-fiperf-pg-31183]`: that is the harness's own Postgres, which `run.sh` does not export as `NAVA_PERF_PG_CONTAINER`, not a foreign container.
+
+**Run:** commit `660e243a`, `postgres:16.10` with P3-01's settings (`work_mem` 4 MB, `random_page_cost` 4, `nava_app` at `force_custom_plan`), on Docker 29.9.3 on WSL2 (16 CPUs, 24.5 GiB). 800k records, a 400k type, 8 clients, 20 s per cell; 2,088 s in all. Raw report: `docs/data/field-index-measured/tick1009-1039-raw.md`. Plans: `tick1009-edges-explain.md` and `tick1039-arms-explain.md`, each one `EXPLAIN (ANALYZE, BUFFERS, SETTINGS)` per cell, as `nava_app`. Contention log: `tick1009-1039.contention`.
+
+### TICK-1009 (A1-7): which outcome applies
+
+- **S1 5%: band (i) extends to 5% with an ACL.** Both operators pass (188.8 and 187.4 ms). Without an ACL, `text eq` passes provisionally at 343.5 ms. `num lt` **misses provisionally at 358.3 ms**, 2.4% over 350. Both no-ACL pages fan out over the matches: a nested loop over `records_pkey`, 20,292 and 20,087 inner loops (A1-2). So without an ACL the 5% edge is provisional. A rerun decides it; I have not changed the line.
+- **S1 10% and 20% with an ACL: a new band**, 208.7–421.5 ms against 150. It is not a selectivity edge. At 2%, 5% and 10% the ACL page has one shape: a bitmap scan of the agents' visible set (`records_list_group`, 24,118 rows, 22.6–23.1k buffers), a hash semi-join to the matches and a top-N heapsort, 51–76 ms single-shot. The 2% and 5% ACL cells read 186.5–191.4 ms p95 and pass only against 350. At 20% the planner sorts the whole visible set first (Gather Merge, 2 workers, `external merge` spilling about 32 MB at `work_mem` 4 MB) and probes the side table 222 times. That is 83 ms single-shot and 391.7–421.5 ms p95 at 8 clients. Measured at 6% visibility only. Without an ACL, 10% and 20% pass at 89.9–127.2 ms: the walk over `records_list_updated` stops after a few hundred rows. I report this and do not edit the D13 line.
+- **S2: every breadth passes, which removes the 6% condition.** At 2% the cells read 186.5 / 191.4 ms at 6% visible, 200.6 / 209.0 ms at 26% and 207.6 / 215.5 ms at 50% (`num lt` / `text eq`). Broader groups cost at most 24 ms more at p95.
+- **The fixture leaves TICK-992's shares alone:** `v40` 40.173%, `v2` 1.999%, `v025` 0.254%, `v001` 0.010%, as before. The new values read `v5` 5.014%, `v10` 9.963% and `v20` 19.946%.
+
+| Cell (p95 ms, the line in brackets) | `num lt` | `text eq` |
+| --- | --- | --- |
+| S1 5%, ACL (350) | 188.8 pass | 187.4 pass |
+| S1 5%, no ACL (350) | **358.3 miss, provisional** | 343.5 pass, provisional |
+| S1 10%, ACL (150) | **246.7 miss** | **208.7 miss** |
+| S1 10%, no ACL (150) | 89.9 pass | 93.0 pass |
+| S1 20%, ACL (150) | **421.5 miss** | **391.7 miss** |
+| S1 20%, no ACL (150) | 108.6 pass | 127.2 pass |
+| S2 2%, agents see 6%, the control (350) | 186.5 pass | 191.4 pass |
+| S2 2%, agents see 26% (350) | 200.6 pass | 209.0 pass |
+| S2 2%, agents see 50% (350) | 207.6 pass | 215.5 pass |
+
+### TICK-1039 (A1-6): which arm passes
+
+**Arm (b), the promoted column with `assignment_group_id` in its index, meets the exit criterion in every fixture: 11 of 11, 27.2–131.3 ms.** The other arms fall short:
+
+- **(a), the adaptive shape:** 2 of 11. The pre-count counts the value's side rows without the ACL. Every fixture value has more than 4,500, so all 6,179 requests took the walk-and-probe shape, and the side-index branch was not exercised. The walk is bounded by how dense the *visible* matches are, not by `updated_at` alone. With d the share of the agent's visible records that match, the page probes about 51 / d records and the count about min(visible set, 1,001 / d). Broad 50% (d ≈ 0.64 for a6): 185 inner loops, pass. Partly correlated a6 (d = 2%, placed independently of `updated_at`): 2,823 page loops but 24,669 count loops, 349.7 ms, miss. None visible and 19,999 invisible (d = 0): the whole visible set, 24,669 / 200,404 loops, miss. Anti-correlated 2%, the only fixture tied to `updated_at`: 24,339–392,102 loops, 1,178–4,377 ms. So independence from `updated_at` is necessary but not sufficient. (1) of A1-6 bounds the page only when visible matches are dense, and an ACL-blind pre-count cannot detect that.
+- **D7:** 2 of 11. Its worst case is the a50 agent with a value none of its records carry: 2,223 ms, a walk over 200,113 rows of `records_list_updated`.
+- **(b) without the group key:** 10 of 11. Its one miss is the a50 agent with the broad 50% value, at 163.6 ms (provisional), where the count joins all 200,000 index entries.
+
+Neither arm needs a change to RLS, to CI-2 or to D7's `EXISTS` semantics. Arm (b) has a different cost, which is a design call and not mine to make. Each field that needs the band takes per-field DDL on `records`: a column, plus an index of 66 MB per 800k rows. I didn't measure the write amplification of that extra index on `records`. This is the schema-less trade-off ADR-006-A1 lists under Rejected. The ADR-006 amendment, if one follows, is the Technical Lead's to request from the Solution Architect.
+
+(b)+group's page is not bounded by the page size. In the broad 50% a6 cell it reads all 15,482 visible matches through `spike_records_pk_group` and top-N sorts them (41.9 ms single-client), because the group key precedes `updated_at`. Without a group predicate it sorts every match (8,000 rows, 20.6 ms, anti-correlated no-ACL cell). The passes hold at 400k records per type. TICK-1205 measures the per-group merge shape and the scale.
+
+| Fixture (p95 ms, line 150) | D7 | (a) | (b) | (b) + group |
+| --- | --- | --- | --- | --- |
+| anti-correlated 2%, a6 | 192.9 | 1,178.0 | 71.7 | 66.8 |
+| anti-correlated 2%, a50 | 216.1 | 2,362.3 | 63.6 | 69.4 |
+| anti-correlated 2%, no ACL | 355.2 | 4,376.6 | 50.9 | 76.6 |
+| none visible, a6 | 124.8 | 1,249.9 | 78.6 | 27.2 |
+| none visible, a50 | 2,223.2 | 2,662.0 | 79.8 | 30.5 |
+| partly correlated, a6 | 211.3 | 349.7 | 99.7 | 62.9 |
+| partly correlated, a50 | 420.9 | 534.9 | 101.8 | 74.1 |
+| 19,999 invisible, a6 | 135.3 (provisional) | 1,204.6 | 71.9 | 29.6 |
+| 19,999 invisible, a50 | 242.0 | 2,301.6 | 69.9 | 31.0 |
+| broad 50%, a6 | 405.6 | 84.9 | 79.4 | 131.3 |
+| broad 50%, a50 | 212.4 | 85.8 | 163.6 (provisional) | 60.9 |
+| **cells that pass** | **2 / 11** | **2 / 11** | **10 / 11** | **11 / 11** |
+
+### How the cells were built
+
+Run: `sh scratch/field-index-measured/spikes.sh` (`NAVA_PERF_PHASES=edges,arms`
+on the TICK-992 harness). One 800k seed serves both. `edges` (TICK-1009) runs
+first, because `arms` (TICK-1039) rewrites the records heap. Cell code:
+`internal/server/records_fieldindex_spikes_perf_integration_test.go`.
+
+| Spike | Cells | Line |
+| --- | --- | --- |
+| TICK-1009 S1, band edge | `num lt` (`score` lt 500 / 1000 / 2000) and `text eq` (`tier` `v5` / `v10` / `v20`) at 5 / 10 / 20%, with the agents' ACL (6%) and without: 12 | 5%: 350 ms; 10%, 20%: 150 ms (over is a new band, reported) |
+| TICK-1009 S2, ACL breadth | 2% `num lt` and `text eq`, agents seeing 6% (control), 26% and 50%: 6 | 350 ms |
+| TICK-1039 arms | D7, (a) adaptive, (b) promoted column, (b) with `assignment_group_id` in the index, × 11 `pk` fixtures (below): 44 | 150 ms |
+| Both | no-filter controls and transport floor before and after each phase | floor p50 ≤ 3 ms |
+
+Fixture changes, none of which move a TICK-992 band:
+
+- **`tier`** gains `v5` 5%, `v10` 10% and `v20` 20%, taken from the 97
+  others. Those keep the remaining 22.74%. `v40` / `v2` / `v025` / `v001`
+  keep 40 / 2 / 0.25 / 0.01%, and the run logs every share.
+- **Broader agents.** `a25-N` and `a50-N` use `agent-N`'s principal, with 13
+  and 25 of the 50 assignment groups. The existing `agent-N` (3 groups) is
+  unchanged. The group sets nest, 6% inside 26% inside 50%. 25% is not a
+  multiple of one group's 2%, so a25 sees 26%. Measured: agent-1 sees 24,666
+  records (6.2%), a25-1 sees 104,490 (26.1%) and a50-1 sees 200,402 (50.1%).
+- **`pk`** (num, large type only, one side row per record). TICK-1039's a6
+  is `agent-1` and its a50 is `a50-1`:
+
+  | Value | Side rows | Visible to a6 / a50 | Fixture |
+  | --- | --- | --- | --- |
+  | 40 | 8,000, the oldest by `updated_at` | 484 / 4,011 | A1-6 (3): anti-correlated 2%; a6's count stays under the cap |
+  | 10 | 26,593 | 0 / 0 | none visible |
+  | 20 | 21,487 | 494 / 494 | partly correlated |
+  | 30 | 19,999 | 0 / 0 | the R13 step's lower side |
+  | 3 | 200,000 | 15,819 / 133,409 | broad 50% |
+  | 4 | the remaining 123,921 | – | – |
+
+  Unlike A2-11, a50 is a superset of a6, so a50 also sees the 494.
+
+Arms. Each arm goes through the real handler, ACL and RLS, with
+`WithListIndexTerm`, a compiler seam that exists only under the
+`integration` tag.
+
+- **(a), adaptive.** A capped pre-count (`LIMIT 4501`) of the value's side
+  rows runs in the list's transaction. If it finds at most 4,500, the list
+  keeps D7's `EXISTS`, which drives from the side index. If it finds more,
+  the `EXISTS` gets `OFFSET 0`. That blocks the semi-join pull-up, so the
+  list walks the records index in list order and probes `rfv_num_pkey` once
+  per record. The count does the same per group-visible record, up to the
+  cap. The shape forces the probe, with no `enable_*` and no hints. The cap
+  was fixed before any run: sqrt(51 × 400,000) ≈ 4,500 is where a 51-row
+  walk (51 / s probes) costs the same as reading s × 400k side rows.
+- **(b), promoted column.** `records.spike_pk` with an index on (tenant_id,
+  entity_definition_id, spike_pk, updated_at), then the same with
+  `assignment_group_id` before `updated_at`. This is scratch DDL inside the
+  perf test and is dropped at the end. The column is filled before any arm
+  runs, and `VACUUM FULL records` follows, so every arm reads the same heap.
+  Index sizes: 52 MB and 66 MB for 800k rows.
+
 ## TICK-992: scored on the reference machine (2026-11-19)
 
 **Host condition: `nava` stack running at idle, waived by the Technical Lead
@@ -415,6 +525,7 @@ pauses in order, per run).
 sh scratch/field-index-measured/run.sh                      # every phase, about 90 min plus the backfill caps
 NAVA_PERF_PHASES=lists sh scratch/field-index-measured/run.sh   # the idle-host D13 re-run
 NAVA_PERF_PHASES=backfill NAVA_PERF_FIX_BATCHES=0 sh scratch/field-index-measured/run.sh   # a whole fix-candidate backfill, with the diff (0 works from TICK-992 on)
+sh scratch/field-index-measured/spikes.sh                  # TICK-1009 S1/S2, then TICK-1039 arms; refuses a host with nava or bench containers
 ```
 
 Env: `NAVA_PERF_LIST_SECONDS` (20), `NAVA_PERF_WRITE_SECONDS` (60),
