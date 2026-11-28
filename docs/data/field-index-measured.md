@@ -46,6 +46,8 @@ output: `docs/data/field-index-measured/`.
 
 Neither arm needs a change to RLS, to CI-2 or to D7's `EXISTS` semantics. Arm (b) has a different cost, which is a design call and not mine to make. Each field that needs the band takes per-field DDL on `records`: a column, plus an index of 66 MB per 800k rows. I didn't measure the write amplification of that extra index on `records`. This is the schema-less trade-off ADR-006-A1 lists under Rejected. The ADR-006 amendment, if one follows, is the Technical Lead's to request from the Solution Architect.
 
+(b)+group's page is not bounded by the page size. In the broad 50% a6 cell it reads all 15,482 visible matches through `spike_records_pk_group` and top-N sorts them (41.9 ms single-client), because the group key precedes `updated_at`. Without a group predicate it sorts every match (8,000 rows, 20.6 ms, anti-correlated no-ACL cell). The passes hold at 400k records per type. TICK-1205 measures the per-group merge shape and the scale.
+
 | Fixture (p95 ms, line 150) | D7 | (a) | (b) | (b) + group |
 | --- | --- | --- | --- | --- |
 | anti-correlated 2%, a6 | 192.9 | 1,178.0 | 71.7 | 66.8 |
