@@ -17,8 +17,10 @@
 //     every list body the evidence recorded (S21.12 to S21.18), that short
 //     results answer exact (A2-4), and from S21.19's results: every cell's
 //     p95, total_state counts and share of unknown, with the no-filter
-//     controls. The >= 40% ACL cell (Alice, filter[priority]=3) must be
-//     <= 350 ms p95 with every total_state capped or unknown. Writes
+//     controls. The >= 40% ACL cell (Alice, filter[priority]=3) must answer
+//     only 200s with every total_state capped or unknown; its p95 is
+//     recorded, not asserted (the 350 ms target moved to S21c, TICK-1159,
+//     owner-approved 2026-11-26). Writes
 //     <evidence-dir>/p95.txt and exits 1 when a check fails.
 //
 // Ports come from the same variables as the compose file and api-test.sh.
@@ -158,10 +160,9 @@ function report() {
   if (!acl) fail.push('S21.19: no >= 40% ACL cell');
   else {
     if (!acl.ok200) fail.push('>= 40% ACL cell: not only 200s');
-    if (!(acl.p95 <= 350)) fail.push(`>= 40% ACL cell: p95 ${acl.p95} ms > 350 ms`);
     const other = Object.keys(acl.states || {}).filter((s) => s !== 'capped' && s !== 'unknown');
     if (other.length) fail.push(`>= 40% ACL cell: total_state ${other.join(', ')} (want capped or unknown)`);
-    lines.push('', `>= 40% ACL cell (Alice filter[priority]=3): p95 ${acl.p95} ms (limit 350), unknown ${acl.unknown_share}% of ${acl.n}, total_state ${JSON.stringify(acl.states)}, from ${acl.started_at}`);
+    lines.push('', `>= 40% ACL cell (Alice filter[priority]=3): p95 ${acl.p95} ms (recorded, not asserted: S21c TICK-1159), unknown ${acl.unknown_share}% of ${acl.n}, total_state ${JSON.stringify(acl.states)}, from ${acl.started_at}`);
     // rfv_num's all-visible share at the cell: the last visibility.txt sample
     // taken before the cell started (run-kit.sh samples every 10 s).
     const vf = join(dir, 'visibility.txt');

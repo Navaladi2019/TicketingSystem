@@ -6,6 +6,7 @@ Delivery decisions that change a task's contract, newest first.
 
 <!-- docindex:start -->
 
+- [2026-11-27: TICK-1154, vulncheck required on `main`, ADR-001-E4 FU2](decisions/2026-11-27-tick-1154-vulncheck-required-on-main.md)
 - [2026-11-26: TICK-1146, until ADR-001-E4 lands, a merge into `main` or a story branch is checked against each required job's last executed result, not the merge button](decisions/2026-11-26-tick-1146-interim-merge-rule.md)
 - [2026-11-26: S29, the backfill outbox payload holds UUIDs only, and publish inserts the job row as `nava_app` (D-10-10, D-10-11)](decisions/2026-11-26-s29-outbox-payload-and-publish-job-row.md)
 - [2026-11-26: S22 and S29 ship together in two days on one branch; 14 tasks fold into 6, and no p95 gate, spike or bench is in scope](decisions/2026-11-26-s22-s29-two-day-consolidation.md)

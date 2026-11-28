@@ -11,6 +11,12 @@ import (
 
 const fixtureRequired = "testdata/required.yaml"
 
+// setupGoSHA is the commit testdata/ok.yml pins actions/setup-go to.
+const (
+	setupGoSHA = "924ae3a1cded613372ab5595356fb5720e22ba16"
+	setupGoPin = "actions/setup-go@" + setupGoSHA + " # v6.5.0"
+)
+
 func TestFixturePasses(t *testing.T) {
 	problems, n, err := check("testdata/ok.yml", fixtureRequired)
 	if err != nil {
@@ -47,8 +53,11 @@ func TestEditsFail(t *testing.T) {
 		{"pinned output removed", "      full: ${{   steps.stages.outputs.full }}\n", "", `job changes: output "full" is missing [isolation gate]`},
 		// TICK-1142: setup-go before v6 installs the go line, the first go command
 		// downloads the toolchain line into ~/go/pkg/mod, and the restore fails.
-		{"setup-go ignores the toolchain line", "actions/setup-go@v6", "actions/setup-go@v5", `job unit: actions/setup-go@v5 must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
-		{"setup-go pinned by another ref", "actions/setup-go@v6", "actions/setup-go@main", `job unit: actions/setup-go@main must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
+		{"setup-go ignores the toolchain line", setupGoPin, "actions/setup-go@v5", `job unit: actions/setup-go@v5 must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
+		{"setup-go pinned by another ref", setupGoPin, "actions/setup-go@main", `job unit: actions/setup-go@main must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
+		// TICK-1194: a SHA pin's version is its trailing comment.
+		{"setup-go SHA pin of an old version", "@" + setupGoSHA + " # v6.5.0", "@" + setupGoSHA + " # v5.5.0", `job unit: actions/setup-go@` + setupGoSHA + ` # v5.5.0 must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
+		{"setup-go SHA pin with no version", "@" + setupGoSHA + " # v6.5.0", "@" + setupGoSHA, `job unit: actions/setup-go@` + setupGoSHA + ` must be v6 or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)`},
 		{"pinned output's job removed", "  changes:\n", "  stages:\n", `job changes: output "full" is missing: no such job [isolation gate]`},
 	}
 	for _, c := range cases {

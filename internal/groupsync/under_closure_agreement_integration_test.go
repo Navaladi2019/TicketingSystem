@@ -35,10 +35,9 @@ import (
 //     internal/server/records_list.go builds it (ResolveUnder with no rows,
 //     the region count driver, the branches when the document splits), with
 //     the page shape the probe picks and with C3 and W0 forced (TICK-1036,
-//     ADR-010-A2 A2-5), the count CC, and with R forced, page and count
-//     (TICK-1104, ADR-010-A3 A3-1): every
-//     record on the page once, and total the readable count, capped at
-//     store.TotalCap.
+//     ADR-010-A2 A2-5), the count always CC, and with R forced, page and
+//     count (TICK-1104, ADR-010-A3 A3-1): every record on the page once, and
+//     the count statement the readable count, capped at store.TotalCap.
 //
 // The sync-resilience test (a unit is removed and the sync still succeeds,
 // S31 AC 3) is TestOrgUnitRemovalEndsUnderAccessAndSyncSucceeds.

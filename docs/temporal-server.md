@@ -174,8 +174,13 @@ command type.
 
 ## Vulnerability gate
 
-`make vulncheck-temporal-server` is a required step of the `temporal-server` CI
-job and of `make ci-lint`. It must report zero findings. There is no exception
+`make vulncheck-temporal-server` runs in the `govulncheck` workflow
+(`.github/workflows/govulncheck.yml`, which calls govulncheck directly,
+ADR-001-A7): every second day, by hand, and on every pull request; a pull
+request scans this module when it changes this module's `go.mod` or `go.sum`
+or the gate itself (ADR-001-E4). The pull request's result is the check
+`vulncheck`, a required check of `main` (TICK-1154). `make ci-lint` scans the
+module too (`make vulncheck-ci`). It must report zero findings. There is no exception
 and no allowlist (ADR-001-A1 Decision 3): a finding is a new decision for the
 triad, not a pin bump in passing.
 

@@ -47,7 +47,7 @@ const (
 	// batch's values it skipped because they did not coerce: the non-null
 	// values (a top-level array's non-null elements, else 1 for a non-null
 	// scalar) minus the rows written, as the records trigger counts them
-	// (db/migrations/20261127100200_field_index_trigger.sql). Only that
+	// (db/migrations/20261127110100_field_index_trigger.sql). Only that
 	// integer leaves the database.
 	insertSideSQL = `WITH ins AS (
 			INSERT INTO %[1]s (tenant_id, field_id, record_id, ord, value)

@@ -1,0 +1,873 @@
+ADR-001-E4 test V-4: live proof that a red vulnerability scan blocks a merge into main
+TICK-1155 (T-E4-8), run by the Quality, Testing & CI Advisor on 2026-11-27.
+Contract: docs/adr/ADR-001/E4/vulncheck-contract.md (rules 4, 5; test V-4).
+Judged by mergeStateStatus, never statusCheckRollup.state. Times are GitHub
+server time (Date header of the API), except completed_at, which is GitHub's.
+
+Gate under test: .github/workflows/govulncheck.yml on main dcc625a3 (TICK-1186,
+PR #965: scan jobs run `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`
+directly, setup-go v6). vulncheck is a required check of main (TICK-1154).
+
+SUMMARY
+case  PR    base -> head                      result
+(a)   #966  main <- 66cc0b77 (docs only)      vulncheck success, both scans skipped,
+                                              mergeStateStatus CLEAN               PASS
+(b)   #967  main <- X 4db029df (L + docs)     vulncheck-root failure, vulncheck failure,
+                                              GO-2020-0017 reachable,
+                                              mergeStateStatus BLOCKED             PASS
+(c)   #969  TICK-1155/v4-story (= L) <- X     detect "-> none", vulncheck-other success
+                                              on X; X still has exactly one vulncheck
+                                              (failure, run 46030206310); #967 still
+                                              BLOCKED after that run finished      PASS
+(d)   #971  TICK-1155/v4-d-base -> main       retarget, no push: no govulncheck run,
+            (head 0f3a8517, up to date        no vulncheck on the head, the nine other
+            with main)                        required checks green, BLOCKED;
+                                              after one empty push (872b49ad):
+                                              vulncheck success                    PASS
+cleanup     #966 to #971 CLOSED, mergedAt null; all seven TICK-1155/v4-* branches,
+            the story branch of (c) included, deleted.                           PASS
+
+Advisory used for (b): GO-2020-0017 (github.com/dgrijalva/jwt-go
+v3.2.0+incompatible, authorization bypass, no fixed version), reached through
+internal/v4probe/probe.go:11 calling jwt.MapClaims.VerifyAudience.
+
+Notes for the reviewer
+1. Two rounds. Round 1 (PRs #966 to #969, heads cut from 81c416a1) ran on the
+   workflow before PR #965 (scans through `make vulncheck`). PR #965 merged
+   during the test and changed govulncheck.yml, so (a), (b) and (c) were rebuilt
+   on dcc625a3 and re-run (round 2, primary). Both rounds agree; round 1 is in
+   the appendix.
+2. The first (b) probe called StandardClaims.VerifyAudience. govulncheck listed
+   GO-2020-0017 under "packages you import" but not as called, and the scan was
+   green (run 46026895020, appendix A3): the advisory's symbol is
+   MapClaims.VerifyAudience. That is a probe that did not reach the flaw, not a
+   gate fault. The gate reported what the scan said.
+3. (d) took three instances. #968: retarget left vulncheck missing and BLOCKED,
+   but coverage was still running, so BLOCKED could not be pinned on vulncheck.
+   #970: every other required check was green, but main had moved and the state
+   was BEHIND (strict protection), which hides the check. #971 (primary): head
+   up to date with main, the nine other required checks green, vulncheck
+   missing, BLOCKED. So a missing vulncheck alone blocks.
+4. (a) needed the ci:run label: isolation reports only on a run that executed
+   the suite (TICK-1146, by design). Without it, a docs-only pull request is
+   BLOCKED on isolation, not on vulncheck (appendix A1 shows vulncheck success).
+5. After (d)'s empty push, #971 is BLOCKED again because ci.yml restarted on the
+   new head without ci:run (isolation). The criterion asks only that vulncheck
+   reports after one push.
+
+==== branch protection of main
+$ gh api repos/Navaladi2019/TicketingSystem/branches/main/protection  (status checks, reviews, admins)
+{"contexts":["changes","lint","unit","temporal-server","integration","stack","coverage","commit-check-budget","isolation","vulncheck"],"enforce_admins":true,"required_approving_review_count":0,"strict":true}
+
+==== (a) docs-only pull request into main (round 2)
+---- capture (a) round 2, ci run 46030203888 (ci:run) and govulncheck run 46030203928: PR #966 head 66cc0b7723365f0604629ae1b9c0f1425439f702 at Fri, 27 Nov 2026 16:15:30 GMT (GitHub server time)
+$ gh pr view 966 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"66cc0b7723365f0604629ae1b9c0f1425439f702","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE"}
+$ gh pr view 966 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	SUCCESS
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SKIPPED
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/66cc0b7723365f0604629ae1b9c0f1425439f702/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-root	skipped	46030203928	2026-11-27T16:02:59Z
+vulncheck-temporal-server	skipped	46030203928	2026-11-27T16:02:59Z
+vulncheck-main-red	skipped	46030203928	2026-11-27T16:03:00Z
+vulncheck	success	46030203928	2026-11-27T16:03:09Z
+vulncheck-detect	success	46030203928	2026-11-27T16:02:59Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	SUCCESS
+vulncheck	SUCCESS
+unit	SKIPPED
+temporal-server	SKIPPED
+integration	SKIPPED
+isolation	SUCCESS
+commit-check-budget	SKIPPED
+stack	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+==== (b) vulnerable library into main (round 2)
+---- capture (b) round 2, govulncheck run 46030206310: PR #967 head 4db029dff3f611ad24e4e9ee478c4ae95f27d370 at Fri, 27 Nov 2026 16:04:38 GMT (GitHub server time)
+$ gh pr view 967 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"4db029dff3f611ad24e4e9ee478c4ae95f27d370","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 967 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+lint	ci	IN_PROGRESS	
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+unit	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	IN_PROGRESS	
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	IN_PROGRESS	
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/4db029dff3f611ad24e4e9ee478c4ae95f27d370/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46030206310	2026-11-27T16:03:46Z
+vulncheck	failure	46030206310	2026-11-27T16:03:52Z
+vulncheck-main-red	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-temporal-server	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-root	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-other	success	46030205592	2026-11-27T16:03:08Z
+vulncheck-temporal-server	skipped	46030206310	2026-11-27T16:02:58Z
+vulncheck-root	failure	46030206310	2026-11-27T16:03:46Z
+vulncheck-detect	success	46030206310	2026-11-27T16:02:58Z
+vulncheck-detect	success	46030205592	2026-11-27T16:03:02Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+changes	SUCCESS
+vulncheck	FAILURE
+lint	
+lint	
+unit	
+unit	SKIPPED
+temporal-server	SKIPPED
+temporal-server	SKIPPED
+integration	
+integration	SKIPPED
+isolation	
+commit-check-budget	SKIPPED
+commit-check-budget	SUCCESS
+stack	
+stack	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+$ gh run view 46030206310 --log  (job vulncheck-root, scan step)
+Found in cache @ /opt/hostedtoolcache/go/1.27.4/x64
+GOTOOLCHAIN='local'
+GOWORK=''
+3Z ##[group]Run go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+  GOTOOLCHAIN: local
+  GOWORK: off
+=== Symbol Results ===
+Vulnerability #1: GO-2020-0017
+    Authorization bypass in github.com/dgrijalva/jwt-go
+  More info: https://pkg.go.dev/vuln/GO-2020-0017
+  Module: github.com/dgrijalva/jwt-go
+    Found in: github.com/dgrijalva/jwt-go@v3.2.0+incompatible
+    Fixed in: N/A
+    Example traces found:
+##[error]      #1: internal/v4probe/probe.go:11:25: v4probe.Audience calls jwt.MapClaims.VerifyAudience
+Your code is affected by 1 vulnerability from 1 module.
+##[error]Process completed with exit code 1.
+
+$ gh run view 46030206310 --log  (job vulncheck-detect)
+vulncheck-detect: go.mod changed -> root
+vulncheck-detect: go.sum changed -> root
+
+==== (c) head X of (b) into the story branch that holds L (round 2)
+L = 9848040952fdee36569cf487923314a850673c8a (go.mod, go.sum, internal/v4probe/probe.go); X = 4db029dff3f611ad24e4e9ee478c4ae95f27d370 (docs only, parent L). TICK-1155/v4-story pointed at L.
+
+---- capture (c) round 2, govulncheck run 46030205592: PR #969 head 4db029dff3f611ad24e4e9ee478c4ae95f27d370 at Fri, 27 Nov 2026 16:04:49 GMT (GitHub server time)
+$ gh pr view 969 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"TICK-1155/v4-story","headRefOid":"4db029dff3f611ad24e4e9ee478c4ae95f27d370","mergeStateStatus":"UNSTABLE","mergeable":"MERGEABLE"}
+$ gh pr view 969 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+lint	ci	IN_PROGRESS	
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+unit	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	IN_PROGRESS	
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	IN_PROGRESS	
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/4db029dff3f611ad24e4e9ee478c4ae95f27d370/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46030206310	2026-11-27T16:03:46Z
+vulncheck	failure	46030206310	2026-11-27T16:03:52Z
+vulncheck-main-red	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-temporal-server	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-root	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-other	success	46030205592	2026-11-27T16:03:08Z
+vulncheck-temporal-server	skipped	46030206310	2026-11-27T16:02:58Z
+vulncheck-root	failure	46030206310	2026-11-27T16:03:46Z
+vulncheck-detect	success	46030206310	2026-11-27T16:02:58Z
+vulncheck-detect	success	46030205592	2026-11-27T16:03:02Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+$ gh run view 46030205592 --log  (job vulncheck-detect)
+vulncheck-detect: no vulncheck input changed since 9848040952fdee36569cf487923314a850673c8a -> none
+
+---- capture (b) round 2, after the (c) run 46030205592 finished: PR #967 head 4db029dff3f611ad24e4e9ee478c4ae95f27d370 at Fri, 27 Nov 2026 16:05:00 GMT (GitHub server time)
+$ gh pr view 967 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"4db029dff3f611ad24e4e9ee478c4ae95f27d370","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 967 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+lint	ci	IN_PROGRESS	
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+unit	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	IN_PROGRESS	
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	IN_PROGRESS	
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/4db029dff3f611ad24e4e9ee478c4ae95f27d370/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46030206310	2026-11-27T16:03:46Z
+vulncheck	failure	46030206310	2026-11-27T16:03:52Z
+vulncheck-main-red	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-temporal-server	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-root	skipped	46030205592	2026-11-27T16:03:02Z
+vulncheck-other	success	46030205592	2026-11-27T16:03:08Z
+vulncheck-temporal-server	skipped	46030206310	2026-11-27T16:02:58Z
+vulncheck-root	failure	46030206310	2026-11-27T16:03:46Z
+vulncheck-detect	success	46030206310	2026-11-27T16:02:58Z
+vulncheck-detect	success	46030205592	2026-11-27T16:03:02Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+changes	SUCCESS
+vulncheck	FAILURE
+lint	
+lint	
+unit	
+unit	SKIPPED
+temporal-server	SKIPPED
+temporal-server	SKIPPED
+integration	
+integration	SKIPPED
+isolation	
+commit-check-budget	SKIPPED
+commit-check-budget	SUCCESS
+stack	
+stack	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+$ gh api .../commits/4db029df/check-runs  (count of check runs named vulncheck on X)
+1
+
+==== (d) pull request opened into another base, retargeted to main (#971)
+TICK-1155/v4-d-base was moved to main dcc625a3 before #971 was opened. Runs on the branch after the retarget, before the push:
+govulncheck	46030065949	pull_request	2026-11-27T16:01:50Z
+ci	46030065982	pull_request	2026-11-27T16:01:50Z
+
+---- capture (d3) before retarget, base TICK-1155/v4-d-base (= main dcc625a3), every run finished: PR #971 head 0f3a851735f9eb32d86168c973e8493394fd90f3 at Fri, 27 Nov 2026 16:16:03 GMT (GitHub server time)
+$ gh pr view 971 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"TICK-1155/v4-d-base","headRefOid":"0f3a851735f9eb32d86168c973e8493394fd90f3","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE"}
+$ gh pr view 971 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SUCCESS
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SUCCESS
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SUCCESS
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/0f3a851735f9eb32d86168c973e8493394fd90f3/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46030065949	2026-11-27T16:01:59Z
+vulncheck-root	skipped	46030065949	2026-11-27T16:01:58Z
+vulncheck-temporal-server	skipped	46030065949	2026-11-27T16:01:58Z
+vulncheck-other	success	46030065949	2026-11-27T16:02:06Z
+vulncheck-detect	success	46030065949	2026-11-27T16:01:58Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+---- capture (d3) about 90 s after retarget to main, no push: PR #971 head 0f3a851735f9eb32d86168c973e8493394fd90f3 at Fri, 27 Nov 2026 16:17:58 GMT (GitHub server time)
+$ gh pr view 971 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"0f3a851735f9eb32d86168c973e8493394fd90f3","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 971 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SUCCESS
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SUCCESS
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SUCCESS
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/0f3a851735f9eb32d86168c973e8493394fd90f3/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46030065949	2026-11-27T16:01:59Z
+vulncheck-root	skipped	46030065949	2026-11-27T16:01:58Z
+vulncheck-temporal-server	skipped	46030065949	2026-11-27T16:01:58Z
+vulncheck-other	success	46030065949	2026-11-27T16:02:06Z
+vulncheck-detect	success	46030065949	2026-11-27T16:01:58Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	SUCCESS
+unit	SUCCESS
+temporal-server	SKIPPED
+integration	SUCCESS
+isolation	SUCCESS
+commit-check-budget	SUCCESS
+stack	SUCCESS
+coverage	SUCCESS
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+---- capture (d3) after one empty push, govulncheck run 46032475925: PR #971 head 872b49ad8d58cab4f92767db12952ddf7f81f2ec at Fri, 27 Nov 2026 16:18:50 GMT (GitHub server time)
+$ gh pr view 971 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"872b49ad8d58cab4f92767db12952ddf7f81f2ec","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 971 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+story-branches	ci	IN_PROGRESS	
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	IN_PROGRESS	
+vulncheck	govulncheck	COMPLETED	SUCCESS
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/872b49ad8d58cab4f92767db12952ddf7f81f2ec/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46032475925	2026-11-27T16:18:33Z
+vulncheck-root	skipped	46032475925	2026-11-27T16:18:33Z
+vulncheck-temporal-server	skipped	46032475925	2026-11-27T16:18:33Z
+vulncheck	success	46032475925	2026-11-27T16:18:42Z
+vulncheck-detect	success	46032475925	2026-11-27T16:18:33Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	
+vulncheck	SUCCESS
+unit	SKIPPED
+temporal-server	SKIPPED
+integration	SKIPPED
+commit-check-budget	SKIPPED
+stack	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+==== cleanup
+---- cleanup at Fri, 27 Nov 2026 16:20:12 GMT (GitHub server time)
+$ gh pr view <n> --json number,state,mergedAt,baseRefName,headRefName
+{"baseRefName":"main","headRefName":"TICK-1155/v4-a","mergedAt":null,"number":966,"state":"CLOSED"}
+{"baseRefName":"main","headRefName":"TICK-1155/v4-b","mergedAt":null,"number":967,"state":"CLOSED"}
+{"baseRefName":"main","headRefName":"TICK-1155/v4-d","mergedAt":null,"number":968,"state":"CLOSED"}
+{"baseRefName":"TICK-1155/v4-story","headRefName":"TICK-1155/v4-b","mergedAt":null,"number":969,"state":"CLOSED"}
+{"baseRefName":"main","headRefName":"TICK-1155/v4-d2","mergedAt":null,"number":970,"state":"CLOSED"}
+{"baseRefName":"main","headRefName":"TICK-1155/v4-d3","mergedAt":null,"number":971,"state":"CLOSED"}
+$ gh api repos/Navaladi2019/TicketingSystem/git/matching-refs/heads/TICK-1155/v4
+[]
+
+==== APPENDIX: round 1 and the other (d) instances
+
+== A1 (a) round 1, #966 head 596e2bf7
+Before the ci:run label (read about 15:42 GMT, every check completed; the required-check view):
+$ gh api graphql  (pullRequest 966: mergeable, mergeStateStatus, required checks present on the head)
+{"mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE","req":[["changes","SUCCESS"],["lint","SUCCESS"],["vulncheck","SUCCESS"],["unit","SKIPPED"],["temporal-server","SKIPPED"],["integration","SKIPPED"],["commit-check-budget","SKIPPED"],["stack","SKIPPED"],["coverage","SKIPPED"]],"reviewDecision":null}
+(isolation, required, is absent: its check run was named "github.event_name && 'isolation' || 'isolation'", skipped. vulncheck is success.)
+After ci:run (ci run 46027397137):
+---- capture (a) after ci:run run 46027397137 and govulncheck run 46026887002: PR #966 head 596e2bf7c801af3314f237cb1ba3c4a68bfbb8f8 at Fri, 27 Nov 2026 15:49:01 GMT (GitHub server time)
+$ gh pr view 966 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"596e2bf7c801af3314f237cb1ba3c4a68bfbb8f8","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE"}
+$ gh pr view 966 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	SUCCESS
+unit	ci	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SKIPPED
+main-red	ci	COMPLETED	SKIPPED
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/596e2bf7c801af3314f237cb1ba3c4a68bfbb8f8/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46026887002	2026-11-27T15:39:57Z
+vulncheck-temporal-server	skipped	46026887002	2026-11-27T15:39:57Z
+vulncheck-root	skipped	46026887002	2026-11-27T15:39:57Z
+vulncheck	success	46026887002	2026-11-27T15:40:08Z
+vulncheck-detect	success	46026887002	2026-11-27T15:39:57Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+changes	SUCCESS
+lint	SUCCESS
+lint	SUCCESS
+vulncheck	SUCCESS
+unit	SKIPPED
+unit	SKIPPED
+temporal-server	SKIPPED
+temporal-server	SKIPPED
+integration	SKIPPED
+integration	SKIPPED
+isolation	SUCCESS
+commit-check-budget	SKIPPED
+commit-check-budget	SKIPPED
+stack	SKIPPED
+stack	SKIPPED
+coverage	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+== A2 (b) round 1, #967 head 60e68549
+---- capture (b) after govulncheck run 46027311509: PR #967 head 60e68549c9a1a6ce2bd74a631002dca361aa2dba at Fri, 27 Nov 2026 15:44:53 GMT (GitHub server time)
+$ gh pr view 967 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"60e68549c9a1a6ce2bd74a631002dca361aa2dba","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 967 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/60e68549c9a1a6ce2bd74a631002dca361aa2dba/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46027311509	2026-11-27T15:43:48Z
+vulncheck	failure	46027311509	2026-11-27T15:43:56Z
+vulncheck-temporal-server	skipped	46027311509	2026-11-27T15:42:49Z
+vulncheck-root	failure	46027311509	2026-11-27T15:43:48Z
+vulncheck-detect	success	46027311509	2026-11-27T15:42:49Z
+
+== A3 first (b) probe, head 243d86f1, StandardClaims.VerifyAudience: govulncheck run 46026895020, job vulncheck-root, scan step
+7Z ##[group]Run make vulncheck
+make vulncheck
+GOWORK=off govulncheck ./...
+=== Symbol Results ===
+No vulnerabilities found.
+Your code is affected by 0 vulnerabilities.
+This scan also found 1 vulnerability in packages you import and 3
+vulnerabilities in modules you require, but your code doesn't appear to call
+these vulnerabilities.
+
+== A4 (c) round 1, #969 and #967 on head 60e68549
+---- capture (c) after govulncheck run 46027663587: PR #969 head 60e68549c9a1a6ce2bd74a631002dca361aa2dba at Fri, 27 Nov 2026 15:45:44 GMT (GitHub server time)
+$ gh pr view 969 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"TICK-1155/v4-story","headRefOid":"60e68549c9a1a6ce2bd74a631002dca361aa2dba","mergeStateStatus":"UNSTABLE","mergeable":"MERGEABLE"}
+$ gh pr view 969 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+lint	ci	IN_PROGRESS	
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+unit	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	IN_PROGRESS	
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	IN_PROGRESS	
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	IN_PROGRESS	
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/60e68549c9a1a6ce2bd74a631002dca361aa2dba/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-root	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-temporal-server	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-other	success	46027663587	2026-11-27T15:45:27Z
+vulncheck-detect	success	46027663587	2026-11-27T15:45:20Z
+vulncheck-main-red	skipped	46027311509	2026-11-27T15:43:48Z
+vulncheck	failure	46027311509	2026-11-27T15:43:56Z
+vulncheck-temporal-server	skipped	46027311509	2026-11-27T15:42:49Z
+vulncheck-root	failure	46027311509	2026-11-27T15:43:48Z
+vulncheck-detect	success	46027311509	2026-11-27T15:42:49Z
+
+---- capture (b) after the (c) run 46027663587 finished: PR #967 head 60e68549c9a1a6ce2bd74a631002dca361aa2dba at Fri, 27 Nov 2026 15:45:48 GMT (GitHub server time)
+$ gh pr view 967 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"60e68549c9a1a6ce2bd74a631002dca361aa2dba","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 967 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	FAILURE
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+changes	ci	COMPLETED	SUCCESS
+vulncheck	govulncheck	COMPLETED	FAILURE
+lint	ci	IN_PROGRESS	
+lint	ci	IN_PROGRESS	
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+unit	ci	IN_PROGRESS	
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+integration	ci	COMPLETED	SKIPPED
+isolation	ci	IN_PROGRESS	
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	IN_PROGRESS	
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	IN_PROGRESS	
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/60e68549c9a1a6ce2bd74a631002dca361aa2dba/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-root	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-temporal-server	skipped	46027663587	2026-11-27T15:45:20Z
+vulncheck-other	success	46027663587	2026-11-27T15:45:27Z
+vulncheck-detect	success	46027663587	2026-11-27T15:45:20Z
+vulncheck-main-red	skipped	46027311509	2026-11-27T15:43:48Z
+vulncheck	failure	46027311509	2026-11-27T15:43:56Z
+vulncheck-temporal-server	skipped	46027311509	2026-11-27T15:42:49Z
+vulncheck-root	failure	46027311509	2026-11-27T15:43:48Z
+vulncheck-detect	success	46027311509	2026-11-27T15:42:49Z
+
+== A5 (d) first instance #968
+---- capture (d) before retarget, base TICK-1155/v4-d-base: PR #968 head 6a53674ba91a12e443d4b7afc79a4b5ed889f022 at Fri, 27 Nov 2026 15:46:04 GMT (GitHub server time)
+$ gh pr view 968 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"TICK-1155/v4-d-base","headRefOid":"6a53674ba91a12e443d4b7afc79a4b5ed889f022","mergeStateStatus":"UNSTABLE","mergeable":"MERGEABLE"}
+$ gh pr view 968 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	IN_PROGRESS	
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/6a53674ba91a12e443d4b7afc79a4b5ed889f022/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-temporal-server	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-root	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-other	success	46026901764	2026-11-27T15:40:11Z
+vulncheck-detect	success	46026901764	2026-11-27T15:40:03Z
+
+---- capture (d) retargeted to main, no push (re-read with the required-check view): PR #968 head 6a53674ba91a12e443d4b7afc79a4b5ed889f022 at Fri, 27 Nov 2026 15:47:58 GMT (GitHub server time)
+$ gh pr view 968 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"6a53674ba91a12e443d4b7afc79a4b5ed889f022","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 968 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SUCCESS
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	IN_PROGRESS	
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/6a53674ba91a12e443d4b7afc79a4b5ed889f022/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-temporal-server	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-root	skipped	46026901764	2026-11-27T15:40:03Z
+vulncheck-other	success	46026901764	2026-11-27T15:40:11Z
+vulncheck-detect	success	46026901764	2026-11-27T15:40:03Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	SUCCESS
+unit	SUCCESS
+temporal-server	SKIPPED
+integration	SUCCESS
+isolation	SUCCESS
+commit-check-budget	SUCCESS
+stack	SUCCESS
+coverage	
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+---- capture (d) after one empty push 993595f7, govulncheck run 46028114778: PR #968 head 993595f79b5e6411707539b1b655883a51eb4702 at Fri, 27 Nov 2026 15:48:44 GMT (GitHub server time)
+$ gh pr view 968 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"993595f79b5e6411707539b1b655883a51eb4702","mergeStateStatus":"BLOCKED","mergeable":"MERGEABLE"}
+$ gh pr view 968 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	IN_PROGRESS	
+vulncheck	govulncheck	COMPLETED	SUCCESS
+unit	ci	COMPLETED	SKIPPED
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SKIPPED
+github.event_name && 'isolation' || 'isolation'	ci	COMPLETED	SKIPPED
+commit-check-budget	ci	COMPLETED	SKIPPED
+stack	ci	COMPLETED	SKIPPED
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SKIPPED
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/993595f79b5e6411707539b1b655883a51eb4702/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46028114778	2026-11-27T15:48:20Z
+vulncheck-root	skipped	46028114778	2026-11-27T15:48:20Z
+vulncheck-temporal-server	skipped	46028114778	2026-11-27T15:48:20Z
+vulncheck	success	46028114778	2026-11-27T15:48:27Z
+vulncheck-detect	success	46028114778	2026-11-27T15:48:19Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	
+vulncheck	SUCCESS
+unit	SKIPPED
+temporal-server	SKIPPED
+integration	SKIPPED
+commit-check-budget	SKIPPED
+stack	SKIPPED
+coverage	SKIPPED
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+== A6 (d) second instance #970 (BEHIND)
+---- capture (d2) before retarget, base TICK-1155/v4-d-base, every run finished: PR #970 head b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d at Fri, 27 Nov 2026 15:59:18 GMT (GitHub server time)
+$ gh pr view 970 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"TICK-1155/v4-d-base","headRefOid":"b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE"}
+$ gh pr view 970 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SUCCESS
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SUCCESS
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SUCCESS
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-temporal-server	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-root	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-other	success	46028171684	2026-11-27T15:48:57Z
+vulncheck-detect	success	46028171684	2026-11-27T15:48:47Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+
+---- capture (d2) about 90 s after retarget to main, no push: PR #970 head b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d at Fri, 27 Nov 2026 16:01:08 GMT (GitHub server time)
+$ gh pr view 970 --json baseRefName,headRefOid,mergeStateStatus,mergeable
+{"baseRefName":"main","headRefOid":"b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d","mergeStateStatus":"BEHIND","mergeable":"MERGEABLE"}
+$ gh pr view 970 --json statusCheckRollup  (name, workflow, status, conclusion)
+runner	ci	COMPLETED	SUCCESS
+vulncheck-detect	govulncheck	COMPLETED	SUCCESS
+vulncheck-root	govulncheck	COMPLETED	SKIPPED
+story-branches	ci	COMPLETED	SUCCESS
+vulncheck-temporal-server	govulncheck	COMPLETED	SKIPPED
+changes	ci	COMPLETED	SUCCESS
+lint	ci	COMPLETED	SUCCESS
+vulncheck-other	govulncheck	COMPLETED	SUCCESS
+vulncheck-main-red	govulncheck	COMPLETED	SKIPPED
+unit	ci	COMPLETED	SUCCESS
+temporal-server	ci	COMPLETED	SKIPPED
+integration	ci	COMPLETED	SUCCESS
+isolation	ci	COMPLETED	SUCCESS
+commit-check-budget	ci	COMPLETED	SUCCESS
+stack	ci	COMPLETED	SUCCESS
+sdk	ci	COMPLETED	SKIPPED
+coverage	ci	COMPLETED	SUCCESS
+self-hosted-cleanup	ci	COMPLETED	SKIPPED
+full-suite	ci	COMPLETED	SUCCESS
+main-red	ci	COMPLETED	SKIPPED
+$ gh api repos/Navaladi2019/TicketingSystem/commits/b8d62d118adf5ab85cfe83eaa49bc3db22d6ff3d/check-runs  (vulncheck* only: name, conclusion, run id, completed_at)
+vulncheck-main-red	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-temporal-server	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-root	skipped	46028171684	2026-11-27T15:48:48Z
+vulncheck-other	success	46028171684	2026-11-27T15:48:57Z
+vulncheck-detect	success	46028171684	2026-11-27T15:48:47Z
+
+$ gh api graphql  (checks on head that branch protection of the PR's base requires: name, conclusion)
+changes	SUCCESS
+lint	SUCCESS
+unit	SUCCESS
+temporal-server	SKIPPED
+integration	SUCCESS
+isolation	SUCCESS
+commit-check-budget	SUCCESS
+stack	SUCCESS
+coverage	SUCCESS
+required by main protection: changes,lint,unit,temporal-server,integration,stack,coverage,commit-check-budget,isolation,vulncheck
+

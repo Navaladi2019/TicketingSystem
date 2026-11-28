@@ -5,7 +5,7 @@ title: Implementing ADR-001 erratum E4 (the vulnerability scan becomes a require
 adr: "[[ADR-001-E4-a1-d3-vulnerability-scan-gate]] (ACCEPTED 2026-11-26, TICK-1140; PR #895, main 81b7aad2)"
 contract: docs/adr/ADR-001/E4/vulncheck-contract.md
 issue: TICK-1147
-status: PROPOSED
+status: APPROVED by the Solution Architect 2026-11-26 (TICK-1147)
 date: 2026-11-26
 owner: Technical Lead
 ---

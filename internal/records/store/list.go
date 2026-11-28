@@ -118,8 +118,8 @@ type ListPage struct {
 // TotalState is how trustworthy ListPage.Total is (ADR-006-A2 A2-1).
 type TotalState string
 
-// The states of a list total. TotalUnknown (the count ran out of its time
-// budget) is not produced yet.
+// The states of a list total. TotalUnknown means the count ran out of its time
+// budget (CountBudget); the page is complete and the total is null.
 const (
 	TotalExact   TotalState = "exact"
 	TotalCapped  TotalState = "capped"

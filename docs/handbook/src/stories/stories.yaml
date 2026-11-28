@@ -243,6 +243,8 @@ stories:
     evidence:
       - docs/data/field-index-measured.md
       - docs/reviews/tick-748-s21-isolation-attacks.md
+      - docs/data/adr-006-a2-gate.md
+      - docs/acceptance/S21/README.md
   - id: S22
     issue: TICK-740
     title: Unflag a filterable field, raise the quota with operator approval, retire the JSONB scan

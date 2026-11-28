@@ -277,10 +277,17 @@ func (h *handlers) CreateEntityType(ctx context.Context, req api.CreateEntityTyp
 		secret   *entitytypes.SecretInContentError
 		required *entitytypes.SecretRequiredError
 		quota    *entitytypes.IndexQuotaError
+		invalidD *metadata.ErrInvalidDefinition
 	)
 	switch {
 	case errors.Is(err, authz.ErrForbidden):
 		return nil, &problemError{problem.Forbidden, nil, err}
+	case errors.As(err, &invalidD): // the store's own CheckStorable; parseCreate ran it first
+		fields := make([]problem.FieldError, len(invalidD.Paths))
+		for i, path := range invalidD.Paths {
+			fields[i] = invalid("/definition"+path, "invalid")
+		}
+		return nil, unprocessable(fields...)
 	case errors.Is(err, entitytypes.ErrKeyExists):
 		return nil, &problemError{problem.EntityTypeExists, nil, err}
 	case errors.Is(err, entitytypes.ErrPrefixTaken):
@@ -608,9 +615,14 @@ func parseCreate(raw json.RawMessage) (createRequest, *problemError) {
 		}
 	}
 	// Compile runs whenever the definition decoded, so one response lists the
-	// field errors and the definition errors together.
+	// field errors and the definition errors together. CheckStorable is the
+	// write-only rule Compile cannot hold (TICK-1121); it runs first.
 	if defOK {
-		if _, err := metadata.CompileNew(cr.def); err != nil {
+		err := metadata.CheckStorable(cr.def.Schema)
+		if err == nil {
+			_, err = metadata.CompileNew(cr.def)
+		}
+		if err != nil {
 			var refused *metadata.RefusalError
 			if errors.As(err, &refused) {
 				return cr, refusalProblem(refused, "/definition", err)

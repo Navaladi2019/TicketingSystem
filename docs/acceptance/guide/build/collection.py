@@ -280,9 +280,10 @@ def _ind(text, n=2):
     return "\n".join(pad + l if l.strip() else "" for l in text.strip("\n").split("\n"))
 
 
-def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests="", pre="", auth=None):
+def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests="", pre="", post="", auth=None):
     """auth: None (no Authorization), or a variable name holding a bearer token.
-    tests and pre are JavaScript; tests get N (lib/nava.js) loaded."""
+    tests, pre and post are JavaScript; tests get N (lib/nava.js) loaded. post
+    is a script:post-response block: it runs after the response, before tests."""
     h = {}
     if auth:
         h["Authorization"] = "Bearer {{%s}}" % auth
@@ -290,7 +291,8 @@ def req(name, method, url, *, desc="", headers=None, body=None, form=None, tests
     if body is not None:
         h["Content-Type"] = h.get("Content-Type", "application/json")
     return {"name": name, "method": method.lower(), "url": url, "desc": desc, "headers": h,
-            "body": body, "form": form, "tests": tests.strip("\n"), "pre": pre.strip("\n")}
+            "body": body, "form": form, "tests": tests.strip("\n"), "pre": pre.strip("\n"),
+            "post": post.strip("\n")}
 
 
 def token(name, user, pwd, store, *, client="nava-web", scope="openid", desc="", extra=""):
@@ -4286,7 +4288,12 @@ test("none of them is in tenant A's priority-1 list", () => expect(mine.filter(i
 test("tenant A's list is the tenant A scan, short of the all-tenant scan by tenant B's records", () =>
   expect(a.size).to.eql(Number(N.v('s21_p1_all_tenants_n')) - Number(N.v('s21_b_p1_n'))));"""),
             req("S21.19 AC2: list p95 within ADR-006 D13 (as amended by ADR-006-A1)", "GET", inc + "?limit=1", auth="admin_a_token",
-                pre=S21_T + """
+                post="""// The cells run after this request, not before it. They take about 136 s
+// (8 cells x (2 s warm-up + 15 s)), longer than nava-core's 120 s idle
+// timeout (NAVA_HTTP_IDLE_TIMEOUT), so a pre-request loop left the pooled
+// keep-alive socket from S21.18 closed under this request: socket hang up,
+// no tests, no cells in the evidence (TICK-1195 rerun, 2026-11-27).
+""" + S21_T + """
 const secs = Number(N.v('s21_p95_seconds') || 15);
 const a = Number(N.v('s21_a_n'));
 const share = (n) => Math.round((Number(N.v(n)) / a) * 10000) / 100 + '%';
@@ -4298,7 +4305,9 @@ const cells = [
   ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150, null],
   ['admin', 'admin_a_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150, null],
   ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350, null],
-  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL', 350, ['capped', 'unknown']],
+  // p95 recorded, not asserted (null): the 350 ms target moved to S21c
+  // (TICK-1159, owner-approved 2026-11-26); rows and total_state still gate.
+  ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL, p95 recorded only (S21c)', null, ['capped', 'unknown']],
   ['Alice', 'alice_token', '""" + S21_AC2 + """', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150, null],
   ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null, null],
   ['Alice', 'alice_token', '', 'no filter (control, reported only)', null, null],
@@ -4310,7 +4319,7 @@ for (const [who, v, q, band, limit, allowed] of cells) {
   console.log(`S21.19 ${who} ${q || '(none)'}: p50 ${r.p50} p95 ${r.p95} max ${r.max} ms, ${r.n} requests (${r.rps}/s), ${JSON.stringify(r.statuses)}, total_state ${JSON.stringify(r.total_states)}, unknown ${r.unknown_share}%`);
 }
 bru.setVar('s21_p95', JSON.stringify(out));""",
-                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL and for the >= 40% band with one (Alice); 150 ms for every other filter. No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).",
+                desc="Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL; 150 ms for every other filter except the >= 40% band with a narrowing ACL (Alice `priority=3`), whose p95 is recorded, not asserted: its 350 ms target moved to S21c (TICK-1159, 2026-11-26). No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).",
                 tests="""N.status(200);
 const cells = JSON.parse(bru.getVar('s21_p95'));
 cells.forEach(c => {
@@ -5766,6 +5775,8 @@ def _bru_request(r, seq):
         out.append("body:form-urlencoded {\n" + "".join(f"  {k}: {v}\n" for k, v in r["form"]) + "}\n")
     if r["pre"]:
         out.append("script:pre-request {\n" + _ind(r["pre"]) + "\n}\n")
+    if r.get("post"):
+        out.append("script:post-response {\n" + _ind(r["post"]) + "\n}\n")
     if r["tests"]:
         out.append("tests {\n" + _ind(LOAD + "\n" + r["tests"]) + "\n}\n")
     if r["desc"]:

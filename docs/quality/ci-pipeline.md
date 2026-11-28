@@ -12,10 +12,10 @@ calls only `make` targets. Install the pinned tools once with `make tools`.
 
 | Stage | Make target | What fails it | Containers |
 | --- | --- | --- | --- |
-| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`), `check-openapi`, `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `handbook-build` (`build.py` on the real `docs/handbook/src`: a broken link or reference, or a malformed `stories.yaml` / `benchmarks.yaml` row, fails; footer stamp from `GITHUB_SHA`, so no `origin/main` needed; TICK-1162), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow, TICK-641) | none |
+| Lint | `ci-lint` | tool versions differ from `docs/pins.md`, `gofmt`, `go vet`, `vet-tags` (`go vet` once per build-tag set the `//go:build` lines use), golangci-lint, `lint-fixture` (exactly 5 forbidigo findings), `check-taskfile`, `check-pins`, `check-generate` (`api/api.gen.go` differs from what `go generate ./api/...` writes), `check-guide` (`docs/acceptance/guide/`, among it `bruno/lib/nava.js` `REGISTERED`, differs from what `build/build.py` writes; TICK-391), `check-ci-steps` (`ci.yml` lost a step listed in `tools/ci/cisteps/required.yaml`, or `govulncheck.yml` differs from its copy `tools/ci/cisteps/govulncheck.copy.yml`), `check-openapi` (on a pull request against the merge commit's first parent, `HEAD^1`, not the `origin/main` fetched mid-run; TICK-1179), `test-check-openapi-base` (a scripted git repo: a main that added a property mid-run passes, a real removal fails), `test-handbook` (the handbook generator's Python tests, TICK-847), `test-handbook-coverage` (the `TestHandbook*` page-coverage gate from `api/handbook_coverage_test.go`, also in `make test`; here because `unit` is skipped on a docs-only change, TICK-960), `handbook-build` (`build.py` on the real `docs/handbook/src`: a broken link or reference, or a malformed `stories.yaml` / `benchmarks.yaml` row, fails; footer stamp from `GITHUB_SHA`, so no `origin/main` needed; TICK-1162), `govulncheck ./...` in both modules at once (`vulncheck-ci`, below; in GitHub the separate `govulncheck` workflow: every second day, by hand, and on every pull request, whose result is the check `vulncheck`; TICK-641, ADR-001-E4) | none |
 | Unit | `ci-unit` | `go test -race ./...` under the host-wide race lock (below), temporal-server unit tests, golangci-lint on the temporal-server module (`lint-temporal-server`, TICK-584) | none |
 | Integration | `ci-integration` | any `//go:build integration` test (`internal/db/dbtest`, `internal/db/pooltest`, `internal/tenancy`, `internal/platform/health`) against throwaway PostgreSQL clusters and two PgBouncers (tags from `docs/pins.md`), or the dbtest shards running fewer tests than the package lists | Docker |
-| Isolation (in `ci-integration`, after `test-integration`; in CI the `isolation` job, full runs and every pull request run with `ci:run` or `ci:full`, TICK-1003, TICK-1146) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails) | Docker |
+| Isolation (in `ci-integration`, after `test-integration`; in CI the `isolation` job, full runs and every pull request run with `ci:run` or `ci:full`, TICK-1003, TICK-1146) | `isolation` | the tenant isolation suite (`internal/tenancy/isolation`, T11, ADR-001 CI-2): any role × tenant table, registered path or fixture failing; writes the report `isolation-report.md` at the repository root (uploaded as the `isolation-report` artifact, even when the job fails), rewritten after every row so a panic or the `go test` timeout leaves every finished row, `INCOMPLETE`, with the path under way as `RUNNING` and the rest `NOT RUN` (TICK-1180) | Docker |
 | ci-isolated `--down` (in `ci-integration`, after `isolation`; its own step in the `isolation` job) | `test-ci-isolated-down` | `make ci-isolated-down ID=<ID>` leaves a `nava/*:<ID>` tag or removes one of another ID (TICK-211, throwaway tags on an empty imported image). Not part of `make test-integration`, so the local integration loop does not pay for it (TICK-224) | Docker |
 | Stack | `ci-stack` | image build, every container healthy, `GET /healthz` smoke from inside the compose network, then the stack tests (`pgbouncer`, `temporal`, `dependencies`, `trace`, `redact`, `idempotent`, `dbroles`, `hba`, `internal`) | compose |
 
@@ -164,12 +164,60 @@ and the 7 green push runs of story branch `TICK-334/workflow-interpreter`
 | `stack-db` | 381 s / 793 s | 409 s / 789 s | 254 s / 652 s | 43 s / 55 s | 25 |
 | `stack-internal` | 432 s / 795 s | 356 s / 742 s | 256 s / 684 s | 34 s / 47 s | 25 |
 | `lint`, `unit` | under 5 min | | | | 10 |
-| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021): 391 s in `ci:full` run 44771237892, so 15 is a hang guard with 130 % margin | | | | 15 (was 10) |
+| `integration` | 254 s / 581 s over 39 green runs of every branch, 2026-11-07 to 11-11; p95 580 s (TICK-701). Full runs with the isolation suite still in this job took 9.5 to 14 min and were cancelled at 15 (TICK-1003). Over the last 100 `ci` runs (69 green integration jobs, 2026-11-19 to 11-20): 390 s / 800 s, p50 569 s, p90 716 s, and attempt 1 of run 44691312477 cancelled at 15 with no failing test; the serial shared group was the long pole, so `internal/server` got its own cluster (TICK-1021): 391 s in `ci:full` run 44771237892, so 15 is a hang guard with 130 % margin. 58 green runs on 2026-11-27: 395 s / 884 s, p50 535 s, p95 858 s; `main` alone 395 s / 682 s; run 46064898762 (PR #931) cancelled at 15 with every group `ok` (TICK-1199, see **integration budget** below) | | | | 20 (was 15, before that 10) |
+| `isolation-not-needed` (check name `isolation`) | a pull request with a docs-only diff and no suite run (TICK-1193): one `make isolation-not-needed`, seconds | | | | 5 |
 | `isolation` | full runs and every `ci:run`/`ci:full` pull request run (TICK-1003, TICK-1146): the suite 148 s and `test-integration-cleanup` 50 to 76 s in run 44604840061; measured job times in the TICK-1003 pull request | | | | 15 |
 | `temporal-server` | about 4 min (run 42169424211, PR #484: tests 143 s, golangci-lint 19 s cold) | | | | 10 |
 | `sdk` | about 1 min (npm ci, gen, type-check, tests, pack; TICK-827) | | | | 10 |
 | `commit-check-budget` | | 120 s, cold Go cache (run 41673342312; the test itself 13 s) | | | 10 |
 | `changes` | under 1 min | | | | 5 |
+
+**integration budget (TICK-1199).** The `integration` job has a
+`timeout-minutes` of 20 on GitHub-hosted runners (30 self-hosted).
+
+| Line | Value | What happens |
+|---|---|---|
+| Target | p95 at most 12 min (720 s) of job wall clock | none; this is where a healthy run sits |
+| Alert | 80 % of the timeout: 16 min (960 s) of job time, i.e. tests done after 900 s in `scripts/ci/test-integration.sh` (the job spends about 45 s outside the script) | the step prints a `::warning title=integration over budget::` annotation on the run, which stays green. Whoever sees it (the PR author, the reviewer, the Quality advisor) opens an issue labelled `Performance pending` with the run id and the per-group times |
+| Timeout | 20 min | GitHub cancels the job, and the run is red. Do not rerun a red job without opening the issue as well |
+
+**What the issue does.** It rebalances the groups. It does not raise the
+timeout again unless it has new measurements. The order to try:
+
+1. Move a shared-group package that needs only `NAVA_TEST_PG_URL` to
+   `NAVA_IT_SOLO`. A package that uses the PgBouncers (`records/pipeline`)
+   cannot move.
+2. Split a solo package that is over about 70 % of the per-process Go
+   `-timeout` (11m, so about 460 s) into more processes. This is
+   `NAVA_IT_SOLO_SHARDS`, which arrives on `main` with the `TICK-740` story
+   branch.
+3. Add `DBTEST_SHARDS` when a dbtest shard becomes the longest group.
+
+**Measured for TICK-1199.** Sample: the last 100 `ci` runs, which held 58
+green `integration` jobs, all from 2026-11-27. The serial `shared` group
+(`-p 1`) is the critical path, not `internal/server`:
+
+| Run (job) | Branch kind | Job | Shared, sum | `records/pipeline` | `groupsync` | `server` (each process) | dbtest shards |
+|---|---|---|---|---|---|---|---|
+| 46054582343 (140691904264) | PR into main | 649 s | about 580 s | 277 s | 133 s | 526 s (one) | 164 to 193 s |
+| 46051156428 (140689581797) | PR into `TICK-740/search-finish` | 884 s | about 700 s | 299 s | 175 s | 479 / 503 s (two) | 224 to 266 s |
+| 46044613739 (140660783028) | PR into `TICK-740/search-finish` | 871 s | about 690 s | 291 s | 172 s | 454 / 488 s (two) | 221 to 257 s |
+
+The story branch adds `fieldindex/backfill` (about 44 s) and `schemabackfill`
+(about 17 s) to the shared group. It also starts eight containers instead of
+six, and on its runs the clusters became healthy after 60 to 115 s instead of
+about 21 s. Moving `groupsync` (130 to 175 s) to its own cluster shortens the
+chain to about 530 s on the story branch. Then `server` and `shared` are
+about equal, and the job should take about 11 to 12 min. A single
+`internal/server` process on `main` (526 to 556 s) is already over the 460 s
+split line. The story branch's `NAVA_IT_SOLO_SHARDS=2` fixes that when it
+merges.
+
+**Acceptance.** `integration` takes at most 80 % of its timeout on five
+consecutive runs on `main`. With a 20-minute timeout that is 960 s; the last
+ten green runs on `main` took 395 to 682 s. To read it:
+`gh run list --workflow ci --branch main`, then each run's `integration` job
+times (`gh api repos/<owner>/<repo>/actions/runs/<id>/jobs`).
 
 **Stack case `s28_first_routed_record` (TICK-884).** A full-tier case of the
 `stack` job: it runs on a full run (`ci:full`, the daily run, a manual run) and
@@ -298,9 +346,11 @@ production files never do (TICK-153 O1).
 
 Four kinds of group run at once (TICK-153 O3, TICK-1021): dbtest's top-level
 tests, dealt round-robin over the shard clusters, one `go test -run` each; each
-`NAVA_IT_SOLO` package (default `./internal/server`) as `NAVA_IT_SOLO_SHARDS`
-(default 2) `go test -run` shards, its top-level tests dealt round-robin, each
-shard on a cluster of its own (`[solo-server-1]`, `[solo-server-2]`); the other packages that use the shared cluster
+`NAVA_IT_SOLO` package (default `./internal/server ./internal/groupsync`,
+TICK-1199) as `NAVA_IT_SOLO_SHARDS` (default 2) `go test -run` shards, its
+top-level tests dealt round-robin, each shard on a cluster of its own
+(`[solo-server-1]`, `[solo-server-2]`, `[solo-groupsync-1]`,
+`[solo-groupsync-2]`); the other packages that use the shared cluster
 (`pooltest`, `tenancy`, `records/pipeline` and the rest, `-p 1`, since they
 create the same role); and the packages that use none (`health`, which starts
 its own container). A solo package must not need the PgBouncers, which front
@@ -468,6 +518,7 @@ Renovate).**
 | A registered isolation suite runs zero tests and CI stays green (a `TestMain` exiting before `m.Run`, a step dropping `-tags`) | `tools/ci/suiteran` (TICK-230) wraps `go test -json` in `test`, `temporal-server-test`, `test-integration`, `isolation`, `stack-test-identity` and `stack-test-sdk`: every `cto_signoff.isolation_tests` file whose package ran and whose build constraints hold for the step's `-tags` must have at least one of its tests pass or fail. Fixtures in `tools/ci/suiteran/testdata/fixture`; `TestEveryRegisteredSuiteHasACheckedStep` fails when a registered suite has no step whose `-tags` builds it |
 | An integration test hangs and the cancelled job's log is empty, so nobody can tell which test | `go test -timeout 11m` in `test-integration.sh` (below the job's 15 minutes; 8m until TICK-1100, 6m and 10 until TICK-1021) and the groups' output streamed through `tools/ci/testlog` (TICK-225). Unit tests in `tools/ci/testlog`; the hang itself was proven once on a throwaway PR (not merged) |
 | A shallow clone passes `check-openapi` with nothing to compare against | `check-openapi` fails when `BASE` is missing |
+| A merge to `main` during a PR's run makes `check-openapi` report a removal the PR never made (run 45917518839) | `check-openapi.sh` uses `HEAD^1` on `pull_request`, or the merge-base with `BASE` when HEAD is the PR tip; `test-check-openapi-base` |
 | A change to `nava.interpreter` breaks determinism, so runs already in flight fail on their next workflow task after a deploy (Epic 09 AC2) | The replay gate in the `unit` job (`make test`), below: `TestReplayRecordedHistories` replays every history under `internal/workflow/testdata/histories/`; `TestHistoriesAppendOnly` keeps the ones on `main` unchanged; `TestHistoriesHoldReferencesOnly` keeps them references only (ADR-001 R1) |
 | A branch's migration merges with a version older than one already on `main`, so fresh CI databases and deployed ones migrate in different orders | `TestNewMigrationsLaterThanBase` in `db/` (TICK-299), in the `unit` job with `BASE=origin/main` for every event, also pull requests into a story branch (TICK-309), and full history: fails naming each added migration, its version and `main`'s newest version. Skips locally unless `BASE` is set. Rule: `db/migrations/README.md` |
 | pgx's prepared-statement cache breaks through PgBouncer in transaction mode | `internal/db/pooltest` (T06): 50 clients, 10k statements, zero errors; a second PgBouncer with `max_prepared_statements = 0` must fail |
@@ -613,6 +664,7 @@ cannot read `env`, so the daily cron string is repeated where a job needs it
 | `lint`, `unit`, `temporal-server`, `commit-check-budget`, `coverage` | as the diff needs | every job |
 | `integration`: integration tests and the coverage profile | yes | yes |
 | `isolation` job: isolation suite (CI-2) and `isolation-report` | push to `main`: no (job skipped); pull request with `ci:run`: yes (TICK-1146) | yes |
+| `isolation-not-needed` job: the required `isolation` check without the suite | pull request with a docs-only diff (`docs_only=true`) and no `ci:run`, `ci:full` or story-branch base (TICK-1193, AR-TICK-1193-01) | no |
 | `isolation` job: `test-ci-isolated-down`, `test-integration-cleanup` | as the suite | yes |
 | `stack` phase 1: `tier=smoke` cases | yes, by area | yes, every area |
 | `stack` phase 1: every other case (CI-5 `identity_attacks`, CI-6 and CI-7 `sdk`, `temporal_custody`, `temporal_handshake`, `temporal_isolation`, `temporal_operator_reach`, `onboard`, `demo_outbox`, `s8_entity_types`, `s9_records`, `s14_*`, `keycloak_restart`, `trace`, `logs`, `redact`, `interpreter`, `pgbouncer`) and the `ci5-report` and `ci6-report` uploads | no (`STACK_TIER=smoke`) | yes (`STACK_TIER=all`) |
@@ -862,46 +914,71 @@ input; `TestFullSuite` covers the skip exception.
 
 **govulncheck workflow.** govulncheck is no longer a step of the `ci`
 workflow: `.github/workflows/govulncheck.yml` runs it as a pipeline of its own
-(the owner's request on TICK-641). Two parallel jobs on `ubuntu-latest`,
-`vulncheck-root` (`make vulncheck`) and `vulncheck-temporal-server`
-(`make vulncheck-temporal-server`), each after `make tools-govulncheck`, with
-no Actions cache (about a minute each). The job ids start with `vulncheck-`
-(TICK-1145) because GitHub knows a check by its name, not by its workflow:
-while the scan's job was also called `temporal-server`, a green scan could
-stand in for the required `ci` job of that name. `TestNoTwoWorkflowsReportTheSameCheck`
-(`tools/ci/cisteps`, part of `go test ./...` in the unit job) fails on any check name
-reported by two workflows.
+(the owner's request on TICK-641), and since ADR-001-E4 (TICK-1150) on every
+pull request. All jobs run on `ubuntu-latest`:
+
+| Job | What it does |
+| --- | --- |
+| `vulncheck-detect` | `scripts/ci/vulncheck-detect.sh` (contract rule 2): on a pull request, diffs the merge base with the head and says which module needs a scan. A library list of the root module (`go.mod`, `go.sum`) scans the root, one of `temporal-server/` scans that module; a change to the gate itself (the workflow, its copy, the two scripts, `tools/ci/cisteps/`, `tools/ci/vulngate/`, a `govulncheck` line in `Makefile` or `make/lint.mk`), a `FROM ... golang` line or a `go.work` scans both; anything else neither. On `schedule` and `workflow_dispatch`, both. A short SHA or a ref name fails (TICK-1150) |
+| `vulncheck-root`, `vulncheck-temporal-server` | `make vulncheck` / `make vulncheck-temporal-server` after `make tools-govulncheck`, no Actions cache (about a minute each), only when detect asks for that module |
+| `vulncheck` (the gate) | `if: always()`; `scripts/ci/vulncheck-gate.sh` (contract rule 4) passes only when detect succeeded and each module either ran and succeeded, or was skipped because detect said it was not needed. It reports the check `vulncheck` on a pull request into `main` and `vulncheck-other` on any other base or event (rule 5) |
+| `vulncheck-main-red` | a failed scheduled run on `main` opens or updates a P0 issue `govulncheck is red: <short sha>` (`scripts/ci/main-red.sh`, `WORKFLOW=govulncheck`, TICK-1152) |
 
 | Event | Runs |
 | --- | --- |
-| pull request (opened, synchronize, reopened) | only when it changes `go.mod`, `go.sum`, `temporal-server/go.mod` or `temporal-server/go.sum` (`paths:` filter, TICK-694): a new or bumped dependency is how a known-vulnerable module enters `main`. Every other pull request skips it. Allowed because it is not a required check of `main` |
-| push to `main` | never (TICK-694): a dependency change was scanned on its pull request, and anything else waits for the next scheduled run |
-| schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st): a new advisory needs no change of ours (ADR-001-A1 R7) |
-| manual | always |
+| pull request (opened, synchronize, reopened) | always, no `paths:` filter (contract rule 1: a filtered-out workflow leaves its check Pending), with the scans the change needs. A docs-only pull request into `main` gets a green `vulncheck` with no scan |
+| push to `main` | never (TICK-694): a merge was scanned on its pull request, and anything else waits for the next scheduled run |
+| schedule | every second day of the month at 03:17 UTC (`17 3 */2 * *`, TICK-694; a 31-day month runs on the 31st and the 1st), both modules: a new advisory needs no change of ours (ADR-001-A1 R7) |
+| manual | both modules |
 
-A finding fails the job. On a scheduled run on `main` the workflow's own
-`vulncheck-main-red` job opens or updates the P0 "main is red" issue
-(`scripts/ci/main-red.sh`, with `WORKFLOW=govulncheck`). `make check-ci-steps`
-compares the whole workflow, comment lines aside, with its checked-in copy
-`tools/ci/cisteps/govulncheck.copy.yml`, and requires `make -n` of the two
-recipes to print exactly `GOWORK=off govulncheck ./...` and
-`cd temporal-server && GOWORK=off govulncheck ./...` (TICK-1149, ADR-001-E4
-contract rule 9). It also reads make's database (`make -pn`): each rule must
-be exactly the target with that one recipe line, and `.IGNORE`, `.ONESHELL`,
-a target- or pattern-specific `SHELL`/`.SHELLFLAGS`, or a global `SHELL`,
-`.SHELLFLAGS` or `MAKEFLAGS` other than make's default fails, because
-`make -n` shows none of them, nor a `-`, `@` or `+` prefix (TICK-1149 review
-finding 1). An edit of only one of the two files fails `lint`; a
-deliberate edit of both passes and is the reviewer's to catch (RS3). Both
-scans run with `GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
-`task vulncheck`. The two scans are
-deliberately not required checks of `main`: with the `paths:` filter, a
-required check would never report on most pull requests and block their
-merge. The trade-off (TICK-694): a code-only change that starts calling an
-already-listed vulnerable symbol, or an advisory published after a merge, is
-caught by the next scheduled run, up to two days later. Locally:
-`make tools-govulncheck vulncheck vulncheck-temporal-server`, or
-`make vulncheck-ci` as part of `make ci-lint`.
+`vulncheck` is the pull request's result and a required check of `main`
+(T-E4-7, TICK-1154, 2026-11-27; before/after in
+`docs/adr/ADR-001/E4/fu2-applied.txt`). The required checks of `main`, all from
+GitHub Actions (app id 15368), with `strict` (branch up to date) and
+`enforce_admins` on: `changes`, `lint`, `unit`, `temporal-server`,
+`integration`, `stack`, `coverage`, `commit-check-budget`, `isolation`,
+`vulncheck`. A red or missing `vulncheck` blocks the merge.
+
+On a pull request, detect and the gate run the scripts as they are on `main`,
+not the pull request's own copies: detect runs
+`git show origin/main:scripts/ci/vulncheck-detect.sh`, and the gate job checks
+out `main`. A pull request that edits `vulncheck-detect.sh` so that it says
+"none" therefore still gets the scans `main`'s detect asks for (both, since the
+script is part of the gate). This answers the TICK-1148 security review of
+PR #912. It does not stop a pull request that edits `govulncheck.yml` and its
+copy together to run its own script: that is RS3, caught by review. The cost:
+a change to either script takes effect on pull requests opened after it
+merges, and a change to the interface between the workflow and a script (a
+new input) needs the script change merged first.
+
+The job ids start with `vulncheck-` (TICK-1145) because GitHub knows a check
+by its name, not by its workflow: while the scan's job was also called
+`temporal-server`, a green scan could stand in for the required `ci` job of
+that name. `TestNoTwoWorkflowsReportTheSameCheck` (`tools/ci/cisteps`, part of
+`go test ./...` in the unit job) fails on any check name reported by two
+workflows. It reads both values of a `${{ <cond> && 'x' || 'y' }}` name, so a
+second workflow with a job called `vulncheck-other` fails too (ADR-001-E4
+E4-5). Any other expression in a job name fails the test.
+
+`make check-ci-steps` compares the whole workflow, comment lines aside, with
+its checked-in copy `tools/ci/cisteps/govulncheck.copy.yml` (TICK-1149,
+ADR-001-E4 contract rule 9), and fails when any `run:` line of the workflow
+runs make (ADR-001-A7 rule 9, TICK-1187). The scan jobs run
+`go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` with their Go settings
+in the step `env:`, so no makefile can change what they scan; `make
+check-pins` (V-6) requires one govulncheck version in `Makefile`,
+`docs/pins.md` and the workflow (TICK-1188). An edit of only one of the
+workflow and its copy fails `lint`; a deliberate edit of both that adds no make
+passes and is the reviewer's to catch (RS3). Both scans run with
+`GOWORK=off` (rule 7), in the workflow, `make vulncheck-ci` and
+`task vulncheck`. The trade-off of scanning only the module whose library list
+changed (rule 3): a code-only change that starts calling an already-listed
+vulnerable symbol, or an advisory published after a merge, is caught by the
+next scheduled run, up to two days later. Locally:
+`make vulncheck vulncheck-temporal-server` (the workflow's command; the
+installed Go must be at least the module's `go` line, TICK-1189), or
+`make vulncheck-ci` as part of `make ci-lint`. `go test ./tools/ci/vulngate`
+runs the detect and gate tables (V-1, V-2).
 
 **The published image.** Since TICK-693 the stack job pulls
 `nava/temporal-server` with the generic mechanism in "Published CI images"

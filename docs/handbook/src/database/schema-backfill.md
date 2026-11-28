@@ -10,8 +10,8 @@ packages: [internal/schemabackfill, internal/entitytypes]
 sources:
   - docs/adr/ADR-009-schema-version-backfill.md
   - docs/data/schema-backfill.md
-  - db/migrations/20261127100400_schema_backfill_tables.sql
-  - db/migrations/20261127100500_schema_backfill_rollout.sql
+  - db/migrations/20261127110300_schema_backfill_tables.sql
+  - db/migrations/20261127110400_schema_backfill_rollout.sql
   - db/grants.yaml
   - db/audited-tables.yaml
   - internal/entitytypes/backfill.go
@@ -62,7 +62,7 @@ state. They hold ids, counts and codes, never a record's values.
 | Writer | What | How |
 |---|---|---|
 | Entity-type publish (`nava_app`) | one `pending` job row, in the publish transaction, with its outbox row | `entitytypes.queueBackfill`. `nava_app`'s only write on these tables: the pinned policy `schema_backfills_insert_app_pending` admits a row of its own tenant only in `pending`, with zero counters and no timestamps (PLAN-010 D-10-11) |
-| Rollout migration (`nava_migrator`, once) | one `pending` job and one outbox row per tenant and type that already had a default before S29 | `20261127100500_schema_backfill_rollout.sql` (D15). It skips a type that combines a default with `x-nava-unique` and logs a `schema_backfill_skipped` NOTICE. Running it again inserts nothing, and it never reads or writes `records` |
+| Rollout migration (`nava_migrator`, once) | one `pending` job and one outbox row per tenant and type that already had a default before S29 | `20261127110400_schema_backfill_rollout.sql` (D15). It skips a type that combines a default with `x-nava-unique` and logs a `schema_backfill_skipped` NOTICE. Running it again inserts nothing, and it never reads or writes `records` |
 | `schema.backfill` workflow (`nava_worker`) | every state change, the queue, the failures, the counters | `internal/schemabackfill`, one tenant transaction per step |
 
 `nava_app` reads them, SELECT only, for the entity type's `backfill` object
