@@ -555,6 +555,9 @@ func (h *handlers) ListRecords(ctx context.Context, req api.ListRecordsRequestOb
 		lq.DataFilter, lq.Timeout = pl.hasLegacyScan(), h.dataFilterTimeout
 		lq.BudgetCount = pl.hasIndexFilter() || pl.hasLegacyScan()
 		lq.CountDelay, lq.SkipCount = h.countDelay, h.skipCount
+		if h.listQuery != nil {
+			h.listQuery(&lq)
+		}
 		started := time.Now()
 		page, err := pipeline.List(ctx, tx, lq)
 		if err == nil && pl.hasIndexFilter() {

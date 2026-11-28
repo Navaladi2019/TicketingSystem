@@ -22,6 +22,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/idempotency"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/problem"
 	"github.com/Navaladi2019/TicketingSystem/internal/platform/ratelimit"
+	"github.com/Navaladi2019/TicketingSystem/internal/records/pipeline"
 )
 
 // operatorPrefix is the part of the contract served to operators only. Its
@@ -70,6 +71,9 @@ type options struct {
 	// listIndexTerm replaces the list's field-index EXISTS; only
 	// WithListIndexTerm (integration builds) sets it.
 	listIndexTerm IndexTermFunc
+	// listQuery rewrites the list statement before it runs; only
+	// WithListQuery (integration builds) sets it.
+	listQuery func(q *pipeline.ListQuery)
 	// historyCap and historyRows set the record-history cap and its row-count
 	// hook of the audit reader. Only tests set them (export_test.go).
 	historyCap  int

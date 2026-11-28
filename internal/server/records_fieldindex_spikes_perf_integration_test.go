@@ -138,6 +138,9 @@ type spCell struct {
 	n                int
 	errs, timeouts   int64
 	pre, page, count float64 // single-run server time (planning + execution), ms
+	pagePlanning     float64 // the page statement's Planning Time, ms
+	pagePlan         string  // the page statement's plan (TICK-1205 reads it)
+	countPlan        string  // the count statement's plan
 	pageShape        string
 	countShape       string
 }
@@ -228,14 +231,19 @@ func (e *fiEnv) cell(t *testing.T, clients int, d time.Duration, label string, t
 		switch {
 		case strings.Contains(sql, "LIMIT "+strconv.Itoa(spK+1)):
 			c.pre += ms
-		case !strings.Contains(sql, "rfv_") && !strings.Contains(sql, "spike_pk"):
+		case !strings.Contains(sql, "rfv_") && !strings.Contains(sql, "spike_pk") && !strings.Contains(sql, "r.fx_"):
 			continue
 		case strings.Contains(sql, "count(*)"):
 			c.count += ms
 			c.countShape = spShape(plan)
+			c.countPlan = plan
 		default:
 			c.page += ms
 			c.pageShape = spShape(plan)
+			c.pagePlan = plan
+			if m := fiPlanning.FindStringSubmatch(plan); m != nil {
+				c.pagePlanning, _ = strconv.ParseFloat(m[1], 64)
+			}
 		}
 		*plans = append(*plans, "### "+label+"\n\n```sql\n"+strings.TrimSpace(sql)+"\n```\n\n```\n"+plan+"\n```")
 	}

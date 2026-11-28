@@ -36,7 +36,8 @@
 // (180) per live-mix control, NAVA_PERF_LIVE_MAX (1200) cap on the live mix
 // under the backfill, NAVA_PERF_PHASES (lists,guard,writes,backfill; edges
 // and arms are the TICK-1009 and TICK-1039 spikes, see
-// records_fieldindex_spikes_perf_integration_test.go),
+// records_fieldindex_spikes_perf_integration_test.go; slots is TICK-1205,
+// see records_fieldindex_slots_perf_integration_test.go),
 // NAVA_PERF_ASIS_BATCHES (40) and NAVA_PERF_FIX_BATCHES (60) batches of each
 // as-merged and fix-candidate backfill sample (0 runs to the end),
 // NAVA_PERF_TEMPORAL_CLI (an existing temporal CLI binary; empty downloads
@@ -260,7 +261,7 @@ func TestFieldIndexPerf800k(t *testing.T) {
 
 	ph := e.phases()
 	switch {
-	case ph["lists"] || ph["writes"] || ph["edges"] || ph["arms"]:
+	case ph["lists"] || ph["writes"] || ph["edges"] || ph["arms"] || ph["slots"]:
 		e.flagForLists(t, fiListFields(), false)
 	case ph["backfill"] || ph["probe"]:
 		// A backfill-only run flags the live mix's four fields on the large
@@ -270,7 +271,7 @@ func TestFieldIndexPerf800k(t *testing.T) {
 	if ph["lists"] {
 		e.lists(t, clients)
 	}
-	if ph["edges"] || ph["arms"] {
+	if ph["edges"] || ph["arms"] || ph["slots"] {
 		e.broadAgents(t)
 	}
 	if ph["edges"] {
@@ -278,6 +279,9 @@ func TestFieldIndexPerf800k(t *testing.T) {
 	}
 	if ph["arms"] {
 		e.arms(t, clients)
+	}
+	if ph["slots"] {
+		e.slots(t, clients)
 	}
 	if ph["guard"] {
 		e.guard(t)

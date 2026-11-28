@@ -119,7 +119,7 @@ func newAPI(log *slog.Logger, tel *telemetry.Telemetry, resolver identity.Identi
 	}
 
 	a := apihttp.New(spec, reg, log, baseURL).WithBodyRefusals(strictBodyRefusals(reg))
-	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, listIndexTerm: opts.listIndexTerm, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
+	h := &handlers{reg: reg, log: log, onboarder: opts.onboarder, paths: paths, pool: opts.pool, cursors: opts.cursors, aclMaxBytes: opts.aclMaxBytes, dataFilterTimeout: opts.dataFilterTimeout, countDelay: opts.countDelay, skipCount: opts.skipCount, listDataTerm: opts.listDataTerm, legacyScan: opts.legacyScan, listIndexTerm: opts.listIndexTerm, listQuery: opts.listQuery, nfGate: opts.nfGate, typePublishCheck: opts.typePublishCheck}
 	if h.nfGate == nil {
 		h.nfGate = numberformats.NewGate(nil, nil)
 	}
@@ -273,9 +273,11 @@ type handlers struct {
 	// listIndexTerm replaces the field-index EXISTS; nil in every production
 	// build (see listPlan.indexTerm).
 	listIndexTerm IndexTermFunc
-	store         entitytypes.Store
-	nfStore       numberformats.Store
-	tsStore       tenantsettings.Store
+	// listQuery rewrites the list statement; nil in every production build.
+	listQuery func(q *pipeline.ListQuery)
+	store     entitytypes.Store
+	nfStore   numberformats.Store
+	tsStore   tenantsettings.Store
 	// nfGate refuses a non-default number format until M3 has run.
 	nfGate *numberformats.Gate
 	// typePublishCheck is the right to publish one entity type's definition;
