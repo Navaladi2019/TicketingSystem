@@ -5,7 +5,7 @@ status: delivered
 build: production
 workflows: [audit.seal]
 activities: [audit.seal.Reschedule, audit.seal.Seal]
-adrs: [ADR-004, ADR-004-E7, ADR-001-A6]
+adrs: [ADR-004, ADR-004-E7, ADR-004-E10, ADR-001-A6]
 invariants: [I2, I6, I7]
 tables: [audit_chain_head, audit_log, outbox]
 packages: [internal/audit/seal, cmd/nava-worker]
@@ -28,6 +28,7 @@ sources:
   - internal/audit/seal/seal.go:40,45-46
   - internal/audit/seal/seal.go:68
   - internal/audit/seal/seal.go:108-154
+  - internal/audit/seal/seal.go:155-169
   - internal/audit/seal/testdata/histories/...
   - cmd/nava-worker/main.go:233-236
   - cmd/nava-worker/main.go:331-336
@@ -64,6 +65,8 @@ tests:
 ---
 
 `audit.seal` hash-chains each tenant's audit entries (ADR-004 R16). It runs in the stack: `nava-worker` registers it in the production build (`cmd/nava-worker/main.go:331-336`), with its two activities, on `nava-tq`. Each run is one link in the tenant's **seal lineage**: the run commits its successor's start row first, then seals.
+
+**Envelope read (ADR-004-E10).** A2's unsealed read (`unsealedSQL`, `internal/audit/seal/seal.go`) selects every envelope column, `diff_nul_escaped` included, and never `diff` or `diff_salt`: the envelope holds `diff_sha256`. The flag joins the canonical envelope only when true, so a tenant with no NUL-escaped entry seals exactly the bytes it sealed before E10.
 
 ## Trigger
 

@@ -2,9 +2,9 @@
 title: "8. Audit export and erasure"
 section: security
 status: delivered
-sources: [docs/security/audit-erasure-export-isolation.md, internal/server/audit_erasure_isolation_integration_test.go, internal/server/audit_export.go, internal/server/audit_export_fieldmask_integration_test.go, internal/audit, docs/adr/ADR-004-audit-log.md, docs/adr/ADR-004-A1-diff-read-role.md, docs/security/accepted-risks.md]
+sources: [docs/security/audit-erasure-export-isolation.md, internal/server/audit_erasure_isolation_integration_test.go, internal/server/audit_export.go, internal/server/audit_export_fieldmask_integration_test.go, internal/audit, docs/api/audit-export-v1.md, docs/adr/ADR-004-audit-log.md, docs/adr/ADR-004-A1-diff-read-role.md, docs/security/accepted-risks.md]
 evidence: [docs/security/audit-erasure-export-isolation.md]
-adrs: [ADR-004, ADR-004-A1, ADR-004-E1]
+adrs: [ADR-004, ADR-004-A1, ADR-004-E1, ADR-004-E10]
 invariants: [I1, I3]
 stories: [S13, S16, S31]
 operations: [exportAuditEntries]
@@ -48,6 +48,17 @@ Lowest layer first (ADR-004 R11, R17, R19 to R24, ADR-004-A1):
   TICK-1127 the export applied no field mask (`TODO-S10-01` in
   `docs/delivery/todo.md`), so a file downloaded earlier can hold values that
   were masked for its reader.
+- **`diff_nul_escaped` in the export format (ADR-004-E10).** The format id
+  stays v1. In JSON Lines the envelope member is emitted only when true; an
+  absent member means false, and `false`, `null` or any other value is
+  `malformed_line`. In CSV it is a column right after `diff_truncated`
+  (38 columns): an empty cell means the member is omitted, `true` means true,
+  and anything else is `malformed_line`. A file with the pre-E10 37-column
+  header still verifies, every row reading false; a 38-column row under that
+  header is `malformed_line` (`TestCSVPreE10FixturesVerify`,
+  `TestCSVPreE10HeaderRefusesE10Row`, `TestDiffNULEscapedExported`,
+  `TestDiffNULEscapedEncodings`). The normative text is
+  [audit-export-v1.md](../../../api/audit-export-v1.md) §3 note 6 and §5.
 - **The erase helper is test-only.** No `cmd/*` binary links
   `internal/audit/erasetest`.
 - **Offline verifier, step 7.** A diff nulled without a sealed erase entry

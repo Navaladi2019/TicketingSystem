@@ -17,7 +17,7 @@
 --   - ADD COLUMN with no DEFAULT is a catalogue change: no rewrite, every
 --     existing row reads NULL.
 --   - Both CHECKs are added NOT VALID: no scan under the ACCESS EXCLUSIVE
---     lock, every new row is checked from here on. 20261127110100 validates
+--     lock, every new row is checked from here on. 20261127110900 validates
 --     them under SHARE UPDATE EXCLUSIVE, the split 20261101130000/0100 used.
 --   - The old published_by_check is dropped and its replacement added under
 --     the same name in this one transaction, so no insert runs unchecked

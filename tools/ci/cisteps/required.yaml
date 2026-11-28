@@ -28,6 +28,9 @@ steps:
     run: make check-openapi
     why: /api/v1 loses an operation or field without review
   - job: lint
+    run: make test-check-openapi-base
+    why: check-openapi drifts back to a moving origin/main and fails unrelated PRs whenever main merges an API change mid-run (TICK-1179, run 45917518839)
+  - job: lint
     run: make test-handbook
     why: docs/handbook/build/build.py, which renders every handbook page and checks its references, changes with no test run (TICK-847)
   - job: lint
@@ -79,6 +82,9 @@ steps:
   - job: isolation
     run: make isolation
     why: the isolation suite under suiteran, on full runs only (the daily run on main, ci:full, a manual run; TICK-652, AR-TICK-652-01); its own job since TICK-1003, so it no longer pushes integration past its timeout
+  - job: isolation-not-needed
+    run: make isolation-not-needed DOCS_ONLY="$DOCS_ONLY"
+    why: a docs-only pull request into main reports no isolation check and cannot merge without a labelled run (TICK-1193)
   - job: isolation
     artifact: isolation-report
     why: the CI-2 isolation report, uploaded on full runs (the daily run on main, ci:full, a manual run), with the suite that writes it (TICK-652, TICK-1003)
@@ -141,6 +147,10 @@ outputs:
     output: full
     value: ${{ steps.stages.outputs.full }}
     why: the isolation job and full-suite read it; make ci-stages writes it from the stages step's CI_FULL, story-branch rule included. env.CI_FULL lacks that rule, so PRs 801 and 805 merged into a story branch with the tenant isolation suite skipped
+  - job: changes
+    output: docs_only
+    value: ${{ steps.stages.outputs.docs_only }}
+    why: isolation-not-needed reads it; any expression that reads the labels or the event lets a later run of a code change's head report isolation as passed without the suite (TICK-1193, TICK-1146)
 
 # Required status checks that only a job which ran may report (TICK-1146).
 # GitHub names a skipped job's check run after its unevaluated name:
@@ -154,3 +164,6 @@ checks:
   - job: isolation
     check: isolation
     why: a run that skips the tenant isolation suite reports isolation as passed on the same commit and hides its red result (TICK-1146)
+  - job: isolation-not-needed
+    check: isolation
+    why: with a fixed name, every run that skips this job (every code change) reports isolation as passed (TICK-1193)

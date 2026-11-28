@@ -196,6 +196,8 @@
             label: "E3: the onboarding role reads its own tenant row"
           - page: adr/adr-001-e4.md
             label: "E4: when the vulnerability scan runs, and what a failure blocks"
+          - page: adr/adr-001-a7.md
+            label: "A7: the vulnerability scan runs without make"
       - page: adr/adr-002.md
         label: "ADR-002 /me shows group paths"
         children:
@@ -255,6 +257,9 @@
         label: "ADR-008 Competitive Gate in every ADR"
       - page: adr/adr-009.md
         label: "ADR-009 Records catch up when a default is added"
+        children:
+          - page: adr/adr-009-e1.md
+            label: "E1: a unique field with a default answers invalid_definition"
       - page: adr/adr-010.md
         label: "ADR-010 Composable access rules"
         children:

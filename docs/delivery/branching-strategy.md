@@ -103,6 +103,7 @@ Only two things still go to the human: a tenant-isolation gap, and a business tr
 - `.github/workflows/ci.yml` runs on every `pull_request`, with no base-branch filter. So CI already runs on PRs into story branches as well as `main`.
 - The `changes` job diffs against `origin/${{ github.base_ref }}`. On a task PR that is the story branch, so path filtering works without changes.
 - The CI gate in the Delivery squad instructions (every GitHub Actions job green, confirmed by the Quality, Testing & CI Advisor) applies to both levels.
+- Vulnerability scan (ADR-001-E4 E4-3): the interim written rule is now enforced by GitHub. `vulncheck` is a required check of `main` (TICK-1154, 2026-11-27), so a pull request into `main` with a red or missing scan cannot merge. Story branches have no required checks, so there the written rule still applies. The rule to read every check run on the head commit ([merge safety, section 3](merge-safety.md#3-review-standard-merging-to-main-and-to-story-branches)) stays until TICK-1146's fix is merged.
 
 ## Branch protection (state on 2026-10-26)
 

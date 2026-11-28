@@ -1298,43 +1298,64 @@
       ]
     },
     {
-      "file": "20261127100100_field_index_tables.sql",
+      "file": "20261127110000_field_index_tables.sql",
+      "on_main": true,
+      "commit": "3ced49ee",
+      "date": "2026-11-28",
+      "pr": "979",
+      "story": "",
+      "tickets": [
+        "TICK-739"
+      ]
+    },
+    {
+      "file": "20261127110100_field_index_trigger.sql",
+      "on_main": true,
+      "commit": "3ced49ee",
+      "date": "2026-11-28",
+      "pr": "979",
+      "story": "",
+      "tickets": [
+        "TICK-739"
+      ]
+    },
+    {
+      "file": "20261127110200_field_index_sync_read_committed.sql",
+      "on_main": true,
+      "commit": "3ced49ee",
+      "date": "2026-11-28",
+      "pr": "979",
+      "story": "",
+      "tickets": [
+        "TICK-739"
+      ]
+    },
+    {
+      "file": "20261127110300_schema_backfill_tables.sql",
       "on_main": false
     },
     {
-      "file": "20261127100200_field_index_trigger.sql",
+      "file": "20261127110400_schema_backfill_rollout.sql",
       "on_main": false
     },
     {
-      "file": "20261127100300_field_index_sync_read_committed.sql",
+      "file": "20261127110500_audit_log_subject_tenant_limits.sql",
       "on_main": false
     },
     {
-      "file": "20261127100400_schema_backfill_tables.sql",
+      "file": "20261127110600_audit_log_subject_tenant_limits_validate.sql",
       "on_main": false
     },
     {
-      "file": "20261127100500_schema_backfill_rollout.sql",
+      "file": "20261127110700_tenant_limits.sql",
       "on_main": false
     },
     {
-      "file": "20261127100600_audit_log_subject_tenant_limits.sql",
+      "file": "20261127110800_entity_versions_published_by_system.sql",
       "on_main": false
     },
     {
-      "file": "20261127100700_audit_log_subject_tenant_limits_validate.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261127100800_tenant_limits.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261127110000_entity_versions_published_by_system.sql",
-      "on_main": false
-    },
-    {
-      "file": "20261127110100_entity_versions_published_by_system_validate.sql",
+      "file": "20261127110900_entity_versions_published_by_system_validate.sql",
       "on_main": false
     }
   ]

@@ -14,7 +14,12 @@ headers {
   Authorization: Bearer {{admin_a_token}}
 }
 
-script:pre-request {
+script:post-response {
+  // The cells run after this request, not before it. They take about 136 s
+  // (8 cells x (2 s warm-up + 15 s)), longer than nava-core's 120 s idle
+  // timeout (NAVA_HTTP_IDLE_TIMEOUT), so a pre-request loop left the pooled
+  // keep-alive socket from S21.18 closed under this request: socket hang up,
+  // no tests, no cells in the evidence (TICK-1195 rerun, 2026-11-27).
   const N = require('./lib/nava')({ bru });
   const T = require('./lib/s21')(N, bru);
   const secs = Number(N.v('s21_p95_seconds') || 15);
@@ -28,7 +33,9 @@ script:pre-request {
     ['admin', 'admin_a_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, no narrowing ACL', 150, null],
     ['admin', 'admin_a_token', 'filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z', share('s21_ac2_admin_n') + ' of the type, below 0.5%, no narrowing ACL', 150, null],
     ['Alice', 'alice_token', 'filter[priority]=1', share('s21_p1_admin_n') + ' of the type, 0.5-2% band, narrowing ACL', 350, null],
-    ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL', 350, ['capped', 'unknown']],
+    // p95 recorded, not asserted (null): the 350 ms target moved to S21c
+    // (TICK-1159, owner-approved 2026-11-26); rows and total_state still gate.
+    ['Alice', 'alice_token', 'filter[priority]=3', share('s21_p3_admin_n') + ' of the type, >= 40% band, narrowing ACL, p95 recorded only (S21c)', null, ['capped', 'unknown']],
     ['Alice', 'alice_token', 'filter[priority][gte]=2&filter[due_at][lt]=2026-01-01T12:00:00Z', share('s21_ac2_admin_n') + ' of the type, below 0.5%, narrowing ACL', 150, null],
     ['admin', 'admin_a_token', '', 'no filter (control, reported only)', null, null],
     ['Alice', 'alice_token', '', 'no filter (control, reported only)', null, null],
@@ -56,5 +63,5 @@ tests {
 }
 
 docs {
-  Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL and for the >= 40% band with one (Alice); 150 ms for every other filter. No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).
+  Each cell: 8 clients list with the kit's filter for `s21_p95_seconds` (default 15 s) after 2 s of warm-up, paced to 40 requests a second together so the tenant stays under its 50/s rate limit (a 429 fails the cell). Latency is the client's, through nava-core and PgBouncer, default page (50). Limits (ADR-006 D13 as amended by ADR-006-A1, `docs/budgets.md`): 350 ms for the 0.5-2% band with or without a narrowing ACL; 150 ms for every other filter except the >= 40% band with a narrowing ACL (Alice `priority=3`), whose p95 is recorded, not asserted: its 350 ms target moved to S21c (TICK-1159, 2026-11-26). No 2-40% filter is asserted (unmeasured until TICK-1009). The no-filter control is reported, not scored. Every 200 meets the total contract (ADR-006-A2 A2-1); the >= 40% ACL cell's `total_state` is capped or unknown on every response, and every cell reports its share of `unknown` (expected high on a fresh stack, A2-7).
 }

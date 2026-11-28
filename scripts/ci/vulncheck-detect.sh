@@ -14,9 +14,10 @@
 #
 # On a pull request the diff runs from git merge-base BASE_SHA HEAD_SHA to
 # HEAD_SHA with --no-renames, so a rename lists both paths and renaming go.sum
-# or go.work away still matches. An empty or non-hex BASE_SHA or HEAD_SHA (a
-# branch name, an option), no merge base or any git error exits non-zero, and
-# the gate then fails.
+# or go.work away still matches. An empty BASE_SHA or HEAD_SHA, or one that is
+# not a full 40- or 64-character hex commit id (a branch name, an option, a
+# short id), no merge base or any git error exits non-zero, and the gate then
+# fails.
 #
 # Paths are read with core.quotePath=false, so a non-ASCII path such as
 # tools/ci/cisteps/<e-acute>_test.go prints as is and matches its row. Git
@@ -28,10 +29,13 @@
 #   temporal-server/go.mod, temporal-server/go.sum     -> temporal_server
 #   .github/workflows/govulncheck.yml, its copy
 #   tools/ci/cisteps/govulncheck.copy.yml, this script,
-#   scripts/ci/vulncheck-gate.sh, anything under tools/ci/cisteps/ or
-#   tools/ci/vulngate/ (this gate's tests, PLAN-001-E4 D-E4-3), an added or
-#   removed line naming govulncheck or GOVULNCHECK_VERSION in Makefile or
-#   make/lint.mk                                       -> both
+#   scripts/ci/vulncheck-gate.sh, anything under tools/ci/cisteps/,
+#   tools/ci/checkpins/ (which ties the workflow's govulncheck version to
+#   Makefile and docs/pins.md, V-6) or tools/ci/vulngate/ (this gate's tests,
+#   PLAN-001-E4 D-E4-3)                                -> both
+#   The scan jobs run no make (ADR-001-A7), so Makefile and make/*.mk are not
+#   inputs: a GOVULNCHECK_VERSION edit alone fails check-pins (V-6), and the
+#   workflow edit that goes with it scans both.
 #   an added or removed FROM line naming golang (any case of FROM, flags such
 #   as --platform= allowed) in any file, not only a Dockerfile (wider than the
 #   contract's "FROM golang: in any Dockerfile", failing closed); a path whose
@@ -64,9 +68,15 @@ fi
 
 [ -n "${BASE_SHA:-}" ] || die "BASE_SHA is empty on a pull_request"
 [ -n "${HEAD_SHA:-}" ] || die "HEAD_SHA is empty on a pull_request"
-# A commit id only: never a ref name, and never an option to git.
-case $BASE_SHA in *[!0-9a-fA-F]*) die "BASE_SHA '$BASE_SHA' is not a hex commit id" ;; esac
-case $HEAD_SHA in *[!0-9a-fA-F]*) die "HEAD_SHA '$HEAD_SHA' is not a hex commit id" ;; esac
+# A full commit id only (40 hex characters for SHA-1, 64 for SHA-256): never
+# a ref name, never an option to git, and never a short id, which a branch
+# whose name is only hex characters would also match (TICK-1150).
+full_sha() {
+    case $2 in *[!0-9a-fA-F]*) die "$1 '$2' is not a hex commit id" ;; esac
+    case ${#2} in 40 | 64) ;; *) die "$1 '$2' is ${#2} characters, want a full 40- or 64-character commit id" ;; esac
+}
+full_sha BASE_SHA "$BASE_SHA"
+full_sha HEAD_SHA "$HEAD_SHA"
 
 from=$(git merge-base "$BASE_SHA" "$HEAD_SHA") ||
     die "no merge base of $BASE_SHA and $HEAD_SHA (fetch with fetch-depth: 0)"
@@ -74,8 +84,6 @@ from=$(git merge-base "$BASE_SHA" "$HEAD_SHA") ||
 files=$(git -c core.quotePath=false diff --name-only --no-renames "$from" "$HEAD_SHA") ||
     die "git diff $from $HEAD_SHA failed"
 # Changed lines, not whole files: an added or removed line that matches.
-pins=$(git -c core.quotePath=false diff --name-only --no-renames -G 'govulncheck|GOVULNCHECK_VERSION' "$from" "$HEAD_SHA" -- Makefile make/lint.mk) ||
-    die "git diff -G govulncheck failed"
 golang=$(git -c core.quotePath=false diff --name-only --no-renames -G '^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]].*golang' "$from" "$HEAD_SHA") ||
     die "git diff -G 'FROM ... golang' failed"
 
@@ -97,7 +105,7 @@ while IFS= read -r f; do
             ;;
         .github/workflows/govulncheck.yml | tools/ci/cisteps/govulncheck.copy.yml | \
             scripts/ci/vulncheck-detect.sh | scripts/ci/vulncheck-gate.sh | \
-            tools/ci/cisteps/* | tools/ci/vulngate/*)
+            tools/ci/cisteps/* | tools/ci/checkpins/* | tools/ci/vulngate/*)
             say "$f changed (the gate) -> both"
             root=true
             ts=true
@@ -112,16 +120,6 @@ while IFS= read -r f; do
     esac
 done <<END
 $files
-END
-
-while IFS= read -r f; do
-    [ -z "$f" ] || {
-        say "$f: a line naming govulncheck or GOVULNCHECK_VERSION changed -> both"
-        root=true
-        ts=true
-    }
-done <<END
-$pins
 END
 
 # Any file, not only a Dockerfile* name: a compose file or docker build -f

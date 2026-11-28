@@ -13,7 +13,7 @@ import (
 	"github.com/Navaladi2019/TicketingSystem/internal/db/grants"
 )
 
-const publishedBySystemMigration = "20261127110000_entity_versions_published_by_system.sql"
+const publishedBySystemMigration = "20261127110800_entity_versions_published_by_system.sql"
 
 // insertVersionSystem is insertVersion with published_by_system $9: tenant
 // $1, version id $2, type $3, version $4, schema $5, schema_sha256 $6, compat
@@ -140,7 +140,7 @@ func TestP712aPublishedBySystemValidatesOverSeededTenants(t *testing.T) {
 }
 
 // beforePublishedBySystem gives nava_app back its table-level INSERT on
-// entity_definition_versions when fsys stops before 20261127110000, as
+// entity_definition_versions when fsys stops before 20261127110800, as
 // db/grants.yaml did before P7-12a. The column list names columns an older
 // schema does not have yet (number_format_id and the other number_* columns
 // arrive in 20261113210200), and the grants applier refuses a listed column
@@ -170,7 +170,7 @@ func beforePublishedBySystem(fsys fs.FS, m *grants.Manifest) *grants.Manifest {
 }
 
 // P7-12a (TICK-1172): the grants manifest applies on the schema just before
-// 20261127110000, where nava_app's INSERT is table-level and covers every
+// 20261127110800, where nava_app's INSERT is table-level and covers every
 // column, and an upgrade from there converges it to the column list: the
 // table-level grant is revoked, and published_by_system is the one column
 // nava_app cannot insert. Integration CI on PR #938 found the column list

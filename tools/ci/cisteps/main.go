@@ -16,12 +16,16 @@
 // on a skipped run (verification PR 904).
 //
 // With -copy (TICK-1149) the check is a different one: the whole workflow,
-// comment lines aside, must equal the checked-in copy, and the vulncheck make
-// recipes must be the pinned lines (copy.go).
+// comment lines aside, must equal the checked-in copy, and no step may run
+// make (ADR-001-A7 rule 9, copy.go).
 //
 // Usage: cisteps [-workflow .github/workflows/ci.yml] [-required tools/ci/cisteps/required.yaml]
 //
 //	cisteps -workflow .github/workflows/govulncheck.yml -copy tools/ci/cisteps/govulncheck.copy.yml
+//	cisteps -pins .github/workflows/*.yml tools/ci/cisteps/*.copy.yml
+//
+// With -pins (TICK-1194, pins.go) every uses: of the given files must name
+// its action by full commit SHA with the version tag in a trailing comment.
 package main
 
 import (
@@ -47,16 +51,12 @@ func main() {
 // run returns the exit code: 0 every required step runs, 1 one does not,
 // 2 bad usage or an unreadable input.
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWith(args, stdout, stderr, makeIn(""))
-}
-
-// runWith is run with the make runner of the -copy mode's recipe check.
-func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 	fs := flag.NewFlagSet("cisteps", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	workflow := fs.String("workflow", ".github/workflows/ci.yml", "the GitHub workflow to check")
 	required := fs.String("required", "tools/ci/cisteps/required.yaml", "the list of required steps")
 	copyPath := fs.String("copy", "", "a checked-in copy the whole workflow must equal, comment lines aside (needs -workflow, excludes -required)")
+	pins := fs.Bool("pins", false, "check instead that every uses: of the workflow files given as arguments is pinned by full commit SHA (TICK-1194)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -65,13 +65,21 @@ func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if *pins {
+		if set["copy"] || set["required"] || set["workflow"] {
+			fmt.Fprintln(stderr, "check-ci-steps: -pins takes workflow files as arguments and excludes -workflow, -required and -copy")
+			fs.Usage()
+			return 2
+		}
+		return runPins(fs.Args(), stdout, stderr)
+	}
 	if set["copy"] {
 		if set["required"] || !set["workflow"] || *copyPath == "" {
 			fmt.Fprintln(stderr, "check-ci-steps: -copy needs -workflow and excludes -required")
 			fs.Usage()
 			return 2
 		}
-		return runCopy(*workflow, *copyPath, mk, stdout, stderr)
+		return runCopy(*workflow, *copyPath, stdout, stderr)
 	}
 
 	problems, n, err := check(*workflow, *required)
@@ -91,8 +99,8 @@ func runWith(args []string, stdout, stderr io.Writer, mk makeRunner) int {
 }
 
 // runCopy is run's -copy mode.
-func runCopy(workflow, copyPath string, mk makeRunner, stdout, stderr io.Writer) int {
-	problems, err := checkCopy(workflow, copyPath, mk)
+func runCopy(workflow, copyPath string, stdout, stderr io.Writer) int {
+	problems, err := checkCopy(workflow, copyPath)
 	if err != nil {
 		fmt.Fprintln(stderr, "check-ci-steps:", err)
 		return 2
@@ -101,10 +109,10 @@ func runCopy(workflow, copyPath string, mk makeRunner, stdout, stderr io.Writer)
 		fmt.Fprintln(stderr, "check-ci-steps:", p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintf(stderr, "check-ci-steps: edit %s and %s together, or not at all (ADR-001-E4 contract rule 9)\n", workflow, copyPath)
+		fmt.Fprintf(stderr, "check-ci-steps: edit %s and %s together, or not at all, and run no make in it (ADR-001-E4 contract rule 9, ADR-001-A7)\n", workflow, copyPath)
 		return 1
 	}
-	fmt.Fprintf(stdout, "check-ci-steps: ok: %s equals %s and the vulncheck recipes are pinned\n", workflow, copyPath)
+	fmt.Fprintf(stdout, "check-ci-steps: ok: %s equals %s and runs no make\n", workflow, copyPath)
 	return 0
 }
 
@@ -144,7 +152,7 @@ type step struct {
 	Name            string            `yaml:"name"`
 	If              yaml.Node         `yaml:"if"`
 	Run             string            `yaml:"run"`
-	Uses            string            `yaml:"uses"`
+	Uses            yaml.Node         `yaml:"uses"` // a Node, so the version comment of a SHA pin is kept
 	With            map[string]string `yaml:"with"`
 	ContinueOnError yaml.Node         `yaml:"continue-on-error"`
 }
@@ -336,13 +344,22 @@ func oldSetupGo(jobs map[string]job) []string {
 			continue
 		}
 		for _, s := range steps {
-			ref, ok := strings.CutPrefix(s.Uses, "actions/setup-go@")
+			ref, ok := strings.CutPrefix(s.Uses.Value, "actions/setup-go@")
 			if !ok {
 				continue
 			}
+			label := s.Uses.Value
+			if fullSHA.MatchString(ref) {
+				// A SHA pin (TICK-1194) names its version in the trailing
+				// comment, "# v6.5.0"; no comment is no known version.
+				ref = pinComment(s.Uses)
+				if ref != "" {
+					label += " # " + ref
+				}
+			}
 			major, _, _ := strings.Cut(strings.TrimPrefix(ref, "v"), ".")
 			if n, err := strconv.Atoi(major); err != nil || n < minSetupGo {
-				problems = append(problems, fmt.Sprintf("job %s: %s must be v%d or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)", name, s.Uses, minSetupGo))
+				problems = append(problems, fmt.Sprintf("job %s: %s must be v%d or later: older ones ignore go.mod's toolchain line, so go downloads it into ~/go/pkg/mod and the Go cache restore fails (TICK-1142)", name, label, minSetupGo))
 			}
 		}
 	}
@@ -350,7 +367,7 @@ func oldSetupGo(jobs map[string]job) []string {
 }
 
 func restoresModCache(s step) bool {
-	cache := strings.HasPrefix(s.Uses, "actions/cache@") || strings.HasPrefix(s.Uses, "actions/cache/restore@")
+	cache := strings.HasPrefix(s.Uses.Value, "actions/cache@") || strings.HasPrefix(s.Uses.Value, "actions/cache/restore@")
 	return cache && strings.Contains(s.With["path"], "~/go/pkg/mod")
 }
 
@@ -406,7 +423,7 @@ func find(jobs map[string]job, r required) string {
 
 func matches(s step, r required) bool {
 	if r.Artifact != "" {
-		return strings.HasPrefix(s.Uses, "actions/upload-artifact@") && s.With["name"] == r.Artifact
+		return strings.HasPrefix(s.Uses.Value, "actions/upload-artifact@") && s.With["name"] == r.Artifact
 	}
 	for line := range strings.SplitSeq(s.Run, "\n") {
 		if strings.Join(strings.Fields(line), " ") == r.Run {

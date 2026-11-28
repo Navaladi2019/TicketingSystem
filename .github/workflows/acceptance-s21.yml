@@ -1,0 +1,65 @@
+# Story S21 acceptance kit (TICK-749) on a fresh stack in GitHub Actions: one
+# make target, `make acceptance-s21` (docs/acceptance/S21/tools/run-kit.sh),
+# which a human runs the same way on a laptop. Not part of the ci workflow:
+# the kit brings its own fresh stack (docker compose down -v, up --build),
+# seeds 400k incidents and waits for two backfills, about 35-60 minutes.
+#
+# Triggers: a pull request into the S21 story branch that touches the kit,
+# its Bruno folder or this file (the run is of the PR's merge result), and a
+# manual run (workflow_dispatch, once this file is on the default branch).
+#
+# The evidence folder (no tokens: run-kit.sh deletes the raw Bruno reports
+# on exit) is uploaded as artifact s21-acceptance-evidence. The p95 cells run
+# on a shared GitHub-hosted runner, so their numbers are this runner's, not
+# the reference machine's; p95.txt records run validity next to them.
+name: acceptance-s21
+
+on:
+  pull_request:
+    branches: ['TICK-739/filterable-fields']
+    paths:
+      - 'docs/acceptance/S21/tools/**'
+      - 'docs/acceptance/guide/bruno/S21/**'
+      - 'docs/acceptance/guide/bruno/lib/s21.js'
+      - '.github/workflows/acceptance-s21.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-s21-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  s21-kit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      S21_EVIDENCE: docs/acceptance/S21/evidence/gha-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: sdk/ts/.nvmrc
+          cache: npm
+          cache-dependency-path: tools/bruno/package-lock.json
+      - name: S21 kit on a fresh stack
+        run: make acceptance-s21
+      - name: Stack state on failure
+        if: failure()
+        run: docker compose ps -a || true
+      - name: S21 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: s21-acceptance-evidence
+          path: ${{ env.S21_EVIDENCE }}
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v || true

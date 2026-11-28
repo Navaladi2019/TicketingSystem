@@ -38,7 +38,7 @@ tests:
             exp_annotations:
               summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
               description: >-
-                unknown means the list's count ran past its 200 ms budget; the page
+                unknown means the list's count ran past its count budget, CountBudget in internal/records/store/list.go; the page
                 itself was complete, only the total is null. This is the R-a signal,
                 not an outage. It is expected after a field backfill or bulk edits
                 that leave a poor visibility map on the rfv_* tables, until
@@ -55,7 +55,7 @@ tests:
             exp_annotations:
               summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
               description: >-
-                unknown means the list's count ran past its 200 ms budget; the page
+                unknown means the list's count ran past its count budget, CountBudget in internal/records/store/list.go; the page
                 itself was complete, only the total is null. This is the R-a signal,
                 not an outage. It is expected after a field backfill or bulk edits
                 that leave a poor visibility map on the rfv_* tables, until
@@ -142,7 +142,7 @@ tests:
             exp_annotations:
               summary: More than 5 % of field-index record lists in the last hour returned total_state unknown (ADR-006-A2 A2-7).
               description: >-
-                unknown means the list's count ran past its 200 ms budget; the page
+                unknown means the list's count ran past its count budget, CountBudget in internal/records/store/list.go; the page
                 itself was complete, only the total is null. This is the R-a signal,
                 not an outage. It is expected after a field backfill or bulk edits
                 that leave a poor visibility map on the rfv_* tables, until
