@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ADR-006 amendment A3 explained (DRAFT, rev 1): promoted filter slots</title>
+<title>ADR-006 amendment A3 explained (DRAFT, rev 2): promoted filter slots</title>
 <style>
 :root{--fg:#1f2328;--muted:#59636e;--bd:#d1d9e0;--bg:#fff;--soft:#f6f8fa;--acc:#0969da;--warn:#9a6700;--warnbg:#fff8c5;--bad:#cf222e;--badbg:#ffebe9;--good:#1a7f37;--goodbg:#dafbe1}
 @media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bd:#3d444d;--bg:#0d1117;--soft:#151b23;--acc:#4493f8;--warn:#d29922;--warnbg:#2b2111;--bad:#f85149;--badbg:#2d1214;--good:#3fb950;--goodbg:#12261a}}
@@ -23,11 +23,11 @@ dt{font-weight:700;margin-top:8px}
 svg text{fill:var(--fg);font:13px sans-serif}
 svg .m{fill:var(--muted)}
 </style></head><body><main>
-<span class="pill">DRAFT · rev 1 · 2026-11-28 · critique after SP-4</span>
+<span class="pill">DRAFT · rev 2 · 2026-11-28 · design cleared by critique · open: SP-4</span>
 <h1>ADR-006 amendment A3: keep a slow custom field's value on the ticket row, in a shared spare column</h1>
-<p class="src">Record: <code>docs/adr/ADR-006-A3-promoted-filter-slots.md</code> · Issue TICK-1206 · Evidence: <code>docs/adr/ADR-006/spikes/a3-promoted-slots/</code> (TICK-1039 arms, PR #920; TICK-1205 write path, PR #995; steered-order prototype) · Amends ADR-006 D2, D4, D7, D12, D13 and A1-6.</p>
+<p class="src">Record: <code>docs/adr/ADR-006-A3-promoted-filter-slots.md</code> · Issue TICK-1206 · Design: RFC-025 rev 1 (TICK-1204), cleared by the Technical Architect · Evidence: <code>docs/adr/ADR-006/spikes/a3-promoted-slots/</code> (TICK-1039 arms, PR #920; TICK-1205 write path, PR #995; steered-order prototype) · Amends ADR-006 D2, D4, D7, D12, D13 and A1-6.</p>
 
-<div class="box"><b>Where this stands.</b> The cost we were worried about, what this design does to every ticket save, is now measured, and it is acceptable. The measurement also found a new problem: some lists still ignore the new index. Rev 1 changes the design to remove that problem. One scored test run on the real benchmark (called SP-4) has to confirm the fix before anyone is asked to approve.</div>
+<div class="box"><b>Where this stands.</b> The design (RFC-025) has passed review: no blocking findings remain. The save-cost test we set in advance has been scored. Nothing failed, but two results are not final: creating a ticket with one promoted field came in just under its line (88% against 90%), and deleting a ticket was not measured. One further test run (SP-4) settles both. The same run also tests a proposed fix for the one slow case this design does not yet solve.</div>
 
 <h2>Words used here</h2>
 <dl>
@@ -58,29 +58,39 @@ svg .m{fill:var(--muted)}
 <tr><td>Is sharing one spare column between tenants a problem?</td><td>No plan changed. One tiny tenant's estimate was off, at no visible cost (37 ms).</td><td>acceptable</td></tr>
 </table>
 
-<h2>The new problem, and the fix</h2>
+<h2>The one slow case left, and a proposed fix (not yet decided)</h2>
 <p>When the newest tickets of a type do not carry the value being filtered on (a value that was common and is rare now), the planner still assumes the value is spread evenly over time. So it walks the tickets newest-first, through an index that knows nothing about the value, and throws away 100,000 tickets before it fills a page. The new index could have answered directly. PostgreSQL gives us no way to tell the planner to use it.</p>
-<p><b>The fix removes the choice instead of fighting it.</b> Lists on a promoted field sort by a copy of the "last updated" time that is stored only for promoted tickets, and that <b>only the new indexes contain</b>. The newest-first walk can no longer produce rows in the right order, so the planner has to use the new index. Users see the same order, because the copy always equals the real time.</p>
+<p><b>Proposed fix (P-1, not part of the decision yet).</b> Lists on a promoted field sort by a copy of the "last updated" time that is stored only for promoted tickets, and that <b>only the new indexes contain</b>. The newest-first walk can no longer produce rows in the right order, so the planner has to use the new index. Users see the same order, because the copy always equals the real time.</p>
 
 <svg viewBox="0 0 760 170" width="100%" role="img" aria-label="Prototype result: walk vs steered index">
 <text x="10" y="20">Prototype, one list query, common value, no ACL (bars not to scale)</text>
 <rect x="250" y="40" width="460" height="30" fill="var(--bad)"/><text x="10" y="60">Today: newest-first walk</text><text x="600" y="60" style="fill:#fff">191 ms</text>
 <text class="m" x="250" y="88">reads 202,773 pages, throws away 100,026 tickets</text>
-<rect x="250" y="105" width="6" height="30" fill="var(--good)"/><text x="10" y="125">Rev 1: sort key only the</text><text x="10" y="140">new index has</text><text x="265" y="125">0.2 ms, reads 4 pages</text>
+<rect x="250" y="105" width="6" height="30" fill="var(--good)"/><text x="10" y="125">P-1: sort key only the</text><text x="10" y="140">new index has</text><text x="265" y="125">0.2 ms, reads 4 pages</text>
 </svg>
 <p class="src">Prototype on a small copy of the problem, single runs, not a scored benchmark. SP-4 repeats it on the real benchmark.</p>
 
-<h2>The decision (proposed)</h2>
+<h2>Did it pass the save-cost lines we set in advance?</h2>
+<table>
+<tr><th>Line set before measuring</th><th>Measured (TICK-1205)</th><th>Result</th></tr>
+<tr><td>Creating tickets, 1 promoted field: at least 90% of today's rate</td><td>88.4% (same p95 time, 78.9 ms)</td><td>just under; inside the noise, so it is re-run</td></tr>
+<tr><td>Creating tickets, 3 promoted fields: at least 90% of today's rate</td><td>102.9%</td><td>pass</td></tr>
+<tr><td>With 3 fields, still at least 40% of a type with no indexed fields</td><td>60.4%</td><td>pass</td></tr>
+<tr><td>Changing a ticket: at most 15% slower than today</td><td>1–8% slower, or faster</td><td>pass</td></tr>
+<tr><td>Deleting a ticket: at most 15% slower than today</td><td>not measured</td><td>open; in principle no extra work</td></tr>
+<tr><td>Copying values in: no blocking lock, live saves at most 25% slower</td><td>no blocking lock; 18.7% slower; about 3 minutes per 400,000 tickets</td><td>pass</td></tr>
+</table>
+
+<h2>The decision (as reviewed)</h2>
 <div class="box good">
-<p><b>An operator can "promote" a slow filterable field.</b> Its value is then also kept in a spare typed column on the tickets table, with two indexes: one by assignment group, one without. Lists that filter on that field sort by a copy of the update time that only these indexes hold. Every other field keeps today's design unchanged.</p>
+<p><b>An operator can "promote" a slow filterable field.</b> Its value is then also kept in one of five spare typed columns on the tickets table (2 number, 2 text, 1 date), with an index on tenant, ticket type, value, assignment group and update time. Lists that filter on that field use the column. Every other field keeps today's design unchanged.</p>
 </div>
 <ul>
-<li><b>Spare columns, not a column per field.</b> One migration adds 2 spare columns per value type (8 in all) plus the sort-time column. Promoting a field records "field X of type Y uses slot 1" and copies the values in. I8 holds.</li>
-<li><b>Limits:</b> only fields an operator approves, only single-value fields, the default allowance is zero, and at most 4 promoted fields per ticket type. 4 fields × 2 indexes is the point measured at +25% on ticket creation.</li>
-<li><b>Query shape, picked by a fixed rule:</b> no ACL → one index read. An agent with a few groups (provisionally up to 8) → one short read per group, merged. More groups → one read and a sort. SP-4 sets the number.</li>
-<li><b>After copying values in,</b> the indexes are rebuilt online, because copying made them 1.5–2× larger than needed.</li>
-<li><b>Safety:</b> the columns are on the tickets table, so RLS already isolates them. They are only compared and sorted on, never returned. No special database privilege is added.</li>
-<li><b>While copying:</b> the field keeps filtering through the side table, so users see no error.</li>
+<li><b>Spare columns, not a column per field.</b> One migration adds the five columns once. Promoting a field records "field X of type Y uses slot 1" and copies the values in. I8 holds.</li>
+<li><b>Limits:</b> only fields an operator approves, only single-value fields, at most the five slots per ticket type and 10 promoted fields per tenant.</li>
+<li><b>No lost writes while moving:</b> while a field moves into or out of a slot, every save writes both places. Reads switch only when the copy is complete. This was the reviewer's one blocking finding, and it is fixed.</li>
+<li><b>Safety:</b> the columns are on the tickets table, so RLS already isolates them. They are only compared, never returned.</li>
+<li><b>Proposed, not decided:</b> the sort key that fixes the slow case (P-1), a second index for users without a row ACL (P-2), and a rule that picks the query shape (P-3). SP-4 tests them, and the reviewer checks them.</li>
 </ul>
 
 <svg viewBox="0 0 760 150" width="100%" role="img" aria-label="Promotion flow">
@@ -109,12 +119,12 @@ svg .m{fill:var(--muted)}
 <h2>What we would be accepting</h2>
 <table>
 <tr><th>Risk</th><th>In plain words</th><th>Measured?</th></tr>
-<tr><td>Save cost (R-g)</td><td>Each promoted field adds two index updates to every save of its type: 2–18 ms at p95 for the first index.</td><td>First index: TICK-1205. Second index: SP-4</td></tr>
+<tr><td>Save cost</td><td>Each promoted field adds an index update to every save of its type: 1–8% at p95 in the scored cells.</td><td>TICK-1205; one-field creation and deletion: SP-4</td></tr>
 <tr><td>Copy cost (R-e)</td><td>Promoting a field rewrites every ticket of the type once: about 3 minutes and 1.5–3.9 GB of log per 400,000 tickets; the table file grows until reused.</td><td>TICK-1205</td></tr>
-<tr><td>Agents with many groups (R-c)</td><td>For them the database still sorts every visible match. Fast enough so far (131 ms worst), but it grows with tenant size.</td><td>SP-4</td></tr>
+<tr><td>Common value missing from new tickets (R-e)</td><td>A promoted field is still slow (290–559 ms) for a common value that the newest tickets lack. Proposed fix P-1.</td><td>TICK-1205; fix: SP-4</td></tr>
+<tr><td>Agents with many groups</td><td>For them the database still sorts every visible match. Fast enough so far (131 ms worst), but it grows with tenant size.</td><td>SP-4</td></tr>
 <tr><td>Shared column statistics (R-d)</td><td>Tiny tenants get poor estimates. No slower plan was seen.</td><td>TICK-1205</td></tr>
 <tr><td>Other ACL paths (R-f)</td><td>Only "my groups" is sped up. Shared tickets are checked afterwards.</td><td>Watched by the slow-list log</td></tr>
-<tr><td>Sort copy drifts (R-h)</td><td>If something bypasses the trigger, a list could be ordered wrongly inside one tenant. Nothing leaks.</td><td>A test and a nightly check</td></tr>
 </table>
 
 <h2>Evidence</h2>

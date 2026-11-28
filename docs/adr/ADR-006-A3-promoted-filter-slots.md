@@ -1,176 +1,198 @@
 ---
 type: adr-amendment
 id: ADR-006-A3
-title: "Amendment A3 to ADR-006: a filterable field may be promoted to a fixed typed slot column on records, indexed with assignment_group_id and a slot-only order key, for the band (i)+ACL cases D7 cannot bound"
+title: "Amendment A3 to ADR-006: promoted slots (arm b without per-field DDL) and the D13 band lines from TICK-1009/TICK-1039"
 status: DRAFT
 date: 2026-11-28
 issue: TICK-1206
-rfc: none (amendment from a measurement; requested in TICK-1039 comment 01a21f9e-237e-7d2c-9ade-271e2d29bab4; evidence threads TICK-1039 01a21646-3891-7cad-92d9-e371f8b16b78 and TICK-1205 01a22128-47c1-7941-89bb-ac217e18f270)
+rfc: "RFC-025 (TICK-1204), rev 1; Technical Architect critique round 1 (CHANGES, B-1) and round 2 re-check (B-1 resolved, no blocking findings). Archived in docs/adr/ADR-006/A3/"
 supersedes: none
-amends: "[[ADR-006-filterable-tenant-fields]] D2, D4, D7, D12, D13 and its rejected option B; [[ADR-006-A1-d13-fanout-bands-350ms]] A1-6 (the (b) fallback) and its rejected option (b)"
-source: "TICK-1039 arms (PR #920, 660e243a); TICK-1205 slot write path, DDL and plan shape (PR #995, run e1f1da99, doc 0b733511); Solution Architect plan-shape prototype of the steered order key (2026-11-28). Archived in `docs/adr/ADR-006/spikes/a3-promoted-slots/`"
-deciders: Solution Architect (author; verdict after critique); Technical Architect (critique; evidence review of TICK-1039 and TICK-1205); Security & Multi-Tenancy Reviewer (critique of A3-6 merge construction and A3-8); CTO (tie-break only if contested); Technical Lead (requester; schedules SP-4)
+amends: "[[ADR-006-filterable-tenant-fields]] D3, D4, D6, D7, D12, D13, R-a; [[ADR-006-A1-d13-fanout-bands-350ms]] A1-1, A1-6, A1-7"
+source: "TICK-1009 and TICK-1039 (PR #920); TICK-1205 slot write path, DDL and plan shape (PR #995, run e1f1da99, doc 0b733511); Solution Architect plan-shape prototype of the steered order key. Archived in docs/adr/ADR-006/spikes/a3-promoted-slots/"
+deciders: Solution Architect (author; verdict); Technical Architect (critique); Security & Multi-Tenancy Reviewer (I3/I4 grants and the derived audit class); CTO (tie-break only if contested); Technical Lead (requester)
 ---
 
-# ADR-006 amendment A3: promoted filter slots
+# ADR-006 amendment A3: promoted slots and the D13 band lines
 
-> **Status: DRAFT, rev 1** (2026-11-28). TICK-1205's numbers are in. They settle the write side: the slot DDL is online, the backfill passes D10, `k` = 2. They do not settle the read side: the broad-value page still misses with either index set, because the planner prefers a recency-blind walk of `records_list_updated` / `records_list_group` (TICK-1205 S-b1, S-b2; Technical Architect's review, findings 1, 2, 5). Rev 1 answers that with a design change: a **slot-only order key** (A3-6), so the slot index becomes the only path that can return rows in list order. A toy prototype shows the plan shape. **Critique starts when SP-4 (A3-10) has scored it on the TICK-1205 harness.** A3-7's scope and the shape rule's threshold G come from SP-4.
+> **Status: DRAFT, rev 2** (2026-11-28). This is RFC-025 rev 1 as the Technical Architect cleared it (B-1 resolved), with the re-check's three step-4 text fixes applied. It adds the write-cost scoring of RFC-025 §7 against TICK-1205, and scopes the promoted-field budget to what TICK-1205 scored. **Two things stand between this text and ACCEPTED:** (1) two §7 cells are open, a provisional insert line at one field and an unmeasured delete; (2) one TICK-1205 miss on promoted fields (R-e) has a candidate fix, P-1, that is not yet decided. Both go to SP-4.
 >
-> **Invariants source.** The project description defines no invariants, so the invariant check is incomplete. Checked against [[ADR-001-platform-blueprint]] §1, I1–I9, as ADR-006, A1 and A2 are.
+> **Reconciliation.** PR #993 rev 1 (`0312daa5`) carried a separate draft lineage (`fx_*`, 8 slots), which grew out of the TICK-1039 rev 0 text. Rev 2 replaces it with RFC-025's critiqued design (`px_*`, 5 slots, `storage`/`state`). Rev 1's read-path additions are kept only as **proposals P-1 to P-3**. They are not decisions, and the Technical Architect must check them before they become decisions.
 >
-> **One deliberate change to the request.** The Technical Lead asked for "a promoted column per field". A column added per tenant field is tenant-motivated DDL, which I8 forbids. This amendment promotes a field into one of a **fixed set of typed slot columns** that ship once, for every tenant, in a normal migration. The field-to-slot mapping is configuration.
-
-## Rev 1 changelog
-
-| What | Rev 0 | Rev 1 | Why |
-| --- | --- | --- | --- |
-| `k` | 2, provisional | **2, fixed** (8 slots) | TICK-1205 item 3: `ADD COLUMN` × 8 is 30 ms with a 6 ms `AccessExclusiveLock`; item 4: 8 filled indexed slots cost +25% insert p95, 32 double it |
-| Order key | `updated_at` | **`fx_list_at`**, one new column equal to `updated_at`, present only in the slot indexes | S-b1/S-b2: the planner walks `records_list_updated` or `records_list_group` and filters 100k+ rows. With a key no other index carries, it cannot |
-| Indexes per slot | group only | **group + plain**, both keyed on `fx_list_at, id` | TA finding 2: the group index cannot bound a no-ACL page. Write cost of the plain index is SP-4 (d) |
-| Page shape | compiled; merge "if S-b1 passes" | **chosen by rule**: no ACL → plain scan; visible groups ≤ G → per-group merge; > G → compiled | S-b1/S-b3/S-c3: neither shape wins alone |
-| Promotion cap | quota ≤ `k` per value type | also **≤ 4 promoted fields per type** (8 filled slot indexes) | Item 4: the measured +25% point |
-| Backfill | D10 batches | + `REINDEX CONCURRENTLY` of both slot indexes before `ready` | Item 2: backfill bloats the index 1.5–2.1× |
-| Statistics | MCV per slot | + `ALTER COLUMN … SET STATISTICS 1000` per slot | S-c1: a 13-row tenant outside the MCV list is estimated at 1 |
-| Gate | TICK-1205 | **SP-4** (A3-10) | Steering is unmeasured on the harness |
+> **Invariants.** The project description defines no invariants, so the invariant check is **incomplete**. As in ADR-006 and A1, this was checked against ADR-001 §1, I1–I9.
 
 ## In plain words
 
-When an agent opens a ticket list filtered on a custom field, D7 finds the matches through a side table and checks each against what the agent may see. That breaks when the matches are old or mostly hidden: on a 400,000-ticket type it took up to **2.2 seconds**. Storing the value on the ticket row, in an index that also holds the assignment group, passed every case on TICK-1039.
+Custom fields are filtered through small side tables (ADR-006). On a 400,000-record ticket type, two cases stay slow: a value held mostly by old or invisible tickets (up to **2.2 s**), and a 10–20% filter for a user with a row ACL (**209–422 ms** against 150). A real column on `records`, indexed with the assignment group and the update time, passed all 11 adversarial cases (27–131 ms). A column per field would break ADR-001 I8, so A3 adds a small fixed set of typed **slots** once, in a normal migration. An operator assigns a heavy field to a slot as configuration, and a background job copies the values in. Every other field stays on side tables.
 
-TICK-1205 then measured what that costs. Saving a ticket costs about what D7 already costs; adding the spare columns takes 30 ms of locking; copying a field's values in slows live saves by 18.7%, under the 25% limit. That part is settled.
+TICK-1205 measured the cost. Saving a ticket costs about what the side tables already cost, and copying a field's values in slows live saves by 18.7%, under the 25% limit. It also found one case that a promoted field does not fix: a common value that the newest tickets lack. There the database ignores the slot index. A fix exists on paper (P-1) and needs one scored run.
 
-It also found a new problem. When the newest tickets of a type do not carry the value, the database ignores the new index and walks tickets newest-first, filtering out 100,000 rows before it fills a page. It chooses that walk because it assumes the value is spread evenly over time. PostgreSQL has no way to tell it otherwise (no "hints"). Rev 1 removes the choice: lists on a promoted field sort by a copy of the update time that **only the new indexes contain**, so the walk can no longer produce rows in order. In a small prototype the bad page went from 191 ms to 0.2 ms. One scored run on the real harness (SP-4) confirms it before anyone is asked to approve.
-
-## What was measured
-
-### TICK-1039: the read side (arms)
-
-TICK-1039, PR #920, commit `660e243a`, 2026-11-28 00:04Z, on a host that passed the gate (floor p50 0.54–1.52 ms, no `nava`/bench containers). Seed 800k records, a 400k type, 8 clients, 20 s per cell, `work_mem = 4 MB`, `nava_app` with `force_custom_plan`. Field `pk` (num, one value per record). a6 = `agent-1` (sees 6.2%), a50 = `a50-1` (sees 50.1%, a superset of a6). Line 150 ms p95; within 10% is provisional (A1-8).
-
-| Fixture (p95 ms) | D7 | (a) adaptive | (b) plain | **(b) + group** |
-| --- | --- | --- | --- | --- |
-| anti-correlated 2% (8,000 oldest), a6 | 192.9 | 1,178.0 | 71.7 | **66.8** |
-| anti-correlated 2%, a50 | 216.1 | 2,362.3 | 63.6 | **69.4** |
-| anti-correlated 2%, no ACL | 355.2 | 4,376.6 | 50.9 | **76.6** |
-| none visible (26,593 records), a6 | 124.8 | 1,249.9 | 78.6 | **27.2** |
-| none visible, a50 | 2,223.2 | 2,662.0 | 79.8 | **30.5** |
-| partly correlated (494 visible), a6 | 211.3 | 349.7 | 99.7 | **62.9** |
-| partly correlated, a50 | 420.9 | 534.9 | 101.8 | **74.1** |
-| 19,999 invisible side rows, a6 | 135.3 (prov.) | 1,204.6 | 71.9 | **29.6** |
-| 19,999 invisible, a50 | 242.0 | 2,301.6 | 69.9 | **31.0** |
-| broad 50% (200,000), a6 | 405.6 | 84.9 | 79.4 | **131.3** |
-| broad 50%, a50 | 212.4 | 85.8 | 163.6 (prov. miss) | **60.9** |
-| **cells that pass** | 2 / 11 | 2 / 11 | 10 / 11 | **11 / 11** |
-
-**Plan shapes** (`tick1039-arms-explain.md`, A1-2's rule: the plan, not the number, draws the line):
-- **D7, none visible, a50 (2,223 ms):** walks 200,113 rows of `records_list_updated`, probing the side table per record, and finds nothing. The fan-out is the visible set.
-- **(a), every non-broad cell:** the pre-count finds > 4,500 side rows (cap fixed before the run), so the walk-and-probe shape runs; with anti-correlated or invisible values it probes `rfv_num_pkey` 24,339–392,102 times (1.18–1.96M buffers). A1-6 (1) bounds the page only for values independent of `updated_at`; A1-6 (3) built fixtures that are not.
-- **(b)+group, broad 50%, a6 (131.3 ms, the worst passing cell):** page = bitmap scan of `spike_records_pk_group` (15,482 rows = matches ∩ visible) and a top-N heapsort, 42 ms single-client, 14,267 buffers. Count = index-only scan stopping at the 1,001 cap, 1.4 ms, `Heap Fetches: 0`. **The page is bounded by matches ∩ visible, not by the page size** (R-c).
-- **(b) plain, broad 50%, a50 (163.6 ms):** the count joins all 200,000 index entries of the value; without the group key nothing narrows it.
-
-### TICK-1205: the write side, DDL and plan shape of the slot form
-
-PR #995, run `e1f1da99`, 04:54–07:00Z, PG 16.10 with P3-01 settings, 800k records with a 400k type, 8 clients. The host gate passed (floor p50 1.66 / 2.58 ms, no `nava*` or bench containers). The Technical Architect confirmed items 1–4, D10, S-b3 and S-c1 as sound for this amendment, and corrected the cause of the broad-value miss (findings 1 and 2, adopted in `0b733511`).
-
-| Check | Result | Bears on |
-| --- | --- | --- |
-| 1. Write amplification | Insert: no cost over D7 at the same n. Promoted-field update: +2 to +18 ms p95, 1.4–3.1× WAL. Unrelated update: unchanged with the group index. No update is HOT in any arm, because `records` already indexes `updated_at` and `version` | R-g |
-| 2. Size per field | Group index 37 MB fresh, 55–78 MB after the backfill (400k rows); plain 29 MB; heap +0.4–3.5 MB | A3-5 reindex, R-g |
-| 3. DDL | `ADD COLUMN` × 8: 30 ms, `AccessExclusiveLock` seen for 6 ms, writers waited ≤ 30 ms. CIC on an empty slot 1.5–2.1 s, `ShareUpdateExclusiveLock` only. Live p95 104.3 → 107.3 ms, 0 errors | A3-2, A3-4 |
-| D10 backfill | Live p95 +18.7% (101.7 → 120.8 ms) against a +25% budget: **pass**. 2m41s–3m17s per 400–451k rows when run alone; 1.5–3.9 GB WAL; every update non-HOT | A3-5, R-e |
-| 4. Slots per table | Insert p95 62.9 / 78.6 / 99.5 / 131.5 / 192.6 ms at 0 / 8 / 16 / 32 / 64 filled, indexed slots; planning 5.4 → 8.4 ms | `k`, A3-3 cap |
-| S-b1 per-group merge | **Fail**, 1 of 6. Anti-correlated arms are bounded (≤ 33 rows per slot scan). Broad arms never use the slot index: each walks `records_list_group` and filters 1,993–3,618 rows | A3-6 |
-| S-b2 no-ACL broad 50% | **Fail on both index sets** (290.0 / 386.0 ms). The planner walked `records_list_updated` and filtered out 100,514 / 125,697 recent rows that lack the value | A3-6, A3-2 index set |
-| S-b3 2.6M-record type | **Pass** with the merge (105.3 ms, 4 slot scans of ≤ 56 rows); the compiled shape took 6,762 ms | A3-6 |
-| Heap fetches under churn | Count plans 215–478, page plans 0, at 73% all-visible | A2 count |
-| S-c1 shared slot | No plan changed. Estimates within 2.1×, except a 13-row tenant estimated at 1; its p95 was 36.7 ms | R-d |
-| S-c2 / S-c3 | Selective operators pass for a6. The slot fixes TICK-1009's 10%/20% ACL band (7 of 8 compiled cells pass). A broad `in` (17%) and every a50 merge cell miss | A3-6 rule, A3-7 |
-
-**What the plans say** (Technical Architect findings 1, 2, 5): every broad-value miss is the same event. The planner costs a `LIMIT 51` walk of an index ordered by `updated_at` as if the value were spread evenly over time, but the newest ~100k rows of the type do not carry it. This is the anti-correlation case (like pk 40). It is a real production shape, for example a value that was common and is rare now, and heap maintenance does not change it. The slot index could have returned the page directly; the planner did not choose it. The merge bounds the page only when its arms land on the slot index, which happened at 2.6M records and not at 800k.
-
-### Solution Architect prototype: the steered order key (plan shape only)
-
-`docs/adr/ADR-006/spikes/a3-promoted-slots/sa-steer-prototype.md`. PG 16.10, a toy 800k seed shaped like TICK-1205's (the newest 100k rows of the type lack the broad value), forced RLS, a non-owner role. **Not a scored run:** no host gate, and no latency claim beyond a single-shot `EXPLAIN ANALYZE`.
-
-| Query | Order key | Plan | Rows filtered / buffers / time |
-| --- | --- | --- | --- |
-| no ACL, broad value, after churn | `updated_at` | `records_list_updated` walk with a Filter | 100,026 / 202,773 / 191 ms |
-| no ACL, broad value, after churn | slot-only key | plain slot index, Index Cond only | 0 / 4 / 0.2 ms |
-| no ACL, page 2, cursor on `timezone('UTC', updated_at)` | expression key | slot index; the cursor is a **Filter** (`timezone` is not leakproof) | 27,200 / – / 7.2 ms |
-| no ACL, page 2, cursor on a leakproof key | leakproof key | slot index; the cursor is in the **Index Cond** | 0 / 7 / 0.1 ms |
-| 25-arm merge (a50), broad, after churn | slot-only key | 25 scans of the slot group index, 3 rows each | 0 / – / 0.3 ms |
-
-Two facts carry into A3-6:
-
-1. If no index except the slot indexes carries the order key, a slot index is the only ordered path. The only other plan the planner can pick is a bitmap scan plus a top-N sort of the matches, which is bounded by the number of matches.
-2. The cursor stays in the Index Cond only if its comparison is leakproof. A plain `timestamptz` column gets that from built-in operators. An expression key would need a custom `LEAKPROOF` function. Creating one needs a superuser (`nava_migrator` is `NOSUPERUSER`, ADR-001 I3), and it goes against TICK-339's rule never to mark such functions leakproof. So the key is a column.
-
-The prototype could not reproduce the merge arms falling back to `records_list_group`: on its seed the unsteered arms already chose the slot index. SP-4 tests the steered arms on the seed where they fell back.
-
-**Not measured yet** (and so not claimed, A1-2): the steered key on the TICK-1205 harness; the plain index's write cost without TICK-1205's run-order confound; the shape rule's threshold G; agents whose visibility comes mostly from shares, requester or assignee.
-
-## Decisions
+## 1. Decisions
 
 | # | Decision |
 |---|---|
-| **A3-1** | **A promoted tier for filterable fields.** A field that is `x-nava-filterable` may also be **promoted**. A promoted field is stored in one **slot column** on `records`, in addition to its D3 side rows. Its list filter compiles to a predicate on that column (A3-6) instead of D7's `EXISTS`. Fields that are not promoted keep D7, the A1 bands and A2 exactly as they are. |
-| **A3-2** | **Slots are fixed, typed and shared; k = 2.** One platform migration adds these as nullable columns with no default, which is catalog-only in PG 16: `fx_num_1..2 double precision`, `fx_text_1..2 text COLLATE "C"`, `fx_ts_1..2 timestamptz`, `fx_bool_1..2 boolean` (the D3 leakproof types), and **`fx_list_at timestamptz`**, the slot order key (A3-6). Each slot has **two partial B-trees**, both `WHERE fx_<t>_<n> IS NOT NULL`: the **group index** `(tenant_id, entity_definition_id, fx_<t>_<n>, assignment_group_id, fx_list_at DESC, id DESC)` and the **plain index** `(tenant_id, entity_definition_id, fx_<t>_<n>, fx_list_at DESC, id DESC)`. Both are built `CONCURRENTLY` on all-NULL columns (1.5–2.1 s each, TICK-1205 item 3). Each slot gets `CREATE STATISTICS (mcv) ON tenant_id, entity_definition_id, fx_<t>_<n>` and `ALTER COLUMN … SET STATISTICS 1000`. A partial index costs a write only on rows where its slot is filled, so the save cost scales with the number of promoted fields per type, not with `k`. Raising `k` is a platform migration and needs a new item-4 measurement above 8 filled slots. |
-| **A3-3** | **Which fields get promoted: only those an operator approves, only scalar ones, at most 4 per type.** Promotion is requested with `"x-nava-filterable": "promoted"` on a top-level scalar property (422 `promoted_field_not_scalar` for arrays). Publish checks a per-type promoted quota in `tenant_limits`. The **default is 0**. An operator raises it under D12/D25 governance (an audited change, no DDL) when the A1-4 slow-list log shows that tenant's type in band (i)+ACL, or when a type passes 400k records. The quota is capped at `k` per value type and at **4 per type in total**: 4 fields × 2 indexes = 8 filled slot indexes, which is TICK-1205 item 4's +25% insert p95 point. Over quota → 422 `promotion_quota_exceeded`. |
-| **A3-4** | **Who runs DDL: nobody, per field.** The slot columns, `fx_list_at`, the indexes and the statistics are one normal migration, authored by the Postgres & Data Modeling Specialist, security-reviewed, and applied by the deploy migrator. Promoting a field is configuration: `record_index_fields` gains `slot smallint NULL` and `slot_state ∈ {backfilling, ready, removing} NULL`, with a unique key `(tenant_id, entity_definition_id, value_type, slot)`. I8 holds. |
-| **A3-5** | **Maintenance and backfill reuse ADR-006's machinery.** A `BEFORE INSERT OR UPDATE OF data, updated_at ON records FOR EACH ROW` trigger, named so it fires after the trigger that sets `updated_at`, does two things. It sets `NEW.fx_<t>_<n>` with `record_field_coerce` for each slot of the row's type that is in `{backfilling, ready}`. It sets `NEW.fx_list_at := NEW.updated_at` when any slot of the row is non-NULL, and NULL otherwise. D4's side-row trigger is unchanged. Promotion runs `FieldIndexPromote(tenant_id, field_id)` from an outbox row: set `backfilling`, D9 barrier, D10 batches of 1,000 that set the slot and `fx_list_at` (no change to `version`, `updated_at` or any audited column), then **`REINDEX INDEX CONCURRENTLY` on both slot indexes** (this recovers the 1.5–2.1× backfill bloat, about 4 s per index at 400k), then set `ready`, barrier. Demotion: set `removing`, barrier, batched `SET fx_… = NULL` (and `fx_list_at = NULL` where no slot remains), verify, clear. D10's pause rule (+25%) applies; TICK-1205 measured +18.7%. |
-| **A3-6** | **The query: a slot-only order key and a shape rule.** When the field's `slot_state = ready`, the compiler emits `r.fx_<t>_<n> <op> $v`, orders by **`r.fx_list_at DESC, r.id DESC`** and puts the keyset cursor on `(r.fx_list_at, r.id) < ($c, $i)`. `fx_list_at` equals `updated_at` by construction, so the order users see does not change. But no index except the slot indexes carries it, so a walk of `records_list_updated` or `records_list_group` can no longer produce the page in order (prototype, fact 1). When the slot is not `ready`, the compiler emits D7's `EXISTS` and the usual order, so there is no new 422. The shape is chosen from inputs the compiler already has. **(S1) No row ACL:** one scan of the plain index. **(S2) A row ACL with ≤ G visible groups:** a per-group merge, with one `ORDER BY … LIMIT 51` arm per distinct visible group on the group index, plus the requester, assignee and share arms as today, under a Merge Append, in one statement (D7's one-statement rule holds). **(S3) More than G groups:** the compiled shape (`assignment_group_id = ANY(…)`), a bitmap scan of the group index plus a top-N sort of matches ∩ visible (R-c). G is provisionally **8** and SP-4 fixes it. The merge is built inside `authz.ReadBranches` and the store, never through TICK-1205's test-only `listQuery` hook. Group IDs are de-duplicated before the split, and a cross-tenant test covers it (Security review of PR #995). A slot column and `fx_list_at` are read **only** as predicates and order keys, never in a select list, payload, export or count source (D1 extended); the D7 static test gains that rule. CI-6c's oracle gains a slot-vs-`EXISTS` equality test for each shape. A trigger test asserts `fx_list_at = updated_at` on every promoted row after an insert, an update and a backfill. |
-| **A3-7** | **Budget.** A promoted field is held to **150 ms p95 in every band D13 and A1 define, with and without a row ACL**. It is accepted at 150 ms only where a scored cell with its plan exists (A1-2). After TICK-1205 that covers the write side (D10, items 1–4). On the read side it covers selective operators for a6, the 10%/20% compiled cells with an ACL (7 of 8), and the 2.6M merge. The broad-value cells, the anti-correlated a25/a50 cells and the no-ACL cells are scored as **unmeasured** until SP-4 reports on the steered shapes. Non-promoted fields keep A1's lines. |
-| **A3-8** | **Isolation.** Slot columns and `fx_list_at` are columns of `records`, so forced RLS covers them with no new policy. Comparisons are on the D3 leakproof types and `timestamptz`, so they push into the Index Cond as `nava_app`; CI-1 and CI-2 gain the slot operators and the cursor. A masked field still answers 400 `masked_field` before any predicate (D6 order). Grants: `nava_app` gets no slot privilege, because the trigger sets `NEW` (CI-5b verifies this); `nava_worker` gets `UPDATE (fx_…, fx_list_at)` only, for A3-5. `db/audited-tables.yaml` leaves these columns out of `audited_columns`, with the reason "derived from records.data and updated_at, rebuildable"; that is a security-review change (D-P10). No custom `LEAKPROOF` function is added. The worst a bug can do is mis-filter or mis-order inside its own tenant (R8). |
-| **A3-9** | **What A1-6 becomes.** (a) fails (2 / 11) and is not built. A1's rejected option (b) and ADR-006's rejected option B reopen in A3-2's form. D7 stays the default shape. R-a's revisit trigger now leads to promotion (A3-3). |
-| **A3-10** | **Gate before critique: SP-4, one scored run on the TICK-1205 harness** (same seed, the churned heap as TICK-1205 left it, the host gate, 8 clients). **(a) DDL:** the A3-2 migration with `fx_list_at` and both indexes per slot; wall time and locks. **(b) Read:** rerun S-b1 (a6/a25/a50 × broad 50% and anti-correlated 2%), S-b2 broad and `num in` 17%, S-b3, and the a50 cells of S-c2/S-c3, each on S1/S2/S3 with the steered key. *Pass:* every S1 and S2 arm uses a slot index and reads ≤ 51 + ε rows, and p95 ≤ 150 ms. **(c) G:** the crossover between S2 and S3 per fixture at a6/a25/a50 (3/13/25 groups). G is the largest group count at which S2 is not worse than S3 in any cell. **(d) Write:** SP-3's ABAB run (group only vs group + plain, 3 reps each, same heap state) for an insert, a promoted-field update and an unrelated update, with `fx_list_at` maintained. *Material cost:* the mean difference is larger than the spread within each arm. **(e) Backfill with `REINDEX CONCURRENTLY`:** D10 live p95 and the index size after it. SP-1 is not needed: with the steered key, the cause of the walk no longer decides the plan. (b) covers SP-2. |
+| **A3-1** | **Promoted slots.** One platform migration adds nullable typed columns to `records`: `px_num_1`, `px_num_2` (`double precision`), `px_text_1`, `px_text_2` (`text COLLATE "C"`) and `px_ts_1` (`timestamptz`). Five in all; no `bool` (§6 Q2). Each column gets one partial index, built `CONCURRENTLY` in that migration: `(tenant_id, entity_definition_id, px_<s>, assignment_group_id, updated_at) WHERE px_<s> IS NOT NULL`. This is TICK-1039's winning arm (b)+group shape, made partial. **Rev 1:** whether a second, plain partial index `(tenant_id, entity_definition_id, px_<s>, updated_at)` is also needed for no-ACL broad pages is **open**: TICK-1205's conclusion 1 ("group index only") is not yet sound per the Technical Architect's evidence review (findings 2–3), and A3 does not rely on it. The answer changes only the index list in the T1 migration, not the columns or the registry. The column set is platform DDL, like any migration. It is **not tenant-motivated** and never runs per field or per tenant (I8). |
+| **A3-2** | **Assignment is configuration.** `record_index_fields` gains `storage ∈ {side, slot}` (default `side`) and `slot smallint NULL CHECK (slot BETWEEN 1 AND 5)`. Slots are numbered 1–5 against the five columns (1 = `px_num_1`, 2 = `px_num_2`, 3 = `px_text_1`, 4 = `px_text_2`, 5 = `px_ts_1`), with a CHECK that the field's `value_type` matches the slot's column type and a unique key `(tenant_id, entity_definition_id, slot) WHERE slot IS NOT NULL`, so that two fields of one type never share a slot (rev 1, N-1). `slot` stays set from `promoting` until the demote sweep finishes. A slot is local to its type: type A's `px_num_1` and type B's `px_num_1` are different fields. The index key leads with `(tenant_id, entity_definition_id)`, so values of different types or tenants never mix in one key range. Only scalar `num`, `text` and `ts` fields can be promoted. Array fields (`ord > 0`) stay on side tables. |
+| **A3-3** | **Who promotes.** An operator approves each promotion as an audited `tenant_limits`-class change under D25 governance (no DDL), after a measured need: the A1-4 slow-list log shows that (tenant, type) above 350 ms, or the type passes 100k records with a filter in the band of A3-7 (iii). Quota: per entity type, at most the slots of each value type (2 `num`, 2 `text`, 1 `ts`; 5 in all), and at most 10 promoted fields per tenant (rev 1, N-4). Over quota → 422 `index_quota_exceeded`. A promoted field still counts against D12's flag quota. |
+| **A3-4** | **Write path (rev 1: keyed on state, B-1).** `storage` routes **reads**; `state` routes **writes**. A new `BEFORE INSERT OR UPDATE OF data ON records` trigger sets `NEW.px_<s> := record_field_coerce(NEW.data -> key, value_type)` for each field of the type where **`storage = 'slot' OR state IN ('promoting','demoting')`**, with D4's `SET` list. D4's `AFTER` trigger (S22, `20261127100200_field_index_trigger.sql`) writes side rows where **`(storage = 'side' AND state IN ('backfilling','ready')) OR state IN ('promoting','demoting')`**. So during both transitions every write lands in **both** storages. Both triggers raise unless the transaction is READ COMMITTED, as their first statement (E1-5). `D5` coercion is unchanged: a value that does not coerce stores `NULL` and increments the D5 counter. |
+| **A3-5** | **Transitions** reuse D9 and D10. **Promote** `FieldIndexPromote(tenant_id, field_id)`, started from an outbox row: (1) assign `slot`, set state `promoting` (dual-write on); filters keep reading the side table; (2) D9 barrier, so every writer sees the dual-write before the sweep; (3) batches of 1,000 run `UPDATE records SET px_<s> = record_field_coerce(data -> key, …)` by keyset, with D10's adaptive pause. This is a column-list `UPDATE` that does not name `data`, so neither trigger fires, and `version`, `updated_at`, `data` and audit are untouched. Under READ COMMITTED a row updated concurrently is re-read before the `SET` is computed, so the sweep never writes a value older than `data`; (4) flip `storage = slot` (reads move), barrier; (5) state `ready` (dual-write off), barrier; (6) purge the field's side rows (D11 steps 3–4). **Demote** mirrors it: (1) state `demoting` (dual-write on), barrier; (2) rebuild side rows (D10); (3) flip `storage = side`, barrier; (4) state `ready`, barrier; (5) `UPDATE … SET px_<s> = NULL` in batches; (6) clear `slot` (the slot is free only now). **Unflag** of a promoted field (S22) is demote then remove, or a direct `NULL` sweep followed by the registry delete. The direct sweep is safe only if it first sets `storage = side` and runs the barrier (in effect demote steps 3–4); otherwise the BEFORE trigger keeps filling `px` during and after the sweep, and the next field given the slot matches the stale values through the partial index. The Technical Lead picks one in the plan; either way T6 tests that `px_<s>` is `NULL` for every row of the type before `slot` is cleared (TA re-check, fix 3). |
+| **A3-6** | **Read path (D7 widened, not replaced).** A promoted field compiles to a plain column predicate (`r.px_<s> = $v`, `= ANY`, `<` …) inside the same single list statement that carries the compiled row ACL. Side-table fields keep D7's `EXISTS`. Still one statement, still the capped count of that statement (A2's budget unchanged), still no separate query. The D7 static test widens to "side tables via `EXISTS` only, slots via column predicate only, nothing else reads `px_*`", and also fails any `r.*`, `SELECT *`, `to_jsonb(r)` or `row_to_json(r)` over `records` whose result reaches Go or a payload (rev 1, N-2). **Open, not decided here (rev 1):** whether the compiler may emit TICK-1205's per-group `UNION ALL` merge for broad or anti-correlated cases, and how it keeps the arms on the slot index without plan hints. If it does, the merge is built inside `authz.ReadBranches`/the store with cross-tenant tests, never through the integration-only `listQuery` hook (Security review of PR #995). |
+| **A3-7** | **D13 reads, from A3 on** (new lines; A1-1 is replaced). List p95 ≤ 150 ms for every band, except: **(i)** 0.5–2%, with or without a narrowing ACL; ACL breadth **measured at 2% for 6/26/50% visible** (S2: 186.5–215.5 ms). 0.5% at a26/a50 is unmeasured and added to T9 (rev 1, N-5). The 6% condition is **removed**. **(i′)** 2–5% **with** a narrowing ACL at ≤ 6% visible (S1: 187.4 / 188.8 ms). Broader ACLs at 5% are unmeasured (task T9). **(i″)** 2–5% **without** an ACL: **provisional at 350 ms** (`text eq` 343.5 provisional pass, `num lt` 358.3 provisional miss, A1-8), settled by one idle rerun (T9). A miss on the rerun puts this range under (iii), not under a higher line. **(ii)** ≥ 40% with a narrowing ACL: unchanged from A1. **(iii) new: 5–40% with a narrowing ACL. No relaxed line.** Target 150 ms, recorded as a **measured miss on side tables** (208.7–421.5 ms at 6% visible: the page walks the 24,118-row visible set to sort the matches). The remedy is promotion (A3-3), not a budget. A promoted field is held to **150 ms in every band**, the A1-6 exit criterion it met in TICK-1039. **Rev 2 (TICK-1205):** it is accepted at 150 ms only where a scored cell with its plan exists (A1-2). TICK-1205 scored selective operators for a6, 10%/20% with an ACL (7 of 8 pass), and a 2.6M type with the per-group merge. It also scored a **measured miss on promoted fields**: a broad value (17–50% of the type) that the newest rows do not carry, 290–559 ms (S-b1, S-b2), because the planner walks `records_list_updated` / `records_list_group` instead of the slot index. That miss is residual **R-e**, not band (iii); its candidate fix is the steered order key (proposal P-1, SP-4). 10% and 20% without an ACL pass (89.9–127.2 ms) and stay at 150. |
+| **A3-8** | **A1-6 is closed.** Arm (a), the adaptive shape, is rejected on evidence (2 of 11; the walk is unbounded under anti-correlation). The "falls back to (b)" clause of A1-6 is executed by A3-1 to A3-6. R-a's remedy becomes "promote the field" instead of "build the adaptive shape". |
 
-**Not changed:** D1, D3, D5, D6's check order, D9, D11, R-b, R8, R9, R11, R12; A2's count budget and `total_state` (they apply to promoted fields too, and the count keeps its own index-only path); A1's lines for non-promoted fields. I1 holds. I3 holds: no superuser object and no new grant to `nava_app`. I8 holds (A3-4).
+**Not changed:** D1 (`records.data` is the only source of truth; slots are derived and rebuildable and are never read into a payload), D2's states, D5, D6's error order, D8, D9, D10, D11, D14 for side tables, A2 (the count budget and `total_state`), RLS and the row-ACL compiler.
 
-## Rejected options
 
-| Option | Why it lost |
+## 2. Write-cost gate: RFC-025 §7 scored against TICK-1205
+
+RFC-025 §7 set these lines before any number existed. TICK-1205 (PR #995) ran on an idle host: 8 clients, 30 s per write cell, partial slot indexes in the A3 form, group index only. The Technical Architect confirmed items 1–4 and D10 as sound. Ratios are slot vs D7 with the same number of flagged fields (`tick1205/tick1205-slots-raw.md`, Item 1).
+
+| §7 line | Measured | Result |
+| --- | --- | --- |
+| 1a. Insert tps, 1 promoted field ≥ 90% of D7 | 156.9 vs 177.5 ops/s = **88.4%**; p95 78.9 vs 78.9 ms | **provisional miss** (within 10% of the line, A1-8). D7's own runs vary more than this (3 fields 136.8 ops/s against 5 fields 152.8 ops/s) |
+| 1b. Insert tps, 3 promoted fields ≥ 90% of D7 | 140.7 vs 136.8 ops/s = **102.9%** | pass |
+| 1c. R-b floor with 3 fields (≥ 40% of unindexed) | 140.7 vs 233.1 ops/s = **60.4%** | pass |
+| 2a. Update of a promoted field, p95 ≤ 1.15 × D7 | 1 field 132.8 vs 123.5 ms = **1.08×**; 3 fields 136.2 vs 134.4 ms = **1.01×** | pass |
+| 2b. Update of an unrelated field, p95 ≤ 1.15 × D7 | 1 field 123.0 vs 121.1 ms = **1.02×**; 3 fields 107.6 vs 120.7 ms = **0.89×** | pass (group index only; the plain index's cost is confounded by run order, see P-2) |
+| 3. Delete, p95 ≤ 1.15 × D7 | not measured | **open**. By mechanism a `DELETE` does not touch any B-tree (VACUUM removes the entries later), so the slot adds no work at delete time. Not claimed without a cell |
+| 4. Sweep: lock ≤ `ROW EXCLUSIVE`; live p95 within +25% under D10; WAL and duration reported | `UPDATE` takes `RowExclusiveLock` (PostgreSQL behaviour). Live p95 +18.7% (101.7 → 120.8 ms). 2m41s–3m17s per 400–451k rows alone, 11m11s under the live mix with D10's pause; 1.5–3.9 GB WAL; 59k–328k dead tuples per pass | pass. The demote direction is not measured (R-c) |
+
+**Result: B is kept, not yet accepted.** No line fails outright. Line 1a is provisional and line 3 is unmeasured, and §7 says "keep B if **all** of these hold", so both get a cell in SP-4 (d). TICK-1203 is not needed: its per-field `ADD COLUMN` cells measure option C, which is rejected, and TICK-1205 plus SP-4 (d) cover what §7 asks.
+
+## 3. Proposals P-1 to P-3 (not decided; TA check and SP-4)
+
+TICK-1205 S-b1 and S-b2 found the miss R-e. The planner costs a `LIMIT 51` walk of an index ordered by `updated_at` as if the value were spread evenly over time. When the newest rows lack the value, it filters out 100k+ rows (Technical Architect's TICK-1205 findings 1, 2, 5). PostgreSQL 16 has no plan hints.
+
+| # | Proposal | Evidence so far |
+| --- | --- | --- |
+| **P-1** | **A slot-only order key.** Add one column, `px_list_at timestamptz`. The A3-4 BEFORE trigger sets it to `NEW.updated_at` when any `px_*` of the row is non-NULL, and the A3-5 sweep sets it too. Each slot index ends in `px_list_at DESC, id DESC` instead of `updated_at`. Promoted lists order by `(px_list_at, id)` and page with a keyset cursor on the same pair. No other index carries the key, so `records_list_updated` and `records_list_group` cannot return the page in order. A column, not an expression: `timezone(updated_at)` leaves the cursor as a Filter (it is not leakproof), and a custom `LEAKPROOF` function needs a superuser (I3; TICK-339). | Prototype (`sa-steer-prototype.md`, a toy seed, not scored): the no-ACL broad page went from a 191 ms walk reading 202,773 buffers to 0.2 ms and 4 buffers. All 25 merge arms used the slot index, and the cursor stayed in the Index Cond with a leakproof key |
+| **P-2** | **A second, plain partial index per slot**, `(tenant_id, entity_definition_id, px_<s>, px_list_at DESC, id DESC) WHERE px_<s> IS NOT NULL`. RFC-025 A3-1 left this open. A group index cannot bound a no-ACL page (TA finding 2) | TICK-1205's write cost for it is confounded by run order (SP-3) |
+| **P-3** | **A shape rule.** No row ACL: one scan of the plain index. ≤ G visible groups: a per-group merge, built inside `authz.ReadBranches` / the store, with group IDs de-duplicated. More than G: the compiled shape. G is provisionally 8 | S-b3: the merge passes at 2.6M (105 ms) and the compiled shape takes 6,762 ms. The merge loses on a50 with a selective value (114 → 313 ms) |
+
+All three change only the T1 migration's index list and one column, plus the compiler (T5). They do not touch the registry, the triggers' `storage`/`state` predicates or the transitions.
+
+**SP-4 (Design spike, TICK-1205 harness and churned heap, host gate):**
+- (a) the DDL with `px_list_at` and both indexes;
+- (b) S-b1, S-b2 (broad and `in` 17%), S-b3 and the a50 cells of S-c2/S-c3 on the P-1/P-3 shapes. *Pass:* every S1/S2 arm uses a slot index, reads ≤ 51 + ε rows, and has p95 ≤ 150 ms;
+- (c) G, from the crossover at a6/a25/a50;
+- (d) an ABAB write run (group only vs group + plain, 3 reps each, `px_list_at` maintained) for an insert with **1 and 3** promoted fields, a promoted-field update, an unrelated update and a **delete**. This settles §7 lines 1a and 3;
+- (e) the promotion sweep followed by `REINDEX CONCURRENTLY`, against D10.
+
+If P-1 fails, R-e stays a residual with promotion's other gains intact, and the fallback for that shape is A1-7 S2's visible-set cap.
+
+## 4. Context (PR #920)
+
+| Evidence (PR #920, fully idle host, 800k seed, 400k type, 8 clients, 20 s/cell) | Result |
 |---|---|
-| **A column added per promoted field** (arm (b) literally) | Tenant-motivated `ALTER TABLE` breaks I8. Columns accumulate across tenants, and each add takes an `AccessExclusiveLock` (74 ms, 66 ms of it queued, TICK-1205 item 3). |
-| **D25's per-tenant expression index** | `->>` is not leakproof, so under forced RLS the comparison stays a Filter (RFC-015 §1). |
-| **Promote every filterable field** | Each promotion adds two index writes to every save of its type, and item 4 shows insert p95 doubling at 32 filled slots. Opt-in at quota 0 puts the cost only where the slow-list log shows the need. |
-| **(a) the adaptive shape** | 2 / 11, up to 4,377 ms. |
-| **Group index only** (rev 0) | It cannot bound a no-ACL page: with no group predicate it either sorts every match or walks (TA finding 2). S-b2 does not support it. |
-| **Plain index only** | 10 / 11 on TICK-1039: the a50 broad count reads all 200,000 entries. Without the group key, a per-group arm cannot be bounded. |
-| **Order by `updated_at` and rely on the planner** (rev 0) | The planner's `LIMIT` costing assumes the value is spread over time and picks the walk: S-b1 broad 159–559 ms, S-b2 290–386 ms, S-b3 compiled 6,762 ms. |
-| **An expression order key on `timezone('UTC', updated_at)`** | It steers page 1, but its cursor is not leakproof and stays a Filter, so page N reads N × 51 rows (prototype: 27,200 rows filtered on page 2). |
-| **A custom `LEAKPROOF` order-key function** | It needs a superuser to create; `nava_migrator` is `NOSUPERUSER` (I3), and TICK-339 forbids marking such functions leakproof. A column gives the same plan with built-in operators. |
-| **`pg_hint_plan`, or planner GUCs per query** | `pg_hint_plan` is a new extension on the shared database, an operational dependency every managed host would have to offer. `SET LOCAL` settings are not index-specific. The order key removes the planner's choice instead of overriding it. |
-| **A periodic `VACUUM` or fill-factor policy** | Not the cause: the filtered rows are live (TA finding 1). |
-| **Always use the per-group merge** | It loses on a50 with a selective value (114 → 313 ms) and in every a50 S-c3 cell: 25 arms plus their count cost 30–43 ms before the first row. |
-| **Cap band (i)+ACL at a visible-set size** (A1-7 S2) | D7 also fails without an ACL (355.2 ms) and for a 6% agent, so a breadth cap does not bound it. It stays the fallback if A3 is rejected. |
-| **Drop a promoted field's side rows** | It loses the fallback during promotion and demotion. TICK-1205 shows the double write adds no insert latency over D7. |
-| **An external search index** | Isolation and ACL leave RLS (I1, I5), as with ADR-006 option D. |
+| TICK-1039: D7 side tables, 11 adversarial `pk` fixtures | 2 / 11 pass; worst 2,223 ms (a50 agent, value none of its records carry: walk of 200,113 `records_list_updated` rows) |
+| TICK-1039: arm (a) adaptive | 2 / 11; 1,178–4,377 ms (probes `rfv_num_pkey` for every visible record, 24k–392k loops) |
+| TICK-1039: arm (b) promoted column | 10 / 11; one provisional miss 163.6 ms (a50, broad 50%) |
+| **TICK-1039: arm (b) + `assignment_group_id`** | **11 / 11, 27.2–131.3 ms**; index 66 MB / 800k rows |
+| TICK-1009 S1 5% | ACL 187.4 / 188.8; no ACL 343.5 (prov. pass) / **358.3 (prov. miss)** |
+| TICK-1009 S1 10%, 20% | ACL **208.7–421.5 (miss of 150)**; no ACL 89.9–127.2 pass |
+| TICK-1009 S2, 2% at 6 / 26 / 50% visible | 186.5–215.5, every breadth passes |
+| Not measured | arm (b) write cost (TICK-1203); arm (b) at 10/20% with ACL; the partial-index variant |
 
-## Risks and accepted residuals (proposed)
+Why the side table cannot do it: its index is `(tenant_id, field_id, value, record_id)`. It knows neither `updated_at` (the list order) nor the ACL key. A selective-but-invisible or anti-correlated value forces a walk proportional to the visible set or to the type. A column on `records` lets one index give value, ACL key and order together. That is the whole of arm (b)'s win, and A3 keeps exactly that shape.
 
-| # | Residual | Owner | Revisit trigger |
+## 5. Domain model and boundaries
+
+```mermaid
+flowchart LR
+  W[Write pipeline] -->|UPDATE OF data| R[(records\n data jsonb\n px_* derived)]
+  R -- BEFORE trigger A3-4 --> R
+  R -- AFTER trigger D4 --> S[(rfv_* side tables)]
+  REG[(record_index_fields\n storage, slot)] -.config.-> R
+  REG -.config.-> S
+  OP[Operator approval A3-3] -->|registry + outbox| REG
+  OB[outbox] --> T[Temporal FieldIndexPromote / Demote\n D9 barrier, D10 pause]
+  T -->|column-list UPDATE px_*| R
+  Q[List compiler] -->|one statement: ACL + EXISTS side / px predicate| R
+```
+
+Everything stays in the Go core and its existing Temporal workers. No new service and no new vendor. The owner is the Postgres & Data Modeling Specialist, as for ADR-006. The failure story: a stuck promotion leaves the field in `promoting`, and filters keep using the side table, so the cost is latency plus a dual write per record write until it is resumed or rolled back. If it is stuck after the flip, reads are already on the slot (TA re-check, fix 2). `field_index_barrier_slow` (R11) covers the barrier.
+
+## 6. Options considered
+
+| Option | Latency (measured) | Write cost | I8 / schema-less | Verdict |
+|---|---|---|---|---|
+| **A. Stay on side tables, re-budget** | 2 / 11 adversarial; 2.2 s worst; 10–20%+ACL 422 ms and growing with the visible set | known (ADR-006, budgets: 83% of unindexed) | holds | **Rejected.** No line covers a 2.2 s, unbounded walk. A1-2 forbids a line without a bounded plan. |
+| **B. Promoted slots (A3-1 to A3-6)** | arm (b)+group 11 / 11 (full index; partial index unverified, U1) | TICK-1203 | holds: one platform migration, assignment is configuration | **Recommended**, gated on TICK-1203 |
+| C. Arm (b) literally: `ALTER TABLE records ADD COLUMN` per promoted field, via a D25 migrator job | same as B | TICK-1203 | **breaks I8**: D25 allows only `CREATE INDEX CONCURRENTLY … WHERE tenant_id = …`, never a column. The catalog grows per tenant field, and PostgreSQL's 1,600-column limit (dropped columns included) caps the platform | Rejected |
+| D. Denormalize `updated_at` and `assignment_group_id` into the side rows, index `(tenant_id, field_id, value, assignment_group_id, updated_at)` | **unmeasured** | every record update rewrites the side row of every flagged field (heap + 2 index entries each), not only when the value changes | holds | **Fallback** if B fails §7 |
+| E. Arm (a), adaptive shape | 2 / 11 | — | holds | Rejected on evidence (A3-8) |
+| F. Expression index on `(data ->> 'k')::float8` under D25 | — | — | holds under D25 | Rejected: `->>` and the cast are not leakproof, so under forced RLS the qual is not pushed to the index (ADR-006 context, RFC-015 §1) |
+
+Why B over D: the list query on `records` already does a non-HOT update on every write (`updated_at` is in `records_list_updated`). So B adds one index entry per promoted slot per write, for the promoted types only. D adds a heap row delete and insert plus two index entries per flagged field per write, for every flagged type. B is expected to be cheaper, but that is a guess; TICK-1203 settles it.
+
+## 7. Invariants touched (ADR-001; check incomplete)
+
+| Inv. | Effect |
+|---|---|
+| I1 | Slots live in `records`, which already has `ENABLE`/`FORCE` RLS. Each index leads with `tenant_id`. No new table, no new policy. |
+| I3 | Column-level grants: `SELECT (px_*)` only for `nava_app` and `nava_worker`. `UPDATE (px_*)` only for `nava_worker` (the transition workflows); the trigger runs as the invoker. Any other role that reads `records` (e.g. audit or export roles) gets column lists without `px_*`. All of it goes in the grant manifest. **Security review requested.** |
+| I4 | The A3-5 sweep writes `records` outside the write pipeline. That is allowed only because `px_*` is derived (D1). It must not change `data`, `version`, `updated_at` or audit bytes (CI-8 extended, CI-A3-3). **Flagged for the Technical Architect and Security.** |
+| I5 | The slot predicate is in the same statement as the compiled ACL. Masked fields still answer 400 before compilation (D6). The `float8`, `text "C"` and `timestamptz` comparisons are leakproof (CI-2 unchanged). |
+| I6, I7 | Transitions start only from outbox rows. The sweep is idempotent (it recomputes from `data`). |
+| I8 | **Holds:** no tenant-motivated DDL. Assignment is a registry row approved like the D12 quota raise. Adding more slots later is a platform migration, never a tenant request. |
+| I2, I9 | Not touched. |
+
+### Assumptions not verified
+
+| # | Assumption / question | How it is settled |
+|---|---|---|
+| U1 | The **partial** `WHERE px_<s> IS NOT NULL` index is chosen as `nava_app` under forced RLS with `force_custom_plan`, and gives the same plans as TICK-1039's full index. A strict comparison implies `IS NOT NULL`, which is how PostgreSQL matches partial-index predicates; **worth verifying by spike**. | T9 cell: the 11 `pk` fixtures on the slot shape |
+| U2 | Arm (b)+group holds 150 ms at 10% and 20% with an ACL (unmeasured; it lies between the measured 2% and 50% fixtures). | T9 |
+| U3 | The A3-5 sweep (400k-row column-list `UPDATE`) keeps live-write p95 within D10's +25%. Its WAL is roughly a full row image per record, much more than D10's 1.24 MB per 1,000 side rows. | TICK-1203 scope addition (§7) |
+| U4 | **Checked in code, with one conflict.** `records_audit_commit_check` (`db/migrations/20261121000200_records_org_unit_id.sql:40`) fires on `UPDATE OF version, …, data, …` and does not list `px_*`, so the sweep does not trip it. `version` and `updated_at` are set by the pipeline, not by a trigger. **But** CI-A3 requires every updatable column to be audited (`db/audited-tables.yaml`). Granting `UPDATE (px_*)` to `nava_worker` fails CI-A3 as written. A3 proposes a `derived` class in `audited-tables.yaml` for `px_*` ("derived from `records.data`, rebuildable", like the D3 side tables' `exempt`), with CI-A3 checking that a `derived` column never appears in an audit diff or a payload. **This is the point most worth the Security reviewer's attention.** | Security & Multi-Tenancy Reviewer; CI-A3-3 |
+| U5 | With `assignment_group_id` in the key, the index also serves ACLs that ADR-010 composes beyond groups. Measured only for group ACLs. Other rule shapes fall back to the 10 / 11 "(b) without group" behaviour. | Recorded residual; T9 adds one non-group ACL cell if ADR-010 shapes exist in the fixture |
+| Q1 | Is 2 slots per value type, at most 10 promoted per tenant, the right starting quota? It is a platform setting. **Technical Lead / CTO.** | Plan |
+| Q2 | No `bool` slot: bool filters fall in the broad bands, where (ii) holds. Add one if telemetry shows a rare-bool miss (R12). | Revisit trigger |
+
+## 8. Effect on S22 (TICK-740) and S29 (TICK-915), tests and residuals
+
+| Task | Story it lands with | What |
+|---|---|---|
+| T1 | new story | Migration: 5 `px_*` columns, 5 partial indexes `CONCURRENTLY`, column grants in the manifest |
+| T2 | new story | Registry: `storage`, `slot`, states `promoting`/`demoting`, unique slot key; operator promotion endpoint (audited, quota A3-3) |
+| T3 | new story | `BEFORE` trigger (A3-4); D4 `AFTER` trigger predicate becomes `(storage = 'side' AND state IN ('backfilling','ready')) OR state IN ('promoting','demoting')` (A3-4, TA re-check fix 1); CI-4 (trigger vs recompute) for slots |
+| T4 | new story | `FieldIndexPromote` / `FieldIndexDemote` workflows (A3-5), with D9/D10 reuse and CI-5 races across both flips |
+| T5 | new story | Compiler slot predicate (A3-6); widened D7 static test; CI-1 pushdown `EXPLAIN` per operator on slots as `nava_app` |
+| **T6** | **S22 rework** | Unflagging a promoted field (A3-5 last row); the quota counts promoted fields; the JSONB-scan retirement is unchanged |
+| **T7** | **S29 rework** | ADR-009 D12 effective-value shapes for slot fields: `<stored>` becomes the slot predicate, `<f absent>` is unchanged; a test that S29's per-record rewrite updates the slot through the A3-4 trigger |
+| T8 | telemetry | The A1-4 slow-list log line gains `storage` (`side`/`slot`), still with no field name or value |
+| T9 | Design spike | Idle rerun of S1 5% no-ACL (`num lt`, `text eq`), 5% at a25 / a50, arm (b)+group at 10% / 20% with ACL, and the 11 `pk` fixtures on the partial-index slot shape (U1, U2) |
+
+Sequencing: T9 and SP-4 come first (Design spikes; they can change the shape; SP-4 replaces TICK-1203). Then T1 → T2 → T3 → T4 → T5. T6 and T7 depend on T2/T3 and on their own stories being merged. No story waits on T8.
+
+### Tests
+
+- CI-A3-1: cross-tenant. Tenant A's `px_num_1` values never match tenant B's filter, including when both use slot 1 for different fields.
+- CI-A3-2: a slot value of a **masked** field is never in a payload, an export or a log. A static test: `px_*` appears only in the compiler, the triggers and the transition workflows.
+- CI-A3-3: the sweep and the demote leave `data`, `version`, `updated_at` and audit bytes unchanged (CI-8 extended).
+- CI-A3-4: grants. `px_*` is not readable by any role other than `nava_app` and `nava_worker` (CI-5b extended).
+- CI-A3-5 (rev 1): in **both** directions, a write landing (a) between a sweep/rebuild batch and the `storage` flip, and (b) between the flip and `state = ready`, gives no missing match and no stale match after the transition (CI-5 pattern). Plus: either trigger raises under REPEATABLE READ / SERIALIZABLE.
+- CI-A3-6 (rev 1): unique slot per (tenant, type); the `value_type`/slot-column CHECK rejects a mismatch.
+
+
+### Residuals
+
+| # | Residual | Owner | Trigger |
 |---|---|---|---|
-| R-c | Shape S3 (more than G visible groups) is bounded by matches ∩ visible, not by 51. TICK-1039 sorted 15,482 rows in a 131.3 ms cell. | Technical Lead | SP-4 (b) S3 cells miss; or the slow-list log shows a promoted field above 150 ms for an agent with more than G groups |
-| R-d | Tail estimates on a shared slot: a tenant outside the MCV list is estimated at 1 (13× off in S-c1). No plan changed. `SET STATISTICS 1000` widens the list. | Postgres specialist | A promoted filter plans a type-wide walk (> 1 s) in telemetry |
-| R-e | Promotion rewrites one heap tuple per record of the type: 1.5–3.9 GB of WAL and 2m41s–3m17s per 400–451k rows. The heap grew 35% over six backfills; autovacuum reuses the space but does not shrink the file. | Postgres specialist | Live-write p95 above +25% during a promotion |
-| R-f | Only the assignment-group arm is index-assisted. The requester, assignee and share arms filter the slot after their own index. | Technical Lead | The slow-list log shows a promoted field above 150 ms for a share-heavy agent |
-| R-g | Each promoted field adds two index writes to every save of its type. With the group index, a promoted-field update costs +2 to +18 ms p95 and 1.4–3.1× the WAL. The plain index's share is SP-4 (d). | Postgres specialist | Insert rate under R-b's 40% floor with promotions in place |
-| R-h | `fx_list_at` drifts from `updated_at` if a writer bypasses the trigger (a disabled trigger, or a direct `UPDATE` by an owner role). The order is then wrong inside the tenant; nothing leaks. | Postgres specialist | The trigger test, or a nightly count of `fx_list_at <> updated_at`, is non-zero |
+| R-a (rewritten) | On side tables, band (iii) misses 150 ms (209–422 ms at 6% visible, and more with broader ACLs). Adversarial values can walk to 2.2 s. The remedy is promotion, per (tenant, type, field) | Technical Lead | the A1-4 alert plus a per-tenant slow-list log line → operator promotion (A3-3); no new shape is built |
+| R-c (new) | A promotion or demote sweep is a **non-HOT** update of every record of the type: a new heap tuple plus a new entry in **every** `records` index (not only the slot index), so ~400k dead tuples per sweep on the 400k type. TICK-1205 measured the D10 budget as a pass (+18.7% vs +25%) and slot-index bloat of 1.5–2.1× after backfill; WAL bytes, dead tuples and autovacuum catch-up for both directions still to be reported (rev 1, N-3). Recovery: `REINDEX CONCURRENTLY` of the slot index at `ready` | Postgres specialist | A sweep pushes live-write p95 past +25%, or replica lag alert |
+| R-d (new) | Slots are scarce: 2 per value type per entity type | Technical Lead | A third promotion request on one type → platform migration adding a slot (not tenant DDL) |
+| R-e (new, rev 2) | A promoted field misses 150 ms for a broad value (17–50% of the type) that the newest rows do not carry: 290–559 ms on TICK-1205 S-b1/S-b2. The planner walks `records_list_updated` / `records_list_group` instead of the slot index | Solution Architect | P-1 scored by SP-4; until then, the A1-4 slow-list log line with `storage = slot` |
+| R-f (new, rev 2) | Shared-slot tail estimates: a tenant outside the MCV list is estimated at 1 (13× off on S-c1). No plan changed (36.7 ms) | Postgres specialist | A promoted filter plans a type-wide walk (> 1 s) in telemetry |
 
-## Competitive Gate (ADR-008)
+## 9. Open before ACCEPTED
 
-**Result:** scored after SP-4. Expected PASS: X3 (speed) moves from "150 ms except two 350 ms bands" to "150 ms for promoted fields in every measured band", which narrows accepted risk CP-FW-01 for large tenants.
+1. SP-4 (d): §7 line 1a (insert, 1 field) and line 3 (delete).
+2. P-1 to P-3: a Technical Architect check scoped to them, and SP-4 (a)–(c), (e). If the check or SP-4 rejects them, A3 is accepted without them and R-e stays.
+3. Security & Multi-Tenancy Reviewer: the `derived` class in `db/audited-tables.yaml` (U4) and the column grants (I3).
 
-## Open questions for critique
+## 10. Evidence
 
-1. The shape rule (A3-6): a visible-group threshold G, or something the compiler would have to estimate. I recommend the count: it is deterministic and already in hand.
-2. Operator approval (quota default 0), or a tenant admin within a small default quota. I recommend the operator: the cost lands on the shared write path, and the signal (A1-4) is observable.
-3. `fx_list_at` as a stored column, or an expression key. The column costs 8 bytes on promoted-type rows and one assignment in the trigger. The expression needs a superuser `LEAKPROOF` function.
-4. The cap of 4 promoted fields per type.
-
-## Evidence
-
-- TICK-1039 arms and plans: `docs/adr/ADR-006/spikes/a3-promoted-slots/tick1039-arms.md` and `tick1039-arms-explain.md`; host and contention in `tick1009-1039.*`.
-- TICK-1205: `docs/adr/ADR-006/spikes/a3-promoted-slots/tick1205/tick1205-slots.md` (a copy of PR #995's "Arm (b) write path" section at `0b733511`), `tick1205-slots-raw.md` and `tick1205-slots.host`. One plan per cell: `docs/data/field-index-measured/tick1205-slots-explain.md` on PR #995.
-- The steered order key prototype: `docs/adr/ADR-006/spikes/a3-promoted-slots/sa-steer-prototype.md`.
-- SP-4: pending.
+- RFC-025 rev 1 and the critique outcome: `docs/adr/ADR-006/A3/RFC-025-adr-006-a3-promoted-slots-d13-bands-rev1.md`.
+- TICK-1009/TICK-1039 arms and plans: `docs/adr/ADR-006/spikes/a3-promoted-slots/tick1039-arms.md`, `tick1039-arms-explain.md`.
+- TICK-1205: `docs/adr/ADR-006/spikes/a3-promoted-slots/tick1205/` (results section at `0b733511`, raw report, host). One plan per cell is in `docs/data/field-index-measured/tick1205-slots-explain.md` on PR #995.
+- P-1 prototype: `docs/adr/ADR-006/spikes/a3-promoted-slots/sa-steer-prototype.md`.
