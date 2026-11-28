@@ -25,14 +25,14 @@ script:pre-request {
 
 tests {
   const N = require('./lib/nava')({ test, expect, res, bru });
+  N.problem('field_not_filterable', 400);
+  N.fieldError('/filter/s22_note');
   const f = JSON.parse(bru.getVar('s22_note_field'));
   test('incident has s22_note (kit setup), not flagged', () => {
     expect(f.status).to.eql(200);
     expect(f.field).to.not.eql(null);
     expect(f.field['x-nava-filterable']).to.not.eql(true);
   });
-  N.problem('field_not_filterable', 400);
-  N.fieldError('/filter/s22_note');
 }
 
 docs {

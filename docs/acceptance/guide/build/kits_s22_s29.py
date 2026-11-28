@@ -210,9 +210,20 @@ const want = (f) => o.every.filter(r => f(r.priority)).map(r => r.id).sort();
   });
 });"""),
             problem_req("S22.6 AC3: an unflagged field of the seed type: 400 field_not_filterable, never a scan", "GET",
-                        inc + "?filter[short_description]=anything", "field_not_filterable", 400, auth="admin_a_token",
-                        desc="`short_description` is not flagged in the seed template. Before S22 a seed type still scanned the JSON for it; with the scan retired it answers 400 at once.",
-                        extra="N.fieldError('/filter/short_description');"),
+                        inc + "?filter[s22_note]=anything", "field_not_filterable", 400, auth="admin_a_token",
+                        pre=KIT + """
+// The field must be in the seed type and unflagged at the moment of the filter, read from the API, not assumed.
+const r = await T.type('admin_a_token', 'incident');
+const p = (r.data && r.data.schema && r.data.schema.properties) || {};
+bru.setVar('s22_note_field', JSON.stringify({ status: r.status, field: p.s22_note || null }));""",
+                        desc="`s22_note` is an optional incident field kit.mjs setup publishes and nothing flags. It is the kit's own, so the answer does not depend on what earlier suites flagged on a shared stack (CI run 46107246042: `short_description` was already flagged there, and the old S22.6 got 200). Before S22 a seed type still scanned the JSON for an unflagged field; with the scan retired it answers 400 at once.",
+                        extra="""N.fieldError('/filter/s22_note');
+const f = JSON.parse(bru.getVar('s22_note_field'));
+test('incident has s22_note (kit setup), not flagged', () => {
+  expect(f.status).to.eql(200);
+  expect(f.field).to.not.eql(null);
+  expect(f.field['x-nava-filterable']).to.not.eql(true);
+});"""),
             req("S22.7 The kit's type s22_asset: s22_code not flagged, 20,000 seeded records", "GET", at, auth="admin_a_token",
                 desc="kit.mjs setup created `s22_asset` (prefix SAST) with an optional `s22_code` (string), not flagged; seed.sql wrote 20,000 records at that version, 1,000 per value K00..K19. Kept for the publishes below: the current schema, fixed columns and states.",
                 tests="""N.status(200);
